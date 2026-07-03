@@ -190,6 +190,24 @@ async function expectOrderLoadedInRegister(
   page: Parameters<typeof signInToBackOffice>[0],
   order: SeededOrder,
 ) {
+  const customerOrders = page.getByText("Customer Orders", { exact: true });
+  const cashierOverlay = page.getByTestId("pos-sale-cashier-overlay");
+
+  await expect
+    .poll(
+      async () => {
+        if (await customerOrders.isVisible().catch(() => false)) return "orders";
+        if (await cashierOverlay.isVisible().catch(() => false)) return "cashier";
+        return "pending";
+      },
+      { timeout: 20_000 },
+    )
+    .not.toBe("pending");
+
+  if (await cashierOverlay.isVisible().catch(() => false)) {
+    await ensurePosSaleCashierSignedIn(page);
+  }
+
   await expect(page.getByText("Customer Orders", { exact: true })).toBeVisible({
     timeout: 20_000,
   });

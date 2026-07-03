@@ -69,10 +69,17 @@ cleanup_stale_listener "$api_port"
 
 docker compose up -d db
 
-# Ensure isolated E2E database exists
-echo "Ensuring E2E database $E2E_DB_NAME exists..."
-docker compose exec -T db psql -U postgres -c "SELECT 1 FROM pg_database WHERE datname = '$E2E_DB_NAME'" | grep -q 1 || \
-docker compose exec -T db psql -U postgres -c "CREATE DATABASE $E2E_DB_NAME"
+# Ensure the isolated E2E database starts from a clean fixture state.
+if [[ "${E2E_RESET_DB:-1}" == "1" ]]; then
+  echo "Resetting E2E database $E2E_DB_NAME..."
+  docker compose exec -T db psql -U postgres -d postgres -v ON_ERROR_STOP=1 \
+    -c "DROP DATABASE IF EXISTS $E2E_DB_NAME WITH (FORCE);" \
+    -c "CREATE DATABASE $E2E_DB_NAME"
+else
+  echo "Ensuring E2E database $E2E_DB_NAME exists..."
+  docker compose exec -T db psql -U postgres -c "SELECT 1 FROM pg_database WHERE datname = '$E2E_DB_NAME'" | grep -q 1 || \
+  docker compose exec -T db psql -U postgres -c "CREATE DATABASE $E2E_DB_NAME"
+fi
 
 export RIVERSIDE_DB_NAME="$E2E_DB_NAME"
 "$ROOT/scripts/apply-migrations-docker.sh"

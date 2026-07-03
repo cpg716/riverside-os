@@ -263,7 +263,9 @@ test("POS variation picker adds selected SKU after search results close", async 
   await page.getByRole("button", { name: "40R", exact: true }).click();
   await page.getByRole("button", { name: /add to sale/i }).click();
 
-  await expect(page.getByText("E2E-VIS-SUIT-40R")).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByText(PRODUCT_NAME)).toBeVisible();
+  const cartLine = page.getByRole("button", {
+    name: new RegExp(`${PRODUCT_NAME}[\\s\\S]*E2E-VIS-SUIT-40R`, "i"),
+  });
+  await expect(cartLine).toBeVisible({ timeout: 10_000 });
   expect(scanResolutionCount).toBe(1);
 });

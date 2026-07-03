@@ -17,7 +17,8 @@ pub struct LoyaltyReceiptData {
 
 use crate::api::settings::ReceiptConfig;
 use crate::logic::receipt_shared::{
-    order_status_label, receipt_display_ref, tender_display_label, ReceiptLine, ReceiptOrder,
+    order_status_label, payment_summary_has_receipt_detail, receipt_display_ref,
+    tender_display_label, ReceiptLine, ReceiptOrder,
 };
 use crate::models::{DbFulfillmentType, DbOrderFulfillmentMethod};
 
@@ -330,6 +331,9 @@ fn push_totals(out: &mut Vec<u8>, d: &ReceiptOrder) {
                 ),
             );
         }
+        if payment_summary_has_receipt_detail(&d.payment_methods_summary) {
+            push_line(out, d.payment_methods_summary.trim());
+        }
     }
     if !d.payment_applications.is_empty() {
         push_line(out, "Applied payments:");
@@ -603,7 +607,8 @@ fn receiptline_tender_lines(d: &ReceiptOrder, gift: bool) -> String {
             receiptline_escape(&d.payment_methods_summary)
         );
     }
-    d.payments
+    let mut lines = d
+        .payments
         .iter()
         .map(|payment| {
             format!(
@@ -612,8 +617,11 @@ fn receiptline_tender_lines(d: &ReceiptOrder, gift: bool) -> String {
                 money(payment.amount)
             )
         })
-        .collect::<Vec<_>>()
-        .join("\n")
+        .collect::<Vec<_>>();
+    if payment_summary_has_receipt_detail(&d.payment_methods_summary) {
+        lines.push(receiptline_escape(d.payment_methods_summary.trim()));
+    }
+    lines.join("\n")
 }
 
 fn receipt_status_label(d: &ReceiptOrder) -> &'static str {

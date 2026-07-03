@@ -38,7 +38,7 @@
     "seed:e2e:rms-fixtures": "bash scripts/seed_e2e_rms_fixtures.sh",
     "lint": "cd client && npm run lint",
     "test:e2e:list": "npm --prefix client run test:e2e -- --list",
-    "test:e2e:local": "npm --prefix client run test:e2e",
+    "test:e2e:local": "npm --prefix client run test:e2e -- --workers=1",
     "test:e2e:list:local": "npm --prefix client run test:e2e -- --list",
     "test:e2e:release": "npm --prefix client run test:e2e -- --workers=1",
     "test:e2e:visual": "cross-env E2E_RUN_VISUAL=1 npm --prefix client run test:e2e -- --workers=1",

@@ -30,10 +30,6 @@ export default function RosieInsightSummary({
 }: RosieInsightSummaryProps) {
   const [loading, setLoading] = useState(false);
   const [response, setResponse] = useState<RosieInsightSummaryResponse | null>(null);
-  const factsHash = useMemo(
-    () => JSON.stringify({ surface, mode, facts, allowedActions }),
-    [allowedActions, facts, mode, surface],
-  );
   const hasFacts = useMemo(
     () =>
       Boolean(facts.title.trim()) &&
@@ -47,7 +43,7 @@ export default function RosieInsightSummary({
 
   useEffect(() => {
     setResponse(null);
-  }, [factsHash]);
+  }, [mode, surface, title]);
 
   const loadInsight = useCallback(async () => {
     if (!hasFacts || loading) return;

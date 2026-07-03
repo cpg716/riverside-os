@@ -9,7 +9,8 @@ use uuid::Uuid;
 use crate::api::settings::ReceiptConfig;
 use crate::logic::receipt_privacy;
 use crate::logic::receipt_shared::{
-    order_status_label, receipt_display_ref, tender_display_label, ReceiptOrder,
+    order_status_label, payment_summary_has_receipt_detail, receipt_display_ref,
+    tender_display_label, ReceiptOrder,
 };
 
 fn html_escape(s: &str) -> String {
@@ -327,7 +328,7 @@ pub fn merge_receipt_studio_html(
         let tender_summary = if order.payments.is_empty() {
             html_escape(&order.payment_methods_summary)
         } else {
-            order
+            let mut lines = order
                 .payments
                 .iter()
                 .map(|payment| {
@@ -337,8 +338,11 @@ pub fn merge_receipt_studio_html(
                         payment.amount.round_dp(2)
                     )
                 })
-                .collect::<Vec<_>>()
-                .join("<br>")
+                .collect::<Vec<_>>();
+            if payment_summary_has_receipt_detail(&order.payment_methods_summary) {
+                lines.push(html_escape(order.payment_methods_summary.trim()));
+            }
+            lines.join("<br>")
         };
         let payment_summary = if order.payment_applications.is_empty() {
             tender_summary

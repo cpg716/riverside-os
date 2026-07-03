@@ -8,6 +8,7 @@ const apiBase = process.env.E2E_API_BASE ?? "http://127.0.0.1:43300";
 const visualMode = process.env.E2E_RUN_VISUAL === "1";
 const isCi = process.env.CI === "true" || process.env.CI === "1";
 const autoBootLocalStack = (process.env.E2E_AUTO_BOOT ?? "1") !== "0";
+const reuseExistingServer = process.env.E2E_REUSE_EXISTING_SERVER === "1";
 const usingLocalViteBase = /^https?:\/\/localhost:43173\/?$/.test(baseURL);
 
 /** Optional: inject staff headers on every browser request (use the same 4-digit value for code + pin when `pin_hash` is set). */
@@ -28,7 +29,7 @@ export default defineConfig({
           command: `E2E_BASE_URL="${baseURL}" E2E_API_BASE="${apiBase}" bash ../scripts/e2e-local-stack.sh`,
           url: `${baseURL}/api/staff/list-for-pos`,
           timeout: 600_000,
-          reuseExistingServer: true,
+          reuseExistingServer,
         }
       : undefined,
   use: {

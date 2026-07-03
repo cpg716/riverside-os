@@ -140,10 +140,20 @@ pub fn tender_display_label(method: &str) -> String {
         | "debit" | "helcim" | "visa" | "mastercard" | "mc" | "amex" | "americanexpress"
         | "discover" => "CC".to_string(),
         "cash" => "Cash".to_string(),
-        "rms90" | "rms90day" | "rms90days" | "rmscharge90" => "RMS90".to_string(),
-        "rms" | "rmscharge" => "RMS".to_string(),
+        "rms90" | "rms90day" | "rms90days" | "rmscharge90" | "onaccountrms90" => {
+            "RMS90".to_string()
+        }
+        "rms" | "rmscharge" | "onaccountrms" => "RMS".to_string(),
         "check" | "cheque" => "Check".to_string(),
+        "giftcard" => "Gift Card".to_string(),
         "sc" | "storecredit" => "SC".to_string(),
         _ => method.trim().to_string(),
     }
+}
+
+pub fn payment_summary_has_receipt_detail(summary: &str) -> bool {
+    let clean = summary.trim();
+    !clean.is_empty()
+        && clean != "—"
+        && (clean.contains(" | ") || clean.contains("Card:") || clean.contains("RMS Ref"))
 }

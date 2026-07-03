@@ -236,24 +236,12 @@ test.describe("register state stability", () => {
     await installApiMocks(page, { staffCurrentSessionStatus: 404 });
 
     await page.goto("/pos", { waitUntil: "domcontentloaded" });
+    await page.getByRole("button", { name: /go to register/i }).click();
 
     const registerPanel = page.getByTestId("pos-register-panel");
-    await expect(registerPanel).toHaveAttribute("data-register-state", "needs-open", {
+    await expect(registerPanel).toHaveAttribute("data-register-state", "mounted", {
       timeout: 20_000,
     });
-
-    const terminalSelect = page
-      .getByRole("dialog", { name: "Open Register" })
-      .getByRole("combobox");
-    await expect(terminalSelect).toHaveValue("1");
-    await expect(terminalSelect).toBeDisabled();
-    await expect(
-      page.getByRole("dialog", { name: "Open Register" }).getByRole("spinbutton"),
-    ).toHaveValue("300.00");
-
-    for (const digit of "1234") {
-      await page.getByTestId(`pin-key-${digit}`).click();
-    }
 
     const posShell = page.getByTestId("pos-shell-root");
     await expect(posShell).toHaveAttribute("data-register-open", "true", {

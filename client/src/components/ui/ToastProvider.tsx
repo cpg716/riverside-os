@@ -98,9 +98,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   }, [removeToast]);
 
   const toast = useCallback((message: string, type: ToastType = "info") => {
-    const trimmed = message.trim();
+    const trimmed = redactDiagnosticText(message).trim();
     if (!trimmed) return;
-    const key = `${type}:${redactDiagnosticText(trimmed).toLowerCase().slice(0, 240)}`;
+    const key = `${type}:${trimmed.toLowerCase().slice(0, 240)}`;
     const now = Date.now();
     const existing = recentToastRef.current.get(key);
     if (existing && now - existing.lastSeen < TOAST_DEDUPE_WINDOW_MS) {
@@ -112,9 +112,6 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         ),
       );
       scheduleDismiss(existing.id);
-      if (type === "error") {
-        recordErrorToastEvent(trimmed);
-      }
       return;
     }
 

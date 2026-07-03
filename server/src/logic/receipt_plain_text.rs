@@ -5,7 +5,8 @@ use rust_decimal::Decimal;
 
 use crate::api::settings::ReceiptConfig;
 use crate::logic::receipt_shared::{
-    order_status_label, receipt_display_ref, tender_display_label, ReceiptOrder,
+    order_status_label, payment_summary_has_receipt_detail, receipt_display_ref,
+    tender_display_label, ReceiptOrder,
 };
 
 /// Gift receipt body for SMS when MMS/HTML is not used: items only, no prices or payment details.
@@ -102,6 +103,9 @@ pub fn format_pos_receipt_text_message(order: &ReceiptOrder, cfg: &ReceiptConfig
                 tender_display_label(&payment.method),
                 payment.amount
             ));
+        }
+        if payment_summary_has_receipt_detail(&order.payment_methods_summary) {
+            lines.push(order.payment_methods_summary.trim().to_string());
         }
     }
     if !order.payment_applications.is_empty() {
