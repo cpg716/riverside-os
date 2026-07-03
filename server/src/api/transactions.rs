@@ -1499,13 +1499,6 @@ struct OrderItemRow {
 }
 
 #[derive(Debug, FromRow)]
-struct PaymentSummaryRow {
-    payment_method: String,
-    check_number: Option<String>,
-    metadata: Option<serde_json::Value>,
-}
-
-#[derive(Debug, FromRow)]
 struct PickupGuardLine {
     sku: String,
     product_name: String,
@@ -6532,22 +6525,6 @@ pub(crate) async fn load_transaction_detail(
     .fetch_all(pool)
     .await?;
 
-    let payment_rows = sqlx::query_as::<_, PaymentSummaryRow>(
-        r#"
-        SELECT DISTINCT
-            pt.payment_method,
-            pt.check_number,
-            pt.metadata
-        FROM payment_allocations pa
-        INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
-        WHERE pa.target_transaction_id = $1
-           OR pt.metadata->>'checkout_transaction_id' = $1::text
-        "#,
-    )
-    .bind(transaction_id)
-    .fetch_all(pool)
-    .await?;
-
     let payments_db = sqlx::query_as::<_, (DateTime<Utc>, String, Decimal)>(
         r#"
         SELECT DISTINCT
@@ -6574,21 +6551,26 @@ pub(crate) async fn load_transaction_detail(
         })
         .collect::<Vec<_>>();
 
-    let mut summary_parts: Vec<String> = Vec::new();
-    for row in payment_rows {
-        let part = pos_rms_charge::payment_method_summary(
-            &row.payment_method,
-            row.check_number.as_deref(),
-            row.metadata.as_ref(),
-        );
-        if !summary_parts.iter().any(|existing| existing == &part) {
-            summary_parts.push(part);
+    let mut summary_parts: Vec<(String, Decimal)> = Vec::new();
+    for payment in &payments {
+        let label = receipt_shared::tender_display_label(&payment.method);
+        if let Some((_, total)) = summary_parts
+            .iter_mut()
+            .find(|(existing, _)| existing == &label)
+        {
+            *total += payment.amount;
+        } else {
+            summary_parts.push((label, payment.amount));
         }
     }
     let payment_methods_summary = if summary_parts.is_empty() {
         "—".to_string()
     } else {
-        summary_parts.join(", ")
+        summary_parts
+            .iter()
+            .map(|(label, amount)| format!("{label} ${}", amount.round_dp(2)))
+            .collect::<Vec<_>>()
+            .join(", ")
     };
 
     let payment_applications = sqlx::query_as::<_, (Uuid, String, Decimal, Decimal)>(

@@ -38,6 +38,7 @@ The **Daily Sales** view shows a chronological timeline of every transaction. Ta
 - Correcting tender types by reviewing the audit log.
 - Monitoring mid-shift velocity without closing the drawer.
 - Confirming whether the activity was **Takeaway**, **Pickup**, **Special Order**, **Custom Order**, **Wedding Order**, **Layaway**, or mixed fulfillment.
+- Reviewing split tenders as separate payment lines with amount labels instead of a single collapsed method list.
 
 ## Void a completed sale
 
@@ -62,6 +63,8 @@ You can now generate a professional, full-page **Daily Sales Report** that inclu
 - **Reporting Station**: The report header identifies the assigned printer for accountability.
 
 To print, tap **Print Report (Full Page)**. Daily Sales opens as the formatted full-page report so the activity cards, customer context, pickup rows, line items, and totals stay readable on office paper.
+
+Z-Reports also open the formatted full-page report for close review and printing. If a report prints as raw text instead of the formatted layout, check that the workstation is using the current build and rerun the report print.
 
 ## Performance Metrics
 The summary cards at the top of the screen provide instant visibility into:

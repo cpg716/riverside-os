@@ -46,6 +46,10 @@ The review request option appears on eligible sale completion screens when Podiu
 
 The preview is intentionally narrow and receipt-like. It uses the same receipt content that the customer should receive by print, text, or email.
 
+Receipt line items keep the product name as the primary line, show quantity only when more than one unit is sold, and place SKU with the price on the item detail line. Pickup receipts still use the normal **RECEIPT** heading; picked-up merchandise appears in the body under **PICKED UP** with the original order date on those lines.
+
+Split tenders print as separate tender lines, such as **Cash**, **CC**, **RMS90**, **RMS**, **Check**, or **SC**, so the receipt matches the payment breakdown staff see in history and reporting.
+
 If the reports printer opens a blank page, retry from the receipt preview and report the transaction number to support. The report-printer window should contain the formatted receipt, not a white page.
 
 ## Walk-in sales

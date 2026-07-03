@@ -16,7 +16,9 @@ pub struct LoyaltyReceiptData {
 }
 
 use crate::api::settings::ReceiptConfig;
-use crate::logic::receipt_shared::{order_status_label, receipt_display_ref, ReceiptOrder};
+use crate::logic::receipt_shared::{
+    order_status_label, receipt_display_ref, tender_display_label, ReceiptLine, ReceiptOrder,
+};
 use crate::models::{DbFulfillmentType, DbOrderFulfillmentMethod};
 
 const CPL: usize = 48;
@@ -43,12 +45,20 @@ fn money(v: Decimal) -> String {
     format!("${}", v.round_dp(2))
 }
 
+fn line_total(it: &ReceiptLine) -> Decimal {
+    it.unit_price * Decimal::from(it.quantity)
+}
+
 fn receiptline_escape(s: &str) -> String {
     ascii_clean(s)
         .replace('\\', "\\\\")
         .replace('|', "\\|")
         .replace('{', "\\{")
         .replace('}', "\\}")
+}
+
+fn receiptline_emphasis(s: &str) -> String {
+    format!("\"{}\"", receiptline_escape(s).replace('"', "\\\""))
 }
 
 fn receiptline_logo_image() -> String {
@@ -237,27 +247,35 @@ fn push_items(out: &mut Vec<u8>, d: &ReceiptOrder, gift: bool) {
             push_line(out, label);
             set_bold(out, false);
         }
-        let var = it
+        set_bold(out, true);
+        for line in wrap_text(it.product_name.trim(), CPL) {
+            push_line(out, &line);
+        }
+        set_bold(out, false);
+        if it.quantity != 1 {
+            push_line(out, &format!("Qty {}", it.quantity));
+        }
+        if let Some(var) = it
             .variation_label
             .as_deref()
-            .map(|v| format!(" ({v})"))
-            .unwrap_or_default();
-        let name = format!("{}x {}{var}", it.quantity, it.product_name);
-        for line in wrap_text(&name, CPL) {
-            push_line(out, &line);
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+        {
+            push_line(out, &format!("Variation: {var}"));
         }
         if gift {
             push_line(out, &format!("SKU {}", it.sku));
         } else {
             push_line(
                 out,
-                &right_pair(&format!("SKU {}", it.sku), &money(it.unit_price)),
+                &right_pair(&format!("SKU {}", it.sku), &money(line_total(it))),
             );
             if let Some(orig) = it.original_unit_price {
                 if orig > it.unit_price && orig > Decimal::ZERO {
+                    let each = if it.quantity != 1 { " ea" } else { "" };
                     push_line(
                         out,
-                        &format!("Reg {}  Sale {}", money(orig), money(it.unit_price)),
+                        &format!("Reg {}  Sale {}{each}", money(orig), money(it.unit_price)),
                     );
                 }
             }
@@ -299,7 +317,20 @@ fn push_totals(out: &mut Vec<u8>, d: &ReceiptOrder) {
     if d.balance_due > Decimal::ZERO {
         push_line(out, &right_pair("Balance", &money(d.balance_due)));
     }
-    push_line(out, &format!("Tender: {}", d.payment_methods_summary));
+    if d.payments.is_empty() {
+        push_line(out, &format!("Tender: {}", d.payment_methods_summary));
+    } else {
+        push_line(out, "Tender:");
+        for payment in &d.payments {
+            push_line(
+                out,
+                &right_pair(
+                    &tender_display_label(&payment.method),
+                    &money(payment.amount),
+                ),
+            );
+        }
+    }
     if !d.payment_applications.is_empty() {
         push_line(out, "Applied payments:");
         for app in &d.payment_applications {
@@ -328,6 +359,8 @@ fn push_totals(out: &mut Vec<u8>, d: &ReceiptOrder) {
 
 fn push_footer(out: &mut Vec<u8>, cfg: &ReceiptConfig) {
     divider(out);
+    set_text_size(out, 0x00);
+    set_bold(out, false);
     set_align(out, 1);
     for fl in &cfg.footer_lines {
         let t = fl.trim();
@@ -358,7 +391,7 @@ fn centered_lines(lines: &[String]) -> String {
         .iter()
         .map(|line| line.trim())
         .filter(|line| !line.is_empty())
-        .map(|line| format!("| ^^{} |", receiptline_escape(line)))
+        .map(|line| format!("| ^{} |", receiptline_escape(line)))
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -387,7 +420,12 @@ fn receipt_header_lines(cfg: &ReceiptConfig) -> Vec<String> {
     lines
 }
 
-fn receiptline_item_lines(d: &ReceiptOrder, gift: bool) -> String {
+fn receiptline_item_lines(
+    d: &ReceiptOrder,
+    cfg: &ReceiptConfig,
+    gift: bool,
+    is_pickup: bool,
+) -> String {
     let mut out_lines = Vec::new();
 
     let labels = [
@@ -431,12 +469,11 @@ fn receiptline_item_lines(d: &ReceiptOrder, gift: bool) -> String {
                     _ => String::new(),
                 };
                 if !note.trim().is_empty() {
-                    out_lines.push(format!("NOTICE: {}", receiptline_escape(note.trim())));
+                    out_lines.push(format!("NOTICE: {} |", receiptline_escape(note.trim())));
                 }
             }
 
-            let name_raw = format!("{}x {}", it.quantity, it.product_name.trim());
-            let name = receiptline_escape(&name_raw);
+            let name = receiptline_emphasis(it.product_name.trim());
             let variation = it
                 .variation_label
                 .as_deref()
@@ -444,29 +481,40 @@ fn receiptline_item_lines(d: &ReceiptOrder, gift: bool) -> String {
                 .filter(|v| !v.is_empty());
 
             if gift {
-                out_lines.push(name);
-                if let Some(v) = variation {
-                    out_lines.push(format!("Variation: {}", receiptline_escape(v)));
+                out_lines.push(format!("{name} |"));
+                if it.quantity != 1 {
+                    out_lines.push(format!("Qty {} |", it.quantity));
                 }
-                out_lines.push(format!("SKU {}", receiptline_escape(&it.sku)));
-            } else {
-                out_lines.push(name);
                 if let Some(v) = variation {
-                    out_lines.push(format!("Variation: {}", receiptline_escape(v)));
+                    out_lines.push(format!("Variation: {} |", receiptline_escape(v)));
+                }
+                out_lines.push(format!("| SKU {} |", receiptline_escape(&it.sku)));
+            } else {
+                out_lines.push(format!("{name} |"));
+                if it.quantity != 1 {
+                    out_lines.push(format!("Qty {} |", it.quantity));
+                }
+                if let Some(v) = variation {
+                    out_lines.push(format!("Variation: {} |", receiptline_escape(v)));
+                }
+                if is_pickup && label == "PICKED UP" {
+                    out_lines.push(format!("Order Date: {} |", receipt_date(d, cfg)));
                 }
                 out_lines.push(format!(
-                    "SKU {} | {}",
+                    "| SKU {} | {}",
                     receiptline_escape(&it.sku),
-                    money(it.unit_price)
+                    money(line_total(it))
                 ));
                 if let Some(orig) = it.original_unit_price {
                     if orig > it.unit_price && orig > Decimal::ZERO {
                         let diff = orig - it.unit_price;
                         let pct = (diff / orig * Decimal::from(100)).round_dp(0);
+                        let each = if it.quantity != 1 { " ea" } else { "" };
                         out_lines.push(format!(
-                            "Reg {} Sale {} ({}% Discount)",
+                            "Reg {} Sale {}{} ({}% Discount) |",
                             money(orig),
                             money(it.unit_price),
+                            each,
                             pct
                         ));
                     }
@@ -474,7 +522,7 @@ fn receiptline_item_lines(d: &ReceiptOrder, gift: bool) -> String {
                 if let Some(label) = &it.discount_event_label {
                     let t = label.trim();
                     if !t.is_empty() {
-                        out_lines.push(receiptline_escape(t));
+                        out_lines.push(format!("{} |", receiptline_escape(t)));
                     }
                 }
             }
@@ -545,6 +593,29 @@ fn receiptline_payment_lines(d: &ReceiptOrder) -> String {
     lines.join("\n")
 }
 
+fn receiptline_tender_lines(d: &ReceiptOrder, gift: bool) -> String {
+    if gift {
+        return String::new();
+    }
+    if d.payments.is_empty() {
+        return format!(
+            "Tender | {}",
+            receiptline_escape(&d.payment_methods_summary)
+        );
+    }
+    d.payments
+        .iter()
+        .map(|payment| {
+            format!(
+                "Tender {} | {}",
+                receiptline_escape(&tender_display_label(&payment.method)),
+                money(payment.amount)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn receipt_status_label(d: &ReceiptOrder) -> &'static str {
     let all_takeaway = !d.items.is_empty()
         && d.items
@@ -562,7 +633,7 @@ fn default_receiptline_template() -> &'static str {
 }
 
 fn default_receiptline_pickup_template() -> &'static str {
-    "{{LOGO_IMAGE}}\n{{HEADER_LINES}}\n{{RECEIPT_TITLE}}\n{{RECEIPT_ID}}\n{{RECEIPT_DATE}}\n{{CUSTOMER_LINE}}\n{{SALESPERSON_LINE}}\n{{CASHIER_LINE}}\n---\n{{ITEM_LINES}}\n---\n{{PAYMENT_HISTORY_BLOCK}}\n{{SUBTOTAL_LINE}}\n{{TAX_LINE}}\n{{TOTAL_SAVINGS_LINE}}\n{{TOTAL_LINE}}\n{{PAID_LINE}}\n{{BALANCE_LINE}}\n{{STATUS_LINE}}\n---\n{{BARCODE_IMAGE}}\n{{FOOTER_LINES}}\n{{CUT}}"
+    "{{LOGO_IMAGE}}\n{{HEADER_LINES}}\n{{RECEIPT_TITLE}}\n{{RECEIPT_ID}}\n{{CUSTOMER_LINE}}\n{{SALESPERSON_LINE}}\n{{CASHIER_LINE}}\n---\n{{ITEM_LINES}}\n---\n{{PAYMENT_HISTORY_BLOCK}}\n{{SUBTOTAL_LINE}}\n{{TAX_LINE}}\n{{TOTAL_SAVINGS_LINE}}\n{{TOTAL_LINE}}\n{{PAID_LINE}}\n{{BALANCE_LINE}}\n{{STATUS_LINE}}\n---\n{{BARCODE_IMAGE}}\n{{FOOTER_LINES}}\n{{CUT}}"
 }
 
 fn receiptline_payment_history_block(d: &ReceiptOrder) -> String {
@@ -575,7 +646,7 @@ fn receiptline_payment_history_block(d: &ReceiptOrder) -> String {
         lines.push(format!(
             "{} {} | {}",
             date_str,
-            receiptline_escape(&pay.method),
+            receiptline_escape(&tender_display_label(&pay.method)),
             money(pay.amount)
         ));
     }
@@ -605,7 +676,7 @@ pub fn build_receiptline_markdown(
     let title = if gift {
         "| ^^^GIFT RECEIPT |"
     } else if is_pickup {
-        "| ^^^PICKED UP RECEIPT |"
+        "| ^^^RECEIPT |"
     } else {
         "| ^^^RECEIPT |"
     };
@@ -641,14 +712,7 @@ pub fn build_receiptline_markdown(
     } else {
         String::new()
     };
-    let tender_line = if gift {
-        String::new()
-    } else {
-        format!(
-            "Tender | {}",
-            receiptline_escape(&d.payment_methods_summary)
-        )
-    };
+    let tender_line = receiptline_tender_lines(d, gift);
     let status_line = if gift {
         String::new()
     } else {
@@ -665,8 +729,12 @@ pub fn build_receiptline_markdown(
     let store_name = format!("| ^^{} |", receiptline_escape(&cfg.store_name));
     let header_lines = centered_lines(&receipt_header_lines(cfg));
     let receipt_id = format!("| Receipt {} |", receipt_ref(d));
-    let receipt_date = format!("| {} |", receipt_date(d, cfg));
-    let item_lines = receiptline_item_lines(d, gift);
+    let receipt_date = if is_pickup {
+        String::new()
+    } else {
+        format!("| {} |", receipt_date(d, cfg))
+    };
+    let item_lines = receiptline_item_lines(d, cfg, gift, is_pickup);
     let payment_block_value = if gift { "" } else { payment_block.as_str() };
     let total_line = if gift {
         String::new()
@@ -854,7 +922,7 @@ mod tests {
             ),
         ]);
 
-        let lines = receiptline_item_lines(&order, false);
+        let lines = receiptline_item_lines(&order, &ReceiptConfig::default(), false, false);
 
         assert!(lines.contains("^^^PAYMENT"));
         assert!(lines.contains("RMS CHARGE PAYMENT"));

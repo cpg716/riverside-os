@@ -55,7 +55,9 @@ If a test print does not match the preview, check printer routing first, then re
 - The address, phone, email, barcode, and loyalty toggles affect the ReceiptLine preview and print output.
 - The Order Barcode toggle prints a barcode for the Transaction Record display ID, such as `TXN-566056`. Staff can scan it in Register for the matching transaction workflow or scan/type it in Universal Search to open the Transaction Hub.
 - Keep customer, item, payment, and financial tokens such as `{{CUSTOMER_LINE}}`, `{{ITEM_LINES}}`, `{{PAYMENT_BLOCK}}`, `{{PAYMENT_HISTORY_BLOCK}}`, `{{SUBTOTAL_LINE}}`, `{{TAX_LINE}}`, `{{TOTAL_SAVINGS_LINE}}`, `{{TOTAL_LINE}}`, `{{PAID_LINE}}`, and `{{TENDER_LINE}}` in the template.
-- `{{CUSTOMER_LINE}}` prints the customer name, phone, and Customer # when present. `{{ITEM_LINES}}` groups merchandise as Taken Today, PICKED UP, SHIPPED, Special Order, Custom Order, Wedding Order, or Layaway and includes SKU, variation, and pricing when applicable.
+- `{{CUSTOMER_LINE}}` prints the customer name, phone, and Customer # when present. `{{ITEM_LINES}}` groups merchandise as Taken Today, PICKED UP, SHIPPED, Special Order, Custom Order, Wedding Order, or Layaway and includes product title, SKU, variation, quantity when greater than one, order date for pickup lines, and pricing when applicable.
+- Pickup receipts use the normal **RECEIPT** heading. The **PICKED UP** status belongs in the item body, not the receipt title.
+- Split tenders are shown as separate payment rows with short labels such as **CC**, **Cash**, **RMS90**, **RMS**, **Check**, and **SC**.
 - `{{LOYALTY_EARNED}}` and `{{LOYALTY_BALANCE}}` are populated when loyalty toggles are on and the customer has earned points.
 - The old HTML designer is not part of normal receipt setup.
 

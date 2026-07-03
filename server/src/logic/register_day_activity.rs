@@ -8,6 +8,7 @@ use sqlx::PgPool;
 use thiserror::Error;
 use uuid::Uuid;
 
+use crate::logic::receipt_shared;
 use crate::logic::report_basis::ReportBasis;
 
 #[derive(Debug, Error)]
@@ -24,6 +25,34 @@ fn money_label(d: Decimal) -> String {
     format!("{}", d.round_dp(2))
 }
 
+fn payment_summary_label(payments: &[RegisterActivityPayment]) -> Option<String> {
+    if payments.is_empty() {
+        return None;
+    }
+    Some(
+        payments
+            .iter()
+            .map(|payment| format!("{} ${}", payment.method, payment.amount_label))
+            .collect::<Vec<_>>()
+            .join(", "),
+    )
+}
+
+fn parse_activity_payments(value: Option<serde_json::Value>) -> Vec<RegisterActivityPayment> {
+    value
+        .and_then(|v| serde_json::from_value::<Vec<RegisterActivityPaymentRaw>>(v).ok())
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|raw| {
+            let amount = raw.amount.trim().parse::<Decimal>().ok()?;
+            Some(RegisterActivityPayment {
+                method: receipt_shared::tender_display_label(&raw.method),
+                amount_label: money_label(amount),
+            })
+        })
+        .collect()
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ActivityItemDetail {
     pub name: String,
@@ -38,6 +67,18 @@ pub struct ActivityItemDetail {
     pub is_internal: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub line_kind: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct RegisterActivityPayment {
+    pub method: String,
+    pub amount_label: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct RegisterActivityPaymentRaw {
+    method: String,
+    amount: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -60,6 +101,8 @@ pub struct RegisterActivityItem {
     pub amount_label: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub payment_summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub payments: Option<Vec<RegisterActivityPayment>>,
 
     // High-density UI fields
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -799,6 +842,7 @@ pub async fn fetch_register_day_summary(
         is_takeaway: bool,
         channel: String,
         pay: Option<String>,
+        payments_json: Option<serde_json::Value>,
         items_json: Option<serde_json::Value>,
         merchant_fees: Option<Decimal>,
         net_amount: Option<Decimal>,
@@ -866,7 +910,27 @@ pub async fn fetch_register_day_summary(
                 FROM payment_allocations pa
                 INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
                 WHERE pa.target_transaction_id = o.id
+                  AND pt.status = 'success'
             ) AS pay,
+            (
+                SELECT jsonb_agg(
+                    jsonb_build_object(
+                        'method', payment_parts.payment_method,
+                        'amount', payment_parts.amount::text
+                    )
+                    ORDER BY payment_parts.payment_method
+                )
+                FROM (
+                    SELECT
+                        pt.payment_method,
+                        SUM(COALESCE(pa.amount_allocated, pt.amount))::numeric(14,2) AS amount
+                    FROM payment_allocations pa
+                    INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
+                    WHERE pa.target_transaction_id = o.id
+                      AND pt.status = 'success'
+                    GROUP BY pt.payment_method
+                ) payment_parts
+            ) AS payments_json,
             (
                 SELECT SUM(pt.merchant_fee)
                 FROM payment_allocations pa
@@ -1068,6 +1132,13 @@ pub async fn fetch_register_day_summary(
         let items: Option<Vec<ActivityItemDetail>> = s
             .items_json
             .and_then(|v| serde_json::from_value::<Vec<ActivityItemDetail>>(v).ok());
+        let payments = parse_activity_payments(s.payments_json);
+        let payment_summary = payment_summary_label(&payments).or_else(|| s.pay.clone());
+        let payments = if payments.is_empty() {
+            None
+        } else {
+            Some(payments)
+        };
 
         let customer_full = match (
             s.customer_first
@@ -1117,7 +1188,8 @@ pub async fn fetch_register_day_summary(
             payment_allocation_id: None,
             wedding_party_id: s.wedding_party_id,
             amount_label: Some(format!("${}", money_label(s.sales_total_booked))),
-            payment_summary: s.pay,
+            payment_summary,
+            payments,
             sales_total: Some(money_label(s.sales_total_booked)),
             tax_total: Some(money_label(s.tax_total)),
             is_takeaway: Some(s.is_takeaway),
@@ -1160,6 +1232,8 @@ pub async fn fetch_register_day_summary(
             (None, Some(l)) => Some(l.to_string()),
             _ => p.customer_code.clone(),
         };
+        let payment_label = receipt_shared::tender_display_label(&p.payment_method);
+        let payment_amount = money_label(p.amount);
 
         activities.push(RegisterActivityItem {
             id: format!("payment:{}", p.payment_id),
@@ -1175,7 +1249,11 @@ pub async fn fetch_register_day_summary(
             payment_allocation_id: Some(p.payment_allocation_id),
             wedding_party_id: None,
             amount_label: Some(format!("${}", money_label(p.amount))),
-            payment_summary: Some(p.payment_method),
+            payment_summary: Some(format!("{payment_label} ${payment_amount}")),
+            payments: Some(vec![RegisterActivityPayment {
+                method: payment_label,
+                amount_label: payment_amount,
+            }]),
             sales_total: None,
             tax_total: None,
             is_takeaway: None,

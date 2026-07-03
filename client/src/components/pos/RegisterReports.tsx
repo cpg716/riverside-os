@@ -1418,13 +1418,20 @@ export default function RegisterReports({
                                  <span className="text-base font-black text-app-text tabular-nums leading-none tracking-tighter">
                                    ${row.transaction_total || "0.00"}
                                  </span>
-	                                 <div className="mt-1 flex items-center gap-1 text-xs font-semibold text-app-text-muted opacity-70">
-                                    {row.payment_summary && (
-                                       <>
-                                         {paymentIcon(row.payment_summary)}
-                                         <span className="uppercase tracking-tighter tabular-nums">{row.payment_summary}</span>
-                                       </>
-                                    )}
+	                                 <div className="mt-1 flex flex-col items-end gap-0.5 text-xs font-semibold text-app-text-muted opacity-80">
+                                    {row.payments?.length
+                                       ? row.payments.map((payment, idx) => (
+                                          <span key={`${payment.method}-${idx}`} className="inline-flex items-center gap-1 uppercase tracking-tighter tabular-nums">
+                                             {paymentIcon(payment.method)}
+                                             <span>{payment.method} ${payment.amount_label}</span>
+                                          </span>
+                                       ))
+                                       : row.payment_summary && (
+                                          <span className="inline-flex items-center gap-1 uppercase tracking-tighter tabular-nums">
+                                             {paymentIcon(row.payment_summary)}
+                                             <span>{row.payment_summary}</span>
+                                          </span>
+                                       )}
                                  </div>
                               </div>
                            </div>

@@ -8,7 +8,9 @@ use uuid::Uuid;
 
 use crate::api::settings::ReceiptConfig;
 use crate::logic::receipt_privacy;
-use crate::logic::receipt_shared::{order_status_label, receipt_display_ref, ReceiptOrder};
+use crate::logic::receipt_shared::{
+    order_status_label, receipt_display_ref, tender_display_label, ReceiptOrder,
+};
 
 fn html_escape(s: &str) -> String {
     s.chars()
@@ -322,14 +324,26 @@ pub fn merge_receipt_studio_html(
         replace_all(&mut out, "{{ROS_AMOUNT_PAID}}", "—");
         replace_all(&mut out, "{{ROS_BALANCE_DUE}}", "—");
     } else {
-        let payment_summary = if order.payment_applications.is_empty() {
+        let tender_summary = if order.payments.is_empty() {
             html_escape(&order.payment_methods_summary)
         } else {
-            format!(
-                "{}{}",
-                html_escape(&order.payment_methods_summary),
-                build_payment_applications(order)
-            )
+            order
+                .payments
+                .iter()
+                .map(|payment| {
+                    format!(
+                        "{} ${}",
+                        html_escape(&tender_display_label(&payment.method)),
+                        payment.amount.round_dp(2)
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("<br>")
+        };
+        let payment_summary = if order.payment_applications.is_empty() {
+            tender_summary
+        } else {
+            format!("{}{}", tender_summary, build_payment_applications(order))
         };
         replace_all(&mut out, "{{ROS_PAYMENT_SUMMARY}}", &payment_summary);
         replace_all(&mut out, "{{ROS_TOTAL}}", &order.total_price.to_string());

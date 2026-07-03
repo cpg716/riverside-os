@@ -66,7 +66,6 @@ const DEFAULT_RECEIPTLINE_PICKUP_TEMPLATE = `{{LOGO_IMAGE}}
 {{HEADER_LINES}}
 {{RECEIPT_TITLE}}
 {{RECEIPT_ID}}
-{{RECEIPT_DATE}}
 {{CUSTOMER_LINE}}
 {{SALESPERSON_LINE}}
 {{CASHIER_LINE}}
@@ -258,9 +257,9 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
       )
       .replaceAll("{{STORE_NAME}}", `| ^^${escapeReceiptlineText(cfg.store_name)} |`)
       .replaceAll("{{HEADER_LINES}}", centeredLines(headerLineValues))
-      .replaceAll("{{RECEIPT_TITLE}}", activeTab === "standard" ? "| ^^^RECEIPT |" : "| ^^^PICKED UP RECEIPT |")
+      .replaceAll("{{RECEIPT_TITLE}}", "| ^^^RECEIPT |")
       .replaceAll("{{RECEIPT_ID}}", "| Receipt TXN-66736 |")
-      .replaceAll("{{RECEIPT_DATE}}", "| 04/26/2026 02:14 AM |")
+      .replaceAll("{{RECEIPT_DATE}}", activeTab === "standard" ? "| 04/26/2026 02:14 AM |" : "")
       .replaceAll(
         "{{CUSTOMER_LINE}}",
         [
@@ -276,42 +275,45 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
         activeTab === "standard"
           ? [
               "^^^Taken Today",
-              "1x 100% Lambswool Sweater",
-              "Variation: Medium / Navy",
-              "SKU I-1003713601 | $83.80",
-              "Reg $104.75 Sale $83.80 (20% Discount)",
+              "\"100% Lambswool Sweater\" |",
+              "Variation: Medium / Navy |",
+              "| SKU I-1003713601 | $83.80",
+              "Reg $104.75 Sale $83.80 (20% Discount) |",
               "",
               "^^^PICKED UP",
-              "1x Tuxedo Shirt",
-              "Variation: 16.5 / 34-35 / White",
-              "SKU I-40092182 | $65.00",
+              "\"Tuxedo Shirt\" |",
+              "Variation: 16.5 / 34-35 / White |",
+              "Order Date: 04/10/2026 01:15 PM |",
+              "| SKU I-40092182 | $65.00",
               "",
               "^^^SHIPPED",
-              "1x Silk Tie",
-              "Variation: Burgundy",
-              "SKU I-50012345 | $45.00",
+              "\"Silk Tie\" |",
+              "Variation: Burgundy |",
+              "| SKU I-50012345 | $45.00",
               "",
               "^^^Special Order",
-              "NOTICE: Size 42R requested",
-              "1x Custom Navy Blazer",
-              "Variation: 42R / Navy",
-              "SKU I-2004829302 | $295.00",
+              "NOTICE: Size 42R requested |",
+              "\"Custom Navy Blazer\" |",
+              "Variation: 42R / Navy |",
+              "| SKU I-2004829302 | $295.00",
               "",
               "^^^Wedding Order",
-              "1x Groomsman Suit",
-              "Variation: 40R / Charcoal",
-              "SKU I-30088420 | $260.00",
+              "\"Groomsman Suit\" |",
+              "Variation: 40R / Charcoal |",
+              "| SKU I-30088420 | $260.00",
             ]
               .filter(Boolean)
               .join("\n")
           : [
-              "1x Tuxedo Jacket (PICKED UP)",
-              "Variation: 42R / Black",
-              "SKU I-40092180 | $350.00",
+              "\"Tuxedo Jacket\" |",
+              "Variation: 42R / Black |",
+              "Order Date: 04/10/2026 01:15 PM |",
+              "| SKU I-40092180 | $350.00",
               "",
-              "1x Tuxedo Pants (PICKED UP)",
-              "Variation: 34 / Black",
-              "SKU I-40092181 | $150.00",
+              "\"Tuxedo Pants\" |",
+              "Variation: 34 / Black |",
+              "Order Date: 04/10/2026 01:15 PM |",
+              "| SKU I-40092181 | $150.00",
             ].join("\n")
       )
       .replaceAll("{{LOYALTY_EARNED}}", cfg.show_loyalty_earned ? "Loyalty earned | 84 pts" : "")
@@ -328,7 +330,7 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
           "| ^Payment History |",
           "---",
           "04/10/2026 Cash | $250.00",
-          "04/26/2026 Card | $250.00",
+          "04/26/2026 CC | $250.00",
         ].join("\n")
       )
       .replaceAll("{{SUBTOTAL_LINE}}", activeTab === "standard" ? "Subtotal | $83.80" : "Subtotal | $500.00")

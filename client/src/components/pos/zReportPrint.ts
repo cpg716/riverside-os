@@ -145,6 +145,38 @@ function reportPrinterName(): string {
 
 function reportLabel(value: string | null | undefined): string {
   const normalized = (value ?? "").trim().toLowerCase();
+  const tenderKey = normalized.replace(/[^a-z0-9]/g, "");
+  switch (tenderKey) {
+    case "card":
+    case "cardterminal":
+    case "credit":
+    case "creditcard":
+    case "creditcards":
+    case "debit":
+    case "helcim":
+    case "visa":
+    case "mastercard":
+    case "mc":
+    case "amex":
+    case "americanexpress":
+    case "discover":
+      return "CC";
+    case "cash":
+      return "Cash";
+    case "rms90":
+    case "rms90day":
+    case "rms90days":
+      return "RMS90";
+    case "rms":
+    case "rmscharge":
+      return "RMS";
+    case "check":
+    case "cheque":
+      return "Check";
+    case "sc":
+    case "storecredit":
+      return "SC";
+  }
   switch (normalized) {
     case "pos_gift_card_load":
       return "Gift card issued";
@@ -745,7 +777,9 @@ export async function openProfessionalZReportPrint(opts: {
     </div>
   </div>
   </body></html>`);
-  return finishPrintDocument(target, `z-report-${opts.sessionId.slice(0, 8)}.html`, zReportTextLines.join("\n"));
+  return finishPrintDocument(target, `z-report-${opts.sessionId.slice(0, 8)}.html`, zReportTextLines.join("\n"), {
+    preferFormattedPreview: true,
+  });
 }
 
 export async function openProfessionalDailySalesPrint(opts: {
@@ -769,6 +803,10 @@ export async function openProfessionalDailySalesPrint(opts: {
     amount_label?: string | null;
     kind: string;
     payment_summary?: string | null;
+    payments?: {
+      method: string;
+      amount_label: string;
+    }[] | null;
     customer_name?: string | null;
     customer_code?: string | null;
     wedding_party_name?: string | null;
@@ -839,6 +877,18 @@ export async function openProfessionalDailySalesPrint(opts: {
         row.channel === "web" ? "Online" : null,
       ].filter(Boolean).map((chip) => `<span class="chip">${chip}</span>`).join("");
 
+      const paymentRows =
+        row.payments && row.payments.length > 0
+          ? row.payments
+              .map(
+                (payment) =>
+                  `<div class="money-sub">${escapeReportHtml(payment.method)} ${formatReportMoney(payment.amount_label)}</div>`,
+              )
+              .join("")
+          : row.payment_summary
+            ? `<div class="money-sub">${escapeReportHtml(row.payment_summary)}</div>`
+            : "";
+
       return `
         <section class="activity-card">
           <div class="activity-left">
@@ -855,7 +905,7 @@ export async function openProfessionalDailySalesPrint(opts: {
             <div class="money-label">Sales Total</div>
             <div class="money-total">${row.sales_total ? `$${row.sales_total}` : row.amount_label || "—"}</div>
             <div class="money-sub">Transaction Total: ${row.transaction_total ? `$${row.transaction_total}` : "—"}</div>
-            ${row.payment_summary ? `<div class="money-sub">${row.payment_summary}</div>` : ""}
+            ${paymentRows}
             ${row.deposits_paid ? `<div class="money-good">Paid: $${row.deposits_paid}</div>` : ""}
             ${row.balance_due && parseFloat(row.balance_due) > 0 ? `<div class="money-due">Balance: $${row.balance_due}</div>` : ""}
           </div>
@@ -915,9 +965,17 @@ export async function openProfessionalDailySalesPrint(opts: {
           const header = `${new Date(row.occurred_at).toLocaleString()} | ${textValue(row.title)} | ${
             customerInfo || "Walk-in Customer"
           } | Sales: ${row.sales_total ? formatReportMoney(row.sales_total) : textValue(row.amount_label) || "-"}`;
+          const paymentDetails =
+            row.payments && row.payments.length > 0
+              ? row.payments.map(
+                  (payment) => `Payment: ${payment.method} ${formatReportMoney(payment.amount_label)}`,
+                )
+              : row.payment_summary
+                ? [`Payment: ${row.payment_summary}`]
+                : [];
           const details = [
             row.short_id ? `Reference: ${row.short_id}` : "",
-            row.payment_summary ? `Payment: ${row.payment_summary}` : "",
+            ...paymentDetails,
             row.transaction_total ? `Transaction Total: ${formatReportMoney(row.transaction_total)}` : "",
             row.deposits_paid ? `Paid: ${formatReportMoney(row.deposits_paid)}` : "",
             row.balance_due && Number.parseFloat(row.balance_due) > 0

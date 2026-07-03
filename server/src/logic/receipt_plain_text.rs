@@ -4,7 +4,9 @@ use chrono_tz::Tz;
 use rust_decimal::Decimal;
 
 use crate::api::settings::ReceiptConfig;
-use crate::logic::receipt_shared::{order_status_label, receipt_display_ref, ReceiptOrder};
+use crate::logic::receipt_shared::{
+    order_status_label, receipt_display_ref, tender_display_label, ReceiptOrder,
+};
 
 /// Gift receipt body for SMS when MMS/HTML is not used: items only, no prices or payment details.
 pub fn format_pos_gift_receipt_text_message(order: &ReceiptOrder, cfg: &ReceiptConfig) -> String {
@@ -90,7 +92,18 @@ pub fn format_pos_receipt_text_message(order: &ReceiptOrder, cfg: &ReceiptConfig
     if order.balance_due > Decimal::ZERO {
         lines.push(format!("Balance: {}", order.balance_due));
     }
-    lines.push(format!("Tender: {}", order.payment_methods_summary.trim()));
+    if order.payments.is_empty() {
+        lines.push(format!("Tender: {}", order.payment_methods_summary.trim()));
+    } else {
+        lines.push("Tender:".to_string());
+        for payment in &order.payments {
+            lines.push(format!(
+                "{}: {}",
+                tender_display_label(&payment.method),
+                payment.amount
+            ));
+        }
+    }
     if !order.payment_applications.is_empty() {
         lines.push("Applied payments:".to_string());
         for app in &order.payment_applications {

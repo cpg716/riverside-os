@@ -51,6 +51,7 @@ use crate::logic::lightspeed_customers::{
 };
 use crate::logic::podium;
 use crate::logic::podium_messaging;
+use crate::logic::receipt_shared;
 use crate::logic::report_basis::ORDER_RECOGNITION_TS_SQL;
 use crate::logic::shippo::{self, ShippoAddressFields};
 
@@ -6821,7 +6822,11 @@ async fn build_customer_timeline(
         events.push(CustomerTimelineEvent {
             at: p.created_at,
             kind: "payment".to_string(),
-            summary: format!("Payment recorded: {} via {}", p.amount, p.payment_method),
+            summary: format!(
+                "Payment recorded: {} via {}",
+                p.amount,
+                receipt_shared::tender_display_label(&p.payment_method)
+            ),
             reference_id: Some(p.id),
             reference_type: Some("payment".to_string()),
             wedding_party_id: None,
