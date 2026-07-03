@@ -213,6 +213,54 @@ async fn wait_for_roster_probe(server_url: &str) -> Result<(), String> {
 }
 
 #[cfg(windows)]
+fn installed_server_startup_diagnostic() -> String {
+    let script = r#"
+$taskName = 'Riverside OS Server'
+$task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+$info = Get-ScheduledTaskInfo -TaskName $taskName -ErrorAction SilentlyContinue
+$processCount = @(Get-Process -Name 'riverside-server' -ErrorAction SilentlyContinue).Count
+$portOwner = Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+$portOwnerText = 'none'
+if ($portOwner) {
+  $owner = Get-Process -Id $portOwner.OwningProcess -ErrorAction SilentlyContinue
+  $portOwnerText = if ($owner) { "$($owner.ProcessName) ($($owner.Id))" } else { "pid $($portOwner.OwningProcess)" }
+}
+$taskState = if ($task) { "$($task.State)" } else { 'missing' }
+$lastResult = if ($info) { "$($info.LastTaskResult)" } else { 'unknown' }
+"task=$taskState; lastResult=$lastResult; processCount=$processCount; port3000Owner=$portOwnerText"
+"#;
+
+    let output = Command::new("powershell.exe")
+        .args([
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            script,
+        ])
+        .output();
+
+    output
+        .ok()
+        .map(|output| {
+            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            if stdout.is_empty() {
+                stderr
+            } else {
+                stdout
+            }
+        })
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "startup diagnostics unavailable".to_string())
+}
+
+#[cfg(not(windows))]
+fn installed_server_startup_diagnostic() -> String {
+    "startup diagnostics are only available on the Windows server PC".to_string()
+}
+
+#[cfg(windows)]
 fn start_windows_server_task() -> Result<(), String> {
     let script = r#"
 $taskName = 'Riverside OS Server'
@@ -304,7 +352,9 @@ pub async fn start_installed_windows_server(
     server_url: String,
 ) -> Result<InstalledServerStartStatus, String> {
     start_windows_server_task()?;
-    wait_for_roster_probe(&server_url).await?;
+    wait_for_roster_probe(&server_url)
+        .await
+        .map_err(|error| format!("{error} {}", installed_server_startup_diagnostic()))?;
     Ok(InstalledServerStartStatus {
         started: true,
         message: "Riverside server is running.".to_string(),
@@ -316,7 +366,9 @@ pub async fn restart_installed_windows_server(
     server_url: String,
 ) -> Result<InstalledServerRestartStatus, String> {
     restart_windows_server_task()?;
-    wait_for_roster_probe(&server_url).await?;
+    wait_for_roster_probe(&server_url)
+        .await
+        .map_err(|error| format!("{error} {}", installed_server_startup_diagnostic()))?;
     Ok(InstalledServerRestartStatus {
         restarted: true,
         message: "Riverside server restarted and is responding.".to_string(),

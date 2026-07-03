@@ -146,6 +146,11 @@ function Normalize-ApiBase([string]$Value) {
   return $builder.Uri.AbsoluteUri.TrimEnd("/")
 }
 
+function Test-LocalMainHubStationLabel([string]$Value) {
+  $label = "$Value".Trim()
+  return $label -eq "Main Hub" -or $label -eq "Backoffice / Server"
+}
+
 function Write-StationConfig($Config) {
   $apiBase = Normalize-ApiBase $Config.register.apiBase
   $stationLabel = "$($Config.register.stationLabel)".Trim()
@@ -302,12 +307,17 @@ if (-not $programData) {
 }
 $localConfigPath = Join-Path $programData "RiversideOS\station-config.json"
 
+$preserveServerTarget = -not ($StationMode -eq "mainhub" -or (Test-LocalMainHubStationLabel "$($config.register.stationLabel)"))
 if (Test-Path $localConfigPath) {
   try {
     $localConfig = Get-Content $localConfigPath -Raw | ConvertFrom-Json
     if ($localConfig -and $localConfig.register) {
       Write-Host "Found existing station configuration at $localConfigPath. Preserving settings."
       foreach ($prop in $localConfig.register.PSObject.Properties) {
+        if (-not $preserveServerTarget -and ($prop.Name -eq "apiBase" -or $prop.Name -eq "stationLabel")) {
+          Write-Host "Keeping Main Hub server target from this install instead of preserving old $($prop.Name)."
+          continue
+        }
         if ($null -ne $prop.Value) {
           Set-SafeProperty $config.register $prop.Name $prop.Value
         }

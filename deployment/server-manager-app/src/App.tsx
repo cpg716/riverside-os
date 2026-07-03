@@ -250,6 +250,24 @@ function statusTone(ok: boolean, warn = false) {
   return 'bad';
 }
 
+function localServerState(snapshot: ServerSnapshot) {
+  if (!isOk(snapshot.api.health)) {
+    return {
+      value: 'API Offline',
+      detail:
+        snapshot.server.process_count > 0
+          ? `Task ${snapshot.server.task_status}; API not responding`
+          : `Task ${snapshot.server.task_status}; no server process`,
+      tone: 'bad',
+    };
+  }
+  return {
+    value: 'API Online',
+    detail: `Task ${snapshot.server.task_status}; ${snapshot.server.process_count} process${snapshot.server.process_count === 1 ? '' : 'es'}`,
+    tone: 'ok',
+  };
+}
+
 export default function App() {
   const [snapshot, setSnapshot] = useState<ServerSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
@@ -354,6 +372,8 @@ export default function App() {
     return { label: 'Healthy', tone: 'ok' };
   }, [snapshot]);
 
+  const serverState = snapshot ? localServerState(snapshot) : null;
+
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -394,10 +414,10 @@ export default function App() {
         <>
           <section className="overview-grid">
             <StatusCard
-              title="Server Task"
-              value={snapshot.server.task_status}
-              detail={`${snapshot.server.process_count} process${snapshot.server.process_count === 1 ? '' : 'es'} running`}
-              tone={statusTone(snapshot.server.task_present && snapshot.server.process_count > 0)}
+              title="Local Server"
+              value={serverState?.value ?? snapshot.server.task_status}
+              detail={serverState?.detail ?? `${snapshot.server.process_count} process${snapshot.server.process_count === 1 ? '' : 'es'} running`}
+              tone={serverState?.tone ?? statusTone(snapshot.server.task_present && snapshot.server.process_count > 0)}
               icon={Server}
             />
             <StatusCard

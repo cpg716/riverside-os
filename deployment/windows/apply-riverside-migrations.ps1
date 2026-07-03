@@ -295,6 +295,44 @@ function Normalize-DatabaseConfig($Db) {
   if ([string]::IsNullOrWhiteSpace($Db.appUser)) { $Db.appUser = "riverside_app" }
 }
 
+function Repair-KnownFunctionOwnership([string]$PsqlPath, $Db) {
+  if ([string]::IsNullOrWhiteSpace($Db.adminPassword)) {
+    Write-Warning "Admin database password is blank; skipping legacy function ownership repair."
+    return
+  }
+
+  $targetOwner = Escape-SqlLiteral $Db.appUser
+  $adminUrl = "postgresql://$($Db.adminUser)@$($Db.host):$($Db.port)/$($Db.databaseName)"
+  $previousPassword = $env:PGPASSWORD
+  $env:PGPASSWORD = $Db.adminPassword
+  try {
+    $sql = @"
+DO `$`$
+DECLARE
+  target_owner name := '$targetOwner';
+BEGIN
+  IF to_regprocedure('public.wedding_number_base(text,date)') IS NOT NULL THEN
+    EXECUTE format('ALTER FUNCTION public.wedding_number_base(text,date) OWNER TO %I', target_owner);
+  END IF;
+  IF to_regprocedure('public.wedding_number_suffix(integer)') IS NOT NULL THEN
+    EXECUTE format('ALTER FUNCTION public.wedding_number_suffix(integer) OWNER TO %I', target_owner);
+  END IF;
+  IF to_regprocedure('public.assign_wedding_number()') IS NOT NULL THEN
+    EXECUTE format('ALTER FUNCTION public.assign_wedding_number() OWNER TO %I', target_owner);
+  END IF;
+END
+`$`$;
+"@
+    Invoke-PsqlCommand $PsqlPath $adminUrl $sql
+  } finally {
+    if ($null -ne $previousPassword) {
+      $env:PGPASSWORD = $previousPassword
+    } else {
+      Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue
+    }
+  }
+}
+
 Ensure-ConfigServerSection $config
 
 function New-RiversideSecret([int]$Length) {
@@ -362,6 +400,8 @@ if ([string]::IsNullOrWhiteSpace($psql) -or -not (Test-Path $psql)) {
 if ([string]::IsNullOrWhiteSpace($db.appPassword)) {
   throw "Riverside database password is blank in deployment config."
 }
+
+Repair-KnownFunctionOwnership $psql $db
 
 $databaseUrl = "postgresql://$($db.appUser)@$($db.host):$($db.port)/$($db.databaseName)"
 $env:PGPASSWORD = $db.appPassword
