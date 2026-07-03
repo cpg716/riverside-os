@@ -94,8 +94,8 @@ When the drawer is active, you often land on **Dashboard**. Here you can see shi
 Use this when a customer is exchanging or returning items tied to a completed transaction. The wizard keeps the return, replacement sale, manager approval, and register-session checks together.
 
 1. On the **Register** screen, select **Exchange / Return**.
-2. Search or enter the completed transaction.
-3. Choose the line being returned or exchanged.
+2. If a customer is loaded, choose from that customer's transaction list. Otherwise scan the receipt barcode or search by transaction number.
+3. Choose the line being returned or exchanged. If you started from a Transaction Record item, Riverside preselects that line.
 4. Follow the wizard instructions for refund, replacement sale, or manager approval.
 5. Complete any replacement checkout before handing the customer their final receipt.
 

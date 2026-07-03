@@ -64,6 +64,7 @@
 ## Returns, refunds, exchanges
 
 - Use **return lines** / **exchange link** per training — do not bypass **refund queue** rules.
+- From a Transaction Record, use **Return / Exchange** on an item line to open Register with that customer, transaction, and item already selected. Use **Return All** only when every returnable line on the transaction is coming back.
 - **Void sale** (unpaid mistake carts) differs from **refund after payment** — permission and SOP differ.
 
 ## Till / POS coordination

@@ -28,6 +28,7 @@ The Orders workspace is the main place to review unfulfilled Special, Custom, an
 - Open an order to see order progress, pickup readiness, balances, and release-blocking cues at a glance.
 - Edit an open order item directly in the drawer when staff need to adjust quantity, price, or pickup type, or perform a Suit Component Swap when changing parts of a suit to a different product variation/SKU (recording inventory updates and QBO ledger cost/retail deltas automatically).
 - Use **Edit Custom Order** on custom items to review or update the saved HSM or Individualized Shirts form details from the same field set used during POS custom-order booking.
+- Use **Return / Exchange** on a Transaction Record item to send that exact line to Register, where the return/exchange wizard opens with the customer and item already selected.
 - Use **Mark Ready + Notify** in Order Detail only to mark an item operationally ready. Customer pickup completion must be finished from Register with **Open in Register** so recognition, inventory, and register audit stay together.
 - After Register checkout activity, reopen the parent Transaction Record or return to Orders to see the latest authoritative data instead of a stale snapshot.
 - For a refund already processed in Helcim backend, use **Helcim backend refund**, enter the Helcim refund reference, and complete Manager Access so the register refund record matches the external processor action.

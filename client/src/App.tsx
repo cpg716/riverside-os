@@ -200,6 +200,7 @@ function App() {
   );
   const [pendingPosTransactionForPickup, setPendingPosTransactionForPickup] = useState(false);
   const [pendingPosTransactionForRefund, setPendingPosTransactionForRefund] = useState(false);
+  const [pendingPosTransactionReturnLineId, setPendingPosTransactionReturnLineId] = useState<string | null>(null);
   const [transactionsDeepLinkTxnId, setTransactionsDeepLinkTxnId] = useState<
     string | null
   >(null);
@@ -484,6 +485,7 @@ function App() {
       setPendingPosTransactionId(null);
       setPendingPosTransactionForPickup(false);
       setPendingPosTransactionForRefund(false);
+      setPendingPosTransactionReturnLineId(null);
     },
     [],
   );
@@ -1120,9 +1122,11 @@ function App() {
             pendingPosTransactionId={pendingPosTransactionId}
             pendingPosTransactionForPickup={pendingPosTransactionForPickup}
             pendingPosTransactionForRefund={pendingPosTransactionForRefund}
+            pendingPosTransactionReturnLineId={pendingPosTransactionReturnLineId}
             setPendingPosTransactionId={setPendingPosTransactionId}
             setPendingPosTransactionForPickup={setPendingPosTransactionForPickup}
             setPendingPosTransactionForRefund={setPendingPosTransactionForRefund}
+            setPendingPosTransactionReturnLineId={setPendingPosTransactionReturnLineId}
             clearPendingPosCustomer={clearPendingPosCustomer}
             clearPendingPosTransaction={clearPendingPosTransaction}
             pendingWeddingPosLink={pendingWeddingPosLink}
@@ -1235,9 +1239,11 @@ interface AppShellProps {
   pendingPosTransactionId: string | null;
   pendingPosTransactionForPickup: boolean;
   pendingPosTransactionForRefund: boolean;
+  pendingPosTransactionReturnLineId: string | null;
   setPendingPosTransactionId: (id: string | null) => void;
   setPendingPosTransactionForPickup: (forPickup: boolean) => void;
   setPendingPosTransactionForRefund: (forRefund: boolean) => void;
+  setPendingPosTransactionReturnLineId: (id: string | null) => void;
   clearPendingPosCustomer: () => void;
   clearPendingPosTransaction: () => void;
   pendingWeddingPosLink: RosOpenRegisterFromWmDetail | null;
@@ -1326,9 +1332,11 @@ function AppShell({
   pendingPosTransactionId,
   pendingPosTransactionForPickup,
   pendingPosTransactionForRefund,
+  pendingPosTransactionReturnLineId,
   setPendingPosTransactionId,
   setPendingPosTransactionForPickup,
   setPendingPosTransactionForRefund,
+  setPendingPosTransactionReturnLineId,
   setPendingPosCustomer,
   clearPendingPosCustomer,
   clearPendingPosTransaction,
@@ -1553,9 +1561,11 @@ function AppShell({
             pendingPosTransactionId={pendingPosTransactionId}
             pendingPosTransactionForPickup={pendingPosTransactionForPickup}
             pendingPosTransactionForRefund={pendingPosTransactionForRefund}
+            pendingPosTransactionReturnLineId={pendingPosTransactionReturnLineId}
             setPendingPosTransactionId={setPendingPosTransactionId}
             setPendingPosTransactionForPickup={setPendingPosTransactionForPickup}
             setPendingPosTransactionForRefund={setPendingPosTransactionForRefund}
+            setPendingPosTransactionReturnLineId={setPendingPosTransactionReturnLineId}
             setPendingPosCustomer={setPendingPosCustomer}
             clearPendingPosCustomer={clearPendingPosCustomer}
             clearPendingPosTransaction={clearPendingPosTransaction}
@@ -1649,6 +1659,9 @@ function AppShell({
                 onClearPendingWmPartyId={onClearPendingWmPartyId}
                 setPendingPosCustomer={setPendingPosCustomer}
                 setPendingPosTransactionId={setPendingPosTransactionId}
+                setPendingPosTransactionForPickup={setPendingPosTransactionForPickup}
+                setPendingPosTransactionForRefund={setPendingPosTransactionForRefund}
+                setPendingPosTransactionReturnLineId={setPendingPosTransactionReturnLineId}
                 transactionsDeepLinkTxnId={transactionsDeepLinkTxnId}
                 onTransactionsDeepLinkConsumed={() => setTransactionsDeepLinkTxnId(null)}
                 onOpenTransactionInBackoffice={onOpenTransactionInBackoffice}
@@ -1880,6 +1893,9 @@ type AppMainColumnProps = {
   onClearPendingWmPartyId: () => void;
   setPendingPosCustomer: (c: Customer | null) => void;
   setPendingPosTransactionId: (orderId: string | null) => void;
+  setPendingPosTransactionForPickup: (forPickup: boolean) => void;
+  setPendingPosTransactionForRefund: (forRefund: boolean) => void;
+  setPendingPosTransactionReturnLineId: (id: string | null) => void;
   transactionsDeepLinkTxnId: string | null;
   onTransactionsDeepLinkConsumed: () => void;
   onOpenTransactionInBackoffice: (orderId: string) => void;
@@ -1928,6 +1944,9 @@ function AppMainColumn({
   onClearPendingWmPartyId,
   setPendingPosCustomer,
   setPendingPosTransactionId,
+  setPendingPosTransactionForPickup,
+  setPendingPosTransactionForRefund,
+  setPendingPosTransactionReturnLineId,
   transactionsDeepLinkTxnId,
   onTransactionsDeepLinkConsumed,
   onOpenTransactionInBackoffice,
@@ -2133,8 +2152,11 @@ function AppMainColumn({
                       refreshSignal={refreshSignal}
                       deepLinkTxnId={transactionsDeepLinkTxnId}
                       onDeepLinkTxnConsumed={onTransactionsDeepLinkConsumed}
-                      onOpenInRegister={(orderId) => {
+                      onOpenInRegister={(orderId, forPickup, returnLineId) => {
                         setPendingPosTransactionId(orderId);
+                        setPendingPosTransactionForPickup(Boolean(forPickup));
+                        setPendingPosTransactionForRefund(Boolean(returnLineId));
+                        setPendingPosTransactionReturnLineId(returnLineId ?? null);
                         navigateRegister();
                       }}
                     />

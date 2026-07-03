@@ -9,6 +9,7 @@ import {
   Phone,
   Printer,
   ShieldCheck,
+  ArrowLeftRight,
   Trash2,
   X,
   Shirt,
@@ -153,10 +154,11 @@ export interface TransactionDrawerAudit {
 }
 
 export interface TransactionDrawerOrderActions {
-  onOpenInRegister?: (orderId: string, forPickup?: boolean) => void;
+  onOpenInRegister?: (orderId: string, forPickup?: boolean, returnLineId?: string) => void;
   onAttachToWedding?: () => void;
   onCancel?: () => void;
   onReturnAll?: () => void;
+  onReturnLine?: (transactionId: string, transactionLineId: string) => void;
   onProcessRefund?: () => void;
   deleteLine?: (item: {
     order_item_id: string;
@@ -2174,6 +2176,14 @@ export default function TransactionDetailDrawer({
                             item.transaction_line_id &&
                             !item.is_fulfilled,
                         );
+                        const returnableQty = Math.max(0, item.quantity - returnedQty);
+                        const canReturnLine = Boolean(
+                          orderActions?.canModify &&
+                            detail.status !== "cancelled" &&
+                            orderActions.onReturnLine &&
+                            item.transaction_line_id &&
+                            returnableQty > 0,
+                        );
                         return (
                           <div
                             key={itemId ?? `${item.sku}-${item.product_name}`}
@@ -2266,6 +2276,21 @@ export default function TransactionDetailDrawer({
                                 </div>
                               </div>
                               <div className="flex items-center gap-1">
+                                {canReturnLine ? (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      orderActions?.onReturnLine?.(
+                                        detail.transaction_id,
+                                        item.transaction_line_id!,
+                                      )
+                                    }
+                                    className="inline-flex items-center gap-1 rounded-lg border border-app-accent/20 bg-app-accent/10 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-accent transition-colors hover:bg-app-accent/15"
+                                  >
+                                    <ArrowLeftRight size={14} />
+                                    Return / Exchange
+                                  </button>
+                                ) : null}
                                 {canMarkReady ? (
                                   <button
                                     type="button"

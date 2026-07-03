@@ -122,6 +122,8 @@ When the client cannot send Back Office staff headers (e.g. receipt modal on the
 - **Exchange/Return Wizard** (register): [`PosExchangeWizard`](client/src/components/pos/PosExchangeWizard.tsx) — A high-fidelity, "WowDash" themed workspace for processing post-sale adjustments at the till. 
    - **Wide Workspace**: Uses a `3xl` width modal to provide a zero-scroll triage environment.
    - **Guided Phases**: Implements step-by-step navigation (Selection, Returns, Cart replacement).
+   - **Customer-scoped selection**: When a customer is already loaded, the first phase lists that customer's Transaction Records instead of running a global customer-name search.
+   - **Line handoff**: Transaction Record item rows can launch Register with the original transaction and selected transaction line preloaded for return/exchange quantity confirmation.
    - **Active Instructions**: Context-aware instruction cards guide staff through complex return semantics.
    - **Automated Linking**: After replacement checkout, `POST /api/transactions/{original}/exchange-link?register_session_id=…` runs automatically to link the legs for reporting.
    - **Settlement**: return credits, deposits, replacement lines, and any remaining customer balance or refund must flow through checkout so the cart, payment allocations, customer history, QBO staging, and audit trail agree.

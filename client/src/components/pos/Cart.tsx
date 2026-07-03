@@ -278,6 +278,7 @@ interface CartProps {
   /** When true, loading the transaction is for pickup flow - will auto-add balance payment and call pickup API after checkout */
   initialTransactionForPickup?: boolean;
   initialTransactionForRefund?: boolean;
+  initialTransactionReturnLineId?: string | null;
   initialWeddingLookupOpen?: boolean;
   /** From Wedding Manager: pre-link customer + wedding member for wedding_order checkout. */
   initialWeddingPosLink?: RosOpenRegisterFromWmDetail | null;
@@ -308,6 +309,7 @@ export default function Cart({
   onInitialTransactionConsumed,
   initialTransactionForPickup = false,
   initialTransactionForRefund = false,
+  initialTransactionReturnLineId = null,
   // initialWeddingLookupOpen removed
   initialWeddingPosLink = null,
   onInitialWeddingPosLinkConsumed,
@@ -1506,6 +1508,7 @@ export default function Cart({
   const [actionRibbonCanScrollLeft, setActionRibbonCanScrollLeft] = useState(false);
   const [actionRibbonCanScrollRight, setActionRibbonCanScrollRight] = useState(false);
   const [exchangeWizardOpen, setExchangeWizardOpen] = useState(false);
+  const [exchangeWizardInitialReturnLineId, setExchangeWizardInitialReturnLineId] = useState<string | null>(null);
   const [shippingModalOpen, setShippingModalOpen] = useState(false);
 
   const updateActionRibbonScrollState = useCallback(() => {
@@ -1570,6 +1573,7 @@ export default function Cart({
       }
       if ((txn.status || "").toLowerCase() === "fulfilled") {
         setExchangeWizardInitialTransactionId(txn.transaction_id);
+        setExchangeWizardInitialReturnLineId(null);
         setExchangeWizardOpen(true);
       } else {
         if (txn.customer_id) {
@@ -1777,6 +1781,7 @@ export default function Cart({
       forPickup: boolean = false,
       forRefund: boolean = false,
       pickupLineIds?: string[],
+      returnLineId?: string | null,
     ) => {
       const res = await fetch(`${baseUrl}/api/transactions/${transactionId}`, {
         headers: apiAuth(),
@@ -1812,6 +1817,14 @@ export default function Cart({
         setEditingOrderPaymentLine(null);
         setEditingOrderPaymentAmount("");
         setPosShipping(null);
+
+        if (returnLineId) {
+          setExchangeWizardInitialTransactionId(detail.transaction_id);
+          setExchangeWizardInitialReturnLineId(returnLineId);
+          setExchangeWizardOpen(true);
+          toast("Return item loaded. Confirm the quantity and choose refund or exchange.", "success");
+          return true;
+        }
 
         const refundAmountCents = parseMoneyToCents(detail.amount_paid ?? "0");
         if (refundAmountCents <= 0) {
@@ -1880,6 +1893,7 @@ export default function Cart({
         }
         setExchangeWizardOpen(false);
         setExchangeWizardInitialTransactionId(null);
+        setExchangeWizardInitialReturnLineId(null);
         toast(
           "This order has no open order lines to load. Use the Register Return button only if the customer is returning or exchanging items.",
           "info",
@@ -1906,6 +1920,7 @@ export default function Cart({
         // Pickup mode: load unfulfilled items into cart
         setExchangeWizardOpen(false);
         setExchangeWizardInitialTransactionId(null);
+        setExchangeWizardInitialReturnLineId(null);
         setPickupTransactionId(detail.transaction_id);
         setPickupPaidAmountCents(parseMoneyToCents(detail.amount_paid ?? "0"));
         setPickupReadyAlterations((detail.linked_alterations ?? []).filter((alteration) => alteration.status === "ready"));
@@ -2089,22 +2104,34 @@ export default function Cart({
       return;
     }
     if (!saleHydrated) return;
+    const initialTransactionApplyKey = [
+      initialTransactionId,
+      initialTransactionForPickup ? "pickup" : "open",
+      initialTransactionForRefund ? "refund" : "sale",
+      initialTransactionReturnLineId ?? "",
+    ].join(":");
     if (
-      initialTransactionApplyingRef.current === initialTransactionId ||
-      initialTransactionAppliedRef.current === initialTransactionId
+      initialTransactionApplyingRef.current === initialTransactionApplyKey ||
+      initialTransactionAppliedRef.current === initialTransactionApplyKey
     ) {
       return;
     }
-    initialTransactionApplyingRef.current = initialTransactionId;
+    initialTransactionApplyingRef.current = initialTransactionApplyKey;
     void (async () => {
-      await loadTransactionIntoRegister(initialTransactionId, initialTransactionForPickup, initialTransactionForRefund);
-      initialTransactionAppliedRef.current = initialTransactionId;
-      if (initialTransactionApplyingRef.current === initialTransactionId) {
+      await loadTransactionIntoRegister(
+        initialTransactionId,
+        initialTransactionForPickup,
+        initialTransactionForRefund,
+        undefined,
+        initialTransactionReturnLineId,
+      );
+      initialTransactionAppliedRef.current = initialTransactionApplyKey;
+      if (initialTransactionApplyingRef.current === initialTransactionApplyKey) {
         initialTransactionApplyingRef.current = null;
       }
       onInitialTransactionConsumed?.();
     })();
-  }, [initialTransactionId, initialTransactionForPickup, initialTransactionForRefund, loadTransactionIntoRegister, onInitialTransactionConsumed, saleHydrated]);
+  }, [initialTransactionId, initialTransactionForPickup, initialTransactionForRefund, initialTransactionReturnLineId, loadTransactionIntoRegister, onInitialTransactionConsumed, saleHydrated]);
 
   useEffect(() => {
     if (!initialWeddingPosLink?.member?.customer_id) return;
@@ -4372,10 +4399,12 @@ export default function Cart({
       <PosExchangeWizard
         open={exchangeWizardOpen}
         initialTransactionId={exchangeWizardInitialTransactionId}
+        initialReturnLineId={exchangeWizardInitialReturnLineId}
         customer={selectedCustomer}
         onClose={() => {
           setExchangeWizardOpen(false);
           setExchangeWizardInitialTransactionId(null);
+          setExchangeWizardInitialReturnLineId(null);
         }}
         sessionId={sessionId}
         baseUrl={baseUrl}

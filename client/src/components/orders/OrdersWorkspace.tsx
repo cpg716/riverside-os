@@ -550,10 +550,11 @@ type FulfillmentKind =
   | "layaway";
 
 interface OrderRowActions {
-  onOpenInRegister?: (orderId: string, forPickup?: boolean) => void;
+  onOpenInRegister?: (orderId: string, forPickup?: boolean, returnLineId?: string) => void;
   onAttachToWedding: () => void;
   onCancel: () => void;
   onReturnAll: () => void;
+  onReturnLine?: (transactionId: string, transactionLineId: string) => void;
   deleteLine: (it: OrderItem) => void;
   addBySku: (skuOverride?: string) => Promise<boolean>;
   updateLine: (
@@ -1019,7 +1020,7 @@ export default function OrdersWorkspace({
   refreshSignal = 0,
 }: {
   activeSection?: string;
-  onOpenInRegister?: (orderId: string, forPickup?: boolean) => void;
+  onOpenInRegister?: (orderId: string, forPickup?: boolean, returnLineId?: string) => void;
   /** When set, selects this order in the list and opens detail (e.g. from CRM hub). */
   deepLinkTxnId?: string | null;
   onDeepLinkTxnConsumed?: () => void;
@@ -1068,9 +1069,9 @@ export default function OrdersWorkspace({
   const [refundManagerAccessOpen, setRefundManagerAccessOpen] = useState(false);
   const [refundBusy, setRefundBusy] = useState(false);
   const openInRegisterAndClose = useCallback(
-    (orderId: string, forPickup?: boolean) => {
+    (orderId: string, forPickup?: boolean, returnLineId?: string) => {
       setSelectedId(null);
-      onOpenInRegister?.(orderId, forPickup);
+      onOpenInRegister?.(orderId, forPickup, returnLineId);
     },
     [onOpenInRegister],
   );
@@ -2215,6 +2216,8 @@ export default function OrdersWorkspace({
                     onAttachToWedding: () => setAttachWeddingModalOpen(true),
                     onCancel: () => setCancelConfirmOpen(true),
                     onReturnAll: () => setReturnConfirmOpen(true),
+                    onReturnLine: (orderId, lineId) =>
+                      openInRegisterAndClose(orderId, false, lineId),
                     deleteLine: (it: OrderItem) => void deleteLine(it),
                     addBySku,
                     updateLine,
@@ -2298,6 +2301,8 @@ export default function OrdersWorkspace({
                           setAttachWeddingModalOpen(true),
                         onCancel: () => setCancelConfirmOpen(true),
                         onReturnAll: () => setReturnConfirmOpen(true),
+                        onReturnLine: (orderId, lineId) =>
+                          openInRegisterAndClose(orderId, false, lineId),
                         deleteLine: (it: OrderItem) => void deleteLine(it),
                         addBySku,
                         updateLine,
@@ -2414,6 +2419,8 @@ export default function OrdersWorkspace({
           onAttachToWedding: () => setAttachWeddingModalOpen(true),
           onCancel: () => setCancelConfirmOpen(true),
           onReturnAll: () => setReturnConfirmOpen(true),
+          onReturnLine: (orderId, lineId) =>
+            openInRegisterAndClose(orderId, false, lineId),
           onProcessRefund: () => {
             setRefundExternalReference("");
             setRefundManagerReason("");

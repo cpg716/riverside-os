@@ -70,9 +70,11 @@ interface PosShellProps {
   pendingPosTransactionId: string | null;
   pendingPosTransactionForPickup: boolean;
   pendingPosTransactionForRefund: boolean;
+  pendingPosTransactionReturnLineId: string | null;
   setPendingPosTransactionId: (transactionId: string | null) => void;
   setPendingPosTransactionForPickup: (forPickup: boolean) => void;
   setPendingPosTransactionForRefund: (forRefund: boolean) => void;
+  setPendingPosTransactionReturnLineId: (transactionLineId: string | null) => void;
   setPendingPosCustomer: (c: Customer | null) => void;
   clearPendingPosCustomer: () => void;
   clearPendingPosTransaction: () => void;
@@ -108,9 +110,11 @@ export default function PosShell({
   pendingPosTransactionId,
   pendingPosTransactionForPickup,
   pendingPosTransactionForRefund,
+  pendingPosTransactionReturnLineId,
   setPendingPosTransactionId,
   setPendingPosTransactionForPickup,
   setPendingPosTransactionForRefund,
+  setPendingPosTransactionReturnLineId,
   setPendingPosCustomer,
   clearPendingPosCustomer,
   clearPendingPosTransaction,
@@ -343,6 +347,7 @@ export default function PosShell({
                 onGoToTasks={() => setActivePosTab("tasks")}
                 onOpenOrderInRegister={(orderId) => {
                   setPendingPosTransactionId(orderId);
+                  setPendingPosTransactionReturnLineId(null);
                   clearPendingPosCustomer();
                   setActivePosTab("register");
                 }}
@@ -381,6 +386,7 @@ export default function PosShell({
                   initialTransactionId={pendingPosTransactionId}
                   initialTransactionForPickup={pendingPosTransactionForPickup}
                   initialTransactionForRefund={pendingPosTransactionForRefund}
+                  initialTransactionReturnLineId={pendingPosTransactionReturnLineId}
                   onInitialTransactionConsumed={clearPendingPosTransaction}
                   initialWeddingLookupOpen={false}
                   initialWeddingPosLink={pendingWeddingPosLink}
@@ -506,9 +512,11 @@ export default function PosShell({
                 <OrdersWorkspace
                   activeSection="open"
                   refreshSignal={refreshSignal}
-                  onOpenInRegister={(orderId, forPickup) => {
+                  onOpenInRegister={(orderId, forPickup, returnLineId) => {
                     setPendingPosTransactionId(orderId);
                     setPendingPosTransactionForPickup(forPickup || false);
+                    setPendingPosTransactionForRefund(Boolean(returnLineId));
+                    setPendingPosTransactionReturnLineId(returnLineId ?? null);
                     clearPendingPosCustomer();
                     setActivePosTab("register");
                   }}
@@ -546,6 +554,7 @@ export default function PosShell({
               onOpenRefundInRegister={(transactionId) => {
                 setPendingPosTransactionId(transactionId);
                 setPendingPosTransactionForRefund(true);
+                setPendingPosTransactionReturnLineId(null);
                 clearPendingPosCustomer();
                 setActivePosTab("register");
               }}

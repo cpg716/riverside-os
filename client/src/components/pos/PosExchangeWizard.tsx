@@ -50,6 +50,22 @@ interface TransactionDetailLite {
   items: TransactionItemRow[];
 }
 
+interface CustomerTransactionRow {
+  transaction_id: string;
+  display_id?: string | null;
+  booked_at: string;
+  status: string;
+  total_price: string;
+  amount_paid: string;
+  balance_due: string;
+  item_count: number;
+  order_items_summary?: string | null;
+}
+
+interface CustomerTransactionResponse {
+  items?: CustomerTransactionRow[];
+}
+
 function jsonHeaders(base: Record<string, string>): HeadersInit {
   const h = new Headers(base);
   h.set("Content-Type", "application/json");
@@ -145,6 +161,7 @@ function returnedLineSummaries(detail: TransactionDetailLite): ReturnedLineSumma
 export default function PosExchangeWizard({
   open,
   initialTransactionId,
+  initialReturnLineId,
   customer,
   onClose,
   sessionId,
@@ -154,6 +171,7 @@ export default function PosExchangeWizard({
 }: {
   open: boolean;
   initialTransactionId?: string | null;
+  initialReturnLineId?: string | null;
   customer?: Customer | null;
   onClose: () => void;
   sessionId: string;
@@ -180,6 +198,9 @@ export default function PosExchangeWizard({
   const [managerApproval, setManagerApproval] = useState<{ staffId: string; pin: string } | null>(null);
   const [returnedLines, setReturnedLines] = useState<ReturnedLineSummary[]>([]);
   const [refundAmount, setRefundAmount] = useState("");
+  const [customerTransactions, setCustomerTransactions] = useState<CustomerTransactionRow[]>([]);
+  const [customerTransactionsLoading, setCustomerTransactionsLoading] = useState(false);
+  const [customerTransactionsError, setCustomerTransactionsError] = useState<string | null>(null);
   const workflowIndex = EXCHANGE_WORKFLOW_STEPS.findIndex((item) => item.id === step);
   const receiptLabel =
     detail?.transaction_display_id ?? detail?.transaction_id.slice(0, 8).toUpperCase() ?? "";
@@ -194,7 +215,25 @@ export default function PosExchangeWizard({
     setManagerApproval(null);
     setReturnedLines([]);
     setRefundAmount("");
+    setCustomerTransactions([]);
+    setCustomerTransactionsError(null);
   }, []);
+
+  const prefillReturnLine = useCallback((d: TransactionDetailLite) => {
+    if (!initialReturnLineId) return;
+    const line = d.items.find((item) => item.transaction_line_id === initialReturnLineId);
+    if (!line) return;
+    const max = line.quantity - (line.quantity_returned ?? 0);
+    if (max > 0) {
+      setReturnQtyDraft({ [initialReturnLineId]: "1" });
+    }
+  }, [initialReturnLineId]);
+
+  const applyLoadedTransaction = useCallback((d: TransactionDetailLite) => {
+    setDetail(d);
+    prefillReturnLine(d);
+    setStep("return");
+  }, [prefillReturnLine]);
 
   const loadTransaction = useCallback(async (id: string) => {
     setLoading(true);
@@ -232,15 +271,49 @@ export default function PosExchangeWizard({
       if (daysOld > RETURN_MANAGER_APPROVAL_WINDOW_DAYS) {
         setPendingManagerApproval(d);
       } else {
-        setDetail(d);
-        setStep("return");
+        applyLoadedTransaction(d);
       }
     } catch {
       toast("Network error loading transaction", "error");
     } finally {
       setLoading(false);
     }
-  }, [baseUrl, sessionQs, apiAuth, toast]);
+  }, [baseUrl, sessionQs, apiAuth, toast, applyLoadedTransaction]);
+
+  useEffect(() => {
+    if (!open || !customer?.id || step !== "load" || initialTransactionId) return;
+    let cancelled = false;
+    setCustomerTransactionsLoading(true);
+    setCustomerTransactionsError(null);
+    void (async () => {
+      try {
+        const params = new URLSearchParams({
+          customer_id: customer.id,
+          register_session_id: sessionId,
+          show_closed: "true",
+          limit: "25",
+        });
+        const res = await fetch(`${baseUrl}/api/transactions?${params.toString()}`, {
+          headers: apiAuth(),
+        });
+        if (!res.ok) {
+          throw new Error("transaction list unavailable");
+        }
+        const data = (await res.json()) as CustomerTransactionResponse;
+        if (!cancelled) setCustomerTransactions(Array.isArray(data.items) ? data.items : []);
+      } catch {
+        if (!cancelled) {
+          setCustomerTransactions([]);
+          setCustomerTransactionsError("Could not load this customer's transactions.");
+        }
+      } finally {
+        if (!cancelled) setCustomerTransactionsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiAuth, baseUrl, customer?.id, initialTransactionId, open, sessionId, step]);
 
   useEffect(() => {
     if (open && initialTransactionId) {
@@ -501,17 +574,72 @@ export default function PosExchangeWizard({
                 </div>
                 <h3 className="text-sm font-black text-app-text">Locate Original Transaction</h3>
                 <p className="mt-2 text-xs leading-relaxed text-app-text-muted">
-                  Search by customer name, phone, Short ID, or scan a receipt barcode to pull up eligible return items.
+                  Select one of this customer's transactions, or scan a receipt barcode to pull up eligible return items.
                 </p>
               </div>
 
+              {customer ? (
+                <div className="rounded-2xl border border-app-border bg-app-surface-2 p-4 shadow-sm">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">
+                      Original Transactions
+                    </p>
+                    {customerTransactionsLoading ? (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        Loading
+                      </span>
+                    ) : null}
+                  </div>
+                  {customerTransactionsError ? (
+                    <p className="rounded-xl border border-app-danger/20 bg-app-danger/5 px-3 py-2 text-xs font-bold text-app-danger">
+                      {customerTransactionsError}
+                    </p>
+                  ) : customerTransactions.length === 0 && !customerTransactionsLoading ? (
+                    <p className="rounded-xl border border-app-border bg-app-surface px-3 py-3 text-xs font-semibold text-app-text-muted">
+                      No transactions were found for this customer. Scan a receipt or search by transaction number below.
+                    </p>
+                  ) : (
+                    <div className="grid gap-2">
+                      {customerTransactions.map((row) => (
+                        <button
+                          key={row.transaction_id}
+                          type="button"
+                          onClick={() => void loadTransaction(row.transaction_id)}
+                          disabled={loading}
+                          className="flex items-center justify-between gap-3 rounded-xl border border-app-border bg-app-surface px-3 py-3 text-left transition-colors hover:border-app-accent/40 hover:bg-app-accent/5 disabled:opacity-60"
+                        >
+                          <div className="min-w-0">
+                            <p className="font-mono text-xs font-black text-app-accent">
+                              {row.display_id ?? row.transaction_id.slice(0, 8).toUpperCase()}
+                            </p>
+                            <p className="mt-1 truncate text-[11px] font-semibold text-app-text-muted">
+                              {new Date(row.booked_at).toLocaleDateString()} · {row.item_count} item{row.item_count === 1 ? "" : "s"}
+                              {row.order_items_summary ? ` · ${row.order_items_summary}` : ""}
+                            </p>
+                          </div>
+                          <div className="shrink-0 text-right">
+                            <p className="font-mono text-sm font-black text-app-text">
+                              ${formatMoney(parseMoney(row.total_price))}
+                            </p>
+                            <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                              {row.status}
+                            </p>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : null}
+
               <div className="rounded-2xl border border-app-border bg-app-surface-2 p-4 shadow-sm">
                  <p className="mb-3 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">
-                   Transaction Search
+                   Receipt / Transaction Lookup
                  </p>
                  <TransactionSearchInput 
-                    autoFocus 
-                    initialQuery={customer ? `${customer.first_name} ${customer.last_name}`.trim() : ""}
+                    autoFocus={!customer}
+                    initialQuery=""
                     onSelect={(o) => void loadTransaction(o.transaction_id)} 
                     disabled={loading}
                  />
@@ -777,25 +905,8 @@ export default function PosExchangeWizard({
             setLoading(false);
           }}
           onApprove={async (pin, managerId) => {
-             const res = await fetch(`${baseUrl}/api/staff/verify-pin`, {
-               method: "POST",
-               headers: { ...jsonHeaders(apiAuth()) },
-               body: JSON.stringify({
-                 staff_id: managerId,
-                 pin,
-                 authorize_action: "older_return_approval",
-                 authorize_metadata: {
-                   transaction_id: pendingManagerApproval.transaction_id,
-                   reason: `Manager approved return outside ${RETURN_MANAGER_APPROVAL_WINDOW_DAYS}-day policy`,
-                 },
-               })
-             });
-             if (!res.ok) {
-               throw new Error("Manager Access was not approved.");
-             }
              setManagerApproval({ staffId: managerId, pin });
-             setDetail(pendingManagerApproval);
-             setStep("return");
+             applyLoadedTransaction(pendingManagerApproval);
              setPendingManagerApproval(null);
           }}
         />
