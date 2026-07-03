@@ -330,7 +330,6 @@ export default function Cart({
     staffRole,
     staffPin,
     staffCode,
-    employeeCustomerId
   } = useBackofficeAuth();
 
   const hasAccess = staffRole === "admin";
@@ -351,7 +350,7 @@ export default function Cart({
   const [saleDateTimeLocal, setSaleDateTimeLocal] = useState<string | null>(null);
   const [pickupConfirmed, setPickupConfirmed] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
-  const isEmployeeSale = Boolean(employeeCustomerId) && selectedCustomer?.id === employeeCustomerId;
+  const isEmployeeSale = selectedCustomer?.employee_discount_eligible === true;
   const [activeWeddingMember, setActiveWeddingMember] = useState<WeddingMember | null>(null);
   const [activeWeddingPartyName, setActiveWeddingPartyName] = useState<string | null>(null);
   const [disbursementMembers, setDisbursementMembers] = useState<WeddingMember[]>([]);
@@ -505,7 +504,6 @@ export default function Cart({
     rmsPaymentMeta,
     giftCardLoadMeta,
     activeWeddingMember,
-    employeeCustomerId,
     selectedCustomer,
     setSelectedCustomer,
     toast,
@@ -1350,7 +1348,6 @@ export default function Cart({
     activeWeddingMember,
     cashierName,
     primarySalespersonId,
-    employeeCustomerId,
     disbursementMembers,
     posShipping,
     pendingAlterationIntakes,
@@ -1568,6 +1565,7 @@ export default function Cart({
               email: c.email ?? null,
               phone: c.phone ?? null,
               profile_discount_percent: c.profile_discount_percent,
+              employee_discount_eligible: c.employee_discount_eligible,
               tax_exempt: c.tax_exempt,
               tax_exempt_id: c.tax_exempt_id,
             });
@@ -2069,6 +2067,7 @@ export default function Cart({
             email: c.email ?? null,
             phone: c.phone ?? null,
             profile_discount_percent: c.profile_discount_percent,
+            employee_discount_eligible: c.employee_discount_eligible,
             tax_exempt: c.tax_exempt,
             tax_exempt_id: c.tax_exempt_id,
           });

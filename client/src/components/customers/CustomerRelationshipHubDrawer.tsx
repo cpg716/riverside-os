@@ -2998,6 +2998,11 @@ export function CustomerRelationshipHubDrawer({
                   VIP
                 </span>
               ) : null}
+              {hub.employee_discount_eligible ? (
+                <span className="inline-flex items-center rounded-full border border-app-info/20 bg-app-info/10 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-info">
+                  Staff
+                </span>
+              ) : null}
               {hub.customer_created_source === "online_store" ? (
                 <span className="inline-flex items-center gap-1 rounded-full border border-app-info/20 bg-app-info/10 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-info">
                   Online signup
@@ -3250,6 +3255,7 @@ export function CustomerRelationshipHubDrawer({
                     email: hub.email,
                     phone: hub.phone,
                     profile_discount_percent: hub.profile_discount_percent,
+                    employee_discount_eligible: hub.employee_discount_eligible,
                     tax_exempt: hub.tax_exempt,
                     tax_exempt_id: hub.tax_exempt_id,
                   });

@@ -41,6 +41,7 @@ Many browse/search/create paths use **`require_customer_access`** (signed-in sta
 
 - **Linking Strategy**: Two customers can be linked to form a **Couple Account**. One member is designated as the `couple_primary_id` (effectively the root financial record).
 - **Financial Redirection**: At POS checkout, if the selected customer is linked, the transaction's `customer_id` is automatically set to the **primary partner's ID**. This ensures that sales revenue, loyalty points, and liability (RMS charge) are centralized to one account.
+- **Discount Source**: Preset customer discounts and staff-linked employee pricing are evaluated from the **selected customer profile** before financial redirection. The Transaction Record may belong to the primary partner, but discount audit metadata records the selected profile that granted the discount.
 - **Combined Views**: Returns for stats (lifetime spend, balance due, wedding parties), **Transactions history**, and the **Timeline** aggregate data from both partners.
 - **Individual Data**: **Measurements**, **Contact secondary details**, and **Timeline Notes** remain individual unless explicitly shared, preserving "archived" individual fitting context.
 - **Profile Switching**: The Hub UI allows immediate switching between linked partners to access their individual fitting/measurement data without leaving the joint sales context.

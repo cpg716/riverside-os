@@ -8017,6 +8017,75 @@ async fn patch_transaction_attribution(
         .await
         .map_err(TransactionError::Database)?;
 
+        if has_commission_event {
+            sqlx::query(
+                r#"
+                UPDATE commission_events ce
+                SET
+                    staff_id = oi.salesperson_id,
+                    base_rate_used = COALESCE((
+                        SELECT h.base_commission_rate
+                        FROM staff_commission_rate_history h
+                        WHERE h.staff_id = oi.salesperson_id
+                          AND h.effective_start_date <= ce.event_at::date
+                        ORDER BY h.effective_start_date DESC, h.created_at DESC
+                        LIMIT 1
+                    ), st.base_commission_rate, 0),
+                    total_commission_amount = oi.calculated_commission,
+                    base_commission_amount = CASE
+                        WHEN ce.event_type = 'combo_incentive' THEN 0
+                        ELSE ROUND((oi.unit_price * oi.quantity) * COALESCE((
+                            SELECT h.base_commission_rate
+                            FROM staff_commission_rate_history h
+                            WHERE h.staff_id = oi.salesperson_id
+                              AND h.effective_start_date <= ce.event_at::date
+                            ORDER BY h.effective_start_date DESC, h.created_at DESC
+                            LIMIT 1
+                        ), st.base_commission_rate, 0), 2)
+                    END,
+                    incentive_amount = CASE
+                        WHEN ce.event_type = 'combo_incentive' THEN oi.calculated_commission
+                        ELSE oi.calculated_commission - ROUND((oi.unit_price * oi.quantity) * COALESCE((
+                            SELECT h.base_commission_rate
+                            FROM staff_commission_rate_history h
+                            WHERE h.staff_id = oi.salesperson_id
+                              AND h.effective_start_date <= ce.event_at::date
+                            ORDER BY h.effective_start_date DESC, h.created_at DESC
+                            LIMIT 1
+                        ), st.base_commission_rate, 0), 2)
+                    END,
+                    snapshot_json = jsonb_set(
+                        jsonb_set(
+                            ce.snapshot_json,
+                            '{staff_name}',
+                            to_jsonb(COALESCE(st.full_name, 'Unassigned')),
+                            true
+                        ),
+                        '{attribution_corrected_by_staff_id}',
+                        to_jsonb($3::text),
+                        true
+                    ),
+                    note = CONCAT_WS(
+                        ' ',
+                        NULLIF(ce.note, ''),
+                        '(Attribution corrected after recognition; see order_attribution_audit.)'
+                    )
+                FROM transaction_lines oi
+                LEFT JOIN staff st ON st.id = oi.salesperson_id
+                WHERE ce.transaction_line_id = oi.id
+                  AND oi.transaction_id = $1
+                  AND oi.id = $2
+                  AND ce.event_type IN ('sale_commission', 'combo_incentive')
+                "#,
+            )
+            .bind(transaction_id)
+            .bind(line.transaction_line_id)
+            .bind(corrector_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(TransactionError::Database)?;
+        }
+
         sqlx::query(
             r#"
             INSERT INTO order_attribution_audit (

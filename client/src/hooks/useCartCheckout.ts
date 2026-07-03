@@ -31,7 +31,6 @@ interface UseCartCheckoutProps {
   activeWeddingMember: WeddingMember | null;
   cashierName?: string | null;
   primarySalespersonId: string;
-  employeeCustomerId: string | null;
   disbursementMembers: WeddingMember[];
   posShipping: PosShippingSelection | null;
   pendingAlterationIntakes: PendingAlterationIntake[];
@@ -162,7 +161,6 @@ export function useCartCheckout({
   activeWeddingMember,
   cashierName,
   primarySalespersonId,
-  employeeCustomerId,
   disbursementMembers,
   posShipping,
   pendingAlterationIntakes,
@@ -348,7 +346,7 @@ export function useCartCheckout({
         return null;
       }
 
-      const isEmployeeSale = Boolean(employeeCustomerId) && selectedCustomer?.id === employeeCustomerId;
+      const isEmployeeSale = selectedCustomer?.employee_discount_eligible === true;
       const primaryTrim = isEmployeeSale ? "" : primarySalespersonId.trim();
       if (orderPaymentLines.length > 0) {
         if (!selectedCustomer?.id) {
@@ -711,7 +709,7 @@ export function useCartCheckout({
     }
   }, [
     sessionId, baseUrl, apiAuth, lines, selectedCustomer, activeWeddingMember,
-    cashierName, primarySalespersonId, employeeCustomerId, disbursementMembers, posShipping, pendingAlterationIntakes, orderPaymentLines,
+    cashierName, primarySalespersonId, disbursementMembers, posShipping, pendingAlterationIntakes, orderPaymentLines,
     pickupAlterationIds, pickupConfirmed, pickupTransactionId, belowCostApproval, saleDateTimeLocal, totals, toast, clearCart, onSaleCompleted, ensurePosTokenForSession, checkoutClientId
   ]);
 

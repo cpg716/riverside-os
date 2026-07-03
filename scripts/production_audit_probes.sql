@@ -141,12 +141,200 @@ WHERE COALESCE(t.is_tax_exempt, false) = true
   AND (COALESCE(tl.state_tax, 0) <> 0 OR COALESCE(tl.local_tax, 0) <> 0)
 ORDER BY t.booked_at DESC;
 
+\echo 'P1 probe: discounted lines missing override evidence'
+SELECT
+    tl.id AS transaction_line_id,
+    tl.transaction_id,
+    t.display_id,
+    tl.variant_id,
+    tl.quantity,
+    tl.unit_price,
+    tl.size_specs
+FROM transaction_lines tl
+JOIN transactions t ON t.id = tl.transaction_id
+WHERE t.status::text <> 'cancelled'
+  AND (
+      tl.size_specs ? 'discount_event_label'
+      OR tl.size_specs ? 'discount_event_id'
+      OR tl.size_specs ? 'price_override_reason'
+  )
+  AND (
+      NOT (tl.size_specs ? 'original_unit_price')
+      OR NOT (tl.size_specs ? 'overridden_unit_price')
+      OR NULLIF(TRIM(tl.size_specs->>'original_unit_price'), '') IS NULL
+      OR NULLIF(TRIM(tl.size_specs->>'overridden_unit_price'), '') IS NULL
+  )
+ORDER BY t.booked_at DESC;
+
+\echo 'P1 probe: sale discount event metadata missing usage ledger'
+SELECT
+    tl.id AS transaction_line_id,
+    tl.transaction_id,
+    t.display_id,
+    tl.variant_id,
+    tl.size_specs->>'discount_event_id' AS discount_event_id
+FROM transaction_lines tl
+JOIN transactions t ON t.id = tl.transaction_id
+WHERE t.status::text <> 'cancelled'
+  AND NULLIF(TRIM(tl.size_specs->>'discount_event_id'), '') IS NOT NULL
+  AND NOT EXISTS (
+      SELECT 1
+      FROM discount_event_usage deu
+      WHERE deu.order_item_id = tl.id
+        AND deu.transaction_id = tl.transaction_id
+        AND deu.variant_id = tl.variant_id
+  )
+ORDER BY t.booked_at DESC;
+
+\echo 'P1 probe: discount usage ledger points at mismatched line facts'
+SELECT
+    deu.id AS discount_usage_id,
+    deu.event_id,
+    deu.transaction_id AS usage_transaction_id,
+    tl.transaction_id AS line_transaction_id,
+    deu.order_item_id AS transaction_line_id,
+    deu.variant_id AS usage_variant_id,
+    tl.variant_id AS line_variant_id,
+    deu.quantity AS usage_quantity,
+    tl.quantity AS line_quantity
+FROM discount_event_usage deu
+LEFT JOIN transaction_lines tl ON tl.id = deu.order_item_id
+LEFT JOIN transactions t ON t.id = deu.transaction_id
+WHERE tl.id IS NULL
+   OR t.id IS NULL
+   OR tl.transaction_id <> deu.transaction_id
+   OR tl.variant_id <> deu.variant_id
+   OR tl.quantity <> deu.quantity
+ORDER BY deu.created_at DESC;
+
+\echo 'P1 probe: customer profile discounts without matching customer profile'
+SELECT
+    tl.id AS transaction_line_id,
+    tl.transaction_id,
+    t.display_id,
+    t.customer_id AS financial_customer_id,
+    discount_source.discount_customer_id AS profile_discount_customer_id,
+    c.profile_discount_percent,
+    tl.size_specs
+FROM transaction_lines tl
+JOIN transactions t ON t.id = tl.transaction_id
+LEFT JOIN LATERAL (
+    SELECT CASE
+        WHEN NULLIF(TRIM(tl.size_specs->>'profile_discount_customer_id'), '') ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+            THEN (tl.size_specs->>'profile_discount_customer_id')::uuid
+        ELSE t.customer_id
+    END AS discount_customer_id
+) discount_source ON TRUE
+LEFT JOIN customers c ON c.id = discount_source.discount_customer_id
+WHERE t.status::text <> 'cancelled'
+  AND lower(COALESCE(tl.size_specs->>'price_override_reason', '')) = 'customer profile discount'
+  AND (
+      discount_source.discount_customer_id IS NULL
+      OR COALESCE(c.profile_discount_percent, 0) <= 0
+  )
+ORDER BY t.booked_at DESC;
+
+\echo 'P1 probe: employee purchase transactions without linked employee customer'
+SELECT
+    t.id AS transaction_id,
+    t.display_id,
+    t.customer_id AS financial_customer_id,
+    employee_source.employee_customer_id,
+    t.booked_at
+FROM transactions t
+LEFT JOIN LATERAL (
+    SELECT CASE
+        WHEN NULLIF(TRIM(t.metadata->>'selected_customer_id'), '') ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+            THEN (t.metadata->>'selected_customer_id')::uuid
+        ELSE t.customer_id
+    END AS employee_customer_id
+) employee_source ON TRUE
+WHERE COALESCE(t.is_employee_purchase, false) = true
+  AND t.status::text <> 'cancelled'
+  AND NOT EXISTS (
+      SELECT 1
+      FROM staff s
+      WHERE s.employee_customer_id = employee_source.employee_customer_id
+  )
+ORDER BY t.booked_at DESC;
+
 \echo 'P1 probe: finalized commission lines without fulfillment recognition'
 SELECT id, transaction_id, salesperson_id, fulfilled_at, commission_payout_finalized_at
 FROM transaction_lines
 WHERE commission_payout_finalized_at IS NOT NULL
   AND fulfilled_at IS NULL
 ORDER BY commission_payout_finalized_at DESC;
+
+\echo 'P1 probe: fulfilled commissionable lines missing commission event'
+SELECT
+    tl.id AS transaction_line_id,
+    tl.transaction_id,
+    t.display_id,
+    tl.salesperson_id,
+    tl.calculated_commission,
+    COALESCE(tl.fulfilled_at, t.fulfilled_at, t.booked_at) AS recognition_at
+FROM transaction_lines tl
+JOIN transactions t ON t.id = tl.transaction_id
+WHERE t.status::text <> 'cancelled'
+  AND COALESCE(tl.is_fulfilled, false) = true
+  AND tl.salesperson_id IS NOT NULL
+  AND COALESCE(tl.calculated_commission, 0) <> 0
+  AND NOT EXISTS (
+      SELECT 1
+      FROM commission_events ce
+      WHERE ce.transaction_line_id = tl.id
+        AND ce.event_type IN ('sale_commission', 'combo_incentive')
+  )
+ORDER BY recognition_at DESC;
+
+\echo 'P1 probe: duplicate commission events for one source'
+SELECT
+    source_event_id,
+    event_type,
+    COUNT(*) AS event_count,
+    COALESCE(SUM(total_commission_amount), 0)::numeric(14, 2) AS total_commission_amount
+FROM commission_events
+WHERE source_event_id IS NOT NULL
+GROUP BY source_event_id, event_type
+HAVING COUNT(*) > 1
+ORDER BY event_count DESC, source_event_id;
+
+\echo 'P1 probe: sale commission event totals disagree with transaction line snapshot'
+SELECT
+    ce.id AS commission_event_id,
+    ce.transaction_line_id,
+    ce.event_type,
+    ce.total_commission_amount,
+    tl.calculated_commission
+FROM commission_events ce
+JOIN transaction_lines tl ON tl.id = ce.transaction_line_id
+JOIN transactions t ON t.id = tl.transaction_id
+WHERE ce.event_type IN ('sale_commission', 'combo_incentive')
+  AND t.status::text <> 'cancelled'
+  AND ABS(COALESCE(ce.total_commission_amount, 0) - COALESCE(tl.calculated_commission, 0)) > 0.01
+ORDER BY ce.event_at DESC;
+
+\echo 'P1 probe: returned commissionable lines missing return adjustment event'
+SELECT
+    trl.id AS return_line_id,
+    trl.transaction_id,
+    t.display_id,
+    trl.transaction_line_id,
+    trl.quantity_returned,
+    tl.calculated_commission
+FROM transaction_return_lines trl
+JOIN transaction_lines tl ON tl.id = trl.transaction_line_id
+JOIN transactions t ON t.id = trl.transaction_id
+WHERE t.status::text <> 'cancelled'
+  AND tl.salesperson_id IS NOT NULL
+  AND COALESCE(tl.calculated_commission, 0) > 0
+  AND NOT EXISTS (
+      SELECT 1
+      FROM commission_events ce
+      WHERE ce.source_event_id = trl.id
+        AND ce.event_type = 'return_adjustment'
+  )
+ORDER BY trl.created_at DESC;
 
 \echo 'P1 probe: approved QBO staging rows with unbalanced payload totals'
 SELECT

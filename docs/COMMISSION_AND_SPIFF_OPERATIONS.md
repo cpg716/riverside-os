@@ -54,7 +54,7 @@ When a rate changes, the start date matters:
 
 - activity before the start date uses the prior effective rate;
 - activity on or after the start date uses the new rate;
-- existing recognized commission events are never rewritten; corrections use manual adjustment events.
+- Manager-approved attribution corrections update the affected sale commission/SPIFF event to the corrected staff member and leave an attribution audit row.
 
 ## SPIFFs
 
@@ -94,6 +94,8 @@ Returns create immutable negative commission adjustment events in the return per
 ## Manual Adjustments
 
 Manual add/subtract entries are required for store-approved commission corrections.
+
+Use a manual adjustment when the store needs an explicit add/subtract entry unrelated to correcting the salesperson on the original sale. If the cashier selected the wrong salesperson, Manager Access can correct whole-sale or line-level attribution after recognition; Riverside OS updates the affected commission event snapshot and keeps the attribution audit row for review.
 
 Each adjustment must capture:
 

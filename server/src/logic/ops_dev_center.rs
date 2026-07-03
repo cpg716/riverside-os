@@ -3370,6 +3370,110 @@ pub async fn execute_audit_probes(
         "#,
         ),
         (
+            "discount_missing_override_evidence",
+            "Discounted lines missing override evidence",
+            "warning",
+            r#"
+            SELECT tl.id::text AS key, t.display_id AS detail
+            FROM transaction_lines tl
+            JOIN transactions t ON t.id = tl.transaction_id
+            WHERE t.status::text <> 'cancelled'
+              AND (
+                  tl.size_specs ? 'discount_event_label'
+                  OR tl.size_specs ? 'discount_event_id'
+                  OR tl.size_specs ? 'price_override_reason'
+              )
+              AND (
+                  NOT (tl.size_specs ? 'original_unit_price')
+                  OR NOT (tl.size_specs ? 'overridden_unit_price')
+                  OR NULLIF(TRIM(tl.size_specs->>'original_unit_price'), '') IS NULL
+                  OR NULLIF(TRIM(tl.size_specs->>'overridden_unit_price'), '') IS NULL
+              )
+        "#,
+        ),
+        (
+            "discount_usage_missing",
+            "Sale discount metadata missing usage ledger",
+            "warning",
+            r#"
+            SELECT tl.id::text AS key, t.display_id AS detail
+            FROM transaction_lines tl
+            JOIN transactions t ON t.id = tl.transaction_id
+            WHERE t.status::text <> 'cancelled'
+              AND NULLIF(TRIM(tl.size_specs->>'discount_event_id'), '') IS NOT NULL
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM discount_event_usage deu
+                  WHERE deu.order_item_id = tl.id
+                    AND deu.transaction_id = tl.transaction_id
+                    AND deu.variant_id = tl.variant_id
+              )
+        "#,
+        ),
+        (
+            "discount_usage_mismatch",
+            "Discount usage ledger mismatches line facts",
+            "warning",
+            r#"
+            SELECT deu.id::text AS key, deu.transaction_id::text AS detail
+            FROM discount_event_usage deu
+            LEFT JOIN transaction_lines tl ON tl.id = deu.order_item_id
+            LEFT JOIN transactions t ON t.id = deu.transaction_id
+            WHERE tl.id IS NULL
+               OR t.id IS NULL
+               OR tl.transaction_id <> deu.transaction_id
+               OR tl.variant_id <> deu.variant_id
+               OR tl.quantity <> deu.quantity
+        "#,
+        ),
+        (
+            "customer_profile_discount_without_profile",
+            "Customer profile discounts without matching profile",
+            "warning",
+            r#"
+            SELECT tl.id::text AS key, t.display_id AS detail
+            FROM transaction_lines tl
+            JOIN transactions t ON t.id = tl.transaction_id
+            LEFT JOIN LATERAL (
+                SELECT CASE
+                    WHEN NULLIF(TRIM(tl.size_specs->>'profile_discount_customer_id'), '') ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+                        THEN (tl.size_specs->>'profile_discount_customer_id')::uuid
+                    ELSE t.customer_id
+                END AS discount_customer_id
+            ) discount_source ON TRUE
+            LEFT JOIN customers c ON c.id = discount_source.discount_customer_id
+            WHERE t.status::text <> 'cancelled'
+              AND lower(COALESCE(tl.size_specs->>'price_override_reason', '')) = 'customer profile discount'
+              AND (
+                  discount_source.discount_customer_id IS NULL
+                  OR COALESCE(c.profile_discount_percent, 0) <= 0
+              )
+        "#,
+        ),
+        (
+            "employee_purchase_without_employee_customer",
+            "Employee purchases without linked employee customer",
+            "warning",
+            r#"
+            SELECT t.id::text AS key, t.display_id AS detail
+            FROM transactions t
+            LEFT JOIN LATERAL (
+                SELECT CASE
+                    WHEN NULLIF(TRIM(t.metadata->>'selected_customer_id'), '') ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+                        THEN (t.metadata->>'selected_customer_id')::uuid
+                    ELSE t.customer_id
+                END AS employee_customer_id
+            ) employee_source ON TRUE
+            WHERE COALESCE(t.is_employee_purchase, false) = true
+              AND t.status::text <> 'cancelled'
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM staff s
+                  WHERE s.employee_customer_id = employee_source.employee_customer_id
+              )
+        "#,
+        ),
+        (
             "commission_without_fulfillment",
             "Finalized commission without fulfillment",
             "warning",
@@ -3378,6 +3482,72 @@ pub async fn execute_audit_probes(
             FROM transaction_lines
             WHERE commission_payout_finalized_at IS NOT NULL
               AND fulfilled_at IS NULL
+        "#,
+        ),
+        (
+            "commission_event_missing",
+            "Fulfilled commissionable lines missing commission event",
+            "warning",
+            r#"
+            SELECT tl.id::text AS key, t.display_id AS detail
+            FROM transaction_lines tl
+            JOIN transactions t ON t.id = tl.transaction_id
+            WHERE t.status::text <> 'cancelled'
+              AND COALESCE(tl.is_fulfilled, false) = true
+              AND tl.salesperson_id IS NOT NULL
+              AND COALESCE(tl.calculated_commission, 0) <> 0
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM commission_events ce
+                  WHERE ce.transaction_line_id = tl.id
+                    AND ce.event_type IN ('sale_commission', 'combo_incentive')
+              )
+        "#,
+        ),
+        (
+            "duplicate_commission_source",
+            "Duplicate commission events for one source",
+            "warning",
+            r#"
+            SELECT source_event_id::text AS key, event_type AS detail
+            FROM commission_events
+            WHERE source_event_id IS NOT NULL
+            GROUP BY source_event_id, event_type
+            HAVING COUNT(*) > 1
+        "#,
+        ),
+        (
+            "commission_snapshot_mismatch",
+            "Commission events disagree with line snapshot",
+            "warning",
+            r#"
+            SELECT ce.id::text AS key, tl.transaction_id::text AS detail
+            FROM commission_events ce
+            JOIN transaction_lines tl ON tl.id = ce.transaction_line_id
+            JOIN transactions t ON t.id = tl.transaction_id
+            WHERE ce.event_type IN ('sale_commission', 'combo_incentive')
+              AND t.status::text <> 'cancelled'
+              AND ABS(COALESCE(ce.total_commission_amount, 0) - COALESCE(tl.calculated_commission, 0)) > 0.01
+        "#,
+        ),
+        (
+            "return_commission_adjustment_missing",
+            "Returned commissionable lines missing adjustment",
+            "warning",
+            r#"
+            SELECT trl.id::text AS key, t.display_id AS detail
+            FROM transaction_return_lines trl
+            JOIN transaction_lines tl ON tl.id = trl.transaction_line_id
+            JOIN transactions t ON t.id = trl.transaction_id
+            WHERE t.status::text <> 'cancelled'
+              AND tl.salesperson_id IS NOT NULL
+              AND COALESCE(tl.calculated_commission, 0) > 0
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM commission_events ce
+                  WHERE ce.source_event_id = trl.id
+                    AND ce.event_type = 'return_adjustment'
+              )
         "#,
         ),
         (
@@ -3399,6 +3569,67 @@ pub async fn execute_audit_probes(
             SELECT id::text AS key, sync_date::text AS detail
             FROM qbo_sync_logs
             WHERE payload ? 'activity_date' AND NOT (payload ? 'business_timezone')
+        "#,
+        ),
+        (
+            "receiving_freight_missing_receipts",
+            "Receiving freight missing inventory receipt rows",
+            "warning",
+            r#"
+            SELECT re.id::text AS key, re.purchase_order_id::text AS detail
+            FROM receiving_events re
+            LEFT JOIN inventory_transactions it
+              ON it.reference_table = 'receiving_events'
+             AND it.reference_id = re.id
+             AND it.tx_type::text = 'po_receipt'
+            WHERE COALESCE(re.freight_total, 0) > 0
+            GROUP BY re.id, re.purchase_order_id
+            HAVING COUNT(it.id) = 0
+        "#,
+        ),
+        (
+            "shipping_registry_missing",
+            "Shipped transactions missing shipping registry rows",
+            "warning",
+            r#"
+            SELECT t.id::text AS key, t.display_id AS detail
+            FROM transactions t
+            LEFT JOIN shipment s ON s.transaction_id = t.id
+            WHERE t.fulfillment_method::text = 'ship'
+              AND COALESCE(t.shipping_amount_usd, 0) > 0
+              AND s.id IS NULL
+        "#,
+        ),
+        (
+            "shipping_freight_classification_mismatch",
+            "Shipping income and supplier freight classification mismatch",
+            "warning",
+            r#"
+            SELECT q.id::text AS key, q.sync_date::text AS detail
+            FROM qbo_sync_logs q
+            CROSS JOIN LATERAL jsonb_array_elements(COALESCE(q.payload->'lines', '[]'::jsonb)) AS line(value)
+            CROSS JOIN LATERAL jsonb_array_elements(COALESCE(line.value->'detail', '[]'::jsonb)) AS detail(value)
+            WHERE (
+                    line.value->>'memo' = 'Customer-charged shipping income'
+                    AND detail.value->>'kind' = 'freight'
+                )
+               OR (
+                    line.value->>'memo' LIKE 'Inbound freight / shipping cost%'
+                    AND detail.value->>'kind' = 'shipping_income'
+                )
+        "#,
+        ),
+        (
+            "qbo_receiving_freight_combined",
+            "QBO payloads combine receiving and freight detail",
+            "warning",
+            r#"
+            SELECT q.id::text AS key, q.sync_date::text AS detail
+            FROM qbo_sync_logs q
+            CROSS JOIN LATERAL jsonb_array_elements(COALESCE(q.payload->'lines', '[]'::jsonb)) AS line(value)
+            CROSS JOIN LATERAL jsonb_array_elements(COALESCE(line.value->'detail', '[]'::jsonb)) AS detail(value)
+            WHERE line.value->>'memo' LIKE 'Receiving:%'
+              AND detail.value->>'kind' = 'freight'
         "#,
         ),
         (

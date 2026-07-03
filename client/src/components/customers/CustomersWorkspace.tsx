@@ -119,6 +119,7 @@ interface CustomerBrowseRow {
   email: string | null;
   phone: string | null;
   is_vip: boolean;
+  employee_discount_eligible: boolean;
   open_balance_due: string;
   lifetime_sales: string;
   open_orders_count: number;
@@ -156,6 +157,7 @@ function rowToCustomer(r: CustomerBrowseRow): Customer {
     company_name: r.company_name,
     email: r.email,
     phone: r.phone,
+    employee_discount_eligible: r.employee_discount_eligible,
     couple_id: r.couple_id,
   };
 }
@@ -1237,6 +1239,11 @@ export default function CustomersWorkspace({
                           VIP
                         </span>
                       ) : null}
+                      {r.employee_discount_eligible ? (
+                        <span className="inline-flex items-center rounded-full border border-app-info/20 bg-app-info/10 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-app-info">
+                          Staff
+                        </span>
+                      ) : null}
                       {r.couple_id ? (
                         <span className="inline-flex items-center gap-1 rounded-full border border-app-accent/20 bg-app-accent/10 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-app-accent">
                           <Heart size={10} fill="currentColor" />
@@ -1555,8 +1562,14 @@ export default function CustomersWorkspace({
                           </div>
                         </td>
                         <td className="px-4 py-3 align-middle text-center">
-                          {r.is_vip ? (
-                            <div className="flex items-center justify-center">
+                          {r.is_vip || r.employee_discount_eligible ? (
+                            <div className="flex items-center justify-center gap-2">
+                              {r.employee_discount_eligible ? (
+                                <span className="inline-flex items-center rounded-full border border-app-info/20 bg-app-info/10 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-app-info">
+                                  Staff
+                                </span>
+                              ) : null}
+                              {r.is_vip ? (
                               <div className="relative">
                                 <Gem
                                   size={20}
@@ -1564,6 +1577,7 @@ export default function CustomersWorkspace({
                                 />
                                 <div className="absolute inset-0 rounded-full bg-app-warning/20 blur-lg" />
                               </div>
+                              ) : null}
                             </div>
                           ) : (
                             <span className="text-app-text-disabled">—</span>

@@ -147,6 +147,7 @@ async function createTaxProduct(
     label: string;
     stockOnHand?: number;
     unitCost?: string;
+    employeeMarkupPercent?: string;
   },
 ): Promise<CreatedTaxProduct> {
   const suffix = uniqueSuffix(options.label);
@@ -197,6 +198,22 @@ async function createTaxProduct(
   });
   expect(createRes.status()).toBe(200);
   const created = (await createRes.json()) as { id: string };
+
+  if (options.employeeMarkupPercent != null) {
+    const patchRes = await request.patch(`${apiBase()}/api/products/${created.id}/model`, {
+      headers: {
+        ...staffHeaders(),
+        "Content-Type": "application/json",
+        "x-riverside-station-key": "station-e2e",
+      },
+      data: {
+        employee_markup_percent: options.employeeMarkupPercent,
+      },
+      failOnStatusCode: false,
+    });
+    const patchText = await patchRes.text();
+    expect(patchRes.status(), patchText.slice(0, 1000)).toBe(200);
+  }
 
   const variantsRes = await request.get(`${apiBase()}/api/products/${created.id}/variants`, {
     headers: staffHeaders(),
@@ -253,6 +270,82 @@ async function createCustomerWithProfileDiscount(
   const patchText = await patchRes.text();
   expect(patchRes.status(), patchText.slice(0, 1000)).toBe(200);
   return customer.id;
+}
+
+async function createBasicCustomer(
+  request: APIRequestContext,
+  label: string,
+): Promise<string> {
+  const suffix = uniqueSuffix(label);
+  const createRes = await request.post(`${apiBase()}/api/customers`, {
+    headers: {
+      ...staffHeaders(),
+      "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
+    },
+    data: {
+      first_name: "Employee",
+      last_name: `Discount ${suffix}`,
+      phone: "7165550102",
+      email: `${suffix}@example.com`,
+    },
+    failOnStatusCode: false,
+  });
+  const createText = await createRes.text();
+  expect(createRes.status(), createText.slice(0, 1000)).toBe(200);
+  const customer = JSON.parse(createText) as { id: string };
+  expect(customer.id).toBeTruthy();
+  return customer.id;
+}
+
+async function setStaffEmployeeCustomer(
+  request: APIRequestContext,
+  staffId: string,
+  customerId: string | null,
+) {
+  const res = await request.patch(`${apiBase()}/api/staff/admin/${staffId}`, {
+    headers: {
+      ...staffHeaders(),
+      "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
+    },
+    data: customerId
+      ? { employee_customer_id: customerId }
+      : { detach_employee_customer: true },
+    failOnStatusCode: false,
+  });
+  const text = await res.text();
+  expect(res.status(), text.slice(0, 1000)).toBe(200);
+}
+
+async function linkCoupleCustomers(
+  request: APIRequestContext,
+  primaryCustomerId: string,
+  partnerCustomerId: string,
+) {
+  const res = await request.post(
+    `${apiBase()}/api/customers/${primaryCustomerId}/couple-link`,
+    {
+      headers: {
+        ...staffHeaders(),
+        "Content-Type": "application/json",
+        "x-riverside-station-key": "station-e2e",
+      },
+      data: { partner_id: partnerCustomerId },
+      failOnStatusCode: false,
+    },
+  );
+  const text = await res.text();
+  expect(res.status(), text.slice(0, 1000)).toBe(200);
+}
+
+async function unlinkCoupleCustomer(request: APIRequestContext, customerId: string) {
+  const res = await request.delete(`${apiBase()}/api/customers/${customerId}/couple-link`, {
+    headers: staffHeaders(),
+    failOnStatusCode: false,
+  });
+  const text = await res.text();
+  expect(res.status(), text.slice(0, 1000)).toBe(200);
 }
 
 async function createVariantDiscountEvent(
@@ -724,6 +817,117 @@ test.describe("tax audit contract", () => {
     });
     expect(wrongPriceRes.status()).toBe(400);
     await expect(wrongPriceRes.text()).resolves.toMatch(/customer profile discount/i);
+  });
+
+  test("customer profile discounts follow the selected profile before couple financial redirection", async ({
+    request,
+  }) => {
+    test.setTimeout(90_000);
+    const { sessionId, sessionToken } = await ensureSessionAuth(request);
+    const operatorStaffId = await verifyStaffId(request);
+    const primaryCustomerId = await createBasicCustomer(request, "couple-primary-no-discount");
+    const partnerCustomerId = await createCustomerWithProfileDiscount(request, "15.00");
+    const product = await createTaxProduct(request, operatorStaffId, {
+      unitPrice: "100.00",
+      label: "couple-profile-discount",
+    });
+    const discountedTax = taxFor("clothing", "85.00");
+
+    try {
+      await linkCoupleCustomers(request, primaryCustomerId, partnerCustomerId);
+
+      const validRes = await checkoutTaxProduct(request, {
+        product,
+        sessionId,
+        sessionToken,
+        operatorStaffId,
+        customerId: partnerCustomerId,
+        unitPrice: "85.00",
+        originalUnitPrice: "100.00",
+        stateTax: discountedTax.stateTax,
+        localTax: discountedTax.localTax,
+        priceOverrideReason: "Customer profile discount",
+      });
+      const validText = await validRes.text();
+      expect(validRes.status(), validText.slice(0, 1000)).toBe(200);
+    } finally {
+      await unlinkCoupleCustomer(request, primaryCustomerId);
+    }
+  });
+
+  test("employee discounts require linked employee customer and exact employee price", async ({
+    request,
+  }) => {
+    test.setTimeout(90_000);
+    const { sessionId, sessionToken } = await ensureSessionAuth(request);
+    const operatorStaffId = await verifyStaffId(request);
+    const employeeCustomerId = await createBasicCustomer(request, "employee-discount");
+    const product = await createTaxProduct(request, operatorStaffId, {
+      unitPrice: "150.00",
+      unitCost: "80.00",
+      employeeMarkupPercent: "25.00",
+      label: "employee-discount",
+    });
+    const employeeTax = taxFor("clothing", "100.00");
+
+    try {
+      await setStaffEmployeeCustomer(request, operatorStaffId, employeeCustomerId);
+
+      const customerRes = await request.get(`${apiBase()}/api/customers/${employeeCustomerId}`, {
+        headers: staffHeaders(),
+        failOnStatusCode: false,
+      });
+      const customerText = await customerRes.text();
+      expect(customerRes.status(), customerText.slice(0, 1000)).toBe(200);
+      expect(JSON.parse(customerText).employee_discount_eligible).toBe(true);
+
+      const validRes = await checkoutTaxProduct(request, {
+        product,
+        sessionId,
+        sessionToken,
+        operatorStaffId,
+        customerId: employeeCustomerId,
+        unitPrice: "100.00",
+        originalUnitPrice: "150.00",
+        stateTax: employeeTax.stateTax,
+        localTax: employeeTax.localTax,
+        priceOverrideReason: "Employee Discount",
+      });
+      const validText = await validRes.text();
+      expect(validRes.status(), validText.slice(0, 1000)).toBe(200);
+
+      const wrongPriceTax = taxFor("clothing", "95.00");
+      const wrongPriceRes = await checkoutTaxProduct(request, {
+        product,
+        sessionId,
+        sessionToken,
+        operatorStaffId,
+        customerId: employeeCustomerId,
+        unitPrice: "95.00",
+        originalUnitPrice: "150.00",
+        stateTax: wrongPriceTax.stateTax,
+        localTax: wrongPriceTax.localTax,
+        priceOverrideReason: "Employee Discount",
+      });
+      expect(wrongPriceRes.status()).toBe(400);
+      await expect(wrongPriceRes.text()).resolves.toMatch(/employee price/i);
+
+      const missingCustomerRes = await checkoutTaxProduct(request, {
+        product,
+        sessionId,
+        sessionToken,
+        operatorStaffId,
+        unitPrice: "100.00",
+        originalUnitPrice: "150.00",
+        stateTax: employeeTax.stateTax,
+        localTax: employeeTax.localTax,
+        priceOverrideReason: "Employee Discount",
+      });
+      expect(missingCustomerRes.status()).toBe(400);
+      await expect(missingCustomerRes.text()).resolves.toMatch(/linked employee customer/i);
+    } finally {
+      await setStaffEmployeeCustomer(request, operatorStaffId, null);
+    }
   });
 
   test("manual below-cost discounts require manager approval unless promotion-backed", async ({

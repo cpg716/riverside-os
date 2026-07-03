@@ -861,6 +861,7 @@ pub struct Customer {
     pub email: Option<String>,
     pub phone: Option<String>,
     pub profile_discount_percent: Decimal,
+    pub employee_discount_eligible: bool,
     pub tax_exempt: bool,
     pub tax_exempt_id: Option<String>,
     pub wedding_active: bool,
@@ -956,6 +957,7 @@ pub struct CustomerProfileRow {
     pub review_requests_opt_out: bool,
     pub is_vip: bool,
     pub profile_discount_percent: Decimal,
+    pub employee_discount_eligible: bool,
     pub tax_exempt: bool,
     pub tax_exempt_id: Option<String>,
     pub loyalty_points: i32,
@@ -1003,7 +1005,14 @@ async fn load_customer_profile_row(
             c.custom_field_1, c.custom_field_2, c.custom_field_3, c.custom_field_4,
             c.marketing_email_opt_in, c.marketing_sms_opt_in, c.transactional_sms_opt_in,
             c.transactional_email_opt_in, c.podium_conversation_url, {review_opt_out_expr},
-            c.is_vip, c.profile_discount_percent, c.tax_exempt, c.tax_exempt_id,
+            c.is_vip, c.profile_discount_percent,
+            EXISTS (
+                SELECT 1
+                FROM staff s
+                WHERE s.employee_customer_id = c.id
+                  AND s.is_active = TRUE
+            ) AS employee_discount_eligible,
+            c.tax_exempt, c.tax_exempt_id,
             c.loyalty_points, c.customer_created_source,
             c.couple_id, c.couple_primary_id, c.couple_linked_at,
             COALESCE(ob.balance_sum, 0)::numeric(12, 2) AS open_balance_due,
@@ -1294,6 +1303,7 @@ pub struct CustomerBrowseRow {
     pub phone: Option<String>,
     pub is_vip: bool,
     pub profile_discount_percent: Decimal,
+    pub employee_discount_eligible: bool,
     pub tax_exempt: bool,
     pub tax_exempt_id: Option<String>,
     pub open_balance_due: Decimal,
@@ -3858,6 +3868,12 @@ async fn browse_customers(
                     c.phone,
                     c.is_vip,
                     c.profile_discount_percent,
+                    EXISTS (
+                        SELECT 1
+                        FROM staff s
+                        WHERE s.employee_customer_id = c.id
+                          AND s.is_active = TRUE
+                    ) AS employee_discount_eligible,
                     c.tax_exempt,
                     c.tax_exempt_id,
                     c.couple_id,
@@ -4013,6 +4029,7 @@ async fn browse_customers(
                     phone,
                     is_vip,
                     profile_discount_percent,
+                    employee_discount_eligible,
                     tax_exempt,
                     tax_exempt_id,
                     open_balance_due,
@@ -4049,6 +4066,7 @@ async fn browse_customers(
                 phone,
                 is_vip,
                 profile_discount_percent,
+                employee_discount_eligible,
                 tax_exempt,
                 tax_exempt_id,
                 open_balance_due,
@@ -4097,6 +4115,12 @@ async fn browse_customers(
                     c.phone,
                     c.is_vip,
                     c.profile_discount_percent,
+                    EXISTS (
+                        SELECT 1
+                        FROM staff s
+                        WHERE s.employee_customer_id = c.id
+                          AND s.is_active = TRUE
+                    ) AS employee_discount_eligible,
                     c.tax_exempt,
                     c.tax_exempt_id,
                     c.couple_id,
@@ -4187,6 +4211,7 @@ async fn browse_customers(
                     pc.phone,
                     pc.is_vip,
                     pc.profile_discount_percent,
+                    pc.employee_discount_eligible,
                     pc.tax_exempt,
                     pc.tax_exempt_id,
                     pc.couple_id,
@@ -4280,6 +4305,7 @@ async fn browse_customers(
                     phone,
                     is_vip,
                     profile_discount_percent,
+                    employee_discount_eligible,
                     tax_exempt,
                     tax_exempt_id,
                     open_balance_due,
@@ -4316,6 +4342,7 @@ async fn browse_customers(
                 phone,
                 is_vip,
                 profile_discount_percent,
+                employee_discount_eligible,
                 tax_exempt,
                 tax_exempt_id,
                 open_balance_due,
@@ -4359,6 +4386,12 @@ async fn browse_customers(
                     c.phone,
                     c.is_vip,
                     c.profile_discount_percent,
+                    EXISTS (
+                        SELECT 1
+                        FROM staff s
+                        WHERE s.employee_customer_id = c.id
+                          AND s.is_active = TRUE
+                    ) AS employee_discount_eligible,
                     c.tax_exempt,
                     c.tax_exempt_id,
                     c.couple_id,
@@ -4519,6 +4552,7 @@ async fn browse_customers(
                     phone,
                     is_vip,
                     profile_discount_percent,
+                    employee_discount_eligible,
                     tax_exempt,
                     tax_exempt_id,
                     open_balance_due,
@@ -4555,6 +4589,7 @@ async fn browse_customers(
                 phone,
                 is_vip,
                 profile_discount_percent,
+                employee_discount_eligible,
                 tax_exempt,
                 tax_exempt_id,
                 open_balance_due,
@@ -4726,6 +4761,12 @@ async fn search_customers(
                 c.email,
                 c.phone,
                 c.profile_discount_percent,
+                EXISTS (
+                    SELECT 1
+                    FROM staff s
+                    WHERE s.employee_customer_id = c.id
+                      AND s.is_active = TRUE
+                ) AS employee_discount_eligible,
                 c.tax_exempt,
                 c.tax_exempt_id,
                 EXISTS (
@@ -4792,6 +4833,12 @@ async fn search_customers(
                 c.email,
                 c.phone,
                 c.profile_discount_percent,
+                EXISTS (
+                    SELECT 1
+                    FROM staff s
+                    WHERE s.employee_customer_id = c.id
+                      AND s.is_active = TRUE
+                ) AS employee_discount_eligible,
                 c.tax_exempt,
                 c.tax_exempt_id,
                 EXISTS (

@@ -60,7 +60,6 @@ function isAutomaticPricingEligible(
 function applyCustomerPricingAndDiscounts(
   line: CartLineItem,
   customer: Customer | null,
-  employeeCustomerId: string | null,
   rmsPaymentSku?: string | null,
   giftCardLoadSku?: string | null,
 ): CartLineItem {
@@ -72,7 +71,7 @@ function applyCustomerPricingAndDiscounts(
   const catalogRetailCents = parseMoneyToCents(catalogRetailVal);
   const catalogEmployeeVal = line.catalog_employee_price ?? line.employee_price;
 
-  const isEmployee = Boolean(employeeCustomerId) && customer?.id === employeeCustomerId;
+  const isEmployee = customer?.employee_discount_eligible === true;
 
   if (isEmployee) {
     const hasEmpPrice =
@@ -150,7 +149,6 @@ interface UseCartActionsProps {
   rmsPaymentMeta: RmsPaymentLineMeta | null;
   giftCardLoadMeta: GiftCardLoadLineMeta | null;
   activeWeddingMember: WeddingMember | null;
-  employeeCustomerId: string | null;
   selectedCustomer: Customer | null;
   setSelectedCustomer: (v: Customer | null) => void;
   toast: (msg: string, type?: "success" | "error" | "info") => void;
@@ -178,7 +176,6 @@ export function useCartActions({
   rmsPaymentMeta,
   giftCardLoadMeta,
   activeWeddingMember,
-  employeeCustomerId,
   selectedCustomer,
   setSelectedCustomer,
   toast,
@@ -204,12 +201,8 @@ export function useCartActions({
   const [selectedLineKey, setSelectedLineKey] = useState<string | null>(null);
   const [keypadMode, setKeypadMode] = useState<"qty" | "price">("qty");
   const [keypadBuffer, setKeypadBuffer] = useState("");
-  const customerDiscountPercent =
-    employeeCustomerId && selectedCustomer?.id === employeeCustomerId
-      ? 0
-      : profileDiscountPercent(selectedCustomer);
-  const isEmployeeMode =
-    Boolean(employeeCustomerId) && selectedCustomer?.id === employeeCustomerId;
+  const isEmployeeMode = selectedCustomer?.employee_discount_eligible === true;
+  const customerDiscountPercent = isEmployeeMode ? 0 : profileDiscountPercent(selectedCustomer);
 
   useEffect(() => {
     setLines((prev) => {
@@ -218,7 +211,6 @@ export function useCartActions({
         const priced = applyCustomerPricingAndDiscounts(
           line,
           selectedCustomer,
-          employeeCustomerId,
           rmsPaymentMeta?.sku,
           giftCardLoadMeta?.sku,
         );
@@ -237,7 +229,6 @@ export function useCartActions({
     selectedCustomer,
     customerDiscountPercent,
     isEmployeeMode,
-    employeeCustomerId,
     lines,
     rmsPaymentMeta?.sku,
     giftCardLoadMeta?.sku,
@@ -360,8 +351,7 @@ export function useCartActions({
       }
 
       const cartUsesEmployeePrice =
-        Boolean(employeeCustomerId) &&
-        selectedCustomer?.id === employeeCustomerId &&
+        selectedCustomer?.employee_discount_eligible === true &&
         !priceOverride &&
         item.employee_price != null &&
         String(item.employee_price).trim() !== "";
@@ -402,7 +392,7 @@ export function useCartActions({
     onReadyForNextScan();
   }, [
     checkoutOperator, giftCardLoadMeta, rmsPaymentMeta, lines, activeWeddingMember,
-    employeeCustomerId, selectedCustomer, toast, setPendingCustomItem,
+    selectedCustomer, toast, setPendingCustomItem,
     setCustomPromptOpen, setActiveWeddingMember, setActiveWeddingPartyName,
     setDisbursementMembers, setSearch, setSearchResults, onReadyForNextScan
   ]);

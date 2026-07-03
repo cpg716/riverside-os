@@ -29,7 +29,9 @@ Each daily report includes:
 - **Average Transaction** — net sales ÷ transaction count
 
 ### Sales Summary
-- Gross sales, discounts, net sales, items sold
+- Gross sales, discounts, net sales, items sold. Discounts include POS price
+  overrides, customer profile discounts, employee prices, and explicit discount
+  amounts while keeping net sales on the final line price.
 
 ### Tax Collected
 - State tax, local tax, total tax

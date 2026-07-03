@@ -248,7 +248,7 @@ Then read the domain doc most relevant to the task.
 - **Orders / wedding orders / fulfillment** — `docs/TRANSACTIONS_AND_WEDDING_ORDERS.md`
 - **Deposits** — `docs/DEPOSIT_OPERATIONS.md`
 - **Returns / refunds / exchanges** — `docs/TRANSACTION_RETURNS_EXCHANGES.md`
-- **Revenue recognition / reporting basis** — `docs/BOOKED_VS_FULFILLED.md`, `docs/REPORTING_BOOKED_AND_RECOGNITION.md`
+- **Revenue recognition / reporting basis** — `docs/BOOKED_VS_FULFILLED.md`, `docs/REPORTING_BOOKED_AND_FULFILLED.md`
 - **Layaway lifecycle** — `docs/LAYAWAY_OPERATIONS.md`
 - **Staff permissions / auth** — `docs/STAFF_PERMISSIONS.md`
 - **Customer Hub / RBAC** — `docs/CUSTOMER_HUB_AND_RBAC.md`

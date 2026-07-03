@@ -2038,8 +2038,8 @@ pub async fn execute_checkout(
             .map(|reason| reason.eq_ignore_ascii_case(CUSTOMER_PROFILE_DISCOUNT_REASON))
             .unwrap_or(false)
     });
-    let customer_profile_discount_percent = if has_customer_profile_discount {
-        let customer_id = payload.customer_id.ok_or_else(|| {
+    let customer_profile_discount = if has_customer_profile_discount {
+        let customer_id = customer_id_orig.or(payload.customer_id).ok_or_else(|| {
             CheckoutError::InvalidPayload(
                 "Customer profile discount requires a linked customer".to_string(),
             )
@@ -2056,7 +2056,7 @@ pub async fn execute_checkout(
                 "Customer profile discount is not enabled for this customer".to_string(),
             ));
         }
-        Some(pct)
+        Some((customer_id, pct))
     } else {
         None
     };
@@ -2101,7 +2101,7 @@ pub async fn execute_checkout(
                     "Customer profile discount only applies to merchandise lines".to_string(),
                 ));
             }
-            let pct = customer_profile_discount_percent.ok_or_else(|| {
+            let (_, pct) = customer_profile_discount.ok_or_else(|| {
                 CheckoutError::InvalidPayload(
                     "Customer profile discount is not enabled for this customer".to_string(),
                 )
@@ -2343,6 +2343,26 @@ pub async fn execute_checkout(
     if let Some(metadata) = below_cost_approval_metadata {
         if let Some(obj) = transaction_financing_metadata.as_object_mut() {
             obj.insert("below_cost_approval".to_string(), metadata);
+        }
+    }
+    if let (Some(selected_customer_id), Some(effective_customer_id)) =
+        (customer_id_orig, payload.customer_id)
+    {
+        if selected_customer_id != effective_customer_id {
+            if let Some(obj) = transaction_financing_metadata.as_object_mut() {
+                obj.insert(
+                    "selected_customer_id".to_string(),
+                    json!(selected_customer_id.to_string()),
+                );
+                obj.insert(
+                    "effective_customer_id".to_string(),
+                    json!(effective_customer_id.to_string()),
+                );
+                obj.insert(
+                    "customer_resolution".to_string(),
+                    json!("couple_primary_financial_owner"),
+                );
+            }
         }
     }
 
@@ -3043,6 +3063,15 @@ pub async fn execute_checkout(
                     let mut base = override_meta.unwrap_or_else(|| json!({}));
                     if let serde_json::Value::Object(ref mut m) = base {
                         m.insert("discount_event_label".to_string(), json!(label));
+                        if reason.eq_ignore_ascii_case(CUSTOMER_PROFILE_DISCOUNT_REASON) {
+                            if let Some((source_customer_id, pct)) = customer_profile_discount {
+                                m.insert(
+                                    "profile_discount_customer_id".to_string(),
+                                    json!(source_customer_id.to_string()),
+                                );
+                                m.insert("profile_discount_percent".to_string(), json!(pct));
+                            }
+                        }
                     }
                     override_meta = Some(base);
                 }

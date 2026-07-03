@@ -285,6 +285,79 @@ function checkCustomerShippingAndDiscountSource() {
     "Percent/fixed promotions produce explicit discount amount evidence",
     promoFile,
   );
+
+  const dailyReportFile = "server/src/logic/daily_report.rs";
+  const dailyReport = read(dailyReportFile);
+  assertIncludes(
+    dailyReport,
+    "THEN (TRIM(oi.size_specs->>'original_unit_price'))::numeric",
+    "Daily Financial Report reads original unit price metadata for POS discounts",
+    dailyReportFile,
+  );
+  assertIncludes(
+    dailyReport,
+    "GREATEST(COALESCE(original_unit_price, unit_price) - unit_price, 0)",
+    "Daily Financial Report includes POS override savings in discount totals",
+    dailyReportFile,
+  );
+  assertIncludes(
+    dailyReport,
+    "unit_price - COALESCE(oi.discount_amount, 0)",
+    "Daily Financial Report net rows still honor explicit discount_amount",
+    dailyReportFile,
+  );
+
+  const cartActionsFile = "client/src/hooks/useCartActions.ts";
+  const cartActions = read(cartActionsFile);
+  assertIncludes(
+    cartActions,
+    "customer?.employee_discount_eligible === true",
+    "POS employee discount follows the selected customer account eligibility",
+    cartActionsFile,
+  );
+  assertNotMatches(
+    cartActions,
+    /selectedCustomer\?\.id\s*===\s*employeeCustomerId/,
+    "POS employee discount is not tied to the signed-in cashier profile",
+    cartActionsFile,
+    "Employee discount eligibility belongs to the selected customer account linked from Staff, not the cashier currently signed in.",
+  );
+
+  const checkoutHookFile = "client/src/hooks/useCartCheckout.ts";
+  const checkoutHook = read(checkoutHookFile);
+  assertIncludes(
+    checkoutHook,
+    "selectedCustomer?.employee_discount_eligible === true",
+    "Checkout suppresses employee-sale salesperson attribution from selected customer eligibility",
+    checkoutHookFile,
+  );
+
+  const customersApiFile = "server/src/api/customers.rs";
+  const customersApi = read(customersApiFile);
+  assertIncludes(
+    customersApi,
+    "AS employee_discount_eligible",
+    "Customer APIs expose staff-linked employee discount eligibility",
+    customersApiFile,
+  );
+  assertIncludes(
+    checkout,
+    "profile_discount_customer_id",
+    "Checkout stores the customer profile discount source separately from financial customer redirection",
+    checkoutFile,
+  );
+  assertIncludes(
+    read("scripts/production_audit_probes.sql"),
+    "profile_discount_customer_id",
+    "Production discount probe follows the selected profile discount source",
+    "scripts/production_audit_probes.sql",
+  );
+  assertIncludes(
+    read("scripts/production_audit_probes.sql"),
+    "employee_source.employee_customer_id",
+    "Production employee purchase probe follows the selected employee customer source",
+    "scripts/production_audit_probes.sql",
+  );
 }
 
 function checkLiabilityAndRecognitionSource() {
@@ -307,6 +380,23 @@ function checkLiabilityAndRecognitionSource() {
   for (const snippet of requiredSnippets) {
     assertIncludes(qbo, snippet, `QBO proposal preserves ${snippet}`, qboFile);
   }
+}
+
+function checkCommissionSource() {
+  const transactionApiFile = "server/src/api/transactions.rs";
+  const transactions = read(transactionApiFile);
+  assertIncludes(
+    transactions,
+    "Attribution corrected after recognition; see order_attribution_audit.",
+    "Post-recognition attribution edits preserve an audit marker on commission events",
+    transactionApiFile,
+  );
+  assertIncludes(
+    transactions,
+    "staff_commission_rate_history",
+    "Corrected commission events refresh the assigned staff member's effective rate",
+    transactionApiFile,
+  );
 }
 
 function checkUserFacingLabels() {
@@ -415,6 +505,8 @@ function checkCoverageContracts() {
   for (const scenario of [
     "ship current sale records shipping without requiring an order line",
     "ship fulfillment mode requires Register shipping quote",
+    "customer profile discounts are accepted only for the linked customer rate",
+    "employee discounts require linked employee customer and exact employee price",
     "manual below-cost discounts require manager approval unless promotion-backed",
   ]) {
     assertIncludes(
@@ -430,6 +522,15 @@ function checkProductionProbeCoverage() {
   const file = "scripts/production_audit_probes.sql";
   const probes = read(file);
   const required = [
+    "P1 probe: discounted lines missing override evidence",
+    "P1 probe: sale discount event metadata missing usage ledger",
+    "P1 probe: discount usage ledger points at mismatched line facts",
+    "P1 probe: customer profile discounts without matching customer profile",
+    "P1 probe: employee purchase transactions without linked employee customer",
+    "P1 probe: fulfilled commissionable lines missing commission event",
+    "P1 probe: duplicate commission events for one source",
+    "P1 probe: sale commission event totals disagree with transaction line snapshot",
+    "P1 probe: returned commissionable lines missing return adjustment event",
     "P1 probe: receiving events with freight missing inventory receipt rows",
     "P1 probe: supplier freight captured on receipts for accounting review",
     "P1 probe: shipped customer transactions missing shipping registry rows",
@@ -438,6 +539,31 @@ function checkProductionProbeCoverage() {
   ];
   for (const snippet of required) {
     assertIncludes(probes, snippet, `Production SQL audit includes ${snippet}`, file);
+  }
+
+  const devCenterFile = "server/src/logic/ops_dev_center.rs";
+  const devCenter = read(devCenterFile);
+  for (const probeKey of [
+    "discount_missing_override_evidence",
+    "discount_usage_missing",
+    "discount_usage_mismatch",
+    "customer_profile_discount_without_profile",
+    "employee_purchase_without_employee_customer",
+    "commission_event_missing",
+    "duplicate_commission_source",
+    "commission_snapshot_mismatch",
+    "return_commission_adjustment_missing",
+    "receiving_freight_missing_receipts",
+    "shipping_registry_missing",
+    "shipping_freight_classification_mismatch",
+    "qbo_receiving_freight_combined",
+  ]) {
+    assertIncludes(
+      devCenter,
+      probeKey,
+      `Dev Center audit runner includes ${probeKey}`,
+      devCenterFile,
+    );
   }
 }
 
@@ -480,6 +606,21 @@ function checkReleaseWiring() {
     "Pre-retag gate inherits financial invariants through go-live blockers",
     preRetagFile,
   );
+
+  const launcherFile = "server/src/launcher.rs";
+  const launcher = read(launcherFile);
+  assertIncludes(
+    launcher,
+    "store_local_today_and_hour",
+    "QBO auto-propose uses the configured store-local clock",
+    launcherFile,
+  );
+  assertIncludes(
+    launcher,
+    "store_local_hh_mm",
+    "Backup schedule checks use the configured store-local clock",
+    launcherFile,
+  );
 }
 
 function main() {
@@ -487,6 +628,7 @@ function main() {
   checkReceivingAndFreightSource();
   checkCustomerShippingAndDiscountSource();
   checkLiabilityAndRecognitionSource();
+  checkCommissionSource();
   checkUserFacingLabels();
   checkCoverageContracts();
   checkProductionProbeCoverage();

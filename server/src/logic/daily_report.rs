@@ -168,26 +168,50 @@ pub async fn generate_report(
 
     let sales: SalesSummary = sqlx::query_as(&format!(
         r#"
+        WITH eligible_lines AS (
+            SELECT
+                o.id AS transaction_id,
+                oi.unit_price,
+                COALESCE(oi.discount_amount, 0) AS discount_amount,
+                GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0)::numeric AS effective_qty,
+                CASE
+                    WHEN oi.size_specs ? 'original_unit_price'
+                     AND NULLIF(TRIM(oi.size_specs->>'original_unit_price'), '') IS NOT NULL
+                     AND TRIM(oi.size_specs->>'original_unit_price') ~ '^[0-9]+(\.[0-9]+)?$'
+                    THEN (TRIM(oi.size_specs->>'original_unit_price'))::numeric
+                    ELSE NULL
+                END AS original_unit_price
+            FROM transaction_lines oi
+            INNER JOIN transactions o ON o.id = oi.transaction_id
+            INNER JOIN products p ON p.id = oi.product_id
+            LEFT JOIN (
+                SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
+                FROM transaction_return_lines GROUP BY transaction_line_id
+            ) orl ON orl.transaction_line_id = oi.id
+            WHERE o.is_forfeited = false
+              AND o.status::text NOT IN ('cancelled')
+              AND {line_recognition_ts} IS NOT NULL
+              AND ({line_recognition_ts} AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
+              AND (p.pos_line_kind IS DISTINCT FROM 'rms_charge_payment')
+              AND (p.pos_line_kind IS DISTINCT FROM 'pos_gift_card_load')
+              AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
+        )
         SELECT
-            COALESCE(SUM((oi.unit_price * GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0))::numeric(14,2)), 0)::numeric(14,2) AS gross_sales,
-            COALESCE(SUM(((oi.unit_price - COALESCE(oi.discount_amount, 0)) * GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0))::numeric(14,2)), 0)::numeric(14,2) AS net_sales,
-            COUNT(DISTINCT o.id)::bigint AS transaction_count,
-            COALESCE(SUM(GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0)), 0)::bigint AS items_sold,
-            COALESCE(SUM((COALESCE(oi.discount_amount, 0) * GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0))::numeric(14,2)), 0)::numeric(14,2) AS discount_total
-        FROM transaction_lines oi
-        INNER JOIN transactions o ON o.id = oi.transaction_id
-        INNER JOIN products p ON p.id = oi.product_id
-        LEFT JOIN (
-            SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
-            FROM transaction_return_lines GROUP BY transaction_line_id
-        ) orl ON orl.transaction_line_id = oi.id
-        WHERE o.is_forfeited = false
-          AND o.status::text NOT IN ('cancelled')
-          AND {line_recognition_ts} IS NOT NULL
-          AND ({line_recognition_ts} AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
-          AND (p.pos_line_kind IS DISTINCT FROM 'rms_charge_payment')
-          AND (p.pos_line_kind IS DISTINCT FROM 'pos_gift_card_load')
-          AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
+            COALESCE(SUM(
+                (
+                    (unit_price - discount_amount)
+                    + discount_amount
+                    + GREATEST(COALESCE(original_unit_price, unit_price) - unit_price, 0)
+                ) * effective_qty
+            ), 0)::numeric(14,2) AS gross_sales,
+            COALESCE(SUM(((unit_price - discount_amount) * effective_qty)::numeric(14,2)), 0)::numeric(14,2) AS net_sales,
+            COUNT(DISTINCT transaction_id)::bigint AS transaction_count,
+            COALESCE(SUM(effective_qty), 0)::bigint AS items_sold,
+            COALESCE(SUM((
+                discount_amount
+                + GREATEST(COALESCE(original_unit_price, unit_price) - unit_price, 0)
+            ) * effective_qty), 0)::numeric(14,2) AS discount_total
+        FROM eligible_lines
         "#
     ))
     .bind(activity_date)
@@ -248,7 +272,7 @@ pub async fn generate_report(
         r#"
         SELECT
             COUNT(DISTINCT orl.id)::bigint AS return_count,
-            COALESCE(SUM((oi.unit_price * orl.quantity_returned)::numeric(14,2)), 0)::numeric(14,2) AS return_total
+            COALESCE(SUM(((oi.unit_price - COALESCE(oi.discount_amount, 0)) * orl.quantity_returned)::numeric(14,2)), 0)::numeric(14,2) AS return_total
         FROM transaction_return_lines orl
         INNER JOIN transaction_lines oi ON oi.id = orl.transaction_line_id
         INNER JOIN transactions o ON o.id = oi.transaction_id
@@ -420,7 +444,7 @@ pub async fn generate_report(
         r#"
         SELECT
             COALESCE(c.name, 'Uncategorized') AS name,
-            SUM((oi.unit_price * GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0))::numeric(14,2))::numeric(14,2) AS net_sales,
+            SUM(((oi.unit_price - COALESCE(oi.discount_amount, 0)) * GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0))::numeric(14,2))::numeric(14,2) AS net_sales,
             SUM((oi.unit_cost * GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0))::numeric(14,2))::numeric(14,2) AS cogs,
             SUM(GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0))::bigint AS units
         FROM transaction_lines oi

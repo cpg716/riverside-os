@@ -85,6 +85,8 @@ impl JobQueue {
         let queue_key = self.queue_key();
         let processing_key = self.processing_key();
 
+        self.recover_stale_processing_jobs().await?;
+
         // Use BRPOPLPUSH to atomically move job to processing queue
         let mut conn = self.cache.redis().get_connection().await?;
         let job_id_result: Option<String> = redis::cmd("BRPOPLPUSH")
@@ -168,6 +170,75 @@ impl JobQueue {
         self.increment_queue_stats("completed").await?;
 
         tracing::info!(job_id = %job_id, "Job completed");
+
+        Ok(())
+    }
+
+    /// Requeue jobs abandoned in the processing list after a worker crash.
+    async fn recover_stale_processing_jobs(&self) -> Result<(), RedisError> {
+        let processing_key = self.processing_key();
+        let queue_key = self.queue_key();
+        let mut conn = self.cache.redis().get_connection().await?;
+        let processing_ids: Vec<String> = redis::cmd("LRANGE")
+            .arg(&processing_key)
+            .arg(0)
+            .arg(-1)
+            .query_async(&mut conn)
+            .await?;
+        let stale_after_secs = self.config.processing_timeout.as_secs() as i64;
+
+        for raw_id in processing_ids {
+            let Ok(job_id) = Uuid::parse_str(&raw_id) else {
+                let _: () = redis::cmd("LREM")
+                    .arg(&processing_key)
+                    .arg(1)
+                    .arg(&raw_id)
+                    .query_async(&mut conn)
+                    .await?;
+                tracing::warn!(job_id = %raw_id, "Removed invalid job id from processing queue");
+                continue;
+            };
+
+            let job_key = self.job_key(job_id);
+            let mut job: Option<Job> = self.cache.get(&job_key).await?;
+            let should_requeue = job
+                .as_ref()
+                .and_then(|j| j.started_at)
+                .map(|started_at| {
+                    Utc::now().signed_duration_since(started_at).num_seconds() > stale_after_secs
+                })
+                .unwrap_or(true);
+
+            if !should_requeue {
+                continue;
+            }
+
+            let removed: i64 = redis::cmd("LREM")
+                .arg(&processing_key)
+                .arg(1)
+                .arg(job_id.to_string())
+                .query_async(&mut conn)
+                .await?;
+            if removed == 0 {
+                continue;
+            }
+
+            if let Some(ref mut stale_job) = job {
+                stale_job.status = JobStatus::Pending;
+                stale_job.started_at = None;
+                self.cache
+                    .set(&job_key, stale_job, Some(Duration::from_secs(86400)))
+                    .await?;
+                let _: () = redis::cmd("LPUSH")
+                    .arg(&queue_key)
+                    .arg(job_id.to_string())
+                    .query_async(&mut conn)
+                    .await?;
+                tracing::warn!(job_id = %job_id, "Recovered stale processing job back to queue");
+            } else {
+                tracing::warn!(job_id = %job_id, "Removed processing job with missing job payload");
+            }
+        }
 
         Ok(())
     }

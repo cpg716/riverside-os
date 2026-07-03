@@ -18,6 +18,7 @@ export interface CustomerProfile {
   email: string | null;
   phone: string | null;
   profile_discount_percent?: string | number;
+  employee_discount_eligible?: boolean;
   tax_exempt?: boolean;
   tax_exempt_id?: string | null;
   address_line1: string | null;

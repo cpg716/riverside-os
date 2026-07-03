@@ -13,7 +13,7 @@ use axum::http::{header, HeaderValue, Method};
 use axum::middleware::{self, Next};
 use axum::response::Response;
 use axum::serve;
-use chrono::{NaiveDate, Timelike, Utc};
+use chrono::{NaiveDate, Utc};
 use rust_decimal_macros::dec;
 use sqlx::postgres::PgPoolOptions;
 use std::collections::HashMap;
@@ -554,9 +554,13 @@ async fn launch_server_inner(
         loop {
             ticker.tick().await;
             crate::api::health::WorkerHealth::mark_heartbeat("qbo_sync").await;
-            let now_local = chrono::Local::now();
-            let today = now_local.naive_local().date();
-            let hour = now_local.hour();
+            let (today, hour) = match store_local_today_and_hour(&qbo_propose_state.db).await {
+                Ok(v) => v,
+                Err(e) => {
+                    tracing::error!(error = %e, "QBO auto-propose: failed to load store-local clock");
+                    continue;
+                }
+            };
             // Run once per day after 2 AM local time (after Z-close / end of day)
             if last_run_day != Some(today) && hour >= 2 {
                 last_run_day = Some(today);
@@ -1001,7 +1005,13 @@ async fn start_backup_worker(state: AppState) -> Result<(), anyhow::Error> {
                     .await
                     .unwrap_or_default();
             let settings: BackupSettings = serde_json::from_value(settings_raw).unwrap_or_default();
-            let now = chrono::Local::now().format("%H:%M").to_string();
+            let now = match store_local_hh_mm(&st.db).await {
+                Ok(v) => v,
+                Err(e) => {
+                    tracing::error!(error = %e, "Background backup worker failed to load store-local clock");
+                    return;
+                }
+            };
             if daily_backup_schedule_matches_time(&settings.schedule_cron, &now) {
                 let manager = BackupManager::new(st.database_url.clone());
                 match manager.create_backup_with_settings(&settings).await {
@@ -1049,6 +1059,32 @@ async fn start_backup_worker(state: AppState) -> Result<(), anyhow::Error> {
 
     sched.start().await?;
     Ok(())
+}
+
+async fn store_local_today_and_hour(pool: &sqlx::PgPool) -> Result<(NaiveDate, u32), sqlx::Error> {
+    let (today, hour): (NaiveDate, i32) = sqlx::query_as(
+        r#"
+        SELECT
+            (CURRENT_TIMESTAMP AT TIME ZONE reporting.effective_store_timezone())::date,
+            EXTRACT(HOUR FROM CURRENT_TIMESTAMP AT TIME ZONE reporting.effective_store_timezone())::int4
+        "#,
+    )
+    .fetch_one(pool)
+    .await?;
+    Ok((today, hour.max(0) as u32))
+}
+
+async fn store_local_hh_mm(pool: &sqlx::PgPool) -> Result<String, sqlx::Error> {
+    sqlx::query_scalar(
+        r#"
+        SELECT to_char(
+            CURRENT_TIMESTAMP AT TIME ZONE reporting.effective_store_timezone(),
+            'HH24:MI'
+        )
+        "#,
+    )
+    .fetch_one(pool)
+    .await
 }
 
 async fn perform_weather_backfill(state: &AppState) -> Result<(), anyhow::Error> {

@@ -44,6 +44,9 @@ This document is the source policy for release-gated financial checks. If a work
 - Source-level formulas for receiving, freight, customer shipping, gift cards, deposits, and QBO staging.
 - User-facing labels so misleading internal names do not appear in reports.
 - Required E2E coverage files and scenario names for high-risk financial workflows.
-- Production SQL probe coverage for deployment/database signoff.
+- Production SQL probe coverage for deployment/database signoff, including discount evidence,
+  customer/employee discount linkage, commission event completeness, commission duplicate
+  detection, return commission adjustments, QBO balance state, inventory risk, register
+  state, shipping/freight separation, and backup freshness.
 
 Live store-data drills are still required for accounting signoff. The automated gate prevents known classes of financial mistakes from entering a release, but it does not replace comparing a real QBO sandbox/company sync against Riverside reports.

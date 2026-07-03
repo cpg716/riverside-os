@@ -16,6 +16,7 @@ export interface Customer {
   email: string | null;
   phone: string | null;
   profile_discount_percent?: string | number;
+  employee_discount_eligible?: boolean;
   tax_exempt?: boolean;
   tax_exempt_id?: string | null;
   wedding_active?: boolean;
@@ -196,6 +197,7 @@ export default function CustomerSelector({
                 email: r.email,
                 phone: r.phone,
                 profile_discount_percent: r.profile_discount_percent,
+                employee_discount_eligible: r.employee_discount_eligible,
                 tax_exempt: r.tax_exempt,
                 tax_exempt_id: r.tax_exempt_id,
                 wedding_active: true,
@@ -258,6 +260,7 @@ export default function CustomerSelector({
             email: r.email,
             phone: r.phone,
             profile_discount_percent: r.profile_discount_percent,
+            employee_discount_eligible: r.employee_discount_eligible,
             tax_exempt: r.tax_exempt,
             tax_exempt_id: r.tax_exempt_id,
             wedding_active: true,
@@ -336,6 +339,9 @@ export default function CustomerSelector({
             </div>
             <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[9px] font-bold uppercase tracking-widest text-blue-100/95">
               <span className="rounded bg-app-surface/20 px-1 py-0.5">Active</span>
+              {selectedCustomer.employee_discount_eligible ? (
+                <span className="rounded bg-app-surface/20 px-1 py-0.5">Staff</span>
+              ) : null}
               <span className="tabular-nums">{selectedCustomer.customer_code || "\u2014"}</span>
               {selectedCustomer.phone ? (
                 <span className="tabular-nums opacity-90">{selectedCustomer.phone}</span>
@@ -419,6 +425,11 @@ export default function CustomerSelector({
                 <span className="text-[10px] font-bold uppercase tracking-widest bg-app-surface/20 px-1.5 py-0.5 rounded-md">
                    Active
                 </span>
+                {selectedCustomer.employee_discount_eligible ? (
+                  <span className="text-[10px] font-bold uppercase tracking-widest bg-app-surface/20 px-1.5 py-0.5 rounded-md">
+                    Staff
+                  </span>
+                ) : null}
                 {selectedCustomer.phone && (
                   <span className="text-[10px] font-bold tabular-nums tracking-widest">{selectedCustomer.phone}</span>
                 )}
@@ -584,8 +595,15 @@ export default function CustomerSelector({
                        onClick={() => selectCustomerFromSearch(customer)}
                        className="min-w-0 flex-1 p-4 text-left transition-colors hover:bg-app-surface-2"
                      >
-                       <div className="font-bold text-app-text">
-                         {customer.first_name} {customer.last_name}
+                       <div className="flex flex-wrap items-center gap-2 font-bold text-app-text">
+                         <span>
+                           {customer.first_name} {customer.last_name}
+                         </span>
+                         {customer.employee_discount_eligible ? (
+                           <span className="inline-flex items-center rounded-full border border-app-info/20 bg-app-info/10 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-app-info">
+                             Staff
+                           </span>
+                         ) : null}
                        </div>
                        <div className="text-[10px] font-bold uppercase tracking-tight text-app-text-muted">
                          {customer.customer_code || "\u2014"}
