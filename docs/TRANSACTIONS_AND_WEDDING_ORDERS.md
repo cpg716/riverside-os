@@ -112,6 +112,10 @@ Wedding transactions follow the exact same architecture but enforce group-level 
 - The logistical `Fulfillment Orders` still track the physical movement of the suits and rentals independently of who paid the balance.
 - Shared Orders views should continue to show the linked party and member context so staff do not mistake a Wedding order for a generic open order.
 
+### Wedding Number
+
+Every wedding party has a canonical `wedding_number` used by Wedding Manager, party-member customer context, search, and history links. The format is the groom's last name in uppercase plus the wedding date as `MMDDYY`, for example `SMITH-072026` for Dan Smith on July 20, 2026. If another party already has the same groom last name and date, ROS appends an alphabetical suffix such as `SMITH-072026A`, then `SMITH-072026B`. Staff-facing wedding labels should use this number when an operational identifier is needed; `party_name`, groom name, and bride name remain human-readable descriptors.
+
 ### Wedding Member Nomenclature
 
 To maintain the v0.2.0 boundaries, wedding members use two distinct links:

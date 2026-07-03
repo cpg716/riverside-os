@@ -418,6 +418,7 @@ pub async fn upsert_wedding_party_document(client: &Client, pool: &PgPool, party
     struct Row {
         id: Uuid,
         is_deleted: Option<bool>,
+        wedding_number: Option<String>,
         party_name: Option<String>,
         groom_name: Option<String>,
         notes: Option<String>,
@@ -434,6 +435,7 @@ pub async fn upsert_wedding_party_document(client: &Client, pool: &PgPool, party
         SELECT
             wp.id,
             wp.is_deleted,
+            wp.wedding_number,
             wp.party_name,
             wp.groom_name,
             wp.notes,
@@ -468,6 +470,7 @@ pub async fn upsert_wedding_party_document(client: &Client, pool: &PgPool, party
     let mut base = String::new();
     for p in [
         row.party_name.as_deref(),
+        row.wedding_number.as_deref(),
         row.groom_name.as_deref(),
         row.notes.as_deref(),
         row.groom_email.as_deref(),
@@ -1371,7 +1374,7 @@ async fn reindex_all_meilisearch_inner(client: &Client, pool: &PgPool) -> anyhow
     let mut party_stream = sqlx::query(
         r#"
         SELECT
-            wp.id, wp.is_deleted, wp.party_name, wp.groom_name, wp.notes,
+            wp.id, wp.is_deleted, wp.wedding_number, wp.party_name, wp.groom_name, wp.notes,
             wp.groom_email, wp.bride_name, wp.bride_email, wp.groom_phone, wp.bride_phone,
             (
                 SELECT string_agg(TRIM(COALESCE(c.first_name, '') || ' ' || COALESCE(c.last_name, '')), ' ')
@@ -1390,6 +1393,7 @@ async fn reindex_all_meilisearch_inner(client: &Client, pool: &PgPool) -> anyhow
             let mut base = String::new();
             for p in [
                 row.get::<Option<String>, _>("party_name").as_deref(),
+                row.get::<Option<String>, _>("wedding_number").as_deref(),
                 Some(row.get::<String, _>("groom_name")).as_deref(),
                 row.get::<Option<String>, _>("notes").as_deref(),
                 row.get::<Option<String>, _>("groom_email").as_deref(),

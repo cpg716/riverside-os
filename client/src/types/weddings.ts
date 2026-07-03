@@ -18,6 +18,7 @@ export interface WeddingMember {
 
 export interface WeddingPartyRow {
   id: string;
+  wedding_number?: string | null;
   party_name: string | null;
   groom_name: string;
   bride_name: string | null;
@@ -27,7 +28,7 @@ export interface WeddingPartyRow {
 
 export interface WeddingPartyDetail extends WeddingPartyRow {
   members: WeddingMember[];
-  /** Server-computed `NameNoSpaces-MMDDYY`; optional for older responses. */
+  /** Server-computed wedding number such as `SMITH-072026`; optional for older responses. */
   party_tracking_label?: string;
 }
 

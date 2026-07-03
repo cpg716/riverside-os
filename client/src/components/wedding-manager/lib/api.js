@@ -220,7 +220,7 @@ function mapPartyRowToWmParty(row) {
     typeof party.party_tracking_label === "string" && party.party_tracking_label.trim()
       ? party.party_tracking_label.trim()
       : formatWeddingPartyTrackingLabel(
-          party.party_name,
+          party.wedding_number,
           party.groom_name,
           party.event_date
         );
@@ -228,6 +228,7 @@ function mapPartyRowToWmParty(row) {
     id: party.id,
     name: party.party_name || party.groom_name,
     trackingLabel,
+    weddingNumber: trackingLabel,
     groomFirstName: party.groom_name,
     date: party.event_date,
     signUpDate: party.sign_up_date,

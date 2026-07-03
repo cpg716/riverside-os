@@ -98,9 +98,15 @@ export default function WeddingLookupDrawer({
             const { party, members } = splitWeddingPartyWithMembers(item);
             if (!party?.id) return null;
             const groom = String(party.groom_name ?? "");
+            const trackingLabel =
+              typeof party.party_tracking_label === "string" && party.party_tracking_label.trim()
+                ? party.party_tracking_label.trim()
+                : typeof party.wedding_number === "string" && party.wedding_number.trim()
+                  ? party.wedding_number.trim()
+                  : "";
             return {
               id: String(party.id),
-              party_name: String(party.party_name ?? `${groom} Wedding`),
+              party_name: trackingLabel || String(party.party_name ?? `${groom} Wedding`),
               groom_name: groom,
               bride_name: party.bride_name != null ? String(party.bride_name) : undefined,
               event_date: String(party.event_date ?? ""),

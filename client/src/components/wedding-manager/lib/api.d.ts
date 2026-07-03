@@ -30,6 +30,7 @@ export interface WmParty {
   id: string;
   name: string;
   trackingLabel: string;
+  weddingNumber: string;
   groomFirstName: string;
   date: string;
   signUpDate: string;

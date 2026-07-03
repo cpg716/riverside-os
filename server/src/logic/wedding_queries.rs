@@ -21,6 +21,7 @@ fn party_select_sql() -> &'static str {
     r#"
         SELECT
             wp.id,
+            wp.wedding_number,
             wp.party_name,
             wp.groom_name,
             wp.event_date,
@@ -209,6 +210,8 @@ pub async fn query_party_list_page(
         count_qb.push_bind(pat.clone());
         count_qb.push(" OR wp.groom_name ILIKE ");
         count_qb.push_bind(pat.clone());
+        count_qb.push(" OR wp.wedding_number ILIKE ");
+        count_qb.push_bind(pat.clone());
         count_qb.push(" OR wp.notes ILIKE ");
         count_qb.push_bind(pat.clone());
         count_qb.push(" OR wp.groom_email ILIKE ");
@@ -276,6 +279,8 @@ pub async fn query_party_list_page(
         data_qb.push_bind(pat.clone());
         data_qb.push(" OR wp.groom_name ILIKE ");
         data_qb.push_bind(pat.clone());
+        data_qb.push(" OR wp.wedding_number ILIKE ");
+        data_qb.push_bind(pat.clone());
         data_qb.push(" OR wp.notes ILIKE ");
         data_qb.push_bind(pat.clone());
         data_qb.push(" OR wp.groom_email ILIKE ");
@@ -304,10 +309,10 @@ pub async fn query_party_list_page(
     }
 
     data_qb.push(
-        " GROUP BY wp.id, wp.party_name, wp.groom_name, wp.event_date, wp.venue, wp.notes, \
+        " GROUP BY wp.id, wp.wedding_number, wp.party_name, wp.groom_name, wp.event_date, wp.venue, wp.notes, \
         wp.party_type, wp.sign_up_date, wp.salesperson, wp.style_info, wp.price_info, \
         wp.groom_phone, wp.groom_email, wp.bride_name, wp.bride_phone, wp.bride_email, \
-        wp.accessories, wp.groom_phone_clean, wp.bride_phone_clean, wp.is_deleted ",
+        wp.accessories, wp.groom_phone_clean, wp.bride_phone_clean, wp.is_deleted, wp.suit_variant_id ",
     );
     data_qb.push(" ORDER BY wp.event_date ASC ");
     data_qb.push(" LIMIT ");

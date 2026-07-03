@@ -31,6 +31,7 @@ pub struct Pagination {
 #[derive(Debug, Serialize, FromRow)]
 pub struct WeddingPartyRow {
     pub id: Uuid,
+    pub wedding_number: Option<String>,
     pub party_name: Option<String>,
     pub groom_name: String,
     pub event_date: NaiveDate,
@@ -120,7 +121,7 @@ pub fn build_party_bundle(
     members: Vec<WeddingMemberApi>,
 ) -> WeddingPartyWithMembers {
     let party_tracking_label = wedding_party_tracking_label(
-        party.party_name.as_deref(),
+        party.wedding_number.as_deref(),
         &party.groom_name,
         party.event_date,
     );
