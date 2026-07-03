@@ -379,6 +379,7 @@ pub async fn propose_daily_journal(
                     'amount', amount,
                     'payment_method', payment_method,
                     'sub_type', NULLIF(TRIM(COALESCE(metadata->>'sub_type', '')), ''),
+                    'donation_note', NULLIF(TRIM(COALESCE(metadata->>'donation_note', '')), ''),
                     'gift_card_code', NULLIF(TRIM(COALESCE(metadata->>'gift_card_code', '')), ''),
                     'gift_card_card_kind', NULLIF(TRIM(COALESCE(metadata->>'gift_card_card_kind', '')), '')
                 )

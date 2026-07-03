@@ -705,6 +705,34 @@ export const REPORTS_CATALOG: ReportDef[] = [
       `/api/insights/payment-exception-review?from=${enc(fromYmd)}&to=${enc(toYmd)}`,
   },
   {
+    id: "donation_payments",
+    title: "Donation Payments",
+    description:
+      "Donation tender activity with customer, linked transaction, amount, and required note for accounting review.",
+    category: "Finance",
+    aliases: ["donation tender", "donations", "charity payments", "donation notes"],
+    keywords: ["donation", "tender", "charity", "notes", "qbo", "accounting", "metabase"],
+    questions: ["What donations were recorded?", "Why were donation tenders used?", "Which donations need accounting review?"],
+    audience: "Manager",
+    sensitivity: "Manager",
+    adminOnly: false,
+    permissionsAll: ["insights.view"],
+    responseKind: "rows",
+    usesGlobalDateRange: true,
+    usesBasis: false,
+    chartConfigs: [
+      {
+        title: "Donation dollars",
+        labelKey: "business_date",
+        valueKey: "gross_amount",
+        valueFormat: "money",
+        limit: 14,
+      },
+    ],
+    buildPath: ({ fromYmd, toYmd }) =>
+      `/api/insights/donation-payments?from=${enc(fromYmd)}&to=${enc(toYmd)}`,
+  },
+  {
     id: "appointments_no_show",
     title: "Appointments & No-Show Report",
     description:

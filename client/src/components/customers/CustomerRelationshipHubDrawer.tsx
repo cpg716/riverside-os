@@ -567,6 +567,7 @@ export interface CustomerRelationshipHubDrawerProps {
   onOpenOrderInBackoffice?: (orderId: string) => void;
   onOpenTransactionInBackoffice?: (orderId: string) => void;
   onSwitchCustomer?: (c: Customer) => void;
+  onCustomerUpdated?: (c: Customer) => void;
   baseUrl?: string;
   onRefresh?: () => void;
   panelMaxClassName?: string;
@@ -732,6 +733,7 @@ export function CustomerRelationshipHubDrawer({
   onOpenOrderInBackoffice,
   onOpenTransactionInBackoffice,
   onSwitchCustomer,
+  onCustomerUpdated,
   baseUrl = defaultBase,
   panelMaxClassName = "max-w-6xl",
 }: CustomerRelationshipHubDrawerProps) {
@@ -1991,6 +1993,24 @@ export function CustomerRelationshipHubDrawer({
       const nextDraft = customerProfileDraftFromRow(row as CustomerProfile);
       setProfileDraft(nextDraft);
       profileDraftBaseline.current = nextDraft;
+      onCustomerUpdated?.({
+        id: customer.id,
+        customer_code: customer.customer_code,
+        first_name: row.first_name,
+        last_name: row.last_name,
+        company_name: row.company_name,
+        email: row.email,
+        phone: row.phone,
+        profile_discount_percent: row.profile_discount_percent ?? customer.profile_discount_percent,
+        employee_discount_eligible: customer.employee_discount_eligible,
+        tax_exempt: row.tax_exempt ?? customer.tax_exempt,
+        tax_exempt_id: row.tax_exempt_id ?? customer.tax_exempt_id,
+        wedding_active: customer.wedding_active,
+        wedding_party_name: customer.wedding_party_name,
+        wedding_party_id: customer.wedding_party_id,
+        couple_id: customer.couple_id,
+        wedding_member_id: customer.wedding_member_id,
+      });
       toast("Profile details saved", "success");
       await loadHub();
     } finally {

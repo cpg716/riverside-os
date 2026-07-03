@@ -117,7 +117,13 @@ pub async fn query_customer_transaction_history(
                   AND fulfillment::text IN ('special_order', 'custom', 'wedding_order')
             ) AS is_fulfillment_order,
             o.is_counterpoint_import,
-            NULLIF(TRIM(c.customer_code), '') AS counterpoint_customer_code,
+            CASE
+                WHEN c.customer_created_source = 'counterpoint'
+                 AND NULLIF(TRIM(c.customer_code), '') IS NOT NULL
+                 AND NULLIF(TRIM(c.customer_code), '') !~* '^ROS-'
+                THEN NULLIF(TRIM(c.customer_code), '')
+                ELSE NULL
+            END AS counterpoint_customer_code,
             ps.full_name AS primary_salesperson_name,
             COUNT(*) OVER()::bigint AS total_count
         FROM transactions o
@@ -207,7 +213,7 @@ pub async fn query_customer_transaction_history(
         }
     }
     qb.push(
-        " GROUP BY o.id, o.display_id, o.booked_at, o.status, o.sale_channel, o.total_price, o.amount_paid, o.balance_due, o.is_counterpoint_import, c.customer_code, ps.full_name ",
+        " GROUP BY o.id, o.display_id, o.booked_at, o.status, o.sale_channel, o.total_price, o.amount_paid, o.balance_due, o.is_counterpoint_import, c.customer_code, c.customer_created_source, ps.full_name ",
     );
     qb.push(" ORDER BY o.booked_at DESC LIMIT ");
     qb.push_bind(limit);

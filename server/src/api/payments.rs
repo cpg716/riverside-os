@@ -7969,13 +7969,10 @@ async fn confirm_helcim_pay(
         PaymentError::InvalidPayload("HelcimPay.js validation secret is missing".to_string())
     })?;
 
-    let canonical = serde_json::to_string(&payload.data)
-        .map_err(|_| PaymentError::InvalidPayload("invalid Helcim response".to_string()))?;
-    let mut hasher = Sha256::new();
-    hasher.update(canonical.as_bytes());
-    hasher.update(client_secret.as_bytes());
-    let expected = hex::encode(hasher.finalize());
-    if !expected.eq_ignore_ascii_case(payload.hash.trim()) {
+    let hash_matches =
+        helcim_pay_response_hash_matches(&payload.data, &client_secret, payload.hash.trim())
+            .map_err(|_| PaymentError::InvalidPayload("invalid Helcim response".to_string()))?;
+    if !hash_matches {
         return Err(PaymentError::InvalidPayload(
             "HelcimPay.js response hash did not validate".to_string(),
         ));
@@ -8037,6 +8034,41 @@ async fn confirm_helcim_pay(
     load_helcim_attempt(&state, payload.attempt_id, pos_session_id)
         .await
         .map(Json)
+}
+
+fn helcim_pay_response_hash_matches(
+    data: &Value,
+    secret_token: &str,
+    provided_hash: &str,
+) -> Result<bool, serde_json::Error> {
+    let canonical = serde_json::to_string(data)?;
+    let escaped_unicode = escape_json_non_ascii(&canonical);
+    Ok(
+        helcim_pay_hash(&escaped_unicode, secret_token).eq_ignore_ascii_case(provided_hash)
+            || helcim_pay_hash(&canonical, secret_token).eq_ignore_ascii_case(provided_hash),
+    )
+}
+
+fn helcim_pay_hash(canonical_json: &str, secret_token: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(canonical_json.as_bytes());
+    hasher.update(secret_token.as_bytes());
+    hex::encode(hasher.finalize())
+}
+
+fn escape_json_non_ascii(json: &str) -> String {
+    let mut escaped = String::with_capacity(json.len());
+    for ch in json.chars() {
+        if ch.is_ascii() {
+            escaped.push(ch);
+        } else {
+            let mut units = [0_u16; 2];
+            for unit in ch.encode_utf16(&mut units) {
+                escaped.push_str(&format!("\\u{unit:04x}"));
+            }
+        }
+    }
+    escaped
 }
 
 async fn list_helcim_customers(
@@ -8900,6 +8932,40 @@ mod tests {
         assert!(!should_skip_provider_refresh_for_idempotency_replay(
             &attempt
         ));
+    }
+
+    #[test]
+    fn helcim_pay_hash_accepts_documented_escaped_unicode_payload() {
+        let data = json!({
+            "amount": "12.34",
+            "status": "approved",
+            "cardHolderName": "José Rivera"
+        });
+        let secret = "helcim-secret";
+        let canonical = serde_json::to_string(&data).expect("canonical json");
+        let escaped = escape_json_non_ascii(&canonical);
+        assert!(escaped.contains("Jos\\u00e9"));
+        let documented_hash = helcim_pay_hash(&escaped, secret);
+
+        assert!(
+            helcim_pay_response_hash_matches(&data, secret, &documented_hash).expect("hash check")
+        );
+    }
+
+    #[test]
+    fn helcim_pay_hash_still_accepts_compact_json_payload() {
+        let data = json!({
+            "amount": "12.34",
+            "status": "approved",
+            "transactionId": "123456"
+        });
+        let secret = "helcim-secret";
+        let canonical = serde_json::to_string(&data).expect("canonical json");
+        let compact_hash = helcim_pay_hash(&canonical, secret);
+
+        assert!(
+            helcim_pay_response_hash_matches(&data, secret, &compact_hash).expect("hash check")
+        );
     }
 
     #[test]

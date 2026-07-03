@@ -500,7 +500,10 @@ export default function CustomerSelector({
               id="pos-customer-results"
               ref={resultsPanelRef}
               role="listbox"
-              className={`absolute left-0 right-0 z-100 max-h-[min(78vh,28rem)] isolate overflow-hidden rounded-xl border border-app-border bg-app-surface text-app-text shadow-2xl shadow-black/30 ring-1 ring-black/10 backdrop-blur-none ${
+              onMouseDown={(event) => event.stopPropagation()}
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => event.stopPropagation()}
+              className={`absolute left-0 right-0 z-200 max-h-[min(78vh,28rem)] isolate overflow-hidden rounded-xl border border-app-border bg-white text-app-text shadow-2xl shadow-black/30 ring-1 ring-black/10 backdrop-blur-none dark:bg-zinc-950 ${
                 openResultsUpward ? "bottom-full mb-2" : "top-full mt-2"
               }`}
             >
@@ -602,6 +605,12 @@ export default function CustomerSelector({
                          {customer.employee_discount_eligible ? (
                            <span className="inline-flex items-center rounded-full border border-app-info/20 bg-app-info/10 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-app-info">
                              Staff
+                           </span>
+                         ) : null}
+                         {customer.wedding_party_name ? (
+                           <span className="inline-flex max-w-full items-center gap-1 rounded-full border border-app-accent/25 bg-app-accent/10 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-app-accent">
+                             <Gem size={10} className="shrink-0" aria-hidden />
+                             <span className="truncate">{customer.wedding_party_name}</span>
                            </span>
                          ) : null}
                        </div>

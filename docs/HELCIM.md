@@ -66,7 +66,7 @@ HelcimPay.js provider boundary:
 
 - `POST /providers/helcim/helcim-pay/initialize`
 - `POST /providers/helcim/helcim-pay/confirm`
-- These routes are for public/web checkout or other approved HTTPS browser flows. POS checkout does not load HelcimPay.js; in-store and phone-order card entry uses the Helcim terminal hardware path.
+- These routes are for public/web checkout and POS **Manual Card** keyed-entry flows. HelcimPay.js owns card entry, returns a signed result, and ROS validates the Helcim response before recording the tender.
 
 Customer and card helpers:
 
@@ -131,7 +131,7 @@ All outbound Helcim API calls use centralized retry logic with exponential backo
 - Device codes are configured through Settings -> Helcim as Terminal 1 / Terminal 2 or through `HELCIM_TERMINAL_1_DEVICE_CODE` / `HELCIM_TERMINAL_2_DEVICE_CODE`. Daily readiness belongs in Payments -> Health.
 - ROS can initiate terminal purchase attempts and terminal refund attempts for configured devices, but Helcim dashboard remains required for hardware enrollment, pairing, and provider-side device assignment.
 - POS **Card Reader** sends the amount to the selected Helcim terminal for tap/insert/swipe.
-- POS **Manual Card** also sends the amount to the selected Helcim terminal. Staff key phone-order cards on the Helcim terminal; ROS must not collect PAN or CVV.
+- POS **Manual Card** opens secure HelcimPay.js hosted card entry for keyed/phone-order cards. ROS must not collect PAN or CVV in native fields, notes, references, search fields, or support chats.
 - POS **Card Refund** is available for refund/negative checkout totals and sends the refund to the selected Helcim terminal using the original Helcim transaction id when available. If the original id is not supplied by the calling workflow, staff must enter the original Helcim transaction id before the refund can be sent.
 - Register routing uses Terminal 1 / Terminal 2 naming. Register #1 defaults to Terminal 1, Register #2 defaults to Terminal 2, and other registers must choose an available terminal before sending a terminal payment/refund.
 - ROS sends each terminal purchase with a unique `ROS-{attempt}` invoice reference. If the live terminal response or webhook is delayed, the checkout drawer **Recover payment** action asks the server to refresh the attempt and match by that invoice reference and exact amount before staff retry the card.
@@ -190,7 +190,7 @@ If the signing secret is missing or wrong, ROS fails closed before storing the e
 
 - Helcim API token and Terminal 1 / Terminal 2 device codes are saved through encrypted integration credentials or current deployment env names. The webhook secret is optional and only used for public inbound Helcim webhook delivery.
 - Client-facing config/status responses expose readiness only, not raw secrets.
-- ROS must not store, log, display, or transmit PAN or CVV. Manual/phone-order card entry happens on the Helcim terminal, not in ROS.
+- ROS must not store, log, display, or transmit PAN or CVV. Manual/phone-order card entry happens inside HelcimPay.js hosted card entry, not in ROS-owned fields.
 - Stored card data is limited to provider-safe token references, Helcim transaction/payment ids, statuses, amounts, terminal references, and masked/brand/last4 metadata returned safely by Helcim.
 - Saved-card payments use Helcim card tokens. Tokens are provider credentials and should not be shown in staff UI, copied into notes, or logged.
 - Webhook, storefront confirmation, settlement sync, and provider error storage redact card-sensitive fields.

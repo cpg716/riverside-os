@@ -3617,6 +3617,65 @@ async fn payment_exception_review_report(
 }
 
 #[derive(Debug, Serialize, FromRow)]
+pub struct DonationPaymentReportRow {
+    pub payment_transaction_id: Uuid,
+    pub created_at: DateTime<Utc>,
+    pub occurred_at: Option<DateTime<Utc>>,
+    pub business_date: NaiveDate,
+    pub payment_method: String,
+    pub gross_amount: Decimal,
+    pub merchant_fee: Decimal,
+    pub net_amount: Decimal,
+    pub status: String,
+    pub payer_name: Option<String>,
+    pub payer_code: Option<String>,
+    pub linked_transaction_id: Option<Uuid>,
+    pub primary_transaction_display_id: Option<String>,
+    pub linked_transaction_display_ids: Option<String>,
+    pub linked_customer_names: Option<String>,
+    pub donation_note: String,
+}
+
+async fn donation_payments_report(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<DateRangeQuery>,
+) -> Result<Json<Vec<DonationPaymentReportRow>>, InsightsError> {
+    require_insights_or_register_reports(&state, &headers).await?;
+    let (start, end) = range_bounds(&q);
+    let rows = sqlx::query_as::<_, DonationPaymentReportRow>(
+        r#"
+        SELECT
+            payment_transaction_id,
+            created_at,
+            occurred_at,
+            business_date,
+            payment_method,
+            gross_amount,
+            merchant_fee,
+            net_amount,
+            status,
+            payer_name,
+            payer_code,
+            linked_transaction_id,
+            primary_transaction_display_id,
+            linked_transaction_display_ids,
+            linked_customer_names,
+            donation_note
+        FROM reporting.donation_payments
+        WHERE created_at >= $1 AND created_at < $2
+        ORDER BY created_at DESC, payment_transaction_id
+        LIMIT 1000
+        "#,
+    )
+    .bind(start)
+    .bind(end)
+    .fetch_all(&state.db)
+    .await?;
+    Ok(Json(rows))
+}
+
+#[derive(Debug, Serialize, FromRow)]
 pub struct CustomerValueFrequencyReportRow {
     pub customer_code: Option<String>,
     pub customer_display_name: String,
@@ -4426,6 +4485,7 @@ pub fn router() -> Router<AppState> {
             "/payment-exception-review",
             get(payment_exception_review_report),
         )
+        .route("/donation-payments", get(donation_payments_report))
         .route(
             "/customer-value-frequency",
             get(customer_value_frequency_report),

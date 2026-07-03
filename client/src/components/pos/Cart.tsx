@@ -531,6 +531,16 @@ export default function Cart({
     [lines, rmsPaymentMeta],
   );
 
+  const updateSelectedCustomerSnapshot = useCallback((customer: Customer) => {
+    setSelectedCustomer((current) => {
+      if (!current || current.id !== customer.id) return current;
+      return {
+        ...current,
+        ...customer,
+      };
+    });
+  }, []);
+
   const resetSaleDateTime = useCallback(() => {
     setSaleDateTimeLocal(null);
   }, []);
@@ -1647,13 +1657,7 @@ export default function Cart({
 
 
   const commissionStaff = useMemo(
-    () =>
-      posStaffList.filter(
-        (s) =>
-          !s.role ||
-          s.role === "salesperson" ||
-          s.role === "admin",
-      ),
+    () => posStaffList.filter((s) => s.role === "salesperson"),
     [posStaffList],
   );
 
@@ -4072,6 +4076,7 @@ export default function Cart({
           onSwitchCustomer={(c: Customer) => {
             setSelectedCustomer(c);
           }}
+          onCustomerUpdated={updateSelectedCustomerSnapshot}
           navigateAfterStartSale={false}
           baseUrl={baseUrl}
         />

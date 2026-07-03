@@ -20,10 +20,5 @@ export function formatPhone(
     return `(${cleaned.slice(0, 3)}) ${cleaned.slice(3, 6)}-${cleaned.slice(6, 10)}`;
   }
 
-  if (cleaned.length === 7) {
-    if (cleaned.startsWith("716")) return phone;
-    return `(716) ${cleaned.slice(0, 3)}-${cleaned.slice(3, 7)}`;
-  }
-
   return phone;
 }

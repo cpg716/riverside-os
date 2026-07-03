@@ -207,6 +207,7 @@ export type NexoTenderTab =
   | "cash"
   | "check"
   | "gift_card"
+  | "donation"
   | "rms_charge"
   | "store_credit";
 

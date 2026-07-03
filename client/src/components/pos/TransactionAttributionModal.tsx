@@ -109,13 +109,7 @@ export default function TransactionAttributionModal({
   }, [load]);
 
   const commissionStaff = useMemo(
-    () =>
-      staff.filter(
-        (s) =>
-          !s.role ||
-          s.role === "salesperson" ||
-          s.role === "admin",
-      ),
+    () => staff.filter((s) => s.role === "salesperson"),
     [staff],
   );
 

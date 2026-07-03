@@ -3974,7 +3974,8 @@ async fn browse_customers(
                     FROM transactions
                     WHERE customer_id = c.id
                 ) ob ON true
-                WHERE ($2::bool = false OR c.is_vip = TRUE)
+                WHERE c.is_active = TRUE
+                  AND ($2::bool = false OR c.is_vip = TRUE)
                   AND ($3::bool = false OR COALESCE(ob.balance_sum, 0) > 0)
                   AND (
                     $4::bool = false
@@ -4149,7 +4150,8 @@ async fn browse_customers(
                     FROM transactions
                     WHERE customer_id = c.id
                 ) ob ON true
-                WHERE ($2::bool = false OR c.is_vip = TRUE)
+                WHERE c.is_active = TRUE
+                  AND ($2::bool = false OR c.is_vip = TRUE)
                   AND ($3::bool = false OR COALESCE(ob.balance_sum, 0) > 0)
                   AND (
                     $4::bool = false
@@ -4492,7 +4494,8 @@ async fn browse_customers(
                     FROM transactions
                     WHERE customer_id = c.id
                 ) ob ON true
-                WHERE ($2::bool = false OR c.is_vip = TRUE)
+                WHERE c.is_active = TRUE
+                  AND ($2::bool = false OR c.is_vip = TRUE)
                   AND ($3::bool = false OR COALESCE(ob.balance_sum, 0) > 0)
                   AND (
                     $4::bool = false
@@ -4810,6 +4813,7 @@ async fn search_customers(
                 ) AS wedding_member_id
             FROM customers c
             WHERE c.id = ANY($1)
+              AND c.is_active = TRUE
             ORDER BY array_position($2::uuid[], c.id)
             LIMIT $3 OFFSET $4
             "#
@@ -4881,7 +4885,8 @@ async fn search_customers(
                     LIMIT 1
                 ) AS wedding_member_id
             FROM customers c
-            WHERE
+            WHERE c.is_active = TRUE
+              AND (
                 c.first_name ILIKE $1 OR
                 c.last_name ILIKE $1 OR
                 c.customer_code ILIKE $1 OR
@@ -4903,6 +4908,7 @@ async fn search_customers(
                         OR wp.groom_name ILIKE $1
                       )
                 )
+              )
             ORDER BY c.created_at DESC
             LIMIT $2 OFFSET $3
             "#

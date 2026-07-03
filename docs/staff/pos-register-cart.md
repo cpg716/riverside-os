@@ -115,6 +115,7 @@ Technical reference for engineers and leads: **[Parked sales and RMS charges](..
 2. Tap **Pay** / **Complete Sale** (or equivalent green action). If the transaction requires Rush/Due Date details or special fulfillment, the **Transaction Review** screen appears before payment. If the customer wants delivery, use **Ship current sale** from the cart before payment so checkout has a valid quote and address snapshot. Riverside will stop the flow if no Salesperson is assigned.
 3. **Payment:** choose the method, enter the amount on the keypad, then **Add Payment** for each tender before completing the sale. Enter cash, card, gift card, or **Split Payment** tenders per training. Wait for **approved** state on card; do not hand back change until tender is confirmed on screen.
     - **Physical Checks**: When a customer pays by check, select the **CHECK** tab and enter the **Check #** in the input field before pressing **Add Payment**.
+    - **Donation**: Use the **DONATION** payment tab only for approved non-sale donation activity. Enter the required note explaining the donation before tapping **Add Payment**. ROS keeps that note with the payment ledger, QBO evidence, and Donation Payments report.
     - The **keypad** stays fixed in the payment panel — scroll only affects the tender and balance area above it if the screen is very short.
 4. **Integrated card payments:**
    - Card payments use the Helcim terminal flow.

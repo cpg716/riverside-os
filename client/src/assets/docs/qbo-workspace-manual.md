@@ -67,6 +67,8 @@ Store credit and open deposit redemptions are liability-release activity. They s
 
 Manual store-credit adjustments are audit-sensitive and should only post to QBO when the configured accounting path intentionally includes them.
 
+Donation tenders use their own **Donation clearing** mapping. Confirm the mapped QBO account before syncing days that include donation payments, and review the required donation note in reporting evidence.
+
 Direct layaway cash/card deposits are deposit-liability inflows. They should appear in the QBO proposal and drilldown evidence on the payment date as `liability_deposit`, while the merchandise revenue and tax remain deferred until pickup/fulfillment.
 
 ## Shipping, alterations, and clearing accounts

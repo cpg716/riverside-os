@@ -287,6 +287,14 @@ fn push_items(out: &mut Vec<u8>, d: &ReceiptOrder, gift: bool) {
                 }
             }
         }
+        if let Some(code) = it
+            .gift_card_load_code
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+        {
+            push_line(out, &format!("Gift Card #: {code}"));
+        }
         let status_label = if is_rms_charge_payment_line(it) {
             "Payment on RMS Charge"
         } else if is_alteration_service_line(it) {
@@ -493,6 +501,14 @@ fn receiptline_item_lines(
                     out_lines.push(format!("Variation: {} |", receiptline_escape(v)));
                 }
                 out_lines.push(format!("| SKU {} |", receiptline_escape(&it.sku)));
+                if let Some(code) = it
+                    .gift_card_load_code
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|v| !v.is_empty())
+                {
+                    out_lines.push(format!("Gift Card #: {} |", receiptline_escape(code)));
+                }
             } else {
                 out_lines.push(format!("{name} |"));
                 if it.quantity != 1 {
@@ -509,6 +525,14 @@ fn receiptline_item_lines(
                     receiptline_escape(&it.sku),
                     money(line_total(it))
                 ));
+                if let Some(code) = it
+                    .gift_card_load_code
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|v| !v.is_empty())
+                {
+                    out_lines.push(format!("Gift Card #: {} |", receiptline_escape(code)));
+                }
                 if let Some(orig) = it.original_unit_price {
                     if orig > it.unit_price && orig > Decimal::ZERO {
                         let diff = orig - it.unit_price;
@@ -913,6 +937,7 @@ mod tests {
             variation_label: None,
             original_unit_price: None,
             discount_event_label: None,
+            gift_card_load_code: None,
             custom_order_details: None,
             custom_item_type: custom_item_type.map(str::to_string),
             is_fulfilled: true,

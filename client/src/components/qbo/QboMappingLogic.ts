@@ -17,6 +17,7 @@ export const QBO_MATRIX_TENDERS = [
   { id: "card_credit", label: "Card refund clearing" },
   { id: "cash", label: "Cash" },
   { id: "check", label: "Check" },
+  { id: "donation", label: "Donation clearing" },
   { id: "on_account", label: "On account (AR)" },
   { id: "gift_card", label: "Gift card (redemption)" },
   { id: "exchange_credit", label: "Exchange credit clearing" },

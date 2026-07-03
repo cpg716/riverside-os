@@ -88,6 +88,14 @@ pub async fn rate_limit_handler(
         return response;
     }
 
+    if is_health_probe_request(&request) {
+        let mut response = next.run(request).await;
+        response
+            .headers_mut()
+            .insert("X-RateLimit-Bypass", "health-probe".parse().unwrap());
+        return response;
+    }
+
     if is_authenticated_counterpoint_bridge_request(&request) {
         let mut response = next.run(request).await;
         response
@@ -143,6 +151,13 @@ fn is_loopback_connection(request: &Request) -> bool {
         .extensions()
         .get::<SocketAddr>()
         .is_some_and(|addr| addr.ip().is_loopback())
+}
+
+fn is_health_probe_request(request: &Request) -> bool {
+    matches!(
+        request.uri().path(),
+        "/api/health" | "/api/health/" | "/api/ready" | "/api/live"
+    )
 }
 
 fn is_authenticated_counterpoint_bridge_request(request: &Request) -> bool {
@@ -209,3 +224,28 @@ fn extract_client_ip(request: &Request) -> String {
 
 // JWT-based user rate limiting can be added here in the future by extracting
 // the Authorization header and validating the token against AppState.
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::Body;
+
+    fn request_for(path: &str) -> Request {
+        Request::builder()
+            .uri(path)
+            .body(Body::empty())
+            .expect("test request")
+    }
+
+    #[test]
+    fn health_probe_paths_bypass_rate_limit() {
+        for path in ["/api/health", "/api/health/", "/api/ready", "/api/live"] {
+            assert!(is_health_probe_request(&request_for(path)));
+        }
+    }
+
+    #[test]
+    fn normal_api_paths_do_not_bypass_rate_limit() {
+        assert!(!is_health_probe_request(&request_for("/api/transactions")));
+    }
+}

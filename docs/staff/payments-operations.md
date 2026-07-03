@@ -57,7 +57,7 @@ Managers and bookkeepers still use **Back Office → Payments** for broader batc
 Use the POS checkout drawer for live card collection.
 
 - **Card Reader** sends the sale amount to the selected Helcim terminal for tap, insert, or swipe.
-- **Manual Card** is for phone orders. It still uses the selected Helcim terminal; staff key the card on the terminal. Do not type card numbers or CVV into ROS notes, references, search fields, or support chats.
+- **Manual Card** is for phone orders. It opens secure HelcimPay.js card entry in ROS; Helcim owns the card fields and ROS validates the signed approval response. Do not type card numbers or CVV into ROS notes, references, search fields, or support chats.
 - **Saved Card** charges a Helcim-saved card token for the selected customer. ROS shows masked card details when Helcim returns them, but staff should never copy or expose the token.
 - **Card Refund** appears for refund/negative checkout totals. ROS sends the refund to the selected Helcim terminal and records it only after Helcim approval.
 

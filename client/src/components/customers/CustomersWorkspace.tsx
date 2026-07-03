@@ -352,6 +352,34 @@ export default function CustomersWorkspace({
     },
     [onNavigateRegister, onStartSaleInPos],
   );
+
+  const updateVisibleCustomerSnapshot = useCallback((customer: Customer) => {
+    setPicked((current) =>
+      current && current.id === customer.id ? { ...current, ...customer } : current,
+    );
+    setRows((currentRows) =>
+      currentRows.map((row) =>
+        row.id === customer.id
+          ? {
+              ...row,
+              customer_code: customer.customer_code ?? row.customer_code,
+              first_name: customer.first_name,
+              last_name: customer.last_name,
+              company_name: customer.company_name ?? null,
+              email: customer.email,
+              phone: customer.phone,
+              employee_discount_eligible:
+                customer.employee_discount_eligible ?? row.employee_discount_eligible,
+              wedding_active: customer.wedding_active ?? row.wedding_active,
+              wedding_party_name:
+                customer.wedding_party_name ?? row.wedding_party_name,
+              wedding_party_id: customer.wedding_party_id ?? row.wedding_party_id,
+              couple_id: customer.couple_id ?? row.couple_id,
+            }
+          : row,
+      ),
+    );
+  }, []);
   const [customerGroups, setCustomerGroups] = useState<
     { id: string; code: string; label: string }[]
   >([]);
@@ -1840,6 +1868,7 @@ export default function CustomersWorkspace({
             setHubInitialTab("profile");
             setPicked(nextCustomer);
           }}
+          onCustomerUpdated={updateVisibleCustomerSnapshot}
           baseUrl={baseUrl}
         />
       ) : null}
@@ -2045,7 +2074,6 @@ const STATE_ABBREVIATIONS: Record<string, string> = {
 function formatPhoneInput(raw: string): string {
   const digits = raw.replace(/\D/g, "");
   const d = (digits.length === 11 && digits.startsWith("1") ? digits.slice(1) : digits).slice(0, 10);
-  if (d.length === 7) return `(716) ${d.slice(0, 3)}-${d.slice(3)}`;
   if (d.length <= 3) return d;
   if (d.length <= 6) return `(${d.slice(0, 3)}) ${d.slice(3)}`;
   return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;

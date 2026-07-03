@@ -482,6 +482,9 @@ impl TransactionDetailResponse {
             .collect();
 
         if active.is_empty() {
+            if transaction_line_ids.is_none() && !self.payment_applications.is_empty() {
+                return Ok(active);
+            }
             return Err(TransactionError::InvalidPayload(
                 "No active order lines remained after applied returns for this receipt."
                     .to_string(),
@@ -498,17 +501,66 @@ impl TransactionDetailResponse {
         transaction_line_ids: Option<&[Uuid]>,
     ) -> Result<receipt_shared::ReceiptOrder, TransactionError> {
         let selected = self.selected_receipt_items_with_effective_qty(transaction_line_ids)?;
-        let subtotal_price = selected
+        let payment_only = selected.is_empty() && !self.payment_applications.is_empty();
+        let receipt_items: Vec<receipt_shared::ReceiptLine> = if payment_only {
+            self.payment_applications
+                .iter()
+                .map(|app| receipt_shared::ReceiptLine {
+                    product_name: format!("Payment on {}", app.target_display_id),
+                    sku: app.target_display_id.clone(),
+                    quantity: 1,
+                    unit_price: app.amount,
+                    fulfillment: DbFulfillmentType::Takeaway,
+                    salesperson_name: None,
+                    variation_label: None,
+                    original_unit_price: None,
+                    discount_event_label: None,
+                    gift_card_load_code: None,
+                    custom_order_details: None,
+                    custom_item_type: None,
+                    is_fulfilled: true,
+                })
+                .collect()
+        } else {
+            selected
+                .iter()
+                .map(|(it, effective_qty)| receipt_shared::ReceiptLine {
+                    product_name: it.product_name.clone(),
+                    sku: it.sku.clone(),
+                    quantity: *effective_qty,
+                    unit_price: it.unit_price,
+                    fulfillment: it.fulfillment,
+                    salesperson_name: crate::logic::receipt_privacy::mask_name_for_receipt(
+                        it.salesperson_name.as_deref(),
+                    ),
+                    variation_label: it.variation_label.clone(),
+                    original_unit_price: it.receipt_original_unit_price,
+                    discount_event_label: it.discount_event_label.clone(),
+                    gift_card_load_code: it.gift_card_load_code.clone(),
+                    custom_order_details: it.custom_order_details.clone(),
+                    custom_item_type: it.custom_item_type.clone(),
+                    is_fulfilled: it.is_fulfilled,
+                })
+                .collect()
+        };
+        let subtotal_price = receipt_items
             .iter()
-            .fold(Decimal::ZERO, |sum, (it, effective_qty)| {
-                sum + it.unit_price * Decimal::from(*effective_qty)
-            });
-        let tax_total = selected
-            .iter()
-            .fold(Decimal::ZERO, |sum, (it, effective_qty)| {
-                sum + (it.state_tax + it.local_tax) * Decimal::from(*effective_qty)
-            });
-        let total_savings =
+            .fold(Decimal::ZERO, |sum, it| {
+                sum + it.unit_price * Decimal::from(it.quantity)
+            })
+            .round_dp(2);
+        let tax_total = if payment_only {
+            Decimal::ZERO
+        } else {
+            selected
+                .iter()
+                .fold(Decimal::ZERO, |sum, (it, effective_qty)| {
+                    sum + (it.state_tax + it.local_tax) * Decimal::from(*effective_qty)
+                })
+        };
+        let total_savings = if payment_only {
+            Decimal::ZERO
+        } else {
             selected
                 .iter()
                 .fold(Decimal::ZERO, |sum, (it, effective_qty)| {
@@ -518,7 +570,13 @@ impl TransactionDetailResponse {
                         }
                         _ => sum,
                     }
-                });
+                })
+        };
+        let receipt_total_price = if payment_only {
+            subtotal_price
+        } else {
+            self.total_price
+        };
 
         Ok(receipt_shared::ReceiptOrder {
             transaction_id: self.transaction_id,
@@ -527,7 +585,7 @@ impl TransactionDetailResponse {
             status: self.status,
             subtotal_price,
             tax_total,
-            total_price: self.total_price,
+            total_price: receipt_total_price,
             total_savings,
             amount_paid: self.amount_paid,
             balance_due: self.balance_due,
@@ -563,25 +621,7 @@ impl TransactionDetailResponse {
                     customer_code: Some(c.customer_code.clone()),
                 }
             }),
-            items: selected
-                .into_iter()
-                .map(|(it, effective_qty)| receipt_shared::ReceiptLine {
-                    product_name: it.product_name.clone(),
-                    sku: it.sku.clone(),
-                    quantity: effective_qty,
-                    unit_price: it.unit_price,
-                    fulfillment: it.fulfillment,
-                    salesperson_name: crate::logic::receipt_privacy::mask_name_for_receipt(
-                        it.salesperson_name.as_deref(),
-                    ),
-                    variation_label: it.variation_label.clone(),
-                    original_unit_price: it.receipt_original_unit_price,
-                    discount_event_label: it.discount_event_label.clone(),
-                    custom_order_details: it.custom_order_details.clone(),
-                    custom_item_type: it.custom_item_type.clone(),
-                    is_fulfilled: it.is_fulfilled,
-                })
-                .collect(),
+            items: receipt_items,
             fulfillment_method: self.fulfillment_method,
             payments: self
                 .payments
@@ -800,6 +840,35 @@ mod tests {
         assert_eq!(receipt.items[0].sku, "ROS-RMS-CHARGE-PAYMENT");
         assert_eq!(receipt.total_price, Decimal::new(1000, 2));
         assert_eq!(receipt.payment_methods_summary, "Card");
+    }
+
+    #[test]
+    fn receipt_builder_allows_order_payment_only_receipt() {
+        let mut detail = sample_transaction_detail(Vec::new());
+        detail.payment_applications = vec![TransactionPaymentApplication {
+            target_transaction_id: Uuid::new_v4(),
+            target_display_id: "TXN-ORDER".to_string(),
+            amount: Decimal::new(5000, 2),
+            remaining_balance: Decimal::ZERO,
+        }];
+        detail.total_price = Decimal::ZERO;
+        detail.amount_paid = Decimal::new(5000, 2);
+        detail.balance_due = Decimal::ZERO;
+
+        let receipt = detail
+            .build_receipt_data(None)
+            .expect("payment-only receipt should build");
+
+        assert_eq!(receipt.items.len(), 1);
+        assert_eq!(receipt.items[0].product_name, "Payment on TXN-ORDER");
+        assert_eq!(receipt.items[0].unit_price, Decimal::new(5000, 2));
+        assert_eq!(receipt.payment_applications.len(), 1);
+        assert_eq!(
+            receipt.payment_applications[0].target_display_id,
+            "TXN-ORDER"
+        );
+        assert_eq!(receipt.total_price, Decimal::new(5000, 2));
+        assert_eq!(receipt.amount_paid, Decimal::new(5000, 2));
     }
 
     #[test]
@@ -2794,7 +2863,9 @@ async fn mark_transaction_pickup(
                 oi.id,
                 oi.is_fulfilled,
                 GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0)
-                  * (COALESCE(oi.unit_price, 0) + COALESCE(oi.state_tax, 0) + COALESCE(oi.local_tax, 0)) AS line_total
+                  * (GREATEST(COALESCE(oi.unit_price, 0) - COALESCE(oi.discount_amount, 0), 0)
+                     + COALESCE(oi.state_tax, 0)
+                     + COALESCE(oi.local_tax, 0)) AS line_total
             FROM transaction_lines oi
             LEFT JOIN (
                 SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
@@ -3317,7 +3388,9 @@ async fn mark_transaction_ship(
                 oi.id,
                 oi.is_fulfilled,
                 GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0)
-                  * (COALESCE(oi.unit_price, 0) + COALESCE(oi.state_tax, 0) + COALESCE(oi.local_tax, 0)) AS line_total
+                  * (GREATEST(COALESCE(oi.unit_price, 0) - COALESCE(oi.discount_amount, 0), 0)
+                     + COALESCE(oi.state_tax, 0)
+                     + COALESCE(oi.local_tax, 0)) AS line_total
             FROM transaction_lines oi
             LEFT JOIN (
                 SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
@@ -7857,13 +7930,17 @@ async fn checkout(
     }
 }
 
-async fn staff_id_active(pool: &sqlx::PgPool, id: Uuid) -> Result<bool, TransactionError> {
-    let ok: bool =
-        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM staff WHERE id = $1 AND is_active = TRUE)")
-            .bind(id)
-            .fetch_one(pool)
-            .await
-            .map_err(TransactionError::Database)?;
+async fn staff_id_active_salesperson(
+    pool: &sqlx::PgPool,
+    id: Uuid,
+) -> Result<bool, TransactionError> {
+    let ok: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM staff WHERE id = $1 AND is_active = TRUE AND role = 'salesperson')",
+    )
+    .bind(id)
+    .fetch_one(pool)
+    .await
+    .map_err(TransactionError::Database)?;
     Ok(ok)
 }
 
@@ -7909,18 +7986,18 @@ async fn patch_transaction_attribution(
     }
 
     if let Some(pid) = body.primary_salesperson_id {
-        if !staff_id_active(&state.db, pid).await? {
+        if !staff_id_active_salesperson(&state.db, pid).await? {
             return Err(TransactionError::InvalidPayload(
-                "primary_salesperson_id is invalid or inactive".to_string(),
+                "primary_salesperson_id must be an active salesperson".to_string(),
             ));
         }
     }
 
     for line in &body.line_attribution {
         if let Some(sid) = line.salesperson_id {
-            if !staff_id_active(&state.db, sid).await? {
+            if !staff_id_active_salesperson(&state.db, sid).await? {
                 return Err(TransactionError::InvalidPayload(format!(
-                    "salesperson_id invalid for line {}",
+                    "salesperson_id must be an active salesperson for line {}",
                     line.transaction_line_id
                 )));
             }

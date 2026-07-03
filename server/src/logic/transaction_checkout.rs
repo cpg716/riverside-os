@@ -1167,6 +1167,16 @@ async fn staff_id_active(pool: &PgPool, id: Uuid) -> Result<bool, CheckoutError>
     Ok(ok)
 }
 
+async fn staff_id_active_salesperson(pool: &PgPool, id: Uuid) -> Result<bool, CheckoutError> {
+    let ok: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM staff WHERE id = $1 AND is_active = TRUE AND role = 'salesperson')",
+    )
+    .bind(id)
+    .fetch_one(pool)
+    .await?;
+    Ok(ok)
+}
+
 fn is_manual_below_cost_reason(reason: &str) -> bool {
     let normalized = reason.trim();
     if normalized.is_empty() {
@@ -1469,6 +1479,27 @@ fn resolve_payment_splits(
                 } else {
                     incoming_meta
                 };
+                if m.eq_ignore_ascii_case("donation") {
+                    let donation_note = metadata_optional_text(&normalized_meta, "donation_note")
+                        .or_else(|| metadata_optional_text(&normalized_meta, "note"))
+                        .ok_or_else(|| {
+                            CheckoutError::InvalidPayload(
+                                "donation payment requires a donation note".to_string(),
+                            )
+                        })?;
+                    if donation_note.chars().count() > 500 {
+                        return Err(CheckoutError::InvalidPayload(
+                            "donation note must be 500 characters or less".to_string(),
+                        ));
+                    }
+                    let mut object = normalized_meta.as_object().cloned().unwrap_or_default();
+                    object.insert(
+                        "tender_family".to_string(),
+                        Value::String("donation".to_string()),
+                    );
+                    object.insert("donation_note".to_string(), Value::String(donation_note));
+                    normalized_meta = Value::Object(object);
+                }
                 if applied_deposit_amount > Decimal::ZERO {
                     let mut object = normalized_meta.as_object().cloned().unwrap_or_default();
                     object.insert(
@@ -1614,6 +1645,11 @@ fn resolve_payment_splits(
     if m.is_empty() || m.len() > 50 {
         return Err(CheckoutError::InvalidPayload(
             "payment_method is required (max 50 characters)".to_string(),
+        ));
+    }
+    if m.eq_ignore_ascii_case("donation") {
+        return Err(CheckoutError::InvalidPayload(
+            "donation payment requires a donation note and explicit payment_splits".to_string(),
         ));
     }
     if m.eq_ignore_ascii_case("check") {
@@ -1846,17 +1882,17 @@ pub async fn execute_checkout(
         ));
     }
     if let Some(pid) = payload.primary_salesperson_id {
-        if !staff_id_active(pool, pid).await? {
+        if !staff_id_active_salesperson(pool, pid).await? {
             return Err(CheckoutError::InvalidPayload(
-                "primary_salesperson_id is invalid or inactive".to_string(),
+                "primary_salesperson_id must be an active salesperson".to_string(),
             ));
         }
     }
     for item in &payload.items {
         if let Some(sid) = item.salesperson_id {
-            if !staff_id_active(pool, sid).await? {
+            if !staff_id_active_salesperson(pool, sid).await? {
                 return Err(CheckoutError::InvalidPayload(format!(
-                    "salesperson_id invalid for variant {}",
+                    "salesperson_id must be an active salesperson for variant {}",
                     item.variant_id
                 )));
             }
@@ -4806,6 +4842,18 @@ mod tests {
         }
     }
 
+    fn donation_split(amount: Decimal, note: Option<&str>) -> CheckoutPaymentSplit {
+        CheckoutPaymentSplit {
+            payment_method: "donation".to_string(),
+            amount,
+            sub_type: None,
+            applied_deposit_amount: None,
+            gift_card_code: None,
+            check_number: None,
+            metadata: note.map(|value| json!({ "donation_note": value })),
+        }
+    }
+
     #[test]
     fn checkout_quantity_allows_negative_takeaway_retail_line() {
         let mut item = checkout_item_with_client_line(None);
@@ -4841,6 +4889,42 @@ mod tests {
         assert!(err
             .to_string()
             .contains("negative split amounts are only allowed for customer refunds"));
+    }
+
+    #[test]
+    fn checkout_splits_accept_donation_with_note() {
+        let payload = checkout_request_for_split_validation(
+            Decimal::new(2500, 2),
+            Decimal::new(2500, 2),
+            vec![donation_split(
+                Decimal::new(2500, 2),
+                Some("Local fundraiser"),
+            )],
+        );
+
+        let (splits, label) = resolve_payment_splits(&payload).unwrap();
+
+        assert_eq!(label, "donation");
+        assert_eq!(splits[0].metadata["tender_family"], json!("donation"));
+        assert_eq!(
+            splits[0].metadata["donation_note"],
+            json!("Local fundraiser")
+        );
+    }
+
+    #[test]
+    fn checkout_splits_reject_donation_without_note() {
+        let payload = checkout_request_for_split_validation(
+            Decimal::new(2500, 2),
+            Decimal::new(2500, 2),
+            vec![donation_split(Decimal::new(2500, 2), None)],
+        );
+
+        let err = resolve_payment_splits(&payload).unwrap_err();
+
+        assert!(err
+            .to_string()
+            .contains("donation payment requires a donation note"));
     }
 
     #[test]

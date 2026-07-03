@@ -68,6 +68,8 @@ pub struct ReceiptLine {
     pub original_unit_price: Option<Decimal>,
     /// Discount event label from `size_specs`, when set.
     pub discount_event_label: Option<String>,
+    /// Gift card number/code loaded by a POS gift-card sale line.
+    pub gift_card_load_code: Option<String>,
     pub custom_order_details: Option<serde_json::Value>,
     pub custom_item_type: Option<String>,
     pub is_fulfilled: bool,
