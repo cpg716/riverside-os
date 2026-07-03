@@ -56,14 +56,16 @@ Requires VC enabled with a valid key; failures do not advance the ledger (retrie
 
 Migration **`48_weather_vc_daily_usage.sql`** adds **`weather_vc_daily_usage`** (`usage_date` **UTC**, `pull_count`). Each **successful** Timeline HTTP response (parsed JSON with at least one day in range) increments the counter for that UTC day. Network/HTTP/JSON failures **release** the reserved slot (counter decrement) so bad calls do not burn quota.
 
+Migration **`112_weather_vc_request_cache.sql`** adds **`weather_vc_request_cache`** so identical Visual Crossing Timeline requests are deduped across ROS server restarts and across multiple running ROS processes. Successful responses are cached for the configured TTL. HTTP **429 Too Many Requests** writes a shared cooldown entry for at least 30 minutes, so another worker or dashboard request falls back to mock weather instead of immediately calling Visual Crossing again.
+
 | Env var | Default | Notes |
 |---------|---------|--------|
 | `RIVERSIDE_WEATHER_VC_MAX_PULLS_PER_DAY` | `850` | Hard cap **1–900** |
-| `RIVERSIDE_WEATHER_VC_CACHE_SECONDS` | `900` | In-process dedupe of identical Timeline requests (no DB increment, no HTTP) |
+| `RIVERSIDE_WEATHER_VC_CACHE_SECONDS` | `900` | In-process and DB-backed dedupe of identical Timeline requests (no DB increment, no HTTP on cache hit) |
 
 See [Runtime flag](#runtime-flag) for **`RIVERSIDE_VISUAL_CROSSING_ENABLED`**.
 
-**Other cost controls:** Session weather **backfill** groups sessions by **`opened_at` date** so each distinct date costs one Timeline call, not one per session. Identical `history`/`forecast`/checkout ranges hit the in-memory cache within the TTL.
+**Other cost controls:** Session weather **backfill** groups sessions by **`opened_at` date** so each distinct date costs one Timeline call, not one per session. Identical `history`/`forecast`/checkout ranges hit the in-memory or DB cache within the TTL.
 
 ## Related code
 

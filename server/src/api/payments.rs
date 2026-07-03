@@ -1187,8 +1187,12 @@ pub struct HelcimReconciliationCandidatePaymentRow {
 
 #[derive(Debug, Serialize)]
 pub struct HelcimOperationsTransactionRow {
-    pub payment_transaction_id: Uuid,
+    pub payment_transaction_id: Option<Uuid>,
     pub provider_transaction_id: Option<String>,
+    pub transaction_id: Option<Uuid>,
+    pub transaction_display_id: Option<String>,
+    pub customer_name: Option<String>,
+    pub transaction_type: Option<String>,
     pub amount: String,
     pub payment_date: DateTime<Utc>,
     pub payment_status: String,
@@ -5804,14 +5808,21 @@ async fn load_helcim_transaction_rows(
     let search = clean_filter(query.search.as_deref()).map(|value| format!("%{value}%"));
     let rows = sqlx::query(
         r#"
+        WITH helcim_rows AS (
         SELECT
-            pt.id,
-            pt.provider_transaction_id,
-            pt.amount,
-            pt.created_at,
-            pt.status,
-            pt.provider_status,
-            pt.metadata,
+            pt.id AS payment_transaction_id,
+            COALESCE(pt.provider_transaction_id, btx.provider_transaction_id) AS provider_transaction_id,
+            pt.provider_payment_id,
+            pt.payment_method,
+            linked.transaction_id,
+            linked.transaction_display_id,
+            linked.customer_name,
+            btx.transaction_type,
+            COALESCE(pt.amount, btx.gross_amount) AS amount,
+            COALESCE(pt.created_at, btx.occurred_at, btx.last_synced_at, now()) AS payment_date,
+            COALESCE(pt.status, btx.status, 'processor') AS payment_status,
+            COALESCE(pt.provider_status, btx.status) AS provider_status,
+            COALESCE(pt.metadata, '{}'::jsonb) AS metadata,
             btx.match_status,
             CASE
                 WHEN pt.metadata->>'helcim_fee_sync_status' = 'applied' THEN pt.merchant_fee
@@ -5831,23 +5842,100 @@ async fn load_helcim_transaction_rows(
          AND (btx.payment_transaction_id = pt.id OR btx.provider_transaction_id = pt.provider_transaction_id)
         LEFT JOIN payment_provider_batches batch ON batch.id = btx.payment_provider_batch_id
         LEFT JOIN LATERAL (
+            SELECT
+                pa.target_transaction_id AS transaction_id,
+                t.display_id AS transaction_display_id,
+                NULLIF(TRIM(CONCAT_WS(' ', c.first_name, c.last_name)), '') AS customer_name
+            FROM payment_allocations pa
+            LEFT JOIN transactions t ON t.id = pa.target_transaction_id
+            LEFT JOIN customers c ON c.id = t.customer_id
+            WHERE pa.transaction_id = pt.id
+            ORDER BY pa.id DESC
+            LIMIT 1
+        ) linked ON true
+        LEFT JOIN LATERAL (
             SELECT COUNT(*)::bigint AS issue_count
             FROM payment_settlement_items item
             WHERE item.provider = 'helcim'
               AND item.status = 'open'
               AND (item.payment_transaction_id = pt.id
-                OR (pt.provider_transaction_id IS NOT NULL AND item.provider_transaction_id = pt.provider_transaction_id))
+                OR (COALESCE(pt.provider_transaction_id, btx.provider_transaction_id) IS NOT NULL
+                    AND item.provider_transaction_id = COALESCE(pt.provider_transaction_id, btx.provider_transaction_id)))
         ) issues ON true
         WHERE pt.payment_provider = 'helcim'
-          AND ($1::uuid IS NULL OR pt.id = $1)
-          AND ($2::date IS NULL OR (pt.created_at AT TIME ZONE 'America/New_York')::date >= $2)
-          AND ($3::date IS NULL OR (pt.created_at AT TIME ZONE 'America/New_York')::date <= $3)
-          AND ($4::text IS NULL OR pt.status = $4 OR pt.provider_status = $4)
-          AND ($5::uuid IS NULL OR batch.id = $5)
-          AND ($6::text IS NULL OR batch.provider_batch_id = $6 OR btx.provider_batch_id = $6)
-          AND ($7::text IS NULL OR btx.match_status = $7)
-          AND ($8::text IS NULL OR pt.provider_transaction_id ILIKE $8 OR pt.provider_payment_id ILIKE $8 OR pt.payment_method ILIKE $8)
-        ORDER BY pt.created_at DESC
+
+        UNION ALL
+
+        SELECT
+            NULL::uuid AS payment_transaction_id,
+            btx.provider_transaction_id,
+            NULL::varchar AS provider_payment_id,
+            NULL::varchar AS payment_method,
+            NULL::uuid AS transaction_id,
+            NULL::text AS transaction_display_id,
+            NULL::text AS customer_name,
+            btx.transaction_type,
+            btx.gross_amount AS amount,
+            COALESCE(btx.occurred_at, btx.last_synced_at, now()) AS payment_date,
+            COALESCE(btx.status, 'processor') AS payment_status,
+            btx.status AS provider_status,
+            '{}'::jsonb AS metadata,
+            btx.match_status,
+            btx.fee_amount,
+            btx.net_amount,
+            batch.id AS batch_id,
+            batch.provider_batch_id,
+            batch.status AS batch_status,
+            COALESCE(issues.issue_count, 0)::bigint AS issue_count
+        FROM payment_provider_batch_transactions btx
+        LEFT JOIN payment_transactions pt
+          ON btx.provider = 'helcim'
+         AND (btx.payment_transaction_id = pt.id OR btx.provider_transaction_id = pt.provider_transaction_id)
+        LEFT JOIN payment_provider_batches batch ON batch.id = btx.payment_provider_batch_id
+        LEFT JOIN LATERAL (
+            SELECT COUNT(*)::bigint AS issue_count
+            FROM payment_settlement_items item
+            WHERE item.provider = 'helcim'
+              AND item.status = 'open'
+              AND item.provider_transaction_id = btx.provider_transaction_id
+        ) issues ON true
+        WHERE btx.provider = 'helcim'
+          AND pt.id IS NULL
+        )
+        SELECT
+            payment_transaction_id,
+            provider_transaction_id,
+            transaction_id,
+            transaction_display_id,
+            customer_name,
+            transaction_type,
+            amount,
+            payment_date,
+            payment_status,
+            provider_status,
+            metadata,
+            match_status,
+            fee_amount,
+            net_amount,
+            batch_id,
+            provider_batch_id,
+            batch_status,
+            issue_count
+        FROM helcim_rows
+        WHERE ($1::uuid IS NULL OR payment_transaction_id = $1)
+          AND ($2::date IS NULL OR (payment_date AT TIME ZONE 'America/New_York')::date >= $2)
+          AND ($3::date IS NULL OR (payment_date AT TIME ZONE 'America/New_York')::date <= $3)
+          AND ($4::text IS NULL OR payment_status = $4 OR provider_status = $4)
+          AND ($5::uuid IS NULL OR batch_id = $5)
+          AND ($6::text IS NULL OR provider_batch_id = $6)
+          AND ($7::text IS NULL OR match_status = $7)
+          AND ($8::text IS NULL
+            OR provider_transaction_id ILIKE $8
+            OR provider_payment_id ILIKE $8
+            OR payment_method ILIKE $8
+            OR transaction_display_id ILIKE $8
+            OR customer_name ILIKE $8)
+        ORDER BY payment_date DESC
         LIMIT $9
         "#,
     )
@@ -5869,19 +5957,32 @@ async fn load_helcim_transaction_rows(
         let fee_status = metadata
             .get("helcim_fee_sync_status")
             .and_then(Value::as_str)
+            .or_else(|| {
+                row.get::<Option<Decimal>, _>("fee_amount")
+                    .map(|_| "processor_available")
+            })
             .unwrap_or("not_ready")
             .to_string();
         let net_status = metadata
             .get("helcim_net_sync_status")
             .and_then(Value::as_str)
+            .or_else(|| {
+                row.get::<Option<Decimal>, _>("net_amount")
+                    .map(|_| "processor_available")
+            })
             .unwrap_or("not_ready")
             .to_string();
         HelcimOperationsTransactionRow {
-            payment_transaction_id: row.get("id"),
+            payment_transaction_id: row.get("payment_transaction_id"),
             provider_transaction_id: row.get("provider_transaction_id"),
-            amount: money_string(row.get("amount")),
-            payment_date: row.get("created_at"),
-            payment_status: row.get("status"),
+            transaction_id: row.get("transaction_id"),
+            transaction_display_id: row.get("transaction_display_id"),
+            customer_name: row.get("customer_name"),
+            transaction_type: row.get("transaction_type"),
+            amount: money_option(row.get::<Option<Decimal>, _>("amount"))
+                .unwrap_or_else(|| "0.00".to_string()),
+            payment_date: row.get("payment_date"),
+            payment_status: row.get("payment_status"),
             provider_status: row.get("provider_status"),
             batch_id: row.get("batch_id"),
             provider_batch_id: row.get("provider_batch_id"),

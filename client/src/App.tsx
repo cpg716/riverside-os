@@ -2238,7 +2238,12 @@ function AppMainColumn({
                   );
                 }
                 if (activeTab === "payments") {
-                  return <PaymentsWorkspace activeSection={activeSubSection} />;
+                  return (
+                    <PaymentsWorkspace
+                      activeSection={activeSubSection}
+                      onOpenTransactionInBackoffice={onOpenTransactionInBackoffice}
+                    />
+                  );
                 }
                 if (activeTab === "shipping") {
                   return (

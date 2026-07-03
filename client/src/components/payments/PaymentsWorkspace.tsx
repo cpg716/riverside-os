@@ -129,8 +129,12 @@ type CandidatePayment = {
 };
 
 type TransactionRow = {
-  payment_transaction_id: string;
+  payment_transaction_id: string | null;
   provider_transaction_id: string | null;
+  transaction_id: string | null;
+  transaction_display_id: string | null;
+  customer_name: string | null;
+  transaction_type: string | null;
   amount: string;
   payment_date: string;
   payment_status: string;
@@ -356,6 +360,7 @@ type DashboardState = {
 type Props = {
   activeSection?: string;
   surface?: "backoffice" | "pos";
+  onOpenTransactionInBackoffice?: (transactionId: string) => void;
 };
 
 function todayYmd(): string {
@@ -450,10 +455,10 @@ function staffLabel(value: string | null | undefined, emptyLabel = "Not ready") 
 
 function statusTone(status: string | null | undefined) {
   const normalized = status?.toLowerCase() ?? "";
-  if (["complete", "completed", "processed", "success", "settled", "matched"].includes(normalized)) {
+  if (["approved", "complete", "completed", "processed", "success", "successful", "settled", "matched"].includes(normalized)) {
     return "border-emerald-500/30 bg-emerald-500/10 text-emerald-700";
   }
-  if (["critical", "failed", "open", "unmatched", "needs_review"].includes(normalized)) {
+  if (["critical", "declined", "failed", "open", "unmatched", "needs_review"].includes(normalized)) {
     return "border-rose-500/30 bg-rose-500/10 text-rose-700";
   }
   if (["warning", "running", "received"].includes(normalized)) {
@@ -533,7 +538,11 @@ function SectionButton({
   );
 }
 
-export default function PaymentsWorkspace({ activeSection = "overview", surface = "backoffice" }: Props) {
+export default function PaymentsWorkspace({
+  activeSection = "overview",
+  surface = "backoffice",
+  onOpenTransactionInBackoffice,
+}: Props) {
   const posSurface = surface === "pos";
   const initialSection = posSurface ? "transactions" : isSection(activeSection) ? activeSection : "overview";
   const [section, setSection] = useState<SectionId>(initialSection);
@@ -1268,7 +1277,10 @@ export default function PaymentsWorkspace({ activeSection = "overview", surface 
         transaction.provider_transaction_id,
         transaction.provider_batch_id,
         transaction.payment_status,
+        transaction.provider_status,
         transaction.match_status,
+        transaction.transaction_display_id,
+        transaction.customer_name,
       ]
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(query)),
@@ -1407,6 +1419,7 @@ export default function PaymentsWorkspace({ activeSection = "overview", surface 
                 search={transactionSearch}
                 onSearch={setTransactionSearch}
                 onOpenPayment={openTransaction}
+                onOpenTransaction={onOpenTransactionInBackoffice}
                 title={posSurface ? "Today's Transactions" : "Transactions"}
                 empty={posSurface ? "No card transactions recorded today." : "No payments found."}
               />
@@ -1830,13 +1843,15 @@ function TransactionsPanel({
   search,
   onSearch,
   onOpenPayment,
+  onOpenTransaction,
   title = "Transactions",
   empty = "No payments found.",
 }: {
   transactions: TransactionRow[];
   search: string;
   onSearch: (value: string) => void;
-  onOpenPayment: (paymentId: string) => void;
+  onOpenPayment: (paymentId: string | null) => void;
+  onOpenTransaction?: (transactionId: string) => void;
   title?: string;
   empty?: string;
 }) {
@@ -1859,17 +1874,37 @@ function TransactionsPanel({
       </label>
       <DataTable
         empty={empty}
-        headers={["Amount", "Date", "Status", "Batch", "Fee status", "Match status"]}
+        headers={["Date", "Amount", "Status", "Type", "Customer", "Batch", "Fee", "Net", "Match", "ROS Transaction"]}
         rows={transactions.map((transaction) => ({
-          key: transaction.payment_transaction_id,
+          key:
+            transaction.payment_transaction_id ??
+            transaction.provider_transaction_id ??
+            `${transaction.payment_date}-${transaction.amount}`,
           onClick: () => onOpenPayment(transaction.payment_transaction_id),
           cells: [
-            money(transaction.amount, "$0.00"),
             shortDateTime(transaction.payment_date),
-            <StatusPill value={transaction.payment_status} />,
+            money(transaction.amount, "$0.00"),
+            <StatusPill value={transaction.provider_status ?? transaction.payment_status} />,
+            staffLabel(transaction.transaction_type ?? "Purchase"),
+            transaction.customer_name ?? "Customer not linked",
             transaction.provider_batch_id ?? "Not in deposit",
             transaction.fee_amount ? money(transaction.fee_amount) : "Fee not ready",
+            transaction.net_amount ? money(transaction.net_amount) : "Net not ready",
             <StatusPill value={transaction.match_status ?? "Not ready"} />,
+            transaction.transaction_id && onOpenTransaction ? (
+              <button
+                type="button"
+                className="text-sm font-bold text-app-accent hover:underline"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onOpenTransaction(transaction.transaction_id!);
+                }}
+              >
+                {transaction.transaction_display_id ?? "Open Transaction"}
+              </button>
+            ) : (
+              "Not linked"
+            ),
           ],
         }))}
       />

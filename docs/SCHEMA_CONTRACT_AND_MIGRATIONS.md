@@ -176,3 +176,7 @@ Actual bank deposits are modeled for matching and audit only. The deposit layer 
 Helcim refund attempts are two-phase from ROS's perspective: the provider attempt may be recorded as failed for audit, but `payment_transactions`, refund queue totals, and transaction paid amounts are updated only after the provider response normalizes to approved/captured.
 
 Payments automation uses the notification system for operational alerts only. Scheduled Helcim fee and batch syncs may refresh explicit provider data, but they do not infer fees or net amounts and do not mutate payment, batch, deposit, QBO, or bank-feed truth. Payment alert notifications are bundled and deduped by condition; clearing an alert only removes the staff reminder and never auto-resolves reconciliation or deposit review items.
+
+## Weather Integration Cache Contract
+
+Migration `112_weather_vc_request_cache.sql` stores expiring Visual Crossing Timeline responses and short-lived 429 cooldowns by request key. It is a provider-request cache only: it does not replace `transactions.weather_snapshot`, `register_sessions.weather_snapshot`, or `weather_vc_daily_usage`, and it does not create reporting weather rows by itself.

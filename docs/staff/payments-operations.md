@@ -126,7 +126,17 @@ These actions do not change payment amounts, fees, net amounts, or processor tru
 
 ## Transactions
 
-Use **Transactions** to look up a specific payment.
+Use **Transactions** to look up a specific card payment or processor event. The list mirrors the Helcim card activity view more closely than the payment-ledger detail view: it includes approved, declined, matched, and unmatched Helcim rows that ROS has received from webhook or batch sync evidence.
+
+Columns include:
+
+- **Date**, **Amount**, **Status**, and **Type** from the processor/payment record.
+- **Customer** from the linked ROS Transaction Record when a payment allocation exists.
+- **Batch**, **Fee**, and **Net** from Helcim batch data when Helcim has provided it.
+- **Match** to show whether ROS linked the processor row to a Riverside payment.
+- **ROS Transaction** to open the linked Transaction Hub record when the payment is allocated to a Riverside Transaction Record.
+
+If **Customer** or **ROS Transaction** says not linked, ROS has processor evidence but does not yet have a safe payment-allocation link to a Transaction Record. Review the row in Payments Health/Reconciliation before assuming the sale can be refunded card-not-present from ROS.
 
 Transaction details show:
 

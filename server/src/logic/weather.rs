@@ -18,6 +18,7 @@
 use anyhow::Context;
 use chrono::{Datelike, Duration, NaiveDate, Timelike, Utc};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use sqlx::PgPool;
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -215,6 +216,118 @@ fn vc_cache_put(key: String, payload: (Vec<DailyWeatherContext>, Option<CurrentW
                 payload,
             },
         );
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct VcRequestCachePayload {
+    days: Vec<DailyWeatherContext>,
+    current: Option<CurrentWeatherContext>,
+}
+
+enum VcDbCacheLookup {
+    Hit((Vec<DailyWeatherContext>, Option<CurrentWeatherContext>)),
+    Cooldown(String),
+    Miss,
+}
+
+async fn vc_db_cache_get(pool: &PgPool, key: &str) -> Result<VcDbCacheLookup, sqlx::Error> {
+    let row = match sqlx::query_as::<_, (Option<Value>, Option<String>)>(
+        r#"
+        SELECT payload_json, error_message
+        FROM public.weather_vc_request_cache
+        WHERE cache_key = $1 AND expires_at > now()
+        "#,
+    )
+    .bind(key)
+    .fetch_optional(pool)
+    .await
+    {
+        Ok(row) => row,
+        Err(e) if is_undefined_table_err(&e) => return Ok(VcDbCacheLookup::Miss),
+        Err(e) => return Err(e),
+    };
+
+    let Some((payload_json, error_message)) = row else {
+        return Ok(VcDbCacheLookup::Miss);
+    };
+    if let Some(payload_json) = payload_json {
+        match serde_json::from_value::<VcRequestCachePayload>(payload_json) {
+            Ok(payload) => return Ok(VcDbCacheLookup::Hit((payload.days, payload.current))),
+            Err(error) => {
+                warn!(error = %error, "Visual Crossing DB cache payload could not be decoded");
+                return Ok(VcDbCacheLookup::Miss);
+            }
+        }
+    }
+    Ok(VcDbCacheLookup::Cooldown(error_message.unwrap_or_else(
+        || "Visual Crossing request is cooling down".to_string(),
+    )))
+}
+
+async fn vc_db_cache_put_success(
+    pool: &PgPool,
+    key: &str,
+    payload: &(Vec<DailyWeatherContext>, Option<CurrentWeatherContext>),
+) {
+    let ttl_seconds = vc_cache_ttl().as_secs().min(i64::MAX as u64) as i64;
+    let payload_json = match serde_json::to_value(VcRequestCachePayload {
+        days: payload.0.clone(),
+        current: payload.1.clone(),
+    }) {
+        Ok(value) => value,
+        Err(error) => {
+            warn!(error = %error, "Visual Crossing DB cache payload could not be encoded");
+            return;
+        }
+    };
+    if let Err(e) = sqlx::query(
+        r#"
+        INSERT INTO public.weather_vc_request_cache
+            (cache_key, payload_json, error_message, expires_at, updated_at)
+        VALUES ($1, $2, NULL, now() + ($3::bigint * interval '1 second'), now())
+        ON CONFLICT (cache_key) DO UPDATE
+        SET payload_json = EXCLUDED.payload_json,
+            error_message = NULL,
+            expires_at = EXCLUDED.expires_at,
+            updated_at = now()
+        "#,
+    )
+    .bind(key)
+    .bind(payload_json)
+    .bind(ttl_seconds)
+    .execute(pool)
+    .await
+    {
+        if !is_undefined_table_err(&e) {
+            warn!(error = %e, "Visual Crossing DB cache write failed");
+        }
+    }
+}
+
+async fn vc_db_cache_put_error(pool: &PgPool, key: &str, message: &str) {
+    let ttl_seconds = std::cmp::max(vc_cache_ttl().as_secs(), 30 * 60).min(i64::MAX as u64) as i64;
+    if let Err(e) = sqlx::query(
+        r#"
+        INSERT INTO public.weather_vc_request_cache
+            (cache_key, payload_json, error_message, expires_at, updated_at)
+        VALUES ($1, NULL, $2, now() + ($3::bigint * interval '1 second'), now())
+        ON CONFLICT (cache_key) DO UPDATE
+        SET payload_json = NULL,
+            error_message = EXCLUDED.error_message,
+            expires_at = EXCLUDED.expires_at,
+            updated_at = now()
+        "#,
+    )
+    .bind(key)
+    .bind(message.chars().take(240).collect::<String>())
+    .bind(ttl_seconds)
+    .execute(pool)
+    .await
+    {
+        if !is_undefined_table_err(&e) {
+            warn!(error = %e, "Visual Crossing DB cooldown write failed");
+        }
     }
 }
 
@@ -658,6 +771,17 @@ async fn fetch_visual_crossing(
     if let Some(hit) = vc_cache_get(&cache_key) {
         return Ok(hit);
     }
+    match vc_db_cache_get(pool, &cache_key).await {
+        Ok(VcDbCacheLookup::Hit(hit)) => {
+            vc_cache_put(cache_key.clone(), hit.clone());
+            return Ok(hit);
+        }
+        Ok(VcDbCacheLookup::Cooldown(message)) => return Err(message),
+        Ok(VcDbCacheLookup::Miss) => {}
+        Err(error) => {
+            warn!(error = %error, "Visual Crossing DB cache lookup failed");
+        }
+    }
 
     let reserved = vc_try_reserve_pull(pool)
         .await
@@ -721,6 +845,14 @@ async fn fetch_visual_crossing(
             if status.is_server_error() && attempt < WEATHER_MAX_RETRIES {
                 last_error = format!("Weather HTTP {status}: {body}");
                 continue;
+            }
+            if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+                vc_db_cache_put_error(
+                    pool,
+                    &cache_key,
+                    "Visual Crossing returned HTTP 429 Too Many Requests.",
+                )
+                .await;
             }
             vc_release_pull(pool).await;
             return Err(format!(
@@ -793,6 +925,7 @@ async fn fetch_visual_crossing(
     }
 
     let result = (out, current);
+    vc_db_cache_put_success(pool, &cache_key, &result).await;
     vc_cache_put(cache_key, result.clone());
     Ok(result)
 }
