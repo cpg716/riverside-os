@@ -1141,13 +1141,19 @@ async fn handle_helcim_card_transaction(
         }
     }
 
+    let final_match_type = helcim_card_transaction_event_match_type(
+        attempt_id,
+        final_payment_transaction_id,
+        match_type,
+    );
+
     mark_helcim_event_processed(
         &mut tx,
         event_id,
         Some(&provider_transaction_id),
         attempt_id,
         final_payment_transaction_id,
-        match_type,
+        final_match_type,
     )
     .await?;
     tx.commit().await?;
@@ -1157,8 +1163,20 @@ async fn handle_helcim_card_transaction(
         provider_transaction_id: Some(provider_transaction_id),
         payment_provider_attempt_id: attempt_id,
         payment_transaction_id: final_payment_transaction_id,
-        match_type: match_type.to_string(),
+        match_type: final_match_type.to_string(),
     })
+}
+
+fn helcim_card_transaction_event_match_type(
+    attempt_id: Option<Uuid>,
+    payment_transaction_id: Option<Uuid>,
+    fallback_match_type: &'static str,
+) -> &'static str {
+    if attempt_id.is_none() && payment_transaction_id.is_some() {
+        "provider_transaction_id_payment"
+    } else {
+        fallback_match_type
+    }
 }
 
 async fn handle_helcim_terminal_cancel(
@@ -1663,6 +1681,26 @@ mod tests {
         assert!(helcim_event_should_process(&new_event));
         assert!(!helcim_event_should_process(&duplicate_in_flight));
         assert!(!helcim_event_should_process(&duplicate_failed));
+    }
+
+    #[test]
+    fn helcim_card_transaction_match_type_keeps_existing_ros_payment_linked() {
+        assert_eq!(
+            helcim_card_transaction_event_match_type(None, Some(Uuid::new_v4()), "none",),
+            "provider_transaction_id_payment"
+        );
+        assert_eq!(
+            helcim_card_transaction_event_match_type(
+                Some(Uuid::new_v4()),
+                Some(Uuid::new_v4()),
+                "terminal_amount",
+            ),
+            "terminal_amount"
+        );
+        assert_eq!(
+            helcim_card_transaction_event_match_type(None, None, "none"),
+            "none"
+        );
     }
 
     #[test]

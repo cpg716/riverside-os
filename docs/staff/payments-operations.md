@@ -221,8 +221,9 @@ Keep these two states separate during review:
 
 - **Webhook received by ROS** means a signed Helcim delivery reached ROS and was stored.
 - **Provider event attached to ROS checkout** means ROS matched that stored event to one safe pending terminal checkout attempt.
+- **Provider reference attached to ROS payment** means the ROS payment has the Helcim transaction ID required for card-not-present refunds.
 
-Webhook receipt alone does not record a payment in ROS. If Payments Health says **Provider event not attached to ROS checkout**, treat it as provider evidence requiring review, not as a completed ROS payment.
+Webhook receipt alone does not record a payment in ROS. If Payments Health says **Provider event not attached to ROS checkout**, treat it as provider evidence requiring review only when the ROS payment is missing a Helcim provider reference.
 
 If the webhook signing secret is missing or wrong, ROS rejects the delivery before it enters Payments Health. Ask an admin to check server logs and Settings → Helcim before assuming Helcim did not send anything.
 

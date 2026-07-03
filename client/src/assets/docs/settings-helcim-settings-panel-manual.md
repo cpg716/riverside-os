@@ -54,10 +54,11 @@ Use this panel when setting up Helcim, rotating credentials, adding or replacing
 
 - **Webhook received by ROS** means a signed Helcim delivery reached ROS and was stored.
 - **Provider event attached to ROS checkout** means ROS matched that stored provider event to one safe pending terminal checkout attempt.
+- **Provider reference attached to ROS payment** means the payment row has the Helcim transaction ID needed for later card-not-present refunds.
 - Webhook receipt does not by itself create a ROS payment ledger row, finish checkout, or prove that ROS recorded the payment.
 - POS terminal requests also send a ROS invoice reference to Helcim. If a terminal approves but the live drawer response is delayed, the checkout drawer status check can recover the provider transaction by that invoice reference and exact amount.
 - If a Helcim terminal prints a card receipt, fix the terminal/dashboard receipt setting before live processing continues; do not treat the terminal printout as the ROS receipt.
-- If Payments Health shows **Provider event not attached to ROS checkout**, treat it as provider evidence requiring review.
+- If Payments Health shows **Provider event not attached to ROS checkout**, treat it as provider evidence requiring review only when the ROS payment is missing a Helcim provider reference.
 - If the signing secret is missing or wrong, ROS rejects the delivery before it appears in Payments Health. Ask an admin to check server logs and the Settings secret.
 - Test mode is for local checkout testing only. Keep it off for live Helcim payments.
 

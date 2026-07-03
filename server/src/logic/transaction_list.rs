@@ -595,7 +595,7 @@ pub async fn query_paged_transactions(
         qb.push("::order_item_lifecycle_status) ");
     }
 
-    qb.push(" GROUP BY o.id, c.id, c.customer_code, c.phone, c.email, wm.wedding_party_id, wp.party_name, wp.groom_name, wp.event_date, op.full_name, ps.full_name, o.status ");
+    qb.push(" GROUP BY o.id, c.id, c.customer_code, c.phone, c.email, wm.wedding_party_id, wp.wedding_number, wp.party_name, wp.groom_name, wp.event_date, op.full_name, ps.full_name, o.status ");
 
     if let Some(kf) = kind_filter {
         if let Some(clause) = kind_filter_having_clause(kf) {

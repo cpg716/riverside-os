@@ -23,6 +23,7 @@ use crate::logic::receipt_shared::{
 use crate::models::{DbFulfillmentType, DbOrderFulfillmentMethod};
 
 const CPL: usize = 48;
+const RECEIPT_HEADER_FOOTER_WRAP_CPL: usize = 42;
 const RECEIPT_LOGO_WIDTH_PX: u32 = 384;
 const RECEIPT_LOGO_IMAGE: &[u8] =
     include_bytes!("../../../client/src/assets/images/riverside_logo.jpg");
@@ -221,7 +222,9 @@ fn push_header(out: &mut Vec<u8>, d: &ReceiptOrder, cfg: &ReceiptConfig, gift: b
     for hl in &cfg.header_lines {
         let t = hl.trim();
         if !t.is_empty() {
-            push_line(out, t);
+            for line in wrap_text(t, RECEIPT_HEADER_FOOTER_WRAP_CPL) {
+                push_line(out, &line);
+            }
         }
     }
     if gift {
@@ -377,7 +380,9 @@ fn push_footer(out: &mut Vec<u8>, cfg: &ReceiptConfig) {
     for fl in &cfg.footer_lines {
         let t = fl.trim();
         if !t.is_empty() {
-            push_line(out, t);
+            for line in wrap_text(t, RECEIPT_HEADER_FOOTER_WRAP_CPL) {
+                push_line(out, &line);
+            }
         }
     }
     set_align(out, 0);
@@ -401,9 +406,10 @@ fn receipt_date(d: &ReceiptOrder, cfg: &ReceiptConfig) -> String {
 fn centered_lines(lines: &[String]) -> String {
     lines
         .iter()
-        .map(|line| line.trim())
+        .flat_map(|line| wrap_text(line.trim(), RECEIPT_HEADER_FOOTER_WRAP_CPL))
+        .map(|line| line.trim().to_string())
         .filter(|line| !line.is_empty())
-        .map(|line| format!("| ^{} |", receiptline_escape(line)))
+        .map(|line| format!("| {} |", receiptline_escape(&line)))
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -962,6 +968,35 @@ mod tests {
         assert!(lines.contains("^^^Alterations"));
         assert!(lines.contains("Alteration: Hem Pants"));
     }
+
+    #[test]
+    fn receiptline_header_footer_are_normal_size_centered_and_wrapped() {
+        let mut cfg = ReceiptConfig::default();
+        cfg.show_logo = false;
+        cfg.show_barcode = false;
+        cfg.show_address = true;
+        cfg.store_address = "6470 Transit Rd, Depew, NY".to_string();
+        cfg.store_phone = "(716) 833-8401".to_string();
+        cfg.footer_lines = vec![
+            "Return Policy: We will accept returns of any merchandise in its unworn, unaltered, like new condition with original receipt within (30) days of purchase/pickup.".to_string(),
+        ];
+        let order = receipt_order_with(Vec::new());
+
+        let markdown = build_receiptline_markdown(
+            &order,
+            &cfg,
+            &HashMap::new(),
+            &LoyaltyReceiptData::default(),
+        );
+
+        assert!(markdown.contains("| 6470 Transit Rd, Depew, NY |"));
+        assert!(markdown.contains("| (716) 833-8401 |"));
+        assert!(!markdown.contains("| ^6470 Transit Rd"));
+        assert!(!markdown.contains("| ^Return Policy"));
+        assert!(markdown.contains("| Return Policy: We will accept returns of |"));
+        assert!(markdown.contains("| any merchandise in its unworn, unaltered, |"));
+        assert!(!markdown.contains("will a\nccept"));
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -1017,7 +1052,7 @@ pub fn build_alteration_pickup_receiptline(
     for hl in &input.header_lines {
         let t = hl.trim();
         if !t.is_empty() {
-            lines.push(format!("| {} |", receiptline_escape(t)));
+            lines.extend(centered_lines(&[t.to_string()]).lines().map(str::to_string));
         }
     }
     lines.push("| ^^^ALTERATIONS PICKUP |".to_string());
@@ -1052,7 +1087,7 @@ pub fn build_alteration_pickup_receiptline(
     for fl in &input.footer_lines {
         let t = fl.trim();
         if !t.is_empty() {
-            lines.push(format!("| {} |", receiptline_escape(t)));
+            lines.extend(centered_lines(&[t.to_string()]).lines().map(str::to_string));
         }
     }
     lines.push("=".to_string());
@@ -1081,7 +1116,9 @@ pub fn build_alteration_pickup_escpos(
     for hl in &cfg.header_lines {
         let t = hl.trim();
         if !t.is_empty() {
-            push_line(&mut out, t);
+            for line in wrap_text(t, RECEIPT_HEADER_FOOTER_WRAP_CPL) {
+                push_line(&mut out, &line);
+            }
         }
     }
     set_bold(&mut out, true);
@@ -1126,7 +1163,9 @@ pub fn build_alteration_pickup_escpos(
     for fl in &cfg.footer_lines {
         let t = fl.trim();
         if !t.is_empty() {
-            push_line(&mut out, t);
+            for line in wrap_text(t, RECEIPT_HEADER_FOOTER_WRAP_CPL) {
+                push_line(&mut out, &line);
+            }
         }
     }
     set_align(&mut out, 0);
@@ -1153,7 +1192,7 @@ pub fn build_alteration_card_receiptline(input: &AlterationCardInput, show_logo:
     for hl in &input.header_lines {
         let t = hl.trim();
         if !t.is_empty() {
-            lines.push(format!("| {} |", receiptline_escape(t)));
+            lines.extend(centered_lines(&[t.to_string()]).lines().map(str::to_string));
         }
     }
     lines.push("| ^^^ALTERATIONS CARD |".to_string());
@@ -1215,7 +1254,7 @@ pub fn build_alteration_card_receiptline(input: &AlterationCardInput, show_logo:
     for fl in &input.footer_lines {
         let t = fl.trim();
         if !t.is_empty() {
-            lines.push(format!("| {} |", receiptline_escape(t)));
+            lines.extend(centered_lines(&[t.to_string()]).lines().map(str::to_string));
         }
     }
     lines.push("=".to_string());

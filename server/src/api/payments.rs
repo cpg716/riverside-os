@@ -3585,6 +3585,7 @@ async fn get_helcim_events_health(
             COUNT(*) FILTER (
                 WHERE processing_status = 'processed'
                   AND COALESCE(match_type, 'none') = 'none'
+                  AND payment_transaction_id IS NULL
                   AND event_type IN ('cardTransaction', 'terminalCancel')
                   AND received_at >= now() - interval '7 days'
             )::bigint AS unmatched_event_count,
@@ -3691,6 +3692,7 @@ async fn get_helcim_events_health(
             OR (
                 processing_status = 'processed'
                 AND COALESCE(match_type, 'none') = 'none'
+                AND payment_transaction_id IS NULL
                 AND event_type IN ('cardTransaction', 'terminalCancel')
                 AND received_at >= now() - interval '7 days'
             )

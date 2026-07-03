@@ -146,6 +146,7 @@ All outbound Helcim API calls use centralized retry logic with exponential backo
 - Local terminal readiness does not require a public webhook URL. The Helcim webhook signing secret is optional only when Helcim cannot reach this ROS server. If a public webhook endpoint is configured, the signing secret is required and unsigned deliveries fail closed.
 - Local POS terminals subscribe to the ROS attempt stream for the current card attempt. ROS updates that stream from stored webhooks when Helcim deliveries arrive and can also refresh a known terminal attempt as a recovery aid. Manual status refresh is not a substitute for a working production webhook path.
 - Accepted events are stored in `helcim_event_log` before mutation.
+- If a cardTransaction webhook corresponds to an existing ROS Helcim payment, the event log must link to that `payment_transactions` row and use a non-`none` match type so Health does not flag a completed ROS payment as unresolved.
 - Stored payloads are redacted for card-sensitive fields.
 - Duplicate events do not re-enter processing once already processed or ignored.
 - Unknown Helcim events are stored and marked ignored instead of failing the whole intake.
