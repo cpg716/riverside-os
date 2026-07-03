@@ -197,6 +197,11 @@ export interface PosOrderOptions {
   ship_to?: PosShipToForm | null;
   overrideReadiness?: boolean;
   overrideReason?: string;
+  pickupPaymentOverride?: {
+    managerStaffId: string;
+    managerPin: string;
+    reason: string;
+  };
 }
 
 export type NexoTenderTab =

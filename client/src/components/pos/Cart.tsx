@@ -1343,6 +1343,15 @@ export default function Cart({
     );
   }, [backofficeHeaders, checkoutOperator?.staffId]);
 
+  const requestPickupPaymentOverride = useCallback((message: string) => {
+    return new Promise<NonNullable<PosOrderOptions["pickupPaymentOverride"]> | null>((resolve) => {
+      setPickupDepositApprovalRequest((previous) => {
+        previous?.resolve(null);
+        return { message, resolve };
+      });
+    });
+  }, []);
+
   // --- Checkout Hook ---
   const {
     executeCheckout,
@@ -1378,6 +1387,7 @@ export default function Cart({
     clearCart: clearCartAndAlterations,
     onSaleCompleted,
     ensurePosTokenForSession,
+    requestPickupPaymentOverride,
   });
   useEffect(() => {
     if (checkoutTransactionId) {
@@ -1643,6 +1653,10 @@ export default function Cart({
   const [showReadinessOverrideModal, setShowReadinessOverrideModal] = useState(false);
   const [managerOverrideApproved, setManagerOverrideApproved] = useState(false);
   const [managerOverrideReason, setManagerOverrideReason] = useState("");
+  const [pickupDepositApprovalRequest, setPickupDepositApprovalRequest] = useState<{
+    message: string;
+    resolve: (approval: NonNullable<PosOrderOptions["pickupPaymentOverride"]> | null) => void;
+  } | null>(null);
   const [discountPrompt, setDiscountPrompt] = useState<{
     variantId: string;
     nextPriceCents: number;
@@ -2026,6 +2040,49 @@ export default function Cart({
       return false;
     }
   }, [baseUrl, apiAuth, pickupTransactionId, lines, toast]);
+
+  const closePickupPaymentOverride = useCallback(() => {
+    setPickupDepositApprovalRequest((request) => {
+      request?.resolve(null);
+      return null;
+    });
+  }, []);
+
+  const handleManagerApprovePickupPayment = useCallback(async (pin: string, managerId: string) => {
+    const request = pickupDepositApprovalRequest;
+    if (!request) return false;
+    const reason = "Manager approved pickup release with remaining open items below the standard 50% deposit.";
+    try {
+      const res = await fetch(`${baseUrl}/api/staff/verify-pin`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...apiAuth() },
+        body: JSON.stringify({
+          pin,
+          staff_id: managerId,
+          authorize_action: "pos_pickup_payment_override",
+          authorize_metadata: {
+            transaction_id: pickupTransactionId,
+            reason,
+          },
+        }),
+      });
+      if (!res.ok) {
+        toast("Manager approval failed. Check the Access PIN and try again.", "error");
+        return false;
+      }
+      request.resolve({
+        managerStaffId: managerId,
+        managerPin: pin,
+        reason,
+      });
+      setPickupDepositApprovalRequest(null);
+      toast("Manager payment override approved", "success");
+      return true;
+    } catch {
+      toast("Manager approval failed. Check the Main Hub connection and try again.", "error");
+      return false;
+    }
+  }, [apiAuth, baseUrl, pickupDepositApprovalRequest, pickupTransactionId, toast]);
 
   useEffect(() => {
     if (!initialTransactionId) {
@@ -4255,6 +4312,17 @@ export default function Cart({
         title="Authorize Pickup Readiness Override"
         message="This pickup contains items not marked Ready for Pickup. Manager Access is required to override the readiness check."
         onApprove={handleManagerApproveReadiness}
+      />
+
+      <ManagerApprovalModal
+        isOpen={pickupDepositApprovalRequest != null}
+        onClose={closePickupPaymentOverride}
+        title="Authorize Pickup Payment Override"
+        message={
+          pickupDepositApprovalRequest?.message ??
+          "Remaining open items are below the standard deposit after this pickup. Manager Access is required to approve release."
+        }
+        onApprove={handleManagerApprovePickupPayment}
       />
 
       <ManagerApprovalModal

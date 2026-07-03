@@ -1614,6 +1614,12 @@ pub struct PickupTransactionRequest {
     pub override_readiness: bool,
     #[serde(default)]
     pub override_reason: Option<String>,
+    #[serde(default)]
+    pub payment_override_manager_staff_id: Option<Uuid>,
+    #[serde(default)]
+    pub payment_override_manager_pin: Option<String>,
+    #[serde(default)]
+    pub payment_override_reason: Option<String>,
     /// POS pickup without BO headers when this session has a positive allocation to the order.
     #[serde(default)]
     pub register_session_id: Option<Uuid>,
@@ -2826,6 +2832,7 @@ async fn mark_transaction_pickup(
         .filter(|line| line.order_lifecycle_status != DbOrderItemLifecycleStatus::ReadyForPickup)
         .collect::<Vec<_>>();
     let override_reason = body.override_reason.as_deref().map(str::trim).unwrap_or("");
+    let mut pickup_payment_override_metadata: Option<serde_json::Value> = None;
     if !unready_lines.is_empty() && !body.override_readiness {
         let examples = unready_lines
             .iter()
@@ -2910,9 +2917,43 @@ async fn mark_transaction_pickup(
     let remaining_paid_credit = amount_paid - required_after_pickup;
     if remaining_open_value > Decimal::ZERO && remaining_paid_credit < remaining_deposit_required {
         let shortage = remaining_deposit_required - remaining_paid_credit;
-        return Err(TransactionError::InvalidPayload(format!(
-            "Pickup blocked: remaining open items need at least a 50% deposit after this pickup. Collect ${shortage} more before release."
-        )));
+        let payment_override_reason = body
+            .payment_override_reason
+            .as_deref()
+            .map(str::trim)
+            .filter(|reason| !reason.is_empty())
+            .unwrap_or(
+                "Manager approved pickup release with remaining open items below the standard 50% deposit.",
+            );
+        if payment_override_reason.len() < 12 {
+            return Err(TransactionError::InvalidPayload(
+                "Manager Access pickup payment override requires a clear reason.".to_string(),
+            ));
+        }
+        let (manager_staff_id, manager_pin) = body
+            .payment_override_manager_staff_id
+            .zip(body.payment_override_manager_pin.as_deref())
+            .ok_or_else(|| {
+                TransactionError::InvalidPayload(format!(
+                    "Manager Access required: remaining open items need at least a 50% deposit after this pickup. Collect ${shortage} more or approve the release."
+                ))
+            })?;
+        let manager = authenticate_manager_approval(
+            &state,
+            manager_staff_id,
+            manager_pin,
+            "Manager Access approval permission required for pickup payment override",
+        )
+        .await?;
+        pickup_payment_override_metadata = Some(json!({
+            "payment_override": true,
+            "payment_override_manager_staff_id": manager.id,
+            "payment_override_reason": payment_override_reason,
+            "remaining_open_value": remaining_open_value,
+            "remaining_deposit_required": remaining_deposit_required,
+            "remaining_paid_credit": remaining_paid_credit,
+            "shortage": shortage,
+        }));
     }
 
     let insufficient_stock_lines = pickup_guard_lines
@@ -3172,6 +3213,8 @@ async fn mark_transaction_pickup(
             "requested_delivered_item_count": body.delivered_item_ids.len(),
             "readiness_override": body.override_readiness,
             "override_reason": if body.override_readiness { Some(override_reason) } else { None::<&str> },
+            "payment_override": pickup_payment_override_metadata.is_some(),
+            "payment_override_detail": pickup_payment_override_metadata,
             "inventory_shortage_warning": has_inventory_shortage,
             "inventory_shortage_lines": inventory_shortage_details,
         }),
@@ -7935,7 +7978,15 @@ async fn staff_id_active_salesperson(
     id: Uuid,
 ) -> Result<bool, TransactionError> {
     let ok: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM staff WHERE id = $1 AND is_active = TRUE AND role = 'salesperson')",
+        r#"
+        SELECT EXISTS(
+            SELECT 1
+            FROM staff
+            WHERE id = $1
+              AND is_active = TRUE
+              AND (role = 'salesperson' OR base_commission_rate > 0)
+        )
+        "#,
     )
     .bind(id)
     .fetch_one(pool)

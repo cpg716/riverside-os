@@ -49,6 +49,7 @@ interface UseCartCheckoutProps {
   clearCart: () => void;
   onSaleCompleted?: () => void;
   ensurePosTokenForSession: () => Promise<string | null>;
+  requestPickupPaymentOverride?: (message: string) => Promise<NonNullable<PosOrderOptions["pickupPaymentOverride"]> | null>;
 }
 
 interface CheckoutExecutionOverrides {
@@ -175,6 +176,7 @@ export function useCartCheckout({
   clearCart,
   onSaleCompleted,
   ensurePosTokenForSession,
+  requestPickupPaymentOverride,
 }: UseCartCheckoutProps) {
   const [checkoutBusy, setCheckoutBusy] = useState(false);
   const [lastTransactionId, setLastTransactionId] = useState<string | null>(null);
@@ -260,6 +262,70 @@ export function useCartCheckout({
         ledgerSignals.roundingAdjustmentCents ?? 0,
       );
       const providerBackedPayment = hasProviderBackedPayment(applied);
+      const pickupDepositApprovalRequired = (message: string) =>
+        message.includes("remaining open items need at least a 50% deposit");
+
+      const postPickup = async (
+        deliveredItemIds: string[],
+        pickupOptions?: PosOrderOptions,
+      ): Promise<{ ok: true; warnings: string[] } | { ok: false; status: number; message: string }> => {
+        const pickupRes = await fetch(`${baseUrl}/api/transactions/${pickupTransactionId}/pickup`, {
+          method: "POST",
+          headers: { ...apiAuth(), "Content-Type": "application/json" },
+          body: JSON.stringify({
+            delivered_item_ids: deliveredItemIds,
+            actor: op.fullName.trim() || cashierName?.trim() || "Register Pickup Flow",
+            override_readiness: pickupOptions?.overrideReadiness ?? false,
+            override_reason: pickupOptions?.overrideReadiness
+              ? (pickupOptions?.overrideReason ?? "Register pickup override: manager approved release for unready items.")
+              : undefined,
+            payment_override_manager_staff_id: pickupOptions?.pickupPaymentOverride?.managerStaffId,
+            payment_override_manager_pin: pickupOptions?.pickupPaymentOverride?.managerPin,
+            payment_override_reason: pickupOptions?.pickupPaymentOverride?.reason,
+            register_session_id: sessionId,
+          }),
+        });
+
+        if (pickupRes.ok) {
+          const pickupBody = (await pickupRes.json().catch(() => ({}))) as { warnings?: string[] };
+          return { ok: true, warnings: pickupBody.warnings ?? [] };
+        }
+
+        let b: { error?: string } = {};
+        try {
+          b = await pickupRes.json() as { error?: string };
+        } catch {
+          const text = await pickupRes.text().catch(() => "");
+          b = { error: text || `Pickup failed (${pickupRes.status})` };
+        }
+        return {
+          ok: false,
+          status: pickupRes.status,
+          message: b.error || `Pickup failed (${pickupRes.status})`,
+        };
+      };
+
+      const completePickupWithOptionalPaymentOverride = async (
+        deliveredItemIds: string[],
+        pickupOptions?: PosOrderOptions,
+      ): Promise<{ ok: true; warnings: string[] } | { ok: false; status: number; message: string }> => {
+        const firstAttempt = await postPickup(deliveredItemIds, pickupOptions);
+        if (
+          firstAttempt.ok ||
+          pickupOptions?.pickupPaymentOverride ||
+          !pickupDepositApprovalRequired(firstAttempt.message) ||
+          !requestPickupPaymentOverride
+        ) {
+          return firstAttempt;
+        }
+
+        const approval = await requestPickupPaymentOverride(firstAttempt.message);
+        if (!approval) return firstAttempt;
+        return postPickup(deliveredItemIds, {
+          ...pickupOptions,
+          pickupPaymentOverride: approval,
+        });
+      };
 
       const isZeroBalancePickup =
         !!pickupTransactionId &&
@@ -279,33 +345,11 @@ export function useCartCheckout({
           line.transaction_line_id ? [line.transaction_line_id] : [],
         );
 
-        const pickupRes = await fetch(`${baseUrl}/api/transactions/${pickupTransactionId}/pickup`, {
-          method: "POST",
-          headers: { ...apiAuth(), "Content-Type": "application/json" },
-          body: JSON.stringify({
-            delivered_item_ids: deliveredItemIds,
-            actor: op.fullName.trim() || cashierName?.trim() || "Register Pickup Flow",
-            override_readiness: options?.overrideReadiness ?? false,
-            override_reason: options?.overrideReadiness
-              ? (options?.overrideReason ?? "Register pickup override: manager approved release for unready items.")
-              : undefined,
-            register_session_id: sessionId,
-          }),
-        });
-
-        if (!pickupRes.ok) {
-          let b: { error?: string } = {};
-          try {
-            b = await pickupRes.json() as { error?: string };
-          } catch {
-            const text = await pickupRes.text().catch(() => "");
-            b = { error: text || `Pickup failed (${pickupRes.status})` };
-          }
-          throw new Error(b.error || `Pickup failed (${pickupRes.status})`);
+        const pickupResult = await completePickupWithOptionalPaymentOverride(deliveredItemIds, options);
+        if (!pickupResult.ok) {
+          throw new Error(pickupResult.message);
         }
-
-        const pickupBody = (await pickupRes.json().catch(() => ({}))) as { warnings?: string[] };
-        for (const warning of pickupBody.warnings ?? []) {
+        for (const warning of pickupResult.warnings) {
           if (warning.trim()) toast(warning, "info");
         }
         toast("Pickup completed successfully.", "success");
@@ -618,22 +662,9 @@ export function useCartCheckout({
           line.transaction_line_id ? [line.transaction_line_id] : [],
         );
         try {
-          const pickupRes = await fetch(`${baseUrl}/api/transactions/${pickupTransactionId}/pickup`, {
-            method: "POST",
-            headers: { ...apiAuth(), "Content-Type": "application/json" },
-            body: JSON.stringify({
-              delivered_item_ids: deliveredItemIds,
-              actor: op.fullName.trim() || cashierName?.trim() || "Register Pickup Flow",
-              override_readiness: options?.overrideReadiness ?? false,
-              override_reason: options?.overrideReadiness
-                ? (options?.overrideReason ?? "Register pickup override: manager approved release for unready items.")
-                : undefined,
-              register_session_id: sessionId,
-            }),
-          });
-          if (pickupRes.ok) {
-            const pickupBody = (await pickupRes.json().catch(() => ({}))) as { warnings?: string[] };
-            for (const warning of pickupBody.warnings ?? []) {
+          const pickupResult = await completePickupWithOptionalPaymentOverride(deliveredItemIds, options);
+          if (pickupResult.ok) {
+            for (const warning of pickupResult.warnings) {
               if (warning.trim()) toast(warning, "info");
             }
             toast("Pickup completed successfully.", "success");
@@ -668,15 +699,13 @@ export function useCartCheckout({
             }
             receiptTransactionId = pickupTransactionId;
           } else {
-            const body = await pickupRes.json().catch(() => ({})) as { error?: string };
-            const message = body.error ?? "Pickup could not be completed after checkout.";
-            await recordBlockedCheckoutRecovery(payload, pickupRes.status, message, {
+            await recordBlockedCheckoutRecovery(payload, pickupResult.status, pickupResult.message, {
               recoveryKind: "pickup_after_payment",
               recoveryKey: pickupTransactionId,
               recoveryTransactionId: pickupTransactionId,
               authHeaders: apiAuth(),
             });
-            toast(`Payment saved, but pickup is not complete. ${message}`, "error");
+            toast(`Payment saved, but pickup is not complete. ${pickupResult.message}`, "error");
           }
         } catch (err) {
           const message = err instanceof Error ? err.message : "Pickup API call failed after checkout.";
@@ -710,7 +739,7 @@ export function useCartCheckout({
   }, [
     sessionId, baseUrl, apiAuth, lines, selectedCustomer, activeWeddingMember,
     cashierName, primarySalespersonId, disbursementMembers, posShipping, pendingAlterationIntakes, orderPaymentLines,
-    pickupAlterationIds, pickupConfirmed, pickupTransactionId, belowCostApproval, saleDateTimeLocal, totals, toast, clearCart, onSaleCompleted, ensurePosTokenForSession, checkoutClientId
+    pickupAlterationIds, pickupConfirmed, pickupTransactionId, belowCostApproval, saleDateTimeLocal, totals, toast, clearCart, onSaleCompleted, ensurePosTokenForSession, requestPickupPaymentOverride, checkoutClientId
   ]);
 
   return {

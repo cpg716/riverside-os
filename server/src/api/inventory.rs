@@ -444,7 +444,6 @@ async fn fetch_product_intelligence(
             COALESCE(SUM(on_layaway), 0)::int4
         FROM product_variants
         WHERE product_id = $1
-          AND is_active = TRUE
         "#,
     )
     .bind(product_id)
@@ -632,7 +631,6 @@ async fn list_wedding_products(
             FROM product_variants v
             JOIN products p ON v.product_id = p.id
             WHERE p.is_active = TRUE
-              AND v.is_active = TRUE
               AND (p.name ILIKE $1 ESCAPE '\' OR v.sku ILIKE $1 ESCAPE '\' OR v.variation_label ILIKE $1 ESCAPE '\')
             ORDER BY p.name ASC, v.sku ASC
             LIMIT $2 OFFSET $3
@@ -658,7 +656,6 @@ async fn list_wedding_products(
             FROM product_variants v
             JOIN products p ON v.product_id = p.id
             WHERE p.is_active = TRUE
-              AND v.is_active = TRUE
             ORDER BY p.name ASC, v.sku ASC
             LIMIT $1 OFFSET $2
             "#,

@@ -70,7 +70,7 @@
 
 POS may read the same Transaction Record through the register. Staff can add an item to the original Transaction Record, correct an unfulfilled line, collect an existing balance, pick up or ship selected lines, or cancel the order without starting a separate sale. New items stay on the same Transaction Record but get their own booked date when added, so booked sales count on the item-added day. Payments taken later stay attached to the original Transaction Record but keep their own payment movement date for QBO review.
 
-For partial pickup or shipping, select only the lines being released. ROS blocks release when payments do not cover the selected merchandise or when the remaining open items would fall below the required 50% deposit. Shipping releases record shipped-line timestamps and shipment audit events when the Transaction Record is linked to a shipment.
+For partial pickup or shipping, select only the lines being released. ROS blocks release when payments do not cover the selected merchandise. If a pickup would leave the remaining open items below the required 50% deposit, ROS asks for Manager Access approval and records the override instead of discarding the saved sale/payment. Shipping releases record shipped-line timestamps and shipment audit events when the Transaction Record is linked to a shipment.
 
 If **Back Office** and **POS** disagree, **refresh** both; if persistent, note the transaction number and time for IT.
 

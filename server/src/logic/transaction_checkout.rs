@@ -1169,7 +1169,15 @@ async fn staff_id_active(pool: &PgPool, id: Uuid) -> Result<bool, CheckoutError>
 
 async fn staff_id_active_salesperson(pool: &PgPool, id: Uuid) -> Result<bool, CheckoutError> {
     let ok: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM staff WHERE id = $1 AND is_active = TRUE AND role = 'salesperson')",
+        r#"
+        SELECT EXISTS(
+            SELECT 1
+            FROM staff
+            WHERE id = $1
+              AND is_active = TRUE
+              AND (role = 'salesperson' OR base_commission_rate > 0)
+        )
+        "#,
     )
     .bind(id)
     .fetch_one(pool)
