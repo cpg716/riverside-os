@@ -174,6 +174,8 @@ The script:
 
 If Riverside starts but a screen reports a missing database table, use **Apply-RiversideMigrations.cmd** from the release package. It only applies pending migrations; it does not replace the server, web bundle, or desktop app.
 
+During Main Hub install/update, the workstation installer writes the Main Hub desktop API target as `http://127.0.0.1:3000` even when an older `station-config.json` exists. It still preserves unrelated local station settings such as printers.
+
 The Main Hub desktop app also has a local recovery path: if it opens on the Main Hub, is pointed at `localhost` / `127.0.0.1`, and the roster check cannot reach the API, it asks Windows to start the installed `Riverside OS Server` scheduled task and then retries the roster check. If the task is missing, run **Repair** from the Deployment Manager instead of manually creating a different task name.
 
 PostgreSQL and `psql.exe` must be installed or referenced by `server.database.psqlPath`. The Deployment Manager can find common PostgreSQL installs and write the path into the config.

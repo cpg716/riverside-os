@@ -89,6 +89,7 @@ When `install-server.ps1` or `apply-riverside-migrations.ps1` runs:
 *   **JWT Secret:** If `storeCustomerJwtSecret` in the configuration is empty or matches a placeholder (e.g. `replace-with-...`), the script generates a secure 32-character token.
 *   **App DB User Password:** If `appPassword` is empty or matches a placeholder, the script generates a secure 24-character database password.
 *   **Auto-Save:** Generated secrets are automatically written back to the `riverside-deployment.config.json` configuration file, ensuring they are persistent and won't be lost during updates.
+*   **Legacy Function Ownership Repair:** Before pending migrations run, the migration script repairs known Riverside-owned PostgreSQL functions such as wedding-number helpers so older Main Hub databases can continue through the update without manual owner fixes.
 
 ### Postgres Admin Password Auto-Detection
 If the PostgreSQL admin password is left blank or as a placeholder:
