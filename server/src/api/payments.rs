@@ -7956,7 +7956,11 @@ async fn initialize_helcim_pay(
     validate_currency(&currency.to_ascii_lowercase())?;
 
     let config = helcim::HelcimConfig::from_env();
-    let customer_code = payload.customer_code.and_then(non_empty_string);
+    // Helcim's customerCode is a Helcim-native identifier, not a ROS or
+    // Counterpoint customer code. ROS does not persist a Helcim customer code
+    // for POS customers yet, so omit it to avoid Helcim rejecting ROS-* / C-*
+    // customer numbers during hosted manual card entry.
+    let customer_code = None;
     let invoice_number = payload.invoice_number.and_then(non_empty_string);
     let request = helcim::HelcimPayInitializeRequest {
         payment_type: "purchase".to_string(),
@@ -7969,10 +7973,7 @@ async fn initialize_helcim_pay(
             .hide_existing_payment_details
             .filter(|enabled| *enabled)
             .map(|_| 1),
-        set_as_default_payment_method: payload
-            .save_as_default
-            .filter(|enabled| *enabled)
-            .map(|_| 1),
+        set_as_default_payment_method: None,
         confirmation_screen: false,
         display_contact_fields: None,
     };
@@ -8391,10 +8392,10 @@ async fn release_helcim_terminal_attempt(
     }
     if attempt.status != "pending" {
         return Err(PaymentError::InvalidPayload(
-            "Only pending Helcim terminal attempts can be released.".to_string(),
+            "Only pending Helcim attempts can be released.".to_string(),
         ));
     }
-    if attempt.provider_payment_id.is_some() || attempt.provider_transaction_id.is_some() {
+    if helcim_attempt_has_provider_settlement_reference(&attempt) {
         return Err(PaymentError::Conflict(
             "Helcim returned a provider reference for this attempt. Use Check Terminal before releasing it locally.".to_string(),
         ));
@@ -8411,15 +8412,23 @@ async fn release_helcim_terminal_attempt(
     let result = sqlx::query(
         r#"
         UPDATE payment_provider_attempts
-        SET status = 'expired',
-            error_code = 'terminal_released_no_provider_reference',
-            error_message = 'Released locally after the terminal returned to ready; Helcim did not provide a payment reference to poll.',
+        SET status = CASE WHEN raw_audit_reference = 'helcim-pay-js' THEN 'canceled' ELSE 'expired' END,
+            error_code = CASE WHEN raw_audit_reference = 'helcim-pay-js' THEN 'helcim_pay_aborted' ELSE 'terminal_released_no_provider_reference' END,
+            error_message = CASE
+                WHEN raw_audit_reference = 'helcim-pay-js'
+                    THEN 'HelcimPay.js card entry was canceled before approval.'
+                ELSE 'Released locally after the terminal returned to ready; Helcim did not provide a payment reference to poll.'
+            END,
+            provider_client_secret = NULL,
             completed_at = now()
         WHERE id = $1
           AND provider = 'helcim'
           AND status = 'pending'
-          AND provider_payment_id IS NULL
           AND provider_transaction_id IS NULL
+          AND (
+              provider_payment_id IS NULL
+              OR raw_audit_reference = 'helcim-pay-js'
+          )
         "#,
     )
     .bind(attempt_id)
@@ -8570,6 +8579,15 @@ fn cents_to_decimal_string(amount_cents: i64) -> String {
     let sign = if amount_cents < 0 { "-" } else { "" };
     let abs = amount_cents.unsigned_abs();
     format!("{sign}{}.{:02}", abs / 100, abs % 100)
+}
+
+fn is_hosted_manual_helcim_attempt(attempt: &HelcimAttemptRow) -> bool {
+    attempt.raw_audit_reference.as_deref() == Some("helcim-pay-js")
+}
+
+fn helcim_attempt_has_provider_settlement_reference(attempt: &HelcimAttemptRow) -> bool {
+    attempt.provider_transaction_id.is_some()
+        || (!is_hosted_manual_helcim_attempt(attempt) && attempt.provider_payment_id.is_some())
 }
 
 fn should_skip_provider_refresh_for_idempotency_replay(attempt: &HelcimAttemptRow) -> bool {
@@ -9010,6 +9028,33 @@ mod tests {
             updated_at: now,
             completed_at: None,
         }
+    }
+
+    #[test]
+    fn hosted_manual_checkout_token_is_not_a_settlement_reference() {
+        let mut attempt = sample_helcim_attempt_row("pending");
+        attempt.provider_transaction_id = None;
+        attempt.provider_payment_id = Some("checkout-token".to_string());
+        attempt.raw_audit_reference = Some("helcim-pay-js".to_string());
+
+        assert!(!helcim_attempt_has_provider_settlement_reference(&attempt));
+    }
+
+    #[test]
+    fn provider_transaction_reference_blocks_local_attempt_release() {
+        let attempt = sample_helcim_attempt_row("pending");
+
+        assert!(helcim_attempt_has_provider_settlement_reference(&attempt));
+    }
+
+    #[test]
+    fn terminal_provider_payment_reference_blocks_local_attempt_release() {
+        let mut attempt = sample_helcim_attempt_row("pending");
+        attempt.provider_transaction_id = None;
+        attempt.provider_payment_id = Some("terminal-payment-reference".to_string());
+        attempt.raw_audit_reference = None;
+
+        assert!(helcim_attempt_has_provider_settlement_reference(&attempt));
     }
 
     #[test]

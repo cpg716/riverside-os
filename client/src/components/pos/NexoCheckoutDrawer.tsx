@@ -1275,6 +1275,30 @@ export default function NexoCheckoutDrawer({
     toast("Ready to retry card. Send a new request to the terminal when the customer is ready.", "info");
   }, [helcimAttempt, remainingCents, toast]);
 
+  const releaseHelcimAttempt = useCallback(
+    async (attemptId: string) => {
+      const res = await fetch(
+        `${baseUrl}/api/payments/providers/helcim/attempts/${attemptId}/release`,
+        {
+          method: "POST",
+          headers: mergedPosStaffHeaders(backofficeHeaders),
+        },
+      );
+      if (!res.ok) {
+        let body: { error?: string } = {};
+        try {
+          body = await res.json() as { error?: string };
+        } catch {
+          const text = await res.text().catch(() => "");
+          body = { error: text || `Could not release the Helcim attempt (${res.status})` };
+        }
+        throw new Error(body.error ?? "Could not release the Helcim attempt.");
+      }
+      return await res.json() as HelcimAttempt;
+    },
+    [backofficeHeaders, baseUrl],
+  );
+
   const releasePendingTerminalAttempt = useCallback(async () => {
     const attemptId =
       helcimAttempt?.status === "pending"
@@ -1289,24 +1313,7 @@ export default function NexoCheckoutDrawer({
     }
     setHelcimAttemptLoading(true);
     try {
-      const res = await fetch(
-        `${baseUrl}/api/payments/providers/helcim/attempts/${attemptId}/release`,
-        {
-          method: "POST",
-          headers: mergedPosStaffHeaders(backofficeHeaders),
-        },
-      );
-      if (!res.ok) {
-        let body: { error?: string } = {};
-        try {
-          body = await res.json() as { error?: string };
-        } catch {
-          const text = await res.text().catch(() => "");
-          body = { error: text || `Could not release the Helcim terminal attempt (${res.status})` };
-        }
-        throw new Error(body.error ?? "Could not release the Helcim terminal attempt.");
-      }
-      const attempt = (await res.json()) as HelcimAttempt;
+      const attempt = await releaseHelcimAttempt(attemptId);
       setHelcimAttempt(attempt);
       pendingHelcimCentsRef.current = 0;
       pendingHelcimTenderRef.current = { method: "card_terminal", label: "HELCIM CARD" };
@@ -1322,10 +1329,9 @@ export default function NexoCheckoutDrawer({
       setHelcimAttemptLoading(false);
     }
   }, [
-    backofficeHeaders,
-    baseUrl,
     helcimAttempt?.id,
     helcimAttempt?.status,
+    releaseHelcimAttempt,
     selectedTerminalActiveAttemptId,
     selectedTerminalInUseByCurrentRegister,
     toast,
@@ -1483,6 +1489,12 @@ export default function NexoCheckoutDrawer({
       setHelcimAttemptLoading(true);
       pendingHelcimCentsRef.current = amtCents;
       pendingHelcimTenderRef.current = { method: "card_manual", label: "HELCIM KEYED" };
+      let hostedAttemptId: string | null = null;
+      const resetManualAttempt = () => {
+        setHelcimAttempt(null);
+        pendingHelcimCentsRef.current = 0;
+        pendingHelcimTenderRef.current = { method: "card_terminal", label: "HELCIM CARD" };
+      };
       try {
         const initRes = await fetch(`${baseUrl}/api/payments/providers/helcim/helcim-pay/initialize`, {
           method: "POST",
@@ -1494,7 +1506,6 @@ export default function NexoCheckoutDrawer({
             amount_cents: amtCents,
             currency: "usd",
             register_session_id: registerSessionId ?? undefined,
-            customer_code: customerCode?.trim() || undefined,
             hide_existing_payment_details: true,
           }),
         });
@@ -1510,6 +1521,7 @@ export default function NexoCheckoutDrawer({
         }
 
         const { attempt, checkout_token: checkoutToken } = initBody;
+        hostedAttemptId = attempt.id;
         setHelcimAttempt(attempt);
         setHelcimUnverifiedNotice(null);
         setKeypad("");
@@ -1521,16 +1533,18 @@ export default function NexoCheckoutDrawer({
           window.removeEventListener("message", handleMessage);
 
           if (data.eventStatus === "ABORTED") {
-            setHelcimAttempt(null);
-            pendingHelcimCentsRef.current = 0;
-            pendingHelcimTenderRef.current = { method: "card_terminal", label: "HELCIM CARD" };
+            void releaseHelcimAttempt(attempt.id).catch(() => {
+              setHelcimUnverifiedNotice(HELCIM_UNVERIFIED_OUTCOME_MESSAGE);
+            });
+            resetManualAttempt();
             toast("Helcim manual card entry was canceled.", "info");
             return;
           }
           if (data.eventStatus !== "SUCCESS") {
-            setHelcimAttempt(null);
-            pendingHelcimCentsRef.current = 0;
-            pendingHelcimTenderRef.current = { method: "card_terminal", label: "HELCIM CARD" };
+            void releaseHelcimAttempt(attempt.id).catch(() => {
+              setHelcimUnverifiedNotice(HELCIM_UNVERIFIED_OUTCOME_MESSAGE);
+            });
+            resetManualAttempt();
             toast("Helcim manual card entry was not approved.", "error");
             return;
           }
@@ -1585,9 +1599,12 @@ export default function NexoCheckoutDrawer({
         window.appendHelcimPayIframe(checkoutToken, true);
         toast("Secure Helcim card entry opened in ROS.", "info");
       } catch (error) {
-        setHelcimAttempt(null);
-        pendingHelcimCentsRef.current = 0;
-        pendingHelcimTenderRef.current = { method: "card_terminal", label: "HELCIM CARD" };
+        if (hostedAttemptId) {
+          void releaseHelcimAttempt(hostedAttemptId).catch(() => {
+            setHelcimUnverifiedNotice(HELCIM_UNVERIFIED_OUTCOME_MESSAGE);
+          });
+        }
+        resetManualAttempt();
         toast(
           error instanceof Error ? error.message : "Helcim manual card entry could not be opened.",
           "error",
@@ -1600,8 +1617,8 @@ export default function NexoCheckoutDrawer({
       applyHelcimAttemptUpdate,
       backofficeHeaders,
       baseUrl,
-      customerCode,
       registerSessionId,
+      releaseHelcimAttempt,
       toast,
     ],
   );

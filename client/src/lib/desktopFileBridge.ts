@@ -1,7 +1,6 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import { writeFile, writeTextFile } from "@tauri-apps/plugin-fs";
-import { openPath } from "@tauri-apps/plugin-opener";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
 export async function saveDesktopTextFile(
@@ -39,22 +38,10 @@ export async function openDesktopTextPreview(
   content: string,
 ): Promise<boolean> {
   if (!isTauri()) return false;
-  const path = await invoke<string>("write_temp_preview_file", {
+  await invoke<string>("open_temp_preview_file", {
     filename,
     content,
   });
-  try {
-    await openPath(path);
-  } catch (openPathError) {
-    const fileUrl = encodeURI(`file:///${path.replace(/\\/g, "/").replace(/^\/+/, "")}`);
-    try {
-      await openUrl(fileUrl);
-    } catch (openUrlError) {
-      throw new Error(
-        `Could not open preview file ${path}: ${String(openPathError)}; ${String(openUrlError)}`,
-      );
-    }
-  }
   return true;
 }
 
