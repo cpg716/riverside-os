@@ -23,7 +23,7 @@ export const STAFF_PERMISSION_CATALOG: {
     group: "Inventory",
   },
   { key: "orders.view", label: "View transactions & transaction history", group: "Transactions" },
-  { key: "orders.modify", label: "Edit transaction lines & pickup (Manager Access required after 60 days)", group: "Transactions" },
+  { key: "orders.modify", label: "Edit transaction lines, pickup, returns & exchanges", group: "Transactions" },
   { key: "orders.cancel", label: "Cancel transactions and review refunds", group: "Transactions" },
   {
     key: "orders.void_sale",

@@ -11,7 +11,7 @@ For **staff keys and middleware**, see **`docs/STAFF_PERMISSIONS.md`**. For **sp
 | Key | Use |
 |-----|-----|
 | `orders.view` | List transactions, read detail, audit trail, receipt ZPL (with BO headers). |
-| `orders.modify` | Edit transaction lines, pickup, returns, exchanges. **(Manager Access required after 60 days)** |
+| `orders.modify` | Edit transaction lines, pickup, returns, exchanges. |
 | `manager.approval` | Approve elevated Manager Access prompts with staff id + Access PIN; approvals are audited with approver, timestamp, reason, transaction/customer metadata when supplied. |
 | `orders.suit_component_swap` | `POST /api/transactions/{id}/items/{line}/suit-swap` — requires **`orders.modify`** as well; BO staff only (no register_session bypass). Seeded by **`scripts/seeds/seed_rbac.sql`**. |
 | `orders.cancel` | `PATCH` transaction to `cancelled` when **payment allocations** exist (queues refund). |
@@ -29,10 +29,7 @@ For **staff keys and middleware**, see **`docs/STAFF_PERMISSIONS.md`**. For **sp
 
 When the client cannot send Back Office staff headers (e.g. receipt modal on the till), some routes accept **`register_session_id`** so a **single open register session** can authorize read or modify.
 
-**Policy Note (60-Day Window)**:
- - **Fulfilled items <= 60 days from pickup or shipment**: Can be modified by any staff member on an active session.
- - **Fulfilled items > 60 days from pickup or shipment**: Always require a **Manager Access** override (`manager.approval`) even if a session ID is provided.
- - **Legacy records without fulfillment evidence**: Fall back to the original booked date so the return flow remains deterministic and auditable.
+**Policy note:** Returns and exchanges are allowed from an open register session or by Back Office staff with `orders.modify`. Staff still need to verify the original Transaction Record, returned quantities, tender/refund path, and inventory handling before settlement.
 
 | Operation | Query / body | Requirement |
 |-----------|----------------|-------------|

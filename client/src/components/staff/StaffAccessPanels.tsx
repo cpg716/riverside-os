@@ -135,16 +135,16 @@ export function StaffRoleAccessPanel() {
         <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div className="flex items-start gap-3 rounded-lg border border-app-border bg-app-surface p-3">
             <div className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600">
-              <span className="text-[10px] font-black">60</span>
+              <span className="text-[10px] font-black">TX</span>
             </div>
             <div>
               <p className="text-xs font-black uppercase tracking-tight text-app-text">
-                Return/Exchange Window
+                Return/Exchange Review
               </p>
               <p className="mt-0.5 text-[10px] leading-relaxed text-app-text-muted">
-                Staff can process returns for any transaction within 60 days
-                without secondary approval. Beyond 60 days, a Manager PIN is
-                required.
+                Staff can process returns and exchanges from an open register
+                session. Verify the Transaction Record, quantities, tender, and
+                inventory path before settlement.
               </p>
             </div>
           </div>

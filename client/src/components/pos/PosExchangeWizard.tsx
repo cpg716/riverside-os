@@ -6,7 +6,6 @@ import { useShellBackdropLayer } from "../layout/ShellBackdropContextLogic";
 import { centsToFixed2, parseMoney, parseMoneyToCents, formatMoney } from "../../lib/money";
 import type { Customer } from "../pos/CustomerSelector";
 import TransactionSearchInput from "../ui/TransactionSearchInput";
-import ManagerApprovalModal from "./ManagerApprovalModal";
 
 type FulfillmentKind = "takeaway" | "special_order" | "wedding_order";
 
@@ -90,6 +89,8 @@ type ReturnedLineSummary = {
   quantity: number;
   unit_price_cents: number;
   unit_cost: string | number;
+  state_tax_cents: number;
+  local_tax_cents: number;
   tax_cents: number;
 };
 
@@ -110,23 +111,6 @@ const EXCHANGE_WORKFLOW_STEPS: WorkflowStep[] = [
     hint: "Refund the customer now, or continue into a replacement sale if this is an exchange.",
   },
 ];
-
-const RETURN_MANAGER_APPROVAL_WINDOW_DAYS = 60;
-
-function returnWindowBasisAt(detail: TransactionDetailLite): string {
-  const lineDates = detail.items
-    .filter((item) => item.quantity - (item.quantity_returned ?? 0) > 0)
-    .map((item) => item.fulfilled_at ?? item.picked_up_at)
-    .filter((value): value is string => Boolean(value));
-
-  if (lineDates.length > 0) {
-    return lineDates.reduce((latest, value) =>
-      new Date(value).getTime() > new Date(latest).getTime() ? value : latest,
-    );
-  }
-
-  return detail.booked_at;
-}
 
 function refundableCreditCents(detail: TransactionDetailLite): number {
   const paidCents = parseMoneyToCents(detail.amount_paid);
@@ -154,6 +138,8 @@ function returnedLineSummaries(detail: TransactionDetailLite): ReturnedLineSumma
       quantity: item.quantity_returned,
       unit_price_cents: parseMoneyToCents(item.unit_price),
       unit_cost: item.unit_cost,
+      state_tax_cents: parseMoneyToCents(item.state_tax),
+      local_tax_cents: parseMoneyToCents(item.local_tax),
       tax_cents: parseMoneyToCents(item.state_tax) + parseMoneyToCents(item.local_tax),
     }));
 }
@@ -194,8 +180,6 @@ export default function PosExchangeWizard({
   const [detail, setDetail] = useState<TransactionDetailLite | null>(null);
   const [returnQtyDraft, setReturnQtyDraft] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
-  const [pendingManagerApproval, setPendingManagerApproval] = useState<TransactionDetailLite | null>(null);
-  const [managerApproval, setManagerApproval] = useState<{ staffId: string; pin: string } | null>(null);
   const [returnedLines, setReturnedLines] = useState<ReturnedLineSummary[]>([]);
   const [refundAmount, setRefundAmount] = useState("");
   const [customerTransactions, setCustomerTransactions] = useState<CustomerTransactionRow[]>([]);
@@ -211,8 +195,6 @@ export default function PosExchangeWizard({
     setStep("load");
     setDetail(null);
     setReturnQtyDraft({});
-    setPendingManagerApproval(null);
-    setManagerApproval(null);
     setReturnedLines([]);
     setRefundAmount("");
     setCustomerTransactions([]);
@@ -256,7 +238,6 @@ export default function PosExchangeWizard({
         return;
       }
       
-      const daysOld = (Date.now() - new Date(returnWindowBasisAt(d)).getTime()) / (1000 * 60 * 60 * 24);
       const hasReturnableLines = d.items.some((item) => item.quantity - (item.quantity_returned ?? 0) > 0);
       const existingRefundableCents = refundableCreditCents(d);
       if (!hasReturnableLines && existingRefundableCents > 0) {
@@ -268,11 +249,7 @@ export default function PosExchangeWizard({
         return;
       }
 
-      if (daysOld > RETURN_MANAGER_APPROVAL_WINDOW_DAYS) {
-        setPendingManagerApproval(d);
-      } else {
-        applyLoadedTransaction(d);
-      }
+      applyLoadedTransaction(d);
     } catch {
       toast("Network error loading transaction", "error");
     } finally {
@@ -375,11 +352,6 @@ export default function PosExchangeWizard({
               quantity,
               reason: nextAction === "refund" ? "refund" : "exchange",
             })),
-            manager_staff_id: managerApproval?.staffId,
-            manager_pin: managerApproval?.pin,
-            manager_reason: managerApproval
-              ? `Manager approved return outside ${RETURN_MANAGER_APPROVAL_WINDOW_DAYS}-day policy`
-              : undefined,
           }),
         },
       );
@@ -388,6 +360,7 @@ export default function PosExchangeWizard({
         toast(b.error ?? "Return failed", "error");
         return;
       }
+      const updatedDetail = (await res.json()) as TransactionDetailLite;
       const refundLines = lines.map(({ item, quantity }) => ({
         transaction_line_id: item.transaction_line_id,
         product_id: item.product_id,
@@ -398,6 +371,8 @@ export default function PosExchangeWizard({
         quantity,
         unit_price_cents: parseMoneyToCents(item.unit_price),
         unit_cost: item.unit_cost,
+        state_tax_cents: parseMoneyToCents(item.state_tax),
+        local_tax_cents: parseMoneyToCents(item.local_tax),
         tax_cents: parseMoneyToCents(item.state_tax) + parseMoneyToCents(item.local_tax),
       }));
       setReturnedLines(refundLines);
@@ -405,7 +380,11 @@ export default function PosExchangeWizard({
         (sum, line) => sum + (line.unit_price_cents + line.tax_cents) * line.quantity,
         0,
       );
-      const refundCents = projectedRefundableCents(detail, returnedValueCents);
+      const serverRefundableCents = refundableCreditCents(updatedDetail);
+      const refundCents = serverRefundableCents > 0
+        ? Math.min(serverRefundableCents, parseMoneyToCents(updatedDetail.amount_paid))
+        : projectedRefundableCents(detail, returnedValueCents);
+      setDetail(updatedDetail);
       setRefundAmount(centsToFixed2(refundCents));
       if (refundCents > 0) {
         onContinueToReplacement({
@@ -645,8 +624,8 @@ export default function PosExchangeWizard({
                  />
               </div>
               <p className="text-[10px] text-app-text-muted leading-relaxed opacity-60">
-                Returns older than {RETURN_MANAGER_APPROVAL_WINDOW_DAYS} days from pickup or shipment require Manager Access.
-                For uneven wedding group payments, confirm return quantities against the correct member record before refunding.
+                For older returns and uneven wedding group payments, confirm the transaction, member record, and return
+                quantities before refunding.
               </p>
             </div>
           )}
@@ -894,23 +873,6 @@ export default function PosExchangeWizard({
           )}
         </div>
       </div>
-
-      {pendingManagerApproval ? (
-        <ManagerApprovalModal
-          isOpen={true}
-          title="Return Deadline Exceeded"
-          message={`This return is more than ${RETURN_MANAGER_APPROVAL_WINDOW_DAYS} days after pickup or shipment. Manager Access is required to process an exchange/return.`}
-          onClose={() => {
-            setPendingManagerApproval(null);
-            setLoading(false);
-          }}
-          onApprove={async (pin, managerId) => {
-             setManagerApproval({ staffId: managerId, pin });
-             applyLoadedTransaction(pendingManagerApproval);
-             setPendingManagerApproval(null);
-          }}
-        />
-      ) : null}
     </div>,
     document.getElementById("drawer-root")!
   );

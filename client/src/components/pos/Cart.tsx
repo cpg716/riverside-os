@@ -121,6 +121,8 @@ interface ExchangeReturnHandoffLine {
   quantity: number;
   unit_price_cents: number;
   unit_cost: string | number;
+  state_tax_cents?: number;
+  local_tax_cents?: number;
   tax_cents: number;
 }
 

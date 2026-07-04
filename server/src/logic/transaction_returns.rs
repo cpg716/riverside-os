@@ -18,6 +18,15 @@ pub enum TransactionReturnError {
     BadRequest(String),
 }
 
+fn refundable_line_total(
+    unit_price: Decimal,
+    state_tax: Decimal,
+    local_tax: Decimal,
+    quantity: i32,
+) -> Decimal {
+    (unit_price + state_tax + local_tax) * Decimal::from(quantity)
+}
+
 /// Sum of quantity already returned for an order line.
 pub async fn returned_qty_for_item(
     tx: &mut Transaction<'_, Postgres>,
@@ -148,7 +157,7 @@ pub async fn apply_transaction_returns_in_tx(
             )));
         }
 
-        let line_total = (unit_price + state_tax + local_tax) * Decimal::from(line.quantity);
+        let line_total = refundable_line_total(unit_price, state_tax, local_tax, line.quantity);
         refund_add += line_total;
 
         let restock = line
@@ -284,6 +293,23 @@ pub async fn apply_transaction_returns_in_tx(
     .await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn refundable_line_total_includes_line_tax_for_each_returned_unit() {
+        let total = refundable_line_total(
+            Decimal::new(10000, 2),
+            Decimal::new(400, 2),
+            Decimal::new(475, 2),
+            2,
+        );
+
+        assert_eq!(total, Decimal::new(21750, 2));
+    }
 }
 
 pub struct ReturnLineInput {

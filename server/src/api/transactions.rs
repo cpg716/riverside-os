@@ -43,7 +43,6 @@ use crate::logic::receipt_escpos;
 use crate::logic::receipt_plain_text;
 use crate::logic::receipt_shared;
 use crate::logic::receipt_studio_html;
-use crate::logic::report_basis::ORDER_RECOGNITION_TS_SQL;
 use crate::logic::store_credit;
 use crate::logic::suit_component_swap::{self, SuitSwapInput, SuitSwapOutcome};
 use crate::logic::transaction_recalc;
@@ -53,8 +52,6 @@ use crate::models::{
     DbFulfillmentType, DbOrderFulfillmentMethod, DbOrderItemLifecycleStatus, DbOrderStatus,
     DbTransactionCategory,
 };
-
-const RETURN_MANAGER_APPROVAL_WINDOW_DAYS: i64 = 60;
 
 #[cfg(test)]
 static FAIL_CARD_REFUND_LEDGER_AFTER_PROVIDER_APPROVAL: std::sync::atomic::AtomicBool =
@@ -2259,33 +2256,6 @@ async fn authorize_transaction_read_bo_or_register(
     Ok(())
 }
 
-async fn transaction_return_window_basis_at(
-    pool: &PgPool,
-    transaction_id: Uuid,
-) -> Result<DateTime<Utc>, TransactionError> {
-    let recognition_ts = ORDER_RECOGNITION_TS_SQL.trim();
-    let sql = format!(
-        r#"
-        SELECT COALESCE(
-            ({recognition_ts}),
-            MAX(COALESCE(tl.fulfilled_at, tl.picked_up_at)),
-            o.fulfilled_at,
-            o.booked_at
-        ) AS return_window_basis_at
-        FROM transactions o
-        LEFT JOIN transaction_lines tl ON tl.transaction_id = o.id
-        WHERE o.id = $1
-        GROUP BY o.id
-        "#
-    );
-
-    sqlx::query_scalar::<_, DateTime<Utc>>(&sql)
-        .bind(transaction_id)
-        .fetch_optional(pool)
-        .await?
-        .ok_or(TransactionError::NotFound)
-}
-
 async fn authenticate_manager_approval(
     state: &AppState,
     staff_id: Uuid,
@@ -2312,7 +2282,6 @@ async fn authorize_transaction_modify_bo_or_register(
     headers: &HeaderMap,
     transaction_id: Uuid,
     register_session_id: Option<Uuid>,
-    manager_approval: Option<(Uuid, &str, Option<&str>)>,
 ) -> Result<Option<Uuid>, TransactionError> {
     if let Some(sid) = register_session_id {
         if !register_session_is_open(&state.db, sid).await? {
@@ -2321,7 +2290,6 @@ async fn authorize_transaction_modify_bo_or_register(
             ));
         }
 
-        // 1. Check if linked to current session (fast path)
         let in_session =
             transaction_has_positive_payment_in_session(&state.db, transaction_id, sid)
                 .await
@@ -2331,58 +2299,12 @@ async fn authorize_transaction_modify_bo_or_register(
             return Ok(None);
         }
 
-        // 2. Not in session? Check age against the return window.
-        // For orders, the clock starts when the goods are picked up or shipped,
-        // not when the order was originally booked.
-        let return_window_basis_at =
-            transaction_return_window_basis_at(&state.db, transaction_id).await?;
-
-        let days_old = (Utc::now() - return_window_basis_at).num_days();
-        if days_old <= RETURN_MANAGER_APPROVAL_WINDOW_DAYS {
-            // Within the return window, any register session can process the return/exchange.
-            return Ok(None);
-        }
-
-        if let Some((manager_staff_id, manager_pin, manager_reason)) = manager_approval {
-            let manager = authenticate_manager_approval(
-                state,
-                manager_staff_id,
-                manager_pin,
-                "Manager Access approval permission required for older return",
-            )
-            .await?;
-            let reason = manager_reason
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .unwrap_or("older return approval");
-            let _ = log_staff_access(
-                &state.db,
-                manager.id,
-                "older_return_approval",
-                json!({
-                    "transaction_id": transaction_id,
-                    "days_old": days_old,
-                    "return_window_basis_at": return_window_basis_at,
-                    "reason": reason,
-                }),
-            )
-            .await;
-            return Ok(Some(manager.id));
-        }
-
-        // 3. Older than the return window? Require BO permission or manager approval.
-        if let Ok(s) =
-            middleware::require_staff_with_permission(state, headers, ORDERS_MODIFY).await
-        {
-            return Ok(Some(s.id));
-        }
-
-        return Err(TransactionError::Forbidden(
-            format!(
-                "transaction is older than {RETURN_MANAGER_APPROVAL_WINDOW_DAYS} days; manager approval required"
-            ),
-        ));
+        // Any open register session can process returns/exchanges once staff
+        // selected the original Transaction Record. Refund tendering remains a
+        // separate audited step.
+        return Ok(None);
     }
+
     let s = middleware::require_staff_with_permission(state, headers, ORDERS_MODIFY)
         .await
         .map_err(map_perm_err)?;
@@ -7093,9 +7015,6 @@ async fn post_transaction_returns(
         &headers,
         transaction_id,
         q.register_session_id,
-        body.manager_staff_id
-            .zip(body.manager_pin.as_deref())
-            .map(|(staff_id, pin)| (staff_id, pin, body.manager_reason.as_deref())),
     )
     .await?;
 
@@ -7148,7 +7067,6 @@ async fn post_transaction_exchange_link(
             &headers,
             body.other_transaction_id,
             Some(sid),
-            None,
         )
         .await?;
     } else {
@@ -7694,7 +7612,6 @@ async fn post_suit_component_swap(
             &headers,
             transaction_id,
             Some(reg_sid),
-            None,
         )
         .await?;
         let opened_by: Option<Uuid> = sqlx::query_scalar(
