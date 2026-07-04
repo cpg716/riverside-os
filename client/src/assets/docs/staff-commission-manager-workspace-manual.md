@@ -30,6 +30,8 @@ The workspace is intentionally simple:
 
 Category commission rate overrides and percentage override rules are retired from the staff-facing workflow.
 
+**Staff Admin** is a protected no-commission system salesperson. Use it for sales attribution only when no individual salesperson should receive commission; base commission, SPIFFs, and combo incentives are suppressed for that account.
+
 ## Before You Start
 
 - **Reports** requires **insights.view**.
@@ -46,7 +48,6 @@ Category commission rate overrides and percentage override rules are retired fro
 
 Commission review depends on recognized fulfillment activity and audited adjustment events. Use the reports tab for review, then investigate surprising totals from the related transaction, staff profile, and commission trace. Do not change staff rates to force a one-off correction; use the audited adjustment path when management approves it.
 
-
 ## What To Watch For
 
 - Rate changes start on the selected effective date.
@@ -61,11 +62,9 @@ Commission review depends on recognized fulfillment activity and audited adjustm
 
 After reviewing a period, export or print only when the date range, staff member, and recognition basis are correct. If a payout question depends on a return, exchange, or manual adjustment, open the trace before giving a final answer.
 
-
 ## Manager review
 
 Manager review is needed before changing SPIFFs, combo incentives, payout adjustments, or staff commission settings. Commission changes should explain why the adjustment exists, which period it affects, and which transaction or policy decision supports it.
-
 
 ## Related Workflows
 

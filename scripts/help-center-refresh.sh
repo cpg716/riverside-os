@@ -58,7 +58,7 @@ trap cleanup EXIT
 wait_for_url() {
   local url="$1"
   local name="$2"
-  local tries="${3:-90}"
+  local tries="${3:-${HELP_REFRESH_WAIT_TRIES:-300}}"
   for ((i = 1; i <= tries; i += 1)); do
     if curl -fsS "$url" >/dev/null 2>&1; then
       echo "[help-center-refresh] ${name} ready: ${url}"

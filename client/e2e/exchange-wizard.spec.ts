@@ -606,7 +606,7 @@ test.describe("POS exchange wizard", () => {
     expect(returnRes.status(), bodyText.slice(0, 500)).toBe(200);
   });
 
-  test("day 61 return from another register session requires manager override", async ({
+  test("day 61 return from another register session is allowed without manager override", async ({
     request,
   }) => {
     test.setTimeout(90_000);
@@ -646,36 +646,7 @@ test.describe("POS exchange wizard", () => {
         failOnStatusCode: false,
       },
     );
-    const rejectedText = await withoutOverride.text();
-    expect(withoutOverride.status(), rejectedText.slice(0, 500)).toBe(403);
-    expect(rejectedText).toContain("older than 60 days");
-
-    const withOverride = await request.post(
-      `${apiBase()}/api/transactions/${fixture.transactionId}/returns?register_session_id=${encodeURIComponent(alternateSession.sessionId)}`,
-      {
-        headers: {
-          "Content-Type": "application/json",
-          "x-riverside-pos-session-id": alternateSession.sessionId,
-          "x-riverside-pos-session-token": alternateSession.sessionToken,
-      "x-riverside-station-key": "station-e2e",
-        },
-        data: {
-          manager_staff_id: operatorStaffId,
-          manager_pin: e2eAdminCode(),
-          manager_reason: "E2E older return approval",
-          lines: [
-            {
-              transaction_line_id: fixture.lineId,
-              quantity: 1,
-              reason: "exchange",
-            },
-          ],
-        },
-        failOnStatusCode: false,
-      },
-    );
-
-    const approvedText = await withOverride.text();
-    expect(withOverride.status(), approvedText.slice(0, 500)).toBe(200);
+    const returnText = await withoutOverride.text();
+    expect(withoutOverride.status(), returnText.slice(0, 500)).toBe(200);
   });
 });

@@ -89,7 +89,7 @@ function escapeRegExp(value: string): string {
 }
 
 async function mockPosCashierAuth(page: Page): Promise<void> {
-  await page.route("**/api/staff/list-for-pos", async (route) => {
+  await page.route("**/api/staff/list-for-pos**", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",

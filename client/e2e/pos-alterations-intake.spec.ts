@@ -114,7 +114,7 @@ async function mockProductLookup(page: Page): Promise<void> {
 }
 
 async function mockPosCashierAuth(page: Page): Promise<void> {
-  await page.route("**/api/staff/list-for-pos", async (route) => {
+  await page.route("**/api/staff/list-for-pos**", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -122,6 +122,7 @@ async function mockPosCashierAuth(page: Page): Promise<void> {
         {
           id: "55555555-5555-4555-8555-555555555555",
           full_name: "Avery Staff",
+          role: "salesperson",
         },
       ]),
     });

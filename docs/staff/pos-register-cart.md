@@ -23,7 +23,7 @@ Before you **scan**, **search**, use the **numpad**, or tap **Pay**, the registe
 
 That person is recorded as the checkout **operator** for the transaction. **After you complete a sale**, you stay signed in as that cashier; use **Logout** or **Switch cashier** only if someone else should ring the next sale. Clearing the cart or starting a new sale does **not** sign you out. This is separate from **who opened the drawer** (session) and separate from the **Salesperson** (assigned via the avatar-picker at top or on each line) used for commissions.
 
-Every merchandise, alteration, special-order, custom-order, and wedding-order sale line must have a **Salesperson** before payment can finish. Select a default Salesperson at the top of the cart, or assign a Salesperson on individual lines. Gift-card-load-only and RMS Charge payment-only flows do not use salesperson attribution.
+Every merchandise, alteration, special-order, custom-order, and wedding-order sale line must have a **Salesperson** before payment can finish. Select a default Salesperson at the top of the cart, or assign a Salesperson on individual lines. Use **Staff Admin** only when the sale should not commission to an individual salesperson; it is a protected no-commission system account. Gift-card-load-only and RMS Charge payment-only flows do not use salesperson attribution.
 
 ## Local draft cart (this device)
 

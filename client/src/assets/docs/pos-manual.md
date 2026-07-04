@@ -42,7 +42,7 @@ To ensure each sale is attributed to the correct staff member, Riverside OS uses
 
 If you are already logged in but a different staff member needs to ring a sale, they can tap the **Lock** or **User** icon to bring up the sign-in overlay without closing the current register session.
 
-Staff Access records who operated the register. It is separate from **Salesperson** attribution for commissions. Only active staff with the **Salesperson** role appear in Salesperson attribution lists. Before completing payment, every merchandise, alteration, special-order, custom-order, and wedding-order sale line must have a default Salesperson or a line-level Salesperson. Gift-card-load-only and RMS Charge payment-only flows do not use salesperson attribution.
+Staff Access records who operated the register. It is separate from **Salesperson** attribution for commissions. Only active staff with the **Salesperson** role appear in Salesperson attribution lists. Before completing payment, every merchandise, alteration, special-order, custom-order, and wedding-order sale line must have a default Salesperson or a line-level Salesperson. Choose **Staff Admin** only when the sale should not commission to an individual salesperson; it is a protected no-commission system account. Gift-card-load-only and RMS Charge payment-only flows do not use salesperson attribution.
 
 ---
 
@@ -110,8 +110,8 @@ Inventory and bookkeeping follow server rules for takeaway, order, and wedding l
 1. When the cart is correct, select **Proceed to Payment**.
 2. If you are not using a saved customer, confirm **walk-in** when asked.
 3. The **Payment ledger** side panel opens. Enter amounts on the keypad, then **Apply payment** for each tender (card, cash, gift card, etc.) the way you were trained.
-    - **Manual Card** opens secure HelcimPay.js card entry for keyed payments. Riverside OS validates the Helcim approval response and does not store card numbers or CVV.
-    - **Physical Checks**: When a customer pays by check, select the **CHECK** tab and enter the **Check #** in the input field before pressing **Apply Payment**.
+   - **Manual Card** opens secure HelcimPay.js card entry for keyed payments. Riverside OS validates the Helcim approval response and does not store card numbers or CVV.
+   - **Physical Checks**: When a customer pays by check, select the **CHECK** tab and enter the **Check #** in the input field before pressing **Apply Payment**.
 4. On **Order / Wedding** sales, the ledger may show **Deposit release** — use **Apply deposit** below **Apply payment** when your store records a deposit on the keypad. **Split deposit (wedding party)** opens wedding lookup in group-pay mode to allocate amounts across members. **Takeaway** items (walk out today) must be covered with regular tenders first; deposit and **open deposit** apply to order balances, not unpaid takeaway. If the linked customer has a **party deposit** waiting, you may be asked to apply it to this sale.
 5. When the sale is balanced (or deposit-only when the UI allows, including mixed takeaway + order lines once takeaway is paid), finish using **Complete Sale**. If Riverside asks for a Salesperson, return to the cart and select one before finalizing.
 6. After the sale completes, the **Receipt Summary** screen opens. If printing fails, Riverside now shows that the **sale still succeeded** and gives you **Retry** and **Check station printer** actions.
@@ -153,6 +153,7 @@ After checkout, staff should either:
 ---
 
 ## Related workflows
+
 - [Reports (curated)](manual:reports)
 - [Insights (Metabase)](manual:insights)
 - [Register Reports](manual:pos-register-reports)

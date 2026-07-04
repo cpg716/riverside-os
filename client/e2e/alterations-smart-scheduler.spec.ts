@@ -443,8 +443,9 @@ test.describe("Smart Alterations Scheduler E2E", () => {
         };
         const API_PARTY = {
             id: PARTY_ID,
-            party_name: "Charlie Wedding",
-            groom_name: "Charlie Wedding",
+            wedding_number: "CHARLIE-062026",
+            party_name: "CHARLIE-062026",
+            groom_name: "Groom Charlie",
             event_date: "2026-06-20",
             salesperson: "Chris G",
             members: [API_MEMBER],
@@ -485,8 +486,8 @@ test.describe("Smart Alterations Scheduler E2E", () => {
         await openBackofficeSidebarTab(page, "weddings");
         
         // Navigate to party (mocked)
-        await expect(page.getByText("CharlieWedding-062026")).toBeVisible({ timeout: 15_000 });
-        await page.getByText("CharlieWedding-062026").click({ force: true });
+        await expect(page.getByText("CHARLIE-062026")).toBeVisible({ timeout: 15_000 });
+        await page.getByText("CHARLIE-062026").click({ force: true });
 
         // Verify "Alt" column shows status
         const memberRow = page.getByRole("row").filter({ hasText: "Groom Charlie" });
@@ -503,7 +504,7 @@ test.describe("Smart Alterations Scheduler E2E", () => {
                 body: JSON.stringify(["Avery Staff", "Taylor Tailor"]),
             });
         });
-        await page.route("**/api/staff/list-for-pos", async (route) => {
+        await page.route("**/api/staff/list-for-pos**", async (route) => {
             await route.fulfill({
                 status: 200,
                 contentType: "application/json",

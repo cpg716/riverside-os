@@ -64,7 +64,7 @@ pub async fn commission_breakdown_for_line_at(
         return Ok(CommissionBreakdown::zero());
     }
 
-    let staff_row: Option<(Decimal, DbStaffRole)> = sqlx::query_as(
+    let staff_row: Option<(Decimal, DbStaffRole, Option<String>)> = sqlx::query_as(
         r#"
         SELECT
             COALESCE(
@@ -78,7 +78,8 @@ pub async fn commission_breakdown_for_line_at(
                 ),
                 s.base_commission_rate
             ) AS base_commission_rate,
-            s.role
+            s.role,
+            s.data_source
         FROM staff s
         WHERE s.id = $1 AND s.is_active = TRUE
         "#,
@@ -88,9 +89,13 @@ pub async fn commission_breakdown_for_line_at(
     .fetch_optional(&mut *conn)
     .await?;
 
-    let Some((base_rate, role)) = staff_row else {
+    let Some((base_rate, role, data_source)) = staff_row else {
         return Ok(CommissionBreakdown::zero());
     };
+
+    if data_source.as_deref() == Some("system") {
+        return Ok(CommissionBreakdown::zero());
+    }
 
     if role == DbStaffRole::SalesSupport {
         return Ok(CommissionBreakdown::zero());

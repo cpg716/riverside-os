@@ -55,6 +55,7 @@ When a rate changes, the start date matters:
 - activity before the start date uses the prior effective rate;
 - activity on or after the start date uses the new rate;
 - Manager-approved attribution corrections update the affected sale commission/SPIFF event to the corrected staff member and leave an attribution audit row.
+- **Staff Admin** is a protected system salesperson for no-commission attribution. Sales and line history can be assigned to Staff Admin when no individual salesperson should receive commission; base commission and SPIFF incentives are always suppressed for that account.
 
 ## SPIFFs
 

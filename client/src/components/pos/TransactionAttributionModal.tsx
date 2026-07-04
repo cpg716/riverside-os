@@ -16,6 +16,7 @@ interface StaffRow {
   id: string;
   full_name: string;
   role?: StaffRole;
+  data_source?: string | null;
 }
 
 interface OrderDetailLine {
@@ -79,7 +80,7 @@ export default function TransactionAttributionModal({
     setErr(null);
     try {
       const [rs, rd] = await Promise.all([
-        fetch(`${baseUrl}/api/staff/list-for-pos`, { headers: apiAuth() }),
+        fetch(`${baseUrl}/api/staff/list-for-pos?include_system_attribution=true`, { headers: apiAuth() }),
         fetch(`${baseUrl}/api/transactions/${encodeURIComponent(orderId)}`, {
           headers: apiAuth(),
         }),
@@ -113,7 +114,7 @@ export default function TransactionAttributionModal({
     [staff],
   );
 
-  const managers = useMemo(() => staff, [staff]);
+  const managers = useMemo(() => staff.filter((s) => s.data_source !== "system"), [staff]);
 
   const save = async () => {
     if (!detail) return;

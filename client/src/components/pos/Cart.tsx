@@ -1749,7 +1749,7 @@ export default function Cart({
     if (!h["x-riverside-pos-session-token"] && !h["x-riverside-staff-pin"]) return;
     void (async () => {
       try {
-        const res = await fetch(`${baseUrl}/api/staff/list-for-pos`, { headers: h });
+        const res = await fetch(`${baseUrl}/api/staff/list-for-pos?include_system_attribution=true`, { headers: h });
         if (!res.ok || cancelled) return;
         const sl = await res.json() as PosStaffRow[];
         if (!cancelled) setPosStaffList(sl);

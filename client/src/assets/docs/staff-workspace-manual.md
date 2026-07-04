@@ -35,13 +35,16 @@ This workspace handles the administrative lifecycle of your team. It is divided 
 ## Staff Profile Layout
 
 When you select a staff member, their profile is organized for clarity:
+
 - **Left Column (Identity)**: Contains the staff member's full name, display name, employment dates, and their 4-digit **Access PIN**.
 - **Birthday**: Managers can save optional month/day only. Riverside does not store the year or age. If the staff member is active and scheduled to work on their birthday, Riverside shows in-app birthday greetings and team notifications.
 - **Right Column (Access & Earnings)**: Manages **Role** (Admin, Salesperson, etc.), **Commissions** (Base % and Category overrides), and granular **Permissions**.
+- **Staff Admin** is a protected system salesperson used only for no-commission sales attribution. It is seeded by Riverside and cannot be managed like a normal employee profile.
 
 ## Managing Access PINs
 
 Riverside OS uses a 4-digit **Access PIN** for all secure actions (signing into a register, overriding a discount, or opening the Back Office).
+
 1. Type exactly 4 digits into the **Access PIN** field.
 2. Click **Save Changes**.
 3. The staff member can now use this code at any terminal.
@@ -52,6 +55,7 @@ Riverside OS uses a 4-digit **Access PIN** for all secure actions (signing into 
 ## Roles & Permissions
 
 While **Roles** (Admin, Manager, Salesperson) provide a baseline set of permissions, you can toggle individual keys for specific needs:
+
 - **admin**: Full system access, including financial settings and DB tools.
 - **orders.modify**: Required for processing returns or manual price overrides.
 - **inventory.manage**: Required for adding new SKUs or posting receipts.

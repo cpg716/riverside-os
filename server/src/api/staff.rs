@@ -30,6 +30,9 @@ use crate::logic::{
 use crate::middleware::{require_authenticated_staff_headers, require_staff_with_permission};
 use crate::models::DbStaffRole;
 
+const SYSTEM_STAFF_ADMIN_CASHIER_CODE: &str = "STAFFADMIN";
+const SYSTEM_STAFF_DATA_SOURCE: &str = "system";
+
 #[derive(Debug, Error)]
 pub enum StaffApiError {
     #[error("Database error: {0}")]
@@ -81,6 +84,13 @@ pub struct StaffListRow {
     pub role: DbStaffRole,
     pub avatar_key: String,
     pub avatar_photo_url: Option<String>,
+    pub data_source: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ListForPosQuery {
+    #[serde(default)]
+    include_system_attribution: bool,
 }
 
 #[derive(Debug, Serialize, FromRow)]
@@ -780,14 +790,16 @@ async fn self_patch_staff_avatar(
 
 async fn list_for_pos(
     State(state): State<AppState>,
+    Query(query): Query<ListForPosQuery>,
 ) -> Result<Json<Vec<StaffListRow>>, StaffApiError> {
     let tz_name = tasks::load_store_timezone_name(&state.db).await?;
     let today = tasks::store_local_date(&tz_name);
     let rows = sqlx::query_as::<_, StaffListRow>(
         r#"
-        SELECT id, full_name, role, avatar_key, avatar_photo_url
+        SELECT id, full_name, role, avatar_key, avatar_photo_url, data_source
         FROM staff
         WHERE is_active = TRUE
+          AND ($2::boolean OR COALESCE(data_source, '') <> 'system')
         ORDER BY
             CASE
                 WHEN role IN ('admin', 'salesperson', 'sales_support', 'staff_support', 'alterations')
@@ -799,6 +811,7 @@ async fn list_for_pos(
         "#,
     )
     .bind(today)
+    .bind(query.include_system_attribution)
     .fetch_all(&state.db)
     .await?;
     Ok(Json(rows))
@@ -1286,13 +1299,33 @@ async fn admin_patch_staff(
         return Err(StaffApiError::InvalidPayload("staff not found".to_string()));
     }
 
-    let current_staff: (DbStaffRole, bool, String, Decimal) = sqlx::query_as(
-        "SELECT role, is_active, full_name, base_commission_rate FROM staff WHERE id = $1",
-    )
-    .bind(staff_id)
-    .fetch_one(&state.db)
-    .await?;
-    let (current_role, current_is_active, current_name, current_rate) = current_staff;
+    let current_staff: (DbStaffRole, bool, String, Decimal, String, Option<String>) =
+        sqlx::query_as(
+            r#"
+        SELECT role, is_active, full_name, base_commission_rate, cashier_code, data_source
+        FROM staff
+        WHERE id = $1
+        "#,
+        )
+        .bind(staff_id)
+        .fetch_one(&state.db)
+        .await?;
+    let (
+        current_role,
+        current_is_active,
+        current_name,
+        current_rate,
+        current_cashier_code,
+        current_data_source,
+    ) = current_staff;
+
+    if current_cashier_code == SYSTEM_STAFF_ADMIN_CASHIER_CODE
+        || current_data_source.as_deref() == Some(SYSTEM_STAFF_DATA_SOURCE)
+    {
+        return Err(StaffApiError::InvalidPayload(
+            "Staff Admin is a protected system account".to_string(),
+        ));
+    }
 
     let next_role = body.role.unwrap_or(current_role);
     let next_is_active = body.is_active.unwrap_or(current_is_active);

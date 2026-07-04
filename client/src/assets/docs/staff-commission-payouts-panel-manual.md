@@ -49,6 +49,7 @@ The screen supports all-staff reporting, individual staff drilldown, and printab
 - **By rate** is the earned amount from the staff member's base commission rate.
 - **SPIFF / Combo $** is fixed SPIFF and combo incentive money earned during the period.
 - The bottom row, **Total commissions paid for period**, is the report total to review for payroll.
+- **Staff Admin** attribution is kept for sales history but always earns $0.00 commission.
 - Returns and exchanges affect the period in which they occur through immutable adjustment events.
 - Manual add/subtract adjustments require notes and audit tracking.
 

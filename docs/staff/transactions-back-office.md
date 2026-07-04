@@ -59,7 +59,7 @@
 2. Set **date range** first to avoid huge lists.
 3. Search **Transaction Record #**, **receipt**, **customer name**, **SKU**, or **fulfillment order #** if fields exist.
 4. Open Transaction Record → **receipt** copy, **audit** timeline, or reprint per policy.
-5. **Correct salesperson/attribution**: Click the **Correct** link next to **Primary Salesperson** in the transaction detail panel to correct whole-sale or line-level salesperson attribution. This action requires Manager Access with a staff approver and Access PIN unless the signed-in staff member already has the required approval permission. ROS keeps an attribution audit row and updates commission credit to the corrected staff member when needed.
+5. **Correct salesperson/attribution**: Click the **Correct** link next to **Primary Salesperson** in the transaction detail panel to correct whole-sale or line-level salesperson attribution. This action requires Manager Access with a staff approver and Access PIN unless the signed-in staff member already has the required approval permission. ROS keeps an attribution audit row and updates commission credit to the corrected staff member when needed. Choose **Staff Admin** when the corrected sale should remain attributed for history but should not commission to any salesperson.
 
 ## Returns, refunds, exchanges
 

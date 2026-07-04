@@ -1,4 +1,4 @@
--- Riverside OS — wipe operational / transactional data; keep bootstrap admin staff (cashier_code = '1234').
+-- Riverside OS — wipe operational / transactional data; keep bootstrap admin staff (cashier_code = '1234') and protected system staff.
 --
 -- Broad operational wipe, not the preferred Counterpoint rehearsal reset.
 --
@@ -169,7 +169,43 @@ INSERT INTO customer_groups (code, label) VALUES
   ('groomsmen', 'Groomsmen')
 ON CONFLICT (code) DO NOTHING;
 
--- Remove all staff except default bootstrap POS user
-DELETE FROM staff WHERE cashier_code IS DISTINCT FROM '1234';
+-- Remove all staff except default bootstrap POS user and protected system accounts.
+DELETE FROM staff
+WHERE cashier_code IS DISTINCT FROM '1234'
+  AND COALESCE(data_source, '') IS DISTINCT FROM 'system';
+
+-- Re-seed protected no-commission salesperson attribution account.
+INSERT INTO public.staff (
+    id,
+    full_name,
+    cashier_code,
+    base_commission_rate,
+    is_active,
+    role,
+    pin_hash,
+    avatar_key,
+    max_discount_percent,
+    data_source
+) VALUES (
+    '00000000-0000-4000-8000-000000000113',
+    'Staff Admin',
+    'STAFFADMIN',
+    0.0000,
+    TRUE,
+    'salesperson'::public.staff_role,
+    NULL,
+    'ros_default',
+    0.00,
+    'system'
+)
+ON CONFLICT (cashier_code) DO UPDATE SET
+    full_name = EXCLUDED.full_name,
+    base_commission_rate = 0.0000,
+    is_active = TRUE,
+    role = 'salesperson'::public.staff_role,
+    pin_hash = NULL,
+    avatar_key = 'ros_default',
+    max_discount_percent = 0.00,
+    data_source = 'system';
 
 COMMIT;
