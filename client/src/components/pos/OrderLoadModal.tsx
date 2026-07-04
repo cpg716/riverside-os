@@ -661,10 +661,9 @@ export default function OrderLoadModal({
   if (!isOpen) return null;
 
   return createPortal(
-    <div className="ui-overlay-backdrop !z-[200]" onClick={onClose}>
+    <div className="ui-overlay-backdrop !z-[200]">
       <div
         className="ui-modal flex max-h-[96dvh] w-full max-w-none animate-workspace-snap flex-col overflow-hidden rounded-t-3xl outline-none sm:max-h-[90vh] sm:w-[min(1080px,calc(100vw-2rem))] sm:rounded-3xl"
-        onClick={(e) => e.stopPropagation()}
       >
         <div className="ui-modal-header flex items-start justify-between gap-4">
           <div className="flex min-w-0 items-start gap-3">
@@ -1212,14 +1211,10 @@ export default function OrderLoadModal({
         </div>
       </div>
       {paymentOrder && (
-        <div
-          className="ui-overlay-backdrop !z-[210]"
-          onClick={() => setPaymentOrder(null)}
-        >
+        <div className="ui-overlay-backdrop !z-[210]">
           <div
             className="ui-modal w-full max-w-none rounded-t-3xl p-5 shadow-2xl sm:max-w-sm sm:rounded-3xl"
             data-testid="pos-order-payment-entry-modal"
-            onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>

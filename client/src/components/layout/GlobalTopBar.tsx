@@ -304,7 +304,7 @@ export default function GlobalTopBar({
                aria-expanded={userMenuOpen}
                aria-haspopup="true"
                aria-label="Open staff profile menu"
-               title="Open staff profile menu"
+               title={`Open ${profileDisplayName || "staff"} profile menu`}
             >
               <img
                 src={staffAvatarUrl(

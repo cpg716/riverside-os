@@ -95,7 +95,6 @@ export default function ManagerApprovalModal({
   return createPortal(
     <div
       className="fixed inset-0 z-[200] flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4 backdrop-blur-md"
-      onClick={onClose}
     >
       <div
         ref={dialogRef}
@@ -104,7 +103,6 @@ export default function ManagerApprovalModal({
         aria-labelledby={titleId}
         tabIndex={-1}
         className="ui-modal w-full max-w-none animate-in zoom-in-95 overflow-hidden rounded-t-3xl border-4 border-app-border bg-app-bg-alt/95 outline-none backdrop-blur-2xl duration-300 sm:max-w-sm sm:rounded-[32px]"
-        onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-3 border-b-4 border-app-border px-6 py-5 bg-app-surface">
           <div className="flex items-center gap-3">

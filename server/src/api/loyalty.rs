@@ -23,8 +23,8 @@ use uuid::Uuid;
 
 use crate::api::AppState;
 use crate::auth::permissions::{
-    effective_permissions_for_staff, staff_has_permission, LOYALTY_ADJUST_POINTS,
-    LOYALTY_PROGRAM_SETTINGS, MANAGER_APPROVAL,
+    effective_permissions_for_staff, staff_can_approve_manager_access, staff_has_permission,
+    LOYALTY_PROGRAM_SETTINGS,
 };
 use crate::auth::pins::{self, log_staff_access};
 use crate::middleware;
@@ -329,14 +329,9 @@ async fn adjust_points(
         LoyaltyError::Unauthorized("Valid Manager Access staff and PIN required".to_string())
     })?;
     let eff = effective_permissions_for_staff(&state.db, admin.id, admin.role).await?;
-    if !staff_has_permission(&eff, MANAGER_APPROVAL) {
+    if !staff_can_approve_manager_access(&eff, admin.role) {
         return Err(LoyaltyError::Forbidden(
             "manager.approval permission required".to_string(),
-        ));
-    }
-    if !staff_has_permission(&eff, LOYALTY_ADJUST_POINTS) {
-        return Err(LoyaltyError::Forbidden(
-            "loyalty.adjust_points permission required".to_string(),
         ));
     }
 

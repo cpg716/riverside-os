@@ -17,7 +17,7 @@ use uuid::Uuid;
 
 use crate::api::AppState;
 use crate::auth::permissions::{
-    effective_permissions_for_staff, staff_has_permission, MANAGER_APPROVAL,
+    effective_permissions_for_staff, staff_can_approve_manager_access, staff_has_permission,
     ORDERS_LIFECYCLE_MANAGE, ORDERS_VIEW, PROCUREMENT_MUTATE,
 };
 use crate::auth::pins;
@@ -351,7 +351,7 @@ async fn authenticate_manager_access(
     let effective = effective_permissions_for_staff(&state.db, manager.id, manager.role)
         .await
         .map_err(OrderLifecycleError::Database)?;
-    if !staff_has_permission(&effective, MANAGER_APPROVAL) {
+    if !staff_can_approve_manager_access(&effective, manager.role) {
         return Err(OrderLifecycleError::Forbidden(format!(
             "{reason}: manager.approval permission required."
         )));

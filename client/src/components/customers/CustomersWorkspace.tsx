@@ -1884,16 +1884,12 @@ export default function CustomersWorkspace({
 
       {showBulkWeddingPrompt
         ? createPortal(
-            <div
-              className="ui-overlay-backdrop !z-[200] flex items-center justify-center p-4"
-              onClick={() => setShowBulkWeddingPrompt(false)}
-            >
+            <div className="ui-overlay-backdrop !z-[200] flex items-center justify-center p-4">
               <div
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="bulk-wedding-assignment-title"
                 className="ui-modal w-full max-w-md overflow-hidden rounded-[28px] p-6 shadow-2xl ring-1 ring-black/10 transition-all animate-in zoom-in-95 duration-200"
-                onClick={(e) => e.stopPropagation()}
               >
                 <div className="mb-4 flex items-center gap-3">
                   <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-app-accent/10 text-app-accent">
@@ -2862,14 +2858,9 @@ export function AddCustomerDrawer({
 
       {emailPromptOpen && isOpen
         ? createPortal(
-            <div
-              className="ui-overlay-backdrop !z-[200]"
-              onClick={() => setEmailPromptOpen(false)}
-              role="presentation"
-            >
+            <div className="ui-overlay-backdrop !z-[200]" role="presentation">
               <div
                 className="ui-modal max-w-lg shadow-2xl"
-                onClick={(e) => e.stopPropagation()}
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="add-cust-email-prompt-title"

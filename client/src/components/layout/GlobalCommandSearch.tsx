@@ -1104,12 +1104,7 @@ export default function GlobalCommandSearch({
 
       {open && createPortal(
         <div className="ui-overlay-backdrop !z-[200]">
-          <button
-            type="button"
-            aria-label="Close universal search"
-            className="absolute inset-0 cursor-default"
-            onClick={closePalette}
-          />
+          <div className="absolute inset-0" aria-hidden="true" />
           <div
             ref={dialogRef}
             role="dialog"
@@ -1130,7 +1125,7 @@ export default function GlobalCommandSearch({
                 <button
                   type="button"
                   onClick={closePalette}
-                  className="hidden items-center gap-1 rounded-xl border border-app-border/70 bg-app-surface px-2.5 py-1.5 text-[10px] font-black uppercase tracking-widest text-app-text-muted transition-colors hover:bg-app-surface-2 hover:text-app-text sm:flex"
+                  className="flex items-center gap-1 rounded-xl border border-app-border/70 bg-app-surface px-2.5 py-1.5 text-[10px] font-black uppercase tracking-widest text-app-text-muted transition-colors hover:bg-app-surface-2 hover:text-app-text"
                   aria-label="Close universal search"
                 >
                   <span>Esc</span>

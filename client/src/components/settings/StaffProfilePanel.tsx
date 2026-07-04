@@ -923,10 +923,7 @@ export default function StaffProfilePanel() {
       {/* Avatar Picker Modal */}
       {avatarPickerOpen && createPortal(
         <div className="ui-overlay-backdrop animate-in fade-in duration-300">
-           <div
-             className="fixed inset-0 bg-black/80 backdrop-blur-xl"
-             onClick={() => setAvatarPickerOpen(false)}
-           />
+           <div className="fixed inset-0 bg-black/80 backdrop-blur-xl" aria-hidden="true" />
            <div className="ui-modal relative w-full max-w-5xl flex flex-col max-h-[90vh] overflow-hidden animate-in zoom-in-95 duration-300">
               <div className="p-10 border-b border-app-border flex justify-between items-center">
                  <div>
@@ -977,10 +974,7 @@ export default function StaffProfilePanel() {
       {/* PIN Update Modal */}
       {pinModalOpen && createPortal(
         <div className="ui-overlay-backdrop animate-in fade-in duration-300">
-           <div
-             className="fixed inset-0 bg-black/80 backdrop-blur-xl"
-             onClick={() => setPinModalOpen(false)}
-           />
+           <div className="fixed inset-0 bg-black/80 backdrop-blur-xl" aria-hidden="true" />
            <div className="ui-modal relative w-full max-w-md p-10 space-y-8 animate-in zoom-in-95 duration-300">
               <div className="text-center">
                 <div className="mx-auto h-20 w-20 rounded-[1.5rem] bg-app-accent/10 flex items-center justify-center text-app-accent mb-6 shadow-inner">

@@ -27,13 +27,15 @@ You need **insights.view** to see the **Reports** tab. Some cards need extra key
 1. Open **Reports** in the left rail.
 2. Use **Search reports by task, question, or keyword** when you know the job but not the report name.
 3. Tap a **report card** (e.g., Sales By Day, Merchant Activity) to load the table.
-4. Set **From** / **To** date filters.
+4. Choose a quick **Period** (**Today**, **Week**, **Month**, **Quarter**, or **Year**) or set a **Custom** **From** / **To** date range.
 5. Select the **Basis** (booked sale date vs completed / recognition) if available.
 6. For **Best Sellers**, choose **Product View** to group parent products or **Variation View** to inspect individual SKUs.
 7. Use **Refresh** after changes to pull the latest data.
 8. Use **Print Report** (Professional Audit Layout) for the loaded report. Use **CSV** (spreadsheet) when a report includes table rows.
 
 **Booked** = when the sale was rung. **Completed** = recognition-style timing for fulfilled lines (see store policy). Ask a lead if you are unsure which to use for payroll or tax questions.
+
+Historical activity imported from Counterpoint is labeled **Imported from Counterpoint** when the report includes a **Data Source** column. New activity created in Riverside is labeled **Created in Riverside OS**.
 
 ## Finding the right report
 
@@ -77,6 +79,7 @@ Use **Open Insights (Metabase)** on the Reports page when you need dashboards or
 
 - **NYS tax audit**: Drill-down into clothing vs non-clothing sales for audit.
 - **Merchant activity**: Daily Helcim volume, fees, and net settlement values matched to business days.
+- **Returns, Exchanges & Refunds**: Returned items, exchange activity, refunds still owed, and refunds already paid for the selected date range.
 - **Donation Payments**: Donation tender activity by selected date range, including customer, linked transaction, amount, and the required donation note.
 - **RMS charges**: Export of store-account charges vs payments.
 - **Appointments & No-Show**: Appointment count, completed visits, cancellations/no-shows, appointment type, assigned salesperson, and wedding-linked vs walk-in context.

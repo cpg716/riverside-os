@@ -792,16 +792,9 @@ export default function ReceiptSummaryModal({
 
   return createPortal(
     <>
-      <div
-        className="ui-overlay-backdrop !z-[200]"
-        onClick={(e) => {
-          e.stopPropagation();
-          void closeWithReviewChoice();
-        }}
-      >
+      <div className="ui-overlay-backdrop !z-[200]">
         <div
           className="w-full max-w-none overflow-hidden rounded-t-3xl border border-app-border bg-app-surface shadow-[0_32px_64px_-16px_rgba(0,0,0,0.35)] animate-in zoom-in-95 duration-200 dark:shadow-[0_32px_64px_-12px_rgba(0,0,0,0.65)] sm:max-w-2xl sm:rounded-[2rem] lg:max-w-4xl"
-          onClick={(e) => e.stopPropagation()}
         >
         <div className="relative flex max-h-[96dvh] flex-col gap-4 overflow-y-auto p-4 text-app-text sm:max-h-[min(90dvh,35rem)] sm:p-6 lg:p-7">
           <button
@@ -1167,7 +1160,6 @@ export default function ReceiptSummaryModal({
       {giftDialogOpen ? (
         <div
           className="ui-overlay-backdrop !z-[220] items-end justify-center p-0 sm:items-center sm:p-4"
-          onClick={(e) => e.stopPropagation()}
         >
           <div
             className="w-full max-w-none overflow-hidden rounded-t-3xl border border-app-border bg-app-surface text-app-text shadow-2xl sm:max-w-2xl sm:rounded-3xl"
@@ -1278,7 +1270,6 @@ export default function ReceiptSummaryModal({
       {receiptPreviewOpen ? (
         <div
           className="ui-overlay-backdrop !z-[220] items-end justify-center p-0 sm:items-center sm:p-4"
-          onClick={(e) => e.stopPropagation()}
         >
           <div
             className="flex max-h-[96dvh] w-full max-w-none flex-col overflow-hidden rounded-t-3xl border border-app-border bg-app-surface text-app-text shadow-2xl sm:max-h-[88dvh] sm:max-w-4xl sm:rounded-3xl"

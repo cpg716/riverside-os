@@ -215,7 +215,7 @@ export default function ProductIntelligenceDrawer({
 
   return createPortal(
     <>
-      <div className="ui-overlay-backdrop !z-[200]" onClick={onClose} />
+      <div className="ui-overlay-backdrop !z-[200]" aria-hidden="true" />
 
       <div className="fixed inset-x-0 bottom-0 z-[200] max-h-[96dvh] w-full rounded-t-3xl border border-app-border bg-app-bg shadow-2xl transition-transform duration-300 ease-out sm:inset-y-0 sm:bottom-auto sm:right-0 sm:max-h-none sm:w-full sm:max-w-2xl sm:rounded-none sm:border-l sm:border-t-0">
         <div className="flex h-full flex-col overflow-hidden">

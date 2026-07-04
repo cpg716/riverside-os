@@ -1492,17 +1492,13 @@ export default function ShipmentsHubSection({
 
       {newOpen
         ? createPortal(
-        <div
-          className="ui-overlay-backdrop !z-[200]"
-          onClick={() => setNewOpen(false)}
-        >
+        <div className="ui-overlay-backdrop !z-[200]">
           <div
             ref={dialogRef}
             role="dialog"
             aria-modal="true"
             aria-labelledby={titleId}
             className="ui-modal relative max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl p-5 shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-4 flex items-center gap-2">
               <Package className="text-app-accent" size={20} />

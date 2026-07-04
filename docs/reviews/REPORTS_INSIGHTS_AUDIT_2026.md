@@ -48,3 +48,15 @@ The system utilizes a canonical SQL expression (`ORDER_RECOGNITION_TS_SQL`) acro
 
 ## 7. Conclusion
 The Reporting & Insights sections are state-of-the-art for a retail platform, offering high data integrity and a clear roadmap for further AI integration. No critical logic gaps were found during this audit.
+
+## 8. Production Review Addendum (2026-07-04)
+
+### Added
+
+- **Returns, Exchanges & Refunds** curated report: management can now review returned items, exchange return activity, refunds still owed, and refunds already paid from one Finance report.
+- **Flexible period controls** in Back Office Reports: common ranges are available for **Today**, **Week**, **Month**, **Quarter**, and **Year**, with the existing custom date range still available.
+- **Historical source clarity**: report tables label Counterpoint-imported rows as **Imported from Counterpoint** and Riverside-created rows as **Created in Riverside OS** when a report includes source information.
+
+### Remaining Metabase Modeling Work
+
+- The new Returns, Exchanges & Refunds curated report is available through the Riverside Reports API. Before broad ad-hoc Metabase dashboards are built on the same subject, add a readable `reporting.returns_exchanges_refunds` view and model it with business labels, hidden raw IDs, and appropriate collection permissions.

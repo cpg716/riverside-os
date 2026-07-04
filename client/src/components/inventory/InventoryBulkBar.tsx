@@ -187,12 +187,7 @@ export default function InventoryBulkBar({
 
       {massOpen ? (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
-          <button
-            type="button"
-            className="absolute inset-0 cursor-default"
-            aria-label="Close"
-            onClick={() => setMassOpen(false)}
-          />
+          <div className="absolute inset-0" aria-hidden="true" />
           <div
             className="relative w-full max-w-md rounded-2xl border border-white/40 bg-app-surface/95 p-6 shadow-2xl shadow-app-accent/15 backdrop-blur-xl"
             role="dialog"

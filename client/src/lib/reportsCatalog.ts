@@ -705,6 +705,42 @@ export const REPORTS_CATALOG: ReportDef[] = [
       `/api/insights/payment-exception-review?from=${enc(fromYmd)}&to=${enc(toYmd)}`,
   },
   {
+    id: "returns_exchanges_refunds",
+    title: "Returns, Exchanges & Refunds",
+    description:
+      "Returned items, exchange activity, refunds owed, and refunds already paid for the selected period.",
+    category: "Finance",
+    aliases: ["returns", "exchanges", "refunds", "refund queue", "returned items"],
+    keywords: ["return", "exchange", "refund", "refund owed", "refund paid", "customer credit", "accounting"],
+    questions: ["What was returned?", "Which refunds are still owed?", "How much money was refunded?"],
+    audience: "Manager",
+    sensitivity: "Manager",
+    adminOnly: false,
+    permissionsAll: [],
+    permissionsAny: ["insights.view", "register.reports"],
+    responseKind: "rows",
+    usesGlobalDateRange: true,
+    usesBasis: false,
+    chartConfigs: [
+      {
+        title: "Refunds owed by day",
+        labelKey: "business_date",
+        valueKey: "refund_due",
+        valueFormat: "money",
+        limit: 14,
+      },
+      {
+        title: "Refunds paid by day",
+        labelKey: "business_date",
+        valueKey: "refund_paid",
+        valueFormat: "money",
+        limit: 14,
+      },
+    ],
+    buildPath: ({ fromYmd, toYmd }) =>
+      `/api/insights/returns-exchanges-refunds?from=${enc(fromYmd)}&to=${enc(toYmd)}`,
+  },
+  {
     id: "donation_payments",
     title: "Donation Payments",
     description:

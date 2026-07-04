@@ -60,7 +60,7 @@ export default function PosVoidTransactionModal({
 
   return createPortal(
     <>
-      <div className="ui-overlay-backdrop !z-[200]" onClick={busy ? undefined : onClose}>
+      <div className="ui-overlay-backdrop !z-[200]">
         <div
           ref={dialogRef}
           role="dialog"
@@ -68,7 +68,6 @@ export default function PosVoidTransactionModal({
           aria-labelledby={titleId}
           tabIndex={-1}
           className="ui-modal w-full max-w-2xl animate-in zoom-in-95 overflow-hidden outline-none shadow-2xl"
-          onClick={(event) => event.stopPropagation()}
         >
           <div className="ui-modal-header">
             <div className="flex items-start gap-3">

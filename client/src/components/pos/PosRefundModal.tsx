@@ -46,7 +46,7 @@ export default function PosRefundModal({
   const manualHelcimRefund = method === "card_terminal_manual";
 
   return createPortal(
-    <div className="ui-overlay-backdrop !z-[200]" onClick={onClose}>
+    <div className="ui-overlay-backdrop !z-[200]">
       <div
         ref={dialogRef}
         role="dialog"
@@ -54,7 +54,6 @@ export default function PosRefundModal({
         aria-labelledby={titleId}
         tabIndex={-1}
         className="ui-modal w-full max-w-md animate-in zoom-in-95 duration-300 outline-none shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
       >
         <div className="ui-modal-header">
           <h3 id={titleId} className="text-lg font-black text-app-text">

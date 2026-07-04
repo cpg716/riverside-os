@@ -113,10 +113,9 @@ export default function AttachOrderToWeddingModal({
   if (!root) return null;
 
   return createPortal(
-    <div className="ui-overlay-backdrop !z-[200]" onClick={onClose}>
+    <div className="ui-overlay-backdrop !z-[200]">
       <div
         className="w-full max-w-xl rounded-3xl border border-app-border bg-app-surface shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200"
-        onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-app-border bg-app-surface-2 p-6">
           <div className="flex items-center gap-3">

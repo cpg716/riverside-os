@@ -55,6 +55,12 @@ impl ReceiptCustomerLine {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReceiptLineAdjustment {
+    Returned,
+    Exchanged,
+}
+
 #[derive(Debug, Clone)]
 pub struct ReceiptLine {
     pub product_name: String,
@@ -73,6 +79,8 @@ pub struct ReceiptLine {
     pub custom_order_details: Option<serde_json::Value>,
     pub custom_item_type: Option<String>,
     pub is_fulfilled: bool,
+    pub adjustment: Option<ReceiptLineAdjustment>,
+    pub contributes_to_totals: bool,
 }
 
 #[derive(Debug, Clone)]

@@ -124,6 +124,8 @@ interface ExchangeReturnHandoffLine {
   state_tax_cents?: number;
   local_tax_cents?: number;
   tax_cents: number;
+  reason?: "refund" | "exchange";
+  restock?: boolean | null;
 }
 
 function calculateStandaloneLineTotals(lines: CartLineItem[]): CartTotals {
@@ -528,7 +530,11 @@ export default function Cart({
     onReadyForNextScan: requestProductSearchFocus,
     baseUrl,
     apiAuth,
-	  });
+  });
+
+  const [pendingReturnLineDrafts, setPendingReturnLineDrafts] = useState<
+    Record<string, ExchangeReturnHandoffLine[]>
+  >({});
 
   const isRmsPaymentCart = useMemo(
     () => lines.some((l) => rmsPaymentMeta && l.sku === rmsPaymentMeta.sku),
@@ -549,8 +555,9 @@ export default function Cart({
     setSaleDateTimeLocal(null);
   }, []);
 
-	  const clearCartAndAlterations = useCallback(() => {
+  const clearCartAndAlterations = useCallback(() => {
     clearCart();
+    setPendingReturnLineDrafts({});
     resetSaleDateTime();
     setPendingAlterationIntakes([]);
     setEditingAlterationIntake(null);
@@ -581,6 +588,11 @@ export default function Cart({
       originalTransactionId: args.originalTransactionId,
       customer: args.customer,
     });
+
+    setPendingReturnLineDrafts((prev) => ({
+      ...prev,
+      [args.originalTransactionId]: args.returnedLines ?? [],
+    }));
 
     const refundAmountCents = Math.round(args.refundAmountCents ?? 0);
     const firstReturnLine = args.returnedLines?.[0];
@@ -1243,9 +1255,10 @@ export default function Cart({
       originalTransactionId,
       receiptLabel: returnLines[0].return_tender_receipt_label ?? originalTransactionId.slice(0, 8).toUpperCase(),
       refundAmountCents,
+      returnLines: pendingReturnLineDrafts[originalTransactionId] ?? [],
       returnOnly: returnLines.length === lines.length && orderPaymentLines.length === 0,
     };
-  }, [lines, orderPaymentLines.length]);
+  }, [lines, orderPaymentLines.length, pendingReturnLineDrafts]);
   useEffect(() => {
     if (!pendingReturnTender || orderPaymentLines.length === 0) return;
     setOrderPaymentLines([]);
@@ -3682,6 +3695,12 @@ export default function Cart({
                       session_id: sessionId,
                       replacement_transaction_id: replacementTransactionId,
                       exchange_credit_amount: centsToFixed2(exchangeCreditAppliedCents),
+                      return_lines: pendingReturnTender.returnLines.map((line) => ({
+                        transaction_line_id: line.transaction_line_id,
+                        quantity: line.quantity,
+                        reason: line.reason ?? "exchange",
+                        restock: line.restock ?? undefined,
+                      })),
                       refund_remainder: refundTender
                         ? {
                             payment_method: refundTender.method,
@@ -3768,6 +3787,12 @@ export default function Cart({
                     rounding_adjustment: centsToFixed2(roundingAdjustmentCents),
                     final_cash_due: ledger.finalCashDueCents != null ? centsToFixed2(ledger.finalCashDueCents) : undefined,
                     gift_card_code: primaryTender.gift_card_code,
+                    return_lines: pendingReturnTender.returnLines.map((line) => ({
+                      transaction_line_id: line.transaction_line_id,
+                      quantity: line.quantity,
+                      reason: line.reason ?? "refund",
+                      restock: line.restock ?? undefined,
+                    })),
                   }),
                 },
               );
@@ -3946,11 +3971,9 @@ export default function Cart({
       {parkedCustomerPrompt && document.getElementById("drawer-root")
         ? createPortal(
             <div className="ui-overlay-backdrop !z-[200]">
-              <button
-                type="button"
+              <div
                 className="absolute inset-0 bg-black/50"
-                onClick={() => setParkedCustomerPrompt(null)}
-                aria-label="Dismiss parked sale prompt"
+                aria-hidden="true"
               />
               <div
                 className="relative w-full max-w-none rounded-t-3xl border border-app-border bg-app-surface p-5 shadow-2xl sm:max-w-md sm:rounded-2xl"

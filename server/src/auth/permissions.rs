@@ -266,3 +266,7 @@ pub async fn effective_permissions_for_staff(
 pub fn staff_has_permission(set: &HashSet<String>, key: &str) -> bool {
     set.contains(key)
 }
+
+pub fn staff_can_approve_manager_access(set: &HashSet<String>, role: DbStaffRole) -> bool {
+    role == DbStaffRole::Admin || staff_has_permission(set, MANAGER_APPROVAL)
+}

@@ -778,13 +778,9 @@ export default function GiftCardsWorkspace({ activeSection }: { activeSection: s
       </div>
 
       {selectedCard ? (
-        <div
-          className="ui-overlay-backdrop !z-[200]"
-          onClick={() => setSelectedCardId(null)}
-        >
+        <div className="ui-overlay-backdrop !z-[200]">
           <div
             className="ui-modal max-h-[92dvh] w-full max-w-2xl overflow-y-auto p-5"
-            onClick={(event) => event.stopPropagation()}
           >
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>

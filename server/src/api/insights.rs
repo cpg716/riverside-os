@@ -3617,6 +3617,169 @@ async fn payment_exception_review_report(
 }
 
 #[derive(Debug, Serialize, FromRow)]
+pub struct ReturnsExchangesRefundsReportRow {
+    pub activity_at: DateTime<Utc>,
+    pub business_date: NaiveDate,
+    pub activity: String,
+    pub transaction_display_id: Option<String>,
+    pub customer_name: Option<String>,
+    pub item: Option<String>,
+    pub sku: Option<String>,
+    pub quantity: Option<i64>,
+    pub merchandise_amount: Decimal,
+    pub tax_amount: Decimal,
+    pub refund_due: Decimal,
+    pub refund_paid: Decimal,
+    pub payment_method: Option<String>,
+    pub status: String,
+    pub staff_name: Option<String>,
+    pub data_source: String,
+    pub notes: Option<String>,
+}
+
+async fn returns_exchanges_refunds_report(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<DateRangeQuery>,
+) -> Result<Json<Vec<ReturnsExchangesRefundsReportRow>>, InsightsError> {
+    require_insights_or_register_reports(&state, &headers).await?;
+    let (start, end) = range_bounds(&q);
+    let rows = sqlx::query_as::<_, ReturnsExchangesRefundsReportRow>(
+        r#"
+        SELECT *
+        FROM (
+            SELECT
+                rl.created_at AS activity_at,
+                (rl.created_at AT TIME ZONE reporting.effective_store_timezone())::date AS business_date,
+                CASE
+                    WHEN LOWER(COALESCE(rl.reason, '')) LIKE '%exchange%' THEN 'Exchange return'
+                    ELSE 'Returned item'
+                END AS activity,
+                COALESCE(t.display_id, t.counterpoint_doc_ref, t.counterpoint_ticket_ref, t.id::text) AS transaction_display_id,
+                COALESCE(
+                    NULLIF(BTRIM(CONCAT_WS(' ', c.first_name, c.last_name)), ''),
+                    NULLIF(c.company_name, ''),
+                    c.customer_code,
+                    'Walk-in'
+                ) AS customer_name,
+                COALESCE(p.name, pv.sku, 'Item') AS item,
+                pv.sku AS sku,
+                rl.quantity_returned::bigint AS quantity,
+                COALESCE(ROUND(tl.unit_price * rl.quantity_returned, 2), 0)::numeric(14,2) AS merchandise_amount,
+                COALESCE(
+                    ROUND((COALESCE(tl.state_tax, 0) + COALESCE(tl.local_tax, 0)) * rl.quantity_returned, 2),
+                    0
+                )::numeric(14,2) AS tax_amount,
+                COALESCE(
+                    ROUND(
+                        (COALESCE(tl.unit_price, 0) + COALESCE(tl.state_tax, 0) + COALESCE(tl.local_tax, 0))
+                        * rl.quantity_returned,
+                        2
+                    ),
+                    0
+                )::numeric(14,2) AS refund_due,
+                0::numeric(14,2) AS refund_paid,
+                NULL::text AS payment_method,
+                'Return recorded'::text AS status,
+                s.full_name AS staff_name,
+                CASE WHEN COALESCE(t.is_counterpoint_import, false) THEN 'counterpoint' ELSE 'riverside' END AS data_source,
+                NULLIF(rl.reason, '') AS notes
+            FROM transaction_return_lines rl
+            INNER JOIN transactions t ON t.id = rl.transaction_id
+            LEFT JOIN transaction_lines tl ON tl.id = rl.transaction_line_id
+            LEFT JOIN products p ON p.id = tl.product_id
+            LEFT JOIN product_variants pv ON pv.id = tl.variant_id
+            LEFT JOIN customers c ON c.id = t.customer_id
+            LEFT JOIN staff s ON s.id = rl.staff_id
+            WHERE rl.created_at >= $1 AND rl.created_at < $2
+
+            UNION ALL
+
+            SELECT
+                rq.created_at AS activity_at,
+                (rq.created_at AT TIME ZONE reporting.effective_store_timezone())::date AS business_date,
+                CASE WHEN rq.is_open THEN 'Refund still owed' ELSE 'Refund completed' END AS activity,
+                COALESCE(t.display_id, t.counterpoint_doc_ref, t.counterpoint_ticket_ref, t.id::text) AS transaction_display_id,
+                COALESCE(
+                    NULLIF(BTRIM(CONCAT_WS(' ', c.first_name, c.last_name)), ''),
+                    NULLIF(c.company_name, ''),
+                    c.customer_code,
+                    'Walk-in'
+                ) AS customer_name,
+                NULL::text AS item,
+                NULL::text AS sku,
+                NULL::bigint AS quantity,
+                0::numeric(14,2) AS merchandise_amount,
+                0::numeric(14,2) AS tax_amount,
+                COALESCE(ROUND(rq.amount_due, 2), 0)::numeric(14,2) AS refund_due,
+                COALESCE(ROUND(rq.amount_refunded, 2), 0)::numeric(14,2) AS refund_paid,
+                NULL::text AS payment_method,
+                CASE WHEN rq.is_open THEN 'Open' ELSE 'Closed' END AS status,
+                NULL::text AS staff_name,
+                CASE WHEN COALESCE(t.is_counterpoint_import, false) THEN 'counterpoint' ELSE 'riverside' END AS data_source,
+                NULLIF(rq.reason, '') AS notes
+            FROM transaction_refund_queue rq
+            INNER JOIN transactions t ON t.id = rq.transaction_id
+            LEFT JOIN customers c ON c.id = COALESCE(rq.customer_id, t.customer_id)
+            WHERE rq.created_at >= $1 AND rq.created_at < $2
+
+            UNION ALL
+
+            SELECT
+                COALESCE(pt.occurred_at, pt.created_at) AS activity_at,
+                (COALESCE(pt.occurred_at, pt.created_at) AT TIME ZONE reporting.effective_store_timezone())::date AS business_date,
+                'Refund payment'::text AS activity,
+                tx.transaction_display_id,
+                COALESCE(
+                    NULLIF(BTRIM(CONCAT_WS(' ', c.first_name, c.last_name)), ''),
+                    NULLIF(c.company_name, ''),
+                    c.customer_code,
+                    'Walk-in'
+                ) AS customer_name,
+                NULL::text AS item,
+                NULL::text AS sku,
+                NULL::bigint AS quantity,
+                0::numeric(14,2) AS merchandise_amount,
+                0::numeric(14,2) AS tax_amount,
+                0::numeric(14,2) AS refund_due,
+                ABS(COALESCE(ROUND(pt.amount, 2), 0))::numeric(14,2) AS refund_paid,
+                COALESCE(NULLIF(pt.payment_method, ''), 'refund') AS payment_method,
+                COALESCE(NULLIF(pt.status, ''), 'Posted') AS status,
+                NULL::text AS staff_name,
+                COALESCE(tx.data_source, 'riverside') AS data_source,
+                COALESCE(NULLIF(pt.metadata->>'kind', ''), NULLIF(pt.metadata->>'reason', '')) AS notes
+            FROM payment_transactions pt
+            LEFT JOIN customers c ON c.id = pt.payer_id
+            LEFT JOIN LATERAL (
+                SELECT
+                    COALESCE(t.display_id, t.counterpoint_doc_ref, t.counterpoint_ticket_ref, t.id::text) AS transaction_display_id,
+                    CASE WHEN COALESCE(t.is_counterpoint_import, false) THEN 'counterpoint' ELSE 'riverside' END AS data_source
+                FROM payment_allocations pa
+                INNER JOIN transactions t ON t.id = pa.target_transaction_id
+                WHERE pa.transaction_id = pt.id
+                ORDER BY pa.amount_allocated DESC NULLS LAST
+                LIMIT 1
+            ) tx ON true
+            WHERE COALESCE(pt.occurred_at, pt.created_at) >= $1
+              AND COALESCE(pt.occurred_at, pt.created_at) < $2
+              AND (
+                pt.amount < 0
+                OR LOWER(COALESCE(pt.metadata->>'kind', '')) LIKE '%refund%'
+                OR LOWER(COALESCE(pt.payment_method, '')) LIKE '%refund%'
+              )
+        ) activity
+        ORDER BY activity_at DESC, transaction_display_id NULLS LAST
+        LIMIT 1000
+        "#,
+    )
+    .bind(start)
+    .bind(end)
+    .fetch_all(&state.db)
+    .await?;
+    Ok(Json(rows))
+}
+
+#[derive(Debug, Serialize, FromRow)]
 pub struct DonationPaymentReportRow {
     pub payment_transaction_id: Uuid,
     pub created_at: DateTime<Utc>,
@@ -4484,6 +4647,10 @@ pub fn router() -> Router<AppState> {
         .route(
             "/payment-exception-review",
             get(payment_exception_review_report),
+        )
+        .route(
+            "/returns-exchanges-refunds",
+            get(returns_exchanges_refunds_report),
         )
         .route("/donation-payments", get(donation_payments_report))
         .route(

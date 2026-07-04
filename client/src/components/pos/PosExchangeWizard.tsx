@@ -65,12 +65,6 @@ interface CustomerTransactionResponse {
   items?: CustomerTransactionRow[];
 }
 
-function jsonHeaders(base: Record<string, string>): HeadersInit {
-  const h = new Headers(base);
-  h.set("Content-Type", "application/json");
-  return h;
-}
-
 type Step = "load" | "return" | "done";
 
 type WorkflowStep = {
@@ -92,6 +86,8 @@ type ReturnedLineSummary = {
   state_tax_cents: number;
   local_tax_cents: number;
   tax_cents: number;
+  reason?: "refund" | "exchange";
+  restock?: boolean | null;
 };
 
 const EXCHANGE_WORKFLOW_STEPS: WorkflowStep[] = [
@@ -341,26 +337,6 @@ export default function PosExchangeWizard({
     }
     setSubmitting(true);
     try {
-      const res = await fetch(
-        `${baseUrl}/api/transactions/${encodeURIComponent(detail.transaction_id)}/returns?${sessionQs}`,
-        {
-          method: "POST",
-          headers: jsonHeaders(apiAuth()),
-          body: JSON.stringify({
-            lines: lines.map(({ transaction_line_id, quantity }) => ({
-              transaction_line_id,
-              quantity,
-              reason: nextAction === "refund" ? "refund" : "exchange",
-            })),
-          }),
-        },
-      );
-      if (!res.ok) {
-        const b = (await res.json().catch(() => ({}))) as { error?: string };
-        toast(b.error ?? "Return failed", "error");
-        return;
-      }
-      const updatedDetail = (await res.json()) as TransactionDetailLite;
       const refundLines = lines.map(({ item, quantity }) => ({
         transaction_line_id: item.transaction_line_id,
         product_id: item.product_id,
@@ -374,17 +350,15 @@ export default function PosExchangeWizard({
         state_tax_cents: parseMoneyToCents(item.state_tax),
         local_tax_cents: parseMoneyToCents(item.local_tax),
         tax_cents: parseMoneyToCents(item.state_tax) + parseMoneyToCents(item.local_tax),
+        reason: nextAction,
+        restock: true,
       }));
       setReturnedLines(refundLines);
       const returnedValueCents = refundLines.reduce(
         (sum, line) => sum + (line.unit_price_cents + line.tax_cents) * line.quantity,
         0,
       );
-      const serverRefundableCents = refundableCreditCents(updatedDetail);
-      const refundCents = serverRefundableCents > 0
-        ? Math.min(serverRefundableCents, parseMoneyToCents(updatedDetail.amount_paid))
-        : projectedRefundableCents(detail, returnedValueCents);
-      setDetail(updatedDetail);
+      const refundCents = projectedRefundableCents(detail, returnedValueCents);
       setRefundAmount(centsToFixed2(refundCents));
       if (refundCents > 0) {
         onContinueToReplacement({
@@ -400,13 +374,13 @@ export default function PosExchangeWizard({
       }
       toast(
         nextAction === "refund"
-            ? "Return recorded. No paid credit is available to refund yet."
-          : "Return recorded. Continue with replacement items, then refund any remaining credit if needed.",
+          ? "Return staged. No paid credit is available to refund yet."
+          : "Return staged. Continue with replacement items, then refund any remaining credit if needed.",
         "success",
       );
       setStep("done");
     } catch {
-      toast("Return failed", "error");
+      toast("Return could not be staged", "error");
     } finally {
       setSubmitting(false);
     }
@@ -746,24 +720,24 @@ export default function PosExchangeWizard({
                 <div className="rounded-2xl border border-app-danger/20 bg-app-danger/5 p-4">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-danger">
-                      Return pending
+                      Return staged
                     </p>
                     <span className="rounded-full bg-app-surface px-2 py-1 text-[10px] font-black uppercase tracking-widest text-app-danger">
                       {selectedReturnCount} item{selectedReturnCount === 1 ? "" : "s"} · -${centsToFixed2(selectedRefundCents)}
                     </span>
                   </div>
                   <p className="mt-2 text-sm font-black text-app-text">
-                    Not refunded yet. Choose “Refund customer” or “Continue exchange” to record the return path.
+                    Not recorded yet. Choose “Refund customer” or “Continue exchange” to finish the return path.
                   </p>
-                    <p className="mt-2 text-xs font-semibold text-app-text-muted">
-                      Refund customer closes this as a refund-only return. Continue exchange saves the return lines and opens the register path for replacement items.
-                    </p>
-                    <p className="mt-2 text-xs font-semibold text-app-text-muted">
-                      If interrupted, keep this window open. Nothing is tendered until you choose refund or continue the exchange.
-                    </p>
-                    <p className="mt-2 text-xs font-bold text-app-danger">
-                      Pilot watch: if this flow is reopened later, confirm the saved return lines and refund tender before register close.
-                    </p>
+                  <p className="mt-2 text-xs font-semibold text-app-text-muted">
+                    Refund customer records the return and refund together. Continue exchange carries these staged return lines into the replacement checkout.
+                  </p>
+                  <p className="mt-2 text-xs font-semibold text-app-text-muted">
+                    If interrupted or closed, the original Transaction Record is unchanged until the final refund or exchange settlement succeeds.
+                  </p>
+                  <p className="mt-2 text-xs font-bold text-app-danger">
+                    Pilot watch: if this flow is reopened later, confirm the saved return lines and refund tender before register close.
+                  </p>
                 </div>
               ) : null}
               <div className="sticky bottom-0 -mx-6 grid gap-3 border-t border-app-border bg-app-surface/95 px-6 py-4 backdrop-blur sm:grid-cols-2">

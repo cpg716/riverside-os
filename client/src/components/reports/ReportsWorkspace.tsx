@@ -57,6 +57,33 @@ function defaultRange(): { from: string; to: string } {
   return { from: ymd(start), to: ymd(end) };
 }
 
+type RangePreset = "custom" | "day" | "week" | "month" | "quarter" | "year";
+
+const RANGE_PRESETS: Array<{ id: RangePreset; label: string }> = [
+  { id: "day", label: "Today" },
+  { id: "week", label: "Week" },
+  { id: "month", label: "Month" },
+  { id: "quarter", label: "Quarter" },
+  { id: "year", label: "Year" },
+  { id: "custom", label: "Custom" },
+];
+
+function rangeForPreset(preset: RangePreset): { from: string; to: string } | null {
+  if (preset === "custom") return null;
+  const end = new Date();
+  const start = new Date(end);
+  if (preset === "week") {
+    start.setDate(end.getDate() - end.getDay());
+  } else if (preset === "month") {
+    start.setDate(1);
+  } else if (preset === "quarter") {
+    start.setMonth(Math.floor(end.getMonth() / 3) * 3, 1);
+  } else if (preset === "year") {
+    start.setMonth(0, 1);
+  }
+  return { from: ymd(start), to: ymd(end) };
+}
+
 function toCellString(v: unknown): string {
   if (v === null || v === undefined) return "";
   if (typeof v === "object") return JSON.stringify(v);
@@ -165,6 +192,9 @@ function formatWeatherSnapshot(value: unknown): string | null {
 
 function formatCellValue(value: unknown, key: string): string {
   if (value === null || value === undefined) return "";
+  if (key === "is_counterpoint_import") {
+    return value ? "Imported from Counterpoint" : "Created in Riverside OS";
+  }
   if (key === "weather_snapshot") return formatWeatherSnapshot(value) ?? "";
   if (typeof value === "boolean") return value ? "Yes" : "No";
   if (Array.isArray(value)) {
@@ -182,6 +212,11 @@ function formatCellValue(value: unknown, key: string): string {
   }
   if (typeof value === "string") {
     if (key === "phone" || key.endsWith("_phone")) return formatPhone(value);
+    if (key === "data_source" || key === "source_system") {
+      const normalized = value.trim().toLocaleLowerCase();
+      if (normalized.includes("counterpoint")) return "Imported from Counterpoint";
+      if (normalized === "riverside" || normalized === "ros") return "Created in Riverside OS";
+    }
     if (ENUM_FIELD_PATTERN.test(key)) return titleizeValue(value);
     return value;
   }
@@ -363,6 +398,8 @@ function keysFromRows(rows: Record<string, unknown>[]): string[] {
 }
 
 const FIELD_LABELS: Record<string, string> = {
+  activity: "Activity",
+  activity_at: "Activity Time",
   appointment_type: "Appointment Type",
   appointment_count: "Appointments",
   appointment_date: "Appointment Date",
@@ -380,6 +417,7 @@ const FIELD_LABELS: Record<string, string> = {
   customer_name: "Customer",
   cancellation_count: "Cancellations",
   cost_of_goods: "Cost Of Goods",
+  data_source: "Data Source",
   date: "Date",
   event_date: "Event Date",
   exempt_sales: "Exempt Sales",
@@ -399,10 +437,12 @@ const FIELD_LABELS: Record<string, string> = {
   last_transaction_at: "Last Transaction",
   item_name: "Item",
   is_historical: "Historical Window",
+  is_counterpoint_import: "Data Source",
   includes_today: "Includes Today",
   line_count: "Line Count",
   line_units: "Units",
   member_count: "Members",
+  merchandise_amount: "Merchandise",
   merchant_fees_total: "Merchant Fees",
   missing_measurements_count: "Missing Measurements",
   net: "Net",
@@ -444,6 +484,8 @@ const FIELD_LABELS: Record<string, string> = {
   recognized_at: "Completed At",
   register_id: "Register",
   register_number: "Register #",
+  refund_due: "Refund Due",
+  refund_paid: "Refund Paid",
   report_date: "Report Date",
   reporting_basis: "Basis",
   revenue_momentum: "Last 7 Days",
@@ -460,6 +502,7 @@ const FIELD_LABELS: Record<string, string> = {
   salesperson: "Salesperson",
   session_id: "Session",
   sku: "SKU",
+  source_system: "Data Source",
   staff_name: "Staff",
   scheduled_staff_count: "Scheduled Staff",
   shipment_or_pickup_risk_count: "Shipment/Pickup Risk",
@@ -478,6 +521,7 @@ const FIELD_LABELS: Record<string, string> = {
   total_net: "Net Total",
   total_sales: "Sales Total",
   total_amount: "Total Amount",
+  transaction_display_id: "Transaction #",
   transaction_count: "Transactions",
   transaction_total: "Transaction Total",
   unit_cost: "Unit Cost",
@@ -778,6 +822,7 @@ export default function ReportsWorkspace({
   );
 
   const [{ from, to }, setRange] = useState(defaultRange);
+  const [rangePreset, setRangePreset] = useState<RangePreset>("custom");
   const [basis, setBasis] = useState("booked");
   const [groupBy, setGroupBy] = useState<string>("brand");
   const [bestSellerView, setBestSellerView] = useState<"product" | "variation">("product");
@@ -931,6 +976,11 @@ export default function ReportsWorkspace({
   const showRange = selectedAvailable?.usesGlobalDateRange ?? false;
   const showBasis = selectedAvailable?.usesBasis ?? false;
   const showGroup = selectedAvailable?.supportsGroupBy ?? false;
+  const applyRangePreset = (preset: RangePreset) => {
+    setRangePreset(preset);
+    const next = rangeForPreset(preset);
+    if (next) setRange(next);
+  };
   const selectedVisual = selected ? REPORT_CATEGORY_VISUALS[selected.category] : null;
   const SelectedIcon = selectedVisual?.icon;
 
@@ -1181,12 +1231,34 @@ export default function ReportsWorkspace({
           <div data-testid="reports-detail-filters" className="flex flex-wrap items-end gap-3">
             {showRange ? (
               <>
+                <div className="flex w-full flex-col gap-1 text-xs font-bold text-app-text-muted lg:w-auto">
+                  Period
+                  <div className="flex flex-wrap gap-1 rounded-xl border border-app-border bg-app-surface p-1">
+                    {RANGE_PRESETS.map((preset) => (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        onClick={() => applyRangePreset(preset.id)}
+                        className={`min-h-9 rounded-lg px-3 text-xs font-black uppercase tracking-widest transition ${
+                          rangePreset === preset.id
+                            ? "bg-app-accent text-white shadow-sm"
+                            : "text-app-text-muted hover:bg-app-surface-2 hover:text-app-text"
+                        }`}
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <label className="flex w-full flex-col gap-1 text-xs font-bold text-app-text-muted sm:w-auto">
                   From
                   <input
                     type="date"
                     value={from}
-                    onChange={(e) => setRange((x) => ({ ...x, from: e.target.value }))}
+                    onChange={(e) => {
+                      setRangePreset("custom");
+                      setRange((x) => ({ ...x, from: e.target.value }));
+                    }}
                     className="ui-input w-full rounded-xl px-3 py-2 text-sm font-semibold sm:w-auto"
                   />
                 </label>
@@ -1195,7 +1267,10 @@ export default function ReportsWorkspace({
                   <input
                     type="date"
                     value={to}
-                    onChange={(e) => setRange((x) => ({ ...x, to: e.target.value }))}
+                    onChange={(e) => {
+                      setRangePreset("custom");
+                      setRange((x) => ({ ...x, to: e.target.value }));
+                    }}
                     className="ui-input w-full rounded-xl px-3 py-2 text-sm font-semibold sm:w-auto"
                   />
                 </label>
@@ -1255,6 +1330,15 @@ export default function ReportsWorkspace({
               </label>
             ) : null}
           </div>
+          ) : null}
+
+          {selectedAvailable ? (
+            <p className="rounded-xl border border-app-border bg-app-surface px-3 py-2 text-xs font-semibold text-app-text-muted">
+              Historical rows imported from Counterpoint are labeled as{" "}
+              <span className="font-black text-app-text">Imported from Counterpoint</span> when
+              the report includes a Data Source column. New Riverside activity is labeled{" "}
+              <span className="font-black text-app-text">Created in Riverside OS</span>.
+            </p>
           ) : null}
 
           {selected.id === "commission_ledger" ? (

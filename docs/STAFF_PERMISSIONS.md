@@ -159,7 +159,7 @@ Canonical list: **`server/src/auth/permissions.rs`**. UI labels: **`client/src/l
 | `staff.manage_commission` | Commission Manager: fixed SPIFF setup, combo incentive setup, and manual adjustments. |
 | `staff.view_audit` | Staff access log. |
 | `staff.manage_access` | Edit **per-person** permission checklists on staff profiles; use **Settings → Staff access defaults** for role **template** matrix and template discount caps (**`settings.admin`** may also open Settings; templates are policy-sensitive). |
-| `manager.approval` | Approve elevated **Manager Access** prompts with a selected staff identity plus **Access PIN**. Admin receives this by default; it can be granted to other trusted staff from the access checklist. |
+| `manager.approval` | Approve elevated **Manager Access** prompts with a selected staff identity plus **Access PIN**. **Admin** always qualifies; trusted non-admin staff qualify when this permission is granted from the access checklist. |
 | `qbo.view` | QBO workspace read-oriented actions. |
 | `qbo.mapping_edit` | Save ledger / granular mappings. |
 | `qbo.staging_approve` | Approve staging. |
@@ -240,7 +240,7 @@ Base path: **`/api/staff`**. Gated routes expect headers:
 
 Sensitive changes are logged to **`staff_access_log`** (e.g. template saves, **`staff_permission_save`**, **`staff_apply_role_defaults`**) where implemented in `staff.rs`.
 
-Manager Access approvals use `manager.approval`, a selected staff approver, and that approver's **Access PIN**. Approval writes `staff_access_log` metadata with the action name, approver id/name/role, approval timestamp, `approval_method = staff_id_access_pin`, and any workflow metadata supplied by the caller such as customer, transaction, override reason, or register session.
+Manager Access approvals use a selected staff approver and that approver's **Access PIN**. **Admin** or staff with `manager.approval` can approve any Manager Access request; workflow handlers should not require a separate legacy manager role or cashier code after the approver PIN succeeds. Approval writes `staff_access_log` metadata with the action name, approver id/name/role, approval timestamp, `approval_method = staff_id_access_pin`, and any workflow metadata supplied by the caller such as customer, transaction, override reason, or register session.
 
 ---
 
@@ -259,6 +259,8 @@ Manager Access approvals use `manager.approval`, a selected staff approver, and 
 | `client/src/components/pos/Cart.tsx` | When cart **`customerId`** equals the signed-in staff **`employee_customer_id`** (from context), new lines default to **`employee_price`** when present. |
 | `client/src/App.tsx` | Redirects away from tabs/subsections the user cannot access after permissions load; renders **`RegisterSessionBootstrap`** as a sibling under **`BackofficeAuthProvider`** (before the main shell). |
 | `client/src/components/layout/Sidebar.tsx` | Hides nav items and subsections based on permissions. Profile **title**: **`staffDisplayName`** (**`full_name`** from **`GET /api/staff/effective-permissions`**) is authoritative; register **`cashierName`** is secondary session context. Fallback remains **“No Active Session”**. Profile **image**: **`staffAvatarUrl`** from **`staffAvatarKey`** in context, with session **`cashierAvatarKey`** as fallback. **`Settings` → Profile** + **`PATCH /api/staff/self/avatar`**. **`PosSidebar.tsx`** matches for POS mode. |
+
+Staff avatars are the preferred visual identity for staff selectors and profile entry points. Hovering an avatar should reveal the staff name, and primary staff-profile avatar controls should open the staff profile or profile menu instead of acting as decorative images only.
 
 Any `fetch` to a permission-gated API must pass **`...(backofficeHeaders() as Record<string, string>)`** (or merge into `Headers`) so the server can resolve effective permissions. POS/register authority requires the register session id, the station-issued POS token, and **`x-riverside-station-key`** for the current workstation; each physical device that attaches to an open register receives its own token. For **`GET /api/sessions/current`**, prefer **`mergedPosStaffHeaders(backofficeHeaders)`** whenever **`useBackofficeAuth()`** is available; otherwise **`sessionPollAuthHeaders()`**. **404** = no open till with valid auth; **401** = missing or invalid staff/POS headers (or stale/unbound POS token after a DB reset — client clears POS **`sessionStorage`** and retries where implemented).
 

@@ -14,8 +14,8 @@ use uuid::Uuid;
 
 use crate::api::AppState;
 use crate::auth::permissions::{
-    effective_permissions_for_staff, staff_has_permission, MANAGER_APPROVAL,
-    PHYSICAL_INVENTORY_MUTATE, PHYSICAL_INVENTORY_VIEW,
+    effective_permissions_for_staff, staff_can_approve_manager_access, PHYSICAL_INVENTORY_MUTATE,
+    PHYSICAL_INVENTORY_VIEW,
 };
 use crate::auth::pins;
 use crate::logic::physical_inventory::{
@@ -595,7 +595,7 @@ async fn publish_session(
             .await
             .map_err(|_| anyhow::anyhow!("Manager Access PIN was not approved"))?;
     let effective = effective_permissions_for_staff(&state.db, manager.id, manager.role).await?;
-    if !staff_has_permission(&effective, MANAGER_APPROVAL) {
+    if !staff_can_approve_manager_access(&effective, manager.role) {
         return Err(anyhow::anyhow!("Manager Access is required to publish").into());
     }
 

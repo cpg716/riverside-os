@@ -93,7 +93,6 @@ export default function PromptModal({
   return createPortal(
     <div
       className="ui-overlay-backdrop flex items-center justify-center p-4"
-      onClick={onClose}
     >
       <div
         ref={dialogRef}
@@ -103,7 +102,6 @@ export default function PromptModal({
         aria-describedby={`${titleId}-desc`}
         tabIndex={-1}
         className="ui-modal w-full max-w-md animate-in zoom-in-95 duration-300 outline-none"
-        onClick={(e) => e.stopPropagation()}
       >
         <div className="ui-modal-header flex items-center justify-between">
           <div className="flex items-center gap-3">

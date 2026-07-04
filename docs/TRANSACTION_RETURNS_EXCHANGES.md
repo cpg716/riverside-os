@@ -1,6 +1,6 @@
 # Transactions: refunds, line returns, exchanges, and post-sale adjustments
 
-Operational reference for **Back Office** and **register** flows after the schema-contract baseline and RBAC seed are applied. Optional idempotent replays use **`transactions.checkout_client_id`**. Implementation lives in `server/src/api/transactions.rs`, `server/src/logic/transaction_recalc.rs`, `server/src/logic/transaction_returns.rs`, `server/src/logic/suit_component_swap.rs`, `server/src/logic/gift_card_ops.rs`, and `client/src/components/orders/OrdersWorkspace.tsx`.
+Operational reference for **Back Office** and **register** flows after the schema-contract baseline and RBAC seed are applied. Optional idempotent replays use **`transactions.checkout_client_id`**. Implementation lives in `server/src/api/transactions.rs`, `server/src/logic/transaction_recalc.rs`, `server/src/logic/transaction_returns.rs`, `server/src/logic/suit_component_swap.rs`, `server/src/logic/gift_card_ops.rs`, `client/src/components/pos/PosExchangeWizard.tsx`, `client/src/components/pos/Cart.tsx`, and `client/src/components/orders/OrdersWorkspace.tsx`.
 
 For **staff keys and middleware**, see **`docs/STAFF_PERMISSIONS.md`**. For **special-transaction stock** (checkout vs PO vs pickup), see **`INVENTORY_GUIDE.md`** and **`AGENTS.md`**.
 
@@ -43,6 +43,8 @@ When the client cannot send Back Office staff headers (e.g. receipt modal on the
 
 **Refund processing** requires **Back Office** staff headers and **`orders.refund_process`** (no register-only bypass). **Exchange link** may use the same register session query/body pattern as returns when linking two transactions tied to that session.
 
+**Receipts:** Customer receipts never hide returned or exchanged selected lines. Active quantities print in their normal sale/pickup/shipping sections. Returned or exchanged quantities print in separate **RETURNED / REFUNDED** or **EXCHANGED** sections with a negative credit row that includes applicable item tax. These adjustment rows preserve the original sale proof and do not re-add to receipt merchandise totals.
+
 ---
 
 ## Money refunds (refund queue)
@@ -55,7 +57,7 @@ When the client cannot send Back Office staff headers (e.g. receipt modal on the
    - **`POST /api/transactions/{transaction_id}/refunds/process`**  
      Body: `session_id` (open register session), `payment_method`, `amount`, optional `gift_card_code` when refunding to a gift card.
    - Requires **`orders.refund_process`** and an **open** register session matching `session_id`.
-   - Records negative **`payment_transactions`** + **`payment_allocations`**, updates queue and **`transactions.amount_paid`**, runs **`transaction_recalc`** (totals respect returned qty).
+   - Records any staged return lines supplied by the register, negative **`payment_transactions`** + **`payment_allocations`**, updates queue and **`transactions.amount_paid`**, then runs **`transaction_recalc`** (totals respect returned qty). These writes happen in one database transaction; if the refund fails, the original Transaction Record remains unchanged.
    - **Loyalty:** full accrual clawback when **`amount_paid`** reaches zero after the refund (same transaction).
    - **Gift card:** if `payment_method` indicates a gift-card tender, **`gift_card_code`** is required; balance is credited in the same transaction.
    - **Helcim:** if the method looks like a card tender and an original positive Helcim allocation has a provider transaction id, the server creates a deterministic provider attempt and attempts a **Helcim Refund**. ROS commits the negative payment and refund queue update only when Helcim returns approved/captured. Provider request errors, rate limits, or declines persist the failed provider attempt for audit and leave ROS refund state unchanged.
@@ -123,7 +125,8 @@ When the client cannot send Back Office staff headers (e.g. receipt modal on the
    - **Line handoff**: Transaction Record item rows can launch Register with the original transaction and selected transaction line preloaded for return/exchange quantity confirmation.
    - **Active Instructions**: Context-aware instruction cards guide staff through complex return semantics.
    - **Automated Linking**: After replacement checkout, `POST /api/transactions/{original}/exchange-link?register_session_id=…` runs automatically to link the legs for reporting.
-   - **Settlement**: return credits, deposits, replacement lines, and any remaining customer balance or refund must flow through checkout so the cart, payment allocations, customer history, QBO staging, and audit trail agree.
+   - **Staged returns**: Selecting return quantities in the wizard does not mutate the original Transaction Record. The selected line ids, quantities, reason, and restock choice are carried into the final refund or exchange settlement request.
+   - **Settlement**: return credits, deposits, replacement lines, and any remaining customer balance or refund must flow through checkout so the cart, payment allocations, customer history, QBO staging, and audit trail agree. Return lines are recorded only after the refund/exchange settlement succeeds; interrupted or failed flows must leave the original items visible and unreturned.
 
 ---
 

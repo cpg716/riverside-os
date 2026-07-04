@@ -27,7 +27,7 @@ export default function RegisterRequiredModal({
   if (!root) return null;
 
   return createPortal(
-    <div className="ui-overlay-backdrop !z-[220] flex items-center justify-center p-4" onClick={onClose}>
+    <div className="ui-overlay-backdrop !z-[220] flex items-center justify-center p-4">
       <div
         ref={dialogRef}
         role="dialog"
@@ -35,7 +35,6 @@ export default function RegisterRequiredModal({
         aria-labelledby={titleId}
         tabIndex={-1}
         className="ui-modal w-full max-w-md animate-workspace-snap outline-none shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
       >
         <div className="ui-modal-header">
           <h2 id={titleId} className="text-lg font-black text-app-text">

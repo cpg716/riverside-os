@@ -429,6 +429,8 @@ pub fn sample_receipt_order_for_preview() -> ReceiptOrder {
                 custom_order_details: None,
                 custom_item_type: None,
                 is_fulfilled: true,
+                adjustment: None,
+                contributes_to_totals: true,
             },
             crate::logic::receipt_shared::ReceiptLine {
                 product_name: "Silk tie".to_string(),
@@ -444,6 +446,8 @@ pub fn sample_receipt_order_for_preview() -> ReceiptOrder {
                 custom_order_details: None,
                 custom_item_type: None,
                 is_fulfilled: true,
+                adjustment: None,
+                contributes_to_totals: true,
             },
         ],
         is_tax_exempt: false,

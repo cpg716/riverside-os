@@ -45,10 +45,7 @@ export default function PriceOverrideModal({
   if (!root) return null;
 
   return createPortal(
-    <div 
-      className="ui-overlay-backdrop !z-[200]"
-      onClick={onCancel}
-    >
+    <div className="ui-overlay-backdrop !z-[200]">
       <div
         ref={dialogRef}
         role="dialog"
@@ -56,7 +53,6 @@ export default function PriceOverrideModal({
         aria-labelledby={titleId}
         tabIndex={-1}
         className="ui-modal w-full max-w-none rounded-t-3xl outline-none sm:max-w-sm sm:rounded-3xl"
-        onClick={(e) => e.stopPropagation()}
       >
         <div className="ui-modal-header flex items-center justify-between">
           <div className="flex items-center gap-2 text-[var(--app-accent)]">

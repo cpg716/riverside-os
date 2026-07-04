@@ -40,6 +40,8 @@ To ensure each sale is attributed to the correct staff member, Riverside OS uses
 2. **Enter Access PIN**: Type your 4-digit code.
 3. **Continue**: Unlock the register.
 
+PIN keypads accept touch, mouse, physical number-pad, and keyboard entry. If keyboard entry does not start, tap or click the PIN display/keypad area once, then type the digits.
+
 If you are already logged in but a different staff member needs to ring a sale, they can tap the **Lock** or **User** icon to bring up the sign-in overlay without closing the current register session.
 
 Staff Access records who operated the register. It is separate from **Salesperson** attribution for commissions. Only active staff with the **Salesperson** role appear in Salesperson attribution lists. Before completing payment, every merchandise, alteration, special-order, custom-order, and wedding-order sale line must have a default Salesperson or a line-level Salesperson. Choose **Staff Admin** only when the sale should not commission to an individual salesperson; it is a protected no-commission system account. Gift-card-load-only and RMS Charge payment-only flows do not use salesperson attribution.
@@ -99,7 +101,11 @@ Use this when a customer is exchanging or returning items tied to a completed tr
 4. Follow the wizard instructions for the refund path or replacement sale.
 5. Complete any replacement checkout before handing the customer their final receipt.
 
+Selecting a returned line only stages the return. The original Transaction Record is not changed until Riverside successfully records the refund or exchange settlement. If a tax/refund problem stops the flow, close it with the on-screen close button and the original item should remain visible as active.
+
 For Special, Custom, Wedding, and shipped order lines, confirm the original Transaction Record, returned quantities, tender/refund path, and inventory handling before settlement.
+
+Return and exchange receipts keep the audit trail visible. Active merchandise prints in the normal receipt sections, while returned or exchanged quantities print in separate **RETURNED / REFUNDED** or **EXCHANGED** sections with the credit amount shown clearly.
 
 Inventory and bookkeeping follow server rules for takeaway, order, and wedding lines; ask a lead if you are unsure.
 

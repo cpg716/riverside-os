@@ -20,9 +20,9 @@ use uuid::Uuid;
 
 use crate::api::AppState;
 use crate::auth::permissions::{
-    effective_permissions_for_staff, staff_has_permission, MANAGER_APPROVAL, ORDERS_CANCEL,
-    ORDERS_EDIT_ATTRIBUTION, ORDERS_MODIFY, ORDERS_REFUND_PROCESS, ORDERS_SUIT_COMPONENT_SWAP,
-    ORDERS_VIEW, ORDERS_VOID_SALE, QBO_STAGING_APPROVE,
+    effective_permissions_for_staff, staff_can_approve_manager_access, staff_has_permission,
+    ORDERS_CANCEL, ORDERS_MODIFY, ORDERS_REFUND_PROCESS, ORDERS_SUIT_COMPONENT_SWAP, ORDERS_VIEW,
+    ORDERS_VOID_SALE, QBO_STAGING_APPROVE,
 };
 use crate::auth::pins::{self, log_staff_access};
 use crate::auth::pos_session;
@@ -438,10 +438,10 @@ pub struct TransactionPaymentApplication {
 }
 
 impl TransactionDetailResponse {
-    fn selected_receipt_items_with_effective_qty<'a>(
+    fn selected_receipt_items<'a>(
         &'a self,
         transaction_line_ids: Option<&[Uuid]>,
-    ) -> Result<Vec<(&'a TransactionDetailItem, i32)>, TransactionError> {
+    ) -> Result<Vec<&'a TransactionDetailItem>, TransactionError> {
         use std::collections::HashSet;
 
         // Include ALL items regardless of is_internal — internal lines (RMS charge
@@ -470,25 +470,7 @@ impl TransactionDetailResponse {
             }
         };
 
-        let active: Vec<_> = selected
-            .into_iter()
-            .filter_map(|it| {
-                let effective_qty = (it.quantity - it.quantity_returned).max(0);
-                (effective_qty > 0).then_some((it, effective_qty))
-            })
-            .collect();
-
-        if active.is_empty() {
-            if transaction_line_ids.is_none() && !self.payment_applications.is_empty() {
-                return Ok(active);
-            }
-            return Err(TransactionError::InvalidPayload(
-                "No active order lines remained after applied returns for this receipt."
-                    .to_string(),
-            ));
-        }
-
-        Ok(active)
+        Ok(selected)
     }
 
     /// Build customer-facing receipt data. When `transaction_line_ids` is `Some`, only those lines are
@@ -497,7 +479,7 @@ impl TransactionDetailResponse {
         &self,
         transaction_line_ids: Option<&[Uuid]>,
     ) -> Result<receipt_shared::ReceiptOrder, TransactionError> {
-        let selected = self.selected_receipt_items_with_effective_qty(transaction_line_ids)?;
+        let selected = self.selected_receipt_items(transaction_line_ids)?;
         let payment_only = selected.is_empty() && !self.payment_applications.is_empty();
         let receipt_items: Vec<receipt_shared::ReceiptLine> = if payment_only {
             self.payment_applications
@@ -516,32 +498,75 @@ impl TransactionDetailResponse {
                     custom_order_details: None,
                     custom_item_type: None,
                     is_fulfilled: true,
+                    adjustment: None,
+                    contributes_to_totals: true,
                 })
                 .collect()
         } else {
-            selected
-                .iter()
-                .map(|(it, effective_qty)| receipt_shared::ReceiptLine {
-                    product_name: it.product_name.clone(),
-                    sku: it.sku.clone(),
-                    quantity: *effective_qty,
-                    unit_price: it.unit_price,
-                    fulfillment: it.fulfillment,
-                    salesperson_name: crate::logic::receipt_privacy::mask_name_for_receipt(
-                        it.salesperson_name.as_deref(),
-                    ),
-                    variation_label: it.variation_label.clone(),
-                    original_unit_price: it.receipt_original_unit_price,
-                    discount_event_label: it.discount_event_label.clone(),
-                    gift_card_load_code: it.gift_card_load_code.clone(),
-                    custom_order_details: it.custom_order_details.clone(),
-                    custom_item_type: it.custom_item_type.clone(),
-                    is_fulfilled: it.is_fulfilled,
-                })
-                .collect()
+            let mut lines = Vec::new();
+            for it in &selected {
+                let effective_qty = (it.quantity - it.quantity_returned).max(0);
+                if effective_qty > 0 {
+                    lines.push(receipt_shared::ReceiptLine {
+                        product_name: it.product_name.clone(),
+                        sku: it.sku.clone(),
+                        quantity: effective_qty,
+                        unit_price: it.unit_price,
+                        fulfillment: it.fulfillment,
+                        salesperson_name: crate::logic::receipt_privacy::mask_name_for_receipt(
+                            it.salesperson_name.as_deref(),
+                        ),
+                        variation_label: it.variation_label.clone(),
+                        original_unit_price: it.receipt_original_unit_price,
+                        discount_event_label: it.discount_event_label.clone(),
+                        gift_card_load_code: it.gift_card_load_code.clone(),
+                        custom_order_details: it.custom_order_details.clone(),
+                        custom_item_type: it.custom_item_type.clone(),
+                        is_fulfilled: it.is_fulfilled,
+                        adjustment: None,
+                        contributes_to_totals: true,
+                    });
+                }
+                if it.quantity_returned > 0 {
+                    let refund_unit = (it.unit_price + it.state_tax + it.local_tax).round_dp(2);
+                    lines.push(receipt_shared::ReceiptLine {
+                        product_name: it.product_name.clone(),
+                        sku: it.sku.clone(),
+                        quantity: it.quantity_returned,
+                        unit_price: -refund_unit,
+                        fulfillment: it.fulfillment,
+                        salesperson_name: crate::logic::receipt_privacy::mask_name_for_receipt(
+                            it.salesperson_name.as_deref(),
+                        ),
+                        variation_label: it.variation_label.clone(),
+                        original_unit_price: None,
+                        discount_event_label: Some(
+                            "Refund/exchange credit includes item tax where applicable."
+                                .to_string(),
+                        ),
+                        gift_card_load_code: None,
+                        custom_order_details: it.custom_order_details.clone(),
+                        custom_item_type: it.custom_item_type.clone(),
+                        is_fulfilled: true,
+                        adjustment: Some(if self.exchange_group_id.is_some() {
+                            receipt_shared::ReceiptLineAdjustment::Exchanged
+                        } else {
+                            receipt_shared::ReceiptLineAdjustment::Returned
+                        }),
+                        contributes_to_totals: false,
+                    });
+                }
+            }
+            lines
         };
+        if receipt_items.is_empty() {
+            return Err(TransactionError::InvalidPayload(
+                "No order lines matched this receipt request.".to_string(),
+            ));
+        }
         let subtotal_price = receipt_items
             .iter()
+            .filter(|it| it.contributes_to_totals)
             .fold(Decimal::ZERO, |sum, it| {
                 sum + it.unit_price * Decimal::from(it.quantity)
             })
@@ -549,25 +574,23 @@ impl TransactionDetailResponse {
         let tax_total = if payment_only {
             Decimal::ZERO
         } else {
-            selected
-                .iter()
-                .fold(Decimal::ZERO, |sum, (it, effective_qty)| {
-                    sum + (it.state_tax + it.local_tax) * Decimal::from(*effective_qty)
-                })
+            selected.iter().fold(Decimal::ZERO, |sum, it| {
+                let effective_qty = (it.quantity - it.quantity_returned).max(0);
+                sum + (it.state_tax + it.local_tax) * Decimal::from(effective_qty)
+            })
         };
         let total_savings = if payment_only {
             Decimal::ZERO
         } else {
-            selected
-                .iter()
-                .fold(Decimal::ZERO, |sum, (it, effective_qty)| {
-                    match it.receipt_original_unit_price {
-                        Some(original) if original > it.unit_price && original > Decimal::ZERO => {
-                            sum + (original - it.unit_price) * Decimal::from(*effective_qty)
-                        }
-                        _ => sum,
+            selected.iter().fold(Decimal::ZERO, |sum, it| {
+                let effective_qty = (it.quantity - it.quantity_returned).max(0);
+                match it.receipt_original_unit_price {
+                    Some(original) if original > it.unit_price && original > Decimal::ZERO => {
+                        sum + (original - it.unit_price) * Decimal::from(effective_qty)
                     }
-                })
+                    _ => sum,
+                }
+            })
         };
         let receipt_total_price = if payment_only {
             subtotal_price
@@ -788,36 +811,49 @@ mod tests {
 
         let receipt = detail.build_receipt_data(None).expect("receipt builds");
 
-        assert_eq!(receipt.items.len(), 1);
+        assert_eq!(receipt.items.len(), 2);
         assert_eq!(receipt.items[0].quantity, 2);
+        assert_eq!(
+            receipt.items[1].adjustment,
+            Some(receipt_shared::ReceiptLineAdjustment::Returned)
+        );
+        assert_eq!(receipt.items[1].quantity, 1);
+        assert_eq!(receipt.items[1].unit_price, Decimal::new(-26500, 2));
     }
 
     #[test]
-    fn receipt_builder_omits_fully_returned_lines() {
+    fn receipt_builder_prints_fully_returned_lines_as_adjustments() {
         let detail = sample_transaction_detail(vec![sample_item(2, 2), sample_item(1, 0)]);
 
         let receipt = detail.build_receipt_data(None).expect("receipt builds");
 
-        assert_eq!(receipt.items.len(), 1);
-        assert_eq!(receipt.items[0].quantity, 1);
-        assert_eq!(receipt.items[0].sku, "SKU-1");
+        assert_eq!(receipt.items.len(), 2);
+        assert_eq!(receipt.items[0].quantity, 2);
+        assert_eq!(
+            receipt.items[0].adjustment,
+            Some(receipt_shared::ReceiptLineAdjustment::Returned)
+        );
+        assert_eq!(receipt.items[1].quantity, 1);
+        assert_eq!(receipt.items[1].sku, "SKU-1");
     }
 
     #[test]
-    fn receipt_builder_rejects_subset_when_all_selected_lines_were_returned() {
+    fn receipt_builder_allows_subset_when_all_selected_lines_were_returned() {
         let returned = sample_item(1, 1);
         let active = sample_item(2, 0);
         let returned_id = returned.transaction_line_id;
         let detail = sample_transaction_detail(vec![returned, active]);
 
-        let err = detail
+        let receipt = detail
             .build_receipt_data(Some(&[returned_id]))
-            .expect_err("fully returned subset should fail");
+            .expect("returned-only subset should print");
 
-        assert!(matches!(err, TransactionError::InvalidPayload(_)));
-        assert!(err
-            .to_string()
-            .contains("No active order lines remained after applied returns"));
+        assert_eq!(receipt.items.len(), 1);
+        assert_eq!(
+            receipt.items[0].adjustment,
+            Some(receipt_shared::ReceiptLineAdjustment::Returned)
+        );
+        assert!(!receipt.items[0].contributes_to_totals);
     }
 
     #[test]
@@ -1124,6 +1160,7 @@ mod tests {
             manager_pin: None,
             manager_reason: None,
             external_refund_reference: None,
+            return_lines: Vec::new(),
         };
 
         FAIL_CARD_REFUND_LEDGER_AFTER_PROVIDER_APPROVAL
@@ -1752,6 +1789,9 @@ pub struct ProcessRefundRequest {
     /// Required for manual card refunds processed outside ROS, such as Helcim dashboard refunds.
     #[serde(default)]
     pub external_refund_reference: Option<String>,
+    /// Optional staged return lines to record atomically with the refund.
+    #[serde(default)]
+    pub return_lines: Vec<TransactionReturnLineBody>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1773,6 +1813,9 @@ pub struct ExchangeSettlementRequest {
     pub session_id: Uuid,
     pub replacement_transaction_id: Uuid,
     pub exchange_credit_amount: Decimal,
+    /// Optional staged return lines to record atomically with the exchange settlement.
+    #[serde(default)]
+    pub return_lines: Vec<TransactionReturnLineBody>,
     #[serde(default)]
     pub refund_remainder: Option<ExchangeRefundRemainderBody>,
 }
@@ -2270,7 +2313,7 @@ async fn authenticate_manager_approval(
     let effective = effective_permissions_for_staff(&state.db, manager.id, manager.role)
         .await
         .map_err(TransactionError::Database)?;
-    if !staff_has_permission(&effective, MANAGER_APPROVAL) {
+    if !staff_can_approve_manager_access(&effective, manager.role) {
         return Err(TransactionError::Forbidden(denied_message.to_string()));
     }
     Ok(manager)
@@ -4511,7 +4554,7 @@ async fn process_refund(
     headers: HeaderMap,
     Json(body): Json<ProcessRefundRequest>,
 ) -> Result<Json<serde_json::Value>, TransactionError> {
-    middleware::require_staff_with_permission(&state, &headers, ORDERS_REFUND_PROCESS)
+    let staff = middleware::require_staff_with_permission(&state, &headers, ORDERS_REFUND_PROCESS)
         .await
         .map_err(map_perm_err)?;
 
@@ -4546,6 +4589,23 @@ async fn process_refund(
         return Err(TransactionError::InvalidPayload(
             "register session is not open".to_string(),
         ));
+    }
+
+    if !body.return_lines.is_empty() {
+        let return_inputs = return_line_inputs_from_body(&body.return_lines, "refund");
+        transaction_returns::apply_transaction_returns_in_tx(
+            &mut tx,
+            transaction_id,
+            Some(staff.id),
+            return_inputs,
+        )
+        .await
+        .map_err(|e| match e {
+            transaction_returns::TransactionReturnError::Db(d) => TransactionError::Database(d),
+            transaction_returns::TransactionReturnError::BadRequest(m) => {
+                TransactionError::InvalidPayload(m)
+            }
+        })?;
     }
 
     let row: Option<RefundQueueRow> = sqlx::query_as(
@@ -5428,7 +5488,7 @@ async fn process_exchange_settlement(
     headers: HeaderMap,
     Json(body): Json<ExchangeSettlementRequest>,
 ) -> Result<Json<serde_json::Value>, TransactionError> {
-    middleware::require_staff_with_permission(&state, &headers, ORDERS_REFUND_PROCESS)
+    let staff = middleware::require_staff_with_permission(&state, &headers, ORDERS_REFUND_PROCESS)
         .await
         .map_err(map_perm_err)?;
 
@@ -5496,6 +5556,23 @@ async fn process_exchange_settlement(
         return Err(TransactionError::InvalidPayload(
             "register session is not open".to_string(),
         ));
+    }
+
+    if !body.return_lines.is_empty() {
+        let return_inputs = return_line_inputs_from_body(&body.return_lines, "exchange");
+        transaction_returns::apply_transaction_returns_in_tx(
+            &mut tx,
+            transaction_id,
+            Some(staff.id),
+            return_inputs,
+        )
+        .await
+        .map_err(|e| match e {
+            transaction_returns::TransactionReturnError::Db(d) => TransactionError::Database(d),
+            transaction_returns::TransactionReturnError::BadRequest(m) => {
+                TransactionError::InvalidPayload(m)
+            }
+        })?;
     }
 
     let row: Option<RefundQueueRow> = sqlx::query_as(
@@ -7003,6 +7080,27 @@ async fn log_order_activity(
     Ok(())
 }
 
+fn return_line_inputs_from_body(
+    lines: &[TransactionReturnLineBody],
+    default_reason: &str,
+) -> Vec<ReturnLineInput> {
+    lines
+        .iter()
+        .map(|line| ReturnLineInput {
+            transaction_line_id: line.transaction_line_id,
+            quantity: line.quantity,
+            reason: Some(
+                line.reason
+                    .as_deref()
+                    .filter(|reason| !reason.trim().is_empty())
+                    .unwrap_or(default_reason)
+                    .to_string(),
+            ),
+            restock: line.restock,
+        })
+        .collect()
+}
+
 async fn post_transaction_returns(
     State(state): State<AppState>,
     Path(transaction_id): Path<Uuid>,
@@ -7024,16 +7122,7 @@ async fn post_transaction_returns(
         ));
     }
 
-    let inputs: Vec<ReturnLineInput> = body
-        .lines
-        .into_iter()
-        .map(|l| ReturnLineInput {
-            transaction_line_id: l.transaction_line_id,
-            quantity: l.quantity,
-            reason: l.reason,
-            restock: l.restock,
-        })
-        .collect();
+    let inputs = return_line_inputs_from_body(&body.lines, "return");
 
     transaction_returns::apply_transaction_returns(&state.db, transaction_id, staff_id, inputs)
         .await
@@ -7935,12 +8024,7 @@ async fn patch_transaction_attribution(
         crate::auth::permissions::effective_permissions_for_staff(&state.db, admin.id, admin.role)
             .await
             .map_err(TransactionError::Database)?;
-    if !staff_has_permission(&eff, ORDERS_EDIT_ATTRIBUTION) {
-        return Err(TransactionError::Forbidden(
-            "orders.edit_attribution permission required".to_string(),
-        ));
-    }
-    if !staff_has_permission(&eff, MANAGER_APPROVAL) {
+    if !staff_can_approve_manager_access(&eff, admin.role) {
         return Err(TransactionError::Forbidden(
             "manager.approval permission required".to_string(),
         ));

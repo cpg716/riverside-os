@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useRef } from "react";
 
 /** Touch-friendly 0–9 entry for a single 4-digit staff credential (same value used everywhere). */
 
@@ -60,6 +60,8 @@ export default function NumericPinKeypad({
   compact?: boolean;
   showDecimal?: boolean;
 }) {
+  const keypadRef = useRef<HTMLDivElement | null>(null);
+
   const press = useCallback(
     (k: string) => {
       if (disabled) return;
@@ -80,26 +82,44 @@ export default function NumericPinKeypad({
     [disabled, value, maxDigits, onChange, showDecimal],
   );
 
+  const handleKeyboardKey = useCallback(
+    (key: string) => {
+      if ((key >= "0" && key <= "9") || (key === "." && showDecimal)) {
+        press(key);
+        return true;
+      }
+      if (key === "Backspace" || key === "Delete") {
+        press("del");
+        return true;
+      }
+      if (key === "Enter" && value.length === maxDigits && onEnter) {
+        onEnter();
+        return true;
+      }
+      return false;
+    },
+    [maxDigits, onEnter, press, showDecimal, value.length],
+  );
+
   useEffect(() => {
     if (disabled) return;
     const handleDown = (e: KeyboardEvent) => {
       const target = e.target instanceof HTMLElement ? e.target : null;
+      if (target?.closest("[data-pin-entry='true']")) {
+        return;
+      }
       if (
         target?.closest("input, textarea, select, [contenteditable='true'], [contenteditable='']")
       ) {
         return;
       }
-      if ((e.key >= "0" && e.key <= "9") || (e.key === "." && showDecimal)) {
-        press(e.key);
-      } else if (e.key === "Backspace") {
-        press("del");
-      } else if (e.key === "Enter" && value.length === maxDigits && onEnter) {
-        onEnter();
+      if (handleKeyboardKey(e.key)) {
+        e.preventDefault();
       }
     };
     window.addEventListener("keydown", handleDown);
     return () => window.removeEventListener("keydown", handleDown);
-  }, [disabled, value, maxDigits, onEnter, press, showDecimal]);
+  }, [disabled, handleKeyboardKey]);
 
   const gap = compact ? "gap-1" : "gap-2 sm:gap-3";
   const cell = compact
@@ -107,7 +127,22 @@ export default function NumericPinKeypad({
     : "min-h-16 rounded-2xl text-2xl";
 
   return (
-    <div className={className} data-pin-entry="true">
+    <div
+      ref={keypadRef}
+      className={className}
+      data-pin-entry="true"
+      role="group"
+      aria-label="PIN keypad"
+      tabIndex={disabled ? -1 : 0}
+      onMouseDown={() => keypadRef.current?.focus()}
+      onTouchStart={() => keypadRef.current?.focus()}
+      onKeyDown={(e) => {
+        if (handleKeyboardKey(e.key)) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      }}
+    >
       <div className={`grid grid-cols-3 ${gap}`}>
         {KEYS.map((k) =>
           k === "." && !showDecimal ? (

@@ -51,6 +51,7 @@ Before building broad Metabase dashboards for these topics, add and model readab
 | Staff Schedule Coverage vs Sales Report | `GET /api/insights/staff-schedule-coverage-sales` | `reporting.staff_schedule_coverage_vs_sales` |
 | Customer Follow-Up Report | `GET /api/insights/customer-follow-up` | `reporting.customer_follow_up` |
 | Exception & Risk Report | `GET /api/insights/exception-risk` | `reporting.exception_risk` |
+| Returns, Exchanges & Refunds | `GET /api/insights/returns-exchanges-refunds` | `reporting.returns_exchanges_refunds` |
 | Register day activity | `GET /api/insights/register-day-activity` | `reporting.register_day_activity` if it needs Metabase slicing |
 
 Existing API surfaces that already align with Metabase reporting views:

@@ -18,7 +18,7 @@ pub struct LoyaltyReceiptData {
 use crate::api::settings::ReceiptConfig;
 use crate::logic::receipt_shared::{
     order_status_label, payment_summary_has_receipt_detail, receipt_display_ref,
-    tender_display_label, ReceiptLine, ReceiptOrder,
+    tender_display_label, ReceiptLine, ReceiptLineAdjustment, ReceiptOrder,
 };
 use crate::models::{DbFulfillmentType, DbOrderFulfillmentMethod};
 
@@ -245,7 +245,10 @@ fn push_header(out: &mut Vec<u8>, d: &ReceiptOrder, cfg: &ReceiptConfig, gift: b
 
 fn push_items(out: &mut Vec<u8>, d: &ReceiptOrder, gift: bool) {
     for it in &d.items {
-        if is_rms_charge_payment_line(it) || is_alteration_service_line(it) {
+        if it.adjustment.is_some()
+            || is_rms_charge_payment_line(it)
+            || is_alteration_service_line(it)
+        {
             let label = receipt_item_section_label(d, it);
             set_bold(out, true);
             push_line(out, label);
@@ -298,7 +301,11 @@ fn push_items(out: &mut Vec<u8>, d: &ReceiptOrder, gift: bool) {
         {
             push_line(out, &format!("Gift Card #: {code}"));
         }
-        let status_label = if is_rms_charge_payment_line(it) {
+        let status_label = if matches!(it.adjustment, Some(ReceiptLineAdjustment::Exchanged)) {
+            "Exchanged item"
+        } else if matches!(it.adjustment, Some(ReceiptLineAdjustment::Returned)) {
+            "Returned / refunded item"
+        } else if is_rms_charge_payment_line(it) {
             "Payment on RMS Charge"
         } else if is_alteration_service_line(it) {
             "Alteration service"
@@ -449,6 +456,8 @@ fn receiptline_item_lines(
     let labels = [
         "PAYMENT",
         "Alterations",
+        "RETURNED / REFUNDED",
+        "EXCHANGED",
         "Taken Today",
         "PICKED UP",
         "SHIPPED",
@@ -583,6 +592,11 @@ fn receipt_item_section_label(
     d: &ReceiptOrder,
     it: &crate::logic::receipt_shared::ReceiptLine,
 ) -> &'static str {
+    match it.adjustment {
+        Some(ReceiptLineAdjustment::Returned) => return "RETURNED / REFUNDED",
+        Some(ReceiptLineAdjustment::Exchanged) => return "EXCHANGED",
+        None => {}
+    }
     if is_rms_charge_payment_line(it) {
         return "PAYMENT";
     }
@@ -947,6 +961,8 @@ mod tests {
             custom_order_details: None,
             custom_item_type: custom_item_type.map(str::to_string),
             is_fulfilled: true,
+            adjustment: None,
+            contributes_to_totals: true,
         }
     }
 

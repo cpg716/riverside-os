@@ -1252,7 +1252,6 @@ export default function HelpCenterDrawer({
             <div
               className="absolute inset-0 bg-black/70 backdrop-blur-[2px]"
               aria-hidden="true"
-              onClick={closeLightbox}
             />
             <div className="relative z-10 flex max-h-[min(92vh,900px)] max-w-[min(96vw,1200px)] flex-col items-center gap-3">
               <p id={lightboxTitleId} className="sr-only">

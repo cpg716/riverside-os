@@ -113,6 +113,7 @@ Riverside OS follows a **search-first administrative mandate**. Direct entry of 
 - Pair with **`role="dialog"`**, **`aria-modal="true"`**, and **`aria-labelledby`** pointing at a stable title element id.
 - **`client/src/components/layout/DetailDrawer.tsx`** uses the hook (unique title id per instance). ROS modals that overlay the shell should follow the same pattern; see the sweep notes in **`client/UI_WORKSPACE_INVENTORY.md`**.
 - **Admin Workflow Pattern**: Prefer **`DetailDrawer`** slideouts for high-density resource management (e.g., **`StaffEditDrawer`**, **`CustomerRelationshipHubDrawer`**, **`ProductHubDrawer`**) to maintain context and shell stability. Centered modals (`ConfirmationModal`, `PromptModal`) are reserved for atomic intent checks and transient inputs.
+- **Close-only dismissal**: Dialogs, modals, drawers, popups, and lightboxes must not dismiss from backdrop/outside clicks. Every dismissible overlay needs an explicit visible Close, Cancel, or equivalent button so partially typed data is not lost by accidental outside clicks.
 
 ### Standardized Stacking Tiers & Portaling Mandate (v0.3.3+)
 To prevent "buried" interactive elements in complex nested workflows (e.g., opening a refund modal from a transaction drawer that was opened from a customer hub), Riverside OS enforces a strict **Stacking Tier** system combined with **Mandatory Portaling**.

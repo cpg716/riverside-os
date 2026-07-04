@@ -893,11 +893,9 @@ export default function CloseRegisterModal({
   if (registerLane != null && registerLane !== 1) {
     return createPortal(
       <div className="ui-overlay-backdrop !z-[200]">
-        <button
-          type="button"
+        <div
           className="absolute inset-0 bg-black/50"
-          onClick={() => void internalCancel()}
-          aria-label="Close"
+          aria-hidden="true"
         />
         <div
           ref={dialogRef}
@@ -933,11 +931,9 @@ export default function CloseRegisterModal({
   if (!reconcileCashierCode) {
     return createPortal(
       <div className="ui-overlay-backdrop !z-[200]">
-        <button
-          type="button"
+        <div
           className="absolute inset-0 bg-black/50"
-          onClick={onCancel}
-          aria-label="Close"
+          aria-hidden="true"
         />
         <div
           ref={dialogRef}
@@ -979,11 +975,9 @@ export default function CloseRegisterModal({
 
     return createPortal(
       <div className="ui-overlay-backdrop !z-[200]">
-        <button
-          type="button"
+        <div
           className="absolute inset-0 bg-black/50"
-          onClick={() => void internalCancel()}
-          aria-label="Close"
+          aria-hidden="true"
         />
         <div
           ref={dialogRef}
@@ -1155,11 +1149,9 @@ export default function CloseRegisterModal({
   if (reconError) {
     return createPortal(
       <div className="ui-overlay-backdrop !z-[200]">
-        <button
-          type="button"
+        <div
           className="absolute inset-0 bg-black/50"
-          onClick={() => void internalCancel()}
-          aria-label="Close"
+          aria-hidden="true"
         />
         <div
           ref={dialogRef}
@@ -1282,11 +1274,9 @@ export default function CloseRegisterModal({
   if (step === "checks") {
     return createPortal(
       <div className="ui-overlay-backdrop !z-[200]">
-        <button
-          type="button"
+        <div
           className="absolute inset-0 bg-black/50"
-          onClick={() => void internalCancel()}
-          aria-label="Close"
+          aria-hidden="true"
         />
         <div
           ref={dialogRef}
@@ -1432,11 +1422,9 @@ export default function CloseRegisterModal({
 
   return createPortal(
     <div className="ui-overlay-backdrop !z-[200]">
-      <button
-        type="button"
+      <div
         className="absolute inset-0 bg-black/50"
-        onClick={() => void internalCancel()}
-        aria-label="Close"
+        aria-hidden="true"
       />
       <div
         ref={dialogRef}

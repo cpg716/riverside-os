@@ -48,6 +48,7 @@ const AvatarIcon = ({
     <img
       src={`${baseUrl}/api/staff/avatar/${id}`}
       alt={name}
+      title={name}
       className={`${avatarSize} shrink-0 rounded-full border border-app-border object-cover bg-app-surface`}
       onError={(e) => {
         const target = e.target as HTMLImageElement;
