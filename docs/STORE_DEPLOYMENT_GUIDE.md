@@ -128,8 +128,10 @@ Use this checklist for the Windows PC that owns the store database and API:
 Helcim terminal approvals and terminal cancels are most reliable when Helcim can deliver signed webhooks to the ROS API. The production delivery URL for the Riverside store is:
 
 ```text
-https://ros.riversidemens.com/api/webhooks/helcim
+https://ros.riversidemens.com/api/webhooks/card-events
 ```
+
+Use the `/api/webhooks/card-events` path because Helcim requires HTTPS delivery URLs that do not contain the word "Helcim."
 
 If that hostname is backed by Cloudflare Tunnel, production must run `cloudflared` as a supervised host service on the machine that can reach the ROS API on port `3000`. The deployment installer and **Settings → Remote Access → Repair Cloudflare Tunnel** can repair the local tunnel origin when `RIVERSIDE_CLOUDFLARE_TUNNEL_HOSTNAME` is configured, but Cloudflare DNS/WAF records still live in Cloudflare. If the Main Hub does not already have a local `cloudflared` config, set `RIVERSIDE_CLOUDFLARE_TUNNEL_ID` and `RIVERSIDE_CLOUDFLARE_CREDENTIALS_FILE` in the deployment config so the installer can create it.
 
@@ -309,7 +311,7 @@ Key variables (full table in [`DEVELOPER.md`](../DEVELOPER.md)):
 | **Visual Crossing API key** | Configure in **Settings → Integrations → Weather**. See [`WEATHER_VISUAL_CROSSING.md`](WEATHER_VISUAL_CROSSING.md). |
 | **`RIVERSIDE_VISUAL_CROSSING_ENABLED`** | Optional; force live weather on/off. See [`WEATHER_VISUAL_CROSSING.md`](WEATHER_VISUAL_CROSSING.md). |
 
-**Secrets** (Helcim, QBO, sync tokens, Visual Crossing, Geoapify, Shippo, Podium, Meilisearch) are saved in Backoffice Settings through encrypted integration credentials; deployment still owns the root encryption key (`RIVERSIDE_CREDENTIALS_KEY`) and non-UI runtime flags. The client bundle only exposes **`VITE_*`**: **`VITE_API_BASE`**. If the UI and API are on the same origin you may intentionally leave `VITE_API_BASE` unset for browser/PWA builds; otherwise set it explicitly per build. Optional: **`VITE_STOREFRONT_EMBEDS`** (Podium widget on public builds — [`PLAN_PODIUM_SMS_INTEGRATION.md`](PLAN_PODIUM_SMS_INTEGRATION.md)), **`VITE_GRAPESJS_STUDIO_LICENSE_KEY`** (GrapesJS Studio in **Settings → Online store** on non-localhost — [`ONLINE_STORE.md`](ONLINE_STORE.md)).
+**Secrets** (Helcim, QBO, sync tokens, Visual Crossing, Geoapify, Shippo, Podium, Meilisearch) are saved in Backoffice Settings through encrypted integration credentials; deployment still owns the root encryption key (`RIVERSIDE_CREDENTIALS_KEY`) and non-UI runtime flags. The client bundle only exposes **`VITE_*`**: **`VITE_API_BASE`**. If the UI and API are on the same origin you may intentionally leave `VITE_API_BASE` unset for browser/PWA builds; otherwise set it explicitly per build. Optional: **`VITE_STOREFRONT_EMBEDS`** (Podium widget on public builds — [`PLAN_PODIUM_SMS_INTEGRATION.md`](PLAN_PODIUM_SMS_INTEGRATION.md)). The GrapesJS Studio license for **Settings → Online store** is normally saved in **Online Store Security**; **`VITE_GRAPESJS_STUDIO_LICENSE_KEY`** is fallback/local-dev only — [`ONLINE_STORE.md`](ONLINE_STORE.md).
 
 **Release posture:** for production browser deployments, pair **`RIVERSIDE_STRICT_PRODUCTION=true`** with an explicit **`FRONTEND_DIST`** and exact **`RIVERSIDE_CORS_ORIGINS`** values before opening the store.
 
@@ -399,12 +401,12 @@ This section matches a common Riverside deployment: **Zebra** scanners and label
 - [ ] Reader visible/healthy in store payment settings.
 - [ ] Terminal 1 device code saved in **Settings → Helcim** or `HELCIM_TERMINAL_1_DEVICE_CODE`.
 - [ ] Terminal 2 device code saved in **Settings → Helcim** or `HELCIM_TERMINAL_2_DEVICE_CODE`.
-- [ ] Optional: Helcim webhook delivery URL configured only if ROS has a public HTTPS API URL: `https://<public-ros-api-host>/api/webhooks/helcim`.
+- [ ] Optional: Helcim webhook delivery URL configured only if ROS has a public HTTPS API URL: `https://<public-ros-api-host>/api/webhooks/card-events`.
 - [ ] Optional: Helcim webhook events enabled: `cardTransaction` and `terminalCancel`.
 - [ ] Optional: Helcim webhook signing secret saved in **Settings → Helcim**.
 - [ ] Optional: First signed webhook received by ROS verified in **Payments → Health**. Confirm separately whether the provider event attached to a ROS checkout; webhook receipt alone does not prove ROS recorded a payment.
 - [ ] Card Reader path validated: ROS sends the amount to the selected terminal and records the approved Helcim attempt.
-- [ ] Manual Card / phone-order path validated: ROS sends the amount to the selected terminal and staff key the card on the terminal, not in ROS.
+- [ ] Manual Card / phone-order path validated: ROS opens hosted HelcimPay.js keyed entry and never asks staff to type PAN or CVV into ROS-owned fields.
 - [ ] Card Refund path validated with an original Helcim transaction id: ROS sends the refund to the selected terminal and records the approved refund as a negative card tender.
 - [ ] Saved Card path validated with a customer Helcim vault card: ROS charges the token and stores only safe provider metadata.
 - [ ] Reader disconnect/failure fallback procedure trained.

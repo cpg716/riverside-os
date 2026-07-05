@@ -1,8 +1,8 @@
 # Plan: Metabase + Insights (same-origin shell, OSS)
 
-**Status:** **Phase 1 shipped** (proxy, Compose, `InsightsShell`, Staff **Commission payouts**). **Phase 2 shipped:** migrations **`90_reporting_insights.sql`** + **`96_reporting_business_day_geo_loyalty.sql`** (`reporting.*` views including business-day totals, customer geo, staff names, loyalty views; **`metabase_ro`**), **Settings → Insights** (`insights_config`), optional **JWT handoff** (`RIVERSIDE_METABASE_JWT_SECRET` + Metabase JWT auth — usually paid). Further views + catalog sync remain incremental. This document stays the architecture + ops runbook.
+**Status:** **Phase 1 shipped** (proxy, Compose, `InsightsShell`, Staff **Commission payouts**). **Phase 2 shipped:** migrations **`90_reporting_insights.sql`** + **`96_reporting_business_day_geo_loyalty.sql`** (`reporting.*` views including business-day totals, customer geo, staff names, loyalty views; **`metabase_ro`**), **Settings → Insights** (`insights_config`), optional **JWT handoff** (`RIVERSIDE_METABASE_JWT_SECRET` + Metabase JWT auth — paid Metabase only). Further views + catalog sync remain incremental. This document stays the architecture + ops runbook.
 
-**Summary:** Self-hosted OSS [metabase/metabase](https://github.com/metabase/metabase) is the **only** analytics UI: the sidebar keeps the label **Insights**, but choosing it opens an **Insights shell** (same pattern as [WeddingShell](../client/src/components/layout/WeddingShell.tsx))—thin Riverside chrome and a **full-viewport iframe** pointing at **Metabase’s full app** on a **same-origin** path (e.g. `/metabase/`) via a **reverse proxy**. OSS stations should use Riverside's saved shared-auth launcher: Admin staff launch with the saved Admin Metabase account and other staff launch with the saved Staff Metabase account. Paid Metabase stations can instead enable **JWT handoff** in **Settings → Insights** with a matching Metabase JWT signing string. **Commission payout** finalization (ledger + finalize) lives under **Staff → Commission payouts**, separate from **Staff → Commission** (category rates). Phase 2 baseline: **`reporting.*` views** + **`metabase_ro`**, **Settings** policy fields. Staff manual: **`client/src/assets/docs/insights-manual.md`** (Help Center) and **`docs/staff/insights-back-office.md`**.
+**Summary:** Self-hosted OSS [metabase/metabase](https://github.com/metabase/metabase) is the **only** analytics UI: the sidebar keeps the label **Insights**, but choosing it opens an **Insights shell** (same pattern as [WeddingShell](../client/src/components/layout/WeddingShell.tsx)) with thin Riverside chrome and same-origin **`/metabase/`** routing. OSS stations should use Riverside's saved shared-auth launcher: Admin staff launch with the saved Admin Metabase account and other staff launch with the saved Staff Metabase account. Paid Metabase stations can instead enable **JWT handoff** in **Settings → Insights** with a matching Metabase JWT signing string. **Commission payout** finalization (ledger + finalize) lives under **Staff → Commission payouts**, separate from **Staff → Commission** (category rates). Phase 2 baseline: **`reporting.*` views** + **`metabase_ro`**, **Settings** policy fields. Staff manual: **`client/src/assets/docs/insights-manual.md`** (Help Center) and **`docs/staff/insights-back-office.md`**.
 
 **Deprecated as primary UX:** Static JWT embedding (`GET /api/insights/metabase-embed`, `#theme=night`, single-dashboard-only) is **not** the target integration. An optional appendix below records that pattern only if a future need arises (e.g. a public kiosk dashboard).
 
@@ -33,12 +33,14 @@
 - **Riverside shell:** Sidebar label **Insights**; entering Insights leaves the normal Back Office layout and shows **InsightsShell** (Wedding Manager–style): minimal top bar + full-height iframe.
 - **Same origin:** Browser origin for ROS SPA and Metabase (proxied path) is **identical** (scheme + host + port) so session cookies and framing stay simple.
 - **Metabase logins (staff vs admin):** Riverside **`insights.view`** opens the iframe; **sensitive data in Metabase** (margin, cost, private collections) is controlled by the Metabase account used for launch. Recommended: saved **staff-class** and **admin-class** Metabase accounts for OSS, or paid JWT SSO with matching Metabase groups — see **`docs/METABASE_REPORTING.md`** § Operational standard.
+- **OSS feature boundary:** Current Metabase docs classify **JWT SSO**, **full app embedding**, and **custom appearance / white-labeling** as Pro / Enterprise features. The OSS baseline uses Metabase's native UI and site name; do not inject CSS/JS to hide Metabase branding.
 - **Commission payouts in Staff:** Payout manager lives under **Staff → Commission payouts**, not under Insights. **Staff → Commission** remains **category commission rates** (`staff.manage_commission`) — do not conflate the two.
 
 **Non-goals (Phase 1)**
 
 - **Per-person SSO** between Riverside and Metabase in the OSS baseline.
 - **Automatic** mapping of every Riverside staff member to a distinct Metabase user without ops setup (Metabase **People** and **groups** remain ops-managed; **staff-class vs admin-class** launch accounts are **required** for margin governance per **`METABASE_REPORTING.md`** unless paid JWT SSO is adopted).
+- **White-labeling** or concealing Metabase branding in the OSS baseline.
 - Defining every **reporting view** in SQL (Phase 2).
 
 ---
@@ -163,7 +165,7 @@ Use current [Metabase installation](https://www.metabase.com/docs/latest/install
 1. **Run Metabase** (Compose service or separate host); provision **Metabase application database** (Postgres recommended for prod; dev may use H2 only if acceptable).
 2. **Reverse proxy:** Expose Metabase under the **same origin** as ROS at the chosen path (e.g. `/metabase/`).
 3. **Admin setup wizard:** Create the **store** Metabase user (and optional separate Metabase admin for ops). Set **Site URL** to the URL browsers use (including path prefix if applicable). For Tailscale, use stable **MagicDNS** or hostname.
-4. **Add database:** Postgres → `riverside_os` (from Metabase’s network: e.g. `host.docker.internal:5433` for local Compose per [docker-compose.yml](../docker-compose.yml) host port **5433**).
+4. **Add database:** Postgres → `riverside_os` (from the repo Compose network, prefer host **`db`**, port **5432**; use **`host.docker.internal:5433`** only when Metabase is not on the Compose network).
    - **Phase 1:** Dedicated DB user is ideal even before views (see §10).
 5. **Smoke test:** Log in as the store user, run a simple question or dashboard.
 6. **License awareness:** Read [LICENSE.txt](https://github.com/metabase/metabase/blob/master/LICENSE.txt) for OSS use (not legal advice).
@@ -177,7 +179,7 @@ Use current [Metabase installation](https://www.metabase.com/docs/latest/install
 Add optional services to [docker-compose.yml](../docker-compose.yml):
 
 - **`metabase-db`:** Postgres for Metabase **metadata** only (separate volume from `riverside_pgdata`).
-- **`metabase`:** `metabase/metabase:<pin>` with `MB_DB_TYPE=postgres`, `MB_DB_*` → `metabase-db`.
+- **`metabase`:** `metabase/metabase:v0.62.3.x` with `MB_DB_TYPE=postgres`, `MB_DB_*` → `metabase-db`; root `.env` may override **`METABASE_SITE_URL`**, **`METABASE_SITE_NAME`**, **`METABASE_JAVA_TIMEZONE`**, **`METABASE_ANON_TRACKING_ENABLED`**, **`METABASE_ENABLE_PUBLIC_SHARING`**, and optional native **`MB_ENCRYPTION_SECRET_KEY`**.
 - **Publish:** Either **internal-only** port (proxy on host reaches Metabase) or a dev port (e.g. **3001**) with Vite/nginx proxying `/metabase/` → that port.
 
 **Do not** store Metabase application data in the `riverside_os` database.

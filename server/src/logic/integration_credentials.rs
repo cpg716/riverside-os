@@ -260,6 +260,11 @@ pub const INTEGRATION_CREDENTIAL_MAPPINGS: &[IntegrationCredentialMapping] = &[
         credential_key: "customer_jwt_secret",
         env_key: "RIVERSIDE_STORE_CUSTOMER_JWT_SECRET",
     },
+    IntegrationCredentialMapping {
+        integration_key: "online_store",
+        credential_key: "grapesjs_studio_license_key",
+        env_key: "VITE_GRAPESJS_STUDIO_LICENSE_KEY",
+    },
     // Fal.ai settings mapping
     IntegrationCredentialMapping {
         integration_key: "fal",
@@ -290,6 +295,11 @@ pub const INTEGRATION_CREDENTIAL_MAPPINGS: &[IntegrationCredentialMapping] = &[
         integration_key: "edge_access",
         credential_key: "cloudflare_tunnel_token",
         env_key: "RIVERSIDE_CLOUDFLARE_TUNNEL_TOKEN",
+    },
+    IntegrationCredentialMapping {
+        integration_key: "edge_access",
+        credential_key: "cloudflare_credentials_json",
+        env_key: "RIVERSIDE_CLOUDFLARE_CREDENTIALS_JSON",
     },
     IntegrationCredentialMapping {
         integration_key: "edge_access",
@@ -330,6 +340,86 @@ pub const INTEGRATION_CREDENTIAL_MAPPINGS: &[IntegrationCredentialMapping] = &[
         integration_key: "constant_contact",
         credential_key: "refresh_token",
         env_key: "RIVERSIDE_CC_REFRESH_TOKEN",
+    },
+    IntegrationCredentialMapping {
+        integration_key: "rosie",
+        credential_key: "local_llm_base_url",
+        env_key: "ROSIE_LOCAL_LLM_BASE_URL",
+    },
+    IntegrationCredentialMapping {
+        integration_key: "rosie",
+        credential_key: "local_llm_model",
+        env_key: "ROSIE_LOCAL_LLM_MODEL",
+    },
+    IntegrationCredentialMapping {
+        integration_key: "rosie",
+        credential_key: "remote_lmstudio_base_url",
+        env_key: "ROSIE_REMOTE_LMSTUDIO_BASE_URL",
+    },
+    IntegrationCredentialMapping {
+        integration_key: "rosie",
+        credential_key: "remote_lmstudio_model",
+        env_key: "ROSIE_REMOTE_LMSTUDIO_MODEL",
+    },
+    IntegrationCredentialMapping {
+        integration_key: "rosie",
+        credential_key: "openai_api_key",
+        env_key: "OPENAI_API_KEY",
+    },
+    IntegrationCredentialMapping {
+        integration_key: "rosie",
+        credential_key: "openai_base_url",
+        env_key: "OPENAI_BASE_URL",
+    },
+    IntegrationCredentialMapping {
+        integration_key: "rosie",
+        credential_key: "openai_llm_model",
+        env_key: "ROSIE_OPENAI_LLM_MODEL",
+    },
+    IntegrationCredentialMapping {
+        integration_key: "rosie",
+        credential_key: "openai_stt_model",
+        env_key: "ROSIE_OPENAI_STT_MODEL",
+    },
+    IntegrationCredentialMapping {
+        integration_key: "rosie",
+        credential_key: "openai_tts_model",
+        env_key: "ROSIE_OPENAI_TTS_MODEL",
+    },
+    IntegrationCredentialMapping {
+        integration_key: "rosie",
+        credential_key: "openai_tts_voice",
+        env_key: "ROSIE_OPENAI_TTS_VOICE",
+    },
+    IntegrationCredentialMapping {
+        integration_key: "rosie",
+        credential_key: "gemini_api_key",
+        env_key: "GEMINI_API_KEY",
+    },
+    IntegrationCredentialMapping {
+        integration_key: "rosie",
+        credential_key: "gemini_base_url",
+        env_key: "ROSIE_GEMINI_BASE_URL",
+    },
+    IntegrationCredentialMapping {
+        integration_key: "rosie",
+        credential_key: "gemini_model",
+        env_key: "ROSIE_GEMINI_MODEL",
+    },
+    IntegrationCredentialMapping {
+        integration_key: "rosie",
+        credential_key: "gemini_stt_model",
+        env_key: "ROSIE_GEMINI_STT_MODEL",
+    },
+    IntegrationCredentialMapping {
+        integration_key: "rosie",
+        credential_key: "gemini_tts_model",
+        env_key: "ROSIE_GEMINI_TTS_MODEL",
+    },
+    IntegrationCredentialMapping {
+        integration_key: "rosie",
+        credential_key: "gemini_tts_voice",
+        env_key: "ROSIE_GEMINI_TTS_VOICE",
     },
 ];
 
@@ -774,6 +864,7 @@ mod tests {
         assert!(keys.contains(&"cloudflare_tunnel_hostname"));
         assert!(keys.contains(&"cloudflare_tunnel_id"));
         assert!(keys.contains(&"cloudflare_tunnel_token"));
+        assert!(keys.contains(&"cloudflare_credentials_json"));
         assert!(keys.contains(&"cloudflare_api_token"));
         assert!(keys.contains(&"cloudflare_account_id"));
         assert!(keys.contains(&"cloudflare_zone_id"));
@@ -781,6 +872,42 @@ mod tests {
         assert_eq!(
             env_key_for("edge_access", "cloudflare_api_token"),
             Some("RIVERSIDE_CLOUDFLARE_API_TOKEN")
+        );
+    }
+
+    #[test]
+    fn online_store_credentials_are_supported() {
+        let keys = credential_keys_for_integration("online_store");
+
+        assert!(keys.contains(&"customer_jwt_secret"));
+        assert!(keys.contains(&"grapesjs_studio_license_key"));
+        assert_eq!(
+            env_key_for("online_store", "grapesjs_studio_license_key"),
+            Some("VITE_GRAPESJS_STUDIO_LICENSE_KEY")
+        );
+    }
+
+    #[test]
+    fn rosie_cloud_provider_credentials_are_supported() {
+        let keys = credential_keys_for_integration("rosie");
+
+        assert!(keys.contains(&"local_llm_base_url"));
+        assert!(keys.contains(&"remote_lmstudio_base_url"));
+        assert!(keys.contains(&"openai_api_key"));
+        assert!(keys.contains(&"openai_llm_model"));
+        assert!(keys.contains(&"openai_stt_model"));
+        assert!(keys.contains(&"openai_tts_model"));
+        assert!(keys.contains(&"gemini_api_key"));
+        assert!(keys.contains(&"gemini_model"));
+        assert!(keys.contains(&"gemini_stt_model"));
+        assert!(keys.contains(&"gemini_tts_model"));
+        assert_eq!(
+            env_key_for("rosie", "openai_api_key"),
+            Some("OPENAI_API_KEY")
+        );
+        assert_eq!(
+            env_key_for("rosie", "gemini_api_key"),
+            Some("GEMINI_API_KEY")
         );
     }
 }

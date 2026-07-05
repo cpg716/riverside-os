@@ -667,7 +667,7 @@ async fn get_github_workflows(
     let token = state.github_token.as_deref().ok_or_else(|| {
         (
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "RIVERSIDE_GITHUB_TOKEN not configured"})),
+            Json(json!({"error": "GitHub token not configured in Settings or RIVERSIDE_GITHUB_TOKEN"})),
         )
             .into_response()
     })?;
@@ -689,7 +689,7 @@ async fn get_github_releases(
     let token = state.github_token.as_deref().ok_or_else(|| {
         (
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "RIVERSIDE_GITHUB_TOKEN not configured"})),
+            Json(json!({"error": "GitHub token not configured in Settings or RIVERSIDE_GITHUB_TOKEN"})),
         )
             .into_response()
     })?;
@@ -719,7 +719,7 @@ async fn post_github_dispatch(
     let token = state.github_token.as_deref().ok_or_else(|| {
         (
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "RIVERSIDE_GITHUB_TOKEN not configured"})),
+            Json(json!({"error": "GitHub token not configured in Settings or RIVERSIDE_GITHUB_TOKEN"})),
         )
             .into_response()
     })?;

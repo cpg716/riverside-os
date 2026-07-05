@@ -19,6 +19,11 @@ import {
 import DetailDrawer from "../layout/DetailDrawer";
 import NumericPinKeypad from "../ui/NumericPinKeypad";
 import { centsToFixed2, parseMoneyToCents, calculateSwedishRounding } from "../../lib/money";
+import {
+  HELCIM_PAY_SCRIPT_URL,
+  helcimPayRuntimeBlocker,
+  helcimPayWhitelistHint,
+} from "../../lib/helcimPayRuntime";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { useToast } from "../ui/ToastProviderLogic";
@@ -143,7 +148,7 @@ function loadHelcimPayScript(): Promise<void> {
   }
   return new Promise((resolve, reject) => {
     const script = document.createElement("script");
-    script.src = "https://secure.helcim.app/helcim-pay/services/start.js";
+    script.src = HELCIM_PAY_SCRIPT_URL;
     script.async = true;
     script.dataset.rosHelcimPay = "true";
     script.addEventListener("load", () => resolve(), { once: true });
@@ -1486,6 +1491,11 @@ export default function NexoCheckoutDrawer({
 
   const startHostedManualCardPayment = useCallback(
     async (amtCents: number) => {
+      const runtimeBlocker = helcimPayRuntimeBlocker();
+      if (runtimeBlocker) {
+        toast(runtimeBlocker, "error");
+        return;
+      }
       setHelcimAttemptLoading(true);
       pendingHelcimCentsRef.current = amtCents;
       pendingHelcimTenderRef.current = { method: "card_manual", label: "HELCIM KEYED" };
@@ -1597,7 +1607,7 @@ export default function NexoCheckoutDrawer({
           throw new Error("HelcimPay.js could not be loaded.");
         }
         window.appendHelcimPayIframe(checkoutToken, true);
-        toast("Secure Helcim card entry opened in ROS.", "info");
+        toast(`Secure Helcim card entry opened in ROS. ${helcimPayWhitelistHint()}`, "info");
       } catch (error) {
         if (hostedAttemptId) {
           void releaseHelcimAttempt(hostedAttemptId).catch(() => {

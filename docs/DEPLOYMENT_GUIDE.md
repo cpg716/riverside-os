@@ -1233,11 +1233,11 @@ The DevOps Center reads from and writes to GitHub via server-side API proxy:
 
 ### Configuration
 
-Set `RIVERSIDE_GITHUB_TOKEN` in server environment (`.env` or deployment config):
+Prefer **Settings → ROS Dev Center** for the GitHub repository and token. The legacy `RIVERSIDE_GITHUB_TOKEN` server env remains a deployment fallback:
 - **Scopes needed**: `repo` (read), `workflow` (write for dispatch)
 - **Never expose to client** — the token is server-side only
 
-The token is read at startup and stored in `AppState.github_token`. If not configured, the GitHub section shows a "not configured" message.
+The server reads the app-managed ROS Dev Center token first, then falls back to `RIVERSIDE_GITHUB_TOKEN` at startup. If neither is configured, the GitHub section shows a "not configured" message.
 
 ---
 

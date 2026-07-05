@@ -23,6 +23,7 @@ use crate::auth::permissions::{
     effective_permissions_for_staff, staff_has_permission, ONLINE_STORE_MANAGE, SETTINGS_ADMIN,
 };
 use crate::auth::pins::AuthenticatedStaff;
+use crate::logic::integration_credentials;
 use crate::logic::shippo::{self, ShippoError};
 use crate::logic::store_cart_resolve;
 use crate::logic::store_catalog;
@@ -211,6 +212,62 @@ async fn require_store_manage(
     headers: &HeaderMap,
 ) -> Result<(), (StatusCode, Json<Value>)> {
     require_store_manage_staff(state, headers).await.map(|_| ())
+}
+
+#[derive(Debug, Serialize)]
+struct StoreStudioLicenseResponse {
+    license_key: String,
+    configured: bool,
+    source: &'static str,
+}
+
+fn env_studio_license_key() -> Option<String> {
+    std::env::var("VITE_GRAPESJS_STUDIO_LICENSE_KEY")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+async fn admin_get_studio_license(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if let Err(response) = require_store_manage(&state, &headers).await {
+        return response.into_response();
+    }
+
+    let saved = match integration_credentials::load_integration_credentials(
+        &state.db,
+        "online_store",
+        &["grapesjs_studio_license_key"],
+    )
+    .await
+    {
+        Ok(values) => values
+            .get("grapesjs_studio_license_key")
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty()),
+        Err(error) => {
+            tracing::error!(%error, "failed to load GrapesJS Studio license credential");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "could not load Studio license" })),
+            )
+                .into_response();
+        }
+    };
+
+    let (license_key, source) = saved
+        .map(|value| (value, "settings"))
+        .or_else(|| env_studio_license_key().map(|value| (value, "env")))
+        .unwrap_or_else(|| ("DEV_LICENSE_KEY".to_string(), "dev"));
+
+    Json(StoreStudioLicenseResponse {
+        configured: license_key != "DEV_LICENSE_KEY",
+        license_key,
+        source,
+    })
+    .into_response()
 }
 
 fn sanitize_page_html(raw: &str) -> String {
@@ -2631,6 +2688,7 @@ pub fn public_router() -> Router<AppState> {
 pub fn admin_router() -> Router<AppState> {
     Router::new()
         .route("/dashboard", get(admin_store_dashboard))
+        .route("/studio-license", get(admin_get_studio_license))
         .route("/orders", get(admin_list_web_orders))
         .route("/orders/{id}", patch(admin_update_web_order))
         .route("/carts", get(admin_list_checkout_sessions))

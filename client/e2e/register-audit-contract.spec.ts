@@ -185,7 +185,11 @@ async function expectPendingQboStagingForToday(request: APIRequestContext): Prom
         );
         if (res.status() !== 200) return false;
         const rows = (await res.json()) as QboStagingRow[];
-        return rows.some((row) => row.sync_date === businessDate && row.status === "pending");
+        return rows.some(
+          (row) =>
+            row.sync_date === businessDate &&
+            (row.status === "pending" || row.status === "needs_review"),
+        );
       },
       { timeout: 10_000 },
     )

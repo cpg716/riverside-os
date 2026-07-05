@@ -69,7 +69,7 @@ If you **do not** see **Insights**, your role may not include **insights.view**.
 
 ## Sign in to Metabase
 
-Configured stations should open Metabase automatically. Admin staff launch with the saved Admin Metabase account; other staff launch with the saved Staff Metabase account. The first time, after a logout, or when the station is missing Metabase credentials, Metabase may show its **own** login page inside the frame.
+Configured free Metabase OSS stations should open Metabase automatically with the saved Admin or Staff Metabase account. Admin staff launch with the saved Admin Metabase account; other staff launch with the saved Staff Metabase account. Paid Metabase stations may use JWT SSO instead. The first time, after a logout, or when the station is missing Metabase credentials, Metabase may show its **own** login page inside the frame.
 
 1. Use the **Metabase username** you were assigned if automatic launch is unavailable. Stores should use **at least two classes** of Metabase login: **staff** (staff-safe dashboards only — typically **no** margin or cost) and **admin** (full reporting, including margin on **`reporting.*** views). **`insights.view`** in Riverside only opens the shell; **the Metabase account** controls private data inside Metabase.
 2. After a successful login, Metabase keeps a **session cookie** in the **same browser** as Riverside, so returning to **Insights** usually stays signed in.
@@ -126,7 +126,7 @@ Fixed SPIFF and combo incentives are managed under **Staff** → **Commissions**
 | Symptom | What to try |
 |--------|----------------|
 | Blank or gray iframe | Metabase service may be down, or the store proxy is off — contact IT. |
-| Automatic sign-in warning | Ask an admin to check **Settings → Integrations → Insights**. The station needs either saved Staff/Admin shared-auth credentials or paid Metabase JWT SSO configured. |
+| Automatic sign-in warning | Ask an admin to check **Settings → Integrations → Insights**. Free OSS stations need saved Staff/Admin shared-auth credentials; JWT SSO is for paid Metabase plans. |
 | Metabase login loop or broken links | **Site URL** in Metabase admin must match how staff open the store (including **`/metabase`** if you use that path). |
 | 404 or “proxy disabled” | Server ops may have turned off the Metabase upstream — see **DEVELOPER.md** (Metabase section). |
 | Cannot see **Commission reports** | You need **insights.view**. |

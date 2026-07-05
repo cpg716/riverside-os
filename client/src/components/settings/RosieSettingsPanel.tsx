@@ -21,6 +21,7 @@ import {
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
 import RosieIcon from "../common/RosieIcon";
+import IntegrationCredentialsCard from "./IntegrationCredentialsCard";
 
 const baseUrl = getBaseUrl();
 
@@ -469,6 +470,119 @@ export default function RosieSettingsPanel() {
             </div>
           )}
         </div>
+
+        {canManageStoreDefaults ? (
+          <div className="mt-6">
+            <IntegrationCredentialsCard
+              baseUrl={baseUrl}
+              integrationKey="rosie"
+              title="ROSIE Provider Credentials"
+              description="Save ROSIE provider endpoints, API keys, and speech model names here. Environment values are fallback/bootstrap only; cloud API keys stay encrypted on the Riverside server."
+              fields={[
+                {
+                  key: "local_llm_base_url",
+                  label: "Local Gemma base URL",
+                  type: "url",
+                  placeholder: "http://127.0.0.1:8080",
+                  help: "Server-governed local llama.cpp endpoint.",
+                },
+                {
+                  key: "local_llm_model",
+                  label: "Local Gemma model",
+                  type: "text",
+                  placeholder: "Gemma 4 E4B",
+                },
+                {
+                  key: "remote_lmstudio_base_url",
+                  label: "Remote LM Studio base URL",
+                  type: "url",
+                  placeholder: "http://127.0.0.1:1234/v1",
+                  help: "Private OpenAI-compatible LM Studio endpoint on the work hub.",
+                },
+                {
+                  key: "remote_lmstudio_model",
+                  label: "Remote LM Studio model",
+                  type: "text",
+                  placeholder: "gemma-4-12B-it-q5_k_m.gguf",
+                },
+                {
+                  key: "openai_api_key",
+                  label: "OpenAI API key",
+                  type: "password",
+                },
+                {
+                  key: "openai_base_url",
+                  label: "OpenAI base URL",
+                  type: "url",
+                  placeholder: "https://api.openai.com",
+                },
+                {
+                  key: "openai_llm_model",
+                  label: "OpenAI chat model",
+                  type: "text",
+                  placeholder: "gpt-4.1-mini",
+                },
+                {
+                  key: "openai_stt_model",
+                  label: "OpenAI speech-to-text model",
+                  type: "text",
+                  placeholder: "gpt-4o-mini-transcribe",
+                },
+                {
+                  key: "openai_tts_model",
+                  label: "OpenAI speech output model",
+                  type: "text",
+                  placeholder: "gpt-4o-mini-tts",
+                },
+                {
+                  key: "openai_tts_voice",
+                  label: "OpenAI speech voice",
+                  type: "text",
+                  placeholder: "alloy",
+                },
+                {
+                  key: "gemini_api_key",
+                  label: "Gemini API key",
+                  type: "password",
+                },
+                {
+                  key: "gemini_base_url",
+                  label: "Gemini base URL",
+                  type: "url",
+                  placeholder: "https://generativelanguage.googleapis.com",
+                },
+                {
+                  key: "gemini_model",
+                  label: "Gemini chat model",
+                  type: "text",
+                  placeholder: "gemini-2.5-pro",
+                },
+                {
+                  key: "gemini_stt_model",
+                  label: "Gemini speech-to-text model",
+                  type: "text",
+                  placeholder: "gemini-2.5-flash",
+                },
+                {
+                  key: "gemini_tts_model",
+                  label: "Gemini speech output model",
+                  type: "text",
+                  placeholder: "gemini-2.5-flash-preview-tts",
+                },
+                {
+                  key: "gemini_tts_voice",
+                  label: "Gemini speech voice",
+                  type: "text",
+                  placeholder: "Kore",
+                },
+              ]}
+              onSaved={async () => {
+                await loadLocalRuntime();
+                await loadIntelligenceStatus();
+              }}
+            />
+          </div>
+        ) : null}
 
         <div className="mt-8 grid grid-cols-1 gap-4 lg:grid-cols-2">
           <label className="flex items-center justify-between gap-4 rounded-xl border border-app-border bg-app-surface p-4 cursor-pointer">

@@ -324,6 +324,15 @@
       "proof": "Printer settings drawer test uses the central receipt station service."
     },
     {
+      "id": "quickbooks-oauth-browser-handoff",
+      "file": "client/src/components/settings/QuickBooksSettingsPanel.tsx",
+      "callee": "window.open",
+      "occurrences": 1,
+      "kind": "external-oauth",
+      "route": "preview",
+      "previewReason": "QuickBooks authorization opens Intuit OAuth in a browser tab and is not a printer, report, tag, or receipt route."
+    },
+    {
       "id": "receipt-builder-test-direct-receipt",
       "file": "client/src/components/settings/ReceiptBuilderPanel.tsx",
       "callee": "printReceiptBase64",

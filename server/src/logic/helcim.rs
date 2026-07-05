@@ -1023,7 +1023,7 @@ pub async fn get_device(
     config: &HelcimConfig,
     code: &str,
 ) -> Result<Value, String> {
-    let code = normalized_device_code(code)?;
+    let code = normalize_device_code(code)?;
     let path = format!("devices/{code}");
     send_get_request(http, config, &path, &[]).await
 }
@@ -1033,7 +1033,7 @@ pub async fn ping_device(
     config: &HelcimConfig,
     code: &str,
 ) -> Result<Value, String> {
-    let code = normalized_device_code(code)?;
+    let code = normalize_device_code(code)?;
     let token = config
         .api_token()
         .ok_or_else(|| "Helcim API token is not saved in Backoffice Settings.".to_string())?;
@@ -1254,6 +1254,12 @@ pub async fn start_terminal_purchase(
     request: HelcimPurchaseRequest,
     idempotency_key: &str,
 ) -> Result<HelcimAcceptedPurchaseResponse, HelcimTerminalRequestError> {
+    let device_code =
+        normalize_device_code(device_code).map_err(|message| HelcimTerminalRequestError {
+            status: None,
+            message,
+            raw_text: None,
+        })?;
     let token = config
         .api_token()
         .ok_or_else(|| HelcimTerminalRequestError {
@@ -1347,6 +1353,7 @@ pub async fn start_terminal_refund(
     request: HelcimTerminalRefundRequest,
     idempotency_key: &str,
 ) -> Result<HelcimAcceptedPurchaseResponse, String> {
+    let device_code = normalize_device_code(device_code)?;
     let token = config
         .api_token()
         .ok_or_else(|| "Helcim API token is not saved in Backoffice Settings.".to_string())?;
@@ -1562,10 +1569,10 @@ fn response_error_message_sync(
     detail
 }
 
-fn normalized_device_code(code: &str) -> Result<String, String> {
+pub fn normalize_device_code(code: &str) -> Result<String, String> {
     let code = code.trim().to_ascii_uppercase();
-    if code.is_empty() || code.len() > 4 || !code.chars().all(|c| c.is_ascii_alphanumeric()) {
-        return Err("Helcim device code must be 1 to 4 alphanumeric characters".to_string());
+    if code.len() != 4 || !code.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return Err("Helcim device code must be exactly 4 alphanumeric characters.".to_string());
     }
     Ok(code)
 }
@@ -1744,7 +1751,7 @@ pub async fn health_check(http: &reqwest::Client) -> HelcimHealth {
             message: "Helcim simulator mode is active".to_string(),
         };
     }
-    match list_card_terminals(http, &config).await {
+    match test_connection(http, &config).await {
         Ok(_) => HelcimHealth {
             configured: true,
             reachable: true,
@@ -1758,6 +1765,13 @@ pub async fn health_check(http: &reqwest::Client) -> HelcimHealth {
             message: e,
         },
     }
+}
+
+pub async fn test_connection(
+    http: &reqwest::Client,
+    config: &HelcimConfig,
+) -> Result<Value, String> {
+    send_get_request(http, config, "connection-test", &[]).await
 }
 
 fn api_base_host(value: &str) -> String {
@@ -1853,6 +1867,14 @@ mod tests {
         }
     }
     use serde_json::json;
+
+    #[test]
+    fn normalizes_four_character_device_codes() {
+        assert_eq!(normalize_device_code(" ab12 ").unwrap(), "AB12");
+        assert!(normalize_device_code("ABC").is_err());
+        assert!(normalize_device_code("ABCDE").is_err());
+        assert!(normalize_device_code("AB-1").is_err());
+    }
 
     #[test]
     fn extracts_explicit_fee_and_net_fields_from_helcim_payload() {

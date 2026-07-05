@@ -9,7 +9,7 @@ This directory documents the current Riverside OS API surface from the Rust Axum
 Inspected high-risk route families first:
 
 - POS / Register: `/api/transactions`, `/api/sessions`, `/api/pos`
-- Payments / Helcim: `/api/payments`, `/api/webhooks/helcim`, `/api/webhooks/card-events`
+- Payments / Helcim: `/api/payments`, `/api/webhooks/card-events`, legacy alias `/api/webhooks/helcim`
 - Accounting / QBO: `/api/qbo`, `/api/auth/qbo`
 - Inventory / Procurement: `/api/products`, `/api/inventory`, `/api/inventory/physical`, `/api/purchase-orders`, `/api/order-lifecycle`
 - Staff Access / Manager Access: `/api/staff`, `/api/auth`, auth middleware

@@ -48,7 +48,9 @@ If there are no card payments yet, the tab shows **No payments yet today**. Run 
 
 Use **POS → Payments** for same-day register review. It opens to **Today**, which lists the current day’s Helcim card transactions. Select a row to review the payment, provider reference, batch state, fee/net readiness, and related reconciliation history.
 
-Use **Terminal Health** from the same POS Payments screen when a terminal attempt, webhook update, or close-blocking card issue needs review before Z-close. POS Payments is read/review focused; it does not replace the checkout drawer for collecting money and does not change payment amounts.
+Use **Refund** from the same POS Payments screen for a standalone Helcim card refund when the original Helcim transaction ID is known and the refund is not part of an in-cart return/exchange workflow. ROS starts the provider refund and records the Helcim attempt in Payments, but it does not create a sales refund or change a Transaction Record by itself.
+
+Use **Terminal Health** when a terminal attempt, webhook update, or close-blocking card issue needs review before Z-close. POS Payments does not replace the checkout drawer for collecting sale payments and does not change sale totals.
 
 Managers and bookkeepers still use **Back Office → Payments** for broader batch, deposit, reconciliation, and sync work.
 
@@ -60,6 +62,8 @@ Use the POS checkout drawer for live card collection.
 - **Manual Card** is for phone orders. It opens secure HelcimPay.js card entry in ROS; Helcim owns the card fields and ROS validates the signed approval response. Do not type card numbers or CVV into ROS notes, references, search fields, or support chats.
 - **Saved Card** charges a Helcim-saved card token for the selected customer. ROS shows masked card details when Helcim returns them, but staff should never copy or expose the token.
 - **Card Refund** appears for refund/negative checkout totals. ROS sends the refund to the selected Helcim terminal and records it only after Helcim approval.
+
+Manual Card works in the desktop app WebView and iPad PWA only when the checkout origin is allowed by Helcim. Use the public HTTPS ROS/PWA address for iPad. If the desktop app or browser shows a HelcimPay.js origin warning, stop and ask an admin to verify the Helcim API Access Configuration instead of typing card numbers into ROS.
 
 Terminal selection is in the checkout drawer header. Register #1 defaults to **Terminal 1**, Register #2 defaults to **Terminal 2**, and Register #3/#4 must choose an available terminal. A green dot means the selected terminal path is ready; a red dot means configuration, routing, or terminal availability needs attention.
 
@@ -147,6 +151,12 @@ Transaction details show:
 - **Timeline**: simplified payment updates.
 - **Issues**: linked items needing review.
 
+## Disputes
+
+Use **Back Office → Payments → Disputes** to review chargeback, duplicate, refund-required, reversal, and dispute-like signals already known to ROS. The page consolidates open reconciliation items, refund/reversal transactions, and terminal recovery flags so managers can work from ROS instead of hunting through separate payment views.
+
+Helcim remains the processor source of truth for active dispute cases and raw evidence. If a Helcim dispute case cannot be acted on from ROS, record the ROS review note and escalate until Helcim exposes a supported dispute-response API for the account.
+
 ## RMS Charge
 
 Use **RMS Charge Sale** and **RMS Charge Payment** as normal manual financial workflows. Staff do not need an automatic RMS integration to record the sale, collect an RMS payment, or preserve the operational reference trail in ROS.
@@ -218,7 +228,7 @@ Provider errors, including Helcim rate limits, remain visible in the issue text 
 Helcim can send signed terminal webhooks to ROS when the store has a public HTTPS ROS API URL. The delivery path is:
 
 ```text
-/api/webhooks/helcim
+/api/webhooks/card-events
 ```
 
 Admins configure the public delivery URL and signing secret in **Settings → Helcim**. Helcim should send only the terminal events ROS handles: `cardTransaction` and `terminalCancel`.
@@ -255,6 +265,8 @@ Register #1/#2 non-default terminal use requires Manager Access through `payment
 ## Refund safety
 
 Card refunds that go through Helcim create a durable provider-attempt audit row before ROS records the refund. ROS only writes the negative payment and updates the refund queue after Helcim returns an approved or captured refund status.
+
+Standalone refunds started from **POS → Payments → Refund** also create a provider-attempt audit row, but they are provider-side refunds only until a manager links or records the related Transaction Record action through the normal refund workflow.
 
 If Helcim declines the refund, returns a rate-limit response, or the provider request fails, ROS keeps the refund state unchanged and records the failed provider attempt for review.
 

@@ -107,10 +107,10 @@ ROSIE selects the LLM provider with `ROSIE_PROVIDER`. Legacy `ROSIE_PROVIDER_MOD
 
 | Provider | Runtime | Default / Required Config | Approval status |
 |---|---|---|---|
-| `local_llm` | Host-based `llama.cpp` `llama-server` | `ROSIE_LOCAL_LLM_BASE_URL` or legacy `RIVERSIDE_LLAMA_UPSTREAM`; Gemma E4B GGUF at the local ROSIE model path | Approved production default |
-| `remote_lmstudio` | Private OpenAI-compatible LM Studio endpoint on the work hub | `ROSIE_REMOTE_LMSTUDIO_BASE_URL=http://127.0.0.1:1234/v1`, `ROSIE_REMOTE_LMSTUDIO_MODEL=gemma-4-12B-it-q5_k_m.gguf` | Approved explicit private provider |
-| `openai` | OpenAI API, server-side only | `OPENAI_API_KEY`, `ROSIE_OPENAI_LLM_MODEL` | Optional explicit cloud provider |
-| `gemini` | Google Gemini API, server-side only | `GEMINI_API_KEY`, `ROSIE_GEMINI_MODEL` | Optional explicit cloud provider |
+| `local_llm` | Host-based `llama.cpp` `llama-server` | Save `ROSIE_LOCAL_LLM_BASE_URL` equivalent in Settings, or use fallback env / legacy `RIVERSIDE_LLAMA_UPSTREAM`; Gemma E4B GGUF at the local ROSIE model path | Approved production default |
+| `remote_lmstudio` | Private OpenAI-compatible LM Studio endpoint on the work hub | Save base URL/model in Settings; fallback env is `ROSIE_REMOTE_LMSTUDIO_BASE_URL=http://127.0.0.1:1234/v1`, `ROSIE_REMOTE_LMSTUDIO_MODEL=gemma-4-12B-it-q5_k_m.gguf` | Approved explicit private provider |
+| `openai` | OpenAI API, server-side only | Save API key/model values in Settings; fallback env is `OPENAI_API_KEY`, `ROSIE_OPENAI_LLM_MODEL` | Optional explicit cloud provider |
+| `gemini` | Google Gemini API, server-side only | Save API key/model values in Settings; fallback env is `GEMINI_API_KEY`, `ROSIE_GEMINI_MODEL` | Optional explicit cloud provider |
 
 Local Gemma details:
 - Model family: Gemma 4 E4B
@@ -141,8 +141,9 @@ VITE_ROSIE_LLM_DIRECT=0
 ```
 
 Cloud provider details:
+- Save OpenAI and Gemini API keys in **Settings → ROSIE → ROSIE Provider Credentials**. Deployment env values are fallback/bootstrap only.
 - OpenAI and Gemini API keys are read only by the server process.
-- Do not place cloud keys in `client/.env`, Vite env, browser settings, staff notes, logs, or screenshots.
+- Do not place cloud keys in `client/.env`, Vite env, staff notes, logs, or screenshots.
 - `ROSIE_FORCE_LOCAL_FOR_SENSITIVE=true` and `ROSIE_ALLOW_CLOUD_FOR_SENSITIVE=false` are the default safety posture.
 - Sensitive requests must not leave local/private providers unless management explicitly sets `ROSIE_ALLOW_CLOUD_FOR_SENSITIVE=true`.
 

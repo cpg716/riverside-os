@@ -8,6 +8,7 @@ The `integration_credentials` table stores **all** third-party integration secre
 
 - **Helcim** — API token, terminal device codes, webhook secret
 - **QBO** — client ID, client secret, access/refresh tokens
+- **Counterpoint Sync** — sync token, Workbench URL, Workbench token
 - **Podium** — client ID, client secret, refresh token, webhook secret
 - **Meilisearch** — URL, API key
 - **Fal.ai** — API key
@@ -16,9 +17,13 @@ The `integration_credentials` table stores **all** third-party integration secre
 - **Visual Crossing / Weather** — API key
 - **Email (IMAP/SMTP)** — username, password
 - **NuORDER** — consumer key, consumer secret, user token, user secret
+- **Constant Contact** — client ID, client secret, access/refresh tokens
 - **Backups (S3 / Cloud)** — access key, secret key, access/refresh tokens
 - **Insights / Metabase** — admin & staff email/password, JWT secret
-- **Online Store** — customer JWT signing secret
+- **Online Store** — customer JWT signing secret, GrapesJS Studio license key
+- **Remote Access / Cloudflare** — public callback host, tunnel ID/token, credentials JSON, API token, account/zone IDs
+- **ROS Dev Center / GitHub** — repository identifier and GitHub Actions/API token
+- **ROSIE** — local/private/cloud provider endpoints, OpenAI/Gemini API keys, and cloud speech model settings
 
 ## Prerequisites
 
@@ -108,4 +113,4 @@ The server loads credentials from the database at startup. A restart is required
 
 - The `.sql` dump contains **encrypted** values only — useless without the matching `RIVERSIDE_CREDENTIALS_KEY`.
 - Still treat the dump file as sensitive. It reveals which integrations are configured and when they were last updated.
-- The scripts do **not** migrate database users, connection strings, or `RIVERSIDE_CREDENTIALS_KEY` itself — only the encrypted integration table.
+- The scripts do **not** migrate database users, connection strings, infrastructure recovery keys, or `RIVERSIDE_CREDENTIALS_KEY` itself — only the encrypted integration table.

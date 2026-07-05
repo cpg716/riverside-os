@@ -9,7 +9,7 @@ The Riverside OS Reporting and Insights infrastructure is exceptionally mature, 
 
 ### 2.1 Dual-Layer Strategy
 - **Curated Reports (Back Office → Reports)**: A fixed library of high-performance Rust/SQL endpoints for common operational needs (Sales Pivot, Margin, Best Sellers).
-- **Advanced Insights (Metabase)**: A fully embedded BI suite for ad-hoc data exploration and dashboarding, integrated via a secure JWT SSO proxy that allows embedding in the same-origin UI.
+- **Advanced Insights (Metabase)**: A self-hosted Metabase OSS BI suite for ad-hoc data exploration and dashboarding, launched through the same-origin **`/metabase/`** path with shared Staff/Admin Metabase accounts for OSS and optional paid JWT SSO.
 
 ### 2.2 Reporting Basis Consistency
 The system utilizes a canonical SQL expression (`ORDER_RECOGNITION_TS_SQL`) across all modules to calculate the "Recognition Instant":
@@ -34,7 +34,7 @@ The system utilizes a canonical SQL expression (`ORDER_RECOGNITION_TS_SQL`) acro
 
 ## 4. UI/UX Implementation
 - **Reports Workspace**: A generic report runner supporting date ranges, basis selection, and **CSV download** for all curated reports.
-- **Metabase Proxy**: Custom proxy logic strips security headers (X-Frame-Options) to enable seamless embedding while maintaining staff auth parity.
+- **Metabase Proxy**: Custom proxy logic forwards **`/metabase/*`**, supports shared-auth session handoff, and relies on Metabase accounts/groups for data permissions. Riverside staff auth gates the launch endpoint; paid JWT SSO is optional.
 - **Data Catalog**: A comprehensive `AI_REPORTING_DATA_CATALOG.md` exists to document every endpoint and parameter, preparing the system for AI-assisted reporting (ROSIE).
 
 ## 5. Security & RBAC

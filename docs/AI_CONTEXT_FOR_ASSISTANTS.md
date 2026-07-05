@@ -90,7 +90,7 @@ Assistants that **call Riverside APIs** must mirror the same patterns as the Rea
 - **Back Office staff:** `x-riverside-staff-code` and, when the staff row has a PIN hash, **`x-riverside-staff-pin`**. Permission keys are enforced per route (`require_staff_with_permission`, etc.) — see [`STAFF_PERMISSIONS.md`](STAFF_PERMISSIONS.md).
 - **Register session (“staff or open till”):** Many reads (e.g. **`GET /api/sessions/current`**) expect either staff headers **or** POS session headers (`RegisterSessionBootstrap` uses **`mergedPosStaffHeaders(backofficeHeaders)`** from Back Office context). See [`AGENTS.md`](../AGENTS.md) and [`DEVELOPER.md`](../DEVELOPER.md).
 - **Help Center reads:** **`GET /api/help/search`**, **`/api/help/manuals`** allow **authenticated staff** **or** a **valid open register session** (no extra permission) — [`middleware::require_help_viewer`](../server/src/middleware/mod.rs). Admin overrides use **`help.manage`**.
-- **Metabase iframe URL:** **`GET`/`POST /api/insights/metabase-launch`** requires **`insights.view`** and returns an **`iframe_src`** (JWT SSO when configured) — details in [`METABASE_REPORTING.md`](METABASE_REPORTING.md).
+- **Metabase iframe URL:** **`GET`/`POST /api/insights/metabase-launch`** requires **`insights.view`** and returns an **`iframe_src`**. Free OSS stations use saved Staff/Admin Metabase shared-auth accounts; paid stations may return a JWT SSO URL when configured — details in [`METABASE_REPORTING.md`](METABASE_REPORTING.md).
 
 Do not embed live PINs or session tokens in prompts sent to third-party models.
 

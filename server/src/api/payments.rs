@@ -1880,12 +1880,9 @@ fn clean_optional_device_code(value: Option<String>) -> Result<Option<String>, P
     if trimmed.is_empty() {
         return Ok(None);
     }
-    if trimmed.len() > 255 {
-        return Err(PaymentError::InvalidPayload(
-            "Device code is too long.".to_string(),
-        ));
-    }
-    Ok(Some(trimmed.to_string()))
+    helcim::normalize_device_code(trimmed)
+        .map(Some)
+        .map_err(PaymentError::InvalidPayload)
 }
 
 fn clean_optional_api_base_url(value: Option<String>) -> Result<Option<String>, PaymentError> {
@@ -3752,7 +3749,7 @@ async fn get_helcim_events_health(
             "not_receiving",
             "No Helcim webhook deliveries received",
             "ROS has a webhook signing secret, but this server has not recorded any Helcim cardTransaction or terminalCancel delivery.",
-            "In Helcim, set the public HTTPS delivery URL to /api/webhooks/helcim and enable cardTransaction plus terminalCancel.",
+            "In Helcim, set the public HTTPS delivery URL to /api/webhooks/card-events and enable cardTransaction plus terminalCancel.",
         )
     } else if row.failed_event_count > 0 {
         (

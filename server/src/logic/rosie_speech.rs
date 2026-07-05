@@ -533,7 +533,7 @@ async fn openai_llm_status() -> RosieHostLlmStatus {
     let unavailable_reason = if available {
         None
     } else if !api_key_configured {
-        Some("OPENAI_API_KEY is not configured".to_string())
+        Some("OpenAI API key is not configured in Settings or OPENAI_API_KEY".to_string())
     } else {
         Some("OpenAI API was not reachable or rejected the configured key".to_string())
     };
@@ -571,7 +571,7 @@ async fn gemini_llm_status() -> RosieHostLlmStatus {
     let unavailable_reason = if available {
         None
     } else if !api_key_configured {
-        Some("GEMINI_API_KEY is not configured".to_string())
+        Some("Gemini API key is not configured in Settings or GEMINI_API_KEY".to_string())
     } else {
         Some("Gemini API was not reachable or rejected the configured key".to_string())
     };
@@ -748,7 +748,7 @@ async fn openai_stt_status() -> RosieHostSttStatus {
         unavailable_reason: if available {
             None
         } else {
-            Some("OPENAI_API_KEY or ROSIE_OPENAI_STT_MODEL is not configured".to_string())
+            Some("OpenAI speech-to-text is not configured in Settings or OPENAI_API_KEY / ROSIE_OPENAI_STT_MODEL".to_string())
         },
         api_key_configured: Some(api_key_configured),
     }
@@ -776,7 +776,7 @@ async fn gemini_stt_status() -> RosieHostSttStatus {
         unavailable_reason: if available {
             None
         } else {
-            Some("GEMINI_API_KEY or ROSIE_GEMINI_STT_MODEL is not configured".to_string())
+            Some("Gemini speech-to-text is not configured in Settings or GEMINI_API_KEY / ROSIE_GEMINI_STT_MODEL".to_string())
         },
         api_key_configured: Some(api_key_configured),
     }
@@ -807,7 +807,7 @@ async fn openai_tts_status(speaking: bool) -> RosieHostTtsStatus {
         unavailable_reason: if available {
             None
         } else {
-            Some("OPENAI_API_KEY, ROSIE_OPENAI_TTS_MODEL, or ROSIE_OPENAI_TTS_VOICE is not configured".to_string())
+            Some("OpenAI speech output is not configured in Settings or OPENAI_API_KEY / ROSIE_OPENAI_TTS_MODEL / ROSIE_OPENAI_TTS_VOICE".to_string())
         },
         api_key_configured: Some(api_key_configured),
     }
@@ -838,7 +838,7 @@ async fn gemini_tts_status(speaking: bool) -> RosieHostTtsStatus {
         unavailable_reason: if available {
             None
         } else {
-            Some("GEMINI_API_KEY, ROSIE_GEMINI_TTS_MODEL, or ROSIE_GEMINI_TTS_VOICE is not configured".to_string())
+            Some("Gemini speech output is not configured in Settings or GEMINI_API_KEY / ROSIE_GEMINI_TTS_MODEL / ROSIE_GEMINI_TTS_VOICE".to_string())
         },
         api_key_configured: Some(api_key_configured),
     }
@@ -1325,7 +1325,7 @@ mod tests {
         assert!(!status.llm.available);
         assert_eq!(
             status.llm.unavailable_reason.as_deref(),
-            Some("OPENAI_API_KEY is not configured")
+            Some("OpenAI API key is not configured in Settings or OPENAI_API_KEY")
         );
 
         std::env::remove_var("ROSIE_PROVIDER");

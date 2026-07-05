@@ -123,8 +123,9 @@ docker compose exec -T db psql -U postgres -d riverside_os -v ON_ERROR_STOP=1 < 
 
 # 2. Server env: copy server/.env.example -> server/.env for local runs.
 #    DATABASE_URL must point at localhost:5433 (the repo Docker Postgres), not localhost:5432.
-#    If you expect automatic Metabase sign-in in local/RC runs, server/.env must also carry the
-#    local RIVERSIDE_METABASE_* shared-auth values (or export them in your shell).
+#    If you expect automatic Metabase sign-in in local/RC runs, save the Metabase
+#    Staff/Admin credentials in Settings -> Integrations -> Insights after the app starts.
+#    RIVERSIDE_METABASE_* values in server/.env are fallback/bootstrap only.
 #
 # 3. API server (http://127.0.0.1:3000) — from repo root, prefer npm (`dev-server.sh` / `cargo-server.sh` put Rust 1.88 first on PATH when Homebrew rustc shadows rustup):
 npm run dev:server
@@ -144,7 +145,7 @@ For this repo to behave the same way in a local RC worktree as it does in the va
 - Run **`cd client && npm install`** for the Vite/Playwright client toolchain.
 - Keep a real **`server/.env`** for local parity (copy from **`server/.env.example`**). The server can boot with fallbacks, but validated local behavior depends on that file.
 - For local Docker Postgres, **`DATABASE_URL`** must use **`postgresql://postgres:password@localhost:5433/riverside_os`**.
-- If you expect automatic Metabase login in local/RC runs, **`server/.env`** must also define the local **`RIVERSIDE_METABASE_ADMIN_*`** and **`RIVERSIDE_METABASE_STAFF_*`** shared-auth values.
+- If you expect automatic Metabase login in local/RC runs, save the local **Metabase Admin/Staff** shared-auth values in **Settings → Integrations → Insights**. **`RIVERSIDE_METABASE_ADMIN_*`** and **`RIVERSIDE_METABASE_STAFF_*`** in **`server/.env`** are fallback/bootstrap only.
 - Expected local services and ports:
   - Postgres: **`localhost:5433`**
   - API: **`127.0.0.1:3000`**
@@ -164,7 +165,7 @@ Environment variables:
 | `DATABASE_URL` | `postgresql://postgres:password@localhost:5433/riverside_os` | Must match Docker `db` host port (**5433** avoids conflict with native Postgres on 5432; see `server/.env.example`) |
 | `HELCIM_API_TOKEN` | unset | Deployment fallback for Helcim API token. Routine Helcim credentials should be saved in Backoffice Settings. The API token is enough for Helcim batch/transaction/fee reads. |
 | `HELCIM_TERMINAL_1_DEVICE_CODE` / `HELCIM_TERMINAL_2_DEVICE_CODE` | unset | Deployment fallback for Terminal 1 and Terminal 2 Helcim device codes. Routine terminal setup should be saved in Backoffice Settings. Terminal payments use the terminal assigned to the active register session. |
-| `HELCIM_WEBHOOK_SECRET` | unset | Optional deployment fallback for Helcim webhook signing secret. Required for production Helcim terminal webhooks when Helcim can reach a public ROS API URL such as `https://ros.riversidemens.com/api/webhooks/helcim`. If that URL is served through Cloudflare Tunnel, `cloudflared` must run as a supervised host service. |
+| `HELCIM_WEBHOOK_SECRET` | unset | Optional deployment fallback for Helcim webhook signing secret. Required for production Helcim terminal webhooks when Helcim can reach a public ROS API URL such as `https://ros.riversidemens.com/api/webhooks/card-events`. If that URL is served through Cloudflare Tunnel, `cloudflared` must run as a supervised host service. |
 | `RIVERSIDE_PUBLIC_BASE_URL` | unset | Optional public HTTPS origin used for edge/webhook diagnostics in Settings → Remote Access. Example: `https://ros.riversidemens.com` (no path). |
 | `RIVERSIDE_CLOUDFLARE_TUNNEL_HOSTNAME` | unset | Optional Cloudflare Tunnel hostname hint for Settings → Remote Access. When set, the edge diagnostics expect `cloudflared` to be installed and supervised on the Main Hub. |
 | `RIVERSIDE_CREDENTIALS_KEY` | unset | Root encryption key for Backoffice-managed integration credentials, including QBO client credentials and OAuth tokens. Must be non-default and at least 32 characters before credentials can be saved. `QBO_TOKEN_ENC_KEY` remains accepted as a transitional fallback. |
@@ -195,13 +196,17 @@ Environment variables:
 | `RIVERSIDE_VISUAL_CROSSING_ENABLED` | _(unset)_ | Optional; force live weather on/off — see **`docs/WEATHER_VISUAL_CROSSING.md`** |
 | `RIVERSIDE_MEILISEARCH_URL` | _(unset)_ | Optional deployment fallback; routine Meilisearch host setup belongs in Backoffice Settings. Enables fuzzy catalog/CRM/inventory/transaction search with SQL hydration + fallback — **`docs/SEARCH_AND_PAGINATION.md`** |
 | `RIVERSIDE_MEILISEARCH_API_KEY` | _(unset)_ | Optional deployment fallback for Meilisearch master/API key when the instance requires auth; routine setup belongs in Backoffice Settings. |
-| `RIVERSIDE_METABASE_ADMIN_EMAIL` / `RIVERSIDE_METABASE_ADMIN_PASSWORD` | _(unset)_ | Optional local shared-auth credentials used by **`/api/insights/metabase-launch`** when JWT SSO is off. Put these in **`server/.env`** if you expect automatic Metabase sign-in for Admin staff in local/RC runs. |
-| `RIVERSIDE_METABASE_STAFF_EMAIL` / `RIVERSIDE_METABASE_STAFF_PASSWORD` | _(unset)_ | Optional local shared-auth credentials used by **`/api/insights/metabase-launch`** when JWT SSO is off. Put these in **`server/.env`** if you expect automatic Metabase sign-in for staff-class Metabase sessions in local/RC runs. |
-| `RIVERSIDE_LLAMA_UPSTREAM` | _(unset)_ | **Planned** (**ROSIE**): Axum BFF upstream for **`POST /api/help/rosie/v1/chat/completions`** — **`docs/PLAN_LOCAL_LLM_HELP.md`** § Ship decision |
-| `VITE_ROSIE_LLM_DIRECT` / `VITE_ROSIE_LLM_HOST` / `VITE_ROSIE_LLM_PORT` | _(unset)_ | **Planned** (**ROSIE**): Tauri **direct** loopback vs **Axum** fallback — same doc; full table **`DEVELOPER.md`** |
+| `RIVERSIDE_METABASE_ADMIN_EMAIL` / `RIVERSIDE_METABASE_ADMIN_PASSWORD` | _(unset)_ | Fallback/bootstrap only for Metabase shared-auth when JWT SSO is off. Normal add/edit/update happens in **Settings → Integrations → Insights**. |
+| `RIVERSIDE_METABASE_STAFF_EMAIL` / `RIVERSIDE_METABASE_STAFF_PASSWORD` | _(unset)_ | Fallback/bootstrap only for staff-class Metabase shared-auth when JWT SSO is off. Normal add/edit/update happens in **Settings → Integrations → Insights**. |
+| `METABASE_SITE_URL` / `METABASE_SITE_NAME` / `METABASE_JAVA_TIMEZONE` | Compose defaults | Root **`.env`** overrides for the OSS Metabase service. Site URL must match the public ROS URL including **`/metabase/`**. |
+| `METABASE_ANON_TRACKING_ENABLED` / `METABASE_ENABLE_PUBLIC_SHARING` | `false` | Root **`.env`** overrides for Metabase telemetry and public dashboard links. Keep public sharing disabled unless an admin intentionally uses public/guest embeds. |
+| `MB_ENCRYPTION_SECRET_KEY` | _(unset)_ | Optional native Metabase boot secret for encrypting database credentials in Metabase’s own application DB. Generate once, set before adding databases, and keep stable. |
+| `RIVERSIDE_LLAMA_UPSTREAM` / `ROSIE_LOCAL_LLM_BASE_URL` | _(unset)_ | ROSIE local provider fallback endpoints. Routine provider endpoint setup belongs in **Settings → ROSIE → ROSIE Provider Credentials**. |
+| `OPENAI_API_KEY` / `GEMINI_API_KEY` | _(unset)_ | ROSIE cloud provider fallback keys. Routine keys and cloud model names belong in **Settings → ROSIE → ROSIE Provider Credentials**; never put them in Vite/client env. |
+| `VITE_ROSIE_LLM_DIRECT` / `VITE_ROSIE_LLM_HOST` / `VITE_ROSIE_LLM_PORT` | _(unset)_ | Desktop direct/local ROSIE host controls. Set direct mode off when using server-governed remote/cloud providers; full table **`DEVELOPER.md`**. |
 | `RIVERSIDE_MORNING_DIGEST_HOUR_LOCAL` | `7` | Optional; local hour (0–23) for admin morning notification digest — **`DEVELOPER.md`**, **`docs/PLAN_NOTIFICATION_CENTER.md`** |
 
-Helcim POS uses the terminal hardware path for **Card Reader**, phone-order **Manual Card** keyed entry, and terminal refunds. HelcimPay.js remains the public web-checkout/browser-hosted path, not the local POS manual-entry path.
+Helcim POS uses the terminal hardware path for **Card Reader** and terminal refunds. POS **Manual Card** opens the hosted HelcimPay.js keyed-entry flow so Riverside never collects PAN or CVV in ROS-owned fields.
 
 Production browser releases require **`RIVERSIDE_STRICT_PRODUCTION=true`** together with **`RIVERSIDE_CORS_ORIGINS`**, **`RIVERSIDE_STORE_CUSTOMER_JWT_SECRET`**, an explicit **`FRONTEND_DIST`**, configured Helcim credentials through Backoffice Settings, an absolute **`RIVERSIDE_BACKUP_DIR`**, and a non-default **`RIVERSIDE_CREDENTIALS_KEY`** before integration credentials can be saved. If encrypted backups are enabled, **`RIVERSIDE_BACKUP_ENCRYPTION_KEY`** is also mandatory and must be included in the secure recovery bundle. Local development may use the permissive defaults, but RC/production signoff should treat those envs as mandatory.
 

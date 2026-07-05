@@ -10,14 +10,24 @@ import {
   Clock3,
   CreditCard,
   RefreshCw,
+  RotateCcw,
   Search,
+  ShieldAlert,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
 const baseUrl = getBaseUrl();
 
-type SectionId = "overview" | "batches" | "deposits" | "reconciliation" | "transactions" | "health";
+type SectionId =
+  | "overview"
+  | "batches"
+  | "deposits"
+  | "reconciliation"
+  | "transactions"
+  | "refunds"
+  | "disputes"
+  | "health";
 
 type ConfirmRequest = {
   title: string;
@@ -239,6 +249,21 @@ type HelcimTerminalRecoveryAction = {
   metadata: Record<string, unknown>;
 };
 
+type HelcimAttemptResponse = {
+  id: string;
+  status: string;
+  amount_cents: number;
+  currency: string;
+  register_session_id: string | null;
+  provider_payment_id: string | null;
+  provider_transaction_id: string | null;
+  error_message: string | null;
+  safe_message: string | null;
+  raw_audit_reference: string | null;
+  created_at: string;
+  completed_at: string | null;
+};
+
 type HelcimDevice = {
   code?: string;
   deviceCode?: string;
@@ -386,6 +411,34 @@ function sumMoney(values: (string | null | undefined)[]) {
     return Number.isFinite(parsed) ? sum + parsed : sum;
   }, 0);
   return total.toFixed(2);
+}
+
+function dollarsInputToCents(value: string): number | null {
+  const normalized = value.trim().replace(/[$,\s]/g, "");
+  if (!/^\d+(\.\d{1,2})?$/.test(normalized)) return null;
+  const [whole, fraction = ""] = normalized.split(".");
+  const dollars = Number.parseInt(whole, 10);
+  const cents = Number.parseInt(fraction.padEnd(2, "0"), 10) || 0;
+  if (!Number.isSafeInteger(dollars) || dollars > 9_000_000) return null;
+  return dollars * 100 + cents;
+}
+
+function centsMoney(value: number | null | undefined) {
+  if (value === null || value === undefined) return "Not ready";
+  return (value / 100).toLocaleString(undefined, {
+    style: "currency",
+    currency: "USD",
+  });
+}
+
+function createRefundIdempotencyKey() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  const timestamp = Date.now().toString(36).padStart(9, "0");
+  const randomA = Math.random().toString(36).slice(2, 13).padEnd(11, "0");
+  const randomB = Math.random().toString(36).slice(2, 8).padEnd(6, "0");
+  return `refund-${timestamp}-${randomA}-${randomB}`;
 }
 
 function differenceLabel(value: string | null | undefined) {
@@ -578,6 +631,8 @@ export default function PaymentsWorkspace({
   const [depositBusy, setDepositBusy] = useState(false);
   const [transactionSearch, setTransactionSearch] = useState("");
   const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
+  const [standaloneRefundBusy, setStandaloneRefundBusy] = useState(false);
+  const [standaloneRefundAttempt, setStandaloneRefundAttempt] = useState<HelcimAttemptResponse | null>(null);
   const { backofficeHeaders, hasPermission, permissionsLoaded } = useBackofficeAuth();
   const { toast } = useToast();
   const hasAnyPermission = useCallback(
@@ -1268,6 +1323,47 @@ export default function PaymentsWorkspace({
     [refresh, sendJson, toast],
   );
 
+  const startStandaloneCardRefund = useCallback(
+    (payload: { amountCents: number; originalTransactionId: number }) => {
+      confirmAction({
+        title: "Start Helcim Card Refund?",
+        message:
+          "This sends the refund to Helcim and records the provider attempt in ROS. It will not create a ROS sales refund or change a Transaction Record by itself.",
+        confirmLabel: "Start Refund",
+        variant: "danger",
+        onConfirm: () => {
+          void (async () => {
+            setStandaloneRefundBusy(true);
+            try {
+              const attempt = await sendJson<HelcimAttemptResponse>(
+                "/api/payments/providers/helcim/card/refund",
+                "POST",
+                {
+                  amount_cents: payload.amountCents,
+                  original_transaction_id: payload.originalTransactionId,
+                  idempotency_key: createRefundIdempotencyKey(),
+                },
+              );
+              setStandaloneRefundAttempt(attempt);
+              toast(
+                attempt.status === "approved" || attempt.status === "captured"
+                  ? "Standalone Helcim refund approved and recorded."
+                  : "Standalone Helcim refund recorded for review.",
+                attempt.status === "failed" ? "error" : "success",
+              );
+              await refresh();
+            } catch (err) {
+              toast(err instanceof Error ? err.message : "Standalone refund could not be started.", "error");
+            } finally {
+              setStandaloneRefundBusy(false);
+            }
+          })();
+        },
+      });
+    },
+    [confirmAction, refresh, sendJson, toast],
+  );
+
   const filteredTransactions = useMemo(() => {
     const query = transactionSearch.trim().toLowerCase();
     if (!query) return data.transactions;
@@ -1361,11 +1457,13 @@ export default function PaymentsWorkspace({
           <SectionButton id="deposits" label="Deposits" badge={depositBadge} active={section === "deposits"} onClick={setSection} />
           <SectionButton id="reconciliation" label="Reconciliation" badge={reconciliationBadge} active={section === "reconciliation"} onClick={setSection} />
           <SectionButton id="transactions" label="Transactions" active={section === "transactions"} onClick={setSection} />
+          <SectionButton id="disputes" label="Disputes" active={section === "disputes"} onClick={setSection} />
           <SectionButton id="health" label="Health" badge={healthBadge} active={section === "health"} onClick={setSection} />
         </nav>
         ) : (
           <nav className="mt-5 flex gap-2 overflow-x-auto pb-1">
             <SectionButton id="transactions" label="Today" active={section === "transactions"} onClick={setSection} />
+            <SectionButton id="refunds" label="Refund" active={section === "refunds"} onClick={setSection} />
             <SectionButton id="health" label="Terminal Health" badge={healthBadge} active={section === "health"} onClick={setSection} />
           </nav>
         )}
@@ -1422,6 +1520,22 @@ export default function PaymentsWorkspace({
                 onOpenTransaction={onOpenTransactionInBackoffice}
                 title={posSurface ? "Today's Transactions" : "Transactions"}
                 empty={posSurface ? "No card transactions recorded today." : "No payments found."}
+              />
+            )}
+            {section === "refunds" && posSurface && (
+              <StandaloneRefundPanel
+                busy={standaloneRefundBusy}
+                latestAttempt={standaloneRefundAttempt}
+                onStartRefund={startStandaloneCardRefund}
+              />
+            )}
+            {section === "disputes" && !posSurface && (
+              <DisputesPanel
+                issues={data.issues}
+                transactions={data.transactions}
+                health={data.health}
+                onOpenIssue={openIssue}
+                onOpenPayment={openTransaction}
               />
             )}
             {section === "health" && (
@@ -1908,6 +2022,263 @@ function TransactionsPanel({
           ],
         }))}
       />
+    </div>
+  );
+}
+
+function StandaloneRefundPanel({
+  busy,
+  latestAttempt,
+  onStartRefund,
+}: {
+  busy: boolean;
+  latestAttempt: HelcimAttemptResponse | null;
+  onStartRefund: (payload: { amountCents: number; originalTransactionId: number }) => void;
+}) {
+  const [amount, setAmount] = useState("");
+  const [originalTransactionId, setOriginalTransactionId] = useState("");
+  const amountCents = dollarsInputToCents(amount);
+  const providerTransactionId = Number.parseInt(originalTransactionId.trim(), 10);
+  const validProviderTransactionId = Number.isFinite(providerTransactionId) && providerTransactionId > 0;
+  const canSubmit = !busy && amountCents !== null && amountCents > 0 && validProviderTransactionId;
+
+  return (
+    <div className="space-y-5">
+      <section className="rounded-lg border border-app-border bg-app-surface p-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <div className="flex items-center gap-2">
+              <RotateCcw size={18} className="text-app-accent" aria-hidden />
+              <h2 className="text-lg font-black text-app-text">Standalone Helcim Refund</h2>
+            </div>
+            <p className="mt-1 text-sm font-semibold text-app-text-muted">
+              Refund an existing Helcim transaction from the register and keep the provider attempt in ROS.
+            </p>
+          </div>
+          <StatusPill value={latestAttempt?.status ?? "Ready"} />
+        </div>
+
+        <div className="mt-5 grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] md:items-end">
+          <label className="text-sm font-semibold text-app-text">
+            Refund Amount
+            <input
+              value={amount}
+              onChange={(event) => setAmount(event.target.value)}
+              inputMode="decimal"
+              placeholder="0.00"
+              className="mt-1 min-h-11 w-full rounded-lg border border-app-border bg-app-bg px-3 py-2 text-base font-bold text-app-text outline-none focus:border-app-accent"
+            />
+          </label>
+          <label className="text-sm font-semibold text-app-text">
+            Original Helcim Transaction ID
+            <input
+              value={originalTransactionId}
+              onChange={(event) => setOriginalTransactionId(event.target.value.replace(/[^\d]/g, ""))}
+              inputMode="numeric"
+              placeholder="Helcim transaction ID"
+              className="mt-1 min-h-11 w-full rounded-lg border border-app-border bg-app-bg px-3 py-2 text-base font-bold text-app-text outline-none focus:border-app-accent"
+            />
+          </label>
+          <button
+            type="button"
+            disabled={!canSubmit}
+            onClick={() => {
+              if (!canSubmit || amountCents === null) return;
+              onStartRefund({
+                amountCents,
+                originalTransactionId: providerTransactionId,
+              });
+            }}
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-app-accent px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:opacity-90 disabled:opacity-50"
+          >
+            <RotateCcw size={16} aria-hidden />
+            Start Refund
+          </button>
+        </div>
+
+        <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 text-sm font-semibold text-app-text-muted">
+          This is for provider-side card refunds where the original Helcim transaction ID is known.
+          Use the checkout drawer Card Refund path when the original card and customer are present for a terminal refund.
+        </div>
+      </section>
+
+      {latestAttempt ? (
+        <section className="rounded-lg border border-app-border bg-app-surface p-5">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h2 className="text-lg font-black text-app-text">Latest Register Refund</h2>
+              <p className="mt-1 text-sm font-semibold text-app-text-muted">
+                Provider attempt {latestAttempt.id}
+              </p>
+            </div>
+            <StatusPill value={latestAttempt.status} />
+          </div>
+          <div className="mt-4 grid gap-3 text-sm font-semibold text-app-text-muted md:grid-cols-2 xl:grid-cols-4">
+            <span>Amount {centsMoney(latestAttempt.amount_cents)}</span>
+            <span>Helcim transaction {latestAttempt.provider_transaction_id ?? "Not returned yet"}</span>
+            <span>Provider payment {latestAttempt.provider_payment_id ?? "Not returned yet"}</span>
+            <span>{shortDateTime(latestAttempt.completed_at ?? latestAttempt.created_at)}</span>
+            {latestAttempt.error_message || latestAttempt.safe_message ? (
+              <span className="md:col-span-2 xl:col-span-4">
+                {latestAttempt.safe_message ?? latestAttempt.error_message}
+              </span>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
+    </div>
+  );
+}
+
+function DisputesPanel({
+  issues,
+  transactions,
+  health,
+  onOpenIssue,
+  onOpenPayment,
+}: {
+  issues: ReconciliationItem[];
+  transactions: TransactionRow[];
+  health: EventsHealth | null;
+  onOpenIssue: (issue: ReconciliationItem) => void;
+  onOpenPayment: (paymentId: string | null) => void;
+}) {
+  const disputeIssues = issues.filter((issue) => {
+    const text = [
+      issue.issue_label,
+      issue.item_type,
+      issue.message,
+      issue.reference,
+      issue.resolution_type,
+      issue.resolution_note,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    return /dispute|chargeback|duplicate|refund|required|reverse/.test(text);
+  });
+  const disputeTransactions = transactions.filter((transaction) => {
+    const text = [
+      transaction.transaction_type,
+      transaction.provider_status,
+      transaction.payment_status,
+      transaction.match_status,
+      transaction.provider_transaction_id,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    return /dispute|chargeback|refund|reverse|duplicate|declined/.test(text);
+  });
+  const recoveryActions = [
+    ...(health?.terminal_review_attempts ?? []),
+    ...(health?.terminal_review_events ?? []),
+  ].flatMap((item) =>
+    item.recovery_actions
+      .filter((action) => action.action === "duplicate_suspected" || action.action === "refund_required")
+      .map((action) => ({
+        ...action,
+        label: item.provider_transaction_id ?? item.label,
+      })),
+  );
+
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-4 md:grid-cols-3">
+        <MetricCard label="Open Dispute Signals" value={`${disputeIssues.length}`} tone={disputeIssues.length > 0 ? "warning" : "good"} />
+        <MetricCard label="Refund / Reverse Rows" value={`${disputeTransactions.length}`} tone={disputeTransactions.length > 0 ? "warning" : "good"} />
+        <MetricCard label="Terminal Recovery Flags" value={`${recoveryActions.length}`} tone={recoveryActions.length > 0 ? "warning" : "good"} />
+      </div>
+
+      <section className="rounded-lg border border-app-border bg-app-surface p-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <div className="flex items-center gap-2">
+              <ShieldAlert size={18} className="text-app-accent" aria-hidden />
+              <h2 className="text-lg font-black text-app-text">Dispute Workbench</h2>
+            </div>
+            <p className="mt-1 text-sm font-semibold text-app-text-muted">
+              Review chargeback, duplicate, refund-required, and reversal signals without leaving Payments.
+            </p>
+          </div>
+          <StatusPill value={disputeIssues.length + recoveryActions.length > 0 ? "Needs Review" : "Clear"} />
+        </div>
+        <div className="mt-4 rounded-lg border border-app-border bg-app-bg p-4 text-sm font-semibold text-app-text-muted">
+          Helcim documents card transactions, refunds, reverses, webhooks, and hardware actions for the public API. A dispute case response API is not present in the current Helcim developer index, so this view keeps ROS review, notes, recovery flags, and payment links in one place until Helcim exposes a supported dispute-response endpoint.
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-lg font-black text-app-text">Review Items</h2>
+        <DataTable
+          empty="No dispute review items found."
+          headers={["Issue", "Severity", "Amount", "Reference", "When", "Action"]}
+          rows={disputeIssues.map((issue) => ({
+            key: issue.id,
+            onClick: () => onOpenIssue(issue),
+            cells: [
+              issue.message || issue.issue_label,
+              <StatusPill value={issue.severity} />,
+              money(issue.amount, "Not ready"),
+              issue.reference ?? "Not ready",
+              shortDate(issue.created_at),
+              <button
+                type="button"
+                className="text-sm font-bold text-app-accent"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onOpenIssue(issue);
+                }}
+              >
+                Open Issue
+              </button>,
+            ],
+          }))}
+        />
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-lg font-black text-app-text">Refunds, Reverses, and Duplicates</h2>
+        <DataTable
+          empty="No refund, reversal, duplicate, or dispute-like payments found."
+          headers={["Date", "Amount", "Status", "Type", "Customer", "Provider Ref", "Match"]}
+          rows={disputeTransactions.map((transaction) => ({
+            key:
+              transaction.payment_transaction_id ??
+              transaction.provider_transaction_id ??
+              `${transaction.payment_date}-${transaction.amount}`,
+            onClick: () => onOpenPayment(transaction.payment_transaction_id),
+            cells: [
+              shortDateTime(transaction.payment_date),
+              money(transaction.amount, "$0.00"),
+              <StatusPill value={transaction.provider_status ?? transaction.payment_status} />,
+              staffLabel(transaction.transaction_type ?? "Payment"),
+              transaction.customer_name ?? "Customer not linked",
+              transaction.provider_transaction_id ?? "Not ready",
+              <StatusPill value={transaction.match_status ?? "Not ready"} />,
+            ],
+          }))}
+        />
+      </section>
+
+      {recoveryActions.length > 0 ? (
+        <section className="space-y-3">
+          <h2 className="text-lg font-black text-app-text">Terminal Recovery Flags</h2>
+          <DataTable
+            empty="No recovery flags found."
+            headers={["Flag", "Reference", "Note", "When"]}
+            rows={recoveryActions.map((action) => ({
+              key: action.id,
+              cells: [
+                staffLabel(action.action),
+                action.label,
+                action.note ?? "No note",
+                shortDateTime(action.created_at),
+              ],
+            }))}
+          />
+        </section>
+      ) : null}
     </div>
   );
 }
@@ -3092,5 +3463,14 @@ function EmptyState({ title, body, compact = false }: { title: string; body: str
 }
 
 function isSection(value: string): value is SectionId {
-  return ["overview", "batches", "deposits", "reconciliation", "transactions", "health"].includes(value);
+  return [
+    "overview",
+    "batches",
+    "deposits",
+    "reconciliation",
+    "transactions",
+    "refunds",
+    "disputes",
+    "health",
+  ].includes(value);
 }

@@ -203,7 +203,7 @@ pub async fn health_check(http: &reqwest::Client) -> RosieUpstreamHealth {
             (
                 format!("{base}/v1/models"),
                 api_key,
-                Some("OpenAI API key is not configured (OPENAI_API_KEY unset)"),
+                Some("OpenAI API key is not configured in Settings or OPENAI_API_KEY"),
             )
         }
         "gemini" | "gemini-api" | "gemini_api" => {
@@ -218,7 +218,7 @@ pub async fn health_check(http: &reqwest::Client) -> RosieUpstreamHealth {
                         configured: false,
                         reachable: false,
                         latency_ms: 0,
-                        message: "Gemini API key is not configured (GEMINI_API_KEY unset)"
+                        message: "Gemini API key is not configured in Settings or GEMINI_API_KEY"
                             .to_string(),
                     };
                 }

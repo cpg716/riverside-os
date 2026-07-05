@@ -78,6 +78,15 @@ fn static_cache_control_for_path(path: &str) -> Option<HeaderValue> {
     None
 }
 
+fn first_nonempty_env(keys: &[&str]) -> Option<String> {
+    keys.iter().find_map(|key| {
+        std::env::var(key)
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+    })
+}
+
 async fn apply_static_cache_control(request: axum::extract::Request, next: Next) -> Response {
     let path = request.uri().path().to_string();
     let mut response = next.run(request).await;
@@ -438,7 +447,10 @@ async fn launch_server_inner(
         cache: crate::cache::CacheService::from_env().ok(),
         metrics_collector: None, // Will be initialized later if needed
         rate_limit: crate::middleware::rate_limit::rate_limit_middleware(),
-        github_token: std::env::var("RIVERSIDE_GITHUB_TOKEN").ok(),
+        github_token: first_nonempty_env(&[
+            "RIVERSIDE_OPS_E2E_GITHUB_TOKEN",
+            "RIVERSIDE_GITHUB_TOKEN",
+        ]),
     };
 
     // Start connection pool monitoring

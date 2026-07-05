@@ -19,6 +19,15 @@ It walks through:
 - setting up collections and permissions
 - making the initial dashboard experience feel curated
 
+For the free OSS install, keep **JWT SSO**, **full app embedding**, and
+**custom appearance / white-labeling** out of the setup plan. Riverside's OSS
+path uses normal Metabase accounts, groups, collections, and the reporting-only
+Postgres connection. Leave public sharing disabled unless an admin intentionally
+approves public or guest embeds. If you want Metabase to encrypt database
+connection credentials in its own application DB, set native
+**`MB_ENCRYPTION_SECRET_KEY`** in the root `.env` before adding database
+connections, and keep that value stable.
+
 ---
 
 ## 1. Confirm the database connection
@@ -31,6 +40,7 @@ In Metabase:
 4. Confirm:
    - database is `riverside_os`
    - user is `metabase_ro`
+   - host is `db` and port is `5432` when Metabase runs in the repo Compose stack
    - you are modeling the `reporting` schema as the primary analytics source
 
 Target outcome:
@@ -52,14 +62,19 @@ Non-destructive verification command:
 node scripts/metabase-refresh-reporting-metadata.mjs --verify-only
 ```
 
-This uses the local Metabase admin credentials from `server/.env`, runs the
-Metabase schema sync and field-value rescan, removes the default Sample
-Database, enforces the Riverside database connection as `metabase_ro` with a
-`reporting` schema inclusion filter, then reapplies the Riverside staff-facing
-field model so readable labels stay visible and raw IDs stay hidden.
+The app/runtime source of truth for Metabase login secrets is **Settings →
+Integrations → Insights**, where admins can add, replace, or clear the saved
+Staff/Admin Metabase credentials and paid JWT secret. This external metadata
+script still needs a Metabase admin login available to the shell for the script
+process, then runs the Metabase schema sync and field-value rescan, removes the
+default Sample Database, enforces the Riverside database connection as
+`metabase_ro` with a `reporting` schema inclusion filter, and reapplies the
+Riverside staff-facing field model so readable labels stay visible and raw IDs
+stay hidden.
 
 The same script validates the shared Metabase launch accounts used by Riverside
-Insights. By default it requires all four shared-auth values:
+Insights. For script-only validation, export these values temporarily or place
+them in local `server/.env` as fallback/bootstrap values:
 `RIVERSIDE_METABASE_ADMIN_EMAIL`, `RIVERSIDE_METABASE_ADMIN_PASSWORD`,
 `RIVERSIDE_METABASE_STAFF_EMAIL`, and `RIVERSIDE_METABASE_STAFF_PASSWORD`.
 Set `RIVERSIDE_METABASE_REQUIRE_SHARED_AUTH=false` only for a one-off sandbox

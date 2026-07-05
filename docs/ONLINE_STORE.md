@@ -32,7 +32,7 @@
 - **Navigation / media / publish history:** staff can edit header/footer links, update media alt text and usage notes, archive unused media, preview published pages, and restore captured publish snapshots.
 - **Orders / analytics:** paid web transactions can be marked ready for pickup, shipped with tracking, or flagged for cancel/refund review without bypassing transaction/refund workflows. Analytics reports checkout funnel counts and campaign revenue from ROS checkout sessions.
 - **Coupons:** create, list, activate/deactivate (**`PATCH`**).
-- **Studio licensing:** set **`VITE_GRAPESJS_STUDIO_LICENSE_KEY`** in the client env for non-localhost deployments (SDK license rules: [GrapesJS Studio licenses](https://app.grapesjs.com/docs-sdk/overview/licenses)). Local dev may use the SDK’s documented dev key pattern. Studio AI is intentionally not enabled in ROS right now.
+- **Studio licensing:** save the GrapesJS Studio SDK license in **Settings → Online store → Online Store Security** for non-localhost deployments (SDK license rules: [GrapesJS Studio licenses](https://app.grapesjs.com/docs-sdk/overview/licenses)). **`VITE_GRAPESJS_STUDIO_LICENSE_KEY`** remains a fallback/local dev value. Studio AI is intentionally not enabled in ROS right now.
 
 **Permission:** **`online_store.manage`** (or **`settings.admin`** for the same admin routes).
 
@@ -153,7 +153,7 @@ Staff headers + **`online_store.manage`** or **`settings.admin`**.
 
 - Server totals use **`rust_decimal::Decimal`** (cart lines, tax preview, coupons).
 - Paid web checkout uses **`store_checkout_session`** + **`store_checkout_payment_attempt`** before finalization. Helcim uses HelcimPay.js initialization and validates the returned response hash server-side before ROS creates a **`sale_channel = web`** transaction. The finalized payment ledger stores the Helcim card transaction id so Settings → Helcim can pull API-returned fee/net fields for QBO clearing.
-- HelcimPay.js is the hosted browser-card path for public web checkout. Local POS checkout does not use HelcimPay.js; in-store card reader, phone-order keyed entry, and card refunds use the Helcim terminal hardware path documented in [`HELCIM.md`](HELCIM.md).
+- HelcimPay.js is the hosted browser-card path for public web checkout and POS Manual Card keyed entry. In-store Card Reader and terminal card refunds use the Helcim terminal hardware path documented in [`HELCIM.md`](HELCIM.md).
 - Storefront **account** passwords are **Argon2** (min **8** characters); protect **`RIVERSIDE_STORE_CUSTOMER_JWT_SECRET`** like any session signing key. **Trust `X-Forwarded-For` only** from your own edge/proxy; otherwise clients can spoof IPs and shift rate-limit buckets.
 - Treat **published HTML** and **embed snippets** (Podium, Constant Contact) as **untrusted** until sanitized / CSP allowlisted — see **`PLAN_ONLINE_STORE_MODULE.md`** §5 and **`PODIUM_STOREFRONT_CSP_AND_PRIVACY.md`**.
 

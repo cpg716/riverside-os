@@ -63,7 +63,9 @@ impl GeminiClient {
     pub fn from_env() -> Result<Self, String> {
         let config = GeminiConfig::default();
         if config.api_key.is_empty() {
-            return Err("GEMINI_API_KEY environment variable is not set".to_string());
+            return Err(
+                "Gemini API key is not configured in Settings or GEMINI_API_KEY".to_string(),
+            );
         }
         if config.model.trim().is_empty() {
             return Err("ROSIE_GEMINI_MODEL is empty".to_string());

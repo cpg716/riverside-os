@@ -65,7 +65,7 @@ services:
       start_period: 10s
 
   metabase:
-    image: metabase/metabase:v0.60.1
+    image: metabase/metabase:v0.62.3.x
     container_name: riverside-os-metabase
     hostname: metabase
     restart: unless-stopped
@@ -81,13 +81,22 @@ services:
       # Must match how staff open ROS in the browser (Vite :5173 + Axum /metabase proxy). Otherwise
       # Metabase HTML references /app/* at the site root → 404 on :5173 (those paths are not proxied).
       # Override when using LAN IP: METABASE_SITE_URL=http://192.168.x.x:5173/metabase/
-      MB_SITE_URL: ${METABASE_SITE_URL:-http://localhost:5173/metabase/}
-      MB_DB_TYPE: postgres
-      MB_DB_DBNAME: metabase
-      MB_DB_PORT: 5432
-      MB_DB_USER: metabase
-      MB_DB_PASS: metabase
-      MB_DB_HOST: metabase-db
+      - MB_SITE_URL=${METABASE_SITE_URL:-http://localhost:5173/metabase/}
+      - MB_SITE_NAME=${METABASE_SITE_NAME:-Riverside Insights}
+      - JAVA_TIMEZONE=${METABASE_JAVA_TIMEZONE:-America/New_York}
+      - MB_ANON_TRACKING_ENABLED=${METABASE_ANON_TRACKING_ENABLED:-false}
+      # Public links can expose dashboards outside ROS/Metabase login. Leave off unless an admin
+      # intentionally enables a public or guest embed workflow.
+      - MB_ENABLE_PUBLIC_SHARING=${METABASE_ENABLE_PUBLIC_SHARING:-false}
+      # Optional native Metabase boot secret. If set before adding databases, Metabase encrypts
+      # stored database credentials in its own application DB. Keep it stable once configured.
+      - MB_ENCRYPTION_SECRET_KEY
+      - MB_DB_TYPE=postgres
+      - MB_DB_DBNAME=metabase
+      - MB_DB_PORT=5432
+      - MB_DB_USER=metabase
+      - MB_DB_PASS=metabase
+      - MB_DB_HOST=metabase-db
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:3000/api/health >/dev/null || exit 1"]
       interval: 15s

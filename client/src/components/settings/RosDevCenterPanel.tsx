@@ -651,7 +651,7 @@ export default function RosDevCenterPanel() {
             baseUrl={baseUrl}
             integrationKey="ops_github"
             title="GitHub E2E Telemetry Sync"
-            description="Secure developer configuration containing the repository identifier and Actions read token."
+            description="Secure developer configuration containing the repository identifier and GitHub token used by E2E telemetry and DevOps workflow actions."
             fields={[
               {
                 key: "repo",
@@ -664,7 +664,7 @@ export default function RosDevCenterPanel() {
                 key: "token",
                 label: "GitHub Access Token",
                 type: "password",
-                help: "Required to fetch workflow statuses.",
+                help: "Requires workflow-run read access for telemetry. Add workflow dispatch scope only if this server should trigger release workflows.",
               },
             ]}
             onSaved={loadE2eHealth}

@@ -99,7 +99,7 @@ export default function GitHubDevOpsPanel() {
       const releases = relRes.ok ? await relRes.json() : [];
       setData({ workflows, releases });
     } catch {
-      toast("Could not load GitHub data. Check RIVERSIDE_GITHUB_TOKEN.");
+      toast("Could not load GitHub data. Check ROS Dev Center GitHub credentials.");
     } finally {
       setLoading(false);
     }

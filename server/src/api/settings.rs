@@ -1071,7 +1071,15 @@ fn clean_integration_credential_value(
     }
     if matches!(
         credential_key,
-        "api_base_url" | "oauth_token_url" | "base_url" | "public_base_url" | "url"
+        "api_base_url"
+            | "oauth_token_url"
+            | "base_url"
+            | "public_base_url"
+            | "url"
+            | "local_llm_base_url"
+            | "remote_lmstudio_base_url"
+            | "openai_base_url"
+            | "gemini_base_url"
     ) {
         let parsed = reqwest::Url::parse(trimmed).map_err(|_| {
             SettingsError::InvalidPayload(format!("{credential_key} must be a valid URL."))
@@ -1084,6 +1092,28 @@ fn clean_integration_credential_value(
         return Ok(Some(trimmed.trim_end_matches('/').to_string()));
     }
     Ok(Some(trimmed.to_string()))
+}
+
+fn clean_integration_credential_value_for_integration(
+    integration_key: &str,
+    credential_key: &str,
+    value: String,
+) -> Result<Option<String>, SettingsError> {
+    let cleaned = clean_integration_credential_value(credential_key, value)?;
+    if integration_key == "helcim"
+        && matches!(
+            credential_key,
+            "terminal_1_device_code" | "terminal_2_device_code"
+        )
+    {
+        return cleaned
+            .map(|value| {
+                crate::logic::helcim::normalize_device_code(&value)
+                    .map_err(SettingsError::InvalidPayload)
+            })
+            .transpose();
+    }
+    Ok(cleaned)
 }
 
 async fn integration_credentials_status(
@@ -1151,7 +1181,11 @@ async fn patch_integration_credentials(
                 "{credential_key} is not supported for {integration_key}."
             )));
         }
-        if let Some(cleaned) = clean_integration_credential_value(&credential_key, value)? {
+        if let Some(cleaned) = clean_integration_credential_value_for_integration(
+            &integration_key,
+            &credential_key,
+            value,
+        )? {
             values.push((credential_key, cleaned));
         }
     }
@@ -2254,7 +2288,7 @@ async fn get_edge_access_status(
         strict_production,
         helcim_webhook_url: public_url_with_path(
             public_base_url.as_deref(),
-            "/api/webhooks/helcim",
+            "/api/webhooks/card-events",
         ),
         podium_webhook_url: public_url_with_path(
             public_base_url.as_deref(),

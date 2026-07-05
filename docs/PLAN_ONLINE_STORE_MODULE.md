@@ -20,7 +20,7 @@ Implementation plan for a **first-party e-commerce surface** that is **not a bol
 | **Public UI:** **`PublicStorefront`** — PLP, faceted PDP, cart (localStorage + server session), pickup vs ship + rate picker, tax/coupon **estimate**, **`?promo=`**; **`/shop/account`** profile + order list/detail. | **Tax v2:** persist **`tax_breakdown`** on web orders (needs checkout); nexus flags in Settings; optional **Helcim Tax** or external rate API (**§6**). |
 | **Inventory / BO:** web column, filters, bulk publish, matrix **web $** / gallery / **publish new variants to web**; **Settings → Online store** (raw HTML + **GrapesJS Studio** lazy chunk, coupons). | **On-site integrations (Phase D):** Podium **widget** in storefront shell; **transactional email** after payment (extend **[`PLAN_PODIUM_SMS_INTEGRATION.md`](./PLAN_PODIUM_SMS_INTEGRATION.md)**); **Constant Contact** embed + optional checkout marketing opt-in (**§7**, **[`PLAN_CONSTANT_CONTACT_INTEGRATION.md`](./PLAN_CONSTANT_CONTACT_INTEGRATION.md)**). |
 | | **Coupons (beyond preview):** per-customer limits, stacking rules, category/SKU scope; richer staff edit + usage analytics (**§4**). |
-| | **Studio ops:** production **SDK license** + **`VITE_GRAPESJS_STUDIO_LICENSE_KEY`** / domain allowlist (**Phase A**); CSP + optional **custom blocks** for featured products (**§5**). |
+| | **Studio ops:** production **SDK license** saved in **Online Store Security** plus domain allowlist (**Phase A**); `VITE_GRAPESJS_STUDIO_LICENSE_KEY` remains fallback/local dev only. CSP + optional **custom blocks** for featured products (**§5**). |
 
 **Single biggest gap:** there is **no** server path that turns an authenticated or guest cart into a **paid** **`web`** order — everything above stops at **estimate + account**.
 
@@ -34,7 +34,7 @@ Implementation plan for a **first-party e-commerce surface** that is **not a bol
 | **Public API** | **`server/src/api/store.rs`** (nested at **`/api/store`** and **`/api/admin/store`**): catalog, published pages (HTML sanitized with **ammonia**), coupon preview, tax preview, guest cart session, media, Shippo **`POST /shipping/rates`**. **`server/src/api/store_account.rs`** nested at **`/api/store/account`**: register / login / activate / me / password / orders (JWT **`Authorization: Bearer`**). **`server/src/api/store_account_rate.rs`**: rolling per-IP and per-customer limits — **`docs/ONLINE_STORE.md`**. |
 | **Logic** | **`server/src/logic/store_catalog.rs`**, **`store_promotions.rs`**, **`store_tax.rs`**. |
 | **Inventory** | Control board: **Web** column, **On web** filter, bulk publish/unpublish; product hub matrix: **Web store** checkbox; **`PATCH /api/products/variants/{id}/pricing`** includes `web_published`, `web_price_override`, `web_gallery_order`; **`POST /api/products/variants/bulk-web-publish`**. |
-| **Staff UI** | **Settings → Online store** (`OnlineStoreSettingsPanel.tsx`): pages (**Raw HTML** + **Visual (Studio)** tabs, **`StorePageStudioEditor.tsx`**, **`@grapesjs/studio-sdk`** lazy chunk), coupons (create, activate/deactivate). Optional **`VITE_GRAPESJS_STUDIO_LICENSE_KEY`**. |
+| **Staff UI** | **Settings → Online store** (`OnlineStoreSettingsPanel.tsx`): pages (**Raw HTML** + **Visual (Studio)** tabs, **`StorePageStudioEditor.tsx`**, **`@grapesjs/studio-sdk`** lazy chunk), coupons (create, activate/deactivate), and Studio license entry through **Online Store Security**. |
 | **Public shop** | **`PublicStorefront.tsx`** + **`main.tsx`** **`/shop`**, **`/shop/account`**, **`/shop/account/orders/{uuid}`**. **TanStack Query** for catalog, CMS pages, cart resolution, account profile/orders. **`ui-shadcn/`** components + **`[data-storefront]`** CSS variables (not the main BO **`ui-*`** set). Guest cart: **`localStorage`** + **`POST /api/store/cart/lines`** for priced lines; **`ros.store.cartSessionId.v1`** + **`/api/store/cart/session`** (create/get/put/delete) keeps a **server** copy; **delivery address + `POST /api/store/shipping/rates`** (Shippo live or stub) + **`rate_quote_id`** selection; tax/coupon **estimate** UI (state from delivery address); **`?promo=`** pre-fill. |
 | **Product slug for web** | Store catalog uses **`products.catalog_handle`** (trimmed, case-insensitive) as the public slug; template must be active and at least one variant **`web_published`**. |
 
@@ -365,7 +365,7 @@ flowchart TB
 ### Phase A — Schema + Inventory + Studio SDK skeleton
 
 - **Done:** Same as prior checklist + **`@grapesjs/studio-sdk`** in client (**`StorePageStudioEditor`**, lazy-loaded from **Settings → Online store**); **self** storage → **`PATCH`** **`project_json`**; **export HTML** to raw draft path; **Studio `assets.onUpload`** → **`POST /api/admin/store/assets`** → public **`GET /api/store/media/{id}`** URLs in page HTML; **inventory:** **`publish_variants_to_web`** on **`POST /api/products`**; matrix hub **web price override** + **gallery order** UI.
-- **Open:** **SDK license** + **`VITE_GRAPESJS_STUDIO_LICENSE_KEY`** for prod ([Licenses](https://app.grapesjs.com/docs-sdk/overview/licenses)).
+- **Open:** final production **SDK license** value/domain allowlist for prod ([Licenses](https://app.grapesjs.com/docs-sdk/overview/licenses)); entry is now in **Settings → Online store → Online Store Security**.
 
 ### Phase B — Catalog PDP + cart + coupons + tax v1
 
@@ -399,7 +399,7 @@ flowchart TB
 ## Documentation
 
 - **`docs/ONLINE_STORE.md`**: **shipped** — operator + dev summary (routes, APIs, CMS, cart, **accounts + JWT + rate limits**, env).
-- **`DEVELOPER.md`**: **updated** — **`/api/store`**, **`/api/store/account/*`**, **`/api/admin/store`**, **`/shop`**, **`RIVERSIDE_STORE_CUSTOMER_JWT_SECRET`**, store account rate envs, **`VITE_GRAPESJS_STUDIO_LICENSE_KEY`**, pointer to **`ONLINE_STORE.md`**.
+- **`DEVELOPER.md`**: **updated** — **`/api/store`**, **`/api/store/account/*`**, **`/api/admin/store`**, **`/shop`**, **`RIVERSIDE_STORE_CUSTOMER_JWT_SECRET`**, store account rate envs, Studio license settings/fallback env, pointer to **`ONLINE_STORE.md`**.
 - **`docs/STAFF_PERMISSIONS.md`**: **`online_store.manage`** row in permission catalog.
 - **`README.md`**, **`AGENTS.md`**, **`.cursorrules`**: catalog / agent read lists include **`ONLINE_STORE.md`** where appropriate.
 

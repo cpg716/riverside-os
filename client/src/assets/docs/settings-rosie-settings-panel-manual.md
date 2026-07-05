@@ -101,6 +101,8 @@ Voice controls only appear when the workstation supports the approved SenseVoice
 
 The selected chat provider is configured on the Riverside server. The panel can show Local Gemma, Remote LM Studio, OpenAI, or Gemini. Speech-to-text and speech output have their own selected provider, so the store can use Remote LM Studio for chat while keeping SenseVoice and Kokoro local for voice.
 
+Use **ROSIE Provider Credentials** to add, replace, or clear the local/private/cloud provider endpoints, OpenAI and Gemini API keys, and cloud speech model names. These values are stored encrypted by Riverside OS. Environment values are fallback/bootstrap only.
+
 If a selected provider is not configured or cannot be reached, ROSIE returns an explicit provider error instead of silently switching providers.
 
 Voice workflow prompts are designed for hands-busy assistance. Staff can use them for receiving guidance, inventory lookup, and appointment detail capture, but ROSIE only guides the workflow. Final receiving, inventory, refund, register close, QBO, and scheduling actions still happen in the normal Riverside OS screen with the required staff or manager confirmation.
@@ -113,7 +115,7 @@ Use staff-facing status labels. Avoid internal runtime terms when explaining the
 
 ROSIE settings control assistance, not source-of-truth behavior. Turning ROSIE off should never hide deterministic workflow facts, totals, warnings, or manual access. If ROSIE gives an answer that conflicts with the current screen or a manager decision, follow the screen/manual and log the ROSIE grounding issue.
 
-Provider mode is server-owned. Support configures it with environment variables such as `ROSIE_PROVIDER=local_llm`, `ROSIE_PROVIDER=remote_lmstudio`, `ROSIE_PROVIDER=openai`, or `ROSIE_PROVIDER=gemini`, plus `ROSIE_STT_PROVIDER` and `ROSIE_TTS_PROVIDER` for voice. API keys must stay on the server and must not be entered into browser fields, staff notes, or client-side settings.
+Provider mode is server-owned. Support configures it with environment variables such as `ROSIE_PROVIDER=local_llm`, `ROSIE_PROVIDER=remote_lmstudio`, `ROSIE_PROVIDER=openai`, or `ROSIE_PROVIDER=gemini`, plus `ROSIE_STT_PROVIDER` and `ROSIE_TTS_PROVIDER` for voice. API keys must be entered only in **ROSIE Provider Credentials** or deployment fallback env, never in Vite/client env, staff notes, logs, or screenshots.
 
 
 ## What to watch for

@@ -131,7 +131,7 @@ The **Reports** sidebar tab ([`client/src/components/reports/ReportsWorkspace.ts
 
 | Method | Path | Permission / notes |
 |--------|------|---------------------|
-| GET | `/api/insights/metabase-launch` | **`insights.view`**. Query **`return_to`** (default **`/metabase/`**). Returns **`iframe_src`** for the Insights iframe (static **`/metabase/`** or JWT SSO URL when **`insights_config`** + secret allow) — [**`METABASE_REPORTING.md`**](METABASE_REPORTING.md). |
+| GET | `/api/insights/metabase-launch` | **`insights.view`**. Query **`return_to`** (default **`/metabase/`**). Returns **`iframe_src`** for the Insights iframe. Free OSS stations use saved Staff/Admin Metabase shared-auth accounts; paid stations may return a JWT SSO URL when **`insights_config`** + secret allow — [**`METABASE_REPORTING.md`**](METABASE_REPORTING.md). |
 | POST | `/api/insights/metabase-launch` | Same — JSON body **`{ "return_to": "..." }`**. |
 | GET | `/api/insights/sales-pivot` | **`insights.view`**. Query: **`basis`** (`booked`/`sale`/… vs `fulfilled`/`pickup`/… — fulfillment uses pickup **`fulfilled_at`** or ship **`shipment_event`**; see [**`docs/REPORTING_BOOKED_AND_FULFILLED.md`**](REPORTING_BOOKED_AND_FULFILLED.md)), **`group_by`**, **`from`**, **`to`**. |
 | GET | `/api/insights/margin-pivot` | **Admin role only** (staff headers + PIN). Same **`group_by`**, **`basis`**, **`from`**, **`to`** as sales-pivot. Rows add **`cost_of_goods`** (`SUM(unit_cost × qty)` frozen at checkout), **`gross_margin`** (pre-tax revenue − COGS), **`margin_percent`** (margin ÷ pre-tax revenue × 100). |
@@ -425,7 +425,7 @@ These endpoints are built for **pivot-style** and **ops** reporting. They are th
 
 | Endpoint | Method | Auth / permission (typical) | What it returns | Natural-language examples |
 |----------|--------|----------------------------|-----------------|---------------------------|
-| `/api/insights/metabase-launch` | GET / POST | **`insights.view`** | JSON **`iframe_src`** — static **`/metabase/`** or JWT SSO URL when configured | “Open Insights” (UI use; NL rarely needs this) |
+| `/api/insights/metabase-launch` | GET / POST | **`insights.view`** | JSON **`iframe_src`** — shared-auth **`/metabase/`** for OSS or paid JWT SSO URL when configured | “Open Insights” (UI use; NL rarely needs this) |
 | `/api/insights/sales-pivot` | GET | Should be gated as **`insights.view`** for NL reporting | Rows: **bucket**, **gross_revenue**, **tax_collected**, **order_count**, **line_units**; optional **weather_snapshot**, **closing_comments** (when `group_by=date`); **customer_id** when `group_by=customer`. **truncated** if capped at 200 rows. **Back Office → Reports** exposes this weather path as **Daily Sales Weather**. Metabase uses **`reporting.daily_sales_weather`**. | “Sales by brand last month”, “Tax by category”, “Units by salesperson”, “Daily sales with weather” |
 | | | Query: **`group_by`**: `brand`, `salesperson`, `category`, `customer`, `date` | | |
 | | | **`basis`**: `booked`/`sale` vs `fulfilled`/`pickup` (fulfillment: pickup **`fulfilled_at`**, ship from **`shipment_event`**) | | |

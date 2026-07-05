@@ -57,9 +57,9 @@ Use the URL shown in this panel for iPads and other satellite browsers that are 
 
 ## Public callbacks
 
-Use **Public Callback Route** to save the public HTTPS Riverside base URL for outside providers such as Helcim and Podium. Enter only the base URL, for example `https://ros.riversidemens.com`; Riverside appends `/api/webhooks/helcim` and `/api/webhooks/podium` automatically.
+Use **Public Callback Route** to save the public HTTPS Riverside base URL for outside providers such as Helcim and Podium. Enter only the base URL, for example `https://ros.riversidemens.com`; Riverside appends `/api/webhooks/card-events` for Helcim and `/api/webhooks/podium` for Podium automatically.
 
-If Cloudflare Tunnel is used, save the tunnel hostname plus Cloudflare API token, account ID, zone ID, and optional tunnel name in this card. Riverside stores those values encrypted. Click **Repair Cloudflare Tunnel** to create or reuse the Cloudflare Tunnel, route DNS to the tunnel, install or restart the `cloudflared` service when possible, and point the tunnel origin at the Riverside server on this host. After saving or repairing, use **Run Live Callback Check** to confirm the public URL reaches this Riverside server before relying on Helcim terminal approval or cancel webhooks.
+If Cloudflare Tunnel is used, save the tunnel hostname plus Cloudflare API token, account ID, zone ID, and optional tunnel name in this card. For an existing locally managed tunnel, also save the tunnel ID/token or tunnel credentials JSON. Riverside stores those values encrypted. Click **Repair Cloudflare Tunnel** to create or reuse the Cloudflare Tunnel, route DNS to the tunnel, install or restart the `cloudflared` service when possible, and point the tunnel origin at the Riverside server on this host. After saving or repairing, use **Run Live Callback Check** to confirm the public URL reaches this Riverside server before relying on Helcim terminal approval or cancel webhooks.
 
 ## Restart the Riverside server
 

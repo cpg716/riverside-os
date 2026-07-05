@@ -1,5 +1,3 @@
-import { GRAPESJS_STUDIO_LICENSE_KEY } from "../../lib/grapesjsStudioLicense";
-
 interface OnlineStoreConfigPanelProps {
   onOpenOnlineStore?: () => void;
 }
@@ -12,11 +10,9 @@ const configRows = [
   },
   {
     label: "GrapesJS Studio",
-    value:
-      GRAPESJS_STUDIO_LICENSE_KEY === "DEV_LICENSE_KEY"
-        ? "Local dev key"
-        : "License configured",
-    detail: "Studio is for CMS and marketing pages, not catalog or checkout.",
+    value: "Managed in Online Store",
+    detail:
+      "Studio licensing is saved in Online Store Security; Studio is for CMS and marketing pages, not catalog or checkout.",
   },
   {
     label: "Checkout",

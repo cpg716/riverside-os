@@ -8,6 +8,10 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useToast } from "../ui/ToastProviderLogic";
 import { apiUrl } from "../../lib/apiUrl";
+import {
+  HELCIM_PAY_SCRIPT_URL,
+  helcimPayRuntimeBlocker,
+} from "../../lib/helcimPayRuntime";
 import { Badge } from "@/components/ui-shadcn/badge";
 import { Button } from "@/components/ui-shadcn/button";
 import {
@@ -3339,7 +3343,7 @@ function loadHelcimPayScript(): Promise<void> {
     }
     const script = document.createElement("script");
     script.type = "text/javascript";
-    script.src = "https://secure.helcim.app/helcim-pay/services/start.js";
+    script.src = HELCIM_PAY_SCRIPT_URL;
     script.async = true;
     script.dataset.rosHelcimPay = "true";
     script.onload = () => resolve();
@@ -3447,6 +3451,11 @@ function CheckoutHelcimPaymentForm({
           onClick={() => {
             void (async () => {
               if (!payment.checkout_token) return;
+              const runtimeBlocker = helcimPayRuntimeBlocker();
+              if (runtimeBlocker) {
+                onError(runtimeBlocker);
+                return;
+              }
               setSubmitting(true);
               try {
                 await loadHelcimPayScript();

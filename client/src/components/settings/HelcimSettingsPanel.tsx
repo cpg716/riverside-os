@@ -29,6 +29,13 @@ interface HelcimProviderStatus {
   missing_config: string[];
 }
 
+interface HelcimApiHealth {
+  configured: boolean;
+  reachable: boolean;
+  latency_ms: number;
+  message: string;
+}
+
 interface PaymentProviderSettings {
   active_provider: "helcim";
   helcim: HelcimProviderStatus;
@@ -52,7 +59,7 @@ interface EdgeAccessStatus {
 const HelcimSettingsPanel: React.FC = () => {
   const { backofficeHeaders } = useBackofficeAuth();
   const baseUrl = getBaseUrl();
-  const webhookPath = "/api/webhooks/helcim";
+  const webhookPath = "/api/webhooks/card-events";
   const localWebhookDeliveryUrl = `${baseUrl.replace(/\/$/, "")}${webhookPath}`;
 
   const [helcimStatus, setHelcimStatus] =
@@ -61,6 +68,8 @@ const HelcimSettingsPanel: React.FC = () => {
   const [helcimError, setHelcimError] = useState<string | null>(null);
   const [providerSettings, setProviderSettings] =
     useState<PaymentProviderSettings | null>(null);
+  const [helcimApiHealth, setHelcimApiHealth] =
+    useState<HelcimApiHealth | null>(null);
   const [eventsHealth, setEventsHealth] = useState<HelcimEventsHealth | null>(null);
   const [providerSaving, setProviderSaving] = useState(false);
   const [configSaving, setConfigSaving] = useState(false);
@@ -87,6 +96,14 @@ const HelcimSettingsPanel: React.FC = () => {
       const settings = (await res.json()) as PaymentProviderSettings;
       setProviderSettings(settings);
       setHelcimStatus(settings.helcim);
+      const apiHealthRes = await fetch(`${baseUrl}/api/payments/providers/helcim/health`, {
+        headers: backofficeHeaders() as Record<string, string>,
+      });
+      if (apiHealthRes.ok) {
+        setHelcimApiHealth((await apiHealthRes.json()) as HelcimApiHealth);
+      } else {
+        setHelcimApiHealth(null);
+      }
       const healthRes = await fetch(`${baseUrl}/api/payments/providers/helcim/events/health`, {
         headers: backofficeHeaders() as Record<string, string>,
       });
@@ -111,6 +128,7 @@ const HelcimSettingsPanel: React.FC = () => {
     } catch (error) {
       setProviderSettings(null);
       setHelcimStatus(null);
+      setHelcimApiHealth(null);
       setEventsHealth(null);
       setPublicWebhookDeliveryUrl(null);
       setHelcimError(
@@ -223,6 +241,16 @@ const HelcimSettingsPanel: React.FC = () => {
   const missingConfig = helcimStatus?.missing_config ?? [];
   const apiConfigured = Boolean(helcimStatus?.api_token_configured);
   const terminalReady = Boolean(helcimStatus?.terminal_payments_ready);
+  const apiHealthLabel = helcimLoading
+    ? "Checking..."
+    : helcimApiHealth?.reachable
+      ? `Reachable${helcimApiHealth.latency_ms ? ` ${helcimApiHealth.latency_ms}ms` : ""}`
+      : helcimApiHealth
+        ? "Failed"
+        : "Not checked";
+  const apiHealthDetail =
+    helcimApiHealth?.message ??
+    "Use Check Connection after saving credentials to test the Helcim API token.";
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -321,7 +349,7 @@ const HelcimSettingsPanel: React.FC = () => {
             </div>
           </div>
 
-          <div className="grid gap-3 text-xs font-semibold text-app-text-muted sm:grid-cols-3 lg:min-w-[520px]">
+          <div className="grid gap-3 text-xs font-semibold text-app-text-muted sm:grid-cols-4 lg:min-w-[620px]">
             <StatusTile
               icon={
                 apiConfigured ? (
@@ -340,6 +368,17 @@ const HelcimSettingsPanel: React.FC = () => {
                       ? "Configured"
                       : "Not configured"
               }
+            />
+            <StatusTile
+              icon={
+                helcimApiHealth?.reachable ? (
+                  <CheckCircle2 size={13} className="text-app-success" />
+                ) : (
+                  <AlertTriangle size={13} className="text-app-warning" />
+                )
+              }
+              label="API check"
+              value={apiHealthLabel}
             />
             <StatusTile
               icon={<CreditCard size={13} className="text-app-info" />}
@@ -401,6 +440,12 @@ const HelcimSettingsPanel: React.FC = () => {
               }
               ready={Boolean(helcimStatus?.api_token_configured)}
               detail="Used for Helcim API and card payment requests. Secret value is not shown."
+            />
+            <ConfigRow
+              label="API connection"
+              value={apiHealthLabel}
+              ready={Boolean(helcimApiHealth?.reachable)}
+              detail={apiHealthDetail}
             />
             <ConfigRow
               label="Terminal 1 device code"
@@ -483,6 +528,8 @@ const HelcimSettingsPanel: React.FC = () => {
                   Paste the public HTTPS version of this URL into Helcim. ROS
                   handles signed Helcim terminal updates at{" "}
                   <span className="font-mono text-app-text">{webhookPath}</span>.
+                  Helcim requires an HTTPS URL that does not contain the word
+                  Helcim.
                 </p>
                 {webhookUrlWarning ? (
                   <p className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs font-bold leading-5 text-app-warning">
@@ -616,12 +663,12 @@ const HelcimSettingsPanel: React.FC = () => {
                 {
                   key: "terminal_1_device_code",
                   label: "Terminal 1 device code",
-                  help: "Default for Register #1. Registers #3/#4 can choose it at checkout.",
+                  help: "Four-character Helcim device code. Default for Register #1; Registers #3/#4 can choose it at checkout.",
                 },
                 {
                   key: "terminal_2_device_code",
                   label: "Terminal 2 device code",
-                  help: "Default for Register #2. Registers #3/#4 can choose it at checkout.",
+                  help: "Four-character Helcim device code. Default for Register #2; Registers #3/#4 can choose it at checkout.",
                 },
                 {
                   key: "webhook_secret",

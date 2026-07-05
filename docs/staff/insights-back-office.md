@@ -21,7 +21,7 @@
 
 ## Staff Metabase login vs admin Metabase login
 
-**Riverside** checks **`insights.view`** to show **Insights**. On configured stations, Riverside also launches Metabase with the saved **Staff** or **Admin** Metabase account based on the signed-in staff member. If automatic launch is unavailable, **Metabase** uses its **own** username and password (or SSO if your store enabled JWT on paid Metabase).
+**Riverside** checks **`insights.view`** to show **Insights**. On configured free Metabase OSS stations, Riverside also launches Metabase with the saved **Staff** or **Admin** Metabase account based on the signed-in staff member. If automatic launch is unavailable, **Metabase** uses its **own** username and password. Paid Metabase stations may use JWT SSO instead.
 
 **Store standard:** Maintain **two classes** of Metabase user:
 
@@ -123,4 +123,4 @@ Operational **RMS charge** and **RMS payment** lines are listed under **Customer
 - [../POS_PARKED_SALES_AND_RMS_CHARGES.md](../POS_PARKED_SALES_AND_RMS_CHARGES.md)
 - [../PRODUCT_ROADMAP_MENS_WEDDING_RETAIL.md](../PRODUCT_ROADMAP_MENS_WEDDING_RETAIL.md)
 
-**Last reviewed:** 2026-05-16
+**Last reviewed:** 2026-07-05

@@ -57,7 +57,7 @@ Inspected `/api/payments` routes, Helcim webhook routes, key payment permission 
 | GET | `/api/payments/providers/helcim/attempts/{id}/stream` | `payments.rs` | POS SSE stream | POS/session/payment context | Staff/POS context | No stream | payment provider attempts | Not traced | High | SSE plus polling fallback. |
 | POST | `/api/payments/providers/helcim/attempts/{id}/release` | `payments.rs` | POS recovery | POS/session/payment context | Staff/POS context | Yes | provider attempt lock/status | Not traced | High | Releases terminal attempt lock. |
 | POST | `/api/payments/providers/helcim/attempts/{id}/simulate` | `payments.rs` | E2E/dev | simulator/config gate expected | Staff/POS context | Yes | provider attempts | Not traced | High | Must remain gated to simulator/dev conditions. |
-| POST | `/api/webhooks/helcim` and `/api/webhooks/card-events` | `server/src/api/webhooks.rs` | Helcim provider | Helcim HMAC/webhook secret | Provider auth | Yes | `helcim_event_log`, payment attempts, checkout recovery | Webhook verification tests exist | Critical | Provider-signed inbound event path. |
+| POST | `/api/webhooks/card-events` and legacy alias `/api/webhooks/helcim` | `server/src/api/webhooks.rs` | Helcim provider | Helcim HMAC/webhook secret | Provider auth | Yes | `helcim_event_log`, payment attempts, checkout recovery | Webhook verification tests exist | Critical | Provider-signed inbound event path. |
 
 ## Contract Notes
 

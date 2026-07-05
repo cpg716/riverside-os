@@ -652,6 +652,24 @@ export default function RemoteAccessPanel() {
                       help: "Used by readiness checks to know Cloudflare Tunnel is expected on this host.",
                     },
                     {
+                      key: "cloudflare_tunnel_id",
+                      label: "Cloudflare tunnel ID",
+                      type: "text",
+                      help: "Optional when ROS creates the tunnel. Required when repairing an existing locally managed tunnel.",
+                    },
+                    {
+                      key: "cloudflare_tunnel_token",
+                      label: "Cloudflare tunnel token",
+                      type: "password",
+                      help: "Optional when ROS creates the tunnel through the API. Used to install the cloudflared service from a provider token.",
+                    },
+                    {
+                      key: "cloudflare_credentials_json",
+                      label: "Cloudflare credentials JSON",
+                      type: "textarea",
+                      help: "Paste the cloudflared tunnel credentials JSON only when repairing an existing locally managed tunnel.",
+                    },
+                    {
                       key: "cloudflare_api_token",
                       label: "Cloudflare API token",
                       type: "password",
@@ -732,7 +750,7 @@ export default function RemoteAccessPanel() {
                     Helcim webhook
                   </dt>
                   <dd className="mt-1 break-all font-mono text-app-text">
-                    {edgeStatus?.helcim_webhook_url ?? "/api/webhooks/helcim"}
+                    {edgeStatus?.helcim_webhook_url ?? "/api/webhooks/card-events"}
                   </dd>
                 </div>
                 <div className="rounded-xl border border-app-border bg-app-surface-2 p-3">

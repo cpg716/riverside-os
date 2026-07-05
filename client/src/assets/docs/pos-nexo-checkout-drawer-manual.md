@@ -35,7 +35,7 @@ The checkout drawer collects payment, shows the remaining balance due, and compl
 Choose the tender type on the left, then collect the amount in the center panel.
 
 - **Card reader** sends the payment to the selected Helcim terminal.
-- **Manual card** is for approved keyed-card workflows.
+- **Manual card** is for approved keyed-card workflows. It opens HelcimPay.js in the current desktop WebView or iPad PWA origin; if Riverside warns that the origin is not allowed, stop and ask an admin to verify the Helcim API Access Configuration.
 - **Terminal refunds** require the original Helcim transaction ID, the customer, and the original card at the terminal before the refund is sent.
 - **Cash**, **check**, **gift card**, **store credit**, and other tenders remain separate so the sale ledger stays auditable.
 - **Donation** records a non-sale donation tender. Enter the required note before adding payment so accounting can review why the donation was taken.

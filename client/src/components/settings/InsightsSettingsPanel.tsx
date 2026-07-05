@@ -114,7 +114,7 @@ const InsightsSettingsPanel: React.FC = () => {
           />
         </div>
         <h2 className="text-3xl font-black italic tracking-tighter uppercase text-app-text">Data Insights</h2>
-        <p className="text-sm text-app-text-muted mt-2 font-medium">Configure enterprise reporting, role-based database access, and secure auth handoff.</p>
+        <p className="text-sm text-app-text-muted mt-2 font-medium">Configure Metabase OSS reporting, reporting-only database access, and optional paid JWT SSO.</p>
       </header>
 
       <section className="ui-card p-8 max-w-4xl border-violet-500/20 bg-gradient-to-br from-violet-500/5 to-transparent shadow-xl">
@@ -180,7 +180,7 @@ const InsightsSettingsPanel: React.FC = () => {
             baseUrl={baseUrl}
             integrationKey="insights"
             title="Insights Credentials"
-            description="Save Metabase access credentials here. Riverside uses these only for silent shared-auth handoff and short-lived SSO tokens — never exposed to staff."
+            description="Add, replace, or clear Metabase credentials here. OSS stations use Staff/Admin shared-auth accounts; JWT SSO is only for paid Metabase plans. Environment values are fallback/bootstrap only."
             fields={[
               {
                 key: "metabase_jwt_secret",
@@ -228,7 +228,7 @@ const InsightsSettingsPanel: React.FC = () => {
             <div className="flex-1">
               <span className="text-sm font-black uppercase tracking-widest text-app-text">Enable Automated Insights SSO</span>
               <p className="text-[10px] text-app-text-muted mt-1 leading-relaxed font-medium">
-                Auth requests use a short-lived token for seamless handoff. Secret configured: {" "}
+                Paid Metabase Pro/Enterprise only. Keep this off for the free OSS install and use the saved Staff/Admin credentials above. Secret configured:{" "}
                 {jwtSecretConfigured ? (
                   <span className="text-emerald-600 font-black">ACTIVE</span>
                 ) : (

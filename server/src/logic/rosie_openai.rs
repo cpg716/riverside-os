@@ -1,7 +1,8 @@
 //! OpenAI cloud provider for ROSIE LLM, STT, and TTS.
 //!
-//! All calls stay server-side. Secrets are read from environment only and are
-//! never exposed to the browser/Tauri client.
+//! All calls stay server-side. Secrets are supplied from encrypted Settings
+//! mapped into process env or deployment fallback env, and are never exposed to
+//! the browser/Tauri client.
 
 use reqwest::{multipart, Client};
 use serde_json::{json, Value};
@@ -57,7 +58,9 @@ impl OpenAiClient {
     pub fn from_env() -> Result<Self, String> {
         let config = OpenAiConfig::default();
         if config.api_key.trim().is_empty() {
-            return Err("OPENAI_API_KEY environment variable is not set".to_string());
+            return Err(
+                "OpenAI API key is not configured in Settings or OPENAI_API_KEY".to_string(),
+            );
         }
         if config.llm_model.trim().is_empty() {
             return Err("ROSIE_OPENAI_LLM_MODEL is empty".to_string());

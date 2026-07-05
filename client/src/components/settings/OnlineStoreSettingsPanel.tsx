@@ -10,7 +10,7 @@ import { createPortal } from "react-dom";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
-import { GRAPESJS_STUDIO_LICENSE_KEY } from "../../lib/grapesjsStudioLicense";
+import { DEFAULT_GRAPESJS_STUDIO_LICENSE_KEY } from "../../lib/grapesjsStudioLicense";
 import type { StoreStudioApi } from "./StorePageStudioEditor";
 import IntegrationCredentialsCard from "./IntegrationCredentialsCard";
 import ProductImageGenerator from "../inventory/ProductImageGenerator";
@@ -34,6 +34,12 @@ interface StoreCouponRow {
   uses_count: number;
   max_uses: number | null;
 }
+
+type StudioLicenseResponse = {
+  license_key?: string;
+  configured?: boolean;
+  source?: string;
+};
 
 type OnlineStoreSettingsPanelMode = "all" | "pages" | "coupons" | "media";
 
@@ -74,6 +80,9 @@ export default function OnlineStoreSettingsPanel({
   const [projectJsonDraft, setProjectJsonDraft] = useState<unknown>({});
   const [studioMountKey, setStudioMountKey] = useState(0);
   const [studioFullscreenOpen, setStudioFullscreenOpen] = useState(false);
+  const [studioLicenseKey, setStudioLicenseKey] = useState(
+    DEFAULT_GRAPESJS_STUDIO_LICENSE_KEY,
+  );
   const [htmlDraft, setHtmlDraft] = useState("");
   const studioApiRef = useRef<StoreStudioApi | null>(null);
   const [couponCode, setCouponCode] = useState("");
@@ -103,6 +112,22 @@ export default function OnlineStoreSettingsPanel({
     const j = (await res.json()) as { coupons?: StoreCouponRow[] };
     setCoupons(Array.isArray(j.coupons) ? j.coupons : []);
   }, [baseUrl, headers, toast]);
+
+  const loadStudioLicense = useCallback(async () => {
+    if (!canManage) return;
+    try {
+      const res = await fetch(`${baseUrl}/api/admin/store/studio-license`, {
+        headers: headers(),
+      });
+      if (!res.ok) return;
+      const json = (await res.json()) as StudioLicenseResponse;
+      setStudioLicenseKey(
+        json.license_key?.trim() || DEFAULT_GRAPESJS_STUDIO_LICENSE_KEY,
+      );
+    } catch {
+      setStudioLicenseKey(DEFAULT_GRAPESJS_STUDIO_LICENSE_KEY);
+    }
+  }, [baseUrl, canManage, headers]);
 
 interface MediaJob {
   id: string;
@@ -146,7 +171,8 @@ interface MediaJob {
     if (!canManage) return;
     void loadPages();
     void loadCoupons();
-  }, [canManage, loadPages, loadCoupons]);
+    void loadStudioLicense();
+  }, [canManage, loadPages, loadCoupons, loadStudioLicense]);
 
   useEffect(() => {
     if (mode === "pages" || mode === "coupons") {
@@ -298,7 +324,7 @@ interface MediaJob {
     >
       <StorePageStudioEditor
         key={studioMountKey}
-        licenseKey={GRAPESJS_STUDIO_LICENSE_KEY}
+        licenseKey={studioLicenseKey}
         projectJson={projectJsonDraft}
         fallbackHtml={htmlDraft}
         containerClassName="h-full min-h-0 w-full overflow-hidden bg-app-surface"
@@ -352,15 +378,20 @@ interface MediaJob {
         baseUrl={baseUrl}
         integrationKey="online_store"
         title="Online Store Security"
-        description="The JWT signing secret secures customer account sessions at /shop. Must be at least 32 characters. Generate with: openssl rand -base64 48"
+        description="Save customer account signing and Studio license keys here. Runtime env values are fallback/bootstrap only."
         fields={[
           {
             key: "customer_jwt_secret",
             label: "Customer account JWT secret",
             help: "Required in production. Loaded at server startup — restart the server after saving.",
           },
+          {
+            key: "grapesjs_studio_license_key",
+            label: "GrapesJS Studio license key",
+            help: "Required for non-localhost Studio SDK deployments. This license is sent to the browser editor when Studio opens.",
+          },
         ]}
-        onSaved={() => undefined}
+        onSaved={loadStudioLicense}
       />
 
       {mode === "all" ? (
