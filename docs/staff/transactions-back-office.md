@@ -63,6 +63,7 @@
 
 ## Returns, refunds, exchanges
 
+- Removing an item from an existing Transaction Record is only for open, unpaid, unfulfilled order lines that are still waiting on measurements or vendor ordering. Once payment, pickup, vendor processing, or completed-sale activity exists, use the trained void, return, refund, exchange, or cancellation workflow so audit and money history stay intact.
 - Use **return lines** / **exchange link** per training — do not bypass **refund queue** rules.
 - From a Transaction Record, use **Return / Exchange** on an item line to open Register with that customer, transaction, and item already selected. Use **Return All** only when every returnable line on the transaction is coming back.
 - **Void sale** (unpaid mistake carts) differs from **refund after payment** — permission and SOP differ.
@@ -100,4 +101,4 @@ Give the **transaction number**, **fulfillment order number**, or **receipt #**;
 - [pos-register-cart.md](pos-register-cart.md)
 - [../TRANSACTION_RETURNS_EXCHANGES.md](../TRANSACTION_RETURNS_EXCHANGES.md)
 
-**Last reviewed:** 2026-04-04
+**Last reviewed:** 2026-07-04

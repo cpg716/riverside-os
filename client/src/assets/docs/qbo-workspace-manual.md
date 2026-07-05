@@ -23,6 +23,8 @@ status: approved
 
 QBO Workspace is the review and staging area for QuickBooks Online journal proposals. It is designed for auditability before anything is synced to the accounting system.
 
+Before posting is enabled, an admin connects QuickBooks from Settings by saving the Intuit Client ID and Client Secret, choosing sandbox or production, clicking **Connect to QuickBooks**, approving the Riverside app in Intuit, refreshing QBO accounts, and mapping accounts.
+
 ## How to use it
 
 1. Open the proposal for the accounting date being reviewed.
@@ -32,9 +34,9 @@ QBO Workspace is the review and staging area for QuickBooks Online journal propo
 
 ## Review proposals
 
-Review the proposal date, totals, journal lines, balance status, and drilldown evidence before syncing.
+Review the proposal date, totals, journal lines, balance status, and drilldown evidence before syncing. Rows with no postable journal lines or blocking missing-mapping warnings stay in **needs review** status and cannot be approved until mappings are fixed and the journal is regenerated.
 
-After a register is closed for the day, ROS stages the daily journal for that store-local business date. A background worker also auto-proposes the previous business date at 2 AM local time, so most days will already have a pending row when accounting opens. If the day is already staged but still pending, staging refreshes the same row with the latest facts. If the day was already approved, synced, or voided and later sales, returns, deposits, or payment-date corrections change the day, ROS creates a revision proposal for the same business date.
+After a register is closed for the day, ROS stages the daily journal for that store-local business date. A background worker also auto-proposes the previous business date at 2 AM local time, so most days will already have a review row when accounting opens. If the day is already staged but still pending or marked needs review, staging refreshes the same row with the latest facts. If the day was already approved, synced, or voided and later sales, returns, deposits, or payment-date corrections change the day, ROS creates a revision proposal for the same business date.
 
 ## ✨ QBO exception explainer
 

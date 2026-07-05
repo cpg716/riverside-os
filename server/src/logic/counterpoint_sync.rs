@@ -3773,12 +3773,42 @@ pub async fn execute_counterpoint_inventory_batch(
     if !keyed_keys.is_empty() {
         sqlx::query(
             r#"
-            UPDATE product_variants AS v
-            SET
-                stock_on_hand = u.soh,
-                cost_override = COALESCE(u.cost, v.cost_override)
-            FROM UNNEST($1::text[], $2::text[], $3::int[], $4::numeric[]) AS u(key, sku, soh, cost)
-            WHERE v.counterpoint_item_key = u.key
+            WITH incoming AS (
+                SELECT * FROM UNNEST($1::text[], $2::text[], $3::int[], $4::numeric[]) AS u(key, sku, soh, cost)
+            ),
+            candidates AS (
+                SELECT
+                    v.id,
+                    COALESCE(v.stock_on_hand, 0) AS old_soh,
+                    u.soh,
+                    COALESCE(u.cost, v.cost_override) AS new_cost_override,
+                    COALESCE(u.cost, v.cost_override, p.base_cost, 0) AS ledger_unit_cost,
+                    u.key
+                FROM product_variants v
+                INNER JOIN products p ON p.id = v.product_id
+                INNER JOIN incoming u ON v.counterpoint_item_key = u.key
+            ),
+            updated AS (
+                UPDATE product_variants AS v
+                SET
+                    stock_on_hand = c.soh,
+                    cost_override = COALESCE(c.new_cost_override, v.cost_override)
+                FROM candidates c
+                WHERE v.id = c.id
+                RETURNING v.id, c.old_soh, c.soh, c.ledger_unit_cost, c.key
+            )
+            INSERT INTO inventory_transactions (
+                variant_id, tx_type, quantity_delta, unit_cost, reference_table, notes
+            )
+            SELECT
+                id,
+                'adjustment',
+                soh - old_soh,
+                ledger_unit_cost,
+                'counterpoint_inventory_sync',
+                format('Counterpoint inventory sync reconciled stock from %s to %s for %s', old_soh, soh, key)
+            FROM updated
+            WHERE soh <> old_soh
             "#,
         )
         .bind(&keyed_keys)
@@ -3794,34 +3824,65 @@ pub async fn execute_counterpoint_inventory_batch(
     if !sku_skus.is_empty() {
         sqlx::query(
             r#"
-            UPDATE product_variants AS v
-            SET
-                stock_on_hand = u.soh,
-                cost_override = COALESCE(u.cost, v.cost_override),
-                counterpoint_item_key = CASE
-                    WHEN v.counterpoint_item_key IS NULL
-                     AND u.key IS NOT NULL
-                     AND NOT EXISTS (
+            WITH incoming AS (
+                SELECT * FROM UNNEST($1::text[], $2::text[], $3::int[], $4::numeric[]) AS u(sku, key, soh, cost)
+            ),
+            candidates AS (
+                SELECT
+                    v.id,
+                    COALESCE(v.stock_on_hand, 0) AS old_soh,
+                    u.soh,
+                    COALESCE(u.cost, v.cost_override) AS new_cost_override,
+                    COALESCE(u.cost, v.cost_override, p.base_cost, 0) AS ledger_unit_cost,
+                    u.key,
+                    u.sku
+                FROM product_variants v
+                INNER JOIN products p ON p.id = v.product_id
+                INNER JOIN incoming u ON lower(trim(v.sku)) = lower(trim(u.sku))
+                WHERE (
+                    u.key IS NULL
+                    OR v.counterpoint_item_key = u.key
+                    OR NOT EXISTS (
                         SELECT 1
                         FROM product_variants owner
                         WHERE owner.counterpoint_item_key = u.key
                           AND owner.id <> v.id
-                     )
-                    THEN u.key
-                    ELSE v.counterpoint_item_key
-                END
-            FROM UNNEST($1::text[], $2::text[], $3::int[], $4::numeric[]) AS u(sku, key, soh, cost)
-            WHERE lower(trim(v.sku)) = lower(trim(u.sku))
-              AND (
-                u.key IS NULL
-                OR v.counterpoint_item_key = u.key
-                OR NOT EXISTS (
-                    SELECT 1
-                    FROM product_variants owner
-                    WHERE owner.counterpoint_item_key = u.key
-                      AND owner.id <> v.id
+                    )
                 )
-              )
+            ),
+            updated AS (
+                UPDATE product_variants AS v
+                SET
+                    stock_on_hand = c.soh,
+                    cost_override = COALESCE(c.new_cost_override, v.cost_override),
+                    counterpoint_item_key = CASE
+                        WHEN v.counterpoint_item_key IS NULL
+                         AND c.key IS NOT NULL
+                         AND NOT EXISTS (
+                            SELECT 1
+                            FROM product_variants owner
+                            WHERE owner.counterpoint_item_key = c.key
+                              AND owner.id <> v.id
+                         )
+                        THEN c.key
+                        ELSE v.counterpoint_item_key
+                    END
+                FROM candidates c
+                WHERE v.id = c.id
+                RETURNING v.id, c.old_soh, c.soh, c.ledger_unit_cost, c.key, c.sku
+            )
+            INSERT INTO inventory_transactions (
+                variant_id, tx_type, quantity_delta, unit_cost, reference_table, notes
+            )
+            SELECT
+                id,
+                'adjustment',
+                soh - old_soh,
+                ledger_unit_cost,
+                'counterpoint_inventory_sync',
+                format('Counterpoint inventory sync reconciled stock from %s to %s for %s', old_soh, soh, COALESCE(key, sku))
+            FROM updated
+            WHERE soh <> old_soh
             "#,
         )
         .bind(&sku_skus)
@@ -11460,13 +11521,14 @@ async fn upsert_variant(
     let import_sku = counterpoint_catalog_variant_sku(cp_key, sku);
     let clean_variation_label = clean_counterpoint_variation_label(cp_key, variation_label);
 
-    let mut existing: Option<(Uuid, String)> =
-        sqlx::query_as("SELECT id, sku FROM product_variants WHERE counterpoint_item_key = $1")
-            .bind(cp_key)
-            .fetch_optional(&mut **tx)
-            .await?;
+    let mut existing: Option<(Uuid, String, Option<i32>)> = sqlx::query_as(
+        "SELECT id, sku, stock_on_hand FROM product_variants WHERE counterpoint_item_key = $1",
+    )
+    .bind(cp_key)
+    .fetch_optional(&mut **tx)
+    .await?;
 
-    if let Some((vid, existing_sku)) = existing.as_ref() {
+    if let Some((vid, existing_sku, _)) = existing.as_ref() {
         if known_custom_subtype_for_sku(existing_sku).is_some()
             && known_custom_subtype_for_sku(cp_key).is_some()
         {
@@ -11481,7 +11543,7 @@ async fn upsert_variant(
         }
     }
 
-    if let Some((vid, _)) = existing {
+    if let Some((vid, _, old_stock)) = existing {
         sqlx::query(
             r#"
             UPDATE product_variants SET
@@ -11509,12 +11571,28 @@ async fn upsert_variant(
         .bind(reorder_point)
         .execute(&mut **tx)
         .await?;
+        if let Some(new_stock) = stock {
+            record_counterpoint_variant_stock_movement(
+                tx,
+                vid,
+                old_stock.unwrap_or(0),
+                new_stock,
+                override_cost,
+                "Counterpoint catalog import reconciled stock",
+            )
+            .await?;
+        }
         summary.variants_updated += 1;
     } else {
         let vv = variation_values
             .cloned()
             .unwrap_or_else(|| serde_json::json!({}));
-        sqlx::query(
+        let sku_existing: Option<(Uuid, Option<i32>)> =
+            sqlx::query_as("SELECT id, stock_on_hand FROM product_variants WHERE sku = $1")
+                .bind(&import_sku)
+                .fetch_optional(&mut **tx)
+                .await?;
+        let upserted_variant_id: Uuid = sqlx::query_scalar(
             r#"
             INSERT INTO product_variants (
                 product_id, sku, barcode, counterpoint_item_key,
@@ -11535,6 +11613,7 @@ async fn upsert_variant(
                 counterpoint_prc_3 = COALESCE(EXCLUDED.counterpoint_prc_3, product_variants.counterpoint_prc_3),
                 stock_on_hand = EXCLUDED.stock_on_hand,
                 reorder_point = EXCLUDED.reorder_point
+            RETURNING id
             "#,
         )
         .bind(product_id)
@@ -11549,10 +11628,65 @@ async fn upsert_variant(
         .bind(counterpoint_prc_3)
         .bind(stock)
         .bind(reorder_point)
-        .execute(&mut **tx)
+        .fetch_one(&mut **tx)
         .await?;
+        if let Some(new_stock) = stock {
+            let old_stock = sku_existing
+                .filter(|(id, _)| *id == upserted_variant_id)
+                .and_then(|(_, old_stock)| old_stock)
+                .unwrap_or(0);
+            record_counterpoint_variant_stock_movement(
+                tx,
+                upserted_variant_id,
+                old_stock,
+                new_stock,
+                override_cost,
+                "Counterpoint catalog import set opening stock",
+            )
+            .await?;
+        }
         summary.variants_created += 1;
     }
+    Ok(())
+}
+
+async fn record_counterpoint_variant_stock_movement(
+    tx: &mut Transaction<'_, Postgres>,
+    variant_id: Uuid,
+    old_stock: i32,
+    new_stock: i32,
+    unit_cost: Option<Decimal>,
+    source_label: &str,
+) -> Result<(), sqlx::Error> {
+    let delta = new_stock - old_stock;
+    if delta == 0 {
+        return Ok(());
+    }
+
+    sqlx::query(
+        r#"
+        INSERT INTO inventory_transactions (
+            variant_id, tx_type, quantity_delta, unit_cost, reference_table, notes
+        )
+        SELECT
+            pv.id,
+            'adjustment',
+            $2,
+            COALESCE($3, pv.cost_override, p.base_cost, 0),
+            'counterpoint_catalog_import',
+            $4
+        FROM product_variants pv
+        INNER JOIN products p ON p.id = pv.product_id
+        WHERE pv.id = $1
+        "#,
+    )
+    .bind(variant_id)
+    .bind(delta)
+    .bind(unit_cost)
+    .bind(format!("{source_label} from {old_stock} to {new_stock}"))
+    .execute(&mut **tx)
+    .await?;
+
     Ok(())
 }
 
@@ -20946,6 +21080,25 @@ mod tests {
         let matched = execute_counterpoint_inventory_batch(&pool, payload())
             .await
             .expect("matched inventory import");
+        let matched_again = execute_counterpoint_inventory_batch(&pool, payload())
+            .await
+            .expect("matched inventory import rerun");
+        let ledger: (i64, i64, Option<Decimal>, Option<String>) = sqlx::query_as(
+            r#"
+            SELECT
+                COUNT(*)::bigint,
+                COALESCE(SUM(quantity_delta), 0)::bigint,
+                MAX(unit_cost),
+                MAX(reference_table)
+            FROM inventory_transactions
+            WHERE variant_id = $1
+              AND reference_table = 'counterpoint_inventory_sync'
+            "#,
+        )
+        .bind(variant_id)
+        .fetch_one(&pool)
+        .await
+        .expect("load inventory sync ledger");
         record_counterpoint_snapshot_source_metrics(
             &pool,
             CounterpointSnapshotSourceMetricsPayload {
@@ -20980,6 +21133,11 @@ mod tests {
         .execute(&pool)
         .await
         .expect("cleanup inventory issue");
+        sqlx::query("DELETE FROM inventory_transactions WHERE variant_id = $1")
+            .bind(variant_id)
+            .execute(&pool)
+            .await
+            .expect("cleanup inventory ledger");
         sqlx::query("DELETE FROM product_variants WHERE id = $1")
             .bind(variant_id)
             .execute(&pool)
@@ -21006,6 +21164,12 @@ mod tests {
         assert_eq!(issue_count, 1);
         assert_eq!(matched.updated, 1);
         assert_eq!(matched.skipped, 0);
+        assert_eq!(matched_again.updated, 1);
+        assert_eq!(matched_again.skipped, 0);
+        assert_eq!(ledger.0, 1);
+        assert_eq!(ledger.1, 7);
+        assert_eq!(ledger.2, Some(Decimal::new(1200, 2)));
+        assert_eq!(ledger.3.as_deref(), Some("counterpoint_inventory_sync"));
         assert_eq!(unresolved_after_match, 0);
         assert!(row_passed);
         assert_eq!(row_source_count, Some(1));

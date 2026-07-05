@@ -11,6 +11,7 @@ export interface QboMatrixAccount {
 
 export const QBO_MATRIX_TENDERS = [
   { id: "helcim_card", label: "Helcim card clearing" },
+  { id: "credit_card", label: "Credit card clearing" },
   { id: "card_terminal", label: "Legacy card terminal" },
   { id: "card_manual", label: "Manual card clearing" },
   { id: "card_saved", label: "Saved card clearing" },

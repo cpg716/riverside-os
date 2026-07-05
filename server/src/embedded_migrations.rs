@@ -114,4 +114,6 @@ pub const EMBEDDED_MIGRATIONS: &[(&str, &str)] = &[
     ("111_helcim_event_payment_match_backfill.sql", include_str!("../../migrations/111_helcim_event_payment_match_backfill.sql")),
     ("112_weather_vc_request_cache.sql", include_str!("../../migrations/112_weather_vc_request_cache.sql")),
     ("113_system_staff_admin_salesperson.sql", include_str!("../../migrations/113_system_staff_admin_salesperson.sql")),
+    ("114_counterpoint_inventory_and_return_audit_backfill.sql", include_str!("../../migrations/114_counterpoint_inventory_and_return_audit_backfill.sql")),
+    ("115_qbo_blocking_warning_review_status.sql", include_str!("../../migrations/115_qbo_blocking_warning_review_status.sql")),
 ];

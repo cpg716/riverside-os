@@ -17,13 +17,15 @@ Data flows **ROS → mappings → staging → approve → sync → QuickBooks**.
 **Purpose:** Link the store’s QBO company and confirm **OAuth** health.
 
 1. **Settings** → **QuickBooks Online** → save or update the **Client ID** and **Client Secret** in the secure credentials card.
-2. Save the **Realm ID / company ID** and sandbox setting in the same Settings panel.
-3. Use the **QBO Health** card in Settings to check token status, company verification, live API health, and sandbox/production mode.
-4. Click **Refresh Token** only when the card shows the token is refreshable or stale.
-5. **QBO bridge** → **Connection**.
-6. Verify **connected** state and **company** name match expectation.
-7. If **token expired**, use the Settings health card first, then reconnect per UI if refresh is not possible. The system also auto-refreshes tokens in the background when within 10 minutes of expiry.
-8. Never share **client secret** in chat. Routine QBO credential updates belong in Backoffice Settings, not environment files.
+2. Pick the sandbox/production setting, then click **Connect to QuickBooks** and approve the Riverside app in the Intuit authorization window.
+3. Confirm the returned **Realm ID / company ID** in the same Settings panel.
+4. Use the **QBO Health** card in Settings to check token status, company verification, live API health, and sandbox/production mode.
+5. Click **Refresh Token** only when the card shows the token is refreshable or stale.
+6. Click **Refresh QBO accounts** before mapping so account pickers use the current QuickBooks chart of accounts.
+7. **QBO bridge** → **Connection**.
+8. Verify **connected** state and **company** name match expectation.
+9. If **token expired**, use the Settings health card first, then reconnect per UI if refresh is not possible. The system also auto-refreshes tokens in the background when within 10 minutes of expiry.
+10. Never share **client secret** in chat. Routine QBO credential updates belong in Backoffice Settings, not environment files.
 
 ## Mappings
 
@@ -42,8 +44,8 @@ ROS does not post checkout-by-checkout revenue journals directly to QBO. Sales, 
 
 1. **Staging** → sort by **date** or **status**.
 2. Treat the row date as the store-local business date shown by Riverside. Sales revenue follows recognition timing: pickup / in-store takeaway posts when fulfilled, and shipped transactions post when the shipment is label-purchased / in transit / delivered.
-3. After **Z-Close**, ROS stages the daily journal for that business date. A background worker also auto-proposes the previous business date at 2 AM local time, so most days will already have a pending row when accounting opens. If the pending row already exists, staging refreshes it with the latest facts. If the day was already approved or synced and later activity changes the day, ROS creates a revision row for the same business date.
-4. Open a row → **drilldown** to lines; fix **unmapped** SKUs, customer shipping income, supplier freight, liability, clearing, or fallback accounts **before** approve. Operational inventory moves can now appear in the same journal preview: Receiving, Return to Vendor, Damaged, Physical Count, and Adjustments. Supplier freight from receiving stays separate from merchandise receiving and must not be added into item cost.
+3. After **Z-Close**, ROS stages the daily journal for that business date. A background worker also auto-proposes the previous business date at 2 AM local time, so most days will already have a review row when accounting opens. If the pending or needs-review row already exists, staging refreshes it with the latest facts. If the day was already approved or synced and later activity changes the day, ROS creates a revision row for the same business date.
+4. Open a row → **drilldown** to lines; fix **unmapped** SKUs, customer shipping income, supplier freight, liability, clearing, or fallback accounts **before** approve. Rows with no postable journal lines or blocking missing-mapping warnings stay in `needs_review` and cannot be approved until mappings are fixed and the journal is regenerated. Operational inventory moves can now appear in the same journal preview: Receiving, Return to Vendor, Damaged, Physical Count, and Adjustments. Supplier freight from receiving stays separate from merchandise receiving and must not be added into item cost.
 5. Before approving a day with disputed fulfillment, loyalty, commission, tax, or receipt totals, confirm `reporting.transaction_status_integrity` has no ROS register issues for that window. Do not approve around a status mismatch until pickup / shipment workflow or IT repair resolves it.
 6. Before approving card-heavy days, use **Payments → Sync Fees** so the merchant-fee expense and clearing offset use API-returned fee data when Helcim has provided it. ROS does not estimate missing fees or net amounts.
 7. **Approve** only when totals match **ROS** expectations for that close.

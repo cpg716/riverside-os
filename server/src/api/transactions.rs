@@ -7810,10 +7810,86 @@ async fn delete_transaction_line(
     Path((transaction_id, transaction_line_id)): Path<(Uuid, Uuid)>,
     headers: HeaderMap,
 ) -> Result<StatusCode, TransactionError> {
-    middleware::require_staff_with_permission(&state, &headers, ORDERS_MODIFY)
+    let staff = middleware::require_staff_with_permission(&state, &headers, ORDERS_MODIFY)
         .await
         .map_err(map_perm_err)?;
     let mut tx = state.db.begin().await?;
+
+    let line_state: Option<(
+        Option<Uuid>,
+        DbOrderStatus,
+        bool,
+        DbFulfillmentType,
+        DbOrderItemLifecycleStatus,
+        i32,
+        bool,
+    )> = sqlx::query_as(
+        r#"
+        SELECT
+            t.customer_id,
+            t.status,
+            tl.is_fulfilled,
+            tl.fulfillment,
+            tl.order_lifecycle_status,
+            tl.quantity,
+            EXISTS (
+                SELECT 1
+                FROM payment_allocations pa
+                WHERE pa.target_transaction_id = t.id
+            ) AS has_payments
+        FROM transactions t
+        INNER JOIN transaction_lines tl ON tl.transaction_id = t.id
+        WHERE t.id = $1 AND tl.id = $2
+        FOR UPDATE OF t, tl
+        "#,
+    )
+    .bind(transaction_id)
+    .bind(transaction_line_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    let Some((
+        customer_id,
+        status,
+        is_fulfilled,
+        fulfillment,
+        lifecycle_status,
+        quantity,
+        has_payments,
+    )) = line_state
+    else {
+        return Err(TransactionError::NotFound);
+    };
+
+    if !matches!(
+        status,
+        DbOrderStatus::Open | DbOrderStatus::PendingMeasurement
+    ) {
+        return Err(TransactionError::InvalidPayload(
+            "Only open unpaid order lines can be deleted. Use void, return, or cancellation workflow for completed or processing transactions.".to_string(),
+        ));
+    }
+    if has_payments {
+        return Err(TransactionError::InvalidPayload(
+            "Paid transactions cannot have lines deleted. Use return, refund, or cancellation workflow.".to_string(),
+        ));
+    }
+    if is_fulfilled || fulfillment == DbFulfillmentType::Takeaway {
+        return Err(TransactionError::InvalidPayload(
+            "Fulfilled or takeaway sale lines cannot be deleted. Use return or void workflow."
+                .to_string(),
+        ));
+    }
+    if !matches!(
+        lifecycle_status,
+        DbOrderItemLifecycleStatus::NeedsMeasurements | DbOrderItemLifecycleStatus::Ntbo
+    ) {
+        return Err(TransactionError::InvalidPayload(
+            "Only uncommitted order lines waiting on measurements or vendor ordering can be deleted."
+                .to_string(),
+        ));
+    }
+
     sqlx::query("DELETE FROM transaction_lines WHERE id = $1 AND transaction_id = $2")
         .bind(transaction_line_id)
         .bind(transaction_id)
@@ -7822,22 +7898,23 @@ async fn delete_transaction_line(
     transaction_recalc::recalc_transaction_totals(&mut tx, transaction_id)
         .await
         .map_err(TransactionError::Database)?;
-    tx.commit().await?;
-    let customer_id: Option<Uuid> =
-        sqlx::query_scalar("SELECT customer_id FROM transactions WHERE id = $1")
-            .bind(transaction_id)
-            .fetch_optional(&state.db)
-            .await?
-            .flatten();
-    log_order_activity(
-        &state.db,
+
+    insert_transaction_activity_log_tx(
+        &mut tx,
         transaction_id,
         customer_id,
         "item_deleted",
         "Order item removed",
-        json!({ "transaction_line_id": transaction_line_id }),
+        json!({
+            "transaction_line_id": transaction_line_id,
+            "quantity": quantity,
+            "fulfillment": fulfillment,
+            "order_lifecycle_status": lifecycle_status,
+            "deleted_by_staff_id": staff.id,
+        }),
     )
     .await?;
+    tx.commit().await?;
     Ok(StatusCode::NO_CONTENT)
 }
 

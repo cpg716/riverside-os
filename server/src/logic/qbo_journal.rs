@@ -109,6 +109,44 @@ pub struct ProposalTotals {
     pub balanced: bool,
 }
 
+pub fn is_blocking_accounting_warning(message: &str) -> bool {
+    let warning = message.trim().to_ascii_lowercase();
+    warning.contains(" omitted")
+        || warning.contains(" skipped in journal")
+        || warning.contains("mapping is missing")
+        || warning.contains("mapping missing")
+        || warning.contains("missing cogs/inventory mapping")
+        || warning.contains("missing/unknown card classification")
+        || warning.contains("has no ledger_mapping")
+        || (warning.contains("no `") && warning.contains("mapping"))
+        || warning.starts_with("no qbo tender mapping")
+        || warning.starts_with("no revenue mapping")
+}
+
+pub fn blocking_accounting_warnings(warnings: &[String]) -> Vec<String> {
+    warnings
+        .iter()
+        .filter(|warning| is_blocking_accounting_warning(warning))
+        .cloned()
+        .collect()
+}
+
+fn proposal_has_postable_lines(proposal: &JournalProposal) -> bool {
+    proposal.lines.iter().any(|line| {
+        !line.qbo_account_id.trim().is_empty()
+            && (line.debit != Decimal::ZERO || line.credit != Decimal::ZERO)
+    })
+}
+
+fn proposal_review_blockers(proposal: &JournalProposal) -> Vec<String> {
+    let mut blockers = Vec::new();
+    if !proposal_has_postable_lines(proposal) {
+        blockers.push("QBO staging proposal has no postable journal lines.".to_string());
+    }
+    blockers.extend(blocking_accounting_warnings(&proposal.warnings));
+    blockers
+}
+
 async fn qbo_map_name(
     pool: &PgPool,
     source_type: &str,
@@ -2100,9 +2138,9 @@ pub async fn ensure_pending_daily_journal(
     .fetch_all(&mut *tx)
     .await?;
 
-    let pending_id = existing_rows
+    let open_review_id = existing_rows
         .iter()
-        .find(|(_, status, _)| status == "pending")
+        .find(|(_, status, _)| status == "pending" || status == "needs_review")
         .map(|(id, _, _)| *id);
 
     let locked_rows: Vec<(Uuid, String, Option<String>)> = existing_rows
@@ -2116,23 +2154,33 @@ pub async fn ensure_pending_daily_journal(
     }
 
     let proposal = propose_daily_journal(pool, activity_date).await?;
+    let review_blockers = proposal_review_blockers(&proposal);
+    let next_status = if review_blockers.is_empty() {
+        "pending"
+    } else {
+        "needs_review"
+    };
+    let error_message = review_blockers.first().cloned();
     let payload = serde_json::to_value(&proposal)
         .map_err(|e| sqlx::Error::Protocol(format!("serialize QBO proposal: {e}")))?;
-    let payload = with_staging_metadata(payload, activity_date, &locked_rows);
+    let payload = with_staging_metadata(payload, activity_date, &locked_rows, &review_blockers);
 
-    if let Some(existing_id) = pending_id {
+    if let Some(existing_id) = open_review_id {
         let id = sqlx::query_scalar::<_, Uuid>(
             r#"
             UPDATE qbo_sync_logs
-            SET payload = $2,
-                error_message = NULL,
+            SET status = $3,
+                payload = $2,
+                error_message = $4,
                 updated_at = CURRENT_TIMESTAMP
-            WHERE id = $1 AND status = 'pending'
+            WHERE id = $1 AND status IN ('pending', 'needs_review')
             RETURNING id
             "#,
         )
         .bind(existing_id)
         .bind(payload)
+        .bind(next_status)
+        .bind(error_message)
         .fetch_one(&mut *tx)
         .await?;
         tx.commit().await?;
@@ -2141,13 +2189,15 @@ pub async fn ensure_pending_daily_journal(
 
     let id = sqlx::query_scalar::<_, Uuid>(
         r#"
-        INSERT INTO qbo_sync_logs (sync_date, status, payload)
-        VALUES ($1, 'pending', $2)
+        INSERT INTO qbo_sync_logs (sync_date, status, payload, error_message)
+        VALUES ($1, $3, $2, $4)
         RETURNING id
         "#,
     )
     .bind(activity_date)
     .bind(payload)
+    .bind(next_status)
+    .bind(error_message)
     .fetch_one(&mut *tx)
     .await?;
     tx.commit().await?;
@@ -2158,6 +2208,7 @@ fn with_staging_metadata(
     mut payload: Value,
     activity_date: NaiveDate,
     locked_rows: &[(Uuid, String, Option<String>)],
+    review_blockers: &[String],
 ) -> Value {
     let revision_of: Vec<Value> = locked_rows
         .iter()
@@ -2184,6 +2235,12 @@ fn with_staging_metadata(
         )
     };
 
+    let review_status = if review_blockers.is_empty() {
+        "pending_review"
+    } else {
+        "needs_review"
+    };
+
     if let Some(obj) = payload.as_object_mut() {
         obj.insert("staging_kind".to_string(), json!("daily_general_journal"));
         obj.insert(
@@ -2191,8 +2248,9 @@ fn with_staging_metadata(
             json!({
                 "entry_type": entry_type,
                 "business_date": activity_date,
-                "review_status": "pending_review",
+                "review_status": review_status,
                 "revision_of": revision_of,
+                "review_blockers": review_blockers,
                 "note": note,
             }),
         );
@@ -2342,6 +2400,7 @@ mod tests {
                 "voided".to_string(),
                 Some("QBO-JE-123".to_string()),
             )],
+            &[],
         );
 
         assert_eq!(

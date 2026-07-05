@@ -42,9 +42,12 @@ const QBO_CREDENTIAL_KEYS: &[&str] = &[
     "client_secret",
     "access_token",
     "refresh_token",
+    "oauth_state",
 ];
 pub const QBO_MINOR_VERSION: &str = "75";
 const QBO_ACCOUNT_QUERY_PAGE_SIZE: i32 = 1000;
+const QBO_ACCOUNTING_SCOPE: &str = "com.intuit.quickbooks.accounting";
+const QBO_AUTHORIZATION_URL: &str = "https://appcenter.intuit.com/connect/oauth2";
 
 #[derive(Debug, Error)]
 pub enum QboError {
@@ -233,6 +236,7 @@ pub fn router() -> Router<AppState> {
         .route("/health", get(get_health))
         .route("/token-health", get(get_token_health))
         .route("/credentials", get(get_credentials).put(put_credentials))
+        .route("/authorize-url", get(get_authorize_url))
         .route("/tokens/refresh", post(refresh_tokens_stub))
         .route("/accounts-cache", get(list_accounts_cache))
         .route("/accounts-cache/refresh", post(refresh_accounts_cache))
@@ -413,13 +417,47 @@ fn validate_no_unresolved_gift_card_classifications(
     )))
 }
 
+fn validate_no_blocking_accounting_warnings(payload: &serde_json::Value) -> Result<(), QboError> {
+    let warnings = payload
+        .get("warnings")
+        .and_then(|value| value.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str().map(str::to_string))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let blockers = qbo_journal::blocking_accounting_warnings(&warnings);
+    if blockers.is_empty() {
+        return Ok(());
+    }
+
+    let sample = blockers
+        .iter()
+        .take(3)
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(" | ");
+    let suffix = if blockers.len() > 3 {
+        format!(" and {} more", blockers.len() - 3)
+    } else {
+        String::new()
+    };
+    Err(QboError::Conflict(format!(
+        "QBO journal has blocking accounting warnings: {sample}{suffix}. Fix mappings and regenerate before approval or sync."
+    )))
+}
+
 fn validate_staging_ready_for_approval(payload: &serde_json::Value) -> Result<(), QboError> {
     validate_staging_journal_balanced(payload)?;
+    validate_no_blocking_accounting_warnings(payload)?;
     validate_no_unresolved_gift_card_classifications(payload)
 }
 
 fn validate_staging_ready_for_sync(payload: &serde_json::Value) -> Result<(), QboError> {
     validate_staging_journal_balanced(payload)?;
+    validate_no_blocking_accounting_warnings(payload)?;
     validate_no_unresolved_gift_card_classifications(payload)
 }
 
@@ -608,6 +646,7 @@ struct OAuthCallbackQuery {
     code: String,
     #[serde(rename = "realmId")]
     realm_id: Option<String>,
+    state: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -683,6 +722,69 @@ const QBO_OAUTH_TOKEN_URL: &str = "https://oauth.platform.intuit.com/oauth2/v1/t
 fn redirect_uri() -> String {
     env::var("QBO_REDIRECT_URI")
         .unwrap_or_else(|_| "http://127.0.0.1:3000/api/auth/qbo/callback".to_string())
+}
+
+async fn get_authorize_url(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, QboError> {
+    let admin = require_staff_with_permission(&state, &headers, QBO_MAPPING_EDIT)
+        .await
+        .map_err(|_| QboError::Forbidden)?;
+    let integ = integration_row(&state.db).await?.ok_or_else(|| {
+        QboError::InvalidPayload(
+            "QuickBooks credentials are missing. Add Client ID and Client Secret first."
+                .to_string(),
+        )
+    })?;
+    let client_id = integ
+        .client_id
+        .as_ref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| QboError::InvalidPayload("missing client_id".to_string()))?;
+    if integ
+        .client_secret
+        .as_ref()
+        .map(|s| s.trim().is_empty())
+        .unwrap_or(true)
+    {
+        return Err(QboError::InvalidPayload(
+            "missing client_secret".to_string(),
+        ));
+    }
+
+    let state_token = format!("ros-qbo-{}-{}", Uuid::new_v4(), Uuid::new_v4());
+    save_integration_credentials(
+        &state.db,
+        "qbo",
+        vec![("oauth_state", state_token.clone())],
+        Some(admin.id),
+    )
+    .await?;
+
+    let redirect = redirect_uri();
+    let authorize_url = format!(
+        "{QBO_AUTHORIZATION_URL}?client_id={}&response_type=code&scope={}&redirect_uri={}&state={}",
+        urlencoding::encode(client_id),
+        urlencoding::encode(QBO_ACCOUNTING_SCOPE),
+        urlencoding::encode(&redirect),
+        urlencoding::encode(&state_token),
+    );
+
+    let _ = log_staff_access(
+        &state.db,
+        admin.id,
+        "qbo_oauth_authorize_url",
+        json!({ "redirect_uri": redirect, "scope": QBO_ACCOUNTING_SCOPE }),
+    )
+    .await;
+
+    Ok(Json(json!({
+        "authorize_url": authorize_url,
+        "redirect_uri": redirect,
+        "scope": QBO_ACCOUNTING_SCOPE,
+    })))
 }
 
 pub async fn refresh_access_token(
@@ -960,6 +1062,23 @@ async fn oauth_callback(
         .map(|s| s.trim())
         .filter(|s| !s.is_empty())
         .ok_or_else(|| QboError::InvalidPayload("missing client_secret".to_string()))?;
+    let oauth_credentials =
+        load_integration_credentials(&state.db, "qbo", &["oauth_state"]).await?;
+    if let Some(expected_state) = oauth_credentials
+        .get("oauth_state")
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+    {
+        let returned_state = q
+            .state
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| QboError::InvalidPayload("missing oauth state".to_string()))?;
+        if returned_state != expected_state {
+            return Err(QboError::Forbidden);
+        }
+    }
 
     let basic = general_purpose::STANDARD.encode(format!("{client_id}:{client_secret}"));
     let code = q.code.trim();
@@ -1032,6 +1151,9 @@ async fn oauth_callback(
     .bind(body.expires_in)
     .execute(&state.db)
     .await?;
+    sqlx::query("DELETE FROM integration_credentials WHERE integration_key = 'qbo' AND credential_key = 'oauth_state'")
+        .execute(&state.db)
+        .await?;
 
     Ok(Json(json!({ "status": "authorized" })))
 }
@@ -3006,6 +3128,46 @@ mod tests {
 
         let err = validate_staging_journal_balanced(&payload).unwrap_err();
         assert!(matches!(err, QboError::Conflict(_)));
+    }
+
+    #[test]
+    fn empty_postable_journal_fails_gate() {
+        let payload = json!({
+            "totals": {
+                "debits": "0.00",
+                "credits": "0.00",
+                "balanced": true
+            },
+            "lines": []
+        });
+
+        let err = validate_staging_ready_for_approval(&payload).unwrap_err();
+        assert!(matches!(err, QboError::InvalidPayload(_)));
+    }
+
+    #[test]
+    fn blocking_mapping_warning_fails_approval_gate_even_when_balanced() {
+        let mut payload = balanced_payload();
+        payload["warnings"] = json!(["No QBO tender mapping for `cash`; skipped in journal."]);
+
+        let err = validate_staging_ready_for_approval(&payload).unwrap_err();
+        match err {
+            QboError::Conflict(message) => {
+                assert!(message.contains("blocking accounting warnings"));
+                assert!(message.contains("cash"));
+            }
+            other => panic!("expected conflict, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn informational_warning_does_not_fail_approval_gate() {
+        let mut payload = balanced_payload();
+        payload["warnings"] = json!([
+            "Journal uses recognized fulfillment activity on store-local business date 2026-07-04 (America/New_York)."
+        ]);
+
+        assert!(validate_staging_ready_for_approval(&payload).is_ok());
     }
 
     fn unresolved_gift_card_payload() -> serde_json::Value {

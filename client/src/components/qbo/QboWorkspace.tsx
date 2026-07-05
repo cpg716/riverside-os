@@ -308,6 +308,12 @@ function qboWarningsForRow(row: SyncLogRow): QboWarningItem[] {
       tone: "blocking",
     });
   }
+  if (row.status === "needs_review" && row.error_message) {
+    items.unshift({
+      message: row.error_message,
+      tone: "blocking",
+    });
+  }
   return items;
 }
 
@@ -329,6 +335,7 @@ function warningSummaryLabel(items: QboWarningItem[]): string {
 
 function statusLabel(row: SyncLogRow): string {
   switch (row.status) {
+    case "needs_review":
     case "pending":
       return "Needs review";
     case "approved":
@@ -348,7 +355,8 @@ function statusClassName(row: SyncLogRow, hasBlocking: boolean): string {
   if (hasBlocking || row.status === "failed") return "bg-red-100 text-red-800";
   if (row.status === "synced") return "bg-emerald-100 text-emerald-800";
   if (row.status === "approved") return "bg-blue-100 text-blue-800";
-  if (row.status === "pending") return "bg-amber-100 text-amber-900";
+  if (row.status === "pending" || row.status === "needs_review")
+    return "bg-amber-100 text-amber-900";
   if (row.status === "voided") return "bg-gray-100 text-gray-600 line-through";
   return "bg-app-surface-2 text-app-text-muted";
 }
@@ -486,7 +494,9 @@ export default function QboWorkspace({
       latestPosted,
       latestFailed,
       latestStaged,
-      pendingCount: staging.filter((row) => row.status === "pending").length,
+      pendingCount: staging.filter(
+        (row) => row.status === "pending" || row.status === "needs_review",
+      ).length,
       approvedCount: staging.filter((row) => row.status === "approved").length,
       postedCount: staging.filter((row) => row.status === "synced").length,
       failedCount: staging.filter((row) => row.status === "failed").length,

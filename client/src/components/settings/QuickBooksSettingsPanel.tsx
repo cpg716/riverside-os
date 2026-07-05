@@ -198,6 +198,7 @@ export default function QuickBooksSettingsPanel({
   const [apiHealth, setApiHealth] = useState<QboApiHealth | null>(null);
   const [companyInfo, setCompanyInfo] = useState<QboCompanyInfo | null>(null);
   const [healthError, setHealthError] = useState<string | null>(null);
+  const [oauthBusy, setOauthBusy] = useState(false);
 
   const loadCredentials = useCallback(async () => {
     try {
@@ -338,6 +339,35 @@ export default function QuickBooksSettingsPanel({
       toast(error instanceof Error ? error.message : "Could not refresh QBO token.", "error");
     } finally {
       setHealthBusy(false);
+    }
+  };
+
+  const startQboAuthorization = async () => {
+    setOauthBusy(true);
+    try {
+      const res = await fetch(`${baseUrl}/api/qbo/authorize-url`, {
+        headers: backofficeHeaders() as Record<string, string>,
+      });
+      const body = (await res.json().catch(() => ({}))) as {
+        authorize_url?: string;
+        error?: string;
+      };
+      if (!res.ok || !body.authorize_url) {
+        throw new Error(body.error ?? "Could not start QuickBooks authorization.");
+      }
+      const opened = window.open(body.authorize_url, "_blank", "noopener,noreferrer");
+      if (!opened) {
+        window.location.assign(body.authorize_url);
+      }
+    } catch (error) {
+      toast(
+        error instanceof Error
+          ? error.message
+          : "Could not start QuickBooks authorization.",
+        "error",
+      );
+    } finally {
+      setOauthBusy(false);
     }
   };
 
@@ -677,6 +707,19 @@ export default function QuickBooksSettingsPanel({
                 ? "QuickBooks authorization is saved."
                 : "Authorize QuickBooks after saving Client ID and Client Secret."}
             </p>
+            <button
+              type="button"
+              onClick={() => void startQboAuthorization()}
+              disabled={oauthBusy || !credentials.client_id_set || !credentials.has_client_secret}
+              className="ui-btn-secondary mt-3 min-h-10 gap-2 px-4 disabled:opacity-50"
+            >
+              {oauthBusy ? (
+                <RefreshCw size={14} className="animate-spin" aria-hidden />
+              ) : (
+                <ArrowUpRight size={14} aria-hidden />
+              )}
+              Connect to QuickBooks
+            </button>
           </div>
         </div>
 
