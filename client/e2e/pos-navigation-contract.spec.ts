@@ -100,3 +100,44 @@ test("rapid POS rail tab changes stay in POS mode and land on the final tab", as
     posNav.getByRole("button", { name: "RMS Charge", exact: true }),
   ).toBeVisible();
 });
+
+test("POS dashboard allows root scrolling outside the register cart", async ({
+  page,
+}) => {
+  const posNav = await openClickablePosRail(page);
+  await page.setViewportSize({ width: 1280, height: 720 });
+
+  await posNav.getByRole("button", { name: "Dashboard", exact: true }).click();
+
+  const posShell = page.getByTestId("pos-shell-root");
+  await expect(posShell).toHaveAttribute("data-pos-active-tab", "pos-dashboard");
+  await expect(page.getByText(/Register command center/i)).toBeVisible({
+    timeout: 20_000,
+  });
+
+  const scrollState = await page.evaluate(() => {
+    const scroller = document.scrollingElement as HTMLElement | null;
+    const shell = document.querySelector(
+      '[data-testid="pos-shell-root"]',
+    ) as HTMLElement | null;
+    const workspace = shell?.querySelector(".workspace-snap") as HTMLElement | null;
+
+    if (scroller) {
+      scroller.scrollTop = 0;
+      scroller.scrollTop = 240;
+    }
+
+    return {
+      scrollTop: scroller?.scrollTop ?? 0,
+      scrollHeight: scroller?.scrollHeight ?? 0,
+      clientHeight: scroller?.clientHeight ?? 0,
+      shellOverflowY: shell ? getComputedStyle(shell).overflowY : "",
+      workspaceOverflowY: workspace ? getComputedStyle(workspace).overflowY : "",
+    };
+  });
+
+  expect(scrollState.scrollHeight).toBeGreaterThan(scrollState.clientHeight);
+  expect(scrollState.scrollTop).toBeGreaterThan(0);
+  expect(scrollState.shellOverflowY).not.toBe("hidden");
+  expect(scrollState.workspaceOverflowY).not.toBe("hidden");
+});

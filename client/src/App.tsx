@@ -1752,10 +1752,12 @@ function AppShell({
     );
   }
 
+  const fixedPosViewport = posMode && activeTab === "register";
+
   return (
     <div
       className={`flex flex-col bg-app-bg antialiased font-sans ${
-        posMode ? "h-screen overflow-hidden" : "min-h-screen"
+        fixedPosViewport ? "h-screen overflow-hidden" : "min-h-screen overflow-x-hidden"
       }`}
     >
       <GlobalTopBar
