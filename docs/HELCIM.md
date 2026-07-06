@@ -67,7 +67,7 @@ HelcimPay.js provider boundary:
 - `POST /providers/helcim/helcim-pay/initialize`
 - `POST /providers/helcim/helcim-pay/confirm`
 - These routes are for public/web checkout and POS **Manual Card** keyed-entry flows. HelcimPay.js owns card entry, returns a signed result, and ROS validates the Helcim response before recording the tender.
-- HelcimPay.js must run from a Helcim-whitelisted checkout origin. iPad PWA checkout must use the public HTTPS ROS/PWA URL. The desktop Tauri app can load the hosted HelcimPay.js script inside the WebView, but the visible checkout origin still needs to be saved in the Helcim API Access Configuration. Localhost is blocked for live manual-card entry.
+- HelcimPay.js must run from a Helcim-whitelisted public HTTPS checkout origin. iPad PWA checkout runs there directly. The desktop Tauri app must not render HelcimPay.js from its local `http://tauri.localhost` WebView origin; instead, ROS creates the authenticated Manual Card attempt, opens a one-time public HTTPS ROS/PWA handoff page for hosted card entry, and the register drawer listens for the approved attempt before recording the tender. If the public HTTPS base URL is not configured, use the Helcim terminal path on the register.
 
 Customer and card helpers:
 

@@ -42,7 +42,7 @@ See [`BOOKED_VS_FULFILLED.md`](BOOKED_VS_FULFILLED.md) for the full recognition 
 | **Layaway Deposit** | In-stock items held on a layaway shelf | Customer reserves floor merchandise for future pickup | 25% of sale total (admin override allowed) |
 | **Order Deposit** | Items not yet in stock; must be procured | Customer commits to purchasing items the store will order from a vendor | Store policy (typically 50%) |
 | **Wedding Transaction Deposit** | Special order tied to a wedding party + event date | Groom, groomsmen, or sponsor commits to formalwear orders | Store policy |
-| **Split Deposit** | Wedding group pay across multiple party members | One payer covers deposits for several members in a single transaction | Per-member balance from the party |
+| **Split Deposit** | Wedding group pay across multiple party members | One payer covers deposits for several members in a single transaction | Per-member amount entered at register |
 | **Open Deposit** | Credit held on a customer account (not store credit) | Group pay disbursement targets a member with no open transaction yet | Exact disbursement amount |
 
 ---
@@ -90,8 +90,8 @@ For weddings, a single payer (often the groom or sponsor) can cover deposits for
 1. From the **Payment Ledger**, tap the blue **Split deposit (wedding party)** button.
 2. This opens the **Wedding Lookup Drawer** in group pay mode.
 3. Select the wedding party and choose which members to include.
-4. Each member's `balance_due` is added to the cart total as a **disbursement**.
-5. Return to the payment ledger — the total now includes all member balances.
+4. Enter the deposit amount for each selected member. Existing open balances default to that balance; members with no open balance can still receive a deposit amount.
+5. Return to the payment ledger — the total now includes the entered member deposit amounts.
 6. Apply tenders to cover the combined amount and complete the sale.
 
 In shared **Orders** views, Wedding orders should still show their linked party and member context so staff know the balance belongs to the wedding workflow and not a generic customer order.

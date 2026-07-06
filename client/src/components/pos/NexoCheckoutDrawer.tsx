@@ -21,9 +21,12 @@ import NumericPinKeypad from "../ui/NumericPinKeypad";
 import { centsToFixed2, parseMoneyToCents, calculateSwedishRounding } from "../../lib/money";
 import {
   HELCIM_PAY_SCRIPT_URL,
+  helcimPayCanRenderInline,
   helcimPayRuntimeBlocker,
   helcimPayWhitelistHint,
 } from "../../lib/helcimPayRuntime";
+import { isTauri } from "@tauri-apps/api/core";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { useToast } from "../ui/ToastProviderLogic";
@@ -101,6 +104,7 @@ interface HelcimAttempt {
 interface HelcimPayInitializeResponse {
   attempt: HelcimAttempt;
   checkout_token: string;
+  handoff_url?: string | null;
 }
 
 interface HelcimPayMessage {
@@ -167,6 +171,17 @@ function parseHelcimPayEventMessage(message: unknown): { data?: unknown; hash?: 
     return message as { data?: unknown; hash?: string };
   }
   return {};
+}
+
+async function openManualCardHandoffUrl(url: string): Promise<void> {
+  if (isTauri()) {
+    await openUrl(url);
+    return;
+  }
+  const opened = window.open(url, "_blank", "noopener,noreferrer");
+  if (!opened) {
+    throw new Error("Manual Card handoff was blocked. Allow pop-ups for Riverside or open ROS from the public HTTPS PWA URL.");
+  }
 }
 
 function firstHelcimCustomers(value: unknown): HelcimCustomer[] {
@@ -1491,11 +1506,8 @@ export default function NexoCheckoutDrawer({
 
   const startHostedManualCardPayment = useCallback(
     async (amtCents: number) => {
-      const runtimeBlocker = helcimPayRuntimeBlocker();
-      if (runtimeBlocker) {
-        toast(runtimeBlocker, "error");
-        return;
-      }
+      const canRenderInline = helcimPayCanRenderInline();
+      const runtimeBlocker = canRenderInline ? null : helcimPayRuntimeBlocker();
       setHelcimAttemptLoading(true);
       pendingHelcimCentsRef.current = amtCents;
       pendingHelcimTenderRef.current = { method: "card_manual", label: "HELCIM KEYED" };
@@ -1530,11 +1542,30 @@ export default function NexoCheckoutDrawer({
           );
         }
 
-        const { attempt, checkout_token: checkoutToken } = initBody;
+        const {
+          attempt,
+          checkout_token: checkoutToken,
+          handoff_url: handoffUrl,
+        } = initBody;
         hostedAttemptId = attempt.id;
         setHelcimAttempt(attempt);
         setHelcimUnverifiedNotice(null);
         setKeypad("");
+
+        if (!canRenderInline) {
+          const resolvedHandoffUrl = handoffUrl?.trim();
+          if (!resolvedHandoffUrl) {
+            throw new Error(
+              `${runtimeBlocker ?? "Manual Card requires a public HTTPS checkout origin."} Save the public HTTPS ROS/PWA URL in Remote Access before using hosted Manual Card from the desktop app.`,
+            );
+          }
+          await openManualCardHandoffUrl(resolvedHandoffUrl);
+          toast(
+            "Secure Manual Card entry opened on the public ROS/PWA checkout page. Keep this drawer open; Riverside will attach the approved payment automatically.",
+            "info",
+          );
+          return;
+        }
 
         const eventName = `helcim-pay-js-${checkoutToken}`;
         const handleMessage = (event: MessageEvent) => {
@@ -2645,6 +2676,10 @@ export default function NexoCheckoutDrawer({
                       <p className="mt-1">
                         Opens HelcimPay.js for keyed card entry. ROS validates the Helcim response
                         and does not store card numbers or CVV.
+                      </p>
+                      <p className="mt-2">
+                        On the desktop app, ROS opens the public HTTPS handoff page saved in
+                        Helcim and attaches the approved attempt back to this checkout drawer.
                       </p>
                     </div>
                   )}

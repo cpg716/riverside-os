@@ -16,6 +16,7 @@ interface PersistedSale {
   selectedCustomer?: Customer;
   activeWeddingMember?: WeddingMember;
   activeWeddingPartyName?: string;
+  disbursementMembers?: WeddingMember[];
   posShipping?: PosShippingSelection;
   primarySalespersonId?: string;
   checkoutOperator?: { staffId: string; fullName: string };
@@ -29,6 +30,7 @@ interface UseCartPersistenceProps {
   selectedCustomer: Customer | null;
   activeWeddingMember: WeddingMember | null;
   activeWeddingPartyName: string | null;
+  disbursementMembers: WeddingMember[];
   posShipping: PosShippingSelection | null;
   primarySalespersonId: string;
   checkoutOperator: { staffId: string; fullName: string } | null;
@@ -38,6 +40,7 @@ interface UseCartPersistenceProps {
   setSelectedCustomer: (customer: Customer | null) => void;
   setActiveWeddingMember: (member: WeddingMember | null) => void;
   setActiveWeddingPartyName: (name: string | null) => void;
+  setDisbursementMembers: (members: WeddingMember[]) => void;
   setPosShipping: (shipping: PosShippingSelection | null) => void;
   setPrimarySalespersonId: (id: string) => void;
   setCheckoutOperator: (operator: { staffId: string; fullName: string } | null) => void;
@@ -52,6 +55,7 @@ export function useCartPersistence({
   selectedCustomer,
   activeWeddingMember,
   activeWeddingPartyName,
+  disbursementMembers,
   posShipping,
   primarySalespersonId,
   checkoutOperator,
@@ -61,6 +65,7 @@ export function useCartPersistence({
   setSelectedCustomer,
   setActiveWeddingMember,
   setActiveWeddingPartyName,
+  setDisbursementMembers,
   setPosShipping,
   setPrimarySalespersonId,
   setCheckoutOperator,
@@ -91,10 +96,12 @@ export function useCartPersistence({
 
         if (saved && saved.sessionId === sessionId) {
           const rawLines = (saved.lines || []) as CartLineItem[];
+          const rawDisbursementMembers = saved.disbursementMembers || [];
           const rawOrderPaymentLines = saved.orderPaymentLines || [];
           const rawAlterationIntakes = saved.pendingAlterationIntakes || [];
           if (
             rawLines.length === 0 &&
+            rawDisbursementMembers.length === 0 &&
             rawOrderPaymentLines.length === 0 &&
             rawAlterationIntakes.length === 0
           ) {
@@ -117,6 +124,7 @@ export function useCartPersistence({
             
             setActiveWeddingMember(saved.activeWeddingMember || null);
             setActiveWeddingPartyName(saved.activeWeddingPartyName || null);
+            setDisbursementMembers(rawDisbursementMembers);
             
             const sp = saved.posShipping;
             if (sp && sp.rate_quote_id && sp.amount_cents != null && sp.to_address) {
@@ -157,6 +165,7 @@ export function useCartPersistence({
     setSelectedCustomer, 
     setActiveWeddingMember, 
     setActiveWeddingPartyName, 
+    setDisbursementMembers,
     setPosShipping, 
     setPrimarySalespersonId, 
     setCheckoutOperator,
@@ -173,6 +182,7 @@ export function useCartPersistence({
       selectedCustomer: selectedCustomer || undefined,
       activeWeddingMember: activeWeddingMember || undefined,
       activeWeddingPartyName: activeWeddingPartyName || undefined,
+      disbursementMembers: disbursementMembers.length > 0 ? disbursementMembers : undefined,
       posShipping: posShipping || undefined,
       primarySalespersonId: primarySalespersonId || undefined,
       checkoutOperator: checkoutOperator || undefined,
@@ -187,6 +197,7 @@ export function useCartPersistence({
     selectedCustomer,
     activeWeddingMember,
     activeWeddingPartyName,
+    disbursementMembers,
     posShipping,
     primarySalespersonId,
     checkoutOperator,

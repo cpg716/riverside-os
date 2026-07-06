@@ -63,7 +63,7 @@ Use the POS checkout drawer for live card collection.
 - **Saved Card** charges a Helcim-saved card token for the selected customer. ROS shows masked card details when Helcim returns them, but staff should never copy or expose the token.
 - **Card Refund** appears for refund/negative checkout totals. ROS sends the refund to the selected Helcim terminal and records it only after Helcim approval.
 
-Manual Card works in the desktop app WebView and iPad PWA only when the checkout origin is allowed by Helcim. Use the public HTTPS ROS/PWA address for iPad. If the desktop app or browser shows a HelcimPay.js origin warning, stop and ask an admin to verify the Helcim API Access Configuration instead of typing card numbers into ROS.
+Manual Card works through the public HTTPS ROS/PWA checkout origin saved in Helcim. The desktop app's local `tauri.localhost` origin cannot host live HelcimPay.js, so ROS opens a one-time public handoff page and keeps the checkout drawer listening for the approved attempt. If that handoff cannot open, use the Helcim terminal card path instead of typing card numbers into ROS notes, references, search fields, or support chats.
 
 Terminal selection is in the checkout drawer header. Register #1 defaults to **Terminal 1**, Register #2 defaults to **Terminal 2**, and Register #3/#4 must choose an available terminal. A green dot means the selected terminal path is ready; a red dot means configuration, routing, or terminal availability needs attention.
 

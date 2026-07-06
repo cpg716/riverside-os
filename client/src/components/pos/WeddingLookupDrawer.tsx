@@ -19,6 +19,11 @@ import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 
+function normalizeSplitDepositInput(value: string): string | null {
+  const normalized = value.replace(/[$,\s]/g, "");
+  return /^\d*(?:\.\d{0,2})?$/.test(normalized) ? normalized : null;
+}
+
 export interface WeddingMember {
   id: string;
   first_name: string;
@@ -31,6 +36,7 @@ export interface WeddingMember {
   customer_email?: string;
   customer_phone?: string;
   balance_due?: string; // Added for group pay
+  split_deposit_amount?: string;
   suit_variant_id?: string | null;
   is_free_suit_promo: boolean;
 }
@@ -76,6 +82,7 @@ export default function WeddingLookupDrawer({
   const [selectedParty, setSelectedParty] = useState<WeddingParty | null>(null);
   const [groupPayMode, setGroupPayMode] = useState(false);
   const [selectedMemberIds, setSelectedMemberIds] = useState<Set<string>>(new Set());
+  const [groupPayAmounts, setGroupPayAmounts] = useState<Record<string, string>>({});
   const [financials, setFinancials] = useState<Record<string, { balance_due: string }>>({});
 
   const baseUrl = getBaseUrl();
@@ -167,6 +174,7 @@ export default function WeddingLookupDrawer({
     } else {
       setGroupPayMode(false);
       setSelectedMemberIds(new Set());
+      setGroupPayAmounts({});
     }
   }, [selectedParty, fetchFinancials]);
 
@@ -176,23 +184,42 @@ export default function WeddingLookupDrawer({
       setSearch("");
       setGroupPayMode(false);
       setSelectedMemberIds(new Set());
+      setGroupPayAmounts({});
     }
   }, [isOpen]);
 
   const toggleMember = (id: string) => {
     const next = new Set(selectedMemberIds);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
+    const selecting = !next.has(id);
+    if (selecting) next.add(id);
+    else next.delete(id);
     setSelectedMemberIds(next);
+    setGroupPayAmounts((prev) => {
+      const nextAmounts = { ...prev };
+      if (selecting) {
+        const balanceCents = parseMoneyToCents(financials[id]?.balance_due ?? "0");
+        nextAmounts[id] = prev[id] ?? (balanceCents > 0 ? centsToFixed2(balanceCents) : "");
+      } else {
+        delete nextAmounts[id];
+      }
+      return nextAmounts;
+    });
   };
 
   const handleGroupPaySubmit = () => {
     if (!selectedParty || !onGroupPay) return;
     const selectedMembers = selectedParty.members.filter(m => selectedMemberIds.has(m.id));
-    const membersWithBalances = selectedMembers.map(m => ({
-      ...m,
-      balance_due: financials[m.id]?.balance_due ?? "0.00"
-    }));
+    const membersWithBalances = selectedMembers
+      .map(m => {
+        const amountCents = parseMoneyToCents(groupPayAmounts[m.id] ?? "0");
+        return {
+          ...m,
+          balance_due: financials[m.id]?.balance_due ?? "0.00",
+          split_deposit_amount: centsToFixed2(amountCents),
+        };
+      })
+      .filter((m) => parseMoneyToCents(m.split_deposit_amount ?? "0") > 0);
+    if (membersWithBalances.length === 0) return;
     onGroupPay(membersWithBalances, selectedParty.party_name);
     onClose();
   };
@@ -202,14 +229,19 @@ export default function WeddingLookupDrawer({
   const root = document.getElementById("drawer-root");
   if (!root) return null;
 
-  const totalSelectedBalanceCents =
+  const totalSelectedDepositCents =
     selectedParty?.members
       .filter((m) => selectedMemberIds.has(m.id))
       .reduce(
         (sum, m) =>
-          sum + parseMoneyToCents(financials[m.id]?.balance_due ?? "0"),
+          sum + parseMoneyToCents(groupPayAmounts[m.id] ?? "0"),
         0,
       ) ?? 0;
+  const canSubmitGroupPay =
+    selectedMemberIds.size > 0 &&
+    Boolean(selectedParty?.members
+      .filter((m) => selectedMemberIds.has(m.id))
+      .every((m) => parseMoneyToCents(groupPayAmounts[m.id] ?? "0") > 0));
 
   return createPortal(
     <div className="ui-overlay-backdrop !z-[100] sm:items-stretch sm:justify-end">
@@ -352,6 +384,7 @@ export default function WeddingLookupDrawer({
                 const fin = financials[member.id];
                 const balance = fin?.balance_due ?? "0.00";
                 const isSelected = selectedMemberIds.has(member.id);
+                const selectedAmount = groupPayAmounts[member.id] ?? "";
 
                 return (
                   <div 
@@ -385,7 +418,7 @@ export default function WeddingLookupDrawer({
                         </button>
                       ) : (
                         <div className="text-right">
-                          <p className="mb-1 text-[10px] font-black uppercase leading-none text-app-text-disabled">Balance</p>
+                          <p className="mb-1 text-[10px] font-black uppercase leading-none text-app-text-disabled">Current Balance</p>
                           <p
                             className={`text-sm font-black italic tracking-tighter ${
                               parseMoneyToCents(balance) > 0
@@ -407,6 +440,34 @@ export default function WeddingLookupDrawer({
                         label="Paid"
                       />
                     </div>
+
+                    {groupPayMode && isSelected && (
+                      <div
+                        className="mt-3 rounded-2xl border border-app-info/20 bg-app-surface px-3 py-2"
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        <label className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                          Split Deposit Amount
+                        </label>
+                        <div className="mt-1 flex items-center gap-2">
+                          <span className="text-sm font-black text-app-text-muted">$</span>
+                          <input
+                            value={selectedAmount}
+                            onChange={(event) => {
+                              const nextAmount = normalizeSplitDepositInput(event.target.value);
+                              if (nextAmount == null) return;
+                              setGroupPayAmounts((prev) => ({
+                                ...prev,
+                                [member.id]: nextAmount,
+                              }));
+                            }}
+                            inputMode="decimal"
+                            placeholder="0.00"
+                            className="min-w-0 flex-1 bg-transparent text-right text-xl font-black tabular-nums text-app-text outline-none placeholder:text-app-text-disabled"
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -419,16 +480,17 @@ export default function WeddingLookupDrawer({
           <div className="absolute inset-x-0 bottom-0 border-t border-app-border bg-app-surface p-4 shadow-[0_-20px_40px_rgba(0,0,0,0.1)] animate-in slide-in-from-bottom duration-300 sm:p-6">
             <div className="mb-2 flex flex-col gap-3 sm:mb-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">Payout Group ({selectedMemberIds.size})</p>
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">Split Deposit ({selectedMemberIds.size})</p>
                 <p className="text-2xl font-black italic tracking-tighter text-app-text leading-none mt-1">
-                  ${centsToFixed2(totalSelectedBalanceCents)}
+                  ${centsToFixed2(totalSelectedDepositCents)}
                 </p>
               </div>
               <button
                 onClick={handleGroupPaySubmit}
-                className="flex h-14 w-full items-center justify-center gap-3 rounded-3xl border-b-8 border-emerald-800 bg-emerald-600 px-5 text-[11px] font-black uppercase tracking-widest italic text-white shadow-xl shadow-emerald-500/20 transition-all active:translate-y-1 active:border-b-4 sm:w-auto sm:px-8"
+                disabled={!canSubmitGroupPay}
+                className="flex h-14 w-full items-center justify-center gap-3 rounded-3xl border-b-8 border-emerald-800 bg-emerald-600 px-5 text-[11px] font-black uppercase tracking-widest italic text-white shadow-xl shadow-emerald-500/20 transition-all active:translate-y-1 active:border-b-4 disabled:cursor-not-allowed disabled:border-app-border disabled:bg-app-text-disabled disabled:shadow-none sm:w-auto sm:px-8"
               >
-                Add Combined to Cart
+                Add Deposits to Cart
               </button>
             </div>
           </div>

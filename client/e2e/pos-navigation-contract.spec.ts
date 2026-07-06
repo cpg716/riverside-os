@@ -101,7 +101,7 @@ test("rapid POS rail tab changes stay in POS mode and land on the final tab", as
   ).toBeVisible();
 });
 
-test("POS dashboard allows root scrolling outside the register cart", async ({
+test("POS dashboard keeps the POS rail fixed while the workspace scrolls", async ({
   page,
 }) => {
   const posNav = await openClickablePosRail(page);
@@ -114,30 +114,50 @@ test("POS dashboard allows root scrolling outside the register cart", async ({
   await expect(page.getByText(/Register command center/i)).toBeVisible({
     timeout: 20_000,
   });
+  await expect(page.getByTestId("pos-dashboard-scroll")).toBeVisible();
 
   const scrollState = await page.evaluate(() => {
     const scroller = document.scrollingElement as HTMLElement | null;
     const shell = document.querySelector(
       '[data-testid="pos-shell-root"]',
     ) as HTMLElement | null;
-    const workspace = shell?.querySelector(".workspace-snap") as HTMLElement | null;
+    const workspace = document.querySelector(
+      '[data-testid="pos-dashboard-scroll"]',
+    ) as HTMLElement | null;
+    const rail = document
+      .querySelector('[aria-label="POS Navigation"]')
+      ?.closest("aside") as HTMLElement | null;
+    const railTopBefore = rail?.getBoundingClientRect().top ?? null;
 
     if (scroller) {
       scroller.scrollTop = 0;
       scroller.scrollTop = 240;
     }
+    if (workspace) {
+      workspace.scrollTop = 0;
+      workspace.scrollTop = 240;
+    }
+    const railTopAfter = rail?.getBoundingClientRect().top ?? null;
 
     return {
-      scrollTop: scroller?.scrollTop ?? 0,
-      scrollHeight: scroller?.scrollHeight ?? 0,
-      clientHeight: scroller?.clientHeight ?? 0,
+      documentScrollTop: scroller?.scrollTop ?? 0,
+      workspaceScrollTop: workspace?.scrollTop ?? 0,
+      workspaceScrollHeight: workspace?.scrollHeight ?? 0,
+      workspaceClientHeight: workspace?.clientHeight ?? 0,
+      railTopBefore,
+      railTopAfter,
       shellOverflowY: shell ? getComputedStyle(shell).overflowY : "",
       workspaceOverflowY: workspace ? getComputedStyle(workspace).overflowY : "",
     };
   });
 
-  expect(scrollState.scrollHeight).toBeGreaterThan(scrollState.clientHeight);
-  expect(scrollState.scrollTop).toBeGreaterThan(0);
-  expect(scrollState.shellOverflowY).not.toBe("hidden");
-  expect(scrollState.workspaceOverflowY).not.toBe("hidden");
+  expect(scrollState.documentScrollTop).toBe(0);
+  expect(scrollState.workspaceScrollHeight).toBeGreaterThan(
+    scrollState.workspaceClientHeight,
+  );
+  expect(scrollState.workspaceScrollTop).toBeGreaterThan(0);
+  expect(scrollState.shellOverflowY).toBe("hidden");
+  expect(scrollState.workspaceOverflowY).toBe("auto");
+  expect(scrollState.railTopBefore).not.toBeNull();
+  expect(scrollState.railTopAfter).toBe(scrollState.railTopBefore);
 });

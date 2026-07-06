@@ -838,7 +838,7 @@ async fn launch_server_inner(
     let index_path = dist_path.join("index.html");
     let serve_dir = ServeDir::new(dist_path.clone())
         .append_index_html_on_directories(true)
-        .not_found_service(ServeFile::new(index_path));
+        .fallback(ServeFile::new(index_path));
 
     let max_body = config.max_body_bytes.unwrap_or(256 * 1024 * 1024);
 

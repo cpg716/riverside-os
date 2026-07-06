@@ -153,6 +153,10 @@ export function optionalCentsField(cents: number | undefined): string | undefine
   return cents != null ? centsToFixed2(cents) : undefined;
 }
 
+function weddingDisbursementAmountCents(member: WeddingMember): number {
+  return parseMoneyToCents(member.split_deposit_amount ?? member.balance_due ?? "0");
+}
+
 export function useCartCheckout({
   sessionId,
   baseUrl,
@@ -581,7 +585,7 @@ export function useCartCheckout({
         })) : undefined,
         wedding_disbursements: disbursementMembers.length > 0 ? disbursementMembers.map(m => ({
           wedding_member_id: m.id,
-          amount: centsToFixed2(parseMoneyToCents(m.balance_due || "0")),
+          amount: centsToFixed2(weddingDisbursementAmountCents(m)),
         })) : undefined,
         ...(posShipping ? { shipping_rate_quote_id: posShipping.rate_quote_id } : {}),
       };

@@ -1752,7 +1752,7 @@ function AppShell({
     );
   }
 
-  const fixedPosViewport = posMode && activeTab === "register";
+  const fixedPosViewport = posMode;
 
   return (
     <div

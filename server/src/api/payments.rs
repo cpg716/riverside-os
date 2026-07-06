@@ -434,6 +434,10 @@ pub fn router() -> Router<AppState> {
             "/providers/helcim/helcim-pay/confirm",
             post(confirm_helcim_pay),
         )
+        .route(
+            "/providers/helcim/helcim-pay/public-confirm",
+            post(confirm_helcim_pay_public_handoff),
+        )
         .route("/providers/helcim/customers", get(list_helcim_customers))
         .route(
             "/providers/helcim/customers/{customer_id}/cards",
@@ -911,6 +915,7 @@ pub struct HelcimPayInitializeRequestBody {
 pub struct HelcimPayInitializeResponseBody {
     pub attempt: HelcimAttemptResponse,
     pub checkout_token: String,
+    pub handoff_url: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -8016,9 +8021,11 @@ async fn initialize_helcim_pay(
         .await
         .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
 
+    let handoff_url = helcim_pay_public_handoff_url(attempt_id, &initialized.checkout_token);
     Ok(Json(HelcimPayInitializeResponseBody {
         attempt: load_helcim_attempt(&state, attempt_id, None).await?,
         checkout_token: initialized.checkout_token,
+        handoff_url,
     }))
 }
 
@@ -8034,10 +8041,36 @@ async fn confirm_helcim_pay(
         middleware::StaffOrPosSession::PosSession { session_id } => Some(session_id),
         middleware::StaffOrPosSession::Staff(_) => None,
     };
+    confirm_helcim_pay_attempt(&state, payload, pos_session_id, false)
+        .await
+        .map(Json)
+}
 
-    let row: Option<(String, i64, Option<Uuid>, Option<String>)> = sqlx::query_as(
+async fn confirm_helcim_pay_public_handoff(
+    State(state): State<AppState>,
+    Json(payload): Json<HelcimPayConfirmRequestBody>,
+) -> Result<Json<HelcimAttemptResponse>, PaymentError> {
+    confirm_helcim_pay_attempt(&state, payload, None, true)
+        .await
+        .map(Json)
+}
+
+async fn confirm_helcim_pay_attempt(
+    state: &AppState,
+    payload: HelcimPayConfirmRequestBody,
+    pos_session_id: Option<Uuid>,
+    public_handoff: bool,
+) -> Result<HelcimAttemptResponse, PaymentError> {
+    let row: Option<(
+        String,
+        i64,
+        Option<Uuid>,
+        Option<String>,
+        Option<String>,
+        DateTime<Utc>,
+    )> = sqlx::query_as(
         r#"
-        SELECT status, amount_cents, register_session_id, provider_client_secret
+        SELECT status, amount_cents, register_session_id, provider_client_secret, raw_audit_reference, created_at
         FROM payment_provider_attempts
         WHERE id = $1
           AND provider = 'helcim'
@@ -8049,7 +8082,15 @@ async fn confirm_helcim_pay(
     .fetch_optional(&state.db)
     .await
     .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
-    let Some((attempt_status, amount_cents, register_session_id, client_secret)) = row else {
+    let Some((
+        attempt_status,
+        amount_cents,
+        register_session_id,
+        client_secret,
+        raw_audit_reference,
+        created_at,
+    )) = row
+    else {
         return Err(PaymentError::InvalidPayload(
             "HelcimPay.js attempt not found".to_string(),
         ));
@@ -8058,6 +8099,19 @@ async fn confirm_helcim_pay(
         if register_session_id != Some(session_id) {
             return Err(PaymentError::Forbidden(
                 "Helcim attempt does not belong to this register session.".to_string(),
+            ));
+        }
+    }
+    if public_handoff {
+        if raw_audit_reference.as_deref() != Some("helcim-pay-js") {
+            return Err(PaymentError::InvalidPayload(
+                "HelcimPay.js handoff attempt not found".to_string(),
+            ));
+        }
+        if created_at < Utc::now() - ChronoDuration::minutes(60) {
+            return Err(PaymentError::InvalidPayload(
+                "HelcimPay.js handoff has expired. Start Manual Card again from the register."
+                    .to_string(),
             ));
         }
     }
@@ -8132,9 +8186,7 @@ async fn confirm_helcim_pay(
         .await
         .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
 
-    load_helcim_attempt(&state, payload.attempt_id, pos_session_id)
-        .await
-        .map(Json)
+    load_helcim_attempt(state, payload.attempt_id, pos_session_id).await
 }
 
 fn helcim_pay_response_hash_matches(
@@ -8576,6 +8628,21 @@ fn cents_to_decimal_string(amount_cents: i64) -> String {
     let sign = if amount_cents < 0 { "-" } else { "" };
     let abs = amount_cents.unsigned_abs();
     format!("{sign}{}.{:02}", abs / 100, abs % 100)
+}
+
+fn helcim_pay_public_handoff_url(attempt_id: Uuid, checkout_token: &str) -> Option<String> {
+    let raw_base = std::env::var("RIVERSIDE_PUBLIC_BASE_URL").ok()?;
+    let mut parsed = url::Url::parse(raw_base.trim()).ok()?;
+    if parsed.scheme() != "https" {
+        return None;
+    }
+    parsed.set_path("/pos/helcim-manual-card");
+    parsed.set_query(None);
+    parsed
+        .query_pairs_mut()
+        .append_pair("attempt_id", &attempt_id.to_string())
+        .append_pair("checkout_token", checkout_token);
+    Some(parsed.to_string())
 }
 
 fn is_hosted_manual_helcim_attempt(attempt: &HelcimAttemptRow) -> bool {

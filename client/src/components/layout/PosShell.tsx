@@ -313,13 +313,9 @@ export default function PosShell({
     setSlotContent,
   ]);
 
-  const fixedViewportWorkspace = activePosTab === "register";
-
   return (
     <div
-      className={`flex min-h-0 flex-1 w-full bg-app-bg font-sans antialiased transition-colors duration-300 ${
-        fixedViewportWorkspace ? "overflow-hidden" : "overflow-visible"
-      }`}
+      className="flex min-h-0 flex-1 w-full overflow-hidden bg-app-bg font-sans antialiased transition-colors duration-300"
       data-testid="pos-shell-root"
       data-pos-active-tab={activePosTab}
       data-register-open={isRegisterOpen ? "true" : "false"}
@@ -335,45 +331,45 @@ export default function PosShell({
       />
 
       <div
-        className={`flex min-h-0 flex-1 flex-col ${
-          fixedViewportWorkspace ? "overflow-hidden" : "overflow-visible"
-        }`}
+        className="flex min-h-0 flex-1 flex-col overflow-hidden"
       >
 
         <div
-          className={`flex min-h-0 flex-1 flex-col workspace-snap ${
-            fixedViewportWorkspace ? "overflow-hidden" : "overflow-visible"
-          }`}
+          className="flex min-h-0 flex-1 flex-col overflow-hidden workspace-snap"
           onClick={(e) => {
             const t = e.target;
             if (t instanceof HTMLElement && t.closest('[data-pin-entry="true"]')) return;
             if (!collapsed) onToggleCollapse();
           }}
         >
-          {activePosTab === "pos-dashboard" && (!isRegisterOpen || !sessionId ? (
-              <div className="flex flex-1 items-center justify-center bg-app-bg p-6 text-center text-sm font-black italic uppercase tracking-[0.3em] text-app-text-muted opacity-40">Open register to view the sales dashboard.</div>
-            ) : (
-              <RegisterDashboard
-                registerOrdinal={registerOrdinal}
-                cashierName={cashierName}
-                onGoToRegister={() => setActivePosTab("register")}
-                onGoToWeddings={() => setActivePosTab("weddings")}
-                onGoToOrders={() => setActivePosTab("orders")}
-                onGoToAlterations={() => setActivePosTab("alterations")}
-                onGoToInventory={() => setActivePosTab("inventory")}
-                onGoToTasks={() => setActivePosTab("tasks")}
-                onOpenOrderInRegister={(orderId) => {
-                  setPendingPosTransactionId(orderId);
-                  setPendingPosTransactionReturnLineId(null);
-                  clearPendingPosCustomer();
-                  setActivePosTab("register");
-                }}
-                onOpenWeddingParty={(partyId) => {
-                  setActivePosTab("weddings");
-                  onOpenWeddingParty?.(partyId);
-                }}
-              />
-            ))}
+          {activePosTab === "pos-dashboard" && (
+            <div className="flex min-h-0 flex-1 flex-col overflow-auto" data-testid="pos-dashboard-scroll">
+              {!isRegisterOpen || !sessionId ? (
+                <div className="flex flex-1 items-center justify-center bg-app-bg p-6 text-center text-sm font-black italic uppercase tracking-[0.3em] text-app-text-muted opacity-40">Open register to view the sales dashboard.</div>
+              ) : (
+                <RegisterDashboard
+                  registerOrdinal={registerOrdinal}
+                  cashierName={cashierName}
+                  onGoToRegister={() => setActivePosTab("register")}
+                  onGoToWeddings={() => setActivePosTab("weddings")}
+                  onGoToOrders={() => setActivePosTab("orders")}
+                  onGoToAlterations={() => setActivePosTab("alterations")}
+                  onGoToInventory={() => setActivePosTab("inventory")}
+                  onGoToTasks={() => setActivePosTab("tasks")}
+                  onOpenOrderInRegister={(orderId) => {
+                    setPendingPosTransactionId(orderId);
+                    setPendingPosTransactionReturnLineId(null);
+                    clearPendingPosCustomer();
+                    setActivePosTab("register");
+                  }}
+                  onOpenWeddingParty={(partyId) => {
+                    setActivePosTab("weddings");
+                    onOpenWeddingParty?.(partyId);
+                  }}
+                />
+              )}
+            </div>
+          )}
 
           {(activePosTab === "register") && (
             <div
@@ -560,22 +556,24 @@ export default function PosShell({
             </div>
           )}
           {activePosTab === "reports" && (
-            <RegisterReports
-              sessionId={sessionId}
-              onOpenCustomerHub={(customer) => {
-                onSubSectionChange("all");
-                setPosMessagingFocusCustomerId(customer.id);
-                setPosMessagingFocusHubTab(null);
-                setActivePosTab("customers");
-              }}
-              onOpenRefundInRegister={(transactionId) => {
-                setPendingPosTransactionId(transactionId);
-                setPendingPosTransactionForRefund(true);
-                setPendingPosTransactionReturnLineId(null);
-                clearPendingPosCustomer();
-                setActivePosTab("register");
-              }}
-            />
+            <div className="flex min-h-0 flex-1 flex-col overflow-auto">
+              <RegisterReports
+                sessionId={sessionId}
+                onOpenCustomerHub={(customer) => {
+                  onSubSectionChange("all");
+                  setPosMessagingFocusCustomerId(customer.id);
+                  setPosMessagingFocusHubTab(null);
+                  setActivePosTab("customers");
+                }}
+                onOpenRefundInRegister={(transactionId) => {
+                  setPendingPosTransactionId(transactionId);
+                  setPendingPosTransactionForRefund(true);
+                  setPendingPosTransactionReturnLineId(null);
+                  clearPendingPosCustomer();
+                  setActivePosTab("register");
+                }}
+              />
+            </div>
           )}
           {activePosTab === "payments" && (
             <div className="flex min-h-0 flex-1 flex-col overflow-auto">

@@ -4,6 +4,7 @@ import App from "./App";
 import PublicStorefront from "./components/storefront/PublicStorefront";
 import PodiumOAuthCallback from "./components/settings/PodiumOAuthCallback";
 import StorefrontEmbedHost from "./components/layout/StorefrontEmbedHost";
+import HelcimManualCardHandoff from "./components/pos/HelcimManualCardHandoff";
 import PwaUpdatePrompt from "./components/layout/PwaUpdatePrompt";
 import ServerConnectionMonitor from "./components/layout/ServerConnectionMonitor";
 import { ToastProvider } from "./components/ui/ToastProvider";
@@ -65,13 +66,15 @@ const isPublicShop =
 
 const isPodiumOAuthCallback =
   typeof window !== "undefined" && window.location.pathname === "/callback";
+const isHelcimManualCardHandoff =
+  typeof window !== "undefined" && window.location.pathname === "/pos/helcim-manual-card";
 
-if (!isPublicShop && !isPodiumOAuthCallback) {
+if (!isPublicShop && !isPodiumOAuthCallback && !isHelcimManualCardHandoff) {
   installClientDiagnostics();
 }
 
 const sentryDsn = import.meta.env.VITE_SENTRY_DSN?.trim();
-if (sentryDsn && !isPublicShop && !isPodiumOAuthCallback) {
+if (sentryDsn && !isPublicShop && !isPodiumOAuthCallback && !isHelcimManualCardHandoff) {
   void import("@sentry/react").then((Sentry) => {
     Sentry.init({
       dsn: sentryDsn,
@@ -111,14 +114,16 @@ async function init() {
           <PublicStorefront />
         ) : isPodiumOAuthCallback ? (
           <PodiumOAuthCallback />
+        ) : isHelcimManualCardHandoff ? (
+          <HelcimManualCardHandoff />
         ) : (
           <AppErrorBoundary>
             <App />
           </AppErrorBoundary>
         )}
-        {isPodiumOAuthCallback ? null : <StorefrontEmbedHost />}
-        {!isPublicShop && !isPodiumOAuthCallback ? <ServerConnectionMonitor /> : null}
-        <PwaUpdatePrompt />
+        {isPodiumOAuthCallback || isHelcimManualCardHandoff ? null : <StorefrontEmbedHost />}
+        {!isPublicShop && !isPodiumOAuthCallback && !isHelcimManualCardHandoff ? <ServerConnectionMonitor /> : null}
+        {isHelcimManualCardHandoff ? null : <PwaUpdatePrompt />}
       </ToastProvider>
     </StrictMode>,
   );

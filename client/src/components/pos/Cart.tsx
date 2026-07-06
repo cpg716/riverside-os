@@ -171,6 +171,10 @@ function calculateStandaloneLineTotals(lines: CartLineItem[]): CartTotals {
   };
 }
 
+function weddingDisbursementAmountCents(member: WeddingMember): number {
+  return parseMoneyToCents(member.split_deposit_amount ?? member.balance_due ?? "0");
+}
+
 interface ExchangeReturnHandoff {
   originalTransactionId: string;
   customer: Customer | null;
@@ -1215,7 +1219,7 @@ export default function Cart({
 
     let disbCents = 0;
     disbursementMembers.forEach((m) => {
-      disbCents += parseMoneyToCents(m.balance_due || "0");
+      disbCents += weddingDisbursementAmountCents(m);
     });
     const orderPaymentCents = orderPaymentLines.reduce(
       (sum, line) => sum + parseMoneyToCents(line.amount),
@@ -1460,12 +1464,13 @@ export default function Cart({
   });
 
   // --- Persistence Hook ---
-	  const { saleHydrated } = useCartPersistence({
+  const { saleHydrated } = useCartPersistence({
     sessionId,
     lines,
     selectedCustomer,
     activeWeddingMember,
     activeWeddingPartyName,
+    disbursementMembers,
     posShipping,
     primarySalespersonId,
     checkoutOperator,
@@ -1475,55 +1480,55 @@ export default function Cart({
     setSelectedCustomer,
     setActiveWeddingMember,
     setActiveWeddingPartyName,
+    setDisbursementMembers,
     setPosShipping,
     setPrimarySalespersonId,
     setCheckoutOperator,
     setPendingAlterationIntakes,
     setOrderPaymentLines,
-	    clearCart: clearCartAndAlterations,
-	  });
+    clearCart: clearCartAndAlterations,
+  });
 
-	  useEffect(() => {
-	    const sku = pendingInventorySku?.trim();
-	    if (!sku || !saleHydrated || !checkoutOperator) return;
-	    let cancelled = false;
-	    void (async () => {
-	      try {
-	        const res = await fetch(
-	          `${baseUrl}/api/inventory/scan/${encodeURIComponent(sku)}`,
-	          { headers: apiAuth() },
-	        );
-	        if (!res.ok) {
-	          toast("We couldn't add that inventory item to the sale. Try searching again or scan the SKU.", "error");
-	          return;
-	        }
-	        const payload = (await res.json()) as Record<string, unknown>;
-	        if (cancelled) return;
-	        addItem(scanPayloadToResolvedItem(payload) as SearchResult);
-	      } catch {
-	        if (!cancelled) {
-	          toast("We couldn't add that inventory item to the sale. Please try again.", "error");
-	        }
-	      } finally {
-	        if (!cancelled) onPendingInventorySkuConsumed?.();
-	      }
-	    })();
-	    return () => {
-	      cancelled = true;
-	    };
-	  }, [
-	    pendingInventorySku,
-	    saleHydrated,
-	    checkoutOperator,
-	    baseUrl,
-	    apiAuth,
-	    addItem,
-	    toast,
-	    onPendingInventorySkuConsumed,
-	  ]);
+  useEffect(() => {
+    const sku = pendingInventorySku?.trim();
+    if (!sku || !saleHydrated || !checkoutOperator) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(
+          `${baseUrl}/api/inventory/scan/${encodeURIComponent(sku)}`,
+          { headers: apiAuth() },
+        );
+        if (!res.ok) {
+          toast("We couldn't add that inventory item to the sale. Try searching again or scan the SKU.", "error");
+          return;
+        }
+        const payload = (await res.json()) as Record<string, unknown>;
+        if (cancelled) return;
+        addItem(scanPayloadToResolvedItem(payload) as SearchResult);
+      } catch {
+        if (!cancelled) {
+          toast("We couldn't add that inventory item to the sale. Please try again.", "error");
+        }
+      } finally {
+        if (!cancelled) onPendingInventorySkuConsumed?.();
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    pendingInventorySku,
+    saleHydrated,
+    checkoutOperator,
+    baseUrl,
+    apiAuth,
+    addItem,
+    toast,
+    onPendingInventorySkuConsumed,
+  ]);
 
-
-	  // pendingExchangeOriginalOrderIdRef removed
+  // pendingExchangeOriginalOrderIdRef removed
   const actionRibbonRef = useRef<HTMLDivElement | null>(null);
   const didInitialProductSearchFocusRef = useRef(false);
   const initialTransactionApplyingRef = useRef<string | null>(null);
@@ -2994,7 +2999,7 @@ export default function Cart({
                         <p className="mb-1 text-[9px] font-black uppercase tracking-widest text-app-text-muted/80">Applying Amount</p>
                         <p className="text-xl font-black italic tracking-tighter text-app-info">
                           $
-                          {centsToFixed2(parseMoneyToCents(m.balance_due || "0"))}
+                          {centsToFixed2(weddingDisbursementAmountCents(m))}
                         </p>
                      </div>
                      <button
@@ -4526,7 +4531,7 @@ export default function Cart({
           setDisbursementMembers(members);
           setActiveWeddingPartyName(partyName);
           setWeddingDrawerOpen(false);
-          toast(`Added ${members.length} members for payout`, "success");
+          toast(`Added ${members.length} members for split deposit`, "success");
         }}
       />
 
