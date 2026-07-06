@@ -68,6 +68,7 @@ type StationRow = {
   last_seen_at: string;
   updated_at: string;
   online: boolean;
+  monitor_offline: boolean;
   station_lifecycle: "online" | "recently_offline" | "stale" | string;
   actionable: boolean;
 };

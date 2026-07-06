@@ -2076,7 +2076,7 @@ async fn post_seed_station_heartbeats(
                 station_key, station_label, app_version, git_sha, tailscale_node, lan_ip,
                 last_seen_at, updated_at, created_at, meta
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $7, NOW(), '{"source":"e2e"}'::jsonb)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $7, NOW(), '{"source":"e2e","monitor_offline":true}'::jsonb)
             ON CONFLICT (station_key)
             DO UPDATE SET
                 station_label = EXCLUDED.station_label,

@@ -80,6 +80,7 @@ pub struct StationRow {
     pub last_seen_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub online: bool,
+    pub monitor_offline: bool,
     pub station_lifecycle: String,
     pub actionable: bool,
 }
@@ -1658,6 +1659,23 @@ pub async fn list_stations(pool: &PgPool) -> Result<Vec<StationRow>, sqlx::Error
     let actionable_cutoff = station_offline_alert_cutoff();
     let rows = sqlx::query_as::<_, StationRow>(
         r#"
+        WITH station_rows AS (
+            SELECT
+                station_key,
+                station_label,
+                app_version,
+                git_sha,
+                tailscale_node,
+                lan_ip,
+                last_sync_at,
+                last_update_check_at,
+                last_update_install_at,
+                last_seen_at,
+                updated_at,
+                (LOWER(COALESCE(meta->>'monitor_offline', 'false')) = 'true') AS monitor_offline
+            FROM ops_station_heartbeat
+            WHERE last_seen_at >= $3
+        )
         SELECT
             station_key,
             station_label,
@@ -1671,14 +1689,14 @@ pub async fn list_stations(pool: &PgPool) -> Result<Vec<StationRow>, sqlx::Error
             last_seen_at,
             updated_at,
             (last_seen_at >= $1) AS online,
+            monitor_offline,
             CASE
                 WHEN last_seen_at >= $1 THEN 'online'
-                WHEN last_seen_at >= $2 THEN 'recently_offline'
+                WHEN monitor_offline AND last_seen_at >= $2 THEN 'recently_offline'
                 ELSE 'stale'
             END AS station_lifecycle,
-            (last_seen_at >= $2) AS actionable
-        FROM ops_station_heartbeat
-        WHERE last_seen_at >= $3
+            (monitor_offline AND last_seen_at >= $2) AS actionable
+        FROM station_rows
         ORDER BY (last_seen_at >= $1) DESC, (last_seen_at >= $2) DESC, last_seen_at DESC
         "#,
     )
@@ -1831,6 +1849,7 @@ pub async fn list_alerts(pool: &PgPool) -> Result<Vec<AlertEventRow>, sqlx::Erro
                   FROM ops_station_heartbeat s
                   WHERE a.dedupe_key = 'station_offline:' || s.station_key
                     AND s.last_seen_at >= $1
+                    AND LOWER(COALESCE(s.meta->>'monitor_offline', 'false')) = 'true'
               )
           )
         ORDER BY

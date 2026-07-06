@@ -120,4 +120,5 @@ pub const EMBEDDED_MIGRATIONS: &[(&str, &str)] = &[
     ("117_retire_counterpoint_stale_notifications.sql", include_str!("../../migrations/117_retire_counterpoint_stale_notifications.sql")),
     ("118_repair_joe_webb_failed_exchange_return.sql", include_str!("../../migrations/118_repair_joe_webb_failed_exchange_return.sql")),
     ("119_backfill_open_deferred_payment_deposit_metadata.sql", include_str!("../../migrations/119_backfill_open_deferred_payment_deposit_metadata.sql")),
+    ("120_resolve_browser_station_offline_alerts.sql", include_str!("../../migrations/120_resolve_browser_station_offline_alerts.sql")),
 ];

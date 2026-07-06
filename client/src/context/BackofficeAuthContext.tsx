@@ -6,6 +6,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { isTauri } from "@tauri-apps/api/core";
 
 import {
   clearPersistedBackofficeSession,
@@ -23,6 +24,22 @@ import {
 import { getStableStationKey } from "../lib/stationIdentity";
 
 const baseUrl = getBaseUrl();
+
+function stationRuntimeMeta() {
+  const tauri = isTauri();
+  const standalonePwa =
+    !tauri &&
+    (window.matchMedia?.("(display-mode: standalone)").matches ||
+      (navigator as Navigator & { standalone?: boolean }).standalone === true);
+  return {
+    runtime_surface: tauri
+      ? "tauri_desktop"
+      : standalonePwa
+        ? "pwa_standalone"
+        : "browser_tab",
+    monitor_offline: tauri || standalonePwa,
+  };
+}
 
 export function BackofficeAuthProvider({
   children,
@@ -164,6 +181,7 @@ export function BackofficeAuthProvider({
             tailscale_node: null,
             lan_ip: null,
             meta: {
+              ...stationRuntimeMeta(),
               user_agent: navigator.userAgent,
               platform: navigator.platform,
             },

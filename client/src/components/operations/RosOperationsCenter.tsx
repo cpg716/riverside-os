@@ -190,6 +190,7 @@ interface StationRow {
   lan_ip: string | null;
   last_seen_at: string;
   online: boolean;
+  monitor_offline: boolean;
   actionable: boolean;
 }
 

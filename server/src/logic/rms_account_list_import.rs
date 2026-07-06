@@ -582,7 +582,7 @@ async fn match_account_snapshots_by_unique_phone(
             FROM customers
         ),
         unique_phone AS (
-            SELECT phone_digits, MIN(id) AS customer_id
+            SELECT phone_digits, MIN(id::text)::uuid AS customer_id
             FROM customer_phone
             WHERE phone_digits IS NOT NULL
             GROUP BY phone_digits

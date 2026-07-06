@@ -177,6 +177,7 @@ Heartbeat writes/upserts `ops_station_heartbeat` with canonical key `station_key
 
 Current heartbeat producer:
 - `client/src/context/BackofficeAuthContext.tsx` (every 60s while signed in)
+- Tauri desktop and standalone PWA station heartbeats set `monitor_offline: true`; ordinary browser tabs remain visible telemetry but do not open workstation-offline alerts when the tab closes.
 
 Payload fields:
 - `station_key`, `station_label`, `app_version`
@@ -188,7 +189,7 @@ Fleet online/offline status is derived from recency cutoffs in server logic (`la
 
 Lifecycle semantics:
 - `online`: heartbeat inside the online cutoff.
-- `actionable offline`: missed heartbeat inside the offline alert window. These stations count as offline in health snapshots and can open `station_offline` alerts.
+- `actionable offline`: monitored station missed heartbeat inside the offline alert window. These stations count as offline in health snapshots and can open `station_offline` alerts.
 - `stale history`: missed heartbeat beyond the offline alert window. These rows remain available for governance until retention cleanup, but they do not flood active alert triage.
 
 Fleet retention:
