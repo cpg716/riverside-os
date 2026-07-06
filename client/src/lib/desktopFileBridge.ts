@@ -1,7 +1,7 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import { writeFile, writeTextFile } from "@tauri-apps/plugin-fs";
-import { openPath, openUrl } from "@tauri-apps/plugin-opener";
+import { openUrl } from "@tauri-apps/plugin-opener";
 
 type DesktopSaveResult = "unsupported" | "saved" | "cancelled";
 
@@ -56,11 +56,10 @@ export async function openDesktopTextPreview(
   content: string,
 ): Promise<boolean> {
   if (!isTauri()) return false;
-  const path = await invoke<string>("write_temp_preview_file", {
+  await invoke<string>("open_temp_preview_file", {
     filename,
     content,
   });
-  await openPath(path);
   return true;
 }
 
