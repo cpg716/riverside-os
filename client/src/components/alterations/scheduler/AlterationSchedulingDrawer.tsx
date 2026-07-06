@@ -6,6 +6,7 @@ import AlterationSmartScheduler from "./AlterationSmartScheduler";
 import { getBaseUrl } from "../../../lib/apiConfig";
 import { printReceiptPayload } from "../../../lib/receiptPrint";
 import { useToast } from "../../ui/ToastProviderLogic";
+import { useBodyScrollLock } from "../../../hooks/useBodyScrollLock";
 
 const baseUrl = getBaseUrl();
 
@@ -46,6 +47,7 @@ export default function AlterationSchedulingDrawer({
   const { toast } = useToast();
 
   const customerName = `${localAlt.customer_first_name ?? ""} ${localAlt.customer_last_name ?? ""}`.trim() || "Unassigned Customer";
+  useBodyScrollLock(true);
 
   const reloadAlteration = async () => {
     try {
@@ -97,14 +99,6 @@ export default function AlterationSchedulingDrawer({
       scrollContainer.scrollTop = 0;
     }
   }, [alteration.id, activeTab]);
-
-  useEffect(() => {
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prevOverflow;
-    };
-  }, []);
 
   const root = document.getElementById("drawer-root") || document.body;
 

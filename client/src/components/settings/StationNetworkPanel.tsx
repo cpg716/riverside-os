@@ -1,6 +1,11 @@
 import { getBaseUrl, getBaseUrlDiagnostics, DEFAULT_BASE_URL } from "../../lib/apiConfig";
+import { isTauri } from "@tauri-apps/api/core";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { checkServerLocalStatus, loadLocalStationConfig, type RiversideStationConfig, type ServerLocalStatus } from "../../lib/appUpdater";
+import {
+  getPosRegisterAuth,
+  posRegisterAuthHeaders,
+} from "../../lib/posRegisterAuth";
 import {
   Wifi,
   Monitor,
@@ -40,6 +45,14 @@ interface HealthStatus {
   error?: string;
   source?: string;
   checked_url?: string;
+}
+
+interface CurrentRegisterSession {
+  session_id: string;
+  register_lane: number;
+  register_ordinal: number;
+  cashier_name: string;
+  lifecycle_status: string;
 }
 
 /* ── Helpers ── */
@@ -123,6 +136,7 @@ export default function StationNetworkPanel() {
   const [healthLoading, setHealthLoading] = useState(false);
   const [localServerStatus, setLocalServerStatus] = useState<ServerLocalStatus | null>(null);
   const [stationConfig, setStationConfig] = useState<RiversideStationConfig | null>(null);
+  const [currentRegisterSession, setCurrentRegisterSession] = useState<CurrentRegisterSession | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
 
   // Connection editor
@@ -138,18 +152,35 @@ export default function StationNetworkPanel() {
 
   const browserStationLabel = useMemo(() => {
     if (typeof window === "undefined") return null;
-    return localStorage.getItem("ros.station.label");
+    return localStorage.getItem("ros.station.label")?.trim() || null;
   }, []);
 
+  const registerSessionLabel = currentRegisterSession
+    ? `Register #${currentRegisterSession.register_lane}`
+    : "";
   const stationLabel =
-    stationConfig?.register?.stationLabel?.trim() || browserStationLabel;
+    stationConfig?.register?.stationLabel?.trim() || browserStationLabel || registerSessionLabel;
   const displayStationLabel = stationLabel || (localServerStatus?.is_local ? "Main Hub" : "Not set");
 
-  const localInstallLabel = localServerStatus?.is_local
-    ? "Main Hub detected"
-    : localServerStatus
-      ? "Satellite station"
-      : "Not checked";
+  const workstationRoleLabel = useMemo(() => {
+    if (currentRegisterSession) {
+      return `Register #${currentRegisterSession.register_lane} Desktop App`;
+    }
+    const normalizedLabel = stationLabel?.toLowerCase() ?? "";
+    if (localServerStatus?.is_local || normalizedLabel.includes("main hub")) {
+      return "Main Hub / Back Office";
+    }
+    if (normalizedLabel.includes("backoffice") || normalizedLabel.includes("back office")) {
+      return "Back Office station";
+    }
+    if (normalizedLabel.includes("register")) {
+      return isTauri() ? `${stationLabel} Desktop App` : `${stationLabel} PWA`;
+    }
+    if (isTauri()) {
+      return "Desktop station";
+    }
+    return "PWA / browser";
+  }, [currentRegisterSession, localServerStatus?.is_local, stationLabel]);
 
   const installedApiBase = stationConfig?.register?.apiBase?.trim();
   const mainHubLanApi = mainHubLanApiUrl(networkInfo);
@@ -161,7 +192,9 @@ export default function StationNetworkPanel() {
         ].join(" / ")
       : localServerStatus.is_local
         ? "API reachable / installer metadata not found"
-        : "no config / server app"
+        : currentRegisterSession || stationLabel?.toLowerCase().includes("register")
+          ? "Not local — using Main Hub API"
+          : "no config / server app"
     : "Not checked";
 
   /* ── Fetch network info from server ── */
@@ -248,11 +281,33 @@ export default function StationNetworkPanel() {
     setStationConfig(config);
   }, []);
 
+  const refreshCurrentRegisterSession = useCallback(async () => {
+    const posAuth = getPosRegisterAuth();
+    if (!posAuth?.sessionId || !posAuth.token) {
+      setCurrentRegisterSession(null);
+      return;
+    }
+    try {
+      const res = await fetch(`${baseUrl}/api/sessions/current`, {
+        headers: posRegisterAuthHeaders(),
+      });
+      if (!res.ok) {
+        setCurrentRegisterSession(null);
+        return;
+      }
+      const data = (await res.json()) as CurrentRegisterSession;
+      setCurrentRegisterSession(data);
+    } catch {
+      setCurrentRegisterSession(null);
+    }
+  }, [baseUrl]);
+
   useEffect(() => {
     void refreshLocalStation();
+    void refreshCurrentRegisterSession();
     void fetchNetworkInfo();
     void checkHealth();
-  }, [refreshLocalStation, fetchNetworkInfo, checkHealth]);
+  }, [refreshLocalStation, refreshCurrentRegisterSession, fetchNetworkInfo, checkHealth]);
 
   /* ── Copy URL ── */
 
@@ -313,7 +368,7 @@ export default function StationNetworkPanel() {
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <InfoTile label="Station Label" value={displayStationLabel} muted={!stationLabel && !localServerStatus?.is_local} />
             <InfoTile label="Current API Host" value={diagnostics.resolved} mono />
-            <InfoTile label="Installed Role" value={localInstallLabel} muted={!localServerStatus} />
+            <InfoTile label="Workstation Role" value={workstationRoleLabel} muted={!currentRegisterSession && !stationLabel && !localServerStatus} />
             <InfoTile label="Main Hub LAN API" value={mainHubLanApi || installedApiBase || "Not reported"} mono muted={!mainHubLanApi && !installedApiBase} />
             <div className="rounded-xl border border-app-border bg-app-bg/60 p-3">
               <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted mb-1">Connection</p>
@@ -349,7 +404,7 @@ export default function StationNetworkPanel() {
           <div className="grid gap-3 sm:grid-cols-2">
             <InfoTile label="Selected Source" value={sourceLabel(diagnostics.source)} />
             <InfoTile
-              label="Main Hub Files"
+              label="Local Main Hub Files"
               value={mainHubFileStatus}
               muted={!localServerStatus || (!localServerStatus.config_exists && !localServerStatus.server_binary_exists && !localServerStatus.is_local)}
             />

@@ -660,8 +660,8 @@ export default function CloseRegisterModal({
     return [notes.trim(), countEditNote, checkReviewNote].filter(Boolean).join("\n");
   }, [checkPayments, checkReview, countEditReason, notes]);
 
-  const openCurrentZReportPrint = useCallback((currentRecon: Reconciliation | null = recon) => {
-    if (!currentRecon) return;
+  const openCurrentZReportPrint = useCallback(async (currentRecon: Reconciliation | null = recon) => {
+    if (!currentRecon) return false;
     const currentExpectedCents = parseMoneyToCents(currentRecon.expected_cash);
     const currentActualCents = parseMoneyToCents(actualCash);
     const currentOpeningCents = parseMoneyToCents(currentRecon.opening_float);
@@ -669,7 +669,7 @@ export default function CloseRegisterModal({
     const currentRoundingCents = parseMoneyToCents(currentRecon.total_rounding_adjustments ?? "0");
     const currentCashSalesCents = currentExpectedCents - currentOpeningCents - currentNetAdjCents - currentRoundingCents;
     const closingNotesForReport = buildClosingNotesForReport();
-    void openProfessionalZReportPrint({
+    const opened = await openProfessionalZReportPrint({
       title: "Z-Report",
       sessionId: currentRecon.session_id,
       registerOrdinal,
@@ -708,7 +708,11 @@ export default function CloseRegisterModal({
         register_lane: t.register_lane ?? 1,
       })),
     });
-  }, [actualCash, buildClosingNotesForReport, cashDepositAmount, cashDepositDate, cashierName, closingComments, recon, registerOrdinal]);
+    if (opened) {
+      toast("Z-report opened for review.", "success");
+    }
+    return opened;
+  }, [actualCash, buildClosingNotesForReport, cashDepositAmount, cashDepositDate, cashierName, closingComments, recon, registerOrdinal, toast]);
 
   const handleFinalClose = async () => {
     setShowFinalConfirm(false);
@@ -743,7 +747,10 @@ export default function CloseRegisterModal({
           "Failed to close session";
         throw new Error(mapCloseSessionError(errorMessage));
       }
-      openCurrentZReportPrint(recon);
+      const opened = await openCurrentZReportPrint(recon);
+      if (!opened) {
+        toast("Z-report could not open. Check the Reports printer setup.", "error");
+      }
       onCloseComplete();
     } catch (err: unknown) {
       toast(err instanceof Error ? err.message : "Failed to close session", "error");
@@ -1446,7 +1453,22 @@ export default function CloseRegisterModal({
           </div>
           <button
             type="button"
-            onClick={() => openCurrentZReportPrint()}
+            onClick={() => {
+              void openCurrentZReportPrint()
+                .then((opened) => {
+                  if (!opened) {
+                    toast("Z-report could not open. Check the Reports printer setup.", "error");
+                  }
+                })
+                .catch((error) => {
+                  toast(
+                    error instanceof Error
+                      ? error.message
+                      : "Z-report could not open.",
+                    "error",
+                  );
+                });
+            }}
             className="ui-btn-secondary border-app-accent/20 px-4 py-2 text-app-accent shadow-sm"
           >
             Preview Print

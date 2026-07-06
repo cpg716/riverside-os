@@ -596,7 +596,8 @@ export default function Cart({
 
     const refundAmountCents = Math.round(args.refundAmountCents ?? 0);
     const firstReturnLine = args.returnedLines?.[0];
-    if (!firstReturnLine || refundAmountCents <= 0) return;
+    if (!firstReturnLine) return;
+    if (refundAmountCents <= 0 && args.action !== "exchange") return;
 
     const receiptLabel = args.receiptLabel ?? args.originalTransactionId.slice(0, 8).toUpperCase();
     const rowId = newCartRowId();
@@ -610,7 +611,12 @@ export default function Cart({
       product_id: firstReturnLine.product_id,
       variant_id: firstReturnLine.variant_id,
       sku: `RETURN-${receiptLabel}`,
-      name: args.action === "exchange" ? `Exchange credit ${receiptLabel}` : `Refund credit ${receiptLabel}`,
+      name:
+        args.action === "exchange" && refundAmountCents <= 0
+          ? `Exchange return ${receiptLabel}`
+          : args.action === "exchange"
+            ? `Exchange credit ${receiptLabel}`
+            : `Refund credit ${receiptLabel}`,
       variation_label: lineLabel,
       standard_retail_price: centsToFixed2(refundAmountCents),
       unit_cost: firstReturnLine.unit_cost ?? "0.00",
@@ -624,7 +630,7 @@ export default function Cart({
       original_unit_price: centsToFixed2(refundAmountCents),
       return_tender_original_transaction_id: args.originalTransactionId,
       return_tender_receipt_label: receiptLabel,
-      return_tender_refund_cents: refundAmountCents,
+      return_tender_refund_cents: Math.max(0, refundAmountCents),
     };
 
     setLines((prev) => [
@@ -641,6 +647,8 @@ export default function Cart({
     if (args.action === "refund") {
       setCheckoutDrawerOpen(true);
       toast(`Refund credit for ${receiptLabel} moved to Pay. Select the refund tender to finish.`, "success");
+    } else if (refundAmountCents <= 0) {
+      toast(`Return from ${receiptLabel} is staged. Add replacement items, then Pay to settle the exchange.`, "success");
     } else {
       toast(`Return credit for ${receiptLabel} is in the cart. Add replacement items, then Pay to settle the exchange.`, "success");
     }
@@ -3648,7 +3656,7 @@ export default function Cart({
                 },
               };
               const checkoutApplied = [
-                exchangeCreditPayment,
+                ...(exchangeCreditAppliedCents > 0 ? [exchangeCreditPayment] : []),
                 ...(totals.totalCents > 0 ? applied.filter((payment) => payment.amountCents > 0) : []),
               ];
               const replacementTransactionId = await executeCheckout(

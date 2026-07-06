@@ -2204,7 +2204,6 @@ pub async fn evaluate_alerts_from_health(
 
     let mut qbo_failed = false;
     let mut weather_failed = false;
-    let mut counterpoint_failed = false;
     let mut meilisearch_failed = false;
     let mut qbo_api_failed = false;
     let mut email_failed = false;
@@ -2245,26 +2244,6 @@ pub async fn evaluate_alerts_from_health(
                 "Weather integration failure",
                 if i.detail.trim().is_empty() {
                     "Weather finalize job is failing"
-                } else {
-                    i.detail.as_str()
-                },
-                json!({ "integration": i.key }),
-            )
-            .await?
-            {
-                opened_signals.push(signal);
-            }
-        }
-
-        if i.key == "counterpoint_sync" && i.status != "healthy" {
-            counterpoint_failed = true;
-            if let Some(signal) = upsert_open_alert(
-                pool,
-                "counterpoint_sync_stale",
-                "counterpoint_sync_stale",
-                "Counterpoint sync stale",
-                if i.detail.trim().is_empty() {
-                    "Counterpoint sync entities are stale or failing"
                 } else {
                     i.detail.as_str()
                 },
@@ -2482,9 +2461,7 @@ pub async fn evaluate_alerts_from_health(
     if !weather_failed {
         let _ = resolve_rule_alerts(pool, "integration_weather_failure", &[]).await?;
     }
-    if !counterpoint_failed {
-        let _ = resolve_rule_alerts(pool, "counterpoint_sync_stale", &[]).await?;
-    }
+    let _ = resolve_rule_alerts(pool, "counterpoint_sync_stale", &[]).await?;
     if !podium_failed {
         let _ = resolve_rule_alerts(pool, "integration_podium_failure", &[]).await?;
     }

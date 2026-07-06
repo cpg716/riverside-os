@@ -6543,42 +6543,65 @@ async fn build_customer_timeline(
 
     let payments = sqlx::query_as::<_, PaymentTimelineRow>(
         r#"
+        WITH candidate_payments AS (
+            SELECT p.id, p.created_at, p.payment_method, p.amount
+            FROM payment_transactions p
+            WHERE p.payer_id = $1
+
+            UNION
+
+            SELECT p.id, p.created_at, p.payment_method, p.amount
+            FROM transactions target
+            INNER JOIN payment_allocations pa ON pa.target_transaction_id = target.id
+            INNER JOIN payment_transactions p ON p.id = pa.transaction_id
+            WHERE target.customer_id = $1
+
+            UNION
+
+            SELECT p.id, p.created_at, p.payment_method, p.amount
+            FROM customer_relationship_periods crp
+            INNER JOIN payment_transactions p ON p.payer_id = crp.child_customer_id
+            WHERE crp.parent_customer_id = $1
+              AND p.created_at >= crp.linked_at
+              AND (crp.unlinked_at IS NULL OR p.created_at <= crp.unlinked_at)
+              AND (crp.unlinked_at IS NULL OR crp.parent_customer_id = $1)
+
+            UNION
+
+            SELECT p.id, p.created_at, p.payment_method, p.amount
+            FROM customer_relationship_periods crp
+            INNER JOIN payment_transactions p ON p.payer_id = crp.parent_customer_id
+            WHERE crp.child_customer_id = $1
+              AND p.created_at >= crp.linked_at
+              AND (crp.unlinked_at IS NULL OR p.created_at <= crp.unlinked_at)
+              AND (crp.unlinked_at IS NULL OR crp.parent_customer_id = $1)
+
+            UNION
+
+            SELECT p.id, p.created_at, p.payment_method, p.amount
+            FROM customer_relationship_periods crp
+            INNER JOIN transactions target ON target.customer_id = crp.child_customer_id
+            INNER JOIN payment_allocations pa ON pa.target_transaction_id = target.id
+            INNER JOIN payment_transactions p ON p.id = pa.transaction_id
+            WHERE crp.parent_customer_id = $1
+              AND p.created_at >= crp.linked_at
+              AND (crp.unlinked_at IS NULL OR p.created_at <= crp.unlinked_at)
+              AND (crp.unlinked_at IS NULL OR crp.parent_customer_id = $1)
+
+            UNION
+
+            SELECT p.id, p.created_at, p.payment_method, p.amount
+            FROM customer_relationship_periods crp
+            INNER JOIN transactions target ON target.customer_id = crp.parent_customer_id
+            INNER JOIN payment_allocations pa ON pa.target_transaction_id = target.id
+            INNER JOIN payment_transactions p ON p.id = pa.transaction_id
+            WHERE crp.child_customer_id = $1
+              AND p.created_at >= crp.linked_at
+              AND (crp.unlinked_at IS NULL OR p.created_at <= crp.unlinked_at)
+              AND (crp.unlinked_at IS NULL OR crp.parent_customer_id = $1)
+        )
         SELECT id, created_at, payment_method, amount
-        FROM payment_transactions p
-        WHERE p.payer_id = $1
-           OR EXISTS (
-               SELECT 1
-               FROM payment_allocations pa
-               INNER JOIN transactions target ON target.id = pa.target_transaction_id
-               WHERE pa.transaction_id = p.id
-                 AND (
-                     target.customer_id = $1
-                     OR EXISTS (
-                         SELECT 1
-                         FROM customer_relationship_periods crp
-                         WHERE (
-                             (crp.parent_customer_id = $1 AND crp.child_customer_id = target.customer_id)
-                             OR
-                             (crp.child_customer_id = $1 AND crp.parent_customer_id = target.customer_id)
-                         )
-                           AND p.created_at >= crp.linked_at
-                           AND (crp.unlinked_at IS NULL OR p.created_at <= crp.unlinked_at)
-                           AND (crp.unlinked_at IS NULL OR crp.parent_customer_id = $1)
-                     )
-                 )
-           )
-           OR EXISTS (
-               SELECT 1
-               FROM customer_relationship_periods crp
-               WHERE (
-                   (crp.parent_customer_id = $1 AND crp.child_customer_id = p.payer_id)
-                   OR
-                   (crp.child_customer_id = $1 AND crp.parent_customer_id = p.payer_id)
-               )
-                 AND p.created_at >= crp.linked_at
-                 AND (crp.unlinked_at IS NULL OR p.created_at <= crp.unlinked_at)
-                 AND (crp.unlinked_at IS NULL OR crp.parent_customer_id = $1)
-           )
+        FROM candidate_payments
         ORDER BY created_at DESC
         LIMIT 28
         "#,

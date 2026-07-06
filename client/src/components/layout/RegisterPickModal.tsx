@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { setPosRegisterAuth } from "../../lib/posRegisterAuth";
@@ -6,6 +6,7 @@ import { stationKeyHeader } from "../../lib/stationIdentity";
 import { useToast } from "../ui/ToastProviderLogic";
 import { useShellBackdropLayer } from "./ShellBackdropContextLogic";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
+import { useBodyScrollLock } from "../../hooks/useBodyScrollLock";
 
 export type OpenRegisterOption = {
   session_id: string;
@@ -65,6 +66,7 @@ export default function RegisterPickModal({
 
   useShellBackdropLayer(open);
   const { dialogRef, titleId } = useDialogAccessibility(open, {});
+  useBodyScrollLock(open);
 
   const canAttach = useMemo(
     () => permissionsLoaded && hasPermission("register.session_attach"),
@@ -125,15 +127,6 @@ export default function RegisterPickModal({
     },
     [baseUrl, backofficeHeaders, canAttach, onSuccess, toast],
   );
-
-  useEffect(() => {
-    if (!open) return;
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prevOverflow;
-    };
-  }, [open]);
 
   if (!open) return null;
 

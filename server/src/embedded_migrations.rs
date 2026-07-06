@@ -116,4 +116,8 @@ pub const EMBEDDED_MIGRATIONS: &[(&str, &str)] = &[
     ("113_system_staff_admin_salesperson.sql", include_str!("../../migrations/113_system_staff_admin_salesperson.sql")),
     ("114_counterpoint_inventory_and_return_audit_backfill.sql", include_str!("../../migrations/114_counterpoint_inventory_and_return_audit_backfill.sql")),
     ("115_qbo_blocking_warning_review_status.sql", include_str!("../../migrations/115_qbo_blocking_warning_review_status.sql")),
+    ("116_payment_allocation_transaction_index.sql", include_str!("../../migrations/116_payment_allocation_transaction_index.sql")),
+    ("117_retire_counterpoint_stale_notifications.sql", include_str!("../../migrations/117_retire_counterpoint_stale_notifications.sql")),
+    ("118_repair_joe_webb_failed_exchange_return.sql", include_str!("../../migrations/118_repair_joe_webb_failed_exchange_return.sql")),
+    ("119_backfill_open_deferred_payment_deposit_metadata.sql", include_str!("../../migrations/119_backfill_open_deferred_payment_deposit_metadata.sql")),
 ];

@@ -17,6 +17,7 @@ import CustomerSearchInput from "../ui/CustomerSearchInput";
 import IntegrationBrandLogo from "../ui/IntegrationBrandLogo";
 import { CheckCircle2 } from "lucide-react";
 import AddressAutocompleteInput from "../ui/AddressAutocompleteInput";
+import { useBodyScrollLock } from "../../hooks/useBodyScrollLock";
 
 const defaultBase = getBaseUrl();
 
@@ -176,15 +177,7 @@ export default function ShipmentsHubSection({
   const { dialogRef, titleId } = useDialogAccessibility(newOpen, {
     onEscape: () => setNewOpen(false),
   });
-
-  useEffect(() => {
-    if (!newOpen) return;
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prevOverflow;
-    };
-  }, [newOpen]);
+  useBodyScrollLock(newOpen);
 
   const fetchShipmentList = useCallback(
     async (useOpenOnlyFilter: boolean) => {

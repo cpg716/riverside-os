@@ -25,6 +25,8 @@ Counterpoint Settings is the one-time ROS Import Command Center. For go-live, th
 
 Use this panel to verify facts before cutover. Bridge row counts mean data was sent. ROS landed counts mean ROS wrote and linked rows for proof.
 
+After the import is signed off, Counterpoint does not create recurring stale-sync alerts. Any follow-up work belongs in the import proof, exception review, or duplicate-customer review surfaces before go-live.
+
 ## Go-live workflow
 
 1. Open the Bridge app on the Counterpoint PC.
@@ -91,7 +93,7 @@ Customer rows with duplicate email addresses do not stop the customer import. RO
 
 ## Clean restart
 
-Use **Reset Counterpoint import** from **Import & Proof** or **Support Diagnostics** only before go-live when an import needs to start over. Reset clears imported Counterpoint rows, import proof, exceptions, quarantine, stale diagnostics, CSV/reference cleanup artifacts, and active import pointers. It keeps staff access, store settings, register/printer configuration, local ROS setup, and reviewed Counterpoint mapping configuration.
+Use **Reset Counterpoint import** from **Import & Proof** or **Support Diagnostics** only before go-live when an import needs to start over. Reset clears imported Counterpoint rows, import proof, exceptions, quarantine, diagnostic leftovers, CSV/reference cleanup artifacts, and active import pointers. It keeps staff access, store settings, register/printer configuration, local ROS setup, and reviewed Counterpoint mapping configuration.
 
 ## Updating after more Counterpoint work
 

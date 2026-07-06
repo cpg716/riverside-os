@@ -124,9 +124,9 @@ When the client cannot send Back Office staff headers (e.g. receipt modal on the
    - **Customer-scoped selection**: When a customer is already loaded, the first phase lists that customer's Transaction Records instead of running a global customer-name search.
    - **Line handoff**: Transaction Record item rows can launch Register with the original transaction and selected transaction line preloaded for return/exchange quantity confirmation.
    - **Active Instructions**: Context-aware instruction cards guide staff through complex return semantics.
-   - **Automated Linking**: After replacement checkout, `POST /api/transactions/{original}/exchange-link?register_session_id=…` runs automatically to link the legs for reporting.
+   - **Automated Linking**: After replacement checkout, `POST /api/transactions/{original}/exchange-settlement` links the legs for reporting.
    - **Staged returns**: Selecting return quantities in the wizard does not mutate the original Transaction Record. The selected line ids, quantities, reason, and restock choice are carried into the final refund or exchange settlement request.
-   - **Settlement**: return credits, deposits, replacement lines, and any remaining customer balance or refund must flow through checkout so the cart, payment allocations, customer history, QBO staging, and audit trail agree. Return lines are recorded only after the refund/exchange settlement succeeds; interrupted or failed flows must leave the original items visible and unreturned.
+   - **Settlement**: return credits, deposits, replacement lines, and any remaining customer balance or refund must flow through checkout so the cart, payment allocations, customer history, QBO staging, and audit trail agree. Return lines are recorded only after the refund/exchange settlement succeeds; interrupted or failed flows must leave the original items visible and unreturned. If the original Transaction Record still has a balance due and the returned item creates no paid refund credit, settlement is still valid when it records return lines and links the replacement sale.
 
 ---
 
@@ -147,6 +147,7 @@ When the client cannot send Back Office staff headers (e.g. receipt modal on the
 | `36_orders_rbac_permissions.sql` | Seeds for `orders.*` keys on `staff_role_permission` |
 | `37_order_returns_and_exchange.sql` | `transaction_return_lines`, `transactions.exchange_group_id` |
 | `034_transaction_void_records.sql` | Append-only POS void records and reversal-state tracking |
+| `118_repair_joe_webb_failed_exchange_return.sql` | One-time repair for the stale TXN-621978 Mantoni shirt return marker created by the failed exchange flow |
 
 ---
 

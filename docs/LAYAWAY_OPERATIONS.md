@@ -49,7 +49,7 @@ If a customer fails to complete a layaway:
 1. Build cart.
 2. Select **Layaway** from the toolbar.
 3. Select/Add Customer (Required).
-4. Pay minimum 25% deposit. To enter a custom deposit amount, type the exact dollar amount (e.g., `100`) on the payment keypad and tap **Apply deposit**. The **Pay balance** calculation will then instantly update to reflect what is owed today.
+4. Pay minimum 25% deposit. Cashiers can apply the customer's tender normally; Riverside records any money paid on the layaway before pickup as a deposit liability. To set a specific target first, type the exact dollar amount (e.g., `100`) on the payment keypad and tap **Apply deposit**.
 5. Apply cash or card payments to finalize the requested deposit balance.
 6. Print Layaway receipt and tag the item for the storage shelf.
 

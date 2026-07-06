@@ -5534,9 +5534,10 @@ async fn process_exchange_settlement(
             (Decimal::ZERO, Decimal::ZERO)
         };
     let total_relief = body.exchange_credit_amount + refund_remainder_amount;
-    if total_relief <= Decimal::ZERO {
+    if total_relief < Decimal::ZERO || (total_relief.is_zero() && body.return_lines.is_empty()) {
         return Err(TransactionError::InvalidPayload(
-            "exchange settlement must apply credit or refund a remainder".to_string(),
+            "exchange settlement must apply credit, refund a remainder, or record return lines"
+                .to_string(),
         ));
     }
 
@@ -5588,10 +5589,14 @@ async fn process_exchange_settlement(
     .bind(transaction_id)
     .fetch_optional(&mut *tx)
     .await?;
-    let Some(refund) = row else {
-        return Err(TransactionError::InvalidPayload(
-            "no open refund for this transaction".to_string(),
-        ));
+    let refund = match row {
+        Some(refund) => Some(refund),
+        None if total_relief.is_zero() && !body.return_lines.is_empty() => None,
+        None => {
+            return Err(TransactionError::InvalidPayload(
+                "no open refund for this transaction".to_string(),
+            ));
+        }
     };
 
     let (original_customer_id, current_paid, current_balance_due, original_exchange_group_id): (
@@ -5643,6 +5648,83 @@ async fn process_exchange_settlement(
             ));
         }
     }
+
+    if total_relief.is_zero() {
+        let exchange_group_id = match (original_exchange_group_id, replacement_exchange_group_id) {
+            (Some(left), Some(right)) if left != right => {
+                return Err(TransactionError::InvalidPayload(
+                    "exchange transactions are already linked to different exchange groups"
+                        .to_string(),
+                ));
+            }
+            (Some(id), _) | (_, Some(id)) => id,
+            (None, None) => Uuid::new_v4(),
+        };
+        sqlx::query("UPDATE transactions SET exchange_group_id = $1 WHERE id = $2 OR id = $3")
+            .bind(exchange_group_id)
+            .bind(transaction_id)
+            .bind(body.replacement_transaction_id)
+            .execute(&mut *tx)
+            .await?;
+
+        transaction_recalc::recalc_transaction_totals(&mut tx, transaction_id)
+            .await
+            .map_err(TransactionError::Database)?;
+        transaction_recalc::recalc_transaction_totals(&mut tx, body.replacement_transaction_id)
+            .await
+            .map_err(TransactionError::Database)?;
+
+        tx.commit().await?;
+
+        tracing::info!(
+            original_transaction_id = %transaction_id,
+            replacement_transaction_id = %body.replacement_transaction_id,
+            "Exchange settlement recorded with return lines and no paid credit"
+        );
+
+        log_order_activity(
+            &state.db,
+            transaction_id,
+            original_customer_id,
+            "exchange_settled",
+            "Exchange settled with return lines and no paid credit",
+            json!({
+                "exchange_group_id": exchange_group_id,
+                "replacement_transaction_id": body.replacement_transaction_id,
+                "exchange_credit_amount": body.exchange_credit_amount,
+                "refund_remainder_amount": refund_remainder_amount,
+                "refund_queue_id": null,
+                "return_line_count": body.return_lines.len(),
+            }),
+        )
+        .await?;
+
+        log_order_activity(
+            &state.db,
+            body.replacement_transaction_id,
+            replacement_customer_id.or(original_customer_id),
+            "exchange_settled",
+            "Exchange linked to original return with no paid credit",
+            json!({
+                "exchange_group_id": exchange_group_id,
+                "original_transaction_id": transaction_id,
+                "exchange_credit_amount": body.exchange_credit_amount,
+                "refund_remainder_amount": refund_remainder_amount,
+                "refund_queue_id": null,
+                "return_line_count": body.return_lines.len(),
+            }),
+        )
+        .await?;
+
+        return Ok(Json(json!({
+            "status": "ok",
+            "exchange_group_id": exchange_group_id,
+            "exchange_credit_amount": body.exchange_credit_amount,
+            "refund_remainder_amount": refund_remainder_amount,
+        })));
+    }
+
+    let refund = refund.expect("positive exchange relief requires an open refund queue");
 
     if body.exchange_credit_amount > Decimal::ZERO {
         let applied_exchange_credit: Decimal = sqlx::query_scalar(

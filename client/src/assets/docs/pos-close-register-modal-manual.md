@@ -50,7 +50,7 @@ Upon closing, a professional, full-page **Z-Audit Report** is generated.
 - **Daily Cash Deposit**: Captures the bank deposit date and cash deposit amount for deposit verification and accounting review.
 - **QBO Preview**: Shows the journal-entry breakdown staged for QuickBooks review.
 - **Inventory Activity**: Lists non-sale inventory moves for the day, including Receiving, RTV, Damaged, Physical Count, and Adjustments.
-- **Routing**: In the desktop app, the formatted Z-Report opens as a full-page print preview so it can be printed on the Reports printer instead of the receipt printer. The report header shows the saved Reports printer name for accountability.
+- **Routing**: In the desktop app, the formatted Z-Report opens as a full-page print preview so it can be printed on the Reports printer instead of the receipt printer. ROS waits for that preview/open action before leaving close and shows a message if the report cannot open. The report header shows the saved Reports printer name for accountability.
 
 ## Recovery and escalation
 

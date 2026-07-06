@@ -56,11 +56,11 @@ See [`BOOKED_VS_FULFILLED.md`](BOOKED_VS_FULFILLED.md) for the full recognition 
 3. **Attach a customer** (required for all deferred-fulfillment transactions).
 4. Tap **Pay** / **Complete Sale** to open the **Payment Ledger** drawer.
 5. On the keypad, type the amount the customer will pay today (e.g., `100` for $100.00).
-6. Tap the amber **Apply deposit** button (below the green **Apply payment** button).
-7. The **Balance remaining** display instantly recalculates to show the deposit amount as the target to pay today — **not** the full sale total.
-8. Now use the keypad again and tap **Apply payment** via the customer's chosen tender (credit card, cash, etc.) to fulfill the deposit amount.
+6. Apply the customer's tender normally, or tap **Apply deposit** first when you want the ledger to set a specific deposit target before taking the tender.
+7. Riverside treats any money paid toward an Order, Layaway, Custom, or Wedding transaction before pickup/fulfillment as a deposit liability even when **Apply deposit** was not tapped.
+8. If the cart also has takeaway merchandise, cover the takeaway amount with real tender first; only the remaining paid amount on deferred items is treated as deposit.
+9. When the balance reaches `$0.00` for the amount being collected today, the green **Complete Sale** button activates.
    - **Checks**: When selecting the **CHECK** tab, you MUST enter the **Check #** in the provided field before applying the payment to ensure accurate transaction tracking.
-9. When the balance reaches `$0.00`, the green **Complete Sale** button activates.
 10. Finalize and print the receipt.
 
 ### Ledger Breakdown (Financial Truth)
@@ -73,8 +73,8 @@ The Payment Ledger drawer (NexoCheckoutDrawer) provides a hyper-accurate "Revenu
 
 ### What Happens Behind the Scenes
 
-- The deposit amount is sent to the server as `applied_deposit_amount` on the first payment split.
-- The server records the tender (e.g., credit card $100) and tags it with the deposit metadata.
+- Explicit deposit targets are sent to the server as `applied_deposit_amount`; if staff only apply a normal payment, the server calculates the deposit portion from the deferred items and open balance.
+- The server records the tender (e.g., credit card $100) and tags the deferred portion with deposit metadata.
 - The transaction is created with status `booked` / `order_placed`.
 - The $100 goes to `liability_deposit` in the ledger — **not** revenue.
 - The remaining balance (e.g., $115.33 on a $215.33 sale) stays as the customer's open balance due on the transaction.

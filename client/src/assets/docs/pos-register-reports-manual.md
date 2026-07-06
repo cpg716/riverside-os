@@ -64,7 +64,7 @@ You can now generate a professional, full-page **Daily Sales Report** that inclu
 
 To print, tap **Print Report (Full Page)**. Daily Sales opens as the formatted full-page report so the activity cards, customer context, pickup rows, line items, and totals stay readable on office paper.
 
-Z-Reports also open the formatted full-page report for close review and printing. If a report prints as raw text instead of the formatted layout, check that the workstation is using the current build and rerun the report print.
+Z-Reports also open the formatted full-page report for close review and printing. **Open Report** shows whether the report opened successfully, so support can tell the difference between a report with no data and a workstation preview/opening failure. If a report prints as raw text instead of the formatted layout, check that the workstation is using the current build and rerun the report print.
 
 ## Performance Metrics
 The summary cards at the top of the screen provide instant visibility into:

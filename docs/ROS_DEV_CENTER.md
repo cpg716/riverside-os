@@ -249,8 +249,9 @@ Seeded rule keys (migration 149):
 - `integration_qbo_failure`
 - `integration_weather_failure`
 - `backup_overdue`
-- `counterpoint_sync_stale`
 - `station_offline`
+
+`counterpoint_sync_stale` is retired. Counterpoint import is a one-time go-live workflow, so stale sync state belongs in import proof/exception review before sign-off rather than recurring ops alerts.
 
 ---
 

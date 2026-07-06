@@ -17,6 +17,7 @@ import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { requestRosieSearchIntent, type RosieSearchShortcutId } from "../../lib/rosie";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
+import { useBodyScrollLock } from "../../hooks/useBodyScrollLock";
 import type { SidebarTabId } from "./sidebarSections";
 
 function cn(...inputs: Array<string | false | null | undefined>) {
@@ -890,14 +891,7 @@ export default function GlobalCommandSearch({
     return () => document.removeEventListener("keydown", onGlobalKeyDown);
   }, [openPalette]);
 
-  useEffect(() => {
-    if (!open) return;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = previousOverflow;
-    };
-  }, [open]);
+  useBodyScrollLock(open);
 
   const pickCustomer = (c: Customer) => {
     closePalette();

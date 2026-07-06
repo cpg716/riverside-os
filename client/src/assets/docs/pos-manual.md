@@ -103,6 +103,8 @@ Use this when a customer is exchanging or returning items tied to a completed tr
 
 Selecting a returned line only stages the return. The original Transaction Record is not changed until Riverside successfully records the refund or exchange settlement. If a tax/refund problem stops the flow, close it with the on-screen close button and the original item should remain visible as active.
 
+If the original Transaction Record still has a balance due, the returned item may reduce that balance without creating cash back for the customer. Continue the exchange, add the replacement item, and finish checkout so Riverside records the return and links the replacement sale.
+
 For Special, Custom, Wedding, and shipped order lines, confirm the original Transaction Record, returned quantities, tender/refund path, and inventory handling before settlement.
 
 Return and exchange receipts keep the audit trail visible. Active merchandise prints in the normal receipt sections, while returned or exchanged quantities print in separate **RETURNED / REFUNDED** or **EXCHANGED** sections with the credit amount shown clearly.
@@ -118,7 +120,7 @@ Inventory and bookkeeping follow server rules for takeaway, order, and wedding l
 3. The **Payment ledger** side panel opens. Enter amounts on the keypad, then **Apply payment** for each tender (card, cash, gift card, etc.) the way you were trained.
    - **Manual Card** opens secure HelcimPay.js card entry for keyed payments. Riverside OS validates the Helcim approval response and does not store card numbers or CVV. On iPad, use the public HTTPS PWA address; if the desktop app or browser shows a HelcimPay.js origin warning, ask an admin to verify Helcim setup before continuing.
    - **Physical Checks**: When a customer pays by check, select the **CHECK** tab and enter the **Check #** in the input field before pressing **Apply Payment**.
-4. On **Order / Wedding** sales, the ledger may show **Deposit release** — use **Apply deposit** below **Apply payment** when your store records a deposit on the keypad. **Split deposit (wedding party)** opens wedding lookup in group-pay mode to allocate amounts across members. **Takeaway** items (walk out today) must be covered with regular tenders first; deposit and **open deposit** apply to order balances, not unpaid takeaway. If the linked customer has a **party deposit** waiting, you may be asked to apply it to this sale.
+4. On **Order / Layaway / Wedding** sales, any money paid before pickup is treated as a deposit even if you only use **Apply payment**. Use **Apply deposit** when you want the ledger to set a specific deposit target first. **Split deposit (wedding party)** opens wedding lookup in group-pay mode to allocate amounts across members. **Takeaway** items (walk out today) must be covered with regular tenders first; deposit and **open deposit** apply to order balances, not unpaid takeaway. If the linked customer has a **party deposit** waiting, you may be asked to apply it to this sale.
 5. When the sale is balanced (or deposit-only when the UI allows, including mixed takeaway + order lines once takeaway is paid), finish using **Complete Sale**. If Riverside asks for a Salesperson, return to the cart and select one before finalizing.
 6. After the sale completes, the **Receipt Summary** screen opens. If printing fails, Riverside now shows that the **sale still succeeded** and gives you **Retry** and **Check station printer** actions.
 7. Close the panel with **Close drawer** when you are done.

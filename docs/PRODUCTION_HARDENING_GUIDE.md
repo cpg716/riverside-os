@@ -220,7 +220,7 @@ pub async fn rate_limit_handler(
 # Global rate limit per IP per minute (default: 1000)
 RIVERSIDE_GLOBAL_RATE_LIMIT_PER_MINUTE=1000
 
-# Authenticated user rate limit per minute (default: 5000)
+# ROS app credential traffic rate limit per IP per minute (default: 5000)
 RIVERSIDE_AUTHENTICATED_RATE_LIMIT_PER_MINUTE=5000
 ```
 

@@ -422,6 +422,11 @@ fn tender_sum_excluding_deposit_like(splits: &[ResolvedPaymentSplit]) -> Decimal
     s.round_dp(2)
 }
 
+fn can_carry_applied_deposit_metadata(method: &str) -> bool {
+    let method = method.trim().to_ascii_lowercase();
+    method != "deposit_ledger" && method != "open_deposit"
+}
+
 #[derive(Debug, Clone)]
 struct ResolvedOrderPayment {
     client_line_id: String,
@@ -650,6 +655,7 @@ fn build_payment_allocation_plan(
     payment_splits: &[ResolvedPaymentSplit],
     current_transaction_id: Uuid,
     current_transaction_allocation: Decimal,
+    current_transaction_deposit_allocation: Decimal,
     order_payments: &[ResolvedOrderPayment],
     allowed_unallocated_tender: Decimal,
 ) -> Result<Vec<PaymentAllocationPlan>, CheckoutError> {
@@ -694,6 +700,10 @@ fn build_payment_allocation_plan(
     }
 
     let mut current_remaining = current_transaction_allocation.round_dp(2);
+    let mut current_deposit_remaining = current_transaction_deposit_allocation
+        .round_dp(2)
+        .max(Decimal::ZERO)
+        .min(current_remaining.max(Decimal::ZERO));
     let expected_total = (current_remaining
         + order_payments
             .iter()
@@ -717,11 +727,25 @@ fn build_payment_allocation_plan(
         if current_remaining > Decimal::ZERO {
             let amount = split_remaining.min(current_remaining).round_dp(2);
             if amount > Decimal::ZERO {
+                let mut metadata = split.metadata.clone();
+                if current_deposit_remaining > Decimal::ZERO
+                    && can_carry_applied_deposit_metadata(&split.method)
+                {
+                    let deposit_amount = amount.min(current_deposit_remaining).round_dp(2);
+                    if deposit_amount > Decimal::ZERO {
+                        metadata = merge_metadata(
+                            metadata,
+                            json!({ "applied_deposit_amount": deposit_amount.to_string() }),
+                        );
+                        current_deposit_remaining =
+                            (current_deposit_remaining - deposit_amount).round_dp(2);
+                    }
+                }
                 plan.push(PaymentAllocationPlan {
                     payment_split_index: split_index,
                     target_transaction_id: current_transaction_id,
                     amount,
-                    metadata: split.metadata.clone(),
+                    metadata,
                     check_number: split.check_number.clone(),
                     is_existing_order_payment: false,
                 });
@@ -2681,6 +2705,22 @@ pub async fn execute_checkout(
         .items
         .iter()
         .all(|i| i.fulfillment == DbFulfillmentType::Takeaway);
+    let has_deferred_current_lines = payload.items.iter().any(|i| {
+        matches!(
+            i.fulfillment,
+            DbFulfillmentType::SpecialOrder
+                | DbFulfillmentType::Custom
+                | DbFulfillmentType::WeddingOrder
+                | DbFulfillmentType::Layaway
+        )
+    });
+    let current_transaction_deposit_allocation = if !refund_checkout && has_deferred_current_lines {
+        (amount_toward_order - takeaway_total)
+            .round_dp(2)
+            .max(Decimal::ZERO)
+    } else {
+        Decimal::ZERO
+    };
 
     let ship_order = shipping_quote_id.is_some();
 
@@ -3743,6 +3783,7 @@ pub async fn execute_checkout(
         &payment_splits,
         transaction_id,
         amount_toward_order,
+        current_transaction_deposit_allocation,
         &order_payments,
         d_total,
     )?;
@@ -5330,6 +5371,7 @@ mod tests {
             &[resolved_split(Decimal::new(10000, 2))],
             current_tx_id,
             Decimal::new(6000, 2),
+            Decimal::ZERO,
             &order_payments,
             Decimal::ZERO,
         )
@@ -5377,6 +5419,7 @@ mod tests {
             &[resolved_split(Decimal::new(8799, 2))],
             current_tx_id,
             Decimal::ZERO,
+            Decimal::ZERO,
             &order_payments,
             Decimal::ZERO,
         )
@@ -5403,6 +5446,7 @@ mod tests {
             &[resolved_split(Decimal::new(12500, 2))],
             current_tx_id,
             Decimal::new(7500, 2),
+            Decimal::ZERO,
             &[],
             Decimal::new(5000, 2),
         )
@@ -5422,6 +5466,7 @@ mod tests {
             &[resolved_split(Decimal::new(-7125, 2))],
             current_tx_id,
             Decimal::new(-7125, 2),
+            Decimal::ZERO,
             &[],
             Decimal::ZERO,
         )
@@ -5431,6 +5476,59 @@ mod tests {
         assert_eq!(plan[0].target_transaction_id, current_tx_id);
         assert_eq!(plan[0].amount, Decimal::new(-7125, 2));
         assert!(!plan[0].is_existing_order_payment);
+    }
+
+    #[test]
+    fn transaction_checkout_allocation_plan_auto_tags_current_order_payment_as_deposit() {
+        let current_tx_id = Uuid::new_v4();
+
+        let plan = build_payment_allocation_plan(
+            &[resolved_split(Decimal::new(25000, 2))],
+            current_tx_id,
+            Decimal::new(25000, 2),
+            Decimal::new(25000, 2),
+            &[],
+            Decimal::ZERO,
+        )
+        .unwrap();
+
+        assert_eq!(plan.len(), 1);
+        assert_eq!(plan[0].target_transaction_id, current_tx_id);
+        assert_eq!(plan[0].amount, Decimal::new(25000, 2));
+        assert!(!plan[0].is_existing_order_payment);
+        assert_eq!(
+            plan[0]
+                .metadata
+                .get("applied_deposit_amount")
+                .and_then(|value| value.as_str()),
+            Some("250.00")
+        );
+    }
+
+    #[test]
+    fn transaction_checkout_allocation_plan_tags_only_deferred_portion_for_mixed_sale() {
+        let current_tx_id = Uuid::new_v4();
+
+        let plan = build_payment_allocation_plan(
+            &[resolved_split(Decimal::new(15000, 2))],
+            current_tx_id,
+            Decimal::new(15000, 2),
+            Decimal::new(10000, 2),
+            &[],
+            Decimal::ZERO,
+        )
+        .unwrap();
+
+        assert_eq!(plan.len(), 1);
+        assert_eq!(plan[0].target_transaction_id, current_tx_id);
+        assert_eq!(plan[0].amount, Decimal::new(15000, 2));
+        assert_eq!(
+            plan[0]
+                .metadata
+                .get("applied_deposit_amount")
+                .and_then(|value| value.as_str()),
+            Some("100.00")
+        );
     }
 
     #[tokio::test]

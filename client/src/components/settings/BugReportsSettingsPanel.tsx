@@ -13,7 +13,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
-import { useToast } from "../ui/ToastProviderLogic";
+import { useToast, type ToastType } from "../ui/ToastProviderLogic";
 import ConfirmationModal from "../ui/ConfirmationModal";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
 import {
@@ -85,14 +85,14 @@ type EmailSettingsResponse = {
   credentials_configured: boolean;
 };
 
-async function downloadJson(filename: string, data: unknown) {
+async function downloadJson(filename: string, data: unknown): Promise<boolean> {
   const content = JSON.stringify(redactDiagnosticValue(data), null, 2);
-  await saveTextDownload(filename, content, "application/json", [{ name: "JSON", extensions: ["json"] }]);
+  return saveTextDownload(filename, content, "application/json", [{ name: "JSON", extensions: ["json"] }]);
 }
 
-async function downloadTextFile(filename: string, text: string) {
+async function downloadTextFile(filename: string, text: string): Promise<boolean> {
   const content = redactDiagnosticText(text);
-  await saveTextDownload(filename, content, "text/plain;charset=utf-8", [
+  return saveTextDownload(filename, content, "text/plain;charset=utf-8", [
     { name: "Text", extensions: ["txt", "md"] },
   ]);
 }
@@ -112,17 +112,35 @@ async function copyToClipboardOrDownload(
     // fall through to download fallback
   }
 
-  await downloadTextFile(filename, payload);
-  onCopySuccess();
+  if (await downloadTextFile(filename, payload)) {
+    onCopySuccess();
+  }
 }
 
-async function downloadPng(filename: string, base64: string) {
+async function downloadPng(filename: string, base64: string): Promise<boolean> {
   const bin = atob(base64);
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  await downloadBinaryFile(filename, bytes, "image/png", [
+  return downloadBinaryFile(filename, bytes, "image/png", [
     { name: "PNG image", extensions: ["png"] },
   ]);
+}
+
+async function runDownloadAction(
+  action: () => Promise<boolean>,
+  toast: (message: string, type?: ToastType) => void,
+  successMessage: string,
+) {
+  try {
+    if (await action()) {
+      toast(successMessage, "success");
+    } else {
+      toast("Download canceled.", "info");
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Download failed";
+    toast(message, "error");
+  }
 }
 
 function sanitizeDetail(detail: Detail): Detail {
@@ -949,7 +967,11 @@ export default function BugReportsSettingsPanel({
                   type="button"
                   className="ui-btn-secondary inline-flex items-center gap-2 px-3 py-2 text-[10px] font-black uppercase"
                   onClick={() =>
-                    void downloadJson(`ros-bug-${detail.id}-full.json`, detail)
+                    void runDownloadAction(
+                      () => downloadJson(`ros-bug-${detail.id}-full.json`, detail),
+                      toast,
+                      "AI diagnostic JSON saved.",
+                    )
                   }
                 >
                   <Download className="h-3.5 w-3.5" aria-hidden />
@@ -959,9 +981,14 @@ export default function BugReportsSettingsPanel({
                   type="button"
                   className="ui-btn-secondary inline-flex items-center gap-2 px-3 py-2 text-[10px] font-black uppercase"
                   onClick={() =>
-                    void downloadPng(
-                      `ros-bug-${detail.id}.png`,
-                      detail.screenshot_png_base64,
+                    void runDownloadAction(
+                      () =>
+                        downloadPng(
+                          `ros-bug-${detail.id}.png`,
+                          detail.screenshot_png_base64,
+                        ),
+                      toast,
+                      "Screenshot PNG saved.",
                     )
                   }
                 >
@@ -972,9 +999,14 @@ export default function BugReportsSettingsPanel({
                   type="button"
                   className="ui-btn-secondary inline-flex items-center gap-2 px-3 py-2 text-[10px] font-black uppercase"
                   onClick={() =>
-                    void downloadTextFile(
-                      `ros-bug-${detail.id}-server-log.txt`,
-                      detail.server_log_snapshot || "",
+                    void runDownloadAction(
+                      () =>
+                        downloadTextFile(
+                          `ros-bug-${detail.id}-server-log.txt`,
+                          detail.server_log_snapshot || "",
+                        ),
+                      toast,
+                      "Support log saved.",
                     )
                   }
                 >
@@ -985,9 +1017,14 @@ export default function BugReportsSettingsPanel({
                   type="button"
                   className="ui-btn-secondary inline-flex items-center gap-2 px-3 py-2 text-[10px] font-black uppercase"
                   onClick={() =>
-                    void downloadTextFile(
-                      `ros-bug-${detail.id}-client-console.txt`,
-                      detail.client_console_log || "",
+                    void runDownloadAction(
+                      () =>
+                        downloadTextFile(
+                          `ros-bug-${detail.id}-client-console.txt`,
+                          detail.client_console_log || "",
+                        ),
+                      toast,
+                      "Browser log saved.",
                     )
                   }
                 >
@@ -1187,9 +1224,14 @@ export default function BugReportsSettingsPanel({
                   type="button"
                   className="ui-btn-secondary inline-flex items-center gap-2 px-3 py-2 text-[10px] font-black uppercase text-app-danger"
                   onClick={() =>
-                    void downloadTextFile(
-                      `ros-${isServerError(eventDetail) ? "server" : "client"}-error-${eventDetail.id}-ai-diagnostic.md`,
-                      buildAiDiagnosticPackage(eventDetail),
+                    void runDownloadAction(
+                      () =>
+                        downloadTextFile(
+                          `ros-${isServerError(eventDetail) ? "server" : "client"}-error-${eventDetail.id}-ai-diagnostic.md`,
+                          buildAiDiagnosticPackage(eventDetail),
+                        ),
+                      toast,
+                      "AI diagnostic package saved.",
                     )
                   }
                 >

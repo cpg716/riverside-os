@@ -1,9 +1,9 @@
-import { useEffect } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import type { ReactNode } from "react";
 import { useShellBackdropLayer } from "./ShellBackdropContextLogic";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
+import { useBodyScrollLock } from "../../hooks/useBodyScrollLock";
 
 interface DetailDrawerProps {
   isOpen: boolean;
@@ -46,15 +46,7 @@ export default function DetailDrawer({
 }: DetailDrawerProps) {
   useShellBackdropLayer(isOpen);
   const { dialogRef, titleId } = useDialogAccessibility(isOpen, { onEscape: onClose });
-
-  useEffect(() => {
-    if (!isOpen) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prev;
-    };
-  }, [isOpen]);
+  useBodyScrollLock(isOpen);
 
   if (!isOpen) return null;
 

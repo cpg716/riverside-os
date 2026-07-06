@@ -2510,100 +2510,18 @@ async fn run_integration_health_admin_notifications(pool: &PgPool) -> Result<(),
     Ok(())
 }
 
-/// Admin-only: Counterpoint bridge errors or stale successful sync (when token is configured).
+/// Counterpoint import/sync is a one-time go-live operation. Keep old generated
+/// notifications cleaned up, but do not create ongoing stale/error inbox noise.
 async fn run_counterpoint_sync_admin_notifications(pool: &PgPool) -> Result<(), sqlx::Error> {
-    let admins = admin_staff_ids(pool).await?;
-    if admins.is_empty() {
-        return Ok(());
-    }
-    let aud = morning_audience_json(&admins);
-    let cp_on = counterpoint_bridge_configured();
-    let tz_name = load_store_timezone_name(pool).await?;
-    let tz: Tz = tz_name.parse().unwrap_or(Tz::UTC);
-    let store_day = Utc::now()
-        .with_timezone(&tz)
-        .date_naive()
-        .format("%Y-%m-%d")
-        .to_string();
-
-    type CounterpointSyncRunRow = (
-        String,
-        Option<chrono::DateTime<Utc>>,
-        Option<String>,
-        chrono::DateTime<Utc>,
-    );
-    let rows: Vec<CounterpointSyncRunRow> = sqlx::query_as(
+    let _ = sqlx::query(
         r#"
-        SELECT entity, last_ok_at, last_error, updated_at
-        FROM counterpoint_sync_runs
+        DELETE FROM app_notification
+        WHERE kind IN ('counterpoint_alerts_bundle', 'counterpoint_sync_error', 'counterpoint_sync_stale')
+           OR dedupe_key LIKE 'counterpoint_alerts_bundle:%'
         "#,
     )
-    .fetch_all(pool)
+    .execute(pool)
     .await?;
-
-    let bundle_dedupe = format!("counterpoint_alerts_bundle:{store_day}");
-    let mut items: Vec<Value> = Vec::new();
-    for (entity, last_ok, last_error, _updated_at) in rows {
-        if let Some(ref err) = last_error {
-            if !err.trim().is_empty() {
-                let sub = if err.len() > 160 {
-                    format!("{}…", &err[..159])
-                } else {
-                    err.clone()
-                };
-                items.push(bundle_row(
-                    format!("Counterpoint error · {entity}"),
-                    sub,
-                    json!({ "type": "inventory", "section": "list" }),
-                ));
-            }
-        } else if cp_on {
-            if let Some(ok) = last_ok {
-                if ok < Utc::now() - ChronoDuration::hours(72) {
-                    items.push(bundle_row(
-                        format!("Counterpoint stale · {entity}"),
-                        "No successful sync in 72+ hours".to_string(),
-                        json!({ "type": "inventory", "section": "list" }),
-                    ));
-                }
-            }
-        }
-    }
-
-    if items.is_empty() {
-        let _ = delete_app_notification_by_dedupe(pool, &bundle_dedupe).await?;
-        let _ = sqlx::query(
-            r#"DELETE FROM app_notification WHERE kind IN ('counterpoint_sync_error', 'counterpoint_sync_stale')"#,
-        )
-        .execute(pool)
-        .await?;
-    } else {
-        let n = items.len();
-        let title = format!("Counterpoint alerts ({n})");
-        let body = format!("{n} Counterpoint entity alert(s). Expand for detail.");
-        let deep = json!({
-            "type": "notification_bundle",
-            "bundle_kind": "counterpoint_alerts",
-            "items": items,
-        });
-        let nid = upsert_app_notification_by_dedupe(
-            pool,
-            "counterpoint_alerts_bundle",
-            &title,
-            &body,
-            deep,
-            "generator",
-            aud,
-            &bundle_dedupe,
-        )
-        .await?;
-        fan_out_notification_to_staff_ids(pool, nid, &admins).await?;
-        let _ = sqlx::query(
-            r#"DELETE FROM app_notification WHERE kind IN ('counterpoint_sync_error', 'counterpoint_sync_stale')"#,
-        )
-        .execute(pool)
-        .await?;
-    }
     Ok(())
 }
 

@@ -33,8 +33,9 @@ It helps managers and support staff see what was reported, which workstation or 
 2. Select the tab for either **Bug Reports** or **Developer Errors**.
 3. Select the report or incident needing review to open its details dialog.
 4. Use **Copy AI Package** to grab the pre-packaged context, error logs, and system variables formatted as a developer prompt, ready to paste directly into AI editors.
-5. Use **Download AI Diagnostic** to save the diagnostic payload as an `.md` report.
-6. Share the report ID or correlation ID with support when needed.
+5. Use the download buttons in the details dialog to save the AI diagnostic JSON, screenshot PNG, support log, or browser log. ROS shows a saved or failed message after the desktop save finishes.
+6. Use **Download AI Diagnostic** on developer errors to save the diagnostic payload as an `.md` report.
+7. Share the report ID or correlation ID with support when needed.
 
 ## When to use it
 

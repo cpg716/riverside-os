@@ -420,12 +420,12 @@ function primaryRegisterSession(
   return sessions.find((session) => session.register_lane === 1) ?? sessions[0] ?? null;
 }
 
-function openZReportFromSession(session: RegisterSessionRow): void {
+async function openZReportFromSession(session: RegisterSessionRow): Promise<boolean> {
   const snapshot = session.z_report_json;
   const cashTender = snapshot?.tenders?.find(
     (tender) => tender.payment_method.toLowerCase() === "cash",
   );
-  void openProfessionalZReportPrint({
+  return openProfessionalZReportPrint({
     title: "Z-Report",
     sessionId: snapshot?.session_id ?? session.id,
     registerOrdinal: session.register_ordinal,
@@ -1713,7 +1713,24 @@ export default function RegisterReports({
                         ) : null}
                         <button
                           type="button"
-                          onClick={() => openZReportFromSession(session)}
+                          onClick={() => {
+                            void openZReportFromSession(session)
+                              .then((opened) => {
+                                if (opened) {
+                                  toast("Z-report opened for review.", "success");
+                                  return;
+                                }
+                                toast("Z-report could not open. Check the Reports printer setup.", "error");
+                              })
+                              .catch((error) => {
+                                toast(
+                                  error instanceof Error
+                                    ? error.message
+                                    : "Z-report could not open.",
+                                  "error",
+                                );
+                              });
+                          }}
                           className="mt-2 rounded-lg border border-app-accent/25 bg-app-accent/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-app-accent hover:bg-app-accent hover:text-white"
                         >
                           Open Report

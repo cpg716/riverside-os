@@ -11,6 +11,7 @@ Short ops and developer reference for **automated inbox items** beyond the narra
 | **61** `61_notification_integration_extras.sql` | `integration_alert_state`, `staff_auth_failure_event` | Historical source for QBO token refresh + weather finalize health rows; PIN mismatch audit for **`pin_failure_digest`** |
 | **68** `68_pos_parked_and_rms_charge_audit.sql` | `pos_parked_sale`, `pos_parked_sale_audit`, `pos_rms_charge_record` | Historical source for checkout-driven **`rms_r2s_charge`** fan-out to **sales_support** after RMS / RMS90 tender — **[`POS_PARKED_SALES_AND_RMS_CHARGES.md`](./POS_PARKED_SALES_AND_RMS_CHARGES.md)** |
 | **69** `69_rms_charge_payment_line.sql` | `products.pos_line_kind`, `pos_rms_charge_record.record_kind`, nullable `task_instance.assignment_id` | Historical source for R2S **payment** checkout ad-hoc **Sales Support** **tasks** — **[`POS_PARKED_SALES_AND_RMS_CHARGES.md`](./POS_PARKED_SALES_AND_RMS_CHARGES.md)** |
+| **117** `117_retire_counterpoint_stale_notifications.sql` | `ops_alert_event`, `ops_alert_rule`, `app_notification` | Retires the old Counterpoint stale-sync alert/notification path because Counterpoint import is a one-time go-live operation |
 
 These objects are now consolidated into the active schema-contract baseline. Apply with `./scripts/apply-migrations-docker.sh`; validate with `./scripts/migration-status-docker.sh` and `./scripts/validate_schema_contract.sh` — see **`DEVELOPER.md`** and **[`SCHEMA_CONTRACT_AND_MIGRATIONS.md`](./SCHEMA_CONTRACT_AND_MIGRATIONS.md)**.
 
@@ -23,9 +24,10 @@ These objects are now consolidated into the active schema-contract baseline. App
 | `RIVERSIDE_PIN_FAILURE_DIGEST_THRESHOLD` | `5` | Failed PIN rows in the last rolling hour (see **`staff_auth_failure_event`**) before admins get **`pin_failure_digest`** (max **1000**). |
 | `RIVERSIDE_NOTIFICATION_ARCHIVE_HOURS` | `720` | Age before inbox rows are archived (~30 days). |
 | `RIVERSIDE_NOTIFICATION_PURGE_HOURS` | `9600` | Purge archived rows older than this (~400 days). |
-| `COUNTERPOINT_SYNC_TOKEN` | unset | When set, **stale** Counterpoint sync notifications use a **72h** “no successful `last_ok_at`” rule; bridge errors use `counterpoint_sync_runs.last_error`. |
 
 Never log sync tokens or API keys.
+
+Counterpoint import credentials are not notification-generator inputs. The import/sign-off workflow is one-time, so ROS intentionally does not create stale Counterpoint sync inbox items after import work is complete.
 
 ## Code map
 
