@@ -471,7 +471,10 @@ fn receiptline_item_lines(
         let items: Vec<_> = d
             .items
             .iter()
-            .filter(|it| receipt_item_section_label(d, it) == label)
+            .filter(|it| {
+                let section = receipt_item_section_label(d, it);
+                section == label && (!is_pickup || section == "PICKED UP")
+            })
             .collect();
 
         if items.is_empty() {
@@ -983,6 +986,33 @@ mod tests {
         assert!(lines.contains("RMS CHARGE PAYMENT"));
         assert!(lines.contains("^^^Alterations"));
         assert!(lines.contains("Alteration: Hem Pants"));
+    }
+
+    #[test]
+    fn pickup_receipts_only_show_items_picked_up_in_that_event() {
+        let mut picked_up = receipt_line("Mantoni Classic Fit DrShirt", "B-1471078", None);
+        picked_up.fulfillment = DbFulfillmentType::SpecialOrder;
+        picked_up.is_fulfilled = true;
+
+        let mut remaining = receipt_line("Gruppo Bravo Slacks", "B-1393029", None);
+        remaining.fulfillment = DbFulfillmentType::SpecialOrder;
+        remaining.is_fulfilled = false;
+
+        let order = receipt_order_with(vec![picked_up, remaining]);
+        let mut params = HashMap::new();
+        params.insert("pickup".to_string(), "true".to_string());
+
+        let markdown = build_receiptline_markdown(
+            &order,
+            &ReceiptConfig::default(),
+            &params,
+            &LoyaltyReceiptData::default(),
+        );
+
+        assert!(markdown.contains("^^^PICKED UP"));
+        assert!(markdown.contains("Mantoni Classic Fit DrShirt"));
+        assert!(!markdown.contains("^^^Special Order"));
+        assert!(!markdown.contains("Gruppo Bravo Slacks"));
     }
 
     #[test]

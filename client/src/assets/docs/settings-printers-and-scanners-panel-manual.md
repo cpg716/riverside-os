@@ -66,7 +66,7 @@ If a printer test fails, do not keep retrying sale completion from the cart. Con
 
 ## What happens next
 
-The workstation immediately uses the saved local printer targets for receipt, tag, and report actions. In the desktop app, Register Reports and Z-Reports use the saved Reports printer name for accountability; formatted Z-Reports open as full-page print previews so they are not printed as raw receipt-style audit text.
+The workstation immediately uses the saved local printer targets for receipt, tag, and report actions. In the desktop app, Register Reports and Z-Reports dispatch through the saved Reports printer name for accountability instead of opening an external browser preview.
 
 ## Related workflows
 

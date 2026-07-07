@@ -114,11 +114,9 @@ function refundableCreditCents(detail: TransactionDetailLite): number {
   return Math.min(paidCents, creditCents);
 }
 
-function projectedRefundableCents(detail: TransactionDetailLite, selectedReturnCents: number): number {
+function paidReturnCreditCents(detail: TransactionDetailLite, selectedReturnCents: number): number {
   const paidCents = parseMoneyToCents(detail.amount_paid);
-  const projectedBalanceCents = parseMoneyToCents(detail.balance_due) - selectedReturnCents;
-  const projectedCreditCents = Math.max(0, -projectedBalanceCents);
-  return Math.min(selectedReturnCents, paidCents, projectedCreditCents);
+  return Math.min(selectedReturnCents, Math.max(0, paidCents));
 }
 
 function returnedLineSummaries(detail: TransactionDetailLite): ReturnedLineSummary[] {
@@ -358,7 +356,7 @@ export default function PosExchangeWizard({
         (sum, line) => sum + (line.unit_price_cents + line.tax_cents) * line.quantity,
         0,
       );
-      const refundCents = projectedRefundableCents(detail, returnedValueCents);
+      const refundCents = paidReturnCreditCents(detail, returnedValueCents);
       setRefundAmount(centsToFixed2(refundCents));
       if (refundCents > 0) {
         onContinueToReplacement({

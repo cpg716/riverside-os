@@ -87,6 +87,8 @@ export function CartItemRow({
         : "Order (Special)";
 
   const isPickupLine = Boolean(line.transaction_line_id);
+  const isReturnTenderLine = Boolean(line.return_tender_original_transaction_id);
+  const isLockedAmountLine = isPickupLine || isReturnTenderLine;
 
   return (
     <div
@@ -197,9 +199,13 @@ export function CartItemRow({
 
       {/* 2. Fulfillment Toggle (Middle) */}
       {!isAlterationLine && !isRmsPaymentLine ? (
-        isPickupLine ? (
-          <div className="flex shrink-0 items-center rounded-xl border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-amber-600">
-            Pickup
+        isLockedAmountLine ? (
+          <div className={`flex shrink-0 items-center rounded-xl border px-3 py-2 text-[10px] font-black uppercase tracking-widest ${
+            isReturnTenderLine
+              ? "border-app-danger/25 bg-app-danger/10 text-app-danger"
+              : "border-amber-500/25 bg-amber-500/10 text-amber-600"
+          }`}>
+            {isReturnTenderLine ? "Return" : "Pickup"}
           </div>
         ) : (
           <div 
@@ -260,23 +266,23 @@ export function CartItemRow({
         {!isAlterationLine && !isRmsPaymentLine ? (
         <button
           type="button"
-          disabled={isPickupLine}
+          disabled={isLockedAmountLine}
           onClick={() => {
             setSelectedLineKey(lk);
             setKeypadMode("qty");
             setKeypadBuffer("");
           }}
           className={`flex h-11 w-14 flex-col items-center justify-center rounded-xl border-2 transition-all ${
-            keypadMode === "qty" && isSelected && !isPickupLine
+            keypadMode === "qty" && isSelected && !isLockedAmountLine
               ? line.quantity < 0
                 ? "border-app-danger bg-app-danger text-white shadow-lg shadow-app-danger/20"
                 : "border-app-accent bg-app-accent text-white shadow-lg"
               : line.quantity < 0
                 ? "border-app-danger/40 bg-app-danger/10 text-app-danger"
                 : "border-app-border bg-app-surface-2 text-app-text"
-          } ${isPickupLine ? "cursor-default opacity-80" : ""}`}
+          } ${isLockedAmountLine ? "cursor-default opacity-80" : ""}`}
         >
-          <span className={`text-[8px] font-black uppercase tracking-widest ${keypadMode === "qty" && isSelected && !isPickupLine ? "text-white/80" : "text-app-text-muted"}`}>
+          <span className={`text-[8px] font-black uppercase tracking-widest ${keypadMode === "qty" && isSelected && !isLockedAmountLine ? "text-white/80" : "text-app-text-muted"}`}>
             Qty
           </span>
           <span className="text-sm font-black tabular-nums leading-none">
@@ -287,7 +293,7 @@ export function CartItemRow({
 
         <button
           type="button"
-          disabled={isPickupLine}
+          disabled={isLockedAmountLine}
           onClick={() => {
             if (isAlterationLine && line.alteration_intake_id && onEditAlterationLine) {
               onEditAlterationLine(line.alteration_intake_id);
@@ -298,12 +304,12 @@ export function CartItemRow({
             setKeypadBuffer("");
           }}
           className={`flex h-11 min-w-[5.5rem] flex-col items-end justify-center rounded-xl border-2 px-3 transition-all ${
-            keypadMode === "price" && isSelected && !isPickupLine
+            keypadMode === "price" && isSelected && !isLockedAmountLine
               ? "border-app-accent bg-app-accent text-white shadow-lg"
               : "border-app-border bg-app-surface-2 text-app-text"
-          } ${isPickupLine ? "cursor-default opacity-80" : ""}`}
+          } ${isLockedAmountLine ? "cursor-default opacity-80" : ""}`}
         >
-          <span className={`text-[8px] font-black uppercase tracking-widest ${keypadMode === "price" && isSelected && !isPickupLine ? "text-white/80" : "text-app-text-muted"}`}>
+          <span className={`text-[8px] font-black uppercase tracking-widest ${keypadMode === "price" && isSelected && !isLockedAmountLine ? "text-white/80" : "text-app-text-muted"}`}>
             {isAlterationLine ? "Amount" : "Sale"}
           </span>
           <div className="flex items-center gap-1.5">

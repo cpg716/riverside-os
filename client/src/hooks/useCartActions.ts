@@ -613,6 +613,11 @@ export function useCartActions({
       // Apply buffer to selected line
       const line = lines.find(l => l.cart_row_id === selectedLineKey);
       if (!line) return;
+      if (line.return_tender_original_transaction_id) {
+        toast("Return credit lines use the original receipt values.", "info");
+        setKeypadBuffer("");
+        return;
+      }
 
       if (keypadMode === "qty") {
         const nextQty = parseInt(keypadBuffer || "1", 10);
@@ -658,6 +663,11 @@ export function useCartActions({
       if (!selectedLineKey || !keypadBuffer) return;
       const line = lines.find(l => l.cart_row_id === selectedLineKey);
       if (!line) return;
+      if (line.return_tender_original_transaction_id) {
+        toast("Return credit lines use the original receipt values.", "info");
+        setKeypadBuffer("");
+        return;
+      }
 
       const pct = parseFloat(keypadBuffer);
       if (isNaN(pct) || pct <= 0) {
@@ -703,6 +713,11 @@ export function useCartActions({
     }
     const line = lines.find(l => l.cart_row_id === selectedLineKey);
     if (!line) return;
+
+    if (line.return_tender_original_transaction_id) {
+      toast("Return credit lines use the original receipt values.", "info");
+      return;
+    }
 
     if (rmsPaymentMeta && line.sku === rmsPaymentMeta.sku) {
       toast("Discounts do not apply to R2S payments.", "info");

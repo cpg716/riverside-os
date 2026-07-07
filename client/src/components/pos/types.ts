@@ -209,6 +209,7 @@ export type NexoTenderTab =
   | "card_manual"
   | "card_saved"
   | "card_credit"
+  | "offline_cc"
   | "cash"
   | "check"
   | "gift_card"

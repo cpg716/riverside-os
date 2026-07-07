@@ -3,6 +3,7 @@
 import { dispatchAppToast } from "../ui/ToastProviderLogic";
 import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
 import { printReportDocument } from "../../lib/reportPrint";
+import type { ReportPrintAction } from "../../lib/reportPrint";
 import { describePrinterTarget, resolvePrinterTarget } from "../../lib/printerBridge";
 
 export interface ZReportTenderRow {
@@ -93,6 +94,18 @@ function isVisibleAuditItem(item: ZReportAuditItem): boolean {
   return !item.is_internal || item.line_kind === "rms_charge_payment";
 }
 
+function auditItemsSubtotalBeforeTaxCents(items: ZReportAuditItem[] | null | undefined): number {
+  return (items ?? [])
+    .filter((item) => !item.is_internal)
+    .reduce((lineTotal, item) => lineTotal + parseMoneyToCents(item.unit_price) * item.quantity, 0);
+}
+
+function auditSubtotalBeforeTaxCents(transactions: { items?: ZReportAuditItem[] | null }[] | undefined): number {
+  return (transactions ?? []).reduce((total, transaction) => {
+    return total + auditItemsSubtotalBeforeTaxCents(transaction.items);
+  }, 0);
+}
+
 function auditItemKindLabel(item: ZReportAuditItem): string | null {
   if (item.line_kind === "rms_charge_payment") return "RMS Payment";
   if (item.line_kind === "alteration_service") return "Alteration";
@@ -115,7 +128,7 @@ async function finishPrintDocument(
   target: { doc: Document },
   filename: string,
   directReportText?: string,
-  opts?: { preferFormattedPreview?: boolean },
+  opts?: { action?: ReportPrintAction },
 ): Promise<boolean> {
   target.doc.close();
   if (!directReportText?.trim()) {
@@ -130,7 +143,8 @@ async function finishPrintDocument(
       text: directReportText,
       width: 950,
       height: 950,
-      preferFormattedPreview: opts?.preferFormattedPreview,
+      preferFormattedPreview: opts?.action === "preview",
+      action: opts?.action ?? "print",
     });
     return true;
   } catch (error) {
@@ -236,6 +250,7 @@ function inventoryTxLabel(value: string | null | undefined): string {
 export async function openProfessionalZReportPrint(opts: {
   title: string;
   sessionId: string;
+  action?: ReportPrintAction;
   registerOrdinal?: number | null;
   cashierLabel?: string | null;
   openedAt?: string | null;
@@ -333,6 +348,7 @@ export async function openProfessionalZReportPrint(opts: {
               hour: "2-digit",
               minute: "2-digit",
             });
+            const transactionSubtotalBeforeTaxCents = auditItemsSubtotalBeforeTaxCents(t.items);
             const visibleItems = (t.items ?? []).filter(isVisibleAuditItem).slice(0, 4);
             const internalItems = (t.items ?? []).filter((item) => item.is_internal);
             const giftCardIssued = internalItems.find((item) => item.line_kind === "pos_gift_card_load");
@@ -372,6 +388,7 @@ export async function openProfessionalZReportPrint(opts: {
                 <div class="activity-money">
                   <div class="money-label">Transaction Amount</div>
                   <div class="money-total">${formatReportMoney(t.amount)}</div>
+                  <div class="money-sub">Subtotal Before Tax: ${formatReportMoney(transactionSubtotalBeforeTaxCents)}</div>
                   ${t.transaction_total ? `<div class="money-sub">Sale Total: ${formatReportMoney(t.transaction_total)}</div>` : ""}
                   ${t.transaction_paid ? `<div class="money-sub">Paid: ${formatReportMoney(t.transaction_paid)}</div>` : ""}
                   ${t.transaction_balance_due && parseMoneyToCents(t.transaction_balance_due) > 0 ? `<div class="money-due">Balance: ${formatReportMoney(t.transaction_balance_due)}</div>` : ""}
@@ -434,6 +451,7 @@ export async function openProfessionalZReportPrint(opts: {
     : "Not recorded";
   const cashDepositAmountCents = opts.cashDepositAmountCents ?? Math.max(0, opts.actualCents - opts.openingCents);
   const generatedAt = new Date().toLocaleString();
+  const subtotalBeforeTaxCents = auditSubtotalBeforeTaxCents(opts.transactions);
   const zReportTextLines = [
     "RIVERSIDE MEN'S SHOP",
     "Z-Report Reconciliation Audit",
@@ -443,6 +461,9 @@ export async function openProfessionalZReportPrint(opts: {
     `Shift Staff Member: ${opts.cashierLabel || "System Admin"}`,
     opts.openedAt ? `Shift Start: ${new Date(opts.openedAt).toLocaleString()}` : "",
     `Assigned Reports Printer: ${reportPrinter}`,
+    "",
+    "SALES SUMMARY",
+    `Subtotal Before Tax: ${formatReportMoney(subtotalBeforeTaxCents)}`,
     "",
     "COMBINED TENDERS",
     ...(opts.tenders.length > 0
@@ -558,6 +579,7 @@ export async function openProfessionalZReportPrint(opts: {
       ? [
           "TRANSACTION LIST",
           ...opts.transactions.flatMap((tx) => {
+            const transactionSubtotalBeforeTaxCents = auditItemsSubtotalBeforeTaxCents(tx.items);
             const header = `${new Date(tx.created_at).toLocaleString()} | ${reportLabel(tx.payment_method)} | ${
               tx.customer_name || "Walk-in Customer"
             } | Lane #${tx.register_lane} | Amount: ${formatReportMoney(tx.amount)}${
@@ -571,7 +593,11 @@ export async function openProfessionalZReportPrint(opts: {
                     item.fulfillment,
                   )} | ${formatReportMoney(item.unit_price)}`,
               );
-            return [header, ...(items.length > 0 ? items : ["  No item details recorded"])];
+            return [
+              header,
+              `  Subtotal Before Tax: ${formatReportMoney(transactionSubtotalBeforeTaxCents)}`,
+              ...(items.length > 0 ? items : ["  No item details recorded"]),
+            ];
           }),
           "",
         ]
@@ -588,7 +614,10 @@ export async function openProfessionalZReportPrint(opts: {
     h1 { font-size: 19px; font-weight: 800; margin: 0; letter-spacing: -0.02em; }
     h2 { font-size: 10.5px; font-weight: 800; margin: 14px 0 5px; text-transform: uppercase; letter-spacing: 0.1em; color: #475569; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px; }
     .header-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 14px; }
+    .summary-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 14px; }
+    .summary-card { border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 10px; }
     .stat-label { font-size: 7.5px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.1em; margin: 0 0 2px; }
+    .stat-value { font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 800; margin: 0; }
     .discrepancy-box { margin-top: 8px; border: 1.5px solid ${statusColor}; background: ${dc === 0 ? "#ecfdf5" : "#fef2f2"}; padding: 9px 11px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; }
     table { width: 100%; border-collapse: collapse; }
     th { text-align: left; font-size: 7.5px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.1em; padding: 4px 0; border-bottom: 1px solid #e2e8f0; }
@@ -634,19 +663,26 @@ export async function openProfessionalZReportPrint(opts: {
     </div>
   </div>
 
-  <div class="header-grid">
-    <div>
-      <p class="stat-label">Shift Staff Member</p>
+	  <div class="header-grid">
+	    <div>
+	      <p class="stat-label">Shift Staff Member</p>
       <p style="font-size: 16px; font-weight: 700;">${opts.cashierLabel || "System Admin"}</p>
       ${opts.openedAt ? `<p class="muted">Shift Start: ${new Date(opts.openedAt).toLocaleString()}</p>` : ""}
     </div>
     <div style="text-align: right;">
       <p class="stat-label">Register Group</p>
       <p style="font-size: 16px; font-weight: 700;">Register Group ${ord}</p>
-    </div>
-  </div>
+	    </div>
+	  </div>
 
-  <div class="reconciliation-grid">
+	  <div class="summary-grid">
+	    <div class="summary-card">
+	      <p class="stat-label">Subtotal Before Tax</p>
+	      <p class="stat-value">${formatReportMoney(subtotalBeforeTaxCents)}</p>
+	    </div>
+	  </div>
+
+	  <div class="reconciliation-grid">
     <div>
       <h2>Combined Tenders (Register Group)</h2>
       <table>
@@ -778,13 +814,14 @@ export async function openProfessionalZReportPrint(opts: {
   </div>
   </body></html>`);
   return finishPrintDocument(target, `z-report-${opts.sessionId.slice(0, 8)}.html`, zReportTextLines.join("\n"), {
-    preferFormattedPreview: true,
+    action: opts.action ?? "print",
   });
 }
 
 export async function openProfessionalDailySalesPrint(opts: {
   title: string;
   rangeLabel: string;
+  action?: ReportPrintAction;
   summary: {
     sales_count: number;
     sales_subtotal_no_tax: string;
@@ -801,6 +838,8 @@ export async function openProfessionalDailySalesPrint(opts: {
     occurred_at: string;
     title: string;
     amount_label?: string | null;
+    subtotal_before_tax?: string | null;
+    tax_total?: string | null;
     kind: string;
     payment_summary?: string | null;
     payments?: {
@@ -904,6 +943,8 @@ export async function openProfessionalDailySalesPrint(opts: {
           <div class="activity-money">
             <div class="money-label">Sales Total</div>
             <div class="money-total">${row.sales_total ? `$${row.sales_total}` : row.amount_label || "—"}</div>
+            <div class="money-sub">Subtotal Before Tax: ${row.subtotal_before_tax ? `$${row.subtotal_before_tax}` : "—"}</div>
+            ${row.tax_total ? `<div class="money-sub">Tax: ${formatReportMoney(row.tax_total)}</div>` : ""}
             <div class="money-sub">Transaction Total: ${row.transaction_total ? `$${row.transaction_total}` : "—"}</div>
             ${paymentRows}
             ${row.deposits_paid ? `<div class="money-good">Paid: $${row.deposits_paid}</div>` : ""}
@@ -942,7 +983,7 @@ export async function openProfessionalDailySalesPrint(opts: {
     "",
     "SUMMARY",
     `Transactions: ${summary.sales_count}`,
-    `Sales (No Tax): ${formatReportMoney(summary.sales_subtotal_no_tax)}`,
+    `Subtotal Before Tax: ${formatReportMoney(summary.sales_subtotal_no_tax)}`,
     `Tax Collected: ${formatReportMoney(summary.sales_tax_total)}`,
     `Cash Collected: ${formatReportMoney(summary.cash_collected)}`,
     `Deposits Taken: ${formatReportMoney(summary.deposits_collected)}`,
@@ -976,6 +1017,8 @@ export async function openProfessionalDailySalesPrint(opts: {
           const details = [
             row.short_id ? `Reference: ${row.short_id}` : "",
             ...paymentDetails,
+            row.subtotal_before_tax ? `Subtotal Before Tax: ${formatReportMoney(row.subtotal_before_tax)}` : "",
+            row.tax_total ? `Tax: ${formatReportMoney(row.tax_total)}` : "",
             row.transaction_total ? `Transaction Total: ${formatReportMoney(row.transaction_total)}` : "",
             row.deposits_paid ? `Paid: ${formatReportMoney(row.deposits_paid)}` : "",
             row.balance_due && Number.parseFloat(row.balance_due) > 0
@@ -1054,7 +1097,7 @@ export async function openProfessionalDailySalesPrint(opts: {
       <p class="stat-value">${summary.sales_count}</p>
     </div>
     <div class="stat-card">
-      <p class="stat-label">Sales (No Tax)</p>
+      <p class="stat-label">Subtotal Before Tax</p>
       <p class="stat-value">$${centsToFixed2(parseMoneyToCents(summary.sales_subtotal_no_tax))}</p>
     </div>
     <div class="stat-card">
@@ -1105,12 +1148,13 @@ export async function openProfessionalDailySalesPrint(opts: {
   </div>
   </body></html>`);
   return finishPrintDocument(target, "daily-sales-report.html", dailyReportTextLines.join("\n"), {
-    preferFormattedPreview: true,
+    action: opts.action ?? "print",
   });
 }
 
 export async function openProfessionalTablePrint(opts: {
   title: string;
+  action?: ReportPrintAction;
   subtitle?: string;
   columns: string[];
   rows: Record<string, unknown>[];
@@ -1200,5 +1244,7 @@ export async function openProfessionalTablePrint(opts: {
     <p class="muted" style="font-size: 9px;">End of Report · Riverside Men's Shop Proprietary Document</p>
   </div>
   </body></html>`);
-  return finishPrintDocument(target, `${opts.title.replace(/[^a-z0-9]/gi, "_")}.html`, tableReportText);
+  return finishPrintDocument(target, `${opts.title.replace(/[^a-z0-9]/gi, "_")}.html`, tableReportText, {
+    action: opts.action ?? "print",
+  });
 }

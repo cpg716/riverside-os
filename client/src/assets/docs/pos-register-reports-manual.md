@@ -29,7 +29,7 @@ Use this screen to review the current register session, void a completed sale wi
 2. Review **Booked** for what was rung during the drawer/session and **Completed** for recognized revenue and pickup activity.
 3. Open individual entries when you need receipt or tender detail. Click the customer name or Customer # to open CustomerHub for that customer.
 4. Use **Void** on a completed sale only after a manager confirms the transaction, reason, tender reversal, and inventory impact.
-5. Use **Print Report (Full Page)** when the shift needs a professional audit printout.
+5. Use **View** to review the full-page Daily Sales report inside ROS, or **Print** when the shift needs a professional audit printout.
 6. Open **Z-Reports** to see which linked lanes are still open, which drawer is already reconciling, and whether Register #1 still needs to finish the shared close.
 
 ## Daily Sales Activity
@@ -58,13 +58,14 @@ Use the refund workflow to finish cash, card, gift card, store credit, or split-
 ## Professional Audit Printing
 You can now generate a professional, full-page **Daily Sales Report** that includes:
 - **Tender Breakdown**: Totals for Cash, Card, Gift Card, and R2S charges.
+- **Per-Transaction Subtotal Before Tax**: Each transaction card separates subtotal before tax, tax collected, and total before showing payments or balance.
 - **Transaction Audit**: A complete list of all ticket numbers and amounts.
 - **Activity Cards**: Printed activity mirrors the on-screen grouped list with customer context, fulfillment chips, line items, payment/pickup context, and amount details.
 - **Reporting Station**: The report header identifies the assigned printer for accountability.
 
-To print, tap **Print Report (Full Page)**. Daily Sales opens as the formatted full-page report so the activity cards, customer context, pickup rows, line items, and totals stay readable on office paper.
+To review the report first, tap **View**. In the desktop app, the preview opens inside ROS instead of a browser tab. To print, tap **Print** from the report screen or from the in-app preview. Daily Sales prints through the configured Reports printer so the activity cards, customer context, pickup rows, line items, and totals stay on office paper instead of the receipt printer.
 
-Z-Reports also open the formatted full-page report for close review and printing. **Open Report** shows whether the report opened successfully, so support can tell the difference between a report with no data and a workstation preview/opening failure. If a report prints as raw text instead of the formatted layout, check that the workstation is using the current build and rerun the report print.
+Z-Reports also use the same contract in the desktop app. **Open Report** opens the Z-report inside ROS for review. **Close & Print Z-Report** and preview **Print** send the report to the configured Reports printer. If a report prints as raw text instead of the formatted layout, check that the workstation is using the current build and rerun the report print.
 
 ## Performance Metrics
 The summary cards at the top of the screen provide instant visibility into:

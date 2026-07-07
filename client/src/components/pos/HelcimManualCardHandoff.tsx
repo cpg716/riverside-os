@@ -15,7 +15,7 @@ type HandoffState = "loading" | "ready" | "approved" | "canceled" | "error";
 
 interface HelcimPayMessage {
   eventName?: string;
-  eventStatus?: "SUCCESS" | "ABORTED" | string;
+  eventStatus?: "SUCCESS" | "ABORTED" | "HIDE" | string;
   eventMessage?: unknown;
 }
 
@@ -59,6 +59,10 @@ function parseHelcimPayEventMessage(message: unknown): { data?: unknown; hash?: 
   return {};
 }
 
+function hasHelcimPayIframe(): boolean {
+  return document.getElementById("helcimPayIframe") instanceof HTMLIFrameElement;
+}
+
 export default function HelcimManualCardHandoff() {
   const baseUrl = getBaseUrl();
   const launchedRef = useRef(false);
@@ -96,7 +100,7 @@ export default function HelcimManualCardHandoff() {
       if (!data || data.eventName !== eventName) return;
       window.removeEventListener("message", handleMessage);
 
-      if (data.eventStatus === "ABORTED") {
+      if (data.eventStatus === "ABORTED" || data.eventStatus === "HIDE") {
         setState("canceled");
         setMessage("Manual Card entry was canceled. Return to the register to retry or use the terminal.");
         return;
@@ -143,9 +147,14 @@ export default function HelcimManualCardHandoff() {
         if (!window.appendHelcimPayIframe) {
           throw new Error("HelcimPay.js could not be loaded.");
         }
+        window.appendHelcimPayIframe(checkoutToken, true);
+        if (!hasHelcimPayIframe()) {
+          throw new Error(
+            "HelcimPay.js did not attach secure card entry. Verify the public HTTPS ROS origin is saved in Helcim API Access Configuration, then start Manual Card again.",
+          );
+        }
         setState("ready");
         setMessage("Enter the card securely in Helcim.");
-        window.appendHelcimPayIframe(checkoutToken, true);
       })
       .catch((error) => {
         if (stopped) return;

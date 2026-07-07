@@ -128,6 +128,81 @@ interface ExchangeReturnHandoffLine {
   restock?: boolean | null;
 }
 
+function allocateCentsByWeight(
+  components: Array<{ key: "subtotal" | "stateTax" | "localTax"; cents: number }>,
+  capCents: number,
+): Record<"subtotal" | "stateTax" | "localTax", number> {
+  const totalCents = components.reduce((sum, component) => sum + Math.max(0, component.cents), 0);
+  const cap = Math.max(0, Math.min(capCents, totalCents));
+  if (cap <= 0 || totalCents <= 0) {
+    return { subtotal: 0, stateTax: 0, localTax: 0 };
+  }
+  if (cap === totalCents) {
+    return {
+      subtotal: components.find((component) => component.key === "subtotal")?.cents ?? 0,
+      stateTax: components.find((component) => component.key === "stateTax")?.cents ?? 0,
+      localTax: components.find((component) => component.key === "localTax")?.cents ?? 0,
+    };
+  }
+
+  const weighted = components.map((component) => {
+    const raw = (Math.max(0, component.cents) * cap) / totalCents;
+    return {
+      ...component,
+      floor: Math.floor(raw),
+      remainder: raw - Math.floor(raw),
+    };
+  });
+  let remaining = cap - weighted.reduce((sum, component) => sum + component.floor, 0);
+  weighted
+    .sort((a, b) => b.remainder - a.remainder)
+    .forEach((component) => {
+      if (remaining <= 0) return;
+      component.floor += 1;
+      remaining -= 1;
+    });
+
+  return weighted.reduce(
+    (acc, component) => ({
+      ...acc,
+      [component.key]: component.floor,
+    }),
+    { subtotal: 0, stateTax: 0, localTax: 0 } as Record<"subtotal" | "stateTax" | "localTax", number>,
+  );
+}
+
+function exchangeReturnCreditComponents(
+  returnedLines: ExchangeReturnHandoffLine[],
+  creditCapCents: number,
+): { subtotalCents: number; stateTaxCents: number; localTaxCents: number; totalCents: number } {
+  const subtotalCents = returnedLines.reduce(
+    (sum, line) => sum + Math.max(0, line.unit_price_cents) * Math.max(0, line.quantity),
+    0,
+  );
+  const stateTaxCents = returnedLines.reduce(
+    (sum, line) => sum + Math.max(0, line.state_tax_cents ?? 0) * Math.max(0, line.quantity),
+    0,
+  );
+  const localTaxCents = returnedLines.reduce(
+    (sum, line) => sum + Math.max(0, line.local_tax_cents ?? 0) * Math.max(0, line.quantity),
+    0,
+  );
+  const allocated = allocateCentsByWeight(
+    [
+      { key: "subtotal", cents: subtotalCents },
+      { key: "stateTax", cents: stateTaxCents },
+      { key: "localTax", cents: localTaxCents },
+    ],
+    creditCapCents,
+  );
+  return {
+    subtotalCents: allocated.subtotal,
+    stateTaxCents: allocated.stateTax,
+    localTaxCents: allocated.localTax,
+    totalCents: allocated.subtotal + allocated.stateTax + allocated.localTax,
+  };
+}
+
 function calculateStandaloneLineTotals(lines: CartLineItem[]): CartTotals {
   const res = lines.reduce(
     (acc, line) => {
@@ -593,13 +668,27 @@ export default function Cart({
       customer: args.customer,
     });
 
+    const returnedLines = args.returnedLines ?? [];
     setPendingReturnLineDrafts((prev) => ({
       ...prev,
-      [args.originalTransactionId]: args.returnedLines ?? [],
+      [args.originalTransactionId]: returnedLines,
     }));
 
-    const refundAmountCents = Math.round(args.refundAmountCents ?? 0);
-    const firstReturnLine = args.returnedLines?.[0];
+    const selectedReturnGrossCents = returnedLines.reduce(
+      (sum, line) =>
+        sum +
+        (Math.max(0, line.unit_price_cents) +
+          Math.max(0, line.state_tax_cents ?? 0) +
+          Math.max(0, line.local_tax_cents ?? 0)) *
+          Math.max(0, line.quantity),
+      0,
+    );
+    const refundAmountCents = Math.max(
+      0,
+      Math.min(Math.round(args.refundAmountCents ?? selectedReturnGrossCents), selectedReturnGrossCents),
+    );
+    const returnCredit = exchangeReturnCreditComponents(returnedLines, refundAmountCents);
+    const firstReturnLine = returnedLines[0];
     if (!firstReturnLine) return;
     if (refundAmountCents <= 0 && args.action !== "exchange") return;
 
@@ -622,19 +711,19 @@ export default function Cart({
             ? `Exchange credit ${receiptLabel}`
             : `Refund credit ${receiptLabel}`,
       variation_label: lineLabel,
-      standard_retail_price: centsToFixed2(refundAmountCents),
+      standard_retail_price: centsToFixed2(returnCredit.subtotalCents),
       unit_cost: firstReturnLine.unit_cost ?? "0.00",
-      state_tax: "0.00",
-      local_tax: "0.00",
+      state_tax: centsToFixed2(returnCredit.stateTaxCents),
+      local_tax: centsToFixed2(returnCredit.localTaxCents),
       tax_category: "other",
       quantity: -1,
       fulfillment: "takeaway",
       cart_row_id: rowId,
       price_override_reason: "pending_return_refund",
-      original_unit_price: centsToFixed2(refundAmountCents),
+      original_unit_price: centsToFixed2(returnCredit.subtotalCents),
       return_tender_original_transaction_id: args.originalTransactionId,
       return_tender_receipt_label: receiptLabel,
-      return_tender_refund_cents: Math.max(0, refundAmountCents),
+      return_tender_refund_cents: returnCredit.totalCents,
     };
 
     setLines((prev) => [

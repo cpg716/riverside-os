@@ -1,11 +1,14 @@
 import { isTauri } from "@tauri-apps/api/core";
-import { openPrintableHtml, printExistingWindowAsync } from "./browserPrint";
+import { printExistingWindowAsync } from "./browserPrint";
 import { printTextReport } from "./printerBridge";
+import { dispatchAppToast } from "../components/ui/ToastProviderLogic";
 
 export type ReportPrintRoute =
   | "tauri-report-printer"
   | "tauri-report-preview"
   | "browser-print-dialog";
+
+export type ReportPrintAction = "print" | "preview";
 
 export interface ReportPrintResult {
   route: ReportPrintRoute;
@@ -19,7 +22,10 @@ export interface ReportPrintDocumentRequest {
   width?: number;
   height?: number;
   preferFormattedPreview?: boolean;
+  action?: ReportPrintAction;
 }
+
+let activeReportPreview: HTMLElement | null = null;
 
 function escapeReportHtml(value: string): string {
   return value
@@ -45,6 +51,91 @@ function plainTextReportHtml(title: string, text: string): string {
 </html>`;
 }
 
+function closeActiveReportPreview() {
+  activeReportPreview?.remove();
+  activeReportPreview = null;
+}
+
+function openInAppReportPreview(request: ReportPrintDocumentRequest) {
+  closeActiveReportPreview();
+
+  const overlay = document.createElement("div");
+  overlay.setAttribute("role", "dialog");
+  overlay.setAttribute("aria-modal", "true");
+  overlay.className = "ui-overlay-backdrop fixed inset-0 z-200 flex items-center justify-center bg-black/45 p-3";
+
+  const modal = document.createElement("div");
+  modal.className = "ui-modal flex h-[94dvh] w-full max-w-6xl flex-col overflow-hidden rounded-3xl";
+
+  const header = document.createElement("div");
+  header.className = "ui-modal-header flex flex-wrap items-center justify-between gap-3";
+
+  const titleGroup = document.createElement("div");
+  const eyebrow = document.createElement("p");
+  eyebrow.className = "text-[10px] font-black uppercase tracking-widest text-app-text-muted";
+  eyebrow.textContent = "Report Preview";
+  const title = document.createElement("h2");
+  title.className = "text-xl font-black text-app-text";
+  title.textContent = request.title;
+  titleGroup.append(eyebrow, title);
+
+  const actions = document.createElement("div");
+  actions.className = "flex items-center gap-2";
+
+  const printButton = document.createElement("button");
+  printButton.type = "button";
+  printButton.className = "ui-btn-primary px-4 py-2 text-xs font-black";
+  printButton.textContent = "Print";
+  printButton.addEventListener("click", () => {
+    printButton.setAttribute("disabled", "true");
+    printButton.textContent = "Printing...";
+    void printTextReport(request.text)
+      .then(() => {
+        printButton.textContent = "Sent";
+        dispatchAppToast("Report sent to the configured Reports printer.", "success");
+      })
+      .catch((error) => {
+        printButton.removeAttribute("disabled");
+        printButton.textContent = "Print";
+        dispatchAppToast(error instanceof Error ? error.message : "Report could not print.", "error");
+      });
+  });
+
+  const closeButton = document.createElement("button");
+  closeButton.type = "button";
+  closeButton.className = "ui-btn-secondary px-4 py-2 text-xs font-black";
+  closeButton.textContent = "Close";
+  closeButton.addEventListener("click", closeActiveReportPreview);
+
+  actions.append(printButton, closeButton);
+  header.append(titleGroup, actions);
+
+  const body = document.createElement("div");
+  body.className = "ui-modal-body min-h-0 flex-1 overflow-hidden bg-app-surface-2 p-0";
+  const frame = document.createElement("iframe");
+  frame.title = `${request.title} preview`;
+  frame.className = "h-full w-full border-0 bg-white";
+  frame.setAttribute("sandbox", "");
+  frame.srcdoc = request.html ?? plainTextReportHtml(request.title, request.text);
+  body.append(frame);
+
+  modal.append(header, body);
+  overlay.append(modal);
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) closeActiveReportPreview();
+  });
+  const onKeyDown = (event: KeyboardEvent) => {
+    if (event.key === "Escape") {
+      closeActiveReportPreview();
+      document.removeEventListener("keydown", onKeyDown);
+    }
+  };
+  document.addEventListener("keydown", onKeyDown);
+
+  (document.getElementById("drawer-root") ?? document.body).append(overlay);
+  activeReportPreview = overlay;
+}
+
 export async function printReportDocument(
   request: ReportPrintDocumentRequest,
 ): Promise<ReportPrintResult> {
@@ -53,12 +144,8 @@ export async function printReportDocument(
   }
 
   if (isTauri()) {
-    if (request.preferFormattedPreview && request.html?.trim()) {
-      await openPrintableHtml(request.html, request.title, {
-        filename: request.filename,
-        width: request.width,
-        height: request.height,
-      });
+    if (request.action === "preview" || (request.preferFormattedPreview && request.action !== "print")) {
+      openInAppReportPreview(request);
       return { route: "tauri-report-preview" };
     }
     await printTextReport(request.text);

@@ -61,9 +61,10 @@ Use the POS checkout drawer for live card collection.
 - **Card Reader** sends the sale amount to the selected Helcim terminal for tap, insert, or swipe.
 - **Manual Card** is for phone orders. It opens secure HelcimPay.js card entry in ROS; Helcim owns the card fields and ROS validates the signed approval response. Do not type card numbers or CVV into ROS notes, references, search fields, or support chats.
 - **Saved Card** charges a Helcim-saved card token for the selected customer. ROS shows masked card details when Helcim returns them, but staff should never copy or expose the token.
-- **Card Refund** appears for refund/negative checkout totals. ROS sends the refund to the selected Helcim terminal and records it only after Helcim approval.
+- **Card Refund** appears for refund/negative checkout totals. Use **API Refund** when refunding a prior Helcim transaction and the card is not present. Use **Terminal Refund** only when the customer and original card are present at the register.
+- **Offline CC** records a card sale or refund that was manually approved outside ROS, such as a phone approval, internet outage, card-not-present refund, or non-prior-Helcim refund. Enter only the approval/reference, last four digits, and reason. Never enter the full card number or CVV.
 
-Manual Card works through the public HTTPS ROS/PWA checkout origin saved in Helcim. The desktop app's local `tauri.localhost` origin cannot host live HelcimPay.js, so ROS opens a one-time public handoff page and keeps the checkout drawer listening for the approved attempt. If that handoff cannot open, use the Helcim terminal card path instead of typing card numbers into ROS notes, references, search fields, or support chats.
+Manual Card works through the public HTTPS ROS/PWA checkout origin saved in Helcim. The desktop app's local `tauri.localhost` origin cannot host live HelcimPay.js, so ROS embeds a one-time public handoff page inside the checkout drawer and keeps listening for the approved attempt. Use the external fallback only if the embedded handoff is blocked; never type card numbers into ROS notes, references, search fields, or support chats.
 
 Terminal selection is in the checkout drawer header. Register #1 defaults to **Terminal 1**, Register #2 defaults to **Terminal 2**, and Register #3/#4 must choose an available terminal. A green dot means the selected terminal path is ready; a red dot means configuration, routing, or terminal availability needs attention.
 

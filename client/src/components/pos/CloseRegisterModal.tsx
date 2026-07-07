@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import { useShellBackdropLayer } from "../layout/ShellBackdropContextLogic";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
 import { openProfessionalZReportPrint } from "./zReportPrint";
+import type { ReportPrintAction } from "../../lib/reportPrint";
 import ConfirmationModal from "../ui/ConfirmationModal";
 import { useToast } from "../ui/ToastProviderLogic";
 import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
@@ -660,7 +661,10 @@ export default function CloseRegisterModal({
     return [notes.trim(), countEditNote, checkReviewNote].filter(Boolean).join("\n");
   }, [checkPayments, checkReview, countEditReason, notes]);
 
-  const openCurrentZReportPrint = useCallback(async (currentRecon: Reconciliation | null = recon) => {
+  const openCurrentZReportPrint = useCallback(async (
+    currentRecon: Reconciliation | null = recon,
+    action: ReportPrintAction = "print",
+  ) => {
     if (!currentRecon) return false;
     const currentExpectedCents = parseMoneyToCents(currentRecon.expected_cash);
     const currentActualCents = parseMoneyToCents(actualCash);
@@ -672,6 +676,7 @@ export default function CloseRegisterModal({
     const opened = await openProfessionalZReportPrint({
       title: "Z-Report",
       sessionId: currentRecon.session_id,
+      action,
       registerOrdinal,
       cashierLabel: cashierName,
       openedAt: null,
@@ -1454,10 +1459,10 @@ export default function CloseRegisterModal({
           <button
             type="button"
             onClick={() => {
-              void openCurrentZReportPrint()
+              void openCurrentZReportPrint(recon, "preview")
                 .then((opened) => {
                   if (!opened) {
-                    toast("Z-report could not open. Check the Reports printer setup.", "error");
+                    toast("Z-report could not open for review.", "error");
                   }
                 })
                 .catch((error) => {
@@ -1745,7 +1750,7 @@ export default function CloseRegisterModal({
       <ConfirmationModal
         isOpen={showFinalConfirm}
         title="Close and print?"
-        message="This closes the till group, creates the Z-Report, and opens print."
+        message="This closes the till group, creates the Z-Report, and sends it to the configured Reports printer."
         confirmLabel="Close & Print"
         variant="danger"
         onConfirm={() => void handleFinalClose()}

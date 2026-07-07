@@ -42,9 +42,9 @@ Use Reports to find sales, register, finance, customer, wedding, inventory, staf
 5. Use From, To, Basis, and Group by when those controls appear.
 6. For **Best Sellers**, use **Product View** for parent products and **Variation View** for individual SKUs.
 7. Use Refresh after changing filters.
-8. Use Print Report from the loaded report header for table, summary, or no-row report results.
+8. Use **View Report** from the loaded report header to review table, summary, or no-row report results inside ROS. Use **Print Report** to send that report to the configured Reports printer.
 9. Use CSV when the loaded report includes table rows.
-10. If Print Report cannot open the print path, Riverside shows an error so staff can check pop-up permissions or station printer setup instead of assuming the button worked.
+10. If View Report or Print Report cannot open the report path, Riverside shows an error so staff can check station printer setup or support can review the workstation state instead of assuming the button worked.
 
 ## Operational detail
 

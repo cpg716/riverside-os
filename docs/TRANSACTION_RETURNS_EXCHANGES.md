@@ -126,6 +126,7 @@ When the client cannot send Back Office staff headers (e.g. receipt modal on the
    - **Active Instructions**: Context-aware instruction cards guide staff through complex return semantics.
    - **Automated Linking**: After replacement checkout, `POST /api/transactions/{original}/exchange-settlement` links the legs for reporting.
    - **Staged returns**: Selecting return quantities in the wizard does not mutate the original Transaction Record. The selected line ids, quantities, reason, and restock choice are carried into the final refund or exchange settlement request.
+   - **Credit basis**: Register return/exchange handoff uses the original selected line subtotal plus the original selected line tax split, capped by paid money on the Transaction Record. Partially paid order deposits therefore carry the paid original item value and paid tax into the cart instead of showing a `$0.00` exchange line.
    - **Settlement**: return credits, deposits, replacement lines, and any remaining customer balance or refund must flow through checkout so the cart, payment allocations, customer history, QBO staging, and audit trail agree. Return lines are recorded only after the refund/exchange settlement succeeds; interrupted or failed flows must leave the original items visible and unreturned. If the original Transaction Record still has a balance due and the returned item creates no paid refund credit, settlement is still valid when it records return lines and links the replacement sale.
 
 ---

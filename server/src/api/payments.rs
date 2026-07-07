@@ -7958,12 +7958,19 @@ async fn initialize_helcim_pay(
     validate_currency(&currency.to_ascii_lowercase())?;
 
     let config = helcim::HelcimConfig::from_env();
+    let attempt_id = Uuid::new_v4();
+    let idempotency_key = format!("helcim-pay-{attempt_id}");
     // Helcim's customerCode is a Helcim-native identifier, not a ROS or
     // Counterpoint customer code. ROS does not persist a Helcim customer code
     // for POS customers yet, so omit it to avoid Helcim rejecting ROS-* / C-*
     // customer numbers during hosted manual card entry.
     let customer_code = None;
-    let invoice_number = payload.invoice_number.and_then(non_empty_string);
+    let invoice_number = Some(
+        payload
+            .invoice_number
+            .and_then(non_empty_string)
+            .unwrap_or_else(|| helcim_manual_invoice_number(attempt_id)),
+    );
     let request = helcim::HelcimPayInitializeRequest {
         payment_type: "purchase".to_string(),
         amount: cents_to_decimal_string(payload.amount_cents),
@@ -7983,8 +7990,6 @@ async fn initialize_helcim_pay(
         .await
         .map_err(PaymentError::ProviderError)?;
 
-    let attempt_id = Uuid::new_v4();
-    let idempotency_key = format!("helcim-pay-{attempt_id}");
     let (register_session_id, staff_id) = match auth {
         middleware::StaffOrPosSession::Staff(staff) => {
             (payload.register_session_id, Some(staff.id))
@@ -8630,6 +8635,10 @@ fn cents_to_decimal_string(amount_cents: i64) -> String {
     format!("{sign}{}.{:02}", abs / 100, abs % 100)
 }
 
+fn helcim_manual_invoice_number(attempt_id: Uuid) -> String {
+    format!("ROS-{}", attempt_id.simple())
+}
+
 fn helcim_pay_public_handoff_url(attempt_id: Uuid, checkout_token: &str) -> Option<String> {
     let raw_base = std::env::var("RIVERSIDE_PUBLIC_BASE_URL").ok()?;
     let mut parsed = url::Url::parse(raw_base.trim()).ok()?;
@@ -8881,7 +8890,7 @@ async fn recover_helcim_attempt_by_invoice(
     attempt: &HelcimAttemptRow,
     config: &helcim::HelcimConfig,
 ) -> Result<Option<HelcimAttemptRow>, PaymentError> {
-    let invoice_number = format!("ROS-{}", attempt.id.simple());
+    let invoice_number = helcim_manual_invoice_number(attempt.id);
     let date_from = (attempt.created_at - ChronoDuration::days(1)).date_naive();
     let date_to = (Utc::now() + ChronoDuration::days(1)).date_naive();
     let rows = match helcim::list_card_transactions(
@@ -9102,6 +9111,16 @@ mod tests {
         attempt.raw_audit_reference = Some("helcim-pay-js".to_string());
 
         assert!(!helcim_attempt_has_provider_settlement_reference(&attempt));
+    }
+
+    #[test]
+    fn hosted_manual_invoice_number_is_recoverable_from_attempt_id() {
+        let attempt_id = Uuid::parse_str("4b1c7a4f-3a1e-43dc-bb10-bfcb20c7b1e2").unwrap();
+
+        assert_eq!(
+            helcim_manual_invoice_number(attempt_id),
+            "ROS-4b1c7a4f3a1e43dcbb10bfcb20c7b1e2"
+        );
     }
 
     #[test]

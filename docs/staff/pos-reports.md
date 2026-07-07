@@ -23,7 +23,7 @@
 3. View **Daily Sales** to see a chronological timeline of activity. Use **Booked** when comparing what was rung during the drawer/session, and **Completed** when reviewing recognized takeaway and pickup activity. **Check numbers** are displayed next to the payment method for all check transactions.
 4. For payment-only activity, use **Receipt** to open the standard Transaction Record receipt showing the payment application, customer, Customer #, phone, totals, and remaining balance. RMS Charge payments show as **RMS Payment** activity, not retail merchandise.
 5. For a completed-sale mistake that must be reversed, use **Void** only with Manager Access. Read the impact list before confirming; the original Transaction Record remains visible and the refund workflow may still need completion.
-6. **Print Audit**: Tap the **Print Report** button to open the professional full-page Daily Sales document for the selected basis.
+6. **Review or Print Audit**: Tap **View** to open the professional full-page Daily Sales document inside ROS, or **Print** to send it to the configured Reports printer.
 
 ### Train a new hire on tender types
 

@@ -22,12 +22,14 @@ import {
   Search,
   ShieldAlert,
   RefreshCw,
+  Eye,
 } from "lucide-react";
 import ReceiptSummaryModal from "./ReceiptSummaryModal";
 import PosVoidTransactionModal, { type PosVoidTransactionTarget } from "./PosVoidTransactionModal";
 import ProductHubDrawer from "../inventory/ProductHubDrawer";
 import TransactionDetailDrawer from "../orders/TransactionDetailDrawer";
 import { openProfessionalDailySalesPrint, openProfessionalZReportPrint } from "./zReportPrint";
+import type { ReportPrintAction } from "../../lib/reportPrint";
 import { useToast } from "../ui/ToastProviderLogic";
 import { downloadTextFile } from "../../lib/desktopFileBridge";
 import type { Customer } from "./CustomerSelector";
@@ -312,6 +314,26 @@ function activityTransactionId(row: RegisterActivityItem): string | null {
   return normalizeActivityId(row.transaction_id) ?? normalizeActivityId(row.order_id);
 }
 
+function activitySubtotalBeforeTaxCents(row: Pick<RegisterActivityItem, "items" | "sales_total" | "tax_total" | "transaction_total">): number {
+  const itemSubtotal = (row.items ?? [])
+    .filter((item) => !item.is_internal)
+    .reduce((sum, item) => sum + parseMoneyToCents(item.price) * item.quantity, 0);
+  if (itemSubtotal !== 0 || (row.items?.length ?? 0) > 0) return itemSubtotal;
+
+  const grossCents = parseMoneyToCents(row.transaction_total ?? row.sales_total ?? "0");
+  const taxCents = parseMoneyToCents(row.tax_total ?? "0");
+  return grossCents - taxCents;
+}
+
+function moneyFromCents(cents: number): string {
+  const sign = cents < 0 ? "-" : "";
+  return `${sign}$${centsToFixed2(Math.abs(cents))}`;
+}
+
+function moneyFromValue(value: string | null | undefined): string {
+  return moneyFromCents(parseMoneyToCents(value ?? "0"));
+}
+
 function activityVoidTarget(row: RegisterActivityItem): PosVoidTransactionTarget | null {
   const transactionId = activityTransactionId(row);
   if (!transactionId) return null;
@@ -420,7 +442,10 @@ function primaryRegisterSession(
   return sessions.find((session) => session.register_lane === 1) ?? sessions[0] ?? null;
 }
 
-async function openZReportFromSession(session: RegisterSessionRow): Promise<boolean> {
+async function openZReportFromSession(
+  session: RegisterSessionRow,
+  action: ReportPrintAction = "preview",
+): Promise<boolean> {
   const snapshot = session.z_report_json;
   const cashTender = snapshot?.tenders?.find(
     (tender) => tender.payment_method.toLowerCase() === "cash",
@@ -428,6 +453,7 @@ async function openZReportFromSession(session: RegisterSessionRow): Promise<bool
   return openProfessionalZReportPrint({
     title: "Z-Report",
     sessionId: snapshot?.session_id ?? session.id,
+    action,
     registerOrdinal: session.register_ordinal,
     cashierLabel: session.cashier_name,
     openedAt: session.opened_at,
@@ -715,7 +741,7 @@ export default function RegisterReports({
     return Number.isFinite(parsed) ? parsed.toFixed(digits) : value;
   };
 
-  const handlePrint = () => {
+  const handleReportOutput = (action: ReportPrintAction) => {
     const printSummary = selectedSummary;
     if (!printSummary) return;
     const printRangeLabel =
@@ -725,6 +751,7 @@ export default function RegisterReports({
     void openProfessionalDailySalesPrint({
       title: `Daily Sales - ${printRangeLabel}`,
       rangeLabel: printRangeLabel,
+      action,
       summary: {
         sales_count: printSummary.sales_count,
         sales_subtotal_no_tax: printSummary.sales_subtotal_no_tax,
@@ -739,6 +766,8 @@ export default function RegisterReports({
       },
       activities: printSummary.activities.map(a => ({
         ...a,
+        subtotal_before_tax: centsToFixed2(activitySubtotalBeforeTaxCents(a)),
+        tax_total: a.tax_total,
         items: a.items?.map(i => ({
           name: i.name,
           sku: i.sku,
@@ -1024,7 +1053,10 @@ export default function RegisterReports({
           ) : (
             <div className="flex flex-col gap-2 p-3">
               <div className="flex gap-2 mb-2">
-                <button type="button" onClick={handlePrint} className="ui-btn-secondary flex items-center gap-1.5 border-app-success/20 px-3 py-1.5 text-xs font-black text-app-success hover:bg-app-success hover:text-white">
+                <button type="button" onClick={() => handleReportOutput("preview")} className="ui-btn-secondary flex items-center gap-1.5 border-app-accent/20 px-3 py-1.5 text-xs font-black text-app-accent hover:bg-app-accent hover:text-white">
+                  <Eye size={12} />View
+                </button>
+                <button type="button" onClick={() => handleReportOutput("print")} className="ui-btn-secondary flex items-center gap-1.5 border-app-success/20 px-3 py-1.5 text-xs font-black text-app-success hover:bg-app-success hover:text-white">
                   <Printer size={12} />Print
                 </button>
                 <button type="button" onClick={handleExportCSV} className="ui-btn-secondary flex items-center gap-1.5 border-app-border px-3 py-1.5 text-xs font-black text-app-text hover:bg-app-surface">
@@ -1188,7 +1220,10 @@ export default function RegisterReports({
                   />
                 </label>
               <div className="flex justify-end gap-2">
-                <button type="button" onClick={handlePrint} className="ui-btn-secondary flex items-center gap-2 border-app-success/20 px-3 py-1.5 text-xs font-black text-app-success hover:bg-app-success hover:text-white">
+                <button type="button" onClick={() => handleReportOutput("preview")} className="ui-btn-secondary flex items-center gap-2 border-app-accent/20 px-3 py-1.5 text-xs font-black text-app-accent hover:bg-app-accent hover:text-white">
+                  <Eye size={12} />View
+                </button>
+                <button type="button" onClick={() => handleReportOutput("print")} className="ui-btn-secondary flex items-center gap-2 border-app-success/20 px-3 py-1.5 text-xs font-black text-app-success hover:bg-app-success hover:text-white">
                   <Printer size={12} />Print
                 </button>
                 <button type="button" onClick={handleExportCSV} className="ui-btn-secondary flex items-center gap-2 border-app-border px-3 py-1.5 text-xs font-black text-app-text hover:bg-app-surface">
@@ -1406,14 +1441,26 @@ export default function RegisterReports({
                         {/* 3. Financial Breakdown (Right) */}
                         <div className="flex flex-col justify-between bg-app-surface-2/60 p-5 lg:w-1/4">
                            <div className="space-y-3">
-                              <div className="flex flex-col items-end gap-0.5">
-	                                 <span className="text-xs font-bold text-app-text-muted">Sales Total (Booked)</span>
-                                 <span className="text-lg font-black text-app-text tabular-nums leading-none tracking-tighter">
-                                   ${row.sales_total || "0.00"}
-                                 </span>
-                              </div>
+	                              <div className="flex flex-col items-end gap-0.5">
+	                                 <span className="text-xs font-bold text-app-text-muted">Subtotal Before Tax</span>
+	                                 <span className="text-base font-black text-app-text tabular-nums leading-none tracking-tighter">
+	                                   {moneyFromCents(activitySubtotalBeforeTaxCents(row))}
+	                                 </span>
+	                                 {row.tax_total ? (
+	                                   <span className="text-[11px] font-bold text-app-text-muted tabular-nums">
+	                                     Tax {moneyFromValue(row.tax_total)}
+	                                   </span>
+	                                 ) : null}
+	                              </div>
 
-                              <div className="flex flex-col items-end gap-0.5 pt-2 border-t border-app-border/40">
+	                              <div className="flex flex-col items-end gap-0.5 pt-2 border-t border-app-border/40">
+		                                 <span className="text-xs font-bold text-app-text-muted">Sales Total (Booked)</span>
+	                                 <span className="text-lg font-black text-app-text tabular-nums leading-none tracking-tighter">
+	                                   ${row.sales_total || "0.00"}
+	                                 </span>
+	                              </div>
+
+	                              <div className="flex flex-col items-end gap-0.5 pt-2 border-t border-app-border/40">
 	                                 <span className="text-xs font-bold text-app-success">Deposits Taken / Transaction Total</span>
                                  <span className="text-base font-black text-app-text tabular-nums leading-none tracking-tighter">
                                    ${row.transaction_total || "0.00"}

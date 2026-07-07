@@ -440,6 +440,95 @@ test.describe("POS exchange wizard", () => {
     });
   });
 
+  test("partial-paid exchange carries the paid original price and tax into the cart", async ({
+    page,
+    request,
+  }) => {
+    test.setTimeout(90_000);
+
+    const operatorStaffId = await verifyAdminStaffId(request);
+    const { sessionId, sessionToken } = await ensureSessionToken(request);
+    const { productId, variantId, sku } = await createDeterministicProduct(
+      request,
+      operatorStaffId,
+    );
+
+    const checkoutRes = await request.post(`${apiBase()}/api/transactions/checkout`, {
+      headers: {
+        "Content-Type": "application/json",
+        "x-riverside-pos-session-id": sessionId,
+        "x-riverside-pos-session-token": sessionToken,
+        "x-riverside-station-key": "station-e2e",
+      },
+      data: {
+        session_id: sessionId,
+        operator_staff_id: operatorStaffId,
+        primary_salesperson_id: operatorStaffId,
+        customer_id: null,
+        payment_method: "cash",
+        total_price: "326.25",
+        amount_paid: "108.75",
+        items: [
+          {
+            product_id: productId,
+            variant_id: variantId,
+            fulfillment: "special_order",
+            quantity: 3,
+            unit_price: "100.00",
+            unit_cost: "40.00",
+            state_tax: "4.00",
+            local_tax: "4.75",
+            salesperson_id: operatorStaffId,
+          },
+        ],
+        payment_splits: [
+          {
+            payment_method: "cash",
+            amount: "108.75",
+            applied_deposit_amount: "108.75",
+          },
+        ],
+      },
+      failOnStatusCode: false,
+    });
+    expect(checkoutRes.status()).toBe(200);
+    const checkout = (await checkoutRes.json()) as CheckoutResponse;
+    expect(checkout.transaction_id).toBeTruthy();
+
+    await primeBackofficeSession(page, request);
+    await page.goto("/pos", { waitUntil: "domcontentloaded" });
+    await expect(page.getByRole("navigation", { name: "POS Navigation" })).toBeVisible({
+      timeout: 15_000,
+    });
+    await ensurePosRegisterSessionOpen(page);
+    await ensurePosSaleCashierSignedIn(page);
+    await expect(page.getByTestId("pos-product-search")).toBeVisible({
+      timeout: 20_000,
+    });
+
+    const trigger = page.getByTestId("pos-exchange-wizard-trigger");
+    await expect(trigger).toBeVisible({ timeout: 15_000 });
+    await trigger.click();
+
+    const wizardDialog = page.getByTestId("pos-exchange-wizard-dialog");
+    await expect(wizardDialog).toBeVisible({ timeout: 15_000 });
+    await wizardDialog
+      .getByPlaceholder(/search transactions/i)
+      .fill(checkout.transaction_id.slice(0, 8));
+    await wizardDialog.getByText(new RegExp(checkout.transaction_id.slice(0, 8), "i")).click();
+
+    await expect(wizardDialog.getByText(sku)).toBeVisible({ timeout: 15_000 });
+    await wizardDialog.getByPlaceholder("0").fill("1");
+    await wizardDialog.getByRole("button", { name: /continue exchange/i }).click();
+
+    await expect(wizardDialog).toBeHidden({ timeout: 15_000 });
+    await expect(page.getByText(/exchange credit/i).first()).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(page.getByText("$100.00").first()).toBeVisible();
+    await expect(page.getByRole("button", { name: /\$-108\.75\s+pay/i })).toBeVisible();
+  });
+
   test("returned quantity stays in sync across totals, refund queue, and receipt output", async ({
     request,
   }) => {

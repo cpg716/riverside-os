@@ -35,7 +35,7 @@ Use **Insights** (Metabase) when you need to **explore**, save ad-hoc questions,
    - **Booked (sale date)** — when the sale was rung (pipeline / “what we sold”).
    - **Completed (recognition)** — when qualifying fulfillment events happened (pickup / ship per your store rules). Same ideas as Metabase reporting; see **[REPORTING_BOOKED_AND_FULFILLED.md](../REPORTING_BOOKED_AND_FULFILLED.md)** if you need detail.
 7. For **Sales Breakdown** and **Margin & Cost Breakdown** (Admin only), use **Group by** to change the breakdown (brand, category, salesperson, customer, or day).
-8. Use **Refresh** if you change filters. Use **Print Report** to print the loaded report, including summary-style reports and no-row results.
+8. Use **Refresh** if you change filters. Use **View Report** to review the loaded report inside ROS, including summary-style reports and no-row results. Use **Print Report** to send that report to the configured Reports printer.
 9. Use **CSV** (when shown) to download the current table.
 10. Many reports now include compact **chart cards** above the table so you can see top values, trends, and exception counts before reading row detail.
 
