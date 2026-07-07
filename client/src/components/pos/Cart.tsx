@@ -3668,6 +3668,7 @@ export default function Cart({
         customerCode={selectedCustomer?.customer_code ?? null}
         customerTaxExempt={selectedCustomer?.tax_exempt ?? false}
         customerTaxExemptId={selectedCustomer?.tax_exempt_id ?? null}
+        returnOnlyRefundMode={pendingReturnTender?.returnOnly ?? false}
         authoritativeDepositCents={0}
         existingPaidAmountCents={pickupPaidAmountCents}
         profileBlocksCheckout={false}

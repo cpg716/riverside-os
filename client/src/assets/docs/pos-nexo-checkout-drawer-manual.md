@@ -37,7 +37,7 @@ Choose the tender type on the left, then collect the amount in the center panel.
 - **Card reader** sends the payment to the selected Helcim terminal.
 - **Card Not Present** is for phone orders. It sends the payment to the selected Helcim terminal for keyed entry when the terminal supports that workflow.
 - Riverside does not ask staff to enter a Helcim invoice number for Card Not Present. ROS records the approved Helcim attempt returned for the terminal request.
-- **Card refund** supports two Helcim refund paths. Use **API Refund** with the original Helcim transaction ID when the card is not present. Use **Terminal Refund** only when the customer and original card are present at the terminal.
+- **Card refund** appears only when ROS already has the original Helcim payment reference for the refund. Staff do not enter Helcim invoice, provider, or transaction IDs. Use **Card Not Present** refund when the original card is not present. Use **Original Card** only when the customer and original card are present at the terminal.
 - **Offline CC** records a card sale or refund that was manually approved outside ROS, such as a phone approval, internet outage, card-not-present refund, or non-prior-Helcim refund. Enter only the approval/reference, last four digits, and reason. Never enter full card numbers or CVV.
 - **Cash**, **check**, **gift card**, **store credit**, and other tenders remain separate so the sale ledger stays auditable.
 - **Donation** records a non-sale donation tender. Enter the required note before adding payment so accounting can review why the donation was taken.

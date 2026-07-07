@@ -48,7 +48,7 @@ If there are no card payments yet, the tab shows **No payments yet today**. Run 
 
 Use **POS → Payments** for same-day register review. It opens to **Today**, which lists the current day’s Helcim card transactions. Select a row to review the payment, provider reference, batch state, fee/net readiness, and related reconciliation history.
 
-Use **Refund** from the same POS Payments screen for a standalone Helcim card refund when the original Helcim transaction ID is known and the refund is not part of an in-cart return/exchange workflow. ROS starts the provider refund and records the Helcim attempt in Payments, but it does not create a sales refund or change a Transaction Record by itself.
+Use **Refund** from the same POS Payments screen for a standalone Helcim card refund only when ROS already has the original Helcim payment reference. Staff do not type Helcim invoice, provider, or transaction IDs into ROS. ROS starts the provider refund and records the Helcim attempt in Payments, but it does not create a sales refund or change a Transaction Record by itself.
 
 Use **Terminal Health** when a terminal attempt, webhook update, or close-blocking card issue needs review before Z-close. POS Payments does not replace the checkout drawer for collecting sale payments and does not change sale totals.
 
@@ -61,7 +61,7 @@ Use the POS checkout drawer for live card collection.
 - **Card Reader** sends the sale amount to the selected Helcim terminal for tap, insert, or swipe.
 - **Card Not Present** is for phone orders. It sends the sale amount to the selected Helcim terminal for keyed entry when the terminal supports that workflow. Do not type card numbers or CVV into ROS notes, references, search fields, or support chats.
 - **Saved Card** charges a Helcim-saved card token for the selected customer. ROS shows masked card details when Helcim returns them, but staff should never copy or expose the token.
-- **Card Refund** appears for refund/negative checkout totals. Use **API Refund** when refunding a prior Helcim transaction and the card is not present. Use **Terminal Refund** only when the customer and original card are present at the register.
+- **Card Refund** appears only when ROS already has the original Helcim payment reference for the refund. Staff do not enter Helcim invoice, provider, or transaction IDs. Use **Card Not Present** refund when the original card is not present. Use **Original Card** only when the customer and original card are present at the register.
 - **Offline CC** records a card sale or refund that was manually approved outside ROS, such as a phone approval, internet outage, card-not-present refund, or non-prior-Helcim refund. Enter only the approval/reference, last four digits, and reason. Never enter the full card number or CVV.
 
 Terminal selection is in the checkout drawer header. Register #1 defaults to **Terminal 1**, Register #2 defaults to **Terminal 2**, and Register #3/#4 must choose an available terminal. A green dot means the selected terminal path is ready; a red dot means configuration, routing, or terminal availability needs attention.

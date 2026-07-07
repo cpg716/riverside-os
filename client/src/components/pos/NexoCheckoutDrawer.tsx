@@ -464,6 +464,7 @@ export interface NexoCheckoutDrawerProps {
   customerTaxExempt?: boolean;
   customerTaxExemptId?: string | null;
   originalHelcimTransactionIdForRefund?: string | number | null;
+  returnOnlyRefundMode?: boolean;
   authoritativeDepositCents?: number;
   profileBlocksCheckout: boolean;
   onOpenProfileGate: () => void;
@@ -508,6 +509,7 @@ export default function NexoCheckoutDrawer({
   customerTaxExempt = false,
   customerTaxExemptId = null,
   originalHelcimTransactionIdForRefund = null,
+  returnOnlyRefundMode = false,
   authoritativeDepositCents = 0,
   profileBlocksCheckout,
   onOpenProfileGate,
@@ -553,6 +555,8 @@ export default function NexoCheckoutDrawer({
   const [helcimAttempt, setHelcimAttempt] = useState<HelcimAttempt | null>(null);
   const [helcimUnverifiedNotice, setHelcimUnverifiedNotice] = useState<string | null>(null);
   const [helcimAttemptLoading, setHelcimAttemptLoading] = useState(false);
+  const originalHelcimRefundReference = String(originalHelcimTransactionIdForRefund ?? "").trim();
+  const hasOriginalHelcimRefundReference = originalHelcimRefundReference.length > 0;
   const [manualCardHandoffUrl, setManualCardHandoffUrl] = useState<string | null>(null);
   const [helcimCards, setHelcimCards] = useState<HelcimCard[]>([]);
   const [selectedHelcimCardToken, setSelectedHelcimCardToken] = useState<string>("");
@@ -687,6 +691,12 @@ export default function NexoCheckoutDrawer({
     }
     if (isRefundCheckout) {
       base = base.filter((id) => !["card_terminal", "card_manual", "card_saved", "donation"].includes(id));
+      if (!hasOriginalHelcimRefundReference) {
+        base = base.filter((id) => id !== "card_credit");
+      }
+      if (returnOnlyRefundMode) {
+        base = base.filter((id) => id !== "card_credit" && id !== "offline_cc");
+      }
     } else {
       base = base.filter((id) => id !== "card_credit");
     }
@@ -695,7 +705,7 @@ export default function NexoCheckoutDrawer({
       base = base.filter((id) => !id.startsWith("card_"));
     }
     return base;
-  }, [allowStoreCredit, amountDueCents, rmsPaymentCollectionMode, providerHealthHardFailed]);
+  }, [allowStoreCredit, amountDueCents, rmsPaymentCollectionMode, providerHealthHardFailed, returnOnlyRefundMode, hasOriginalHelcimRefundReference]);
 
   const paidSoFarCents = useMemo(() => applied.reduce((s, p) => s + p.amountCents, 0), [applied]);
   const depositDisplayCents = useMemo(() => Math.max(0, parseMoneyToCents(appliedDepositAmount.trim())), [appliedDepositAmount]);
@@ -785,13 +795,11 @@ export default function NexoCheckoutDrawer({
   useEffect(() => {
     if (isOpen) {
       setKeypad("");
-      setTab(amountDueCents < 0 ? "card_credit" : rmsPaymentCollectionMode ? "cash" : "card_terminal");
+      setTab(amountDueCents < 0 ? (returnOnlyRefundMode || !hasOriginalHelcimRefundReference ? "cash" : "card_credit") : rmsPaymentCollectionMode ? "cash" : "card_terminal");
       setGiftCardCode("");
       setCheckNumber("");
       setRefundOriginalTransactionId(
-        originalHelcimTransactionIdForRefund == null
-          ? ""
-          : String(originalHelcimTransactionIdForRefund),
+        originalHelcimRefundReference,
       );
       setRefundOriginalCardPresentConfirmed(false);
       setCardRefundRoute("api");
@@ -816,7 +824,7 @@ export default function NexoCheckoutDrawer({
       setSelectedTerminalKey("");
       setTerminalOverrideConfirmed(false);
     }
-  }, [amountDueCents, isOpen, originalHelcimTransactionIdForRefund, rmsPaymentCollectionMode, customerTaxExempt, customerTaxExemptId]);
+  }, [amountDueCents, isOpen, originalHelcimRefundReference, rmsPaymentCollectionMode, customerTaxExempt, customerTaxExemptId, returnOnlyRefundMode, hasOriginalHelcimRefundReference]);
 
   const loadProviderSettings = useCallback(async (): Promise<PaymentProviderSettings | null> => {
     setProviderSettingsLoading(true);
@@ -1644,7 +1652,7 @@ export default function NexoCheckoutDrawer({
       if (tab === "card_credit") {
         const originalTransactionId = Number.parseInt(refundOriginalTransactionId.trim(), 10);
         if (!Number.isFinite(originalTransactionId) || originalTransactionId <= 0) {
-          toast("Enter the original Helcim transaction ID before starting the refund.", "error");
+          toast("ROS could not find the original Helcim payment for this card refund.", "error");
           return;
         }
         if (cardRefundRoute === "api") {
@@ -2665,8 +2673,8 @@ export default function NexoCheckoutDrawer({
                         Helcim card refund
                       </span>
                       <p className="mt-1">
-                        Refund a prior Helcim card transaction. Use Payment API when the card is not
-                        present; use terminal refund only when the customer and original card are present.
+                        ROS found the original Helcim payment for this refund. No Helcim invoice,
+                        provider, or transaction ID entry is needed.
                       </p>
                       <div className="mt-3 grid grid-cols-2 gap-2">
                         <button
@@ -2678,7 +2686,7 @@ export default function NexoCheckoutDrawer({
                               : "border-app-border bg-app-surface text-app-text-muted hover:border-rose-500/40"
                           }`}
                         >
-                          API Refund
+                          Card Not Present
                         </button>
                         <button
                           type="button"
@@ -2689,19 +2697,9 @@ export default function NexoCheckoutDrawer({
                               : "border-app-border bg-app-surface text-app-text-muted hover:border-rose-500/40"
                           }`}
                         >
-                          Terminal Refund
+                          Original Card
                         </button>
                       </div>
-                      <label className="mt-3 block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                        Original Helcim transaction ID
-                        <input
-                          type="text"
-                          inputMode="numeric"
-                          value={refundOriginalTransactionId}
-                          onChange={(event) => setRefundOriginalTransactionId(event.target.value)}
-                          className="mt-1 min-h-10 w-full rounded-xl border border-app-border bg-app-surface px-3 text-sm font-bold text-app-text outline-none transition-colors focus:border-app-accent"
-                        />
-                      </label>
                       {cardRefundRoute === "terminal" && (
                         <label className="mt-3 flex items-start gap-2 text-xs font-semibold text-app-text-muted">
                           <input

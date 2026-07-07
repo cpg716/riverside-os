@@ -119,7 +119,7 @@ Technical reference for engineers and leads: **[Parked sales and RMS charges](..
     - The **keypad** stays fixed in the payment panel — scroll only affects the tender and balance area above it if the screen is very short.
 4. **Integrated card payments:**
    - Card payments use the Helcim terminal flow.
-   - **Card Refund** appears on returns to issue a refund back via the terminal.
+   - **Card Refund** appears only when ROS already has the original Helcim payment reference for the refund. Normal return-only refunds use the available refund tenders, and staff do not enter Helcim invoice, provider, or transaction IDs.
    - See **[`pos-nexo-checkout-drawer-manual.md`](../../client/src/assets/docs/pos-nexo-checkout-drawer-manual.md)** for full details.
 5. **Audited Tax Exemptions:**
    - For tax-free sales, tap the **Tax Exempt** toggle in the checkout drawer.
