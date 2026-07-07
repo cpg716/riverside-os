@@ -21,6 +21,7 @@
     "wedding:cutover:preview": "node scripts/wedding-cutover-import-preview.mjs",
     "release:retag": "node scripts/release-retag.mjs",
     "push:main-hub": "pwsh -NoProfile -File scripts/push-main-hub.ps1",
+    "push:main-hub:fast": "pwsh -NoProfile -File scripts/push-main-hub-fast.ps1",
     "help:aidocs:check": "uvx --from aidocs aidocs check",
     "generate:help": "cd client && npm run generate:help",
     "generate:help:screenshots": "cd client && npm run generate:help:screenshots --",

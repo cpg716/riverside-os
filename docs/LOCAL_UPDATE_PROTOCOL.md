@@ -62,13 +62,12 @@ Ship a folder or archive the operator can keep on the server PC (or copy from me
 
 ### 5.0 Push to Main Hub (recommended for same-network hotfixes)
 
-When the production Main Hub is reachable on the same network, use the guarded LAN push workflow instead of waiting for GitHub release assets.
+When the production Main Hub is reachable on the same network, use the guarded LAN push workflow instead of waiting for GitHub release assets. The fastest routine path is source-based: the Mac sends the committed source snapshot to the Main Hub, the Main Hub builds the Windows server/web bundle locally, and the existing installer applies the update.
 
 Prerequisites:
 
 - PowerShell Remoting is enabled on the Main Hub.
 - The account used for the remote session is a local Administrator on the Main Hub.
-- A `MainHub-Update` deployment package already exists locally under `dist/deployment/`, or its path is passed explicitly.
 - The Main Hub has its installed config at `C:\RiversideOS\riverside-deployment.config.json`.
 
 If PowerShell Remoting has not been enabled yet, run this once from an elevated PowerShell window on the Main Hub:
@@ -77,7 +76,15 @@ If PowerShell Remoting has not been enabled yet, run this once from an elevated 
 .\deployment\windows\Enable-MainHubLanAdmin.ps1 -Force
 ```
 
-Build or prepare the package, then run from the repo root:
+For normal fast LAN updates, run from the repo root:
+
+```bash
+ROS_MAIN_HUB_HOST="MAIN-HUB-NAME-OR-IP" npm run push:main-hub:fast
+```
+
+The first Main Hub run may install or require Git, Node.js, and Rust via Windows Package Manager. Later runs reuse the installed tools and build caches.
+
+If you already have a prebuilt package, use the package push path instead:
 
 ```bash
 ROS_MAIN_HUB_HOST="MAIN-HUB-NAME-OR-IP" npm run push:main-hub
@@ -91,7 +98,7 @@ pwsh -NoProfile -File scripts/push-main-hub.ps1 `
   -PackagePath "dist/deployment/RiversideOS-v0.90.0-abc12345-MainHub-Update.zip"
 ```
 
-The script:
+The package push script:
 
 1. verifies the local package shape;
 2. copies it to `C:\ProgramData\RiversideOS\incoming\<timestamp>` on the Main Hub;
