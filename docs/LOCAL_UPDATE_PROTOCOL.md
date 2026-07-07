@@ -71,6 +71,12 @@ Prerequisites:
 - A `MainHub-Update` deployment package already exists locally under `dist/deployment/`, or its path is passed explicitly.
 - The Main Hub has its installed config at `C:\RiversideOS\riverside-deployment.config.json`.
 
+If PowerShell Remoting has not been enabled yet, run this once from an elevated PowerShell window on the Main Hub:
+
+```powershell
+.\deployment\windows\Enable-MainHubLanAdmin.ps1 -Force
+```
+
 Build or prepare the package, then run from the repo root:
 
 ```bash

@@ -370,6 +370,7 @@ Copy-Item "$PSScriptRoot\Export-IntegrationCredentials.ps1" $packageRoot -Force
 Copy-Item "$PSScriptRoot\Import-IntegrationCredentials.ps1" $packageRoot -Force
 Copy-Item "$PSScriptRoot\Install-ROSDeploymentApps.ps1" $packageRoot -Force
 Copy-Item "$PSScriptRoot\Install-ROSDeploymentApps.cmd" $packageRoot -Force
+Copy-Item "$PSScriptRoot\Enable-MainHubLanAdmin.ps1" $packageRoot -Force
 
 # Include encrypted integration credentials if they were exported and committed
 $integrationCredsSource = Join-Path $repoRoot "integration-credentials.sql"
