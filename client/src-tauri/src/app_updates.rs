@@ -71,6 +71,17 @@ fn release_build_id(release: &RemoteRelease) -> Option<String> {
     normalize_build_id(release.version.build.as_str())
 }
 
+fn same_version_rebuild_available(current_build: Option<&str>, update_build: Option<&str>) -> bool {
+    let Some(update_build) = update_build.and_then(normalize_build_id) else {
+        return false;
+    };
+
+    match current_build.and_then(normalize_build_id) {
+        Some(current_build) => update_build != current_build,
+        None => true,
+    }
+}
+
 fn build_updater(app: &AppHandle, endpoint: String, pubkey: String) -> Result<Updater, String> {
     let current_build = current_build_id();
     let endpoint = endpoint
@@ -87,11 +98,10 @@ fn build_updater(app: &AppHandle, endpoint: String, pubkey: String) -> Result<Up
                 && current.patch == update.version.patch
                 && current.pre == update.version.pre
             {
-                if let Some(current_build) = &current_build {
-                    if let Some(update_build) = release_build_id(&update) {
-                        return update_build != *current_build;
-                    }
-                }
+                return same_version_rebuild_available(
+                    current_build.as_deref(),
+                    release_build_id(&update).as_deref(),
+                );
             }
 
             update.version > current
@@ -202,4 +212,39 @@ pub async fn install_app_update(app: AppHandle) -> Result<InstallUpdateResult, S
         current_build,
         installed_build,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::same_version_rebuild_available;
+
+    #[test]
+    fn same_version_rebuild_is_available_when_build_differs() {
+        assert!(same_version_rebuild_available(
+            Some("aaaa1111"),
+            Some("bbbb2222")
+        ));
+    }
+
+    #[test]
+    fn same_version_rebuild_is_not_available_when_build_matches() {
+        assert!(!same_version_rebuild_available(
+            Some("aaaa1111cccc"),
+            Some("aaaa1111dddd")
+        ));
+    }
+
+    #[test]
+    fn same_version_rebuild_is_available_when_current_build_is_unknown() {
+        assert!(same_version_rebuild_available(None, Some("bbbb2222")));
+        assert!(same_version_rebuild_available(
+            Some("dev"),
+            Some("bbbb2222")
+        ));
+    }
+
+    #[test]
+    fn same_version_rebuild_requires_published_build_metadata() {
+        assert!(!same_version_rebuild_available(Some("aaaa1111"), None));
+    }
 }

@@ -119,9 +119,24 @@ fn is_local_dev_sha(sha: &str) -> bool {
         || trimmed.eq_ignore_ascii_case("unknown")
 }
 
+fn same_version_rebuild_available(current_sha: &str, latest_sha: Option<&str>) -> bool {
+    let Some(latest_sha) = latest_sha.map(str::trim).filter(|sha| !sha.is_empty()) else {
+        return false;
+    };
+
+    if is_local_dev_sha(current_sha) {
+        return true;
+    }
+
+    // Compare full SHA or the first 8 chars against CURRENT_BUILD_SHA.
+    let current_short = &current_sha[..current_sha.len().min(8)];
+    let latest_short = &latest_sha[..latest_sha.len().min(8)];
+    latest_short != current_short
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{latest_version_is_newer, version_core};
+    use super::{latest_version_is_newer, same_version_rebuild_available, version_core};
 
     #[test]
     fn version_core_strips_tag_prefix_and_build_metadata() {
@@ -136,6 +151,22 @@ mod tests {
         assert!(!latest_version_is_newer("0.90.0", "0.90.0"));
         assert!(!latest_version_is_newer("0.89.9", "0.90.0"));
         assert!(!latest_version_is_newer("v0.90.0+abcd", "0.90.0"));
+    }
+
+    #[test]
+    fn same_version_rebuild_is_available_when_sha_differs_or_current_is_unknown() {
+        assert!(same_version_rebuild_available("aaaa1111", Some("bbbb2222")));
+        assert!(same_version_rebuild_available("dev", Some("bbbb2222")));
+        assert!(same_version_rebuild_available("", Some("bbbb2222")));
+    }
+
+    #[test]
+    fn same_version_rebuild_is_not_available_when_sha_matches_or_latest_is_unknown() {
+        assert!(!same_version_rebuild_available(
+            "aaaa1111cccc",
+            Some("aaaa1111dddd")
+        ));
+        assert!(!same_version_rebuild_available("aaaa1111", None));
     }
 }
 
@@ -171,17 +202,7 @@ pub async fn check_for_update(client: &reqwest::Client) -> Result<UpdateCheckRes
 
     let version_changed = latest_version_is_newer(&latest_ver, &current_ver);
     let rebuild_available = !version_changed
-        && !is_local_dev_sha(&current_sha)
-        && manifest
-            .build_sha
-            .as_deref()
-            .map(|sha| {
-                // Compare full SHA or the first 8 chars against CURRENT_BUILD_SHA
-                let current_short = &current_sha[..current_sha.len().min(8)];
-                let latest_short = &sha[..sha.len().min(8)];
-                latest_short != current_short
-            })
-            .unwrap_or(false);
+        && same_version_rebuild_available(&current_sha, manifest.build_sha.as_deref());
 
     let update_available = version_changed || rebuild_available;
 
