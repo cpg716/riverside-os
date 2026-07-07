@@ -1,5 +1,6 @@
 [CmdletBinding()]
 param(
+  [switch]$MacClientCompatibility,
   [switch]$Force
 )
 
@@ -32,16 +33,22 @@ Write-Host "Enabling Riverside OS LAN admin channel for Main Hub updates..."
 Set-Service -Name WinRM -StartupType Automatic
 Enable-PSRemoting -Force:$Force -SkipNetworkProfileCheck
 
-try {
-  Set-Item -Path WSMan:\localhost\Service\Auth\Basic -Value $false
-} catch {
-  Write-Warning "Could not disable WinRM Basic auth: $($_.Exception.Message)"
-}
+if ($MacClientCompatibility) {
+  Write-Warning "Enabling WinRM Basic auth and AllowUnencrypted for private-LAN macOS PowerShell compatibility."
+  Set-Item -Path WSMan:\localhost\Service\Auth\Basic -Value $true
+  Set-Item -Path WSMan:\localhost\Service\AllowUnencrypted -Value $true
+} else {
+  try {
+    Set-Item -Path WSMan:\localhost\Service\Auth\Basic -Value $false
+  } catch {
+    Write-Warning "Could not disable WinRM Basic auth: $($_.Exception.Message)"
+  }
 
-try {
-  Set-Item -Path WSMan:\localhost\Service\AllowUnencrypted -Value $false
-} catch {
-  Write-Warning "Could not require encrypted WinRM transport: $($_.Exception.Message)"
+  try {
+    Set-Item -Path WSMan:\localhost\Service\AllowUnencrypted -Value $false
+  } catch {
+    Write-Warning "Could not require encrypted WinRM transport: $($_.Exception.Message)"
+  }
 }
 
 if (-not (Get-NetFirewallRule -DisplayName "Riverside OS Main Hub WinRM" -ErrorAction SilentlyContinue)) {
@@ -60,8 +67,8 @@ Write-Host ""
 Write-Host "LAN admin channel is ready."
 if ($ip) {
   Write-Host "From the repo Mac, test with:"
-  Write-Host "  npm run push:main-hub -- -MainHubHost `"$ip`" -DryRun"
+  Write-Host "  npm run push:main-hub:fast -- -MainHubHost `"$ip`" -Authentication Basic -DryRun"
 } else {
   Write-Host "From the repo Mac, test with:"
-  Write-Host "  npm run push:main-hub -- -MainHubHost `"<MAIN_HUB_IP_OR_NAME>`" -DryRun"
+  Write-Host "  npm run push:main-hub:fast -- -MainHubHost `"<MAIN_HUB_IP_OR_NAME>`" -Authentication Basic -DryRun"
 }

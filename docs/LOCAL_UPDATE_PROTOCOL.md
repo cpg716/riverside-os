@@ -73,7 +73,7 @@ Prerequisites:
 If PowerShell Remoting has not been enabled yet, run this once from an elevated PowerShell window on the Main Hub:
 
 ```powershell
-.\deployment\windows\Enable-MainHubLanAdmin.ps1 -Force
+.\deployment\windows\Enable-MainHubLanAdmin.ps1 -MacClientCompatibility -Force
 ```
 
 For normal fast LAN updates, run from the repo root:
@@ -91,6 +91,7 @@ npm run push:main-hub:fast
 ```
 
 The script will prompt for the password if `ROS_MAIN_HUB_PASSWORD` is not set.
+For the private-LAN macOS-to-Windows setup, add `-- -Authentication Basic` when using npm script arguments.
 
 The first Main Hub run may install or require Git, Node.js, and Rust via Windows Package Manager. Later runs reuse the installed tools and build caches.
 

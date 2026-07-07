@@ -6,6 +6,8 @@ param(
   [string]$RemoteConfigPath = "C:\RiversideOS\riverside-deployment.config.json",
   [string]$UserName = $env:ROS_MAIN_HUB_USER,
   [string]$Password = $env:ROS_MAIN_HUB_PASSWORD,
+  [ValidateSet("Default", "Negotiate", "Basic")]
+  [string]$Authentication = "Default",
   [System.Management.Automation.PSCredential]$Credential,
   [switch]$SkipBackup,
   [switch]$SkipMigrations,
@@ -85,7 +87,7 @@ function Assert-PackageShape([string]$Path) {
   }
 }
 
-function New-MainHubSession([string]$HostName, [System.Management.Automation.PSCredential]$Cred) {
+function New-MainHubSession([string]$HostName, [System.Management.Automation.PSCredential]$Cred, [string]$AuthMode) {
   if ([string]::IsNullOrWhiteSpace($HostName)) {
     throw "Main Hub host is required. Pass -MainHubHost or set ROS_MAIN_HUB_HOST."
   }
@@ -93,6 +95,9 @@ function New-MainHubSession([string]$HostName, [System.Management.Automation.PSC
   $args = @{ ComputerName = $HostName }
   if ($Cred) {
     $args.Credential = $Cred
+  }
+  if ($AuthMode -ne "Default") {
+    $args.Authentication = $AuthMode
   }
   New-PSSession @args
 }
@@ -329,7 +334,7 @@ $Credential = Resolve-Credential $Credential $UserName $Password
 
 $session = $null
 try {
-  $session = New-MainHubSession $MainHubHost $Credential
+  $session = New-MainHubSession $MainHubHost $Credential $Authentication
   $remotePackage = Copy-PackageToMainHub $session $resolvedPackage $RemoteStagingRoot
   Write-Host "Remote package staged at: $remotePackage"
   Invoke-MainHubUpdate $session $remotePackage $RemoteConfigPath (-not $SkipBackup) $SkipMigrations $SkipRosieSetup $NoStart

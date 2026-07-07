@@ -6,6 +6,8 @@ param(
   [string]$RemoteConfigPath = "C:\RiversideOS\riverside-deployment.config.json",
   [string]$UserName = $env:ROS_MAIN_HUB_USER,
   [string]$Password = $env:ROS_MAIN_HUB_PASSWORD,
+  [ValidateSet("Default", "Negotiate", "Basic")]
+  [string]$Authentication = "Default",
   [System.Management.Automation.PSCredential]$Credential,
   [switch]$SkipNpmInstall,
   [switch]$SkipMigrations,
@@ -20,12 +22,13 @@ function Resolve-RepoRoot {
   return (Resolve-Path (Join-Path $scriptDir "..")).Path
 }
 
-function New-MainHubSession([string]$HostName, [System.Management.Automation.PSCredential]$Cred) {
+function New-MainHubSession([string]$HostName, [System.Management.Automation.PSCredential]$Cred, [string]$AuthMode) {
   if ([string]::IsNullOrWhiteSpace($HostName)) {
     throw "Main Hub host is required. Pass -MainHubHost or set ROS_MAIN_HUB_HOST."
   }
   $args = @{ ComputerName = $HostName }
   if ($Cred) { $args.Credential = $Cred }
+  if ($AuthMode -ne "Default") { $args.Authentication = $AuthMode }
   New-PSSession @args
 }
 
@@ -78,7 +81,7 @@ $session = $null
 $archive = $null
 try {
   $archive = New-SourceArchive $repoRoot
-  $session = New-MainHubSession $MainHubHost $Credential
+  $session = New-MainHubSession $MainHubHost $Credential $Authentication
 
   $remoteArchive = Invoke-Command -Session $session -ScriptBlock {
     param($StagingRoot, $ArchiveName)
