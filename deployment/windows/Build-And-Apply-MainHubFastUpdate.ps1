@@ -91,6 +91,10 @@ function Invoke-Step([string]$Label, [scriptblock]$Action) {
   }
 }
 
+function Invoke-CmdNative([string]$CommandLine) {
+  & cmd.exe /d /c "$CommandLine 2>&1"
+}
+
 function Copy-DeploymentScripts([string]$RepoRoot, [string]$Dest) {
   $source = Join-Path $RepoRoot "deployment\windows"
   foreach ($file in Get-ChildItem $source -File -Include "*.ps1", "*.cmd", "*.json") {
@@ -228,11 +232,11 @@ if ($Mode -eq "Full") {
 Refresh-MachinePath
 
 if (-not $SkipNpmInstall) {
-  Invoke-Step "Install root npm dependencies" { npm ci --prefix $SourceRoot }
-  Invoke-Step "Install client npm dependencies" { npm ci --prefix (Join-Path $SourceRoot "client") }
+  Invoke-Step "Install root npm dependencies" { Invoke-CmdNative "npm ci --prefix `"$SourceRoot`"" }
+  Invoke-Step "Install client npm dependencies" { Invoke-CmdNative "npm ci --prefix `"$(Join-Path $SourceRoot "client")`"" }
 }
 
-Invoke-Step "Build client web bundle" { npm run build --prefix $SourceRoot }
+Invoke-Step "Build client web bundle" { Invoke-CmdNative "npm run build --prefix `"$SourceRoot`"" }
 
 $gitShort = $SourceGitShort
 if ([string]::IsNullOrWhiteSpace($gitShort)) {
@@ -251,7 +255,7 @@ if ($Mode -eq "ClientOnly") {
   exit 0
 }
 
-Invoke-Step "Build Windows server binary" { cargo build --release --manifest-path (Join-Path $SourceRoot "server\Cargo.toml") }
+Invoke-Step "Build Windows server binary" { Invoke-CmdNative "cargo build --release --manifest-path `"$(Join-Path $SourceRoot "server\Cargo.toml")`"" }
 
 if ([string]::IsNullOrWhiteSpace($PackageRoot)) {
   $PackageRoot = Join-Path $SourceRoot "dist\main-hub-fast-update\RiversideOS-v$version-$gitShort-MainHub-Update"
