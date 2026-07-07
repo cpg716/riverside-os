@@ -6,6 +6,8 @@ param(
   [string]$RemoteConfigPath = "C:\RiversideOS\riverside-deployment.config.json",
   [string]$UserName = $env:ROS_MAIN_HUB_USER,
   [string]$Password = $env:ROS_MAIN_HUB_PASSWORD,
+  [ValidateSet("ClientOnly", "Full")]
+  [string]$Mode = "ClientOnly",
   [ValidateSet("Default", "Negotiate", "Basic")]
   [string]$Authentication = "Default",
   [System.Management.Automation.PSCredential]$Credential,
@@ -67,8 +69,10 @@ function New-SourceArchive([string]$RepoRoot) {
 
 $repoRoot = Resolve-RepoRoot
 $head = (& git -C $repoRoot rev-parse --short=8 HEAD).Trim()
+$fullHead = (& git -C $repoRoot rev-parse HEAD).Trim()
 Write-Host "Main Hub host: $MainHubHost"
 Write-Host "Source commit: $head"
+Write-Host "Update mode: $Mode"
 Write-Host "Remote source root: $RemoteSourceRoot"
 
 if ($DryRun) {
@@ -92,7 +96,7 @@ try {
   Copy-Item -Path $archive -Destination $remoteArchive -Force -ToSession $session
 
   Invoke-Command -Session $session -ScriptBlock {
-    param($ArchivePath, $SourceRoot, $ConfigPath, $SkipNpmInstall, $SkipMigrations, $NoStart)
+    param($ArchivePath, $SourceRoot, $ConfigPath, $Mode, $SourceGitSha, $SourceGitShort, $SkipNpmInstall, $SkipMigrations, $NoStart)
     $ErrorActionPreference = "Stop"
 
     if (Test-Path $SourceRoot) {
@@ -111,7 +115,13 @@ try {
       "-SourceRoot",
       $SourceRoot,
       "-ConfigPath",
-      $ConfigPath
+      $ConfigPath,
+      "-Mode",
+      $Mode,
+      "-SourceGitSha",
+      $SourceGitSha,
+      "-SourceGitShort",
+      $SourceGitShort
     )
     if ($SkipNpmInstall) { $args += "-SkipNpmInstall" }
     if ($SkipMigrations) { $args += "-SkipMigrations" }
@@ -121,7 +131,7 @@ try {
     if ($LASTEXITCODE -ne 0) {
       throw "Build-And-Apply-MainHubFastUpdate.ps1 failed with exit code $LASTEXITCODE."
     }
-  } -ArgumentList $remoteArchive, $RemoteSourceRoot, $RemoteConfigPath, $SkipNpmInstall, $SkipMigrations, $NoStart
+  } -ArgumentList $remoteArchive, $RemoteSourceRoot, $RemoteConfigPath, $Mode, $fullHead, $head, $SkipNpmInstall, $SkipMigrations, $NoStart
 } finally {
   if ($session) { Remove-PSSession $session }
   if ($archive -and (Test-Path $archive)) { Remove-Item $archive -Force -ErrorAction SilentlyContinue }

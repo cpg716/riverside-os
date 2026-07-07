@@ -3,6 +3,10 @@ param(
   [string]$SourceRoot = "",
   [string]$ConfigPath = "C:\RiversideOS\riverside-deployment.config.json",
   [string]$PackageRoot = "",
+  [ValidateSet("ClientOnly", "Full")]
+  [string]$Mode = "Full",
+  [string]$SourceGitSha = "",
+  [string]$SourceGitShort = "",
   [switch]$SkipToolInstall,
   [switch]$SkipNpmInstall,
   [switch]$SkipMigrations,
@@ -113,6 +117,94 @@ function Ensure-MeilisearchRuntime([string]$DestPackageRoot) {
   Invoke-WebRequest -Uri $url -OutFile $destExe -UseBasicParsing
 }
 
+function Resolve-InstallRootFromConfig([string]$Path) {
+  $config = Get-Content $Path -Raw | ConvertFrom-Json
+  $installRoot = $config.server.installRoot
+  if ([string]::IsNullOrWhiteSpace($installRoot)) {
+    return "C:\RiversideOS"
+  }
+  return $installRoot
+}
+
+function Get-ServerHealthUrl([string]$Path) {
+  $config = Get-Content $Path -Raw | ConvertFrom-Json
+  $httpBind = $config.server.httpBind
+  if ([string]::IsNullOrWhiteSpace($httpBind)) {
+    return "http://127.0.0.1:3000/api/health"
+  }
+  if ($httpBind -match ':(\d+)$') {
+    return "http://127.0.0.1:$($Matches[1])/api/health"
+  }
+  return "http://127.0.0.1:3000/api/health"
+}
+
+function Test-ServerHealth([string]$ConfigPath) {
+  $healthUrl = Get-ServerHealthUrl $ConfigPath
+  try {
+    $response = Invoke-WebRequest -Uri $healthUrl -UseBasicParsing -TimeoutSec 10
+    if ([int]$response.StatusCode -lt 200 -or [int]$response.StatusCode -ge 300) {
+      throw "Unexpected status code $($response.StatusCode)."
+    }
+    Write-Host "Main Hub health check passed: $healthUrl" -ForegroundColor Green
+  } catch {
+    throw "Main Hub health check failed at ${healthUrl}: $($_.Exception.Message)"
+  }
+}
+
+function Apply-ClientDistUpdate(
+  [string]$RepoRoot,
+  [string]$ConfigPath,
+  [string]$Version,
+  [string]$GitShort,
+  [string]$GitFull
+) {
+  $builtDist = Join-Path $RepoRoot "client\dist"
+  $builtIndex = Join-Path $builtDist "index.html"
+  if (-not (Test-Path $builtIndex)) {
+    throw "Built client dist is missing index.html: $builtDist"
+  }
+
+  $installRoot = Resolve-InstallRootFromConfig $ConfigPath
+  $clientRoot = Join-Path $installRoot "client"
+  $clientDist = Join-Path $clientRoot "dist"
+  $releaseRoot = Join-Path $installRoot "release\lan-client"
+  $timestamp = (Get-Date).ToUniversalTime().ToString("yyyyMMddTHHmmssZ")
+  $stage = Join-Path $releaseRoot "dist-$Version-$GitShort-$timestamp"
+  $backup = Join-Path $releaseRoot "backup-$timestamp"
+
+  New-Item -ItemType Directory -Force -Path $releaseRoot | Out-Null
+  Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
+  New-Item -ItemType Directory -Force -Path $stage | Out-Null
+  Copy-Item (Join-Path $builtDist "*") $stage -Recurse -Force
+
+  $manifest = @{
+    releaseVersion = $Version
+    sourceGitShort = $GitShort
+    sourceGitSha = $GitFull
+    appliedAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+    updateMode = "client-only"
+  } | ConvertTo-Json -Depth 4
+  Set-Content -Path (Join-Path $stage "riverside-lan-update.json") -Value $manifest -Encoding UTF8
+
+  New-Item -ItemType Directory -Force -Path $clientRoot | Out-Null
+  try {
+    if (Test-Path $clientDist) {
+      Move-Item -Path $clientDist -Destination $backup -Force
+    }
+    Move-Item -Path $stage -Destination $clientDist -Force
+    Remove-Item $backup -Recurse -Force -ErrorAction SilentlyContinue
+  } catch {
+    if ((-not (Test-Path $clientDist)) -and (Test-Path $backup)) {
+      Move-Item -Path $backup -Destination $clientDist -Force
+    }
+    throw
+  }
+
+  Set-Content -Path (Join-Path $installRoot "lan-update-summary.json") -Value $manifest -Encoding UTF8
+  Write-Host "Main Hub client dist updated: $clientDist"
+  Test-ServerHealth $ConfigPath
+}
+
 Assert-Admin
 
 if ([string]::IsNullOrWhiteSpace($SourceRoot)) {
@@ -128,10 +220,11 @@ if (-not (Test-Path $ConfigPath)) {
   throw "Main Hub config was not found: $ConfigPath"
 }
 
-Ensure-Command git.exe "Git.Git"
 Ensure-Command node.exe "OpenJS.NodeJS.LTS"
 Ensure-Command npm.cmd "OpenJS.NodeJS.LTS"
-Ensure-Command cargo.exe "Rustlang.Rustup"
+if ($Mode -eq "Full") {
+  Ensure-Command cargo.exe "Rustlang.Rustup"
+}
 Refresh-MachinePath
 
 if (-not $SkipNpmInstall) {
@@ -140,11 +233,25 @@ if (-not $SkipNpmInstall) {
 }
 
 Invoke-Step "Build client web bundle" { npm run build --prefix $SourceRoot }
-Invoke-Step "Build Windows server binary" { cargo build --release --manifest-path (Join-Path $SourceRoot "server\Cargo.toml") }
 
-$gitShort = Get-GitShort $SourceRoot
-$gitFull = Get-GitFull $SourceRoot
+$gitShort = $SourceGitShort
+if ([string]::IsNullOrWhiteSpace($gitShort)) {
+  $gitShort = Get-GitShort $SourceRoot
+}
+$gitFull = $SourceGitSha
+if ([string]::IsNullOrWhiteSpace($gitFull)) {
+  $gitFull = Get-GitFull $SourceRoot
+}
 $version = (Get-Content (Join-Path $SourceRoot "package.json") -Raw | ConvertFrom-Json).version
+
+if ($Mode -eq "ClientOnly") {
+  Apply-ClientDistUpdate $SourceRoot $ConfigPath $version $gitShort $gitFull
+  Write-Host ""
+  Write-Host "Main Hub client-only LAN update complete."
+  exit 0
+}
+
+Invoke-Step "Build Windows server binary" { cargo build --release --manifest-path (Join-Path $SourceRoot "server\Cargo.toml") }
 
 if ([string]::IsNullOrWhiteSpace($PackageRoot)) {
   $PackageRoot = Join-Path $SourceRoot "dist\main-hub-fast-update\RiversideOS-v$version-$gitShort-MainHub-Update"

@@ -62,7 +62,7 @@ Ship a folder or archive the operator can keep on the server PC (or copy from me
 
 ### 5.0 Push to Main Hub (recommended for same-network hotfixes)
 
-When the production Main Hub is reachable on the same network, use the guarded LAN push workflow instead of waiting for GitHub release assets. The fastest routine path is source-based: the Mac sends the committed source snapshot to the Main Hub, the Main Hub builds the Windows server/web bundle locally, and the existing installer applies the update.
+When the production Main Hub is reachable on the same network, use the guarded LAN push workflow instead of waiting for GitHub release assets. The default fast path is **client-only**: the Mac sends the committed source snapshot to the Main Hub, the Main Hub builds the web bundle, and the script atomically swaps `C:\RiversideOS\client\dist` without rebuilding the Rust server binary, running migrations, or repackaging installer assets.
 
 Prerequisites:
 
@@ -76,7 +76,7 @@ If PowerShell Remoting has not been enabled yet, run this once from an elevated 
 .\deployment\windows\Enable-MainHubLanAdmin.ps1 -MacClientCompatibility -Force
 ```
 
-For normal fast LAN updates, run from the repo root:
+For normal UI/web-only LAN updates, run from the repo root:
 
 ```bash
 ROS_MAIN_HUB_HOST="MAIN-HUB-NAME-OR-IP" npm run push:main-hub:fast
@@ -93,7 +93,15 @@ npm run push:main-hub:fast
 The script will prompt for the password if `ROS_MAIN_HUB_PASSWORD` is not set.
 For the private-LAN macOS-to-Windows setup, add `-- -Authentication Basic` when using npm script arguments.
 
-The first Main Hub run may install or require Git, Node.js, and Rust via Windows Package Manager. Later runs reuse the installed tools and build caches.
+The client-only path may install or require Node.js via Windows Package Manager. It writes `C:\RiversideOS\lan-update-summary.json` and verifies the existing server health endpoint after the static bundle swap.
+
+Use the full source-build mode only when the server binary must change and no prebuilt GitHub/Main Hub update package is available:
+
+```bash
+ROS_MAIN_HUB_HOST="MAIN-HUB-NAME-OR-IP" npm run push:main-hub:fast -- -Mode Full
+```
+
+Full mode may install or require Rust and can take substantially longer on the Main Hub. For routine backend/server changes, prefer the GitHub `main-hub-update` or `full-deployment` package path and push that package over LAN with `npm run push:main-hub`.
 
 If you already have a prebuilt package, use the package push path instead:
 

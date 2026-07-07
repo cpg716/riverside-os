@@ -186,6 +186,8 @@ During Main Hub install/update, the workstation installer writes the Main Hub de
 
 The Main Hub desktop app also has a local recovery path: if it opens on the Main Hub, is pointed at `localhost` / `127.0.0.1`, and the roster check cannot reach the API, it asks Windows to start the installed `Riverside OS Server` scheduled task and then retries the roster check. If the task is missing, run **Repair** from the Deployment Manager instead of manually creating a different task name.
 
+For same-LAN UI-only hotfixes, use `npm run push:main-hub:fast` from the repo root. That path builds only the web bundle on the Main Hub and atomically replaces `C:\RiversideOS\client\dist`; it does not replace `server\riverside-server.exe`, run migrations, rebuild Tauri installers, or restart the scheduled task. Use `npm run push:main-hub:fast -- -Mode Full` only when intentionally testing a full local source build. Use the signed GitHub updater assets for Register #1 and Back Office Tauri app binary updates.
+
 PostgreSQL and `psql.exe` must be installed or referenced by `server.database.psqlPath`. The Deployment Manager can find common PostgreSQL installs and write the path into the config.
 
 API host rule:
