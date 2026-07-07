@@ -1037,7 +1037,6 @@ pub struct WeatherHealth {
 pub async fn health_check(http: &reqwest::Client, pool: &PgPool) -> WeatherHealth {
     let start = std::time::Instant::now();
     let settings = load_store_weather_settings(pool).await;
-    let settings = apply_weather_runtime_settings(pool, settings).await;
     if let Some(reason) = live_unavailable_reason(&settings) {
         return WeatherHealth {
             configured: false,
@@ -1046,24 +1045,29 @@ pub async fn health_check(http: &reqwest::Client, pool: &PgPool) -> WeatherHealt
             message: format!("Visual Crossing not configured ({reason})"),
         };
     }
-    let url = format!(
-        "https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline/{}/today?unitGroup={}&contentType=json&include=current&key={}",
-        urlencoding::encode(settings.location.trim()),
-        urlencoding::encode(settings.unit_group.trim()),
-        urlencoding::encode(settings.api_key.trim())
-    );
-    match http.get(&url).send().await {
-        Ok(resp) if resp.status().is_success() => WeatherHealth {
+
+    let (today, tomorrow) = local_today_plus_one_day(&settings.timezone);
+    match fetch_visual_crossing(
+        http,
+        pool,
+        &settings,
+        today,
+        tomorrow,
+        VcInclude::DaysCurrent,
+    )
+    .await
+    {
+        Ok((days, _)) if !days.is_empty() => WeatherHealth {
             configured: true,
             reachable: true,
             latency_ms: start.elapsed().as_millis() as u64,
             message: "Visual Crossing API is reachable".to_string(),
         },
-        Ok(resp) => WeatherHealth {
+        Ok(_) => WeatherHealth {
             configured: true,
             reachable: false,
             latency_ms: start.elapsed().as_millis() as u64,
-            message: format!("Visual Crossing returned HTTP {}", resp.status()),
+            message: "Visual Crossing returned no weather days".to_string(),
         },
         Err(e) => WeatherHealth {
             configured: true,

@@ -1757,7 +1757,7 @@ function AppShell({
   return (
     <div
       className={`flex flex-col bg-app-bg antialiased font-sans ${
-        fixedPosViewport ? "h-screen overflow-hidden" : "min-h-screen overflow-x-hidden"
+        fixedPosViewport ? "h-screen overflow-hidden" : "min-h-screen overflow-x-clip"
       }`}
     >
       <GlobalTopBar

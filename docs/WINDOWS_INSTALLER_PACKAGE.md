@@ -110,6 +110,14 @@ For a clean pre-go-live database reset, run `Reset-RiversideDatabase.cmd` from t
 
 Server, Windows app, and PWA/web files are one release. After any update, open **Settings → Updates** and confirm it shows the expected **Riverside version**. If it shows **Update incomplete**, finish the matching server or workstation update before using that station for production work.
 
+Same-network Main Hub hotfixes can bypass GitHub Actions by using the guarded LAN push workflow from the repo machine:
+
+```bash
+ROS_MAIN_HUB_HOST="MAIN-HUB-NAME-OR-IP" npm run push:main-hub
+```
+
+That workflow copies the local `MainHub-Update` package to `C:\ProgramData\RiversideOS\incoming`, creates a pre-update database backup under `C:\RiversideOS\backups`, then invokes the same packaged `install-server.ps1` path documented here. It requires PowerShell Remoting and a Main Hub administrator session. GitHub remains the canonical signed release/updater path for broad workstation rollout.
+
 If Riverside Settings cannot open because the API is down, manage the server from Windows instead:
 
 1. On the Main Hub PC, open the release package folder.

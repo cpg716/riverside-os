@@ -1462,6 +1462,52 @@ function sqlNumber(alias, set, candidates, outputName, fallback = "CAST(NULL AS 
   return c ? `${alias}.[${c}] AS ${outputName}` : `${fallback} AS ${outputName}`;
 }
 
+function sqlLineAmountPerUnit(alias, set, candidates, quantityColumn, outputName) {
+  const c = pickColumn(set, candidates);
+  if (!c) return `CAST(NULL AS DECIMAL(18,4)) AS ${outputName}`;
+  if (!quantityColumn) return `CAST(${alias}.[${c}] AS DECIMAL(18,4)) AS ${outputName}`;
+  return `CAST(ISNULL(${alias}.[${c}], 0) / NULLIF(ABS(CAST(ISNULL(${alias}.[${quantityColumn}], 1) AS DECIMAL(18,4))), 0) AS DECIMAL(18,4)) AS ${outputName}`;
+}
+
+function counterpointLineFinancialSelects(alias, set, quantityColumn) {
+  return [
+    sqlLineAmountPerUnit(
+      alias,
+      set,
+      ["STATE_TAX", "STATE_TAX_AMT", "ST_TAX", "ST_TAX_AMT", "TAX_1", "TAX_AMT_1"],
+      quantityColumn,
+      "state_tax",
+    ),
+    sqlLineAmountPerUnit(
+      alias,
+      set,
+      ["LOCAL_TAX", "LOCAL_TAX_AMT", "LOC_TAX", "LCL_TAX", "LCL_TAX_AMT", "TAX_2", "TAX_AMT_2"],
+      quantityColumn,
+      "local_tax",
+    ),
+    sqlLineAmountPerUnit(
+      alias,
+      set,
+      ["TAX_AMT", "TOT_TAX", "TOTAL_TAX", "SLS_TAX", "SLS_TAX_AMT", "EXTD_TAX"],
+      quantityColumn,
+      "tax_amount",
+    ),
+    sqlNumber(
+      alias,
+      set,
+      ["REG_PRC", "REG_PRICE", "ORIG_PRC", "ORIGINAL_PRC", "LIST_PRC", "LIST_PRICE"],
+      "original_unit_price",
+    ),
+    sqlLineAmountPerUnit(
+      alias,
+      set,
+      ["DISC_AMT", "DISCOUNT_AMT", "MKDN_AMT", "MARKDOWN_AMT"],
+      quantityColumn,
+      "discount_amount",
+    ),
+  ];
+}
+
 function uniquePresentColumns(set, candidates) {
   const seen = new Set();
   const cols = [];
@@ -1768,6 +1814,7 @@ function buildSchemaGeneratedSql(entries, { invCost, customerPts, locId }) {
     const ticketRefColumns = ticketIdentityColumns(tkt, tktNo, tktIdentityDate);
     const ticketRefSelect = ticketRefSql("h", tkt, ticketRefColumns);
     const total = pickColumn(tkt, ["TOT", "TOT_EXTD_PRC", "TKT_TOT"]);
+    const taxTotal = pickColumn(tkt, ["TAX_AMT", "TOT_TAX", "TOTAL_TAX", "SLS_TAX", "SLS_TAX_AMT"]);
     const due = pickColumn(tkt, ["TOT_AMT_DUE", "AMT_DUE"]);
     const configuredTypeColumn = (process.env.CP_TKT_DOC_TYP_COLUMN ?? "").trim();
     const typeColumn =
@@ -1787,7 +1834,7 @@ function buildSchemaGeneratedSql(entries, { invCost, customerPts, locId }) {
     const ticketLineExistsFilter = lin && linJoinPredicate
       ? ` AND EXISTS (SELECT 1 FROM PS_TKT_HIST_LIN line_scope WHERE ${ticketJoinPredicate("h", "line_scope", linJoinPairs)})`
       : "";
-    sqlMap.tickets = `SELECT ${ticketRefSelect}, ${sqlText("h", tkt, ["CUST_NO"], "cust_no")}, CONVERT(varchar, h.[${tktActivityDate}], 126) + 'Z' AS booked_at, ${total ? `h.[${total}]` : "CAST(0 AS DECIMAL(18,2))"} AS total_price, ${total && due ? `(h.[${total}] - h.[${due}])` : total ? `h.[${total}]` : "CAST(0 AS DECIMAL(18,2))"} AS amount_paid, ${sqlText("h", tkt, ["USR_ID"], "usr_id")}, ${sqlText("h", tkt, ["SLS_REP"], "sls_rep")} FROM PS_TKT_HIST h WHERE h.[${tktActivityDate}] >= '__CP_IMPORT_SINCE__'${typeFilter}${ticketLineExistsFilter} ORDER BY h.[${tktActivityDate}], h.[${tktNo}]`;
+    sqlMap.tickets = `SELECT ${ticketRefSelect}, ${sqlText("h", tkt, ["CUST_NO"], "cust_no")}, CONVERT(varchar, h.[${tktActivityDate}], 126) + 'Z' AS booked_at, ${total ? `h.[${total}]` : "CAST(0 AS DECIMAL(18,2))"} AS total_price, ${taxTotal ? `h.[${taxTotal}]` : "CAST(NULL AS DECIMAL(18,2))"} AS tax_total, ${total && due ? `(h.[${total}] - h.[${due}])` : total ? `h.[${total}]` : "CAST(0 AS DECIMAL(18,2))"} AS amount_paid, ${sqlText("h", tkt, ["USR_ID"], "usr_id")}, ${sqlText("h", tkt, ["SLS_REP"], "sls_rep")} FROM PS_TKT_HIST h WHERE h.[${tktActivityDate}] >= '__CP_IMPORT_SINCE__'${typeFilter}${ticketLineExistsFilter} ORDER BY h.[${tktActivityDate}], h.[${tktNo}]`;
     changes.push(`PS_TKT_HIST tickets enabled; activity_date=${tktActivityDate}; key=${ticketRefColumns.join("+")}`);
 
     if (lin && linJoinPredicate) {
@@ -1815,7 +1862,8 @@ function buildSchemaGeneratedSql(entries, { invCost, customerPts, locId }) {
       const price = pickColumn(lin, ["PRC", "PRICE"]);
       const cost = pickColumn(lin, ["UNIT_COST", "COST"]);
       const reason = pickColumn(lin, ["RET_REAS", "REAS_COD"]);
-      sqlMap.ticket_lines = `SELECT ${ticketRefSelect}, ${seq ? `l.[${seq}]` : "CAST(NULL AS INT)"} AS lin_seq_no, ${lineSku} AS sku, ${lineItemKey} AS counterpoint_item_key, ${qty ? `l.[${qty}]` : "CAST(1 AS DECIMAL(18,4))"} AS quantity, ${price ? `l.[${price}]` : "CAST(0 AS DECIMAL(18,4))"} AS unit_price, ${cost ? `l.[${cost}]` : "CAST(NULL AS DECIMAL(18,4))"} AS unit_cost, CAST(NULL AS NVARCHAR(255)) AS description${reason ? `, ${sqlText("l", lin, [reason], "reason_code")}` : ""} FROM PS_TKT_HIST_LIN l${lineBarcodeApply} INNER JOIN PS_TKT_HIST h ON ${linJoinPredicate} WHERE h.[${tktActivityDate}] >= '__CP_IMPORT_SINCE__'${typeFilter}`;
+      const lineFinancialSelects = counterpointLineFinancialSelects("l", lin, qty);
+      sqlMap.ticket_lines = `SELECT ${ticketRefSelect}, ${seq ? `l.[${seq}]` : "CAST(NULL AS INT)"} AS lin_seq_no, ${lineSku} AS sku, ${lineItemKey} AS counterpoint_item_key, ${qty ? `l.[${qty}]` : "CAST(1 AS DECIMAL(18,4))"} AS quantity, ${price ? `l.[${price}]` : "CAST(0 AS DECIMAL(18,4))"} AS unit_price, ${cost ? `l.[${cost}]` : "CAST(NULL AS DECIMAL(18,4))"} AS unit_cost, CAST(NULL AS NVARCHAR(255)) AS description, ${lineFinancialSelects.join(", ")}${reason ? `, ${sqlText("l", lin, [reason], "reason_code")}` : ""} FROM PS_TKT_HIST_LIN l${lineBarcodeApply} INNER JOIN PS_TKT_HIST h ON ${linJoinPredicate} WHERE h.[${tktActivityDate}] >= '__CP_IMPORT_SINCE__'${typeFilter}`;
       changes.push(`PS_TKT_HIST_LIN ticket lines enabled; join=${linJoinPairs.map(([h, l]) => `${h}=${l}`).join("+")}`);
     }
 
@@ -1919,7 +1967,9 @@ function buildSchemaGeneratedSql(entries, { invCost, customerPts, locId }) {
         ? `NULLIF(RTRIM(LTRIM(CAST(i.[${itemDescriptionCol}] AS NVARCHAR(255)))), N'')`
         : "CAST(NULL AS NVARCHAR(255))";
       const openDocDescriptionSelect = `COALESCE(${lineDescriptionExpr}, ${itemDescriptionExpr}) AS description`;
-      sqlMap.open_doc_lines = `SELECT ${docRefSelect}, ${sqlNumber("l", psDocLin, ["LIN_SEQ_NO", "SEQ_NO"], "lin_seq_no")}, ${openDocLineSku} AS sku, ${openDocLineKey} AS counterpoint_item_key, ${sqlNumber("l", psDocLin, ["QTY_ORD", "QTY_SOLD", "QTY"], "quantity", "CAST(1 AS DECIMAL(18,4))")}, ${sqlNumber("l", psDocLin, ["PRC", "PRICE"], "unit_price", "CAST(0 AS DECIMAL(18,4))")}, ${sqlNumber("l", psDocLin, ["UNIT_COST", "COST"], "unit_cost")}, ${openDocDescriptionSelect} FROM PS_DOC_LIN l${openDocBarcodeApply} INNER JOIN ${psDocTable} h ON ${lineJoinPredicate}${docTotJoinForChildren}${itemDescriptionJoin} WHERE ${activeDocWhere}`;
+      const openDocQuantity = pickColumn(psDocLin, ["QTY_ORD", "QTY_SOLD", "QTY"]);
+      const openDocLineFinancialSelects = counterpointLineFinancialSelects("l", psDocLin, openDocQuantity);
+      sqlMap.open_doc_lines = `SELECT ${docRefSelect}, ${sqlNumber("l", psDocLin, ["LIN_SEQ_NO", "SEQ_NO"], "lin_seq_no")}, ${openDocLineSku} AS sku, ${openDocLineKey} AS counterpoint_item_key, ${openDocQuantity ? `l.[${openDocQuantity}]` : "CAST(1 AS DECIMAL(18,4))"} AS quantity, ${sqlNumber("l", psDocLin, ["PRC", "PRICE"], "unit_price", "CAST(0 AS DECIMAL(18,4))")}, ${sqlNumber("l", psDocLin, ["UNIT_COST", "COST"], "unit_cost")}, ${openDocDescriptionSelect}, ${openDocLineFinancialSelects.join(", ")} FROM PS_DOC_LIN l${openDocBarcodeApply} INNER JOIN ${psDocTable} h ON ${lineJoinPredicate}${docTotJoinForChildren}${itemDescriptionJoin} WHERE ${activeDocWhere}`;
       changes.push(`PS_DOC_LIN open-doc lines enabled; join=${lineJoinPairs.map(([h, l]) => `${h}=${l}`).join("+")}`);
     }
     const pmtDoc = pickColumn(psDocPmt, [docRef, "DOC_ID", "DOC_NO", "TKT_NO"]);
@@ -4262,6 +4312,7 @@ function mapTicketRow(r) {
     cust_no: r.cust_no ? String(r.cust_no).trim() : undefined,
     booked_at: r.booked_at ?? r.bus_dat ?? undefined,
     total_price: String(r.total_price ?? r.tkt_tot ?? "0"),
+    tax_total: r.tax_total != null ? String(r.tax_total) : undefined,
     amount_paid: String(r.amount_paid ?? r.amt_paid ?? "0"),
     usr_id: r.usr_id ? String(r.usr_id).trim() : undefined,
     sls_rep: r.sls_rep ? String(r.sls_rep).trim() : undefined,
@@ -4282,6 +4333,11 @@ function mapTicketLineRow(r) {
     quantity: Number(r.quantity ?? r.qty ?? r.qty_sold ?? 1),
     unit_price: String(r.unit_price ?? r.prc ?? "0"),
     unit_cost: r.unit_cost != null ? String(r.unit_cost) : undefined,
+    state_tax: r.state_tax != null ? String(r.state_tax) : undefined,
+    local_tax: r.local_tax != null ? String(r.local_tax) : undefined,
+    tax_amount: r.tax_amount != null ? String(r.tax_amount) : undefined,
+    original_unit_price: r.original_unit_price != null ? String(r.original_unit_price) : undefined,
+    discount_amount: r.discount_amount != null ? String(r.discount_amount) : undefined,
     description: r.description ?? r.descr ?? undefined,
     reason_code: r.reason_code ?? r.reas_cod ?? undefined,
   };
@@ -4345,6 +4401,11 @@ function ticketLineDedupeKey(row) {
     qty: String(r.quantity ?? r.qty ?? r.qty_sold ?? ""),
     price: String(r.unit_price ?? r.prc ?? ""),
     cost: String(r.unit_cost ?? r.lst_cost ?? r.last_cost ?? ""),
+    state_tax: String(r.state_tax ?? ""),
+    local_tax: String(r.local_tax ?? ""),
+    tax_amount: String(r.tax_amount ?? ""),
+    original_unit_price: String(r.original_unit_price ?? ""),
+    discount_amount: String(r.discount_amount ?? ""),
     description: String(r.description ?? r.descr ?? "").trim(),
   });
 }

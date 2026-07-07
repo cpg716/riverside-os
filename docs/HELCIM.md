@@ -68,6 +68,7 @@ HelcimPay.js provider boundary:
 - `POST /providers/helcim/helcim-pay/confirm`
 - These routes are for public/web checkout and POS **Manual Card** keyed-entry flows. HelcimPay.js owns card entry, returns a signed result, and ROS validates the Helcim response before recording the tender.
 - HelcimPay.js must run from a Helcim-whitelisted public HTTPS checkout origin. iPad PWA checkout runs there directly. The desktop Tauri app must not render HelcimPay.js from its local `http://tauri.localhost` WebView origin; instead, ROS creates the authenticated Manual Card attempt, embeds a one-time public HTTPS ROS/PWA handoff page for hosted card entry, and the register drawer listens for the approved attempt before recording the tender. If the public HTTPS base URL is not configured, use the Helcim terminal path on the register.
+- Hosted Manual Card does not send a synthetic ROS invoice number. ROS forwards `invoiceNumber` only when intentionally linking a real existing Helcim invoice; otherwise Helcim owns invoice assignment for the hosted checkout.
 
 Customer and card helpers:
 
@@ -134,6 +135,7 @@ All outbound Helcim API calls use centralized retry logic with exponential backo
 - ROS can initiate terminal purchase attempts and terminal refund attempts for configured devices, but Helcim dashboard remains required for hardware enrollment, pairing, and provider-side device assignment.
 - POS **Card Reader** sends the amount to the selected Helcim terminal for tap/insert/swipe.
 - POS **Manual Card** opens secure HelcimPay.js hosted card entry for keyed/phone-order cards. ROS must not collect PAN or CVV in native fields, notes, references, search fields, or support chats.
+- Manual Card does not require staff to enter or invent a Helcim invoice number. ROS only forwards an invoice number when an approved workflow intentionally links a real existing Helcim invoice.
 - POS **Card Refund** is available for refund/negative checkout totals. **API Refund** uses Helcim Payment API refund with the original Helcim transaction id when the card is not present. **Terminal Refund** sends the refund to the selected Helcim terminal only when the customer and original card are present. If the original id is not supplied by the calling workflow, staff must enter the original Helcim transaction id before the refund can be sent.
 - POS **Offline CC** records a manually approved card sale or refund when the authorization happened outside ROS, such as a phone approval, internet outage, card-not-present refund, or non-prior-Helcim refund. It requires an approval/reference, last four digits, and reason, stores no PAN/CVV, and does not claim a Helcim provider attempt.
 - POS **Payments -> Refund** starts a standalone Helcim card refund when the original Helcim transaction id is known and the refund is not being driven by an in-cart return/exchange workflow. The provider attempt is recorded immediately in ROS for review.

@@ -8597,7 +8597,7 @@ pub async fn build_counterpoint_transaction_reconciliation_snapshot(
 
     Ok(CounterpointTransactionReconciliationSnapshot {
         generated_at: Utc::now(),
-        disclaimer: "Read-only Counterpoint ticket transaction sanity check. Imported tax is non-authoritative; this is not full accounting reconciliation or financial close.".into(),
+        disclaimer: "Read-only Counterpoint ticket transaction sanity check. Tax authority depends on the imported Counterpoint tax columns and any legacy rows may require reimport/backfill; this is not full accounting reconciliation or financial close.".into(),
         totals: CounterpointTransactionReconciliationTotals {
             imported_ticket_transactions,
             transaction_lines,
@@ -11886,6 +11886,8 @@ pub struct CounterpointTicketRow {
     #[serde(default)]
     pub booked_at: Option<String>,
     pub total_price: Decimal,
+    #[serde(default)]
+    pub tax_total: Option<Decimal>,
     pub amount_paid: Decimal,
     /// CP `USR_ID` — who rang up / processed the sale.
     #[serde(default)]
@@ -11926,6 +11928,16 @@ pub struct TicketLineRow {
     pub unit_price: Decimal,
     #[serde(default)]
     pub unit_cost: Option<Decimal>,
+    #[serde(default)]
+    pub state_tax: Option<Decimal>,
+    #[serde(default)]
+    pub local_tax: Option<Decimal>,
+    #[serde(default)]
+    pub tax_amount: Option<Decimal>,
+    #[serde(default)]
+    pub original_unit_price: Option<Decimal>,
+    #[serde(default)]
+    pub discount_amount: Option<Decimal>,
     #[serde(default)]
     pub description: Option<String>,
     #[serde(default)]
@@ -12425,8 +12437,11 @@ pub async fn execute_counterpoint_ticket_batch(
     let mut bulk_line_qtys = Vec::new();
     let mut bulk_line_prices = Vec::new();
     let mut bulk_line_costs = Vec::new();
+    let mut bulk_line_state_taxes = Vec::new();
+    let mut bulk_line_local_taxes = Vec::new();
     let mut bulk_line_reasons = Vec::new();
     let mut bulk_line_vendor_refs = Vec::new();
+    let mut bulk_line_size_specs = Vec::new();
     let mut summary = TicketSyncSummary {
         transactions_created: 0,
         transactions_skipped_existing: 0,
@@ -12458,6 +12473,7 @@ pub async fn execute_counterpoint_ticket_batch(
                 serde_json::json!({
                     "counterpoint_ticket_ref": ticket_ref,
                     "counterpoint_total_price": tkt.total_price,
+                    "counterpoint_tax_total": tkt.tax_total,
                     "counterpoint_amount_paid": tkt.amount_paid,
                 }),
             )
@@ -12575,7 +12591,17 @@ pub async fn execute_counterpoint_ticket_batch(
         // Counterpoint ticket imports are closed sales history. Tender offsets can span
         // related tickets/open docs, so keep source tender rows but present ticket rows
         // as fulfilled and balance-clear in ROS customer/order surfaces.
-        let presentation_amount_paid = tkt.total_price;
+        let normalized_amount_paid =
+            sum_counterpoint_ticket_tenders(&tkt.payments, &tkt.gift_applications)
+                .unwrap_or(tkt.amount_paid);
+        let (effective_total_price, effective_line_prices, original_line_prices, ticket_line_taxes) =
+            counterpoint_import_line_financials(
+                tkt.total_price,
+                normalized_amount_paid,
+                tkt.tax_total,
+                ticket_lines,
+            );
+        let presentation_amount_paid = effective_total_price;
         let presentation_balance = Decimal::ZERO;
         let status = "fulfilled";
 
@@ -12617,7 +12643,7 @@ pub async fn execute_counterpoint_ticket_batch(
             .bind(customer_id)
             .bind(status)
             .bind(booked_at)
-            .bind(tkt.total_price)
+            .bind(effective_total_price)
             .bind(presentation_amount_paid)
             .bind(presentation_balance)
             .bind(processed_by)
@@ -12677,7 +12703,7 @@ pub async fn execute_counterpoint_ticket_batch(
             .bind(ticket_ref)
             .bind(status)
             .bind(booked_at)
-            .bind(tkt.total_price)
+            .bind(effective_total_price)
             .bind(presentation_amount_paid)
             .bind(presentation_balance)
             .bind(processed_by)
@@ -12689,21 +12715,61 @@ pub async fn execute_counterpoint_ticket_batch(
             transaction_id
         };
 
-        for (((variant_id, product_id), line), vendor_ref) in resolved_lines
+        for (
+            ((((variant_id, product_id), line), vendor_ref), (state_tax, local_tax)),
+            (unit_price, original_unit_price),
+        ) in resolved_lines
             .iter()
             .zip(ticket_lines.iter())
             .zip(line_vendor_refs.iter())
+            .zip(ticket_line_taxes.iter())
+            .zip(
+                effective_line_prices
+                    .iter()
+                    .zip(original_line_prices.iter()),
+            )
         {
             let cost = line.unit_cost.unwrap_or(Decimal::ZERO);
+            let mut size_specs = serde_json::json!({
+                "counterpoint_description": line.description.as_deref(),
+                "counterpoint_sku": line.sku.as_deref(),
+                "counterpoint_item_key": line.counterpoint_item_key.as_deref(),
+                "counterpoint_line_sequence": line.lin_seq_no,
+            });
+            if let Some(original_unit_price) = original_unit_price {
+                if let Some(map) = size_specs.as_object_mut() {
+                    map.insert(
+                        "original_unit_price".to_string(),
+                        serde_json::json!(original_unit_price),
+                    );
+                    map.insert(
+                        "overridden_unit_price".to_string(),
+                        serde_json::json!(unit_price),
+                    );
+                    map.insert(
+                        "discount_event_label".to_string(),
+                        serde_json::json!("Counterpoint imported discount"),
+                    );
+                    map.insert(
+                        "counterpoint_discount_amount".to_string(),
+                        serde_json::json!(rounded_counterpoint_money(
+                            *original_unit_price - *unit_price
+                        )),
+                    );
+                }
+            }
             bulk_line_txn_ids.push(transaction_id);
             bulk_line_prod_ids.push(*product_id);
             bulk_line_var_ids.push(*variant_id);
             bulk_line_sales_ids.push(salesperson);
             bulk_line_qtys.push(line.quantity);
-            bulk_line_prices.push(line.unit_price);
+            bulk_line_prices.push(*unit_price);
             bulk_line_costs.push(cost);
+            bulk_line_state_taxes.push(*state_tax);
+            bulk_line_local_taxes.push(*local_tax);
             bulk_line_reasons.push(line.reason_code.clone());
             bulk_line_vendor_refs.push(vendor_ref.clone());
+            bulk_line_size_specs.push(size_specs);
             summary.line_items_created += 1;
         }
         for pmt in &tkt.payments {
@@ -12819,15 +12885,15 @@ pub async fn execute_counterpoint_ticket_batch(
                 quantity, unit_price, unit_cost,
                 state_tax, local_tax, applied_spiff, calculated_commission,
                 is_fulfilled, fulfilled_at,
-                counterpoint_reason_code, vendor_reference
+                counterpoint_reason_code, vendor_reference, size_specs
             )
             SELECT
                 u.tid, u.pid, u.vid, u.sid, 'takeaway'::fulfillment_type,
-                u.qty, u.price, u.cost, 0, 0, 0, 0,
+                u.qty, u.price, u.cost, u.state_tax, u.local_tax, 0, 0,
                 TRUE, t.booked_at,
-                u.reason, u.vref
-            FROM UNNEST($1::uuid[], $2::uuid[], $3::uuid[], $4::uuid[], $5::int[], $6::numeric[], $7::numeric[], $8::text[], $9::text[])
-              AS u(tid, pid, vid, sid, qty, price, cost, reason, vref)
+                u.reason, u.vref, u.size_specs
+            FROM UNNEST($1::uuid[], $2::uuid[], $3::uuid[], $4::uuid[], $5::int[], $6::numeric[], $7::numeric[], $8::numeric[], $9::numeric[], $10::text[], $11::text[], $12::jsonb[])
+              AS u(tid, pid, vid, sid, qty, price, cost, state_tax, local_tax, reason, vref, size_specs)
             INNER JOIN transactions t ON t.id = u.tid
             "#,
         )
@@ -12838,8 +12904,11 @@ pub async fn execute_counterpoint_ticket_batch(
         .bind(&bulk_line_qtys)
         .bind(&bulk_line_prices)
         .bind(&bulk_line_costs)
+        .bind(&bulk_line_state_taxes)
+        .bind(&bulk_line_local_taxes)
         .bind(&bulk_line_reasons)
         .bind(&bulk_line_vendor_refs)
+        .bind(&bulk_line_size_specs)
         .execute(&mut *tx)
         .await?;
     }
@@ -13097,6 +13166,103 @@ fn counterpoint_open_doc_line_subtotal_from_prices(
         .sum()
 }
 
+fn counterpoint_line_source_prices(
+    lines: &[TicketLineRow],
+) -> (Vec<Decimal>, Vec<Option<Decimal>>) {
+    let mut unit_prices = Vec::with_capacity(lines.len());
+    let mut original_prices = Vec::with_capacity(lines.len());
+
+    for line in lines {
+        let discount = line
+            .discount_amount
+            .filter(|amount| *amount > Decimal::ZERO && line.unit_price > *amount);
+        let explicit_original = line
+            .original_unit_price
+            .filter(|price| *price > line.unit_price + Decimal::new(1, 2));
+
+        if let Some(discount) = discount {
+            unit_prices.push(rounded_counterpoint_money(line.unit_price - discount));
+            original_prices.push(Some(explicit_original.unwrap_or(line.unit_price)));
+        } else {
+            unit_prices.push(line.unit_price);
+            original_prices.push(explicit_original);
+        }
+    }
+
+    (unit_prices, original_prices)
+}
+
+fn split_counterpoint_tax_amount(unit_price: Decimal, tax_amount: Decimal) -> (Decimal, Decimal) {
+    if tax_amount.is_zero() {
+        return (Decimal::ZERO, Decimal::ZERO);
+    }
+
+    let sign = if tax_amount < Decimal::ZERO {
+        -Decimal::ONE
+    } else {
+        Decimal::ONE
+    };
+    let tax_abs = tax_amount.abs();
+    let state_abs =
+        rounded_counterpoint_money((unit_price.abs() * Decimal::new(4, 2)).min(tax_abs));
+    let local_abs = rounded_counterpoint_money(tax_abs - state_abs);
+    (state_abs * sign, local_abs * sign)
+}
+
+fn explicit_counterpoint_line_taxes(
+    lines: &[TicketLineRow],
+    unit_prices: &[Decimal],
+) -> Option<Vec<(Decimal, Decimal)>> {
+    let has_explicit_tax = lines.iter().any(|line| {
+        line.state_tax
+            .or(line.local_tax)
+            .or(line.tax_amount)
+            .map(|amount| !amount.is_zero())
+            .unwrap_or(false)
+    });
+    if !has_explicit_tax {
+        return None;
+    }
+
+    Some(
+        lines
+            .iter()
+            .zip(unit_prices.iter())
+            .map(|(line, unit_price)| {
+                let state_tax = line.state_tax.unwrap_or(Decimal::ZERO);
+                let local_tax = line.local_tax.unwrap_or(Decimal::ZERO);
+                if !state_tax.is_zero() || !local_tax.is_zero() {
+                    return (
+                        rounded_counterpoint_money(state_tax),
+                        rounded_counterpoint_money(local_tax),
+                    );
+                }
+                line.tax_amount
+                    .filter(|amount| !amount.is_zero())
+                    .map(|amount| split_counterpoint_tax_amount(*unit_price, amount))
+                    .unwrap_or((Decimal::ZERO, Decimal::ZERO))
+            })
+            .collect(),
+    )
+}
+
+fn counterpoint_effective_total_from_tax(
+    total_price: Decimal,
+    subtotal: Decimal,
+    tax_total: Decimal,
+) -> Decimal {
+    if tax_total <= Decimal::ZERO {
+        return total_price;
+    }
+
+    let total_minus_subtotal = rounded_counterpoint_money(total_price - subtotal);
+    if total_minus_subtotal.abs() <= Decimal::new(1, 2) {
+        rounded_counterpoint_money(subtotal + tax_total)
+    } else {
+        total_price
+    }
+}
+
 fn counterpoint_open_doc_plausible_tax(subtotal: Decimal, candidate_tax: Decimal) -> bool {
     if subtotal <= Decimal::ZERO || candidate_tax <= Decimal::ZERO {
         return false;
@@ -13270,6 +13436,81 @@ fn infer_counterpoint_discounted_open_doc_financials(
         original_unit_prices,
         taxes,
     ))
+}
+
+fn counterpoint_import_line_financials(
+    total_price: Decimal,
+    amount_paid: Decimal,
+    tax_total: Option<Decimal>,
+    lines: &[TicketLineRow],
+) -> (
+    Decimal,
+    Vec<Decimal>,
+    Vec<Option<Decimal>>,
+    Vec<(Decimal, Decimal)>,
+) {
+    let (source_unit_prices, source_original_prices) = counterpoint_line_source_prices(lines);
+    let source_subtotal = rounded_counterpoint_money(
+        counterpoint_open_doc_line_subtotal_from_prices(lines, &source_unit_prices),
+    );
+
+    if let Some(line_taxes) = explicit_counterpoint_line_taxes(lines, &source_unit_prices) {
+        let tax_total: Decimal = line_taxes
+            .iter()
+            .zip(lines.iter())
+            .map(|((state, local), line)| Decimal::from(line.quantity) * (*state + *local))
+            .sum();
+        return (
+            counterpoint_effective_total_from_tax(total_price, source_subtotal, tax_total),
+            source_unit_prices,
+            source_original_prices,
+            line_taxes,
+        );
+    }
+
+    if let Some(tax_total) = tax_total.filter(|amount| *amount > Decimal::ZERO) {
+        let line_taxes =
+            allocate_counterpoint_open_doc_line_taxes(lines, &source_unit_prices, tax_total);
+        return (
+            counterpoint_effective_total_from_tax(total_price, source_subtotal, tax_total),
+            source_unit_prices,
+            source_original_prices,
+            line_taxes,
+        );
+    }
+
+    if let Some((effective_total_price, inferred_line_taxes)) =
+        infer_counterpoint_open_doc_tax(total_price, amount_paid, lines)
+    {
+        return (
+            effective_total_price,
+            lines.iter().map(|line| line.unit_price).collect(),
+            vec![None; lines.len()],
+            inferred_line_taxes,
+        );
+    }
+
+    if let Some((
+        effective_total_price,
+        effective_line_prices,
+        original_line_prices,
+        inferred_line_taxes,
+    )) = infer_counterpoint_discounted_open_doc_financials(total_price, amount_paid, lines)
+    {
+        return (
+            effective_total_price,
+            effective_line_prices,
+            original_line_prices,
+            inferred_line_taxes,
+        );
+    }
+
+    (
+        total_price,
+        source_unit_prices,
+        source_original_prices,
+        vec![(Decimal::ZERO, Decimal::ZERO); lines.len()],
+    )
 }
 
 async fn counterpoint_open_doc_matches_existing_ticket_transaction(
@@ -13589,39 +13830,12 @@ pub async fn execute_counterpoint_open_doc_batch(
             effective_line_prices,
             original_line_prices,
             inferred_line_taxes,
-        ) = if let Some((effective_total_price, inferred_line_taxes)) =
-            infer_counterpoint_open_doc_tax(doc.total_price, normalized_amount_paid, &doc.lines)
-        {
-            (
-                effective_total_price,
-                doc.lines.iter().map(|line| line.unit_price).collect(),
-                vec![None; doc.lines.len()],
-                inferred_line_taxes,
-            )
-        } else if let Some((
-            effective_total_price,
-            effective_line_prices,
-            original_line_prices,
-            inferred_line_taxes,
-        )) = infer_counterpoint_discounted_open_doc_financials(
+        ) = counterpoint_import_line_financials(
             doc.total_price,
             normalized_amount_paid,
+            None,
             &doc.lines,
-        ) {
-            (
-                effective_total_price,
-                effective_line_prices,
-                original_line_prices,
-                inferred_line_taxes,
-            )
-        } else {
-            (
-                doc.total_price,
-                doc.lines.iter().map(|line| line.unit_price).collect(),
-                vec![None; doc.lines.len()],
-                vec![(Decimal::ZERO, Decimal::ZERO); doc.lines.len()],
-            )
-        };
+        );
         let balance = effective_total_price - normalized_amount_paid;
         let status = order_status_for_cp_open_doc(
             doc.cp_status.as_deref(),
@@ -18166,6 +18380,11 @@ mod tests {
             quantity: 1,
             unit_price: Decimal::new(26000, 2),
             unit_cost: Some(Decimal::ZERO),
+            state_tax: None,
+            local_tax: None,
+            tax_amount: None,
+            original_unit_price: None,
+            discount_amount: None,
             description: Some("Gruppo Bravo Suit (46306)".into()),
             reason_code: None,
         }];
@@ -18187,6 +18406,11 @@ mod tests {
             quantity: 1,
             unit_price: Decimal::new(37500, 2),
             unit_cost: Some(Decimal::ZERO),
+            state_tax: None,
+            local_tax: None,
+            tax_amount: None,
+            original_unit_price: None,
+            discount_amount: None,
             description: Some("Gruppo Bravo Suit (40901)".into()),
             reason_code: None,
         }];
@@ -18203,6 +18427,68 @@ mod tests {
         assert_eq!(unit_prices, vec![Decimal::new(30000, 2)]);
         assert_eq!(original_prices, vec![Some(Decimal::new(37500, 2))]);
         assert_eq!(taxes, vec![(Decimal::new(1200, 2), Decimal::new(1425, 2))]);
+    }
+
+    #[test]
+    fn counterpoint_import_financials_preserves_explicit_line_tax_and_discount() {
+        let lines = vec![TicketLineRow {
+            sku: Some("B-1471081".into()),
+            counterpoint_item_key: Some("I-102120|M20001-1|16.5|2/3".into()),
+            lin_seq_no: Some(1),
+            quantity: 1,
+            unit_price: Decimal::new(7500, 2),
+            unit_cost: Some(Decimal::new(2500, 2)),
+            state_tax: None,
+            local_tax: None,
+            tax_amount: Some(Decimal::new(569, 2)),
+            original_unit_price: None,
+            discount_amount: Some(Decimal::new(1000, 2)),
+            description: Some("Mantoni Classic Fit DrShirt".into()),
+            reason_code: None,
+        }];
+
+        let (total, unit_prices, original_prices, taxes) = counterpoint_import_line_financials(
+            Decimal::new(6500, 2),
+            Decimal::new(7069, 2),
+            None,
+            &lines,
+        );
+
+        assert_eq!(total, Decimal::new(7069, 2));
+        assert_eq!(unit_prices, vec![Decimal::new(6500, 2)]);
+        assert_eq!(original_prices, vec![Some(Decimal::new(7500, 2))]);
+        assert_eq!(taxes, vec![(Decimal::new(260, 2), Decimal::new(309, 2))]);
+    }
+
+    #[test]
+    fn counterpoint_import_financials_allocates_header_tax_total() {
+        let lines = vec![TicketLineRow {
+            sku: Some("B-1471081".into()),
+            counterpoint_item_key: Some("I-102120|M20001-1|16.5|2/3".into()),
+            lin_seq_no: Some(1),
+            quantity: 1,
+            unit_price: Decimal::new(6500, 2),
+            unit_cost: Some(Decimal::new(2500, 2)),
+            state_tax: None,
+            local_tax: None,
+            tax_amount: None,
+            original_unit_price: None,
+            discount_amount: None,
+            description: Some("Mantoni Classic Fit DrShirt".into()),
+            reason_code: None,
+        }];
+
+        let (total, unit_prices, original_prices, taxes) = counterpoint_import_line_financials(
+            Decimal::new(6500, 2),
+            Decimal::new(7069, 2),
+            Some(Decimal::new(569, 2)),
+            &lines,
+        );
+
+        assert_eq!(total, Decimal::new(7069, 2));
+        assert_eq!(unit_prices, vec![Decimal::new(6500, 2)]);
+        assert_eq!(original_prices, vec![None]);
+        assert_eq!(taxes, vec![(Decimal::new(260, 2), Decimal::new(309, 2))]);
     }
 
     #[tokio::test]
@@ -18426,6 +18712,7 @@ mod tests {
                     cust_no: None,
                     booked_at: Some(Utc::now().to_rfc3339()),
                     total_price: Decimal::new(4000, 2),
+                    tax_total: None,
                     amount_paid: Decimal::ZERO,
                     usr_id: None,
                     sls_rep: None,
@@ -18437,6 +18724,11 @@ mod tests {
                         quantity: 1,
                         unit_price: Decimal::new(4000, 2),
                         unit_cost: Some(Decimal::new(1000, 2)),
+                        state_tax: None,
+                        local_tax: None,
+                        tax_amount: None,
+                        original_unit_price: None,
+                        discount_amount: None,
                         description: Some("Gift tender test item".into()),
                         reason_code: None,
                     }],
@@ -18605,6 +18897,7 @@ mod tests {
                     cust_no: None,
                     booked_at: Some(Utc::now().to_rfc3339()),
                     total_price: Decimal::new(4000, 2),
+                    tax_total: None,
                     amount_paid: Decimal::new(4000, 2),
                     usr_id: None,
                     sls_rep: None,
@@ -18616,6 +18909,11 @@ mod tests {
                         quantity: 1,
                         unit_price: Decimal::new(4000, 2),
                         unit_cost: Some(Decimal::new(1000, 2)),
+                        state_tax: None,
+                        local_tax: None,
+                        tax_amount: None,
+                        original_unit_price: None,
+                        discount_amount: None,
                         description: Some("Payment map test item".into()),
                         reason_code: None,
                     }],
@@ -18803,6 +19101,7 @@ mod tests {
                     cust_no: None,
                     booked_at: Some(Utc::now().to_rfc3339()),
                     total_price: Decimal::new(12500, 2),
+                    tax_total: None,
                     amount_paid: Decimal::new(12500, 2),
                     usr_id: None,
                     sls_rep: None,
@@ -19841,6 +20140,11 @@ mod tests {
                         quantity: 1,
                         unit_price: Decimal::new(4000, 2),
                         unit_cost: Some(Decimal::new(1000, 2)),
+                        state_tax: None,
+                        local_tax: None,
+                        tax_amount: None,
+                        original_unit_price: None,
+                        discount_amount: None,
                         description: Some("Missing customer link test".into()),
                         reason_code: None,
                     }],
@@ -19996,6 +20300,11 @@ mod tests {
                             quantity: 1,
                             unit_price: Decimal::new(4000, 2),
                             unit_cost: Some(Decimal::new(1000, 2)),
+                            state_tax: None,
+                            local_tax: None,
+                            tax_amount: None,
+                            original_unit_price: None,
+                            discount_amount: None,
                             description: Some("Open doc reconciliation item 1".into()),
                             reason_code: None,
                         },
@@ -20006,6 +20315,11 @@ mod tests {
                             quantity: 1,
                             unit_price: Decimal::new(4000, 2),
                             unit_cost: Some(Decimal::new(1000, 2)),
+                            state_tax: None,
+                            local_tax: None,
+                            tax_amount: None,
+                            original_unit_price: None,
+                            discount_amount: None,
                             description: Some("Open doc reconciliation item 2".into()),
                             reason_code: None,
                         },
@@ -20174,6 +20488,11 @@ mod tests {
             quantity: 1,
             unit_price: Decimal::new(4000, 2),
             unit_cost: Some(Decimal::new(1000, 2)),
+            state_tax: None,
+            local_tax: None,
+            tax_amount: None,
+            original_unit_price: None,
+            discount_amount: None,
             description: Some("Duplicate open doc line".into()),
             reason_code: None,
         };
@@ -20389,6 +20708,11 @@ mod tests {
                     quantity: 1,
                     unit_price: Decimal::new(26000, 2),
                     unit_cost: Some(Decimal::new(10000, 2)),
+                    state_tax: None,
+                    local_tax: None,
+                    tax_amount: None,
+                    original_unit_price: None,
+                    discount_amount: None,
                     description: Some("Gruppo Bravo Suit (46306/3 / 36 R / J BOND)".into()),
                     reason_code: None,
                 }],
@@ -20562,6 +20886,11 @@ mod tests {
                         quantity: 1,
                         unit_price: Decimal::new(26000, 2),
                         unit_cost: Some(Decimal::new(10000, 2)),
+                        state_tax: None,
+                        local_tax: None,
+                        tax_amount: None,
+                        original_unit_price: None,
+                        discount_amount: None,
                         description: Some("Matrix open-doc line missing barcode".into()),
                         reason_code: None,
                     }],
@@ -20811,6 +21140,11 @@ mod tests {
                         quantity: 1,
                         unit_price: Decimal::new(26000, 2),
                         unit_cost: Some(Decimal::new(10000, 2)),
+                        state_tax: None,
+                        local_tax: None,
+                        tax_amount: None,
+                        original_unit_price: None,
+                        discount_amount: None,
                         description: Some("Duplicate parent-only open doc line".into()),
                         reason_code: None,
                     }],
@@ -20916,6 +21250,11 @@ mod tests {
                     quantity: 1,
                     unit_price: Decimal::new(4000, 2),
                     unit_cost: Some(Decimal::new(1000, 2)),
+                    state_tax: None,
+                    local_tax: None,
+                    tax_amount: None,
+                    original_unit_price: None,
+                    discount_amount: None,
                     description: Some("Unresolved line test".into()),
                     reason_code: None,
                 }],

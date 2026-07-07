@@ -109,10 +109,10 @@ export default function Sidebar({
 
   return (
     <aside
-      className={`ui-rail z-[70] md:z-40 flex shrink-0 flex-col border-r border-app-border py-5 text-app-text transition-all duration-300 ease-material md:sticky md:top-[84px] md:h-[calc(100vh-84px)] overflow-y-auto custom-scrollbar ${
+      className={`ui-rail z-[70] flex shrink-0 flex-col overflow-hidden border-r border-app-border py-5 text-app-text transition-all duration-300 ease-material md:sticky md:top-[72px] md:z-40 md:h-[calc(100dvh-72px)] md:self-start ${
         collapsed
           ? "w-0 -translate-x-full md:w-16 md:translate-x-0 md:px-2"
-          : "fixed left-0 top-[84px] bottom-0 w-[240px] px-4 md:sticky md:w-[220px] md:px-0"
+          : "fixed bottom-0 left-0 top-[72px] w-[240px] px-4 md:sticky md:w-[220px] md:px-0"
       }`}
     >
       {/* Brand row */}
@@ -131,7 +131,7 @@ export default function Sidebar({
       </div>
 
       {/* Nav */}
-      <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto no-scrollbar" aria-label="Main Navigation">
+      <nav className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto overscroll-contain no-scrollbar" aria-label="Main Navigation">
         {visibleMenuItems.map((item) => {
           const Icon = item.icon;
           const isActive = activeTab === item.id;

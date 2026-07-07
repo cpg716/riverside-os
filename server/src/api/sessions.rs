@@ -380,6 +380,8 @@ pub struct TransactionAuditItem {
     pub sku: String,
     pub quantity: i32,
     pub unit_price: Decimal,
+    pub original_unit_price: Option<Decimal>,
+    pub overridden_unit_price: Option<Decimal>,
     pub fulfillment: String,
     pub is_internal: bool,
     pub line_kind: Option<String>,
@@ -1659,6 +1661,8 @@ async fn build_reconciliation(
                         'sku', COALESCE(pv.sku, ''),
                         'quantity', oi.quantity,
                         'unit_price', oi.unit_price::text,
+                        'original_unit_price', oi.size_specs ->> 'original_unit_price',
+                        'overridden_unit_price', oi.size_specs ->> 'overridden_unit_price',
                         'fulfillment', oi.fulfillment::text,
                         'is_internal', COALESCE(oi.is_internal, false),
                         'line_kind', p.pos_line_kind::text
@@ -2129,6 +2133,11 @@ fn parse_transaction_audit_items(value: serde_json::Value) -> Vec<TransactionAud
                 .and_then(|v| v.as_str())
                 .and_then(|s| Decimal::from_str(s).ok())
                 .unwrap_or(Decimal::ZERO);
+            let parse_decimal = |key: &str| -> Option<Decimal> {
+                item.get(key)
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| Decimal::from_str(s).ok())
+            };
             let fulfillment = item
                 .get("fulfillment")
                 .and_then(|v| v.as_str())
@@ -2152,6 +2161,8 @@ fn parse_transaction_audit_items(value: serde_json::Value) -> Vec<TransactionAud
                 sku,
                 quantity,
                 unit_price,
+                original_unit_price: parse_decimal("original_unit_price"),
+                overridden_unit_price: parse_decimal("overridden_unit_price"),
                 fulfillment,
                 is_internal,
                 line_kind,

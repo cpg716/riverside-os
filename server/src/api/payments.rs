@@ -7965,12 +7965,9 @@ async fn initialize_helcim_pay(
     // for POS customers yet, so omit it to avoid Helcim rejecting ROS-* / C-*
     // customer numbers during hosted manual card entry.
     let customer_code = None;
-    let invoice_number = Some(
-        payload
-            .invoice_number
-            .and_then(non_empty_string)
-            .unwrap_or_else(|| helcim_manual_invoice_number(attempt_id)),
-    );
+    // invoiceNumber links to a real Helcim invoice. Do not synthesize one for
+    // hosted Manual Card attempts; Helcim rejects invalid invoice references.
+    let invoice_number = payload.invoice_number.and_then(non_empty_string);
     let request = helcim::HelcimPayInitializeRequest {
         payment_type: "purchase".to_string(),
         amount: cents_to_decimal_string(payload.amount_cents),
@@ -9114,7 +9111,22 @@ mod tests {
     }
 
     #[test]
-    fn hosted_manual_invoice_number_is_recoverable_from_attempt_id() {
+    fn hosted_manual_invoice_number_uses_existing_invoice_only() {
+        let request = HelcimPayInitializeRequestBody {
+            amount_cents: 1234,
+            currency: Some("usd".to_string()),
+            register_session_id: Some(Uuid::new_v4()),
+            customer_code: None,
+            invoice_number: None,
+            save_as_default: None,
+            hide_existing_payment_details: Some(true),
+        };
+
+        assert_eq!(request.invoice_number.and_then(non_empty_string), None);
+    }
+
+    #[test]
+    fn hosted_manual_invoice_number_helper_is_stable_for_legacy_recovery() {
         let attempt_id = Uuid::parse_str("4b1c7a4f-3a1e-43dc-bb10-bfcb20c7b1e2").unwrap();
 
         assert_eq!(

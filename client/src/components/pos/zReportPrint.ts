@@ -65,6 +65,8 @@ type ZReportAuditItem = {
   sku: string;
   quantity: number;
   unit_price: string;
+  original_unit_price?: string | null;
+  overridden_unit_price?: string | null;
   fulfillment: string;
   is_internal: boolean;
   line_kind?: string | null;
@@ -213,6 +215,48 @@ function reportLabel(value: string | null | undefined): string {
   }
 }
 
+function discountPercentLabel(regularCents: number, saleCents: number): string {
+  const regularAbs = Math.abs(regularCents);
+  const saleAbs = Math.abs(saleCents);
+  if (regularAbs <= 0 || saleAbs >= regularAbs) return "0%";
+  const percent = ((regularAbs - saleAbs) / regularAbs) * 100;
+  const rounded = Math.round(percent * 10) / 10;
+  return Number.isInteger(rounded) ? `${rounded.toFixed(0)}%` : `${rounded.toFixed(1)}%`;
+}
+
+function linePriceBreakdown(
+  salePrice: string | number,
+  regularPrice?: string | number | null,
+): { saleCents: number; regularCents: number; discountPercent: string } {
+  const saleCents = typeof salePrice === "number" ? salePrice : parseMoneyToCents(String(salePrice));
+  const regularCents =
+    regularPrice === null || regularPrice === undefined || String(regularPrice).trim() === ""
+      ? saleCents
+      : typeof regularPrice === "number"
+        ? regularPrice
+        : parseMoneyToCents(String(regularPrice));
+  return {
+    saleCents,
+    regularCents,
+    discountPercent: discountPercentLabel(regularCents, saleCents),
+  };
+}
+
+function linePriceBreakdownHtml(salePrice: string | number, regularPrice?: string | number | null): string {
+  const price = linePriceBreakdown(salePrice, regularPrice);
+  return `
+    <span class="line-price-block">
+      <span class="line-sale-price">${formatReportMoney(price.saleCents)}</span>
+      <span class="line-discount-meta">Reg ${formatReportMoney(price.regularCents)} · Discount ${price.discountPercent}</span>
+    </span>
+  `;
+}
+
+function linePriceBreakdownText(salePrice: string | number, regularPrice?: string | number | null): string {
+  const price = linePriceBreakdown(salePrice, regularPrice);
+  return `Reg ${formatReportMoney(price.regularCents)} | Discount ${price.discountPercent} | Paid ${formatReportMoney(price.saleCents)}`;
+}
+
 function fulfillmentLabel(value: string | null | undefined): string {
   switch ((value ?? "").trim()) {
     case "takeaway":
@@ -356,9 +400,7 @@ export async function openProfessionalZReportPrint(opts: {
             const itemsHtml = visibleItems.map(item => `
               <div class="print-item-row">
                 <span><strong>${item.quantity}× ${item.name}</strong><br><span class="muted mono">${item.sku}${auditItemKindLabel(item) ? ` · ${auditItemKindLabel(item)}` : ""}${item.fulfillment ? ` · ${fulfillmentLabel(item.fulfillment)}` : ""}</span></span>
-                <span style="font-family: monospace;">
-                  ${formatReportMoney(item.unit_price)}
-                </span>
+                ${linePriceBreakdownHtml(item.unit_price, item.original_unit_price ?? item.unit_price)}
               </div>
             `).join("");
 
@@ -591,7 +633,7 @@ export async function openProfessionalZReportPrint(opts: {
                 (item) =>
                   `  ${item.quantity}x ${textValue(item.name)} | ${textValue(item.sku)}${auditItemKindLabel(item) ? ` | ${auditItemKindLabel(item)}` : ""} | ${fulfillmentLabel(
                     item.fulfillment,
-                  )} | ${formatReportMoney(item.unit_price)}`,
+                  )} | ${linePriceBreakdownText(item.unit_price, item.original_unit_price ?? item.unit_price)}`,
               );
             return [
               header,
@@ -641,6 +683,9 @@ export async function openProfessionalZReportPrint(opts: {
     .chip { background: #f1f5f9; border-radius: 999px; color: #475569; display: inline-block; font-size: 9px; font-weight: 800; padding: 4px 7px; text-transform: uppercase; }
     .section-label { color: #64748b; font-size: 10px; font-weight: 800; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.1em; }
     .print-item-row { align-items: flex-start; border-top: 1px solid #e2e8f0; color: #0f172a; display: flex; font-size: 10px; justify-content: space-between; gap: 12px; padding: 8px 0; }
+    .line-price-block { align-items: flex-end; display: flex; flex-direction: column; font-family: 'JetBrains Mono', monospace; gap: 2px; min-width: 110px; text-align: right; }
+    .line-sale-price { font-weight: 800; white-space: nowrap; }
+    .line-discount-meta { color: #64748b; font-size: 8px; font-weight: 700; white-space: nowrap; }
     .activity-money { text-align: right; }
     .money-label { color: #64748b; font-size: 10px; font-weight: 800; }
     .money-total { font-family: 'JetBrains Mono', monospace; font-size: 17px; font-weight: 800; margin-top: 4px; }
@@ -905,10 +950,7 @@ export async function openProfessionalDailySalesPrint(opts: {
       const itemsHtml = (row.items || []).map(item => `
         <div class="print-item-row">
           <span><strong>${item.quantity}× ${item.name}</strong><br><span class="muted mono">${item.sku}${item.fulfillment ? ` · ${item.fulfillment.replace(/_/g, " ")}` : ""}</span></span>
-          <span style="font-family: monospace;">
-            ${item.reg_price !== item.price ? `<span style="text-decoration: line-through; opacity: 0.6; margin-right: 4px;">$${item.reg_price}</span>` : ""}
-            $${item.price}
-          </span>
+          ${linePriceBreakdownHtml(item.price, item.reg_price || item.price)}
         </div>
       `).join("");
       const chips = [
@@ -1031,7 +1073,7 @@ export async function openProfessionalDailySalesPrint(opts: {
             (item) =>
               `  ${item.quantity}x ${textValue(item.name)} | ${textValue(item.sku)} | ${
                 item.fulfillment ? fulfillmentLabel(item.fulfillment) : ""
-              } | ${formatReportMoney(item.price)}`,
+              } | ${linePriceBreakdownText(item.price, item.reg_price || item.price)}`,
           );
           return [header, ...details.map((detail) => `  ${detail}`), ...(items.length > 0 ? items : [])];
         })
@@ -1069,6 +1111,9 @@ export async function openProfessionalDailySalesPrint(opts: {
     .chip { background: #f1f5f9; border-radius: 999px; color: #475569; display: inline-block; font-size: 9px; font-weight: 800; padding: 4px 7px; text-transform: uppercase; }
     .section-label { color: #64748b; font-size: 10px; font-weight: 800; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.1em; }
     .print-item-row { align-items: flex-start; border-top: 1px solid #e2e8f0; color: #0f172a; display: flex; font-size: 10px; justify-content: space-between; gap: 12px; padding: 8px 0; }
+    .line-price-block { align-items: flex-end; display: flex; flex-direction: column; font-family: 'JetBrains Mono', monospace; gap: 2px; min-width: 110px; text-align: right; }
+    .line-sale-price { font-weight: 800; white-space: nowrap; }
+    .line-discount-meta { color: #64748b; font-size: 8px; font-weight: 700; white-space: nowrap; }
     .activity-money { text-align: right; }
     .money-label { color: #64748b; font-size: 10px; font-weight: 800; }
     .money-total { font-family: 'JetBrains Mono', monospace; font-size: 17px; font-weight: 800; margin-top: 4px; }

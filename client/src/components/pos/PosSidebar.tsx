@@ -83,7 +83,7 @@ export default function PosSidebar({
 
   return (
     <aside
-      className={`ui-rail z-40 flex shrink-0 flex-col border-r border-app-border py-5 text-app-text transition-all duration-300 ease-material md:sticky md:top-[84px] md:h-[calc(100vh-84px)] overflow-y-auto custom-scrollbar ${
+      className={`ui-rail z-40 flex shrink-0 flex-col overflow-hidden border-r border-app-border py-5 text-app-text transition-all duration-300 ease-material md:sticky md:top-[72px] md:h-[calc(100dvh-72px)] md:self-start ${
         collapsed
           ? "w-16 px-2 justify-between"
           : "w-[220px] px-3 sm:w-[240px] sm:px-4 lg:w-[260px] lg:px-5"
@@ -109,7 +109,7 @@ export default function PosSidebar({
 
 
         {/* Nav */}
-        <nav className="flex flex-1 flex-col gap-1 overflow-y-auto no-scrollbar" aria-label="POS Navigation">
+        <nav className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto overscroll-contain no-scrollbar" aria-label="POS Navigation">
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;

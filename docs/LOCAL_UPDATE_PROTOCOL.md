@@ -1,6 +1,6 @@
 # Riverside OS — Local update protocol (offline / no GitHub)
 
-Canonical runbook for moving a **single store** from **version A → version B** when you **do not** use GitHub (or any hosted CI). Artifacts are built on a developer machine and delivered via **USB drive, SMB share, zip**, or equivalent.
+Canonical runbook for moving a **single store** from **version A → version B** when you **do not** use GitHub (or any hosted CI). Artifacts are built on a developer machine and delivered via **LAN push, USB drive, SMB share, zip**, or equivalent.
 
 Deeper context: initial deployment topology and builds — [`STORE_DEPLOYMENT_GUIDE.md`](STORE_DEPLOYMENT_GUIDE.md). Database backup and restore — [`BACKUP_RESTORE_GUIDE.md`](../BACKUP_RESTORE_GUIDE.md). PWA vs Tauri behavior — [`PWA_AND_REGISTER_DEPLOYMENT_TASKS.md`](PWA_AND_REGISTER_DEPLOYMENT_TASKS.md).
 
@@ -58,9 +58,44 @@ Ship a folder or archive the operator can keep on the server PC (or copy from me
 
 ## 5. Server PC procedure
 
-> **As of v0.80.9, the recommended path for all routine updates is the in-app updater.** The manual steps below (5.2–5.6) are the fallback for offline environments or when the in-app updater is not available.
+> **As of v0.80.9, the recommended path for all routine updates is the in-app updater.** The manual steps below (5.2–5.7) are the fallback for offline environments or when the in-app updater is not available.
 
-### 5.0 In-App Update (recommended — requires internet access)
+### 5.0 Push to Main Hub (recommended for same-network hotfixes)
+
+When the production Main Hub is reachable on the same network, use the guarded LAN push workflow instead of waiting for GitHub release assets.
+
+Prerequisites:
+
+- PowerShell Remoting is enabled on the Main Hub.
+- The account used for the remote session is a local Administrator on the Main Hub.
+- A `MainHub-Update` deployment package already exists locally under `dist/deployment/`, or its path is passed explicitly.
+- The Main Hub has its installed config at `C:\RiversideOS\riverside-deployment.config.json`.
+
+Build or prepare the package, then run from the repo root:
+
+```bash
+ROS_MAIN_HUB_HOST="MAIN-HUB-NAME-OR-IP" npm run push:main-hub
+```
+
+Or pass values explicitly:
+
+```powershell
+pwsh -NoProfile -File scripts/push-main-hub.ps1 `
+  -MainHubHost "MAIN-HUB-NAME-OR-IP" `
+  -PackagePath "dist/deployment/RiversideOS-v0.90.0-abc12345-MainHub-Update.zip"
+```
+
+The script:
+
+1. verifies the local package shape;
+2. copies it to `C:\ProgramData\RiversideOS\incoming\<timestamp>` on the Main Hub;
+3. creates a pre-update `pg_dump -Fc` backup under `C:\RiversideOS\backups`;
+4. runs the packaged `install-server.ps1` with the installed Main Hub config;
+5. waits for the existing installer health checks and prints `/api/version`.
+
+Use `-SkipBackup` only when a separate current backup has already been verified. Use `-SkipMigrations`, `-SkipRosieSetup`, or `-NoStart` only for narrow support cases.
+
+### 5.1 In-App Update (GitHub release path — requires internet access)
 
 This is the standard update path for all production stores:
 
@@ -79,7 +114,7 @@ This is the standard update path for all production stores:
    - PWA / browser stations: reload after the server admin has pushed updated web files.
    - Staff cannot sign in until client and server versions match.
 
-### 5.1 Backup (mandatory — in-app and manual paths)
+### 5.2 Backup (mandatory — in-app and manual paths)
 
 Create a **fresh** database backup before any update.
 
@@ -88,7 +123,7 @@ Create a **fresh** database backup before any update.
 
 Confirm the backup file has non-trivial size before continuing.
 
-### 5.2 Stop the API (manual / offline path only)
+### 5.3 Stop the API (manual / offline path only)
 
 Stop the Riverside OS HTTP process **cleanly** (no hard kill mid-request if avoidable).
 
@@ -97,7 +132,7 @@ Stop the Riverside OS HTTP process **cleanly** (no hard kill mid-request if avoi
 
 Until the process is stopped, do not replace the binary or the static `dist` tree.
 
-### 5.3 Apply database migrations (manual / offline path only)
+### 5.4 Apply database migrations (manual / offline path only)
 
 Migration filenames are tracked in **`public.ros_schema_migrations`**. Never skip the ledger inserts.
 
@@ -114,12 +149,12 @@ export DATABASE_URL="postgresql://USER:PASSWORD@HOST:5432/DATABASE"
 
 If any file fails, **stop** and restore from backup — do not start the new server against a half-applied chain.
 
-### 5.4 Deploy binary and static UI (manual / offline path only)
+### 5.5 Deploy binary and static UI (manual / offline path only)
 
 1. Replace the **server executable** with the one from the release bundle.
 2. Replace the **contents** of the `FRONTEND_DIST` directory (atomic swap preferred).
 
-### 5.5 Environment variables
+### 5.6 Environment variables
 
 Merge any **new** keys from release notes into the server's `.env`. Full reference: [`DEVELOPER.md`](../DEVELOPER.md).
 
@@ -131,11 +166,11 @@ Merge any **new** keys from release notes into the server's `.env`. Full referen
 - `RIVERSIDE_HTTP_BIND`
 - ROS-AI help RAG: `RIVERSIDE_REPO_ROOT` — [`docs/ROS_AI_HELP_CORPUS.md`](ROS_AI_HELP_CORPUS.md)
 
-### 5.6 Start the API (manual / offline path only)
+### 5.7 Start the API (manual / offline path only)
 
 Start `riverside-server` or restart the `"Riverside OS Server"` scheduled task. Confirm it listens on `0.0.0.0:3000` (or your override).
 
-### 5.7 Smoke test
+### 5.8 Smoke test
 
 Before announcing “all clear”:
 
@@ -144,7 +179,7 @@ Before announcing “all clear”:
 3. Optional: `SELECT version FROM ros_schema_migrations ORDER BY version;` — rows should match the active migration files you shipped. For deeper drift checks in dev/Docker, see [`scripts/migration-status-docker.sh`](../scripts/migration-status-docker.sh), [`scripts/validate_schema_contract.sh`](../scripts/validate_schema_contract.sh), and [`docs/SCHEMA_CONTRACT_AND_MIGRATIONS.md`](SCHEMA_CONTRACT_AND_MIGRATIONS.md) (adapt queries to your prod DB as needed).
 4. If you ship **new or changed** `docs/staff/**` or **`CORPUS.manifest.json`**, run a **staff help reindex** once the API is up (**`settings.admin`**) — [`docs/ROS_AI_HELP_CORPUS.md`](ROS_AI_HELP_CORPUS.md).
 
-### 5.8 Post-update smoke matrix (required before all-clear)
+### 5.9 Post-update smoke matrix (required before all-clear)
 
 Validate each deployment surface against its real role:
 

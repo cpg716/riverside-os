@@ -1,5 +1,8 @@
 import { expect, test } from "@playwright/test";
-import { signInToBackOffice } from "./helpers/backofficeSignIn";
+import {
+  ensureMainNavigationVisible,
+  signInToBackOffice,
+} from "./helpers/backofficeSignIn";
 import {
   ensurePosRegisterSessionOpen,
   ensurePosSaleCashierSignedIn,
@@ -7,6 +10,44 @@ import {
 } from "./helpers/openPosRegister";
 
 test.describe.configure({ timeout: 60_000 });
+
+test("Back Office sidebar stays fixed while the workspace scrolls", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await signInToBackOffice(page);
+
+  const mainNav = await ensureMainNavigationVisible(page);
+  await expect(mainNav).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText(/Action Board/i)).toBeVisible({ timeout: 20_000 });
+
+  const scrollState = await page.evaluate(() => {
+    const scroller = document.scrollingElement as HTMLElement | null;
+    const nav = document.querySelector(
+      '[aria-label="Main Navigation"]',
+    ) as HTMLElement | null;
+    const rail = nav?.closest("aside") as HTMLElement | null;
+    const railTopBefore = rail?.getBoundingClientRect().top ?? null;
+
+    if (scroller) {
+      scroller.scrollTop = 0;
+      scroller.scrollTop = 360;
+    }
+    const railTopAfter = rail?.getBoundingClientRect().top ?? null;
+
+    return {
+      documentScrollTop: scroller?.scrollTop ?? 0,
+      railTopBefore,
+      railTopAfter,
+      railOverflowY: rail ? getComputedStyle(rail).overflowY : "",
+    };
+  });
+
+  expect(scrollState.documentScrollTop).toBeGreaterThan(0);
+  expect(scrollState.railOverflowY).toBe("hidden");
+  expect(scrollState.railTopBefore).not.toBeNull();
+  expect(scrollState.railTopAfter).toBe(scrollState.railTopBefore);
+});
 
 async function openClickablePosRail(page: Parameters<typeof signInToBackOffice>[0]) {
   await signInToBackOffice(page);

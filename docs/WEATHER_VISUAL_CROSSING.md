@@ -30,7 +30,7 @@ The Visual Crossing API key is Settings-managed. The only environment override l
 ## Hardening (v0.70.x)
 
 - **Retry Logic**: Visual Crossing Timeline requests retry up to **2 times** with exponential backoff (300ms → 600ms) on network timeouts, connection errors, and HTTP 5xx.
-- **Health Check**: `GET /api/weather/health` probes the API with a single-day request without consuming additional quota. Returns `configured`, `reachable`, `latency_ms`, `message`.
+- **Health Check**: `GET /api/weather/health` uses the same cached, cooldown-aware today/tomorrow Timeline request as the dashboard forecast. Returns `configured`, `reachable`, `latency_ms`, `message` without making a separate provider probe when a forecast cache hit or 429 cooldown already exists.
 
 These routes are intentionally **not** staff-gated so dashboards and feeds can load without Back Office headers.
 

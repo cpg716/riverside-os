@@ -48,6 +48,7 @@ Upon closing, a professional, full-page **Z-Audit Report** is generated.
 - **Audit Grade**: Produces high-fidelity Letter/A4 documents for accounting review.
 - **Reporting Station**: The header confirms the assigned printer name for accountability.
 - **Per-Transaction Subtotal Before Tax**: The audit list separates merchandise subtotal before tax from payment totals.
+- **Line Discounts**: Each transaction line shows the final line price plus the regular price and discount percent applied.
 - **Daily Cash Deposit**: Captures the bank deposit date and cash deposit amount for deposit verification and accounting review.
 - **QBO Preview**: Shows the journal-entry breakdown staged for QuickBooks review.
 - **Inventory Activity**: Lists non-sale inventory moves for the day, including Receiving, RTV, Damaged, Physical Count, and Adjustments.

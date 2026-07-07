@@ -4,6 +4,7 @@ import { ArrowLeftRight, X, Loader2, Package } from "lucide-react";
 import { useToast } from "../ui/ToastProviderLogic";
 import { useShellBackdropLayer } from "../layout/ShellBackdropContextLogic";
 import { centsToFixed2, parseMoney, parseMoneyToCents, formatMoney } from "../../lib/money";
+import { calculateNysErieTaxForUnit, type TaxCategory } from "../../lib/tax";
 import type { Customer } from "../pos/CustomerSelector";
 import TransactionSearchInput from "../ui/TransactionSearchInput";
 
@@ -22,6 +23,7 @@ interface TransactionItemRow {
   unit_cost: string;
   state_tax: string;
   local_tax: string;
+  tax_category?: string | null;
   fulfillment: FulfillmentKind;
   is_fulfilled?: boolean;
   fulfilled_at?: string | null;
@@ -36,6 +38,8 @@ interface TransactionDetailLite {
   total_price: string;
   amount_paid: string;
   balance_due: string;
+  is_counterpoint_import?: boolean;
+  is_tax_exempt?: boolean;
   payment_methods_summary?: string;
   customer: {
     id: string;
@@ -90,6 +94,48 @@ type ReturnedLineSummary = {
   restock?: boolean | null;
 };
 
+type ReturnTaxCents = {
+  stateTaxCents: number;
+  localTaxCents: number;
+  taxCents: number;
+};
+
+const TAX_CATEGORIES: TaxCategory[] = ["clothing", "footwear", "accessory", "service", "other"];
+
+function normalizeTaxCategory(raw: string | null | undefined): TaxCategory {
+  const normalized = (raw ?? "").trim().toLowerCase();
+  return TAX_CATEGORIES.includes(normalized as TaxCategory) ? (normalized as TaxCategory) : "other";
+}
+
+function returnTaxCentsForItem(detail: TransactionDetailLite, item: TransactionItemRow): ReturnTaxCents {
+  const storedStateTaxCents = parseMoneyToCents(item.state_tax);
+  const storedLocalTaxCents = parseMoneyToCents(item.local_tax);
+
+  if (
+    storedStateTaxCents !== 0 ||
+    storedLocalTaxCents !== 0 ||
+    !detail.is_counterpoint_import ||
+    detail.is_tax_exempt
+  ) {
+    return {
+      stateTaxCents: storedStateTaxCents,
+      localTaxCents: storedLocalTaxCents,
+      taxCents: storedStateTaxCents + storedLocalTaxCents,
+    };
+  }
+
+  const { stateTaxCents, localTaxCents } = calculateNysErieTaxForUnit(
+    normalizeTaxCategory(item.tax_category),
+    parseMoneyToCents(item.unit_price),
+  );
+
+  return {
+    stateTaxCents,
+    localTaxCents,
+    taxCents: stateTaxCents + localTaxCents,
+  };
+}
+
 const EXCHANGE_WORKFLOW_STEPS: WorkflowStep[] = [
   {
     id: "load",
@@ -122,20 +168,23 @@ function paidReturnCreditCents(detail: TransactionDetailLite, selectedReturnCent
 function returnedLineSummaries(detail: TransactionDetailLite): ReturnedLineSummary[] {
   return detail.items
     .filter((item) => (item.quantity_returned ?? 0) > 0)
-    .map((item) => ({
-      transaction_line_id: item.transaction_line_id,
-      product_id: item.product_id,
-      variant_id: item.variant_id,
-      sku: item.sku,
-      product_name: item.product_name,
-      variation_label: item.variation_label,
-      quantity: item.quantity_returned,
-      unit_price_cents: parseMoneyToCents(item.unit_price),
-      unit_cost: item.unit_cost,
-      state_tax_cents: parseMoneyToCents(item.state_tax),
-      local_tax_cents: parseMoneyToCents(item.local_tax),
-      tax_cents: parseMoneyToCents(item.state_tax) + parseMoneyToCents(item.local_tax),
-    }));
+    .map((item) => {
+      const tax = returnTaxCentsForItem(detail, item);
+      return {
+        transaction_line_id: item.transaction_line_id,
+        product_id: item.product_id,
+        variant_id: item.variant_id,
+        sku: item.sku,
+        product_name: item.product_name,
+        variation_label: item.variation_label,
+        quantity: item.quantity_returned,
+        unit_price_cents: parseMoneyToCents(item.unit_price),
+        unit_cost: item.unit_cost,
+        state_tax_cents: tax.stateTaxCents,
+        local_tax_cents: tax.localTaxCents,
+        tax_cents: tax.taxCents,
+      };
+    });
 }
 
 export default function PosExchangeWizard({
@@ -317,7 +366,7 @@ export default function PosExchangeWizard({
 
   const selectedRefundCents = (selectedReturnLines() ?? []).reduce((sum, line) => {
     const unitCents = parseMoneyToCents(line.item.unit_price);
-    const taxCents = parseMoneyToCents(line.item.state_tax) + parseMoneyToCents(line.item.local_tax);
+    const taxCents = detail ? returnTaxCentsForItem(detail, line.item).taxCents : 0;
     return sum + (unitCents + taxCents) * line.quantity;
   }, 0);
   const selectedReturnCount = (selectedReturnLines() ?? []).reduce((sum, line) => sum + line.quantity, 0);
@@ -335,22 +384,25 @@ export default function PosExchangeWizard({
     }
     setSubmitting(true);
     try {
-      const refundLines = lines.map(({ item, quantity }) => ({
-        transaction_line_id: item.transaction_line_id,
-        product_id: item.product_id,
-        variant_id: item.variant_id,
-        sku: item.sku,
-        product_name: item.product_name,
-        variation_label: item.variation_label,
-        quantity,
-        unit_price_cents: parseMoneyToCents(item.unit_price),
-        unit_cost: item.unit_cost,
-        state_tax_cents: parseMoneyToCents(item.state_tax),
-        local_tax_cents: parseMoneyToCents(item.local_tax),
-        tax_cents: parseMoneyToCents(item.state_tax) + parseMoneyToCents(item.local_tax),
-        reason: nextAction,
-        restock: true,
-      }));
+      const refundLines = lines.map(({ item, quantity }) => {
+        const tax = returnTaxCentsForItem(detail, item);
+        return {
+          transaction_line_id: item.transaction_line_id,
+          product_id: item.product_id,
+          variant_id: item.variant_id,
+          sku: item.sku,
+          product_name: item.product_name,
+          variation_label: item.variation_label,
+          quantity,
+          unit_price_cents: parseMoneyToCents(item.unit_price),
+          unit_cost: item.unit_cost,
+          state_tax_cents: tax.stateTaxCents,
+          local_tax_cents: tax.localTaxCents,
+          tax_cents: tax.taxCents,
+          reason: nextAction,
+          restock: true,
+        };
+      });
       setReturnedLines(refundLines);
       const returnedValueCents = refundLines.reduce(
         (sum, line) => sum + (line.unit_price_cents + line.tax_cents) * line.quantity,

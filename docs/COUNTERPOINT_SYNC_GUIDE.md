@@ -393,6 +393,9 @@ If `ISSUE_DAT` is also absent, `NOW()` is used as the issue baseline.
 | `PS_TKT_HIST.USR_ID` | `transactions.processed_by_staff_id` (resolved via `counterpoint_staff_map`) |
 | `PS_TKT_HIST.SLS_REP` | `transactions.primary_salesperson_id` + `transaction_lines.salesperson_id` (resolved via `counterpoint_staff_map`) |
 | `PS_TKT_HIST_LIN.ITEM_NO` + `LIN_SEQ_NO` | `transaction_lines.variant_id` (with `PS_TKT_HIST_CELL` the bridge builds the same matrix `counterpoint_item_key` as `IM_INV_CELL`) |
+| Visible `PS_TKT_HIST` tax total columns | `transactions.total_price` gross-up when Counterpoint separates tax from merchandise totals |
+| Visible `PS_TKT_HIST_LIN` tax columns | `transaction_lines.state_tax` / `transaction_lines.local_tax` |
+| Visible `PS_TKT_HIST_LIN` regular price / discount columns | Discounted `transaction_lines.unit_price` with original Counterpoint price preserved in `size_specs` |
 | `PS_TKT_HIST_PMT.PMT_TYP` | `payment_transactions.payment_method` (via `counterpoint_payment_method_map`) |
 | `PS_TKT_HIST_GFT` | Optional `payment_transactions` (`gift_card`) tender visibility only; does not decrement `gift_cards.current_balance` |
 | `PS_LOY_PTS_HIST` | Optional historical replay only; not required for current loyalty balances |
@@ -406,7 +409,7 @@ If `ISSUE_DAT` is also absent, `NOW()` is used as the issue baseline.
 
 **Historical sales posture:** Closed ticket rows are imported for customer history, item history, and reporting comparison. They are not active fulfillment obligations. ROS links historical lines to exact variants when the payload has enough SKU/cell detail; unresolved historical lines use the historical Counterpoint fallback item instead of blocking the import. Open documents remain strict because they are current obligations.
 
-**Tax limitation:** The shipped Counterpoint ticket queries do not currently source line-level or header-level tax columns, so imported historical `transaction_lines.state_tax` and `local_tax` land as `0`. Treat imported ticket history as operational/customer-service history, not as financially authoritative tax history, unless you extend the bridge with proven Counterpoint tax columns from your live schema.
+**Tax and discount import:** Auto Config now selects known Counterpoint header and line tax columns when those columns are visible in the live schema, and maps known regular-price / discount columns so ROS stores the effective discounted unit price instead of the regular price. If Counterpoint exposes only a header tax total, ROS allocates that tax across imported lines. If Counterpoint exposes no tax columns for a historical ticket, the imported line tax remains `0` and existing historical rows must be reimported or backfilled from Counterpoint before they become source-authoritative for tax history.
 
 **Provenance:** Imported Counterpoint Transaction Records have `is_counterpoint_import = true`. This flag ensures:
 - Loyalty point accrual is **skipped** (no double-counting with Counterpoint's loyalty system)

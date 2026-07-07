@@ -45,6 +45,7 @@ use crate::logic::receipt_shared;
 use crate::logic::receipt_studio_html;
 use crate::logic::store_credit;
 use crate::logic::suit_component_swap::{self, SuitSwapInput, SuitSwapOutcome};
+use crate::logic::tax::{erie_local_tax_usd, nys_state_tax_usd, round_money_usd, TaxCategory};
 use crate::logic::transaction_recalc;
 use crate::logic::transaction_returns::{self, ReturnLineInput};
 use crate::middleware;
@@ -234,6 +235,7 @@ pub struct TransactionDetailItem {
     pub unit_cost: Decimal,
     pub state_tax: Decimal,
     pub local_tax: Decimal,
+    pub tax_category: String,
     pub fulfillment: DbFulfillmentType,
     pub order_lifecycle_status: DbOrderItemLifecycleStatus,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -316,6 +318,7 @@ pub struct TransactionDetailResponse {
     pub total_price: Decimal,
     pub amount_paid: Decimal,
     pub balance_due: Decimal,
+    pub is_counterpoint_import: bool,
     pub is_forfeited: bool,
     pub forfeited_at: Option<DateTime<Utc>>,
     pub forfeiture_reason: Option<String>,
@@ -704,6 +707,7 @@ mod tests {
             total_price: Decimal::new(1000, 2),
             amount_paid: Decimal::new(1000, 2),
             balance_due: Decimal::ZERO,
+            is_counterpoint_import: false,
             is_forfeited: false,
             forfeited_at: None,
             forfeiture_reason: None,
@@ -753,6 +757,53 @@ mod tests {
         }
     }
 
+    fn sample_order_header(total_price: Decimal, is_counterpoint_import: bool) -> OrderHeaderRow {
+        OrderHeaderRow {
+            id: Uuid::nil(),
+            display_id: "TXN-TEST".to_string(),
+            booked_at: Utc::now(),
+            status: DbOrderStatus::Open,
+            total_price,
+            amount_paid: total_price,
+            balance_due: Decimal::ZERO,
+            is_forfeited: false,
+            forfeited_at: None,
+            forfeiture_reason: None,
+            fulfillment_method: DbOrderFulfillmentMethod::Pickup,
+            ship_to: None,
+            shipping_amount_usd: None,
+            shippo_shipment_object_id: None,
+            shippo_transaction_object_id: None,
+            tracking_number: None,
+            tracking_url_provider: None,
+            shipping_label_url: None,
+            exchange_group_id: None,
+            customer_id: None,
+            customer_code: None,
+            customer_first_name: None,
+            customer_last_name: None,
+            customer_phone: None,
+            customer_email: None,
+            wedding_member_id: None,
+            wedding_party_id: None,
+            wedding_party_name: None,
+            wedding_event_date: None,
+            wedding_member_role: None,
+            operator_staff_id: None,
+            operator_name: None,
+            primary_salesperson_id: None,
+            primary_salesperson_name: None,
+            review_invite_sent_at: None,
+            review_invite_suppressed_at: None,
+            customer_review_requests_opt_out: false,
+            store_review_policy: sqlx::types::Json(json!({})),
+            is_tax_exempt: false,
+            tax_exempt_reason: None,
+            register_session_id: None,
+            is_counterpoint_import,
+        }
+    }
+
     fn sample_item(quantity: i32, quantity_returned: i32) -> TransactionDetailItem {
         TransactionDetailItem {
             transaction_line_id: Uuid::new_v4(),
@@ -768,6 +819,7 @@ mod tests {
             unit_cost: Decimal::new(10000, 2),
             state_tax: Decimal::new(1000, 2),
             local_tax: Decimal::new(500, 2),
+            tax_category: "other".to_string(),
             fulfillment: DbFulfillmentType::Takeaway,
             order_lifecycle_status: DbOrderItemLifecycleStatus::PickedUp,
             alteration_status: None,
@@ -803,6 +855,49 @@ mod tests {
         item.sku = "ROS-RMS-CHARGE-PAYMENT".to_string();
         item.is_internal = true;
         item
+    }
+
+    #[test]
+    fn counterpoint_legacy_detail_normalizer_restores_discounted_taxable_price() {
+        let header = sample_order_header(Decimal::new(6809, 2), true);
+        let mut item = sample_item(1, 0);
+        item.unit_price = Decimal::new(7500, 2);
+        item.state_tax = Decimal::ZERO;
+        item.local_tax = Decimal::ZERO;
+        item.tax_category = "clothing".to_string();
+        let mut items = vec![item];
+
+        normalize_counterpoint_legacy_detail_items(&header, &mut items);
+
+        assert_eq!(items[0].unit_price, Decimal::new(6500, 2));
+        assert_eq!(items[0].state_tax, Decimal::ZERO);
+        assert_eq!(items[0].local_tax, Decimal::new(309, 2));
+        assert_eq!(
+            items[0].receipt_original_unit_price,
+            Some(Decimal::new(7500, 2))
+        );
+        assert_eq!(
+            items[0].discount_event_label.as_deref(),
+            Some("Counterpoint imported discount")
+        );
+    }
+
+    #[test]
+    fn counterpoint_legacy_detail_normalizer_leaves_explicit_tax_rows_unchanged() {
+        let header = sample_order_header(Decimal::new(7069, 2), true);
+        let mut item = sample_item(1, 0);
+        item.unit_price = Decimal::new(6500, 2);
+        item.state_tax = Decimal::new(260, 2);
+        item.local_tax = Decimal::new(309, 2);
+        item.tax_category = "clothing".to_string();
+        let mut items = vec![item];
+
+        normalize_counterpoint_legacy_detail_items(&header, &mut items);
+
+        assert_eq!(items[0].unit_price, Decimal::new(6500, 2));
+        assert_eq!(items[0].state_tax, Decimal::new(260, 2));
+        assert_eq!(items[0].local_tax, Decimal::new(309, 2));
+        assert_eq!(items[0].receipt_original_unit_price, None);
     }
 
     #[test]
@@ -1556,6 +1651,7 @@ struct OrderHeaderRow {
     is_tax_exempt: bool,
     tax_exempt_reason: Option<String>,
     register_session_id: Option<Uuid>,
+    is_counterpoint_import: bool,
 }
 
 #[derive(Debug, FromRow)]
@@ -1573,6 +1669,7 @@ struct OrderItemRow {
     unit_cost: Decimal,
     state_tax: Decimal,
     local_tax: Decimal,
+    tax_category: String,
     fulfillment: DbFulfillmentType,
     order_lifecycle_status: DbOrderItemLifecycleStatus,
     alteration_status: Option<String>,
@@ -1599,6 +1696,112 @@ struct OrderItemRow {
     shipped_at: Option<DateTime<Utc>>,
     shipment_id: Option<Uuid>,
     fulfilled_at: Option<DateTime<Utc>>,
+}
+
+fn counterpoint_legacy_unit_components_from_gross(
+    category: TaxCategory,
+    unit_gross: Decimal,
+) -> (Decimal, Decimal, Decimal) {
+    let gross = round_money_usd(unit_gross);
+    if gross <= Decimal::ZERO {
+        return (Decimal::ZERO, Decimal::ZERO, Decimal::ZERO);
+    }
+
+    let candidates = [
+        gross,
+        round_money_usd(gross / Decimal::new(10475, 4)),
+        round_money_usd(gross / Decimal::new(10875, 4)),
+    ];
+
+    let mut best = (gross, Decimal::ZERO, Decimal::ZERO);
+    let mut best_delta = gross;
+    for net in candidates {
+        if net < Decimal::ZERO {
+            continue;
+        }
+        let state_tax = nys_state_tax_usd(category, net, net);
+        let local_tax = erie_local_tax_usd(category, net, net);
+        let reconstructed = round_money_usd(net + state_tax + local_tax);
+        let delta = (reconstructed - gross).abs();
+        if delta < best_delta {
+            best = (net, state_tax, local_tax);
+            best_delta = delta;
+        }
+    }
+
+    best
+}
+
+fn normalize_counterpoint_legacy_detail_items(
+    header: &OrderHeaderRow,
+    items: &mut [TransactionDetailItem],
+) {
+    if !header.is_counterpoint_import || header.is_tax_exempt || items.is_empty() {
+        return;
+    }
+    if items.iter().any(|item| {
+        !item.state_tax.is_zero()
+            || !item.local_tax.is_zero()
+            || item.receipt_original_unit_price.is_some()
+    }) {
+        return;
+    }
+
+    let target_total = round_money_usd(header.total_price);
+    if target_total <= Decimal::ZERO {
+        return;
+    }
+
+    let current_line_total: Decimal = items
+        .iter()
+        .map(|item| {
+            Decimal::from(item.quantity) * (item.unit_price + item.state_tax + item.local_tax)
+        })
+        .sum();
+    if round_money_usd(current_line_total) <= target_total + Decimal::new(1, 2) {
+        return;
+    }
+
+    let raw_subtotal: Decimal = items
+        .iter()
+        .map(|item| Decimal::from(item.quantity) * item.unit_price)
+        .sum();
+    if raw_subtotal <= Decimal::ZERO {
+        return;
+    }
+
+    let last_positive_index = items.iter().rposition(|item| item.quantity > 0);
+    let mut allocated_gross = Decimal::ZERO;
+    for (index, item) in items.iter_mut().enumerate() {
+        let qty = Decimal::from(item.quantity);
+        if qty <= Decimal::ZERO {
+            continue;
+        }
+
+        let raw_extended = item.unit_price * qty;
+        let extended_gross = if Some(index) == last_positive_index {
+            round_money_usd(target_total - allocated_gross)
+        } else {
+            round_money_usd(target_total * raw_extended / raw_subtotal)
+        };
+        allocated_gross += extended_gross;
+
+        let unit_gross = round_money_usd(extended_gross / qty);
+        let category = TaxCategory::from_db_text(&item.tax_category).unwrap_or(TaxCategory::Other);
+        let (unit_price, state_tax, local_tax) =
+            counterpoint_legacy_unit_components_from_gross(category, unit_gross);
+
+        if item.receipt_original_unit_price.is_none()
+            && item.unit_price > unit_price + Decimal::new(1, 2)
+        {
+            item.receipt_original_unit_price = Some(item.unit_price);
+            item.discount_event_label
+                .get_or_insert_with(|| "Counterpoint imported discount".to_string());
+        }
+        item.unit_price = unit_price;
+        item.state_tax = state_tax;
+        item.local_tax = local_tax;
+    }
 }
 
 #[derive(Debug, FromRow)]
@@ -6581,6 +6784,7 @@ pub(crate) async fn load_transaction_detail(
             o.total_price,
             o.amount_paid,
             o.balance_due,
+            COALESCE(o.is_counterpoint_import, false) AS is_counterpoint_import,
             o.is_forfeited,
             o.forfeited_at,
             o.forfeiture_reason,
@@ -6668,10 +6872,24 @@ pub(crate) async fn load_transaction_detail(
                 FROM transaction_return_lines orx
                 WHERE orx.transaction_line_id = oi.id
             ), 0) AS quantity_returned,
-            COALESCE(oi.unit_price, 0) AS unit_price,
+            CASE
+                WHEN oi.size_specs ? 'overridden_unit_price'
+                     AND NULLIF(TRIM(oi.size_specs->>'overridden_unit_price'), '') IS NOT NULL
+                     AND TRIM(oi.size_specs->>'overridden_unit_price') ~ '^[0-9]+(\.[0-9]+)?$'
+                THEN (TRIM(oi.size_specs->>'overridden_unit_price'))::numeric(14,2)
+                ELSE COALESCE(oi.unit_price, 0)
+            END AS unit_price,
             COALESCE(oi.unit_cost, 0) AS unit_cost,
             COALESCE(oi.state_tax, 0) AS state_tax,
             COALESCE(oi.local_tax, 0) AS local_tax,
+            CASE
+                WHEN p.tax_category_override IS NOT NULL THEN p.tax_category_override::text
+                WHEN lower(COALESCE(rc.resolved_category_name, '')) LIKE '%shoe%'
+                  OR lower(COALESCE(rc.resolved_category_name, '')) LIKE '%footwear%'
+                THEN 'footwear'
+                WHEN rc.resolved_category_name IS NOT NULL THEN 'clothing'
+                ELSE 'other'
+            END AS tax_category,
             oi.fulfillment,
             oi.order_lifecycle_status,
             (
@@ -6718,6 +6936,23 @@ pub(crate) async fn load_transaction_detail(
         INNER JOIN transactions o ON o.id = oi.transaction_id
         INNER JOIN products p ON p.id = oi.product_id
         INNER JOIN product_variants pv ON pv.id = oi.variant_id
+        LEFT JOIN LATERAL (
+            WITH RECURSIVE cat_path AS (
+                SELECT c.id, c.name, c.is_clothing_footwear, c.parent_id, 0 AS depth
+                FROM categories c
+                WHERE c.id = p.category_id
+                UNION ALL
+                SELECT parent.id, parent.name, parent.is_clothing_footwear, parent.parent_id, cat_path.depth + 1
+                FROM categories parent
+                JOIN cat_path ON cat_path.parent_id = parent.id
+                WHERE cat_path.depth < 16
+            )
+            SELECT cp.name AS resolved_category_name
+            FROM cat_path cp
+            WHERE cp.is_clothing_footwear = true
+            ORDER BY cp.depth
+            LIMIT 1
+        ) rc ON true
         LEFT JOIN staff sp ON sp.id = oi.salesperson_id
         LEFT JOIN purchase_orders po ON po.id = oi.po_id
         LEFT JOIN vendors v ON v.id = oi.vendor_id
@@ -6831,30 +7066,7 @@ pub(crate) async fn load_transaction_detail(
     )
     .collect::<Vec<_>>();
 
-    let customer = match (h.customer_id, h.customer_first_name, h.customer_last_name) {
-        (Some(id), Some(first_name), Some(last_name)) => Some(TransactionCustomerSummary {
-            id,
-            customer_code: h.customer_code.unwrap_or_default(),
-            first_name,
-            last_name,
-            phone: h.customer_phone,
-            email: h.customer_email,
-        }),
-        _ => None,
-    };
-
-    let wedding_summary = match (h.wedding_party_id, h.wedding_member_id) {
-        (Some(wedding_party_id), Some(wedding_member_id)) => Some(TransactionWeddingSummary {
-            wedding_party_id,
-            wedding_member_id,
-            party_name: h.wedding_party_name,
-            event_date: h.wedding_event_date,
-            member_role: h.wedding_member_role,
-        }),
-        _ => None,
-    };
-
-    let items: Vec<TransactionDetailItem> = items
+    let mut items: Vec<TransactionDetailItem> = items
         .into_iter()
         .map(|r| TransactionDetailItem {
             transaction_line_id: r.transaction_line_id,
@@ -6870,6 +7082,7 @@ pub(crate) async fn load_transaction_detail(
             unit_cost: r.unit_cost,
             state_tax: r.state_tax,
             local_tax: r.local_tax,
+            tax_category: r.tax_category,
             fulfillment: r.fulfillment,
             order_lifecycle_status: r.order_lifecycle_status,
             alteration_status: r.alteration_status,
@@ -6898,6 +7111,31 @@ pub(crate) async fn load_transaction_detail(
             fulfilled_at: r.fulfilled_at,
         })
         .collect();
+    normalize_counterpoint_legacy_detail_items(&h, &mut items);
+
+    let customer = match (h.customer_id, h.customer_first_name, h.customer_last_name) {
+        (Some(id), Some(first_name), Some(last_name)) => Some(TransactionCustomerSummary {
+            id,
+            customer_code: h.customer_code.unwrap_or_default(),
+            first_name,
+            last_name,
+            phone: h.customer_phone,
+            email: h.customer_email,
+        }),
+        _ => None,
+    };
+
+    let wedding_summary = match (h.wedding_party_id, h.wedding_member_id) {
+        (Some(wedding_party_id), Some(wedding_member_id)) => Some(TransactionWeddingSummary {
+            wedding_party_id,
+            wedding_member_id,
+            party_name: h.wedding_party_name,
+            event_date: h.wedding_event_date,
+            member_role: h.wedding_member_role,
+        }),
+        _ => None,
+    };
+
     let transaction_line_ids = items
         .iter()
         .map(|item| item.transaction_line_id)
@@ -7052,6 +7290,7 @@ pub(crate) async fn load_transaction_detail(
         total_price: h.total_price,
         amount_paid: h.amount_paid,
         balance_due: h.balance_due,
+        is_counterpoint_import: h.is_counterpoint_import,
         is_forfeited: h.is_forfeited,
         forfeited_at: h.forfeited_at,
         forfeiture_reason: h.forfeiture_reason,

@@ -58,7 +58,7 @@ Detailed transaction listing grouped by date.
 
 **Z-Report Print Layout (Updated):**
 - **Activity Cards**: Card-based layout showing payment method pill, timestamp, customer name, transaction ID chip, and lane chip
-- **Item Display**: Enhanced item rows with bold product names, muted SKU/fulfillment details, and monospace pricing
+- **Item Display**: Enhanced item rows with bold product names, muted SKU/fulfillment details, final line price, regular price, and discount percent applied
 - **Money Section**: Reorganized transaction totals with clear labels for Transaction Amount, Sale Total, Paid, and Balance Due
 - **Visual Improvements**: New CSS classes for activity cards, pills, chips, section labels, and improved spacing/borders
 - **Branding**: Changed header from "RIVERSIDE OS" to "RIVERSIDE MEN'S SHOP"
@@ -68,6 +68,7 @@ Detailed transaction listing grouped by date.
 
 **Daily Sales Report Print (Updated):**
 - **Grand Total**: Added grand total calculation displayed at end of report
+- **Line Discount Detail**: Each printed transaction line includes regular price, final sale price, and discount percent applied
 - **Document Title**: Added document title for browser tab identification
 - **Generated Timestamp**: Added generated timestamp to report header and footer
 - **Tauri Integration**: Desktop app saves HTML file via native dialog with save-and-open workflow
@@ -88,6 +89,7 @@ Each transaction shows:
 - Expand to show full line items:
   - Item name, SKU, quantity
   - Regular price vs Sale price
+  - Discount percent applied
   - Subtotal, Tax, Total
 
 **Grouping:**

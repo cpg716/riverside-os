@@ -212,6 +212,8 @@ interface ZReportSnapshot {
       sku: string;
       quantity: number;
       unit_price: string;
+      original_unit_price?: string | null;
+      overridden_unit_price?: string | null;
       fulfillment: string;
       is_internal: boolean;
       line_kind?: string | null;
