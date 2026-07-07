@@ -99,10 +99,14 @@ async function waitForPosRegisterPanel(page: Page): Promise<void> {
   await expect(shell).toBeVisible({ timeout: 20_000 });
 
   if ((await shell.getAttribute("data-pos-active-tab").catch(() => null)) !== "register") {
+    const registerPanel = page.getByTestId("pos-register-panel");
     await expect
       .poll(
         async () => {
           if ((await shell.getAttribute("data-pos-active-tab").catch(() => null)) === "register") {
+            return true;
+          }
+          if (await registerPanel.isVisible().catch(() => false)) {
             return true;
           }
 
@@ -117,7 +121,10 @@ async function waitForPosRegisterPanel(page: Page): Promise<void> {
           if (!(await target.isVisible().catch(() => false))) return false;
           if (!(await target.isEnabled().catch(() => false))) return false;
           await target.click({ force: true }).catch(() => {});
-          return (await shell.getAttribute("data-pos-active-tab").catch(() => null)) === "register";
+          return (
+            (await shell.getAttribute("data-pos-active-tab").catch(() => null)) === "register" ||
+            (await registerPanel.isVisible().catch(() => false))
+          );
         },
         { timeout: 20_000 },
       )
