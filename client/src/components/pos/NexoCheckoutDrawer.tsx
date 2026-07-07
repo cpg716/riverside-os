@@ -1478,7 +1478,7 @@ export default function NexoCheckoutDrawer({
         setKeypad("");
         try {
           await openManualCardHandoffUrl(body.handoff_url);
-          toast("Secure Card Not Present entry opened. Keep this checkout drawer open.", "info");
+          toast("Secure Manual Card entry opened. Complete the Helcim form, then return here.", "info");
         } catch (error) {
           toast(
             error instanceof Error
@@ -1687,7 +1687,12 @@ export default function NexoCheckoutDrawer({
 
     if (["card_terminal", "card_manual", "card_saved", "card_credit"].includes(tab)) {
       if (providerSettingsLoading) {
-        toast("Checking Helcim terminal setup. Try again in a moment.", "error");
+        toast(
+          tab === "card_manual"
+            ? "Checking Helcim Manual Card setup. Try again in a moment."
+            : "Checking Helcim terminal setup. Try again in a moment.",
+          "error",
+        );
         return;
       }
       const activeProviderSettings = providerSettings ?? (await loadProviderSettings());

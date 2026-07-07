@@ -347,7 +347,7 @@ export const HELP_MANUALS: HelpManual[] = [
   {
     id: "pos-nexo-checkout-drawer",
     title: "Checkout & Payment",
-    summary: "Collect payment, monitor Helcim terminal status, and complete a sale from the POS checkout drawer.",
+    summary: "Collect payment, monitor Helcim card status, and complete a sale from the POS checkout drawer.",
     markdown: manual_39_raw,
     tags: ["pos","checkout","helcim","card","payment","receipt"],
   },

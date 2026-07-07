@@ -2,7 +2,7 @@
 id: pos-nexo-checkout-drawer
 title: "Checkout & Payment"
 order: 1061
-summary: "Collect payment, monitor Helcim terminal status, and complete a sale from the POS checkout drawer."
+summary: "Collect payment, monitor Helcim card status, and complete a sale from the POS checkout drawer."
 source: client/src/components/pos/NexoCheckoutDrawer.tsx
 last_scanned: 2026-05-10
 tags: pos, checkout, helcim, card, payment, receipt
@@ -21,7 +21,7 @@ status: approved
 
 ## What this is
 
-The checkout drawer collects payment, shows the remaining balance due, and completes the sale. It keeps payment status visible while the cart stays in the background.
+The checkout drawer collects payment, shows the remaining balance due, and completes the sale. It keeps terminal and hosted Manual Card payment status visible while the cart stays in the background.
 
 ## How to use it
 
