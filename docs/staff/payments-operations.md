@@ -59,7 +59,7 @@ Managers and bookkeepers still use **Back Office → Payments** for broader batc
 Use the POS checkout drawer for live card collection.
 
 - **Card Reader** sends the sale amount to the selected Helcim terminal for tap, insert, or swipe.
-- **Card Not Present** is for phone orders. It sends the sale amount to the selected Helcim terminal for keyed entry when the terminal supports that workflow. Do not type card numbers or CVV into ROS notes, references, search fields, or support chats.
+- **Card Not Present** is for phone orders. It opens secure HelcimPay.js card entry from the public HTTPS ROS handoff page. Do not type card numbers or CVV into ROS notes, references, search fields, or support chats.
 - **Saved Card** charges a Helcim-saved card token for the selected customer. ROS shows masked card details when Helcim returns them, but staff should never copy or expose the token.
 - **Card Refund** appears only when ROS already has the original Helcim payment reference for the refund. Staff do not enter Helcim invoice, provider, or transaction IDs. Use **Card Not Present** refund when the original card is not present. Use **Original Card** only when the customer and original card are present at the register.
 - **Offline CC** records a card sale or refund that was manually approved outside ROS, such as a phone approval, internet outage, card-not-present refund, or non-prior-Helcim refund. Enter only the approval/reference, last four digits, and reason. Never enter the full card number or CVV.
