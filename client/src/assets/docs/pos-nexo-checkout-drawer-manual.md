@@ -35,8 +35,8 @@ The checkout drawer collects payment, shows the remaining balance due, and compl
 Choose the tender type on the left, then collect the amount in the center panel.
 
 - **Card reader** sends the payment to the selected Helcim terminal.
-- **Manual card** is for approved keyed-card workflows. It opens HelcimPay.js from the public HTTPS ROS/PWA checkout origin saved in Helcim. On the desktop app, Riverside embeds that public handoff inside the checkout drawer and keeps listening so the approved payment is attached automatically. Use the external fallback only if the embedded handoff is blocked.
-- Riverside does not ask staff to enter a Helcim invoice number for Manual Card. Helcim assigns the hosted checkout invoice unless an approved workflow intentionally links an existing Helcim invoice.
+- **Card Not Present** is for phone orders. It sends the payment to the selected Helcim terminal for keyed entry when the terminal supports that workflow.
+- Riverside does not ask staff to enter a Helcim invoice number for Card Not Present. ROS records the approved Helcim attempt returned for the terminal request.
 - **Card refund** supports two Helcim refund paths. Use **API Refund** with the original Helcim transaction ID when the card is not present. Use **Terminal Refund** only when the customer and original card are present at the terminal.
 - **Offline CC** records a card sale or refund that was manually approved outside ROS, such as a phone approval, internet outage, card-not-present refund, or non-prior-Helcim refund. Enter only the approval/reference, last four digits, and reason. Never enter full card numbers or CVV.
 - **Cash**, **check**, **gift card**, **store credit**, and other tenders remain separate so the sale ledger stays auditable.

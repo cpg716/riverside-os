@@ -153,7 +153,7 @@ Staff headers + **`online_store.manage`** or **`settings.admin`**.
 
 - Server totals use **`rust_decimal::Decimal`** (cart lines, tax preview, coupons).
 - Paid web checkout uses **`store_checkout_session`** + **`store_checkout_payment_attempt`** before finalization. Helcim uses HelcimPay.js initialization and validates the returned response hash server-side before ROS creates a **`sale_channel = web`** transaction. The finalized payment ledger stores the Helcim card transaction id so Settings → Helcim can pull API-returned fee/net fields for QBO clearing.
-- HelcimPay.js is the hosted browser-card path for public web checkout and POS Manual Card keyed entry. In-store Card Reader and terminal card refunds use the Helcim terminal hardware path documented in [`HELCIM.md`](HELCIM.md).
+- HelcimPay.js is the hosted browser-card path for public web checkout. POS Card Reader, Card Not Present phone orders, and terminal card refunds use the Helcim terminal hardware path documented in [`HELCIM.md`](HELCIM.md).
 - Storefront **account** passwords are **Argon2** (min **8** characters); protect **`RIVERSIDE_STORE_CUSTOMER_JWT_SECRET`** like any session signing key. **Trust `X-Forwarded-For` only** from your own edge/proxy; otherwise clients can spoof IPs and shift rate-limit buckets.
 - Treat **published HTML** and **embed snippets** (Podium, Constant Contact) as **untrusted** until sanitized / CSP allowlisted — see **`PLAN_ONLINE_STORE_MODULE.md`** §5 and **`PODIUM_STOREFRONT_CSP_AND_PRIVACY.md`**.
 

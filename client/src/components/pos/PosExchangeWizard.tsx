@@ -101,15 +101,36 @@ type ReturnTaxCents = {
 };
 
 const TAX_CATEGORIES: TaxCategory[] = ["clothing", "footwear", "accessory", "service", "other"];
+const CLOTHING_FOOTWEAR_STATE_EXEMPTION_CENTS = 11000;
 
 function normalizeTaxCategory(raw: string | null | undefined): TaxCategory {
   const normalized = (raw ?? "").trim().toLowerCase();
   return TAX_CATEGORIES.includes(normalized as TaxCategory) ? (normalized as TaxCategory) : "other";
 }
 
+function shouldForceCurrentClothingReturnTax(item: TransactionItemRow): boolean {
+  const category = normalizeTaxCategory(item.tax_category);
+  return (
+    (category === "clothing" || category === "footwear") &&
+    parseMoneyToCents(item.unit_price) < CLOTHING_FOOTWEAR_STATE_EXEMPTION_CENTS
+  );
+}
+
 function returnTaxCentsForItem(detail: TransactionDetailLite, item: TransactionItemRow): ReturnTaxCents {
   const storedStateTaxCents = parseMoneyToCents(item.state_tax);
   const storedLocalTaxCents = parseMoneyToCents(item.local_tax);
+
+  if (shouldForceCurrentClothingReturnTax(item)) {
+    const { stateTaxCents, localTaxCents } = calculateNysErieTaxForUnit(
+      normalizeTaxCategory(item.tax_category),
+      parseMoneyToCents(item.unit_price),
+    );
+    return {
+      stateTaxCents,
+      localTaxCents,
+      taxCents: stateTaxCents + localTaxCents,
+    };
+  }
 
   if (
     storedStateTaxCents !== 0 ||

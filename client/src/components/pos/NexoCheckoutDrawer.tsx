@@ -19,12 +19,6 @@ import {
 import DetailDrawer from "../layout/DetailDrawer";
 import NumericPinKeypad from "../ui/NumericPinKeypad";
 import { centsToFixed2, parseMoneyToCents, calculateSwedishRounding } from "../../lib/money";
-import {
-  HELCIM_PAY_SCRIPT_URL,
-  helcimPayCanRenderInline,
-  helcimPayRuntimeBlocker,
-  helcimPayWhitelistHint,
-} from "../../lib/helcimPayRuntime";
 import { isTauri } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
@@ -35,12 +29,6 @@ import {
   type CheckoutOperatorContext,
   type NexoTenderTab
 } from "./types";
-
-declare global {
-  interface Window {
-    appendHelcimPayIframe?: (checkoutToken: string, allowExit?: boolean) => void;
-  }
-}
 
 // Cash rounding is configured in Settings → Register (Terminal Overrides).
 // Value is fetched from /api/settings/pos-station-config/public on drawer open.
@@ -101,18 +89,6 @@ interface HelcimAttempt {
   completed_at?: string | null;
 }
 
-interface HelcimPayInitializeResponse {
-  attempt: HelcimAttempt;
-  checkout_token: string;
-  handoff_url?: string | null;
-}
-
-interface HelcimPayMessage {
-  eventName?: string;
-  eventStatus?: string;
-  eventMessage?: unknown;
-}
-
 function rmsSourceLabel(source?: string | null) {
   if (source === "linked_account") return "Linked RMS account";
   if (source === "account_list_import") return "Imported RMS account list";
@@ -135,46 +111,6 @@ interface HelcimCustomer {
   id?: number | string | null;
   customerCode?: string | null;
   cards?: HelcimCard[] | null;
-}
-
-function loadHelcimPayScript(): Promise<void> {
-  if (window.appendHelcimPayIframe) return Promise.resolve();
-  const existing = document.querySelector<HTMLScriptElement>(
-    'script[data-ros-helcim-pay="true"]',
-  );
-  if (existing) {
-    return new Promise((resolve, reject) => {
-      existing.addEventListener("load", () => resolve(), { once: true });
-      existing.addEventListener("error", () => reject(new Error("HelcimPay.js could not be loaded.")), {
-        once: true,
-      });
-    });
-  }
-  return new Promise((resolve, reject) => {
-    const script = document.createElement("script");
-    script.src = HELCIM_PAY_SCRIPT_URL;
-    script.async = true;
-    script.dataset.rosHelcimPay = "true";
-    script.addEventListener("load", () => resolve(), { once: true });
-    script.addEventListener("error", () => reject(new Error("HelcimPay.js could not be loaded.")), {
-      once: true,
-    });
-    document.head.appendChild(script);
-  });
-}
-
-function parseHelcimPayEventMessage(message: unknown): { data?: unknown; hash?: string } {
-  if (typeof message === "string") {
-    return JSON.parse(message) as { data?: unknown; hash?: string };
-  }
-  if (message && typeof message === "object") {
-    return message as { data?: unknown; hash?: string };
-  }
-  return {};
-}
-
-function hasHelcimPayIframe(): boolean {
-  return document.getElementById("helcimPayIframe") instanceof HTMLIFrameElement;
 }
 
 async function openManualCardHandoffUrl(url: string): Promise<void> {
@@ -422,7 +358,7 @@ const TAB_META: Record<
     accent: "text-blue-500",
   },
   card_manual: {
-    label: "MANUAL CARD",
+    label: "CARD NOT PRESENT",
     method: "card_manual",
     icon: CreditCard,
     idle: "bg-zinc-500/5 border border-app-border text-app-text-muted hover:border-zinc-500/40",
@@ -1559,173 +1495,6 @@ export default function NexoCheckoutDrawer({
     refreshHelcimAttempt,
   ]);
 
-  const startHostedManualCardPayment = useCallback(
-    async (amtCents: number) => {
-      const canRenderInline = helcimPayCanRenderInline();
-      const runtimeBlocker = canRenderInline ? null : helcimPayRuntimeBlocker();
-      setHelcimAttemptLoading(true);
-      pendingHelcimCentsRef.current = amtCents;
-      pendingHelcimTenderRef.current = { method: "card_manual", label: "HELCIM KEYED" };
-      let hostedAttemptId: string | null = null;
-      const resetManualAttempt = () => {
-        setHelcimAttempt(null);
-        setManualCardHandoffUrl(null);
-        pendingHelcimCentsRef.current = 0;
-        pendingHelcimTenderRef.current = { method: "card_terminal", label: "HELCIM CARD" };
-      };
-      try {
-        const initRes = await fetch(`${baseUrl}/api/payments/providers/helcim/helcim-pay/initialize`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...mergedPosStaffHeaders(backofficeHeaders),
-          },
-          body: JSON.stringify({
-            amount_cents: amtCents,
-            currency: "usd",
-            register_session_id: registerSessionId ?? undefined,
-            hide_existing_payment_details: true,
-          }),
-        });
-        const initBody = (await initRes.json().catch(() => ({}))) as
-          | HelcimPayInitializeResponse
-          | { error?: string };
-        if (!initRes.ok || !("checkout_token" in initBody)) {
-          throw new Error(
-            "error" in initBody
-              ? initBody.error ?? "Helcim manual card entry could not be opened."
-              : "Helcim manual card entry could not be opened.",
-          );
-        }
-
-        const {
-          attempt,
-          checkout_token: checkoutToken,
-          handoff_url: handoffUrl,
-        } = initBody;
-        hostedAttemptId = attempt.id;
-        setHelcimAttempt(attempt);
-        setHelcimUnverifiedNotice(null);
-        setKeypad("");
-
-        if (!canRenderInline) {
-          const resolvedHandoffUrl = handoffUrl?.trim();
-          if (!resolvedHandoffUrl) {
-            throw new Error(
-              `${runtimeBlocker ?? "Manual Card requires a public HTTPS checkout origin."} Save the public HTTPS ROS/PWA URL in Remote Access before using hosted Manual Card from the desktop app.`,
-            );
-          }
-          setManualCardHandoffUrl(resolvedHandoffUrl);
-          toast(
-            "Secure Manual Card entry opened in ROS. Keep this drawer open; Riverside will attach the approved payment automatically.",
-            "info",
-          );
-          return;
-        }
-
-        const eventName = `helcim-pay-js-${checkoutToken}`;
-        const handleMessage = (event: MessageEvent) => {
-          const data = event.data as HelcimPayMessage | undefined;
-          if (!data || data.eventName !== eventName) return;
-          window.removeEventListener("message", handleMessage);
-
-          if (data.eventStatus === "ABORTED") {
-            void releaseHelcimAttempt(attempt.id).catch(() => {
-              setHelcimUnverifiedNotice(HELCIM_UNVERIFIED_OUTCOME_MESSAGE);
-            });
-            resetManualAttempt();
-            toast("Helcim manual card entry was canceled.", "info");
-            return;
-          }
-          if (data.eventStatus !== "SUCCESS") {
-            void releaseHelcimAttempt(attempt.id).catch(() => {
-              setHelcimUnverifiedNotice(HELCIM_UNVERIFIED_OUTCOME_MESSAGE);
-            });
-            resetManualAttempt();
-            toast("Helcim manual card entry was not approved.", "error");
-            return;
-          }
-
-          void (async () => {
-            try {
-              const payload = parseHelcimPayEventMessage(data.eventMessage);
-              if (!payload.data || !payload.hash) {
-                throw new Error("Helcim manual card response was incomplete.");
-              }
-              const confirmRes = await fetch(`${baseUrl}/api/payments/providers/helcim/helcim-pay/confirm`, {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  ...mergedPosStaffHeaders(backofficeHeaders),
-                },
-                body: JSON.stringify({
-                  attempt_id: attempt.id,
-                  checkout_token: checkoutToken,
-                  data: payload.data,
-                  hash: payload.hash,
-                }),
-              });
-              const confirmBody = (await confirmRes.json().catch(() => ({}))) as
-                | HelcimAttempt
-                | { error?: string };
-              if (!confirmRes.ok || !("id" in confirmBody)) {
-                throw new Error(
-                  "error" in confirmBody
-                    ? confirmBody.error ?? "Helcim manual card payment could not be finalized."
-                    : "Helcim manual card payment could not be finalized.",
-                );
-              }
-              pendingHelcimCentsRef.current = amtCents;
-              applyHelcimAttemptUpdate(confirmBody);
-            } catch (error) {
-              setHelcimUnverifiedNotice(HELCIM_UNVERIFIED_OUTCOME_MESSAGE);
-              toast(
-                error instanceof Error ? error.message : "Helcim manual card payment could not be finalized.",
-                "error",
-              );
-            }
-          })();
-        };
-
-        window.addEventListener("message", handleMessage);
-        await loadHelcimPayScript();
-        if (!window.appendHelcimPayIframe) {
-          window.removeEventListener("message", handleMessage);
-          throw new Error("HelcimPay.js could not be loaded.");
-        }
-        window.appendHelcimPayIframe(checkoutToken, true);
-        if (!hasHelcimPayIframe()) {
-          window.removeEventListener("message", handleMessage);
-          throw new Error(
-            "HelcimPay.js did not attach secure card entry. Verify this checkout origin is saved in Helcim API Access Configuration.",
-          );
-        }
-        toast(`Secure Helcim card entry opened in ROS. ${helcimPayWhitelistHint()}`, "info");
-      } catch (error) {
-        if (hostedAttemptId) {
-          void releaseHelcimAttempt(hostedAttemptId).catch(() => {
-            setHelcimUnverifiedNotice(HELCIM_UNVERIFIED_OUTCOME_MESSAGE);
-          });
-        }
-        resetManualAttempt();
-        toast(
-          error instanceof Error ? error.message : "Helcim manual card entry could not be opened.",
-          "error",
-        );
-      } finally {
-        setHelcimAttemptLoading(false);
-      }
-    },
-    [
-      applyHelcimAttemptUpdate,
-      backofficeHeaders,
-      baseUrl,
-      registerSessionId,
-      releaseHelcimAttempt,
-      toast,
-    ],
-  );
-
   const processHelcimApiRefund = useCallback(
     async (amtCents: number, originalTransactionId: number) => {
       setHelcimAttemptLoading(true);
@@ -1872,10 +1641,6 @@ export default function NexoCheckoutDrawer({
         toast(HELCIM_UNVERIFIED_OUTCOME_MESSAGE, "error");
         return;
       }
-      if (tab === "card_manual") {
-        await startHostedManualCardPayment(amtCents);
-        return;
-      }
       if (tab === "card_credit") {
         const originalTransactionId = Number.parseInt(refundOriginalTransactionId.trim(), 10);
         if (!Number.isFinite(originalTransactionId) || originalTransactionId <= 0) {
@@ -1979,10 +1744,10 @@ export default function NexoCheckoutDrawer({
 
       let startAmbiguous = false;
       try {
-        const tenderMethod = "card_terminal";
+        const tenderMethod = tab === "card_manual" ? "card_manual" : "card_terminal";
         pendingHelcimTenderRef.current = {
           method: tenderMethod,
-          label: "HELCIM CARD",
+          label: tab === "card_manual" ? "CARD NOT PRESENT" : "HELCIM CARD",
         };
         const res = await fetch(`${baseUrl}/api/payments/providers/helcim/purchase`, {
           method: "POST",
@@ -2016,7 +1781,12 @@ export default function NexoCheckoutDrawer({
         setHelcimAttempt(attempt);
         setHelcimUnverifiedNotice(null);
         setKeypad("");
-        toast("Sent to terminal. Waiting for the card outcome.", "info");
+        toast(
+          tab === "card_manual"
+            ? "Card Not Present sent to terminal. Enter the phone-order card on the Helcim device."
+            : "Sent to terminal. Waiting for the card outcome.",
+          "info",
+        );
       } catch (error) {
         const ambiguousStart = startAmbiguous || isAmbiguousProviderStartException(error);
         if (ambiguousStart) {
@@ -2178,7 +1948,7 @@ export default function NexoCheckoutDrawer({
     setDonationNote("");
     setCheckNumber("");
     setRmsReferenceNumber("");
-  }, [giftCardCode, donationNote, checkNumber, remainingCents, cashRounding.rounded, tab, offlineCardApprovalCode, offlineCardLast4, offlineCardReason, providerSettings, providerSettingsLoading, helcimAttempt?.status, helcimAttemptOutcomeUnverified, registerLaneUnavailable, registerTerminalRoute, selectedTerminalKey, selectedTerminalConfigured, selectedTerminalInUseBy, selectedTerminalInUseByOtherRegister, selectedTerminalNeedsOverride, terminalOverrideConfirmed, registerLane, registerSessionId, refundOriginalTransactionId, refundOriginalCardPresentConfirmed, cardRefundRoute, baseUrl, backofficeHeaders, customerId, customerCode, toast, setApplied, rmsSelectedAccount, rmsPrograms, rmsSelectedProgramCode, rmsReferenceNumber, rmsSummary, rmsResolve, rmsPaymentCollectionMode, chargeSavedHelcimCard, loadProviderSettings, startHostedManualCardPayment, processHelcimApiRefund]);
+  }, [giftCardCode, donationNote, checkNumber, remainingCents, cashRounding.rounded, tab, offlineCardApprovalCode, offlineCardLast4, offlineCardReason, providerSettings, providerSettingsLoading, helcimAttempt?.status, helcimAttemptOutcomeUnverified, registerLaneUnavailable, registerTerminalRoute, selectedTerminalKey, selectedTerminalConfigured, selectedTerminalInUseBy, selectedTerminalInUseByOtherRegister, selectedTerminalNeedsOverride, terminalOverrideConfirmed, registerLane, registerSessionId, refundOriginalTransactionId, refundOriginalCardPresentConfirmed, cardRefundRoute, baseUrl, backofficeHeaders, customerId, customerCode, toast, setApplied, rmsSelectedAccount, rmsPrograms, rmsSelectedProgramCode, rmsReferenceNumber, rmsSummary, rmsResolve, rmsPaymentCollectionMode, chargeSavedHelcimCard, loadProviderSettings, processHelcimApiRefund]);
 
   const removePaymentLine = async (line: AppliedPaymentLine) => {
     setApplied((prev) => prev.filter((row) => row.id !== line.id));
@@ -2879,15 +2649,12 @@ export default function NexoCheckoutDrawer({
                   {tab === "card_manual" && (
                     <div className="rounded-xl border border-app-border bg-app-bg px-4 py-3 text-xs font-semibold text-app-text-muted">
                       <span className="font-black uppercase tracking-widest text-app-text">
-                        Helcim secure manual card
+                        Helcim Card Not Present
                       </span>
                       <p className="mt-1">
-                        Opens HelcimPay.js for keyed card entry. ROS validates the Helcim response
-                        and does not store card numbers or CVV.
-                      </p>
-                      <p className="mt-2">
-                        On the desktop app, ROS opens the public HTTPS handoff page saved in
-                        Helcim and attaches the approved attempt back to this checkout drawer.
+                        Sends this phone-order sale to the selected Helcim terminal for keyed card
+                        entry. ROS records the approved Helcim attempt and does not store card
+                        numbers or CVV.
                       </p>
                     </div>
                   )}
@@ -3096,8 +2863,9 @@ export default function NexoCheckoutDrawer({
                           (rmsPaymentCollectionMode &&
                             (tab === "cash" || tab === "check") &&
                             (!customerId || !rmsSelectedAccount)) ||
-                          (tab === "card_terminal" &&
+                          ((tab === "card_terminal" || tab === "card_manual") &&
                             (providerSettingsLoading ||
+                              helcimAttemptLoading ||
                               (providerSettings?.active_provider === "helcim" &&
                                 (!providerSettings.helcim.enabled ||
                                   registerLaneUnavailable ||
@@ -3106,11 +2874,6 @@ export default function NexoCheckoutDrawer({
                                   !selectedTerminalConfigured ||
                                   (selectedTerminalNeedsOverride && !terminalOverrideConfirmed) ||
                                   helcimAttemptRetryUnavailable)))) ||
-                          (tab === "card_manual" &&
-                            (providerSettingsLoading ||
-                              helcimAttemptLoading ||
-                              (providerSettings?.active_provider === "helcim" &&
-                                (!providerSettings.helcim.enabled || helcimAttemptRetryUnavailable)))) ||
                           (tab === "card_credit" &&
                             (providerSettingsLoading ||
                               helcimAttemptLoading ||
