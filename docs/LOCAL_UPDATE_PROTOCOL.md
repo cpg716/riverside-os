@@ -82,6 +82,16 @@ For normal fast LAN updates, run from the repo root:
 ROS_MAIN_HUB_HOST="MAIN-HUB-NAME-OR-IP" npm run push:main-hub:fast
 ```
 
+From macOS, pass a Windows administrator identity explicitly:
+
+```bash
+ROS_MAIN_HUB_HOST="MAIN-HUB-NAME-OR-IP" \
+ROS_MAIN_HUB_USER="MAIN-HUB-NAME-OR-IP\\Admin" \
+npm run push:main-hub:fast
+```
+
+The script will prompt for the password if `ROS_MAIN_HUB_PASSWORD` is not set.
+
 The first Main Hub run may install or require Git, Node.js, and Rust via Windows Package Manager. Later runs reuse the installed tools and build caches.
 
 If you already have a prebuilt package, use the package push path instead:

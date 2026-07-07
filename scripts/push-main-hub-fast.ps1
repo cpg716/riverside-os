@@ -4,6 +4,8 @@ param(
   [string]$RemoteSourceRoot = "C:\RiversideOS\source\riverside-os",
   [string]$RemoteStagingRoot = "C:\ProgramData\RiversideOS\source-incoming",
   [string]$RemoteConfigPath = "C:\RiversideOS\riverside-deployment.config.json",
+  [string]$UserName = $env:ROS_MAIN_HUB_USER,
+  [string]$Password = $env:ROS_MAIN_HUB_PASSWORD,
   [System.Management.Automation.PSCredential]$Credential,
   [switch]$SkipNpmInstall,
   [switch]$SkipMigrations,
@@ -25,6 +27,26 @@ function New-MainHubSession([string]$HostName, [System.Management.Automation.PSC
   $args = @{ ComputerName = $HostName }
   if ($Cred) { $args.Credential = $Cred }
   New-PSSession @args
+}
+
+function Resolve-Credential(
+  [System.Management.Automation.PSCredential]$Cred,
+  [string]$User,
+  [string]$Pass
+) {
+  if ($Cred) {
+    return $Cred
+  }
+  if ([string]::IsNullOrWhiteSpace($User)) {
+    return $null
+  }
+
+  if ([string]::IsNullOrWhiteSpace($Pass)) {
+    return Get-Credential -UserName $User -Message "Enter the Windows administrator password for the Main Hub."
+  }
+
+  $secure = ConvertTo-SecureString $Pass -AsPlainText -Force
+  [System.Management.Automation.PSCredential]::new($User, $secure)
 }
 
 function New-SourceArchive([string]$RepoRoot) {
@@ -49,6 +71,8 @@ Write-Host "Remote source root: $RemoteSourceRoot"
 if ($DryRun) {
   exit 0
 }
+
+$Credential = Resolve-Credential $Credential $UserName $Password
 
 $session = $null
 $archive = $null

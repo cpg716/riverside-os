@@ -4,6 +4,8 @@ param(
   [string]$PackagePath = "",
   [string]$RemoteStagingRoot = "C:\ProgramData\RiversideOS\incoming",
   [string]$RemoteConfigPath = "C:\RiversideOS\riverside-deployment.config.json",
+  [string]$UserName = $env:ROS_MAIN_HUB_USER,
+  [string]$Password = $env:ROS_MAIN_HUB_PASSWORD,
   [System.Management.Automation.PSCredential]$Credential,
   [switch]$SkipBackup,
   [switch]$SkipMigrations,
@@ -93,6 +95,26 @@ function New-MainHubSession([string]$HostName, [System.Management.Automation.PSC
     $args.Credential = $Cred
   }
   New-PSSession @args
+}
+
+function Resolve-Credential(
+  [System.Management.Automation.PSCredential]$Cred,
+  [string]$User,
+  [string]$Pass
+) {
+  if ($Cred) {
+    return $Cred
+  }
+  if ([string]::IsNullOrWhiteSpace($User)) {
+    return $null
+  }
+
+  if ([string]::IsNullOrWhiteSpace($Pass)) {
+    return Get-Credential -UserName $User -Message "Enter the Windows administrator password for the Main Hub."
+  }
+
+  $secure = ConvertTo-SecureString $Pass -AsPlainText -Force
+  [System.Management.Automation.PSCredential]::new($User, $secure)
 }
 
 function Copy-PackageToMainHub(
@@ -302,6 +324,8 @@ if ($DryRun) {
   Write-Host "Dry run complete. No files were copied and no remote update was started."
   exit 0
 }
+
+$Credential = Resolve-Credential $Credential $UserName $Password
 
 $session = $null
 try {
