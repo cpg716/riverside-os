@@ -72,9 +72,18 @@ function Ensure-Command([string]$CommandName, [string]$WingetId) {
 function Invoke-Step([string]$Label, [scriptblock]$Action) {
   Write-Host ""
   Write-Host "--- $Label ---"
-  & $Action
-  if ($LASTEXITCODE -ne 0) {
-    throw "$Label failed with exit code $LASTEXITCODE."
+  $oldErrorActionPreference = $ErrorActionPreference
+  try {
+    # Windows PowerShell 5 can wrap native stderr output as NativeCommandError.
+    # npm/cargo warnings should not abort unless the process exit code is nonzero.
+    $ErrorActionPreference = "Continue"
+    & $Action
+    $exitCode = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $oldErrorActionPreference
+  }
+  if ($exitCode -ne 0) {
+    throw "$Label failed with exit code $exitCode."
   }
 }
 
