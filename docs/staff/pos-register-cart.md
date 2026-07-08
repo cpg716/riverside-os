@@ -8,6 +8,8 @@
 
 **Multiple registers:** Your store may run **Register #1** (cash drawer) and **Register #2+** in the same **till shift**. Payments are tracked **per lane**; **one** physical drawer count happens at **Z** on **Register #1**, which closes the whole group. **Admins** opening POS from Back Office usually default to **#2**; **#2** cannot open until **#1** is open. Details: **[Till group](../TILL_GROUP_AND_REGISTER_OPEN.md)**.
 
+**Opening a register session:** Select your **staff name** first, then enter your **4-digit Access PIN**. ROS verifies that the PIN belongs to the selected staff member before opening or attaching the register session.
+
 ---
 
 ## How to use this screen

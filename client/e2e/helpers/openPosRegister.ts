@@ -276,6 +276,7 @@ export async function ensurePosRegisterSessionOpen(
   }
 
   await fillOpeningFloatIfPresent(registerDialog, cartShell);
+  await selectFirstStaffMember(registerDialog);
 
   const pin1 = registerDialog.getByTestId("pin-key-1");
   await expect(pin1).toBeVisible({ timeout: 15_000 });

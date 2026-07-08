@@ -39,6 +39,7 @@ import {
   getStableStationKey,
   stationKeyHeader,
 } from "../../lib/stationIdentity";
+import StaffMiniSelector from "../ui/StaffMiniSelector";
 
 export interface SessionOpenedPayload {
   cashierName: string;
@@ -82,6 +83,11 @@ type OpenSessionSummaryJson = {
   cashier_name: string;
   opened_at: string;
   till_close_group_id: string;
+};
+
+type PosStaffRosterRow = {
+  id: string;
+  full_name: string;
 };
 
 /** Admin POS path when Register #1 is not open yet. */
@@ -173,6 +179,11 @@ export default function RegisterOverlay({
   const { backofficeHeaders, staffRole, permissionsLoaded } =
     useBackofficeAuth();
   const [credential, setCredential] = useState("");
+  const [roster, setRoster] = useState<PosStaffRosterRow[]>([]);
+  const [selectedStaffId, setSelectedStaffId] = useState<string>(() => {
+    if (typeof window === "undefined") return "";
+    return window.localStorage.getItem("ros_last_staff_id") || "";
+  });
   const stationRegisterLane = useMemo(() => installedRegisterLane(), []);
   const stationLocksRegisterLane = stationRegisterLane != null;
 
@@ -183,13 +194,21 @@ export default function RegisterOverlay({
       try {
         const res = await fetch(`${baseUrl}/api/staff/list-for-pos`);
         if (res.ok) {
-          await res.json();
+          const data = (await res.json()) as PosStaffRosterRow[];
+          setRoster(data);
+          if (
+            selectedStaffId &&
+            !data.some((staff) => staff.id === selectedStaffId)
+          ) {
+            setSelectedStaffId("");
+            window.localStorage.removeItem("ros_last_staff_id");
+          }
         }
       } catch (e) {
         console.error("Roster load failed", e);
       }
     })();
-  }, [baseUrl]);
+  }, [baseUrl, selectedStaffId]);
 
   useEffect(() => {
     void (async () => {
@@ -267,6 +286,49 @@ export default function RegisterOverlay({
     h.set("Content-Type", "application/json");
     return h;
   }, [backofficeHeaders]);
+
+  const handleStaffChange = useCallback((id: string) => {
+    setSelectedStaffId(id);
+    if (id) {
+      window.localStorage.setItem("ros_last_staff_id", id);
+    } else {
+      window.localStorage.removeItem("ros_last_staff_id");
+    }
+    setCredential("");
+    setError(null);
+  }, []);
+
+  const verifySelectedStaffCredential = useCallback(
+    async (code: string) => {
+      if (!selectedStaffId) {
+        throw new Error("Select your name first.");
+      }
+      let res: Response;
+      try {
+        res = await fetch(`${baseUrl}/api/staff/effective-permissions`, {
+          headers: {
+            "x-riverside-staff-code": code,
+            "x-riverside-staff-pin": code,
+          },
+        });
+      } catch {
+        throw new Error(MAIN_HUB_UNAVAILABLE_MESSAGE);
+      }
+      if (!res.ok) {
+        if (isTransientMainHubStatus(res.status)) {
+          throw new Error(MAIN_HUB_UNAVAILABLE_MESSAGE);
+        }
+        const b = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(b.error ?? "Invalid Access PIN.");
+      }
+      const data = (await res.json()) as { id?: string; staff_id?: string };
+      const verifiedId = (data.id ?? data.staff_id ?? "").trim();
+      if (!verifiedId || verifiedId !== selectedStaffId) {
+        throw new Error("Access PIN belongs to another staff member.");
+      }
+    },
+    [baseUrl, selectedStaffId],
+  );
 
   const fetchRegister1IsOpen = useCallback(async (): Promise<boolean> => {
     setAdminListOpenError(null);
@@ -522,6 +584,7 @@ export default function RegisterOverlay({
   }, [tryResumeOrBypass]);
 
   const openWithCredential = async (code: string) => {
+    await verifySelectedStaffCredential(code);
     const lane = registerLaneRef.current;
     if (lane > 1 && !primarySessionId) {
       throw new Error(
@@ -660,8 +723,12 @@ export default function RegisterOverlay({
   const onSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
     const code = credentialRef.current.trim();
+    if (!selectedStaffId) {
+      setError("Select your name first.");
+      return;
+    }
     if (code.length !== 4) {
-      setError("Enter your 4-digit staff code.");
+      setError("Enter your 4-digit Access PIN.");
       return;
     }
     setSubmitting(true);
@@ -1199,6 +1266,29 @@ export default function RegisterOverlay({
                 )}
 
                 <div className="space-y-4 py-2">
+                  <div className="space-y-3">
+                    <p className="text-center text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                      Select Your Name
+                    </p>
+                    <StaffMiniSelector
+                      staff={roster.map((staff) => ({
+                        id: staff.id,
+                        full_name: staff.full_name,
+                      }))}
+                      selectedId={selectedStaffId}
+                      onSelect={handleStaffChange}
+                      placeholder="Select staff member..."
+                      size="lg"
+                      showAvatar
+                      fullWidth
+                      className="w-full"
+                    />
+                    {!selectedStaffId ? (
+                      <p className="text-center text-[10px] font-bold text-amber-600">
+                        Please select a name first
+                      </p>
+                    ) : null}
+                  </div>
                   <PinDots length={credential.length} className="gap-2" />
                   {error && (
                     <p className="text-center text-[10px] font-bold text-app-danger animate-shake">
@@ -1225,7 +1315,7 @@ export default function RegisterOverlay({
                     onChange={(next) => {
                       setCredential(next);
                       setError(null);
-                      if (next.length === 4) {
+                      if (next.length === 4 && selectedStaffId) {
                         // Auto-submit
                         setTimeout(() => {
                           credentialRef.current = next;
@@ -1233,7 +1323,9 @@ export default function RegisterOverlay({
                         }, 150);
                       }
                     }}
-                    disabled={busy || hasBlockingReadinessIssue}
+                    disabled={
+                      busy || hasBlockingReadinessIssue || !selectedStaffId
+                    }
                   />
                 </div>
               </div>
