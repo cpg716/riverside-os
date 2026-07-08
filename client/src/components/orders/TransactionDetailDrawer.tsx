@@ -2414,6 +2414,7 @@ export default function TransactionDetailDrawer({
                                     <div className="mt-2">
                                       <VariantSearchInput
                                         placeholder="Search this item for the correct size or variation"
+                                        productId={item.product_id}
                                         onSelect={(variant) => {
                                           if (
                                             variant.product_id !==

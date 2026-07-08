@@ -22,6 +22,8 @@ interface VariantSearchInputProps {
   placeholder?: string;
   className?: string;
   autoFocus?: boolean;
+  productId?: string | null;
+  expandParentMatches?: boolean;
 }
 
 export default function VariantSearchInput({
@@ -29,6 +31,8 @@ export default function VariantSearchInput({
   placeholder = "Search products by name or SKU…",
   className = "",
   autoFocus = false,
+  productId = null,
+  expandParentMatches = true,
 }: VariantSearchInputProps) {
   const { backofficeHeaders } = useBackofficeAuth();
   const baseUrl = getBaseUrl();
@@ -47,8 +51,15 @@ export default function VariantSearchInput({
     }
     setLoading(true);
     try {
+      const params = new URLSearchParams({
+        search: q,
+        limit: "200",
+      });
+      if (productId) params.set("product_id", productId);
+      if (expandParentMatches) params.set("expand_parent_matches", "true");
+      if (!productId) params.set("parent_rank_first", "true");
       const res = await fetch(
-        `${baseUrl}/api/products/control-board?search=${encodeURIComponent(q)}&limit=20`,
+        `${baseUrl}/api/products/control-board?${params.toString()}`,
         { headers: mergedPosStaffHeaders(backofficeHeaders) }
       );
       if (res.ok) {
@@ -60,7 +71,7 @@ export default function VariantSearchInput({
     } finally {
       setLoading(false);
     }
-  }, [baseUrl, backofficeHeaders]);
+  }, [baseUrl, backofficeHeaders, expandParentMatches, productId]);
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);

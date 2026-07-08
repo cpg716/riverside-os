@@ -864,6 +864,9 @@ function envFlag(name, defaultValue) {
 
 const ALLOW_SQL_ENV_OVERRIDES = envFlag("CP_SQL_ENV_OVERRIDES", false);
 const IMPORT_FIRST_MODE = envFlag("CP_IMPORT_FIRST_MODE", true);
+// Maximal catalog import is the product master. It must not require a sale,
+// receipt, open doc, or non-zero quantity after the historical floor.
+const CP_CATALOG_INCLUDE_DORMANT = envFlag("CP_CATALOG_INCLUDE_DORMANT", true);
 function configuredSql(name) {
   return ALLOW_SQL_ENV_OVERRIDES ? process.env[name] ?? "" : "";
 }
@@ -1339,6 +1342,9 @@ function buildCounterpointItemScopePredicate(entries, itemAlias, locId) {
     ...(dateColumn ? [`${itemAlias}.[${dateColumn}] >= '__CP_IMPORT_SINCE__'`] : []),
     ...counterpointItemActivityPredicates(entries, itemAlias, locId),
   ];
+  if (CP_CATALOG_INCLUDE_DORMANT) {
+    return statusColumn ? `${base} AND ${itemStatusImportPredicate(itemAlias, statusColumn)}` : base;
+  }
   return keepPredicates.length > 0 ? `${base} AND (${keepPredicates.join(" OR ")})` : base;
 }
 
@@ -4214,11 +4220,16 @@ function mapCatalogRow(r, cellRows) {
   // Filter out redundant "dummy" or "parent-only" variations that lack real dimension data
   const validCells = normalizedCells.filter(c => {
     const sku = String(c.sku ?? "").trim();
+    const key = String(c.counterpoint_item_key ?? "").trim();
     const label = String(c.variation_label ?? "").trim();
-    // A valid variation must have a non-empty SKU and a label that isn't just whitespace or " / / "
     if (!sku || sku === itemNo) return false;
-    if (!label || label === "/" || label === " / " || label === " / / ") return false;
-    return true;
+    const hasDistinctKey = key && key !== itemNo;
+    const hasDimensionValue = [c.dim_1_value, c.dim_2_value, c.dim_3_value].some((value) => {
+      const normalized = String(value ?? "").trim();
+      return normalized && normalized !== "*";
+    });
+    const hasMeaningfulLabel = Boolean(label && label !== "/" && label !== " / " && label !== " / / ");
+    return hasDistinctKey || hasDimensionValue || hasMeaningfulLabel;
   });
 
   const isGrid = String(r.is_grid ?? r.is_grd ?? "N").toUpperCase() === "Y" || validCells.length > 0;

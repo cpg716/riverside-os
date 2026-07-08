@@ -40,6 +40,7 @@ Counterpoint SQL is the source of truth for cutover customer profiles, open orde
 
 - Matrix cells must use the real Counterpoint `B-XXXXX` barcode from `IM_BARCOD` when one exists. The synthetic `I-XXXXX|dimension|...` key is only an internal fallback key and must not become the ROS SKU when a barcode exists.
 - Ticket and open-doc lines must also fall back to `IM_BARCOD` by item and dimensions when the line row itself does not provide `BARCOD`.
+- The `2018-01-01` historical floor limits transaction/history activity. It must not be used to decide whether a current Counterpoint catalog product or matrix cell exists. Maximal catalog import includes active dormant products and variants even when they have no current quantity, sale, receipt, or open document activity after the floor date.
 - Counterpoint ticket headers with no matching line rows must be excluded from closed-ticket import. They are not valid ROS sale records.
 - Counterpoint zero-sale positive-payment ticket artifacts must not be surfaced as customer purchases. Those rows represent payment/deposit activity, not fulfilled merchandise sales.
 - Open-doc payments imported from Counterpoint are deposits on the order even when they do not carry POS checkout `applied_deposit_amount` metadata.

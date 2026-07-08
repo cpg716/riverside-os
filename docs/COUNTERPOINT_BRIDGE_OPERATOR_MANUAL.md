@@ -208,14 +208,14 @@ Conflicting `SYNC_*` combinations exit with `[sync-plan]` errors unless `SYNC_RE
 
 | Env | Meaning |
 |-----|---------|
-| `CP_IMPORT_SINCE` | Current shipped default is **2024-01-01**. This is the accepted go-live floor for historical Counterpoint data; older history can be backfilled separately after cutover. |
-| `CP_IMPORT_SCOPE=maximal` | For **empty** env lines only, substitutes built-in wide SQL for customers, inventory, catalog, vendor_items, category_masters. Non-empty `CP_*_QUERY` still wins. **0.7.2+:** maximal **parent** catalog + inventory SQL is **schema-flex** (probes `INFORMATION_SCHEMA` so missing `LONG_DESCR`, missing `IM_PRC`, or `BARCOD` vs `BARCODE` does not hard-fail the query). |
+| `CP_IMPORT_SINCE` | Current shipped default is **2018-01-01**. This is the accepted go-live floor for historical Counterpoint transactions and activity. It does **not** exclude active dormant catalog products or matrix cells from maximal catalog import. |
+| `CP_IMPORT_SCOPE=maximal` | For **empty** env lines only, substitutes built-in wide SQL for customers, inventory, catalog, vendor_items, category_masters. Non-empty `CP_*_QUERY` still wins. **0.7.2+:** maximal **parent** catalog + inventory SQL is **schema-flex** (probes `INFORMATION_SCHEMA` so missing `LONG_DESCR`, missing `IM_PRC`, or `BARCOD` vs `BARCODE` does not hard-fail the query). Maximal catalog import includes active products and variants even when they have no sale, receipt, open document, or current quantity after the history floor. |
 | `CP_INVENTORY_LOC_ID` / `CP_CATALOG_INV_LOC_ID` | Stock location for `IM_INV` joins (default **`MAIN`**). If you get no rows or errors, run `SELECT DISTINCT LOC_ID FROM IM_INV` in SSMS and set these to your real code. |
 | `CP_AUTO_SCHEMA=1` (default) | After SQL connect, probes `INFORMATION_SCHEMA`: IM_INV cost column, IM_ITEM vendor column, PO_VEND naming, optional PO_VEND_ITEM link. Logs one `[auto-schema]` line. Set `CP_AUTO_SCHEMA=0` to skip. |
 
 **Do not** enable `CP_IM_ITEM_VENDOR_SOURCE=po_vend_item` unless discover/SSMS shows you need it; a normal `IM_ITEM.VEND_NO` database should leave it **unset** (see `.env.example`).
 
-**Matrix SKUs:** maximal fills **`CP_CATALOG_QUERY`** only when that line is empty. It does **not** auto-generate **`CP_CATALOG_CELLS_QUERY`** — if grid items need cell rows, keep or add the cells query from `.env.example` / discover.
+**Matrix SKUs:** maximal fills **`CP_CATALOG_QUERY`** and schema-flex matrix cells when those lines are empty. If a deliberate custom `CP_CATALOG_CELLS_QUERY` override is enabled, it must still emit the Counterpoint parent item, matrix dimensions, stable `counterpoint_item_key`, and the real `B-*` barcode where available.
 
 ---
 

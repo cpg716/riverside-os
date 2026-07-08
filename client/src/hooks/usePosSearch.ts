@@ -153,7 +153,7 @@ export function usePosSearch({
     // 2. Control Board Fuzzy Search
     requests.push(
       fetch(
-        `${baseUrl}/api/products/control-board?search=${encodeURIComponent(q)}&limit=${POS_SEARCH_RESULT_CAP}&parent_rank_first=true`,
+        `${baseUrl}/api/products/control-board?search=${encodeURIComponent(q)}&limit=${POS_SEARCH_RESULT_CAP}&parent_rank_first=true&expand_parent_matches=true`,
         {
           headers: apiAuth(),
         },

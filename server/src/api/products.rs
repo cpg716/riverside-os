@@ -514,6 +514,9 @@ pub struct InventoryBoardQuery {
     pub negative_stock_only: Option<bool>,
     /// Text search only: rank rows where the **product** (name / brand / handle) matches the query
     pub parent_rank_first: Option<bool>,
+    /// Text search only: when parent product fields match, return every variant for that product
+    /// so Register lookup exposes the full size/style set.
+    pub expand_parent_matches: Option<bool>,
     /// Include variants hidden from default Inventory Find because they are zero-stock with no recent sales.
     pub include_hidden: Option<bool>,
 }
@@ -1347,6 +1350,7 @@ pub async fn list_control_board(
     let search_raw = query.search.as_deref().map(str::trim).unwrap_or("");
     let has_search = !search_raw.is_empty();
     let parent_rank_first = query.parent_rank_first.unwrap_or(false) && has_search;
+    let expand_parent_matches = query.expand_parent_matches.unwrap_or(false) && has_search;
     let filter = query.filter.as_deref().unwrap_or("all");
     let brand_raw = query
         .brand
@@ -1515,9 +1519,22 @@ pub async fn list_control_board(
         if ids.is_empty() {
             qb.push(" AND FALSE ");
         } else {
-            qb.push(" AND pv.id = ANY(");
-            qb.push_bind(ids.clone());
-            qb.push(")");
+            if expand_parent_matches {
+                let parent_pat = control_board_ilike_pattern(search_raw);
+                qb.push(" AND (pv.id = ANY(");
+                qb.push_bind(ids.clone());
+                qb.push(") OR p.name ILIKE ");
+                qb.push_bind(parent_pat.clone());
+                qb.push(" ESCAPE '\\' OR COALESCE(p.brand, '') ILIKE ");
+                qb.push_bind(parent_pat.clone());
+                qb.push(" ESCAPE '\\' OR COALESCE(p.catalog_handle, '') ILIKE ");
+                qb.push_bind(parent_pat);
+                qb.push(" ESCAPE '\\')");
+            } else {
+                qb.push(" AND pv.id = ANY(");
+                qb.push_bind(ids.clone());
+                qb.push(")");
+            }
         }
     } else if has_search {
         let pat = control_board_ilike_pattern(search_raw);
