@@ -121,7 +121,7 @@ test.describe("runtime console and API cleanliness", () => {
     await page.getByTestId("pos-product-search").fill("Garcia");
     await page.waitForResponse(
       (response) =>
-        response.url().includes("/api/products/control-board") &&
+        response.url().includes("/api/products/pos-parent-search") &&
         response.url().includes("search=Garcia"),
       { timeout: 10_000 },
     );
