@@ -298,7 +298,7 @@ for (const forbidden of [
 for (const required of [
   'Remove-Item -Path "dist/deployment" -Recurse -Force -ErrorAction SilentlyContinue',
   "RiversideOS-v$version-*-Windows-Deployment.zip",
-  "timeout-minutes: 25",
+  "timeout-minutes: 60",
   "Uploading Windows deployment package:",
   "gh release upload $tag $zipFiles[0].FullName --clobber",
 ]) {

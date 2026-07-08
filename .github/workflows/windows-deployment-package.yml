@@ -922,7 +922,7 @@ jobs:
           path: dist/deployment/RiversideOS-v*-MainHub-Update.zip
 
       - name: Publish Main Hub update package to GitHub release
-        timeout-minutes: 25
+        timeout-minutes: 60
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -1098,7 +1098,7 @@ jobs:
           path: client/updater-dist/
 
       - name: Publish deployment package to GitHub release
-        timeout-minutes: 25
+        timeout-minutes: 60
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
