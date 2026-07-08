@@ -1477,6 +1477,7 @@ export default function Cart({
     checkoutBusy,
     lastTransactionId: checkoutTransactionId,
     lastCashChangeDueCents,
+    lastReceiptTransactionLineIds,
   } = useCartCheckout({
     sessionId,
     baseUrl,
@@ -4827,6 +4828,7 @@ export default function Cart({
           getAuthHeaders={apiAuth}
           orderPaymentLines={lastReceiptOrderPaymentLines}
           cashChangeDueCents={lastCashChangeDueCents}
+          receiptTransactionLineIds={lastReceiptTransactionLineIds}
         />
       )}
 

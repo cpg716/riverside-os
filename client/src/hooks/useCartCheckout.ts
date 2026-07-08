@@ -193,6 +193,7 @@ export function useCartCheckout({
   const [checkoutBusy, setCheckoutBusy] = useState(false);
   const [lastTransactionId, setLastTransactionId] = useState<string | null>(null);
   const [lastCashChangeDueCents, setLastCashChangeDueCents] = useState(0);
+  const [lastReceiptTransactionLineIds, setLastReceiptTransactionLineIds] = useState<string[]>([]);
   const [checkoutClientId, setCheckoutClientId] = useState<string>(() => newCheckoutClientId());
 
   const executeCheckout = useCallback(async (
@@ -365,6 +366,7 @@ export function useCartCheckout({
           if (warning.trim()) toast(warning, "info");
         }
         toast("Pickup completed successfully.", "success");
+        setLastReceiptTransactionLineIds(deliveredItemIds);
         setLastTransactionId(pickupTransactionId);
         void clearBlockedCheckoutRecovery({ recoveryTransactionId: pickupTransactionId });
 
@@ -718,6 +720,7 @@ export function useCartCheckout({
         }
       }
       // Call pickup API after successful checkout when in pickup mode
+      let receiptTransactionLineIds: string[] = [];
       if (pickupTransactionId) {
         const deliveredItemIds = checkoutLines.flatMap((line) =>
           line.transaction_line_id ? [line.transaction_line_id] : [],
@@ -759,6 +762,7 @@ export function useCartCheckout({
               toast("Pickup saved, but alteration pickup recovery needs review before closing.", "error");
             }
             receiptTransactionId = pickupTransactionId;
+            receiptTransactionLineIds = deliveredItemIds;
           } else {
             await recordBlockedCheckoutRecovery(payload, pickupResult.status, pickupResult.message, {
               recoveryKind: "pickup_after_payment",
@@ -781,6 +785,7 @@ export function useCartCheckout({
       }
 
       setLastCashChangeDueCents(cashChangeDueCents(applied));
+      setLastReceiptTransactionLineIds(receiptTransactionLineIds);
       setLastTransactionId(receiptTransactionId);
       if (execution?.clearAfterCheckout !== false) {
         clearCart();
@@ -808,6 +813,7 @@ export function useCartCheckout({
     checkoutBusy,
     lastTransactionId,
     lastCashChangeDueCents,
+    lastReceiptTransactionLineIds,
     setLastTransactionId
   };
 }

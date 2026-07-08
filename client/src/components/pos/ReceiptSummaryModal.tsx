@@ -41,6 +41,7 @@ export interface ReceiptSummaryModalProps {
   getAuthHeaders: () => Record<string, string>;
   orderPaymentLines?: OrderPaymentCartLine[];
   cashChangeDueCents?: number;
+  receiptTransactionLineIds?: string[];
 }
 
 type OrderCustomer = {
@@ -111,6 +112,7 @@ export default function ReceiptSummaryModal({
   getAuthHeaders,
   orderPaymentLines = [],
   cashChangeDueCents = 0,
+  receiptTransactionLineIds = [],
 }: ReceiptSummaryModalProps) {
   const { toast } = useToast();
   const [printing, setPrinting] = useState(false);
@@ -159,16 +161,23 @@ export default function ReceiptSummaryModal({
       if (extra?.gift) {
         sp.set("gift", "1");
       }
-      if (extra?.transactionLineIds?.length) {
-        sp.set("transaction_line_ids", extra.transactionLineIds.join(","));
+      const ids = extra?.transactionLineIds?.length
+        ? extra.transactionLineIds
+        : receiptTransactionLineIds;
+      if (ids.length) {
+        sp.set("transaction_line_ids", ids.join(","));
       }
-      if (transactionDetail?.status === "fulfilled" || (orderPaymentLines && orderPaymentLines.length > 0)) {
+      if (
+        transactionDetail?.status === "fulfilled" ||
+        ids.length > 0 ||
+        (orderPaymentLines && orderPaymentLines.length > 0)
+      ) {
         sp.set("pickup", "true");
       }
       const s = sp.toString();
       return s ? `?${s}` : "";
     },
-    [registerSessionId, transactionDetail?.status, orderPaymentLines],
+    [registerSessionId, transactionDetail?.status, receiptTransactionLineIds, orderPaymentLines],
   );
 
   const shouldKickCashDrawer = useCallback(() => {
