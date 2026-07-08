@@ -4,7 +4,7 @@ use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use uuid::Uuid;
 
-use crate::logic::tax::{erie_local_tax_usd, nys_state_tax_usd};
+use crate::logic::tax::{erie_local_tax_usd, nys_state_tax_usd, TaxCategory};
 use crate::services::inventory;
 
 /// Public tolerance for comparing catalog vs charged unit prices (checkout, discount events).
@@ -20,6 +20,7 @@ pub struct CheckoutLineSnapshot {
     pub state_tax: Decimal,
     pub local_tax: Decimal,
     pub has_price_override: bool,
+    pub tax_category_override: Option<TaxCategory>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -57,6 +58,7 @@ pub async fn validate_checkout_lines_and_sum(
         let is_rms_payment = resolved.pos_line_kind.as_deref() == Some("rms_charge_payment");
         let is_pos_gc_load = resolved.pos_line_kind.as_deref() == Some("pos_gift_card_load");
         let is_alteration_service = resolved.pos_line_kind.as_deref() == Some("alteration_service");
+        let tax_category = line.tax_category_override.unwrap_or(resolved.tax_category);
 
         if is_rms_payment {
             if line.quantity != 1 {
@@ -120,12 +122,12 @@ pub async fn validate_checkout_lines_and_sum(
             let exp_state = if is_tax_exempt {
                 Decimal::ZERO
             } else {
-                nys_state_tax_usd(resolved.tax_category, line.unit_price, line.unit_price)
+                nys_state_tax_usd(tax_category, line.unit_price, line.unit_price)
             };
             let exp_local = if is_tax_exempt {
                 Decimal::ZERO
             } else {
-                erie_local_tax_usd(resolved.tax_category, line.unit_price, line.unit_price)
+                erie_local_tax_usd(tax_category, line.unit_price, line.unit_price)
             };
 
             // Use money_close for all monetary comparisons to avoid precision issues
@@ -138,7 +140,7 @@ pub async fn validate_checkout_lines_and_sum(
                     provided_local = %line.local_tax,
                     expected_local = %exp_local,
                     unit_price = %line.unit_price,
-                    tax_category = ?resolved.tax_category,
+                    tax_category = ?tax_category,
                     is_tax_exempt = %is_tax_exempt,
                     "Tax parity mismatch in checkout"
                 );
@@ -156,12 +158,12 @@ pub async fn validate_checkout_lines_and_sum(
             let exp_state = if is_tax_exempt {
                 Decimal::ZERO
             } else {
-                nys_state_tax_usd(resolved.tax_category, line.unit_price, line.unit_price)
+                nys_state_tax_usd(tax_category, line.unit_price, line.unit_price)
             };
             let exp_local = if is_tax_exempt {
                 Decimal::ZERO
             } else {
-                erie_local_tax_usd(resolved.tax_category, line.unit_price, line.unit_price)
+                erie_local_tax_usd(tax_category, line.unit_price, line.unit_price)
             };
 
             if !money_close(line.state_tax, exp_state) || !money_close(line.local_tax, exp_local) {
@@ -173,7 +175,7 @@ pub async fn validate_checkout_lines_and_sum(
                     provided_local = %line.local_tax,
                     expected_local = %exp_local,
                     unit_price = %line.unit_price,
-                    tax_category = ?resolved.tax_category,
+                    tax_category = ?tax_category,
                     is_tax_exempt = %is_tax_exempt,
                     "Tax parity mismatch in checkout (price override fail)"
                 );

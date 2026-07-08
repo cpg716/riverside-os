@@ -262,6 +262,8 @@ export interface CheckoutPayload {
   booked_at_local?: string;
   /** Binds server `store_shipping_rate_quote` into checkout totals. */
   shipping_rate_quote_id?: string | null;
+  /** Existing Transaction Records covered by this shipping charge. */
+  shipping_links?: { target_transaction_id: string }[];
   /** Binds Order Urgency */
   is_rush?: boolean;
   need_by_date?: string | null;
@@ -319,6 +321,7 @@ export interface PosShippingSelection {
   /** e.g. "USPS — Priority Mail" */
   label: string;
   to_address: PosShipToForm;
+  linked_order_ids?: string[];
 }
 
 export interface CartTotals {

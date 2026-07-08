@@ -1052,7 +1052,9 @@ async fn nys_tax_audit(
                 oi.*,
                 GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0) AS effective_qty,
                 COALESCE(
+                    NULLIF(LOWER(BTRIM(oi.size_specs->'tax_category_override'->>'to')), ''),
                     p.tax_category_override::text,
+                    p.tax_category::text,
                     CASE
                         WHEN rc.resolved_category_name IS NULL THEN 'other'
                         WHEN LOWER(rc.resolved_category_name) LIKE '%shoe%'
@@ -1094,15 +1096,21 @@ async fn nys_tax_audit(
             COALESCE(SUM((unit_price * effective_qty)::numeric), 0)::numeric(14, 2) AS gross_sales,
             COALESCE(
                 SUM((unit_price * effective_qty)::numeric) FILTER (
-                    WHERE resolved_tax_category NOT IN ('clothing', 'footwear')
-                       OR unit_price >= $3
+                    WHERE resolved_tax_category NOT IN ('clothing', 'footwear', 'service')
+                       OR (
+                          resolved_tax_category IN ('clothing', 'footwear')
+                          AND unit_price >= $3
+                       )
                 ),
                 0
             )::numeric(14, 2) AS taxable_sales,
             COALESCE(
                 SUM((unit_price * effective_qty)::numeric) FILTER (
-                    WHERE resolved_tax_category IN ('clothing', 'footwear')
-                      AND unit_price < $3
+                    WHERE resolved_tax_category = 'service'
+                       OR (
+                          resolved_tax_category IN ('clothing', 'footwear')
+                          AND unit_price < $3
+                       )
                 ),
                 0
             )::numeric(14, 2) AS nontaxable_sales,

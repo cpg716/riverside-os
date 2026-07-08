@@ -592,6 +592,29 @@ export function useCartActions({
     );
   }, []);
 
+  const toggleLineTaxCategory = useCallback((rowId: string) => {
+    setLines((prev) =>
+      prev.map((line) => {
+        if (line.cart_row_id !== rowId) return line;
+        if (line.transaction_line_id || line.return_tender_original_transaction_id) return line;
+
+        const current = line.tax_category === "clothing" || line.tax_category === "footwear"
+          ? line.tax_category
+          : "other";
+        const next = current === "other" ? "clothing" : "other";
+        const unitCents = parseMoneyToCents(line.standard_retail_price);
+        const { stateTax, localTax } = calculateNysErieTaxStringsForUnit(next, unitCents);
+
+        return {
+          ...line,
+          tax_category: next,
+          state_tax: stateTax,
+          local_tax: localTax,
+        };
+      }),
+    );
+  }, []);
+
   const updateLineOrderLifecycleStatus = useCallback(
     (rowId: string, status: CartLineItem["order_lifecycle_status"]) => {
       setLines((prev) =>
@@ -761,6 +784,7 @@ export function useCartActions({
     updateLineFulfillment,
     updateLineSalesperson,
     updateLineGiftWrapStatus,
+    toggleLineTaxCategory,
     updateLineOrderLifecycleStatus,
     handleNumpadKey,
     applyDiscountEvent,

@@ -9,6 +9,7 @@ Operational reference for **register** flows: loading customer transactions, par
 Shipping is a delivery method, not automatically an Order.
 
 - **Ship current sale**: staff can add shipping to an in-stock Register sale before payment. Checkout records `fulfillment_method = ship`, stores the quoted shipping amount/address snapshot, and creates a shipment registry row. The merchandise line can remain a current-sale/takeaway-style line; it does not become a Special/Custom/Wedding fulfillment order just because it ships.
+- **Charge shipping for existing order work**: staff can collect a shipping-only Register transaction and link it to one or more existing Transaction Records. The new transaction owns the customer-charged shipping income; the linked Transaction Records remain the merchandise and fulfillment source of truth.
 - **Ship existing order work**: staff can ship an already-open Special, Custom, or Wedding line from the Orders or Shipments workflow. This is fulfillment/release work against existing transaction lines.
 - **Pickup existing order work**: staff use the pickup/release flow to mark open transaction lines fulfilled for in-store handoff.
 
@@ -192,6 +193,8 @@ Transactions are recognized as revenue at **fulfillment time** (not booking). Se
 
 - Stored in: `transactions.shipping_amount_usd`
 - Included in transaction total at recalculation
+- Register shipping can use a live carrier rate quote or a manual shipping charge when staff already know the amount. Both paths store the charge in the same shipping field.
+- When the fee covers existing order work, `pos_shipping_charge_links` records the shipping-fee Transaction Record and each linked original Transaction Record for audit/reporting traceability.
 - QBO daily journals recognize customer-charged shipping on the same completed/fulfilled business date as the transaction.
 - Map **Shipping income** in **Settings → QuickBooks Online → QBO account mapping** (`income_shipping` / `default`). `REVENUE_SHIPPING` is the global fallback.
 

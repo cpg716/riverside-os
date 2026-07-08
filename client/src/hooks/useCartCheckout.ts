@@ -153,6 +153,14 @@ export function optionalCentsField(cents: number | undefined): string | undefine
   return cents != null ? centsToFixed2(cents) : undefined;
 }
 
+export function checkoutTaxCategoryOverride(
+  category?: CartLineItem["tax_category"],
+): "clothing" | "footwear" | "other" | undefined {
+  return category === "clothing" || category === "footwear" || category === "other"
+    ? category
+    : undefined;
+}
+
 function weddingDisbursementAmountCents(member: WeddingMember): number {
   return parseMoneyToCents(member.split_deposit_amount ?? member.balance_due ?? "0");
 }
@@ -206,8 +214,8 @@ export function useCartCheckout({
       toast("Sign in as cashier on the register sign-in screen before completing payment.", "error");
       return null;
     }
-    if (checkoutLines.length === 0 && disbursementMembers.length === 0 && orderPaymentLines.length === 0) {
-      toast("Add at least one item or order payment before checking out.", "error");
+    if (checkoutLines.length === 0 && disbursementMembers.length === 0 && orderPaymentLines.length === 0 && !posShipping) {
+      toast("Add at least one item, order payment, or shipping charge before checking out.", "error");
       return null;
     }
     if (!navigator.onLine && posShipping) {
@@ -528,6 +536,7 @@ export function useCartCheckout({
             const origCents = l.original_unit_price != null ? parseMoneyToCents(l.original_unit_price) : unitCents;
             const fulfillment = pickupConfirmed ? "takeaway" : (l.fulfillment ?? "takeaway");
             const appliesOrderOptions = fulfillment !== "takeaway";
+            const taxCategoryOverride = checkoutTaxCategoryOverride(l.tax_category);
             return {
               client_line_id: l.cart_row_id,
               line_type: l.line_type ?? "merchandise",
@@ -542,6 +551,7 @@ export function useCartCheckout({
               unit_cost: centsToFixed2(parseMoneyToCents(l.unit_cost)),
               state_tax: centsToFixed2(ledgerSignals.isTaxExempt ? 0 : parseMoneyToCents(l.state_tax)),
               local_tax: centsToFixed2(ledgerSignals.isTaxExempt ? 0 : parseMoneyToCents(l.local_tax)),
+              tax_category_override: taxCategoryOverride,
               salesperson_id: isEmployeeSale ? null : l.salesperson_id?.trim() || null,
               custom_item_type: l.custom_item_type,
               custom_order_details: l.custom_order_details ?? undefined,
@@ -588,6 +598,13 @@ export function useCartCheckout({
           amount: centsToFixed2(weddingDisbursementAmountCents(m)),
         })) : undefined,
         ...(posShipping ? { shipping_rate_quote_id: posShipping.rate_quote_id } : {}),
+        ...(posShipping?.linked_order_ids?.length
+          ? {
+              shipping_links: posShipping.linked_order_ids.map((target_transaction_id) => ({
+                target_transaction_id,
+              })),
+            }
+          : {}),
       };
 
       if (!navigator.onLine) {
@@ -658,6 +675,41 @@ export function useCartCheckout({
       if (data.warnings && data.warnings.length > 0) {
         for (const w of data.warnings) {
           toast(w, "info");
+        }
+      }
+      const shippingReleaseOrderIds = posShipping?.linked_order_ids ?? [];
+      if (shippingReleaseOrderIds.length > 0) {
+        const releaseFailures: string[] = [];
+        for (const orderId of shippingReleaseOrderIds) {
+          try {
+            const shipRes = await fetch(`${baseUrl}/api/transactions/${orderId}/ship`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", ...apiAuth() },
+              body: JSON.stringify({
+                shipped_item_ids: [],
+                actor: "Register Shipping Charge",
+                register_session_id: sessionId,
+              }),
+            });
+            if (!shipRes.ok) {
+              const body = await shipRes.json().catch(() => ({})) as { error?: string };
+              releaseFailures.push(body.error ?? `Transaction Record ${orderId} could not be marked shipped.`);
+            }
+          } catch {
+            releaseFailures.push(`Transaction Record ${orderId} shipping release failed after payment.`);
+          }
+        }
+        if (releaseFailures.length > 0) {
+          const message = releaseFailures.join(" ");
+          await recordBlockedCheckoutRecovery(payload, 0, message, {
+            recoveryKind: "pickup_after_payment",
+            recoveryKey: data.transaction_id,
+            recoveryTransactionId: data.transaction_id,
+            authHeaders: apiAuth(),
+          });
+          toast("Shipping fee saved, but one or more linked orders were not marked shipped. Review checkout recovery before closing.", "error");
+        } else {
+          toast("Linked order shipping completed.", "success");
         }
       }
       // Call pickup API after successful checkout when in pickup mode

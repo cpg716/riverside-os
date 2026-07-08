@@ -3026,12 +3026,14 @@ async fn mark_transaction_pickup(
         ));
     }
 
-    let (amount_paid, already_released_value, selected_pickup_value, remaining_open_value): (
-        Decimal,
-        Decimal,
-        Decimal,
-        Decimal,
-    ) = sqlx::query_as(
+    let (
+        amount_paid,
+        balance_due,
+        is_counterpoint_import,
+        already_released_value,
+        selected_pickup_value,
+        remaining_open_value,
+    ): (Decimal, Decimal, bool, Decimal, Decimal, Decimal) = sqlx::query_as(
         r#"
         WITH line_values AS (
             SELECT
@@ -3052,6 +3054,8 @@ async fn mark_transaction_pickup(
         )
         SELECT
             COALESCE(MAX(o.amount_paid), 0)::numeric(14,2) AS amount_paid,
+            COALESCE(MAX(o.balance_due), 0)::numeric(14,2) AS balance_due,
+            COALESCE(MAX(o.is_counterpoint_import), false) AS is_counterpoint_import,
             COALESCE(SUM(line_total) FILTER (WHERE line_values.is_fulfilled), 0)::numeric(14,2) AS already_released_value,
             COALESCE(SUM(line_total) FILTER (
                 WHERE line_values.is_fulfilled = false
@@ -3074,7 +3078,10 @@ async fn mark_transaction_pickup(
     .await?;
 
     let required_after_pickup = already_released_value + selected_pickup_value;
-    if amount_paid < required_after_pickup {
+    let imported_paid_in_full_release = is_counterpoint_import
+        && balance_due <= Decimal::ZERO
+        && remaining_open_value <= Decimal::ZERO;
+    if !imported_paid_in_full_release && amount_paid < required_after_pickup {
         let shortage = required_after_pickup - amount_paid;
         return Err(TransactionError::InvalidPayload(format!(
             "Pickup blocked: Balance Due remains because selected item value exceeds payments by ${shortage}. Collect payment before release."
@@ -3082,7 +3089,11 @@ async fn mark_transaction_pickup(
     }
 
     let remaining_deposit_required = (remaining_open_value * Decimal::new(50, 2)).round_dp(2);
-    let remaining_paid_credit = amount_paid - required_after_pickup;
+    let remaining_paid_credit = if imported_paid_in_full_release {
+        Decimal::ZERO
+    } else {
+        amount_paid - required_after_pickup
+    };
     if remaining_open_value > Decimal::ZERO && remaining_paid_credit < remaining_deposit_required {
         let shortage = remaining_deposit_required - remaining_paid_credit;
         let payment_override_reason = body
@@ -3587,12 +3598,14 @@ async fn mark_transaction_ship(
         ));
     }
 
-    let (amount_paid, already_released_value, selected_ship_value, remaining_open_value): (
-        Decimal,
-        Decimal,
-        Decimal,
-        Decimal,
-    ) = sqlx::query_as(
+    let (
+        amount_paid,
+        balance_due,
+        is_counterpoint_import,
+        already_released_value,
+        selected_ship_value,
+        remaining_open_value,
+    ): (Decimal, Decimal, bool, Decimal, Decimal, Decimal) = sqlx::query_as(
         r#"
         WITH line_values AS (
             SELECT
@@ -3613,6 +3626,8 @@ async fn mark_transaction_ship(
         )
         SELECT
             COALESCE(MAX(o.amount_paid), 0)::numeric(14,2) AS amount_paid,
+            COALESCE(MAX(o.balance_due), 0)::numeric(14,2) AS balance_due,
+            COALESCE(MAX(o.is_counterpoint_import), false) AS is_counterpoint_import,
             COALESCE(SUM(line_total) FILTER (WHERE line_values.is_fulfilled), 0)::numeric(14,2) AS already_released_value,
             COALESCE(SUM(line_total) FILTER (
                 WHERE line_values.is_fulfilled = false
@@ -3635,7 +3650,10 @@ async fn mark_transaction_ship(
     .await?;
 
     let required_after_ship = already_released_value + selected_ship_value;
-    if amount_paid < required_after_ship {
+    let imported_paid_in_full_release = is_counterpoint_import
+        && balance_due <= Decimal::ZERO
+        && remaining_open_value <= Decimal::ZERO;
+    if !imported_paid_in_full_release && amount_paid < required_after_ship {
         let shortage = required_after_ship - amount_paid;
         return Err(TransactionError::InvalidPayload(format!(
             "Shipping blocked: selected item value exceeds payments by ${shortage}. Collect payment before release."
@@ -3643,7 +3661,11 @@ async fn mark_transaction_ship(
     }
 
     let remaining_deposit_required = (remaining_open_value * Decimal::new(50, 2)).round_dp(2);
-    let remaining_paid_credit = amount_paid - required_after_ship;
+    let remaining_paid_credit = if imported_paid_in_full_release {
+        Decimal::ZERO
+    } else {
+        amount_paid - required_after_ship
+    };
     if remaining_open_value > Decimal::ZERO && remaining_paid_credit < remaining_deposit_required {
         let shortage = remaining_deposit_required - remaining_paid_credit;
         return Err(TransactionError::InvalidPayload(format!(
@@ -6883,6 +6905,8 @@ pub(crate) async fn load_transaction_detail(
             COALESCE(oi.state_tax, 0) AS state_tax,
             COALESCE(oi.local_tax, 0) AS local_tax,
             CASE
+                WHEN NULLIF(TRIM(oi.size_specs->'tax_category_override'->>'to'), '') IS NOT NULL
+                THEN lower(TRIM(oi.size_specs->'tax_category_override'->>'to'))
                 WHEN p.tax_category_override IS NOT NULL THEN p.tax_category_override::text
                 WHEN lower(COALESCE(rc.resolved_category_name, '')) LIKE '%shoe%'
                   OR lower(COALESCE(rc.resolved_category_name, '')) LIKE '%footwear%'

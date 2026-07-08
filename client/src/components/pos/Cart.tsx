@@ -572,6 +572,7 @@ export default function Cart({
     updateLineFulfillment,
     updateLineSalesperson,
     updateLineGiftWrapStatus,
+    toggleLineTaxCategory,
     updateLineOrderLifecycleStatus,
     handleNumpadKey: hookHandleNumpadKey,
     applyDiscountEvent: hookApplyDiscountEvent,
@@ -1336,7 +1337,7 @@ export default function Cart({
   }, [lines, disbursementMembers, orderPaymentLines, posShipping]);
 
   const isGiftCardOnlyCart = useMemo(() => lines.length > 0 && lines.every(l => !!l.gift_card_load_code), [lines]);
-  const hasCheckoutWork = lines.length > 0 || orderPaymentLines.length > 0 || disbursementMembers.length > 0;
+  const hasCheckoutWork = lines.length > 0 || orderPaymentLines.length > 0 || disbursementMembers.length > 0 || Boolean(posShipping);
   const pendingReturnTender = useMemo(() => {
     const returnLines = lines.filter((line) => line.return_tender_original_transaction_id);
     if (returnLines.length === 0) return null;
@@ -2964,6 +2965,7 @@ export default function Cart({
                   updateLineFulfillment={updateLineFulfillment}
                   updateLineSalesperson={updateLineSalesperson}
                   updateLineGiftWrapStatus={updateLineGiftWrapStatus}
+                  toggleLineTaxCategory={toggleLineTaxCategory}
                   removeLine={removeLineWithAlterationHandling}
                   onEditAlterationLine={(intakeId) => {
                     const intake = pendingAlterationIntakes.find((row) => row.id === intakeId);
@@ -3486,7 +3488,7 @@ export default function Cart({
              type="button"
              data-testid="pos-pay-button"
              disabled={!hasCheckoutWork || checkoutBusy}
-             onClick={() => {
+             onClick={async () => {
                if (!hasCheckoutWork) return toast("Add at least one item, transaction payment, or wedding group payment before checking out.", "error");
                 if (!ensureSaleCashier()) return;
                if (pendingReturnTender?.returnOnly) {
@@ -3521,6 +3523,21 @@ export default function Cart({
                   );
                   if (unreadyPickupLines.length > 0 && !managerOverrideApproved) {
                     setShowReadinessOverrideModal(true);
+                    return;
+                  }
+                  if (totals.totalCents === 0 && checkoutOperator) {
+                    await executeCheckout(
+                      [],
+                      checkoutOperator,
+                      {
+                        appliedDepositAmountCents: 0,
+                        isTaxExempt: false,
+                      },
+                      {
+                        overrideReadiness: managerOverrideApproved,
+                        overrideReason: managerOverrideReason || undefined,
+                      },
+                    );
                     return;
                   }
                 }
@@ -3646,6 +3663,7 @@ export default function Cart({
         onClose={() => setShippingModalOpen(false)}
         baseUrl={baseUrl}
         getHeaders={apiAuth}
+        registerSessionId={sessionId}
         selectedCustomer={selectedCustomer}
         current={posShipping}
         onApply={(next) => {

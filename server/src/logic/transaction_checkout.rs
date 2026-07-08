@@ -23,7 +23,7 @@ use crate::logic::pricing_limits;
 use crate::logic::sales_commission;
 use crate::logic::store_credit;
 use crate::logic::tasks;
-use crate::logic::tax::{erie_local_tax_usd, nys_state_tax_usd};
+use crate::logic::tax::{erie_local_tax_usd, nys_state_tax_usd, TaxCategory};
 use crate::logic::transaction_fulfillment::persist_fulfillment;
 use crate::logic::transaction_recalc;
 use crate::logic::weather;
@@ -40,6 +40,16 @@ use tokio::sync::Mutex;
 const CUSTOMER_PROFILE_DISCOUNT_REASON: &str = "Customer profile discount";
 const EMPLOYEE_DISCOUNT_REASON: &str = "Employee Discount";
 const CUSTOMER_PROFILE_DISCOUNT_RECEIPT_LABEL: &str = "Special Discount";
+
+fn tax_category_audit_label(category: TaxCategory) -> &'static str {
+    match category {
+        TaxCategory::Clothing => "clothing",
+        TaxCategory::Footwear => "footwear",
+        TaxCategory::Accessory => "accessory",
+        TaxCategory::Service => "service",
+        TaxCategory::Other => "other",
+    }
+}
 
 #[derive(Debug, Error)]
 pub enum CheckoutError {
@@ -69,6 +79,8 @@ pub struct CheckoutItem {
     pub unit_cost: Decimal,
     pub state_tax: Decimal,
     pub local_tax: Decimal,
+    #[serde(default)]
+    pub tax_category_override: Option<TaxCategory>,
     #[serde(default)]
     pub salesperson_id: Option<Uuid>,
     #[serde(default)]
@@ -149,6 +161,11 @@ pub struct CheckoutOrderPayment {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct CheckoutShippingLink {
+    pub target_transaction_id: Uuid,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct CheckoutRequest {
     pub session_id: Uuid,
     pub operator_staff_id: Uuid,
@@ -183,6 +200,10 @@ pub struct CheckoutRequest {
     /// Consumed at checkout (single use); amount included in `total_price` validation.
     #[serde(default)]
     pub shipping_rate_quote_id: Option<Uuid>,
+    /// Existing customer Transaction Records whose delivery is covered by this
+    /// Register-collected shipping charge.
+    #[serde(default)]
+    pub shipping_links: Vec<CheckoutShippingLink>,
     /// Customer delivery mode requested by the Register. Shipping is only authoritative
     /// when paired with a valid `shipping_rate_quote_id` so the address/charge snapshot
     /// comes from the POS shipping flow.
@@ -1393,6 +1414,7 @@ async fn expand_bundle_checkout_items(
                 unit_cost: c.unit_cost,
                 state_tax,
                 local_tax,
+                tax_category_override: None,
                 salesperson_id: item.salesperson_id,
                 discount_event_id: None,
                 gift_card_load_code: None,
@@ -1851,9 +1873,30 @@ pub async fn execute_checkout(
         .wedding_disbursements
         .as_ref()
         .is_some_and(|v| !v.is_empty());
-    if payload.items.is_empty() && !has_wedding_disbursements && payload.order_payments.is_empty() {
+    let has_shipping_charge = payload.shipping_rate_quote_id.is_some();
+    if payload.items.is_empty()
+        && !has_wedding_disbursements
+        && payload.order_payments.is_empty()
+        && !has_shipping_charge
+    {
         return Err(CheckoutError::InvalidPayload(
-            "Cart cannot be empty (must have items, wedding payouts, or order payments)"
+            "Cart cannot be empty (must have items, wedding payouts, order payments, or shipping)"
+                .to_string(),
+        ));
+    }
+    if !payload.shipping_links.is_empty() && !has_shipping_charge {
+        return Err(CheckoutError::InvalidPayload(
+            "Shipping links require a Register shipping charge.".to_string(),
+        ));
+    }
+    if payload.items.is_empty()
+        && payload.order_payments.is_empty()
+        && !has_wedding_disbursements
+        && has_shipping_charge
+        && payload.shipping_links.is_empty()
+    {
+        return Err(CheckoutError::InvalidPayload(
+            "Shipping-only checkout must select at least one existing Transaction Record."
                 .to_string(),
         ));
     }
@@ -2493,6 +2536,7 @@ pub async fn execute_checkout(
                 state_tax: i.state_tax,
                 local_tax: i.local_tax,
                 has_price_override: has_ov,
+                tax_category_override: i.tax_category_override,
             }
         })
         .collect();
@@ -2801,6 +2845,51 @@ pub async fn execute_checkout(
         ));
     }
 
+    let mut linked_shipping_targets: Vec<(Uuid, String)> = Vec::new();
+    if !payload.shipping_links.is_empty() {
+        let Some(checkout_customer_id) = payload.customer_id else {
+            return Err(CheckoutError::InvalidPayload(
+                "Select the customer before linking shipping to existing Transaction Records."
+                    .to_string(),
+            ));
+        };
+        let mut seen_shipping_targets = std::collections::HashSet::new();
+        for link in &payload.shipping_links {
+            if !seen_shipping_targets.insert(link.target_transaction_id) {
+                continue;
+            }
+            let target: Option<(Uuid, String, Option<Uuid>, DbOrderStatus)> = sqlx::query_as(
+                r#"
+                SELECT id, display_id, customer_id, status
+                FROM transactions
+                WHERE id = $1
+                FOR UPDATE
+                "#,
+            )
+            .bind(link.target_transaction_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+            let Some((target_id, display_id, target_customer_id, status)) = target else {
+                return Err(CheckoutError::InvalidPayload(
+                    "Linked shipping Transaction Record was not found.".to_string(),
+                ));
+            };
+            if target_customer_id != Some(checkout_customer_id) {
+                return Err(CheckoutError::InvalidPayload(
+                    "Linked shipping Transaction Record belongs to a different customer."
+                        .to_string(),
+                ));
+            }
+            if matches!(status, DbOrderStatus::Cancelled) {
+                return Err(CheckoutError::InvalidPayload(
+                    "Cancelled Transaction Records cannot be linked to a shipping charge."
+                        .to_string(),
+                ));
+            }
+            linked_shipping_targets.push((target_id, display_id));
+        }
+    }
+
     for payment in &mut order_payments {
         let target: Option<(Uuid, String, String, Option<Uuid>, Decimal, DbOrderStatus)> =
             sqlx::query_as(
@@ -3031,17 +3120,54 @@ pub async fn execute_checkout(
     let mut checkout_recovery_alerts: Vec<String> = Vec::new();
 
     if !is_completing_processing {
-        if order_fulfillment_method == DbOrderFulfillmentMethod::Ship {
-            crate::logic::shipment::insert_from_pos_order_tx(
-                &mut tx,
-                transaction_id,
-                payload.customer_id,
-                payload.operator_staff_id,
-                ship_to_snapshot_for_registry,
-                order_shipping_amt,
-                pos_shippo_rate_object_id,
+        let registered_shipment_id = if order_fulfillment_method == DbOrderFulfillmentMethod::Ship {
+            Some(
+                crate::logic::shipment::insert_from_pos_order_tx(
+                    &mut tx,
+                    transaction_id,
+                    payload.customer_id,
+                    payload.operator_staff_id,
+                    ship_to_snapshot_for_registry,
+                    order_shipping_amt,
+                    pos_shippo_rate_object_id,
+                )
+                .await?,
             )
-            .await?;
+        } else {
+            None
+        };
+
+        if !linked_shipping_targets.is_empty() {
+            let link_amount = order_shipping_amt.unwrap_or(Decimal::ZERO);
+            for (target_transaction_id, target_display_id) in &linked_shipping_targets {
+                sqlx::query(
+                    r#"
+                    INSERT INTO pos_shipping_charge_links (
+                        shipping_transaction_id,
+                        target_transaction_id,
+                        shipment_id,
+                        amount_usd,
+                        metadata
+                    )
+                    VALUES ($1, $2, $3, $4, $5)
+                    ON CONFLICT (shipping_transaction_id, target_transaction_id)
+                    DO UPDATE SET
+                        shipment_id = EXCLUDED.shipment_id,
+                        amount_usd = EXCLUDED.amount_usd,
+                        metadata = EXCLUDED.metadata
+                    "#,
+                )
+                .bind(transaction_id)
+                .bind(*target_transaction_id)
+                .bind(registered_shipment_id)
+                .bind(link_amount)
+                .bind(json!({
+                    "target_display_id": target_display_id,
+                    "source": "register_shipping_charge"
+                }))
+                .execute(&mut *tx)
+                .await?;
+            }
         }
 
         // Order-level default: lines with no explicit `salesperson_id` inherit `primary_salesperson_id`
@@ -3233,7 +3359,20 @@ pub async fn execute_checkout(
             )
             .await?;
 
-            let logic_tax_cat = resolve_checkout_tax_category_tx(&mut tx, item.variant_id).await?;
+            let catalog_tax_cat =
+                resolve_checkout_tax_category_tx(&mut tx, item.variant_id).await?;
+            let logic_tax_cat = match item.tax_category_override {
+                Some(
+                    category @ (TaxCategory::Clothing | TaxCategory::Footwear | TaxCategory::Other),
+                ) => category,
+                Some(TaxCategory::Accessory | TaxCategory::Service) => {
+                    return Err(CheckoutError::InvalidPayload(
+                        "tax_category_override may only be clothing, footwear, or other"
+                            .to_string(),
+                    ));
+                }
+                None => catalog_tax_cat,
+            };
 
             let pos_kind = fetch_variant_pos_line_kind(&mut *tx, item.variant_id).await?;
             // Internal POS-only service/payment lines must remain non-taxable.
@@ -3287,6 +3426,28 @@ pub async fn execute_checkout(
                 )
             };
             let line_is_internal = pos_kind.as_deref() == Some("rms_charge_payment");
+            if item.tax_category_override.is_some()
+                && !matches!(
+                    pos_kind.as_deref(),
+                    Some("rms_charge_payment")
+                        | Some("pos_gift_card_load")
+                        | Some("alteration_service")
+                )
+                && logic_tax_cat != catalog_tax_cat
+            {
+                let mut base = override_meta.unwrap_or_else(|| json!({}));
+                if let Value::Object(ref mut map) = base {
+                    map.insert(
+                        "tax_category_override".to_string(),
+                        json!({
+                            "source": "register_sale_line",
+                            "from": tax_category_audit_label(catalog_tax_cat),
+                            "to": tax_category_audit_label(logic_tax_cat),
+                        }),
+                    );
+                }
+                override_meta = Some(base);
+            }
 
             let custom_item_type = canonical_custom_item_type_for_variant(
                 &mut tx,
@@ -4830,6 +4991,7 @@ mod tests {
             unit_cost: Decimal::new(4000, 2),
             state_tax: Decimal::ZERO,
             local_tax: Decimal::ZERO,
+            tax_category_override: None,
             salesperson_id: None,
             discount_event_id: None,
             gift_card_load_code: None,
@@ -4865,6 +5027,7 @@ mod tests {
             below_cost_approval: None,
             checkout_client_id: None,
             shipping_rate_quote_id: None,
+            shipping_links: vec![],
             fulfillment_mode: None,
             ship_to: None,
             target_transaction_id: None,
@@ -5057,6 +5220,7 @@ mod tests {
             unit_cost: Decimal::ZERO,
             state_tax: Decimal::ZERO,
             local_tax: Decimal::ZERO,
+            tax_category_override: None,
             salesperson_id: None,
             discount_event_id: None,
             gift_card_load_code: None,
@@ -5941,6 +6105,7 @@ mod tests {
             below_cost_approval: None,
             checkout_client_id: Some(Uuid::new_v4()),
             shipping_rate_quote_id: None,
+            shipping_links: vec![],
             fulfillment_mode: None,
             ship_to: None,
             target_transaction_id: None,
@@ -6136,6 +6301,7 @@ mod tests {
                 unit_cost: Decimal::new(4000, 2),
                 state_tax: Decimal::ZERO,
                 local_tax: Decimal::ZERO,
+                tax_category_override: None,
                 salesperson_id: Some(staff_id),
                 discount_event_id: None,
                 gift_card_load_code: None,
@@ -6154,6 +6320,7 @@ mod tests {
             below_cost_approval: None,
             checkout_client_id: Some(Uuid::new_v4()),
             shipping_rate_quote_id: None,
+            shipping_links: vec![],
             fulfillment_mode: None,
             ship_to: None,
             target_transaction_id: None,
@@ -6459,6 +6626,7 @@ mod tests {
                 unit_cost: Decimal::new(4000, 2),
                 state_tax: Decimal::ZERO,
                 local_tax: Decimal::ZERO,
+                tax_category_override: None,
                 salesperson_id: Some(staff_id),
                 discount_event_id: None,
                 gift_card_load_code: None,
@@ -6477,6 +6645,7 @@ mod tests {
             below_cost_approval: None,
             checkout_client_id: Some(Uuid::new_v4()),
             shipping_rate_quote_id: None,
+            shipping_links: vec![],
             fulfillment_mode: None,
             ship_to: None,
             target_transaction_id: None,
@@ -6544,6 +6713,7 @@ mod tests {
             below_cost_approval: None,
             checkout_client_id: Some(Uuid::new_v4()),
             shipping_rate_quote_id: None,
+            shipping_links: vec![],
             fulfillment_mode: None,
             ship_to: None,
             target_transaction_id: None,
@@ -6876,6 +7046,7 @@ mod tests {
             below_cost_approval: None,
             checkout_client_id: Some(Uuid::new_v4()),
             shipping_rate_quote_id: None,
+            shipping_links: vec![],
             fulfillment_mode: None,
             ship_to: None,
             target_transaction_id: None,
@@ -7029,6 +7200,7 @@ mod tests {
                 unit_cost: Decimal::new(3000, 2),
                 state_tax: Decimal::ZERO,
                 local_tax: Decimal::ZERO,
+                tax_category_override: None,
                 salesperson_id: Some(staff_id),
                 discount_event_id: None,
                 gift_card_load_code: None,
@@ -7055,6 +7227,7 @@ mod tests {
             below_cost_approval: None,
             checkout_client_id: Some(Uuid::new_v4()),
             shipping_rate_quote_id: None,
+            shipping_links: vec![],
             fulfillment_mode: None,
             ship_to: None,
             target_transaction_id: None,

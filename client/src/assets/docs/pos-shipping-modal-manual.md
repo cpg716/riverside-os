@@ -36,9 +36,9 @@ Open this modal when the customer wants delivery instead of leaving with the pro
 ## Workflow
 1. Tap **Ship current sale** in the cart.
 2. Select **Use customer address** or enter a manual destination.
-3. Tap **Get shipping rates**.
-4. Pick the preferred carrier and service level.
-5. Tap **Apply shipping** to add the fee to the transaction.
+3. If the charge is for existing open order work, select the matching Transaction Record(s) in **Link existing orders**.
+4. Either tap **Get shipping rates** and pick the preferred carrier/service, or enter a **Manual shipping charge** when the customer is only paying a known delivery fee.
+5. Tap **Apply shipping** or **Add shipping charge** to add the fee to the transaction.
 
 ## Operational detail
 
@@ -47,8 +47,10 @@ Use shipping only when the customer expects shipment or when an order requires a
 
 ## What to watch for
 
-- Shipping requires a usable address before the quote can be trusted.
+- Shipping requires a usable address before a rate or manual charge can be attached.
 - Applying shipping does not sell the item twice and does not require converting the line into a Special Order.
+- Manual shipping charges post as customer-charged shipping, not merchandise.
+- Linked existing orders stay financially separate; the shipping transaction records the delivery fee and the original Transaction Records remain the merchandise source.
 - Use the full shipping guide if the task moves beyond quoting into shipment follow-up.
 
 _For more details on managing shipments after the sale, see the [Shipping & Fulfillment Guide](pos-shipping-manual.md)._

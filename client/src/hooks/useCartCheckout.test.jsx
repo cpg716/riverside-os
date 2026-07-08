@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildCheckoutPaymentSplits, maxCollectableTenderCents, optionalCentsField } from "./useCartCheckout";
+import {
+  buildCheckoutPaymentSplits,
+  checkoutTaxCategoryOverride,
+  maxCollectableTenderCents,
+  optionalCentsField,
+} from "./useCartCheckout";
 
 function payment(amountCents, overrides = {}) {
   return {
@@ -67,5 +72,19 @@ describe("optionalCentsField", () => {
 
   it("omits only undefined checkout audit fields", () => {
     expect(optionalCentsField(undefined)).toBeUndefined();
+  });
+});
+
+describe("checkoutTaxCategoryOverride", () => {
+  it("allows only sale-line tax categories that the Register can override", () => {
+    expect(checkoutTaxCategoryOverride("clothing")).toBe("clothing");
+    expect(checkoutTaxCategoryOverride("footwear")).toBe("footwear");
+    expect(checkoutTaxCategoryOverride("other")).toBe("other");
+  });
+
+  it("does not turn accessory or service categories into cashier overrides", () => {
+    expect(checkoutTaxCategoryOverride("accessory")).toBeUndefined();
+    expect(checkoutTaxCategoryOverride("service")).toBeUndefined();
+    expect(checkoutTaxCategoryOverride(undefined)).toBeUndefined();
   });
 });

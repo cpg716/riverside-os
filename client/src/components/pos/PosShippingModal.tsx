@@ -4,6 +4,7 @@ import { Truck, X } from "lucide-react";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
 import { useToast } from "../ui/ToastProviderLogic";
 import type { Customer } from "./CustomerSelector";
+import type { CustomerOrder } from "./OrderLoadModal";
 import IntegrationBrandLogo from "../ui/IntegrationBrandLogo";
 import AddressAutocompleteInput from "../ui/AddressAutocompleteInput";
 
@@ -13,6 +14,7 @@ export interface PosShippingSelection {
   /** e.g. "USPS — Priority Mail" */
   label: string;
   to_address: PosShipToForm;
+  linked_order_ids?: string[];
 }
 
 export interface PosShipToForm {
@@ -68,6 +70,7 @@ interface PosShippingModalProps {
   onClose: () => void;
   baseUrl: string;
   getHeaders: () => Record<string, string>;
+  registerSessionId?: string | null;
   selectedCustomer: Customer | null;
   current: PosShippingSelection | null;
   onApply: (next: PosShippingSelection | null) => void;
@@ -78,6 +81,7 @@ export default function PosShippingModal({
   onClose,
   baseUrl,
   getHeaders,
+  registerSessionId,
   selectedCustomer,
   current,
   onApply,
@@ -88,7 +92,12 @@ export default function PosShippingModal({
   const [rates, setRates] = useState<RateRow[]>([]);
   const [stub, setStub] = useState(true);
   const [loading, setLoading] = useState(false);
+  const [manualLoading, setManualLoading] = useState(false);
+  const [manualAmount, setManualAmount] = useState("");
+  const [manualLabel, setManualLabel] = useState("Shipping");
   const [selectedQuoteId, setSelectedQuoteId] = useState<string | null>(null);
+  const [linkableOrders, setLinkableOrders] = useState<CustomerOrder[]>([]);
+  const [selectedLinkedOrderIds, setSelectedLinkedOrderIds] = useState<string[]>([]);
 
   useEffect(() => {
     if (!open) return;
@@ -107,7 +116,53 @@ export default function PosShippingModal({
     setRates([]);
     setSelectedQuoteId(current?.rate_quote_id ?? null);
     setStub(true);
+    setManualAmount(current ? (current.amount_cents / 100).toFixed(2) : "");
+    setManualLabel("Shipping");
+    setSelectedLinkedOrderIds(current?.linked_order_ids ?? []);
   }, [open, current, selectedCustomer]);
+
+  useEffect(() => {
+    if (!open || !selectedCustomer?.id) {
+      setLinkableOrders([]);
+      return;
+    }
+    const params = new URLSearchParams({
+      customer_id: selectedCustomer.id,
+      limit: "25",
+      record_scope: "orders",
+      status_scope: "all",
+    });
+    if (registerSessionId) params.set("register_session_id", registerSessionId);
+    let ignore = false;
+    fetch(`${baseUrl}/api/transactions?${params.toString()}`, {
+      headers: getHeaders(),
+    })
+      .then(async (res) => {
+        if (!res.ok) return [];
+        const data = await res.json();
+        const rows = Array.isArray(data?.items) ? data.items : [];
+        return rows
+          .map((row: CustomerOrder) => ({ ...row, id: row.id ?? row.transaction_id }))
+          .filter((row: CustomerOrder) => row.id && row.status !== "fulfilled" && row.status !== "cancelled");
+      })
+      .then((rows: CustomerOrder[]) => {
+        if (!ignore) setLinkableOrders(rows);
+      })
+      .catch(() => {
+        if (!ignore) setLinkableOrders([]);
+      });
+    return () => {
+      ignore = true;
+    };
+  }, [baseUrl, getHeaders, open, registerSessionId, selectedCustomer?.id]);
+
+  const toggleLinkedOrder = useCallback((orderId: string) => {
+    setSelectedLinkedOrderIds((prev) =>
+      prev.includes(orderId)
+        ? prev.filter((id) => id !== orderId)
+        : [...prev, orderId],
+    );
+  }, []);
 
   const fillFromCustomer = useCallback(async () => {
     if (!selectedCustomer?.id) {
@@ -222,10 +277,88 @@ export default function PosShippingModal({
       amount_cents,
       label: `${row.carrier} — ${row.service_name}`,
       to_address: { ...form },
+      linked_order_ids: selectedLinkedOrderIds,
     });
     onClose();
     toast("Shipping added to sale", "success");
-  }, [form, onApply, onClose, rates, selectedQuoteId, toast]);
+  }, [form, onApply, onClose, rates, selectedLinkedOrderIds, selectedQuoteId, toast]);
+
+  const applyManualShipping = useCallback(async () => {
+    if (!form.street1.trim() || !form.city.trim() || !form.state.trim() || !form.zip.trim()) {
+      toast("Enter street, city, state, and ZIP", "error");
+      return;
+    }
+    const amount = Number.parseFloat(manualAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      toast("Enter a shipping amount", "error");
+      return;
+    }
+    setManualLoading(true);
+    try {
+      const res = await fetch(`${baseUrl}/api/pos/shipping/manual-quote`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...getHeaders() },
+        body: JSON.stringify({
+          to_address: {
+            name: form.name.trim(),
+            company: form.company?.trim() || undefined,
+            street1: form.street1.trim(),
+            street2: form.street2?.trim() || undefined,
+            city: form.city.trim(),
+            state: form.state.trim(),
+            zip: form.zip.trim(),
+            country: form.country.trim() || "US",
+            phone: form.phone?.trim() || undefined,
+            email: form.email?.trim() || undefined,
+            is_residential: !!form.is_residential,
+          },
+          amount_usd: amount.toFixed(2),
+          label: manualLabel.trim() || "Shipping",
+        }),
+      });
+      const j = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        rate_quote_id?: string;
+        amount_usd?: unknown;
+        carrier?: string;
+        service_name?: string;
+      };
+      if (!res.ok || !j.rate_quote_id) {
+        toast(j.error ?? "Could not add shipping charge", "error");
+        return;
+      }
+      const amount_cents = decimalToCents(j.amount_usd ?? amount);
+      if (amount_cents <= 0) {
+        toast("Invalid shipping amount", "error");
+        return;
+      }
+      const carrier = j.carrier || "Riverside";
+      const service = j.service_name || manualLabel.trim() || "Shipping";
+      onApply({
+        rate_quote_id: j.rate_quote_id,
+        amount_cents,
+        label: `${carrier} — ${service}`,
+        to_address: { ...form },
+        linked_order_ids: selectedLinkedOrderIds,
+      });
+      onClose();
+      toast("Shipping charge added to sale", "success");
+    } catch {
+      toast("Network error adding shipping charge", "error");
+    } finally {
+      setManualLoading(false);
+    }
+  }, [
+    baseUrl,
+    form,
+    getHeaders,
+    manualAmount,
+    manualLabel,
+    onApply,
+    onClose,
+    selectedLinkedOrderIds,
+    toast,
+  ]);
 
   const clearShipping = useCallback(() => {
     onApply(null);
@@ -427,6 +560,48 @@ export default function PosShippingModal({
             </label>
           </div>
 
+          {linkableOrders.length > 0 ? (
+            <div className="space-y-2 rounded-2xl border border-app-border bg-app-surface-2 p-3">
+              <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                Link existing orders
+              </p>
+              <div className="space-y-1.5">
+                {linkableOrders.map((order) => {
+                  const checked = selectedLinkedOrderIds.includes(order.id);
+                  return (
+                    <button
+                      key={order.id}
+                      type="button"
+                      onClick={() => toggleLinkedOrder(order.id)}
+                      className={`flex w-full items-center justify-between rounded-xl border px-3 py-2 text-left transition-colors ${
+                        checked
+                          ? "border-app-accent bg-app-accent/10"
+                          : "border-app-border bg-app-surface hover:border-app-border"
+                      }`}
+                    >
+                      <span className="min-w-0">
+                        <span className="block text-xs font-black text-app-text">
+                          {order.display_id}
+                        </span>
+                        <span className="block text-[10px] font-semibold text-app-text-muted">
+                          Balance ${Number.parseFloat(order.balance_due ?? "0").toFixed(2)}
+                        </span>
+                      </span>
+                      <span
+                        className={`h-5 w-5 rounded border ${
+                          checked
+                            ? "border-app-accent bg-app-accent"
+                            : "border-app-border bg-app-surface-2"
+                        }`}
+                        aria-hidden="true"
+                      />
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+
           <button
             type="button"
             disabled={loading}
@@ -441,6 +616,44 @@ export default function PosShippingModal({
             />
             {loading ? "Loading rates…" : "Get shipping rates"}
           </button>
+
+          <div className="space-y-2 rounded-2xl border border-app-border bg-app-surface-2 p-3">
+            <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+              Manual shipping charge
+            </p>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_140px]">
+              <label className="block space-y-1">
+                <span className="text-[9px] font-black uppercase tracking-wider text-app-text-muted">
+                  Label
+                </span>
+                <input
+                  className="ui-input w-full text-sm"
+                  value={manualLabel}
+                  onChange={(e) => setManualLabel(e.target.value)}
+                />
+              </label>
+              <label className="block space-y-1">
+                <span className="text-[9px] font-black uppercase tracking-wider text-app-text-muted">
+                  Amount
+                </span>
+                <input
+                  className="ui-input w-full text-sm"
+                  inputMode="decimal"
+                  value={manualAmount}
+                  onChange={(e) => setManualAmount(e.target.value)}
+                  placeholder="0.00"
+                />
+              </label>
+            </div>
+            <button
+              type="button"
+              disabled={manualLoading}
+              onClick={() => void applyManualShipping()}
+              className="flex w-full items-center justify-center rounded-xl bg-app-accent px-3 py-2 text-[11px] font-black uppercase tracking-widest text-white shadow-sm disabled:opacity-50"
+            >
+              {manualLoading ? "Adding..." : "Add shipping charge"}
+            </button>
+          </div>
 
           {stub && rates.length > 0 ? (
             <div className="flex items-center gap-2 text-[10px] font-semibold text-amber-700">

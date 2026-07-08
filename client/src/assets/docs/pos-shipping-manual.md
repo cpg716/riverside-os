@@ -44,12 +44,15 @@ Shipping **requires** a linked customer profile. Use the **Customer Selector** t
 3. The **Ship this Sale** window will open.
     - **Use customer address**: Quickly pull the saved address from the CRM.
     - **Edit address**: Search the street address with Geoapify, choose the Shippo-validated suggestion, or manually enter a one-time delivery address including address line 2, phone, email, or residential destination when needed.
-4. Tap **Get shipping rates**. The system will fetch live carrier pricing (USPS, UPS, FedEx) when Shippo live rates are enabled. Demo rates are shown only when live rates are not enabled.
-5. Select the desired rate and tap **Apply shipping to sale**.
+4. Choose the charge source:
+   - Tap **Get shipping rates** to fetch live carrier pricing (USPS, UPS, FedEx) when Shippo live rates are enabled. Demo rates are shown only when live rates are not enabled. Select the desired rate and tap **Apply shipping to sale**.
+   - Enter a **Manual shipping charge** when staff already know the delivery charge or do not need a carrier rate yet, then tap **Add shipping charge**.
+5. If the charge covers existing open order work, select the matching Transaction Record(s) in **Link existing orders** before applying the charge.
 
 ### Fulfillment & Payment Rules
 - **Current-sale shipping**: Shipping ordinary in-stock merchandise does not require converting the line to a Special/Custom/Wedding fulfillment order.
-- **Immediate Payment**: Shipping fees are treated as an immediate liability. They must be paid in full at the time of sale (along with any takeaway items) before the register will allow the transaction to be finalized.
+- **Existing-order shipping fee**: A shipping-only Register transaction can collect delivery money for one or more existing Transaction Records. The fee posts as shipping income, ROS links the charge to each selected Transaction Record, and then releases those linked records through the Register shipping workflow.
+- **Immediate Payment**: Shipping fees are treated as customer-charged shipping income. They must be paid in full at the time of sale (along with any takeaway items) before the register will allow the transaction to be finalized.
 - **Reporting**: Shipped transactions remain in **Open** status until the shipment workflow records the carrier handoff/recognition event.
 
 ## 2. Managing Shipments (Back Office)

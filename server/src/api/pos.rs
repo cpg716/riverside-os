@@ -136,6 +136,8 @@ impl IntoResponse for PosMetaError {
 enum PosShippingError {
     Shippo(ShippoError),
     Unauthorized(String),
+    BadRequest(String),
+    Database(sqlx::Error),
 }
 
 impl IntoResponse for PosShippingError {
@@ -143,6 +145,19 @@ impl IntoResponse for PosShippingError {
         match self {
             PosShippingError::Unauthorized(m) => {
                 (axum::http::StatusCode::UNAUTHORIZED, m).into_response()
+            }
+            PosShippingError::BadRequest(m) => (
+                axum::http::StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": m })),
+            )
+                .into_response(),
+            PosShippingError::Database(e) => {
+                tracing::error!(error = %e, "pos manual shipping quote DB error");
+                (
+                    axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({ "error": "internal error" })),
+                )
+                    .into_response()
             }
             PosShippingError::Shippo(ShippoError::InvalidAddress(m)) => (
                 axum::http::StatusCode::BAD_REQUEST,
@@ -514,6 +529,22 @@ pub struct PosShippingRatesBody {
     pub force_stub: bool,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct PosManualShippingQuoteBody {
+    pub to_address: shippo::ShippingAddressInput,
+    pub amount_usd: Decimal,
+    #[serde(default)]
+    pub label: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PosManualShippingQuoteResponse {
+    pub rate_quote_id: Uuid,
+    pub amount_usd: Decimal,
+    pub carrier: String,
+    pub service_name: String,
+}
+
 async fn post_pos_shipping_rates(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -542,6 +573,69 @@ async fn post_pos_shipping_rates(
     )
     .await?;
     Ok(Json(res))
+}
+
+async fn post_pos_manual_shipping_quote(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<PosManualShippingQuoteBody>,
+) -> Result<Json<PosManualShippingQuoteResponse>, PosShippingError> {
+    middleware::require_staff_or_pos_register_session(&state, &headers)
+        .await
+        .map_err(|(_, axum::Json(v))| {
+            PosShippingError::Unauthorized(
+                v.get("error")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("unauthorized")
+                    .to_string(),
+            )
+        })?;
+
+    body.to_address.validate()?;
+    let amount = body.amount_usd.round_dp(2);
+    if amount <= Decimal::ZERO {
+        return Err(PosShippingError::BadRequest(
+            "shipping amount must be greater than zero".to_string(),
+        ));
+    }
+
+    let service_name = body
+        .label
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("Manual shipping charge")
+        .chars()
+        .take(80)
+        .collect::<String>();
+    let ship_to = serde_json::to_value(&body.to_address).unwrap_or_else(|_| json!({}));
+    let metadata = json!({
+        "manual": true,
+        "source": "register_shipping_charge",
+        "ship_to": ship_to
+    });
+    let quote_id: Uuid = sqlx::query_scalar(
+        r#"
+        INSERT INTO store_shipping_rate_quote (
+            expires_at, amount_usd, carrier, service_name, shippo_rate_object_id, metadata
+        )
+        VALUES (NOW() + INTERVAL '30 minutes', $1, 'Riverside', $2, NULL, $3)
+        RETURNING id
+        "#,
+    )
+    .bind(amount)
+    .bind(&service_name)
+    .bind(metadata)
+    .fetch_one(&state.db)
+    .await
+    .map_err(PosShippingError::Database)?;
+
+    Ok(Json(PosManualShippingQuoteResponse {
+        rate_quote_id: quote_id,
+        amount_usd: amount,
+        carrier: "Riverside".to_string(),
+        service_name,
+    }))
 }
 
 #[derive(Debug, Serialize)]
@@ -965,4 +1059,8 @@ pub fn router() -> Router<AppState> {
             post(reverse_rms_charge_payment),
         )
         .route("/shipping/rates", post(post_pos_shipping_rates))
+        .route(
+            "/shipping/manual-quote",
+            post(post_pos_manual_shipping_quote),
+        )
 }

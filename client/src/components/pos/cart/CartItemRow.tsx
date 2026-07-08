@@ -15,6 +15,7 @@ interface CartItemRowProps {
   updateLineFulfillment: (rowId: string, next: FulfillmentKind) => void;
   updateLineSalesperson: (rowId: string, salespersonId: string) => void;
   removeLine: (rowId: string) => void;
+  toggleLineTaxCategory: (rowId: string) => void;
   onEditAlterationLine?: (intakeId: string) => void;
   onLineProductTitleClick: (line: CartLineItem) => void;
   orderSalespersonId?: string;
@@ -55,6 +56,7 @@ export function CartItemRow({
   updateLineFulfillment,
   updateLineSalesperson,
   removeLine,
+  toggleLineTaxCategory,
   onEditAlterationLine,
   onLineProductTitleClick,
   commissionStaff,
@@ -89,6 +91,11 @@ export function CartItemRow({
   const isPickupLine = Boolean(line.transaction_line_id);
   const isReturnTenderLine = Boolean(line.return_tender_original_transaction_id);
   const isLockedAmountLine = isPickupLine || isReturnTenderLine;
+  const taxCategoryLabel =
+    line.tax_category === "clothing" || line.tax_category === "footwear"
+      ? line.tax_category
+      : "standard";
+  const canToggleTaxCategory = !isAlterationLine && !isRmsPaymentLine && !isLockedAmountLine;
 
   return (
     <div
@@ -153,6 +160,24 @@ export function CartItemRow({
               <span className="rounded bg-app-info/12 px-1.5 py-0.5 font-mono text-[10px] font-black text-app-info ring-1 ring-app-info/15">
                 #{line.gift_card_load_code}
               </span>
+            ) : null}
+            {canToggleTaxCategory ? (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleLineTaxCategory(line.cart_row_id);
+                }}
+                className={`rounded px-1.5 py-0.5 text-[9px] font-black uppercase tracking-widest ring-1 transition-all hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 ${
+                  taxCategoryLabel === "standard"
+                    ? "bg-app-warning/10 text-app-warning ring-app-warning/20 focus-visible:ring-app-warning/25"
+                    : "bg-app-success/12 text-app-success ring-app-success/20 focus-visible:ring-app-success/25"
+                }`}
+                aria-label={`Change tax category from ${taxCategoryLabel}`}
+                title="Toggle sale-only tax category"
+              >
+                {taxCategoryLabel}
+              </button>
             ) : null}
             {automaticDiscountLabel ? (
               <span className="rounded bg-app-accent/10 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-widest text-app-accent ring-1 ring-app-accent/20">
