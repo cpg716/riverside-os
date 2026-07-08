@@ -5,6 +5,7 @@ import { dispatchAppToast } from "../components/ui/ToastProviderLogic";
 
 export type ReportPrintRoute =
   | "tauri-report-printer"
+  | "tauri-formatted-print"
   | "tauri-report-preview"
   | "browser-print-dialog";
 
@@ -89,10 +90,10 @@ function openInAppReportPreview(request: ReportPrintDocumentRequest) {
   printButton.addEventListener("click", () => {
     printButton.setAttribute("disabled", "true");
     printButton.textContent = "Printing...";
-    void printTextReport(request.text)
+    void printFormattedReport(request)
       .then(() => {
         printButton.textContent = "Sent";
-        dispatchAppToast("Report sent to the configured Reports printer.", "success");
+        dispatchAppToast("Formatted report sent to print.", "success");
       })
       .catch((error) => {
         printButton.removeAttribute("disabled");
@@ -136,6 +137,40 @@ function openInAppReportPreview(request: ReportPrintDocumentRequest) {
   activeReportPreview = overlay;
 }
 
+async function printFormattedReport(request: ReportPrintDocumentRequest): Promise<void> {
+  if (!request.html) {
+    await printTextReport(request.text);
+    return;
+  }
+
+  const frame = document.createElement("iframe");
+  frame.title = `${request.title} print`;
+  frame.setAttribute("aria-hidden", "true");
+  frame.style.position = "fixed";
+  frame.style.right = "0";
+  frame.style.bottom = "0";
+  frame.style.width = "1px";
+  frame.style.height = "1px";
+  frame.style.border = "0";
+  frame.style.opacity = "0";
+  frame.style.pointerEvents = "none";
+
+  try {
+    document.body.appendChild(frame);
+    const frameDocument = frame.contentDocument;
+    const frameWindow = frame.contentWindow;
+    if (!frameDocument || !frameWindow) {
+      throw new Error("Could not create the formatted report print frame.");
+    }
+    frameDocument.open();
+    frameDocument.write(request.html);
+    frameDocument.close();
+    await printExistingWindowAsync(frameWindow);
+  } finally {
+    window.setTimeout(() => frame.remove(), 1000);
+  }
+}
+
 export async function printReportDocument(
   request: ReportPrintDocumentRequest,
 ): Promise<ReportPrintResult> {
@@ -147,6 +182,10 @@ export async function printReportDocument(
     if (request.action === "preview" || (request.preferFormattedPreview && request.action !== "print")) {
       openInAppReportPreview(request);
       return { route: "tauri-report-preview" };
+    }
+    if (request.html) {
+      await printFormattedReport(request);
+      return { route: "tauri-formatted-print" };
     }
     await printTextReport(request.text);
     return { route: "tauri-report-printer" };

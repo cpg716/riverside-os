@@ -110,6 +110,17 @@ async function waitForPosRegisterPanel(page: Page): Promise<void> {
             return true;
           }
 
+          const dashboardRegisterButton = page.getByRole("button", {
+            name: /go to register|open register/i,
+          });
+          if (await dashboardRegisterButton.isVisible().catch(() => false)) {
+            await dashboardRegisterButton.click({ force: true }).catch(() => {});
+            return (
+              (await shell.getAttribute("data-pos-active-tab").catch(() => null)) === "register" ||
+              (await registerPanel.isVisible().catch(() => false))
+            );
+          }
+
           const registerTab = page.getByTestId("pos-sidebar-tab-register");
           const registerNavButton = page
             .getByRole("navigation", { name: "POS Navigation" })

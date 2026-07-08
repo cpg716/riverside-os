@@ -201,6 +201,11 @@ interface ZReportSnapshot {
     created_at: string;
     payment_method: string;
     amount: string;
+    payments?: Array<{
+      payment_method: string;
+      amount: string;
+      check_number?: string | null;
+    }> | null;
     customer_name: string;
     transaction_display_id?: string | null;
     transaction_status?: string | null;
@@ -480,6 +485,7 @@ async function openZReportFromSession(
         created_at: transaction.created_at,
         payment_method: transaction.payment_method,
         amount: transaction.amount,
+        payments: transaction.payments ?? null,
         customer_name: transaction.customer_name,
         transaction_display_id: transaction.transaction_display_id,
         transaction_status: transaction.transaction_status,

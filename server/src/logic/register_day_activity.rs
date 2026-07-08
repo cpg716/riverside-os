@@ -429,41 +429,6 @@ pub async fn save_eod_snapshot(
     Ok(())
 }
 
-async fn try_load_eod_snapshot(
-    pool: &PgPool,
-    store_local_date: NaiveDate,
-) -> Result<Option<RegisterDaySummary>, sqlx::Error> {
-    let v: Option<serde_json::Value> = sqlx::query_scalar(
-        r#"SELECT summary_json FROM store_register_eod_snapshot WHERE store_local_date = $1"#,
-    )
-    .bind(store_local_date)
-    .fetch_optional(pool)
-    .await?;
-    let Some(raw) = v else {
-        return Ok(None);
-    };
-    match serde_json::from_value::<RegisterDaySummary>(raw) {
-        Ok(mut s) => {
-            s.from_eod_snapshot = true;
-            s.is_historical = true;
-            s.includes_today = false;
-            s.from_local = store_local_date;
-            s.to_local = store_local_date;
-            s.reporting_basis = "booked".to_string();
-            s.net_sales = s.sales_subtotal_no_tax.clone();
-            Ok(Some(s))
-        }
-        Err(e) => {
-            tracing::warn!(
-                error = %e,
-                store_local_date = %store_local_date,
-                "store_register_eod_snapshot JSON invalid; recomputing day summary live"
-            );
-            Ok(None)
-        }
-    }
-}
-
 /// Resolve `preset` or `from`/`to` into inclusive local dates.
 pub fn resolve_register_day_range(
     tz: Tz,
@@ -598,21 +563,9 @@ pub async fn fetch_register_day_summary(
     let is_historical = to_l < today;
     let includes_today = from_l <= today && to_l >= today;
 
-    if matches!(basis, ReportBasis::Booked)
-        && register_session_id.is_none()
-        && from_l == to_l
-        && to_l < today
-    {
-        if let Some(mut snap) = try_load_eod_snapshot(pool, from_l).await? {
-            snap.preset = preset_out.clone();
-            if snap.weather_days.is_empty() {
-                snap.weather_days =
-                    fetch_register_day_weather(pool, from_l, to_l, &tz_name).await?;
-                snap.weather_summary = weather_summary_label(&snap.weather_days);
-            }
-            return Ok(snap);
-        }
-    }
+    // Daily Sales must answer the selected day/range from canonical transaction
+    // evidence. Older EOD snapshots can predate reporting fixes, so they are not
+    // used as the source for manager-selected historical activity.
 
     let order_in_range = crate::logic::report_basis::order_date_filter_sql(basis);
     let order_session_filter = order_session_filter_sql(basis);

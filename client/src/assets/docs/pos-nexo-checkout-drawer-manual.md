@@ -21,7 +21,7 @@ status: approved
 
 ## What this is
 
-The checkout drawer collects payment, shows the remaining balance due, and completes the sale. It keeps terminal and hosted Manual Card payment status visible while the cart stays in the background.
+The checkout drawer collects payment, shows the remaining balance due, and completes the sale. It keeps terminal and hosted Card Not Present payment status visible while the cart stays in the background.
 
 ## How to use it
 
@@ -35,10 +35,10 @@ The checkout drawer collects payment, shows the remaining balance due, and compl
 Choose the tender type on the left, then collect the amount in the center panel.
 
 - **Card reader** sends the payment to the selected Helcim terminal.
-- **Card Not Present** is for phone orders. It opens secure HelcimPay.js card entry from the public HTTPS ROS handoff page.
+- **Card Not Present** is for phone orders. It opens the public HTTPS ROS handoff page; select **Open Helcim Card Entry** on that page to render the secure HelcimPay.js card form.
 - Riverside does not ask staff to enter a Helcim invoice number for Card Not Present. ROS records the approved Helcim attempt returned by the secure handoff.
 - **Card refund** appears only when ROS already has the original Helcim payment reference for the refund. Staff do not enter Helcim invoice, provider, or transaction IDs. Use **Card Not Present** refund when the original card is not present. Use **Original Card** only when the customer and original card are present at the terminal.
-- **Offline CC** records a card sale or refund that was manually approved outside ROS, such as a phone approval, internet outage, card-not-present refund, or non-prior-Helcim refund. Enter only the approval/reference, last four digits, and reason. Never enter full card numbers or CVV.
+- **Manual Card** records a card sale or refund without a live Helcim connection. Enter only the approval/reference, last four digits, and reason. Never enter full card numbers or CVV.
 - **Cash**, **check**, **gift card**, **store credit**, and other tenders remain separate so the sale ledger stays auditable.
 - **Donation** records a non-sale donation tender. Enter the required note before adding payment so accounting can review why the donation was taken.
 - Store credit and open deposit redemptions are not treated as cash or card tender revenue.

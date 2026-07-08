@@ -291,6 +291,107 @@ function inventoryTxLabel(value: string | null | undefined): string {
   }
 }
 
+type ZReportPrintTransaction = {
+  created_at: string;
+  payment_method: string;
+  amount: string;
+  payments?: {
+    payment_method: string;
+    amount: string;
+    check_number?: string | null;
+  }[] | null;
+  customer_name: string;
+  transaction_display_id?: string | null;
+  transaction_status?: string | null;
+  transaction_total?: string | null;
+  transaction_paid?: string | null;
+  transaction_balance_due?: string | null;
+  items?: ZReportAuditItem[];
+  register_lane: number;
+};
+
+function zReportTransactionKey(transaction: ZReportPrintTransaction): string {
+  const displayId = transaction.transaction_display_id?.trim();
+  if (displayId) return `display:${displayId}`;
+  return [
+    transaction.created_at,
+    transaction.customer_name,
+    transaction.transaction_total ?? "",
+    transaction.register_lane,
+  ].join("|");
+}
+
+function tenderLinesForTransaction(transaction: ZReportPrintTransaction) {
+  if (transaction.payments?.length) return transaction.payments;
+  return [{
+    payment_method: transaction.payment_method,
+    amount: transaction.amount,
+    check_number: null,
+  }];
+}
+
+function normalizeZReportTransactions(transactions: ZReportPrintTransaction[]): ZReportPrintTransaction[] {
+  const grouped = new Map<string, ZReportPrintTransaction>();
+  for (const transaction of transactions) {
+    const key = zReportTransactionKey(transaction);
+    const existing = grouped.get(key);
+    const tenderLines = tenderLinesForTransaction(transaction);
+    if (!existing) {
+      grouped.set(key, {
+        ...transaction,
+        payments: tenderLines,
+        payment_method: tenderLines.length > 1 ? "split" : transaction.payment_method,
+      });
+      continue;
+    }
+
+    const mergedPayments = [...tenderLinesForTransaction(existing), ...tenderLines];
+    const paymentTotals = new Map<string, { payment_method: string; amountCents: number; check_number?: string | null }>();
+    for (const payment of mergedPayments) {
+      const method = payment.payment_method || "unknown";
+      const checkNumber = payment.check_number?.trim() || null;
+      const mapKey = `${method}|${checkNumber ?? ""}`;
+      const current = paymentTotals.get(mapKey) ?? {
+        payment_method: method,
+        amountCents: 0,
+        check_number: checkNumber,
+      };
+      current.amountCents += parseMoneyToCents(payment.amount);
+      paymentTotals.set(mapKey, current);
+    }
+    const payments = Array.from(paymentTotals.values()).map((payment) => ({
+      payment_method: payment.payment_method,
+      amount: centsToFixed2(payment.amountCents),
+      check_number: payment.check_number,
+    }));
+    const amountCents = payments.reduce((sum, payment) => sum + parseMoneyToCents(payment.amount), 0);
+    grouped.set(key, {
+      ...existing,
+      amount: centsToFixed2(amountCents),
+      payment_method: payments.length > 1 ? "split" : payments[0]?.payment_method ?? existing.payment_method,
+      payments,
+      items: existing.items?.length ? existing.items : transaction.items,
+      transaction_total: existing.transaction_total ?? transaction.transaction_total,
+      transaction_paid: existing.transaction_paid ?? transaction.transaction_paid,
+      transaction_balance_due: existing.transaction_balance_due ?? transaction.transaction_balance_due,
+    });
+  }
+  return Array.from(grouped.values());
+}
+
+function zReportPaymentTextRows(transaction: ZReportPrintTransaction): string[] {
+  return tenderLinesForTransaction(transaction).map((payment) => {
+    const check = payment.check_number?.trim() ? ` #${payment.check_number.trim()}` : "";
+    return `Payment: ${reportLabel(payment.payment_method)}${check} ${formatReportMoney(payment.amount)}`;
+  });
+}
+
+function zReportPaymentRows(transaction: ZReportPrintTransaction): string {
+  return zReportPaymentTextRows(transaction)
+    .map((payment) => escapeReportHtml(payment))
+    .join("<br>");
+}
+
 export async function openProfessionalZReportPrint(opts: {
   title: string;
   sessionId: string;
@@ -319,19 +420,7 @@ export async function openProfessionalZReportPrint(opts: {
   qboJournalError?: string | null;
   inventoryActivity?: ZReportInventoryActivityRow[];
   /** Optional payment lines for audit trail. */
-  transactions?: {
-    created_at: string;
-    payment_method: string;
-    amount: string;
-    customer_name: string;
-    transaction_display_id?: string | null;
-    transaction_status?: string | null;
-    transaction_total?: string | null;
-    transaction_paid?: string | null;
-    transaction_balance_due?: string | null;
-    items?: ZReportAuditItem[];
-    register_lane: number;
-  }[];
+  transactions?: ZReportPrintTransaction[];
 }): Promise<boolean> {
   const target = createPrintDocument(`${opts.title} — ${opts.sessionId}`);
 
@@ -382,9 +471,11 @@ export async function openProfessionalZReportPrint(opts: {
           .join("")
       : "";
 
+  const transactions = normalizeZReportTransactions(opts.transactions ?? []);
+
   const txAuditRows =
-    opts.transactions && opts.transactions.length > 0
-      ? opts.transactions
+    transactions.length > 0
+      ? transactions
           .map((t) => {
             const tm = new Date(t.created_at).toLocaleString([], {
               month: "short",
@@ -410,6 +501,7 @@ export async function openProfessionalZReportPrint(opts: {
               giftCardIssued ? "Gift card issued on this sale" : null,
             ].filter(Boolean).join(" · ");
 
+            const paymentRows = zReportPaymentRows(t);
             const chips = [
               t.transaction_status ? reportLabel(t.transaction_status) : null,
             ].filter(Boolean).map((chip) => `<span class="chip">${chip}</span>`).join("");
@@ -430,6 +522,7 @@ export async function openProfessionalZReportPrint(opts: {
                 <div class="activity-money">
                   <div class="money-label">Transaction Amount</div>
                   <div class="money-total">${formatReportMoney(t.amount)}</div>
+                  ${paymentRows ? `<div class="money-sub">${paymentRows}</div>` : ""}
                   <div class="money-sub">Subtotal Before Tax: ${formatReportMoney(transactionSubtotalBeforeTaxCents)}</div>
                   ${t.transaction_total ? `<div class="money-sub">Sale Total: ${formatReportMoney(t.transaction_total)}</div>` : ""}
                   ${t.transaction_paid ? `<div class="money-sub">Paid: ${formatReportMoney(t.transaction_paid)}</div>` : ""}
@@ -493,7 +586,7 @@ export async function openProfessionalZReportPrint(opts: {
     : "Not recorded";
   const cashDepositAmountCents = opts.cashDepositAmountCents ?? Math.max(0, opts.actualCents - opts.openingCents);
   const generatedAt = new Date().toLocaleString();
-  const subtotalBeforeTaxCents = auditSubtotalBeforeTaxCents(opts.transactions);
+  const subtotalBeforeTaxCents = auditSubtotalBeforeTaxCents(transactions);
   const zReportTextLines = [
     "RIVERSIDE MEN'S SHOP",
     "Z-Report Reconciliation Audit",
@@ -617,10 +710,10 @@ export async function openProfessionalZReportPrint(opts: {
           "",
         ]
       : []),
-    ...(opts.transactions?.length
+    ...(transactions.length
       ? [
           "TRANSACTION LIST",
-          ...opts.transactions.flatMap((tx) => {
+          ...transactions.flatMap((tx) => {
             const transactionSubtotalBeforeTaxCents = auditItemsSubtotalBeforeTaxCents(tx.items);
             const header = `${new Date(tx.created_at).toLocaleString()} | ${reportLabel(tx.payment_method)} | ${
               tx.customer_name || "Walk-in Customer"
@@ -637,6 +730,7 @@ export async function openProfessionalZReportPrint(opts: {
               );
             return [
               header,
+              ...zReportPaymentTextRows(tx).map((payment) => `  ${payment}`),
               `  Subtotal Before Tax: ${formatReportMoney(transactionSubtotalBeforeTaxCents)}`,
               ...(items.length > 0 ? items : ["  No item details recorded"]),
             ];

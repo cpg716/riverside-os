@@ -321,11 +321,9 @@ test.describe("register state stability", () => {
       timeout: 20_000,
     });
 
-    for (const digit of "1234") {
-      await page.getByTestId(`pin-key-${digit}`).click();
-    }
-
     const dialog = page.getByRole("dialog", { name: "Open Register" });
+    await expect(dialog.getByTestId("staff-selector-button")).toBeVisible();
+    await expect(page.getByTestId("pin-key-1")).toBeDisabled();
     await expect(dialog.getByText(/Main Hub is unavailable/i)).toBeVisible();
     await expect(dialog.getByText(/already has an open session/i)).toHaveCount(0);
     await expect(registerPanel).toHaveAttribute("data-register-state", "needs-open");

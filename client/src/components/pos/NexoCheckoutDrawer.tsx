@@ -388,7 +388,7 @@ const TAB_META: Record<
     accent: "text-rose-500",
   },
   offline_cc: {
-    label: "OFFLINE CC",
+    label: "MANUAL CARD",
     method: "card_manual",
     icon: CreditCard,
     idle: "bg-amber-500/5 border border-app-border text-app-text-muted hover:border-amber-500/40",
@@ -1077,6 +1077,10 @@ export default function NexoCheckoutDrawer({
       }
       setApplied((prev) => {
         if (hasAppliedHelcimAttempt(prev, attempt)) return prev;
+        const tenderFamily =
+          method === "card_manual" && isHostedManualHelcimAttempt(attempt)
+            ? "card_not_present"
+            : undefined;
         return [
           ...prev,
           {
@@ -1097,6 +1101,7 @@ export default function NexoCheckoutDrawer({
               provider_card_type: attempt.provider_card_type ?? undefined,
               card_brand: attempt.card_brand ?? undefined,
               card_last4: attempt.card_last4 ?? undefined,
+              tender_family: tenderFamily,
             },
           },
         ];
@@ -1476,17 +1481,7 @@ export default function NexoCheckoutDrawer({
         setHelcimUnverifiedNotice(null);
         setManualCardHandoffUrl(body.handoff_url);
         setKeypad("");
-        try {
-          await openManualCardHandoffUrl(body.handoff_url);
-          toast("Secure Manual Card entry opened. Complete the Helcim form, then return here.", "info");
-        } catch (error) {
-          toast(
-            error instanceof Error
-              ? error.message
-              : "Open secure Card Not Present entry from the checkout drawer.",
-            "error",
-          );
-        }
+        toast("Secure Card Not Present entry opened inside ROS.", "info");
       } catch (error) {
         pendingHelcimCentsRef.current = 0;
         pendingHelcimTenderRef.current = { method: "card_terminal", label: "HELCIM CARD" };
@@ -1646,15 +1641,15 @@ export default function NexoCheckoutDrawer({
       const last4 = offlineCardLast4.replace(/\D/g, "");
       const reason = offlineCardReason.trim();
       if (approvalCode.length < 3) {
-        toast("Enter the offline card approval or voice authorization reference.", "error");
+        toast("Enter the manual card approval or authorization reference.", "error");
         return;
       }
       if (last4.length !== 4) {
-        toast("Enter the last 4 digits for the offline card approval.", "error");
+        toast("Enter the last 4 digits for the manual card approval.", "error");
         return;
       }
       if (reason.length < 3) {
-        toast("Enter why this card approval is being recorded offline.", "error");
+        toast("Enter why this manual card approval is being recorded.", "error");
         return;
       }
       const isRefund = amtCents < 0;
@@ -1664,16 +1659,21 @@ export default function NexoCheckoutDrawer({
           id: newId(),
           method: isRefund ? "card_credit" : "card_manual",
           amountCents: amtCents,
-          label: isRefund ? "Offline CC Refund" : "Offline CC",
+          label: isRefund ? "Manual Card Refund" : "Manual Card",
           metadata: {
-            tender_family: "offline_cc",
+            tender_family: "manual_card",
             offline_card_approval_code: approvalCode,
             offline_card_last4: last4,
             offline_card_reason: reason,
             offline_card_direction: isRefund ? "refund" : "sale",
             offline_card_entry_type: isRefund ? "manual_refund" : "manual_sale",
+            manual_card_approval_code: approvalCode,
+            manual_card_last4: last4,
+            manual_card_reason: reason,
+            manual_card_direction: isRefund ? "refund" : "sale",
+            manual_card_entry_type: isRefund ? "manual_refund" : "manual_sale",
             external_auth_code: approvalCode,
-            external_transaction_type: isRefund ? "offline_cc_refund" : "offline_cc_sale",
+            external_transaction_type: isRefund ? "manual_card_refund" : "manual_card_sale",
             card_last4: last4,
           },
         },
@@ -1689,7 +1689,7 @@ export default function NexoCheckoutDrawer({
       if (providerSettingsLoading) {
         toast(
           tab === "card_manual"
-            ? "Checking Helcim Manual Card setup. Try again in a moment."
+            ? "Checking Helcim Card Not Present setup. Try again in a moment."
             : "Checking Helcim terminal setup. Try again in a moment.",
           "error",
         );
@@ -2492,7 +2492,7 @@ export default function NexoCheckoutDrawer({
                   Enter phone-order card in Helcim
                 </h3>
                 <p className="mt-1 text-xs font-semibold leading-snug text-zinc-300">
-                  Use the secure Helcim card-entry page that opened outside ROS. Keep this checkout drawer open so ROS can attach the approved payment automatically.
+                  Use the secure Helcim card-entry page below. Keep this checkout drawer open so ROS can attach the approved payment automatically.
                 </p>
               </div>
               <div className="flex shrink-0 flex-wrap gap-2">
@@ -2509,7 +2509,7 @@ export default function NexoCheckoutDrawer({
                   onClick={() => void openManualCardHandoffUrl(manualCardHandoffUrl)}
                   className="min-h-10 rounded-xl border border-white/15 bg-white/10 px-3 text-[10px] font-black uppercase tracking-widest text-white"
                 >
-                  Open secure entry
+                  Open in Chrome
                 </button>
                 <button
                   type="button"
@@ -2520,11 +2520,14 @@ export default function NexoCheckoutDrawer({
                 </button>
               </div>
             </div>
-            <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-6 text-center text-white">
-              <p className="max-w-xl text-sm font-semibold leading-relaxed text-zinc-200">
-                Helcim Card Not Present entry runs on the public HTTPS handoff page, outside the
-                terminal hardware flow. If the page did not open, use <strong>Open secure entry</strong>.
-              </p>
+            <div className="min-h-0 flex-1 bg-white">
+              <iframe
+                title="Helcim Card Not Present secure entry"
+                src={manualCardHandoffUrl}
+                className="h-full w-full border-0 bg-white"
+                allow="payment *"
+                referrerPolicy="strict-origin-when-cross-origin"
+              />
             </div>
           </div>
         ) : null}
@@ -2795,11 +2798,12 @@ export default function NexoCheckoutDrawer({
                   {tab === "offline_cc" && (
                     <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs font-semibold text-app-text-muted">
                       <span className="font-black uppercase tracking-widest text-app-text">
-                        Offline CC approval
+                        Manual Card approval
                       </span>
                       <p className="mt-1">
-                        Record a card sale or refund that was manually approved outside ROS. Do not
-                        enter full card numbers or CVV.
+                        Record a card sale or refund without a live Helcim connection. Enter only
+                        the approval/reference, card last 4, and reason. Do not enter full card
+                        numbers or CVV.
                       </p>
                       <div className="mt-3 grid gap-3 sm:grid-cols-2">
                         <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
@@ -2831,7 +2835,7 @@ export default function NexoCheckoutDrawer({
                           maxLength={500}
                           rows={2}
                           className="mt-1 min-h-16 w-full resize-none rounded-xl border border-app-border bg-app-surface px-3 py-2 text-sm font-semibold normal-case tracking-normal text-app-text outline-none transition-colors focus:border-app-accent"
-                          placeholder="Example: phone approval, internet outage, non-prior card refund..."
+                          placeholder="Example: phone approval, Helcim dashboard approval, internet outage..."
                         />
                       </label>
                     </div>

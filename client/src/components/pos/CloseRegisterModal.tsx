@@ -119,6 +119,11 @@ interface TransactionLine {
   created_at: string;
   payment_method: string;
   amount: string;
+  payments?: {
+    payment_method: string;
+    amount: string;
+    check_number?: string | null;
+  }[] | null;
   check_number?: string | null;
   order_id?: string | null;
   transaction_display_id?: string | null;
@@ -705,6 +710,7 @@ export default function CloseRegisterModal({
         created_at: t.created_at,
         payment_method: t.payment_method,
         amount: t.amount,
+        payments: t.payments ?? null,
         customer_name: t.customer_name,
         transaction_display_id: t.transaction_display_id,
         transaction_status: t.transaction_status,

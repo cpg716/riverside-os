@@ -369,9 +369,18 @@ pub struct TransactionLine {
     pub transaction_paid: Option<Decimal>,
     pub transaction_balance_due: Option<Decimal>,
     pub customer_name: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub payments: Vec<TransactionTenderLine>,
     pub items: Vec<TransactionAuditItem>,
     pub override_reasons: Vec<String>,
     pub override_details: Vec<OverrideDetail>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct TransactionTenderLine {
+    pub payment_method: String,
+    pub amount: Decimal,
+    pub check_number: Option<String>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -471,6 +480,7 @@ struct TransactionLineRow {
     transaction_paid: Option<Decimal>,
     transaction_balance_due: Option<Decimal>,
     customer_name: String,
+    payments_json: serde_json::Value,
     items_json: serde_json::Value,
     override_reasons: Vec<String>,
     override_details_json: serde_json::Value,
@@ -1637,14 +1647,14 @@ async fn build_reconciliation(
     let tx_rows: Vec<TransactionLineRow> = sqlx::query_as(
         r#"
         SELECT
-            pt.id AS payment_transaction_id,
-            pt.session_id AS register_session_id,
-            rs.register_lane,
-            pt.created_at,
-            pt.payment_method,
-            pt.amount,
-            pt.check_number,
-            pa.target_transaction_id AS ledger_transaction_id,
+            pay_tx.payment_transaction_id,
+            pay_tx.register_session_id,
+            pay_tx.register_lane,
+            pay_tx.created_at,
+            pay_tx.payment_method,
+            pay_tx.amount,
+            pay_tx.check_number,
+            pay_tx.ledger_transaction_id,
             o.display_id AS transaction_display_id,
             o.status::text AS transaction_status,
             o.total_price AS transaction_total,
@@ -1654,6 +1664,7 @@ async fn build_reconciliation(
                 NULLIF(TRIM(COALESCE(c.first_name, '') || ' ' || COALESCE(c.last_name, '')), ''),
                 'Walk-in'
             ) AS customer_name,
+            pay_tx.payments_json,
             COALESCE(
                 jsonb_agg(
                     DISTINCT jsonb_build_object(
@@ -1698,21 +1709,61 @@ async fn build_reconciliation(
                 ) FILTER (WHERE oi.size_specs ? 'price_override_reason'),
                 '[]'::jsonb
             ) AS override_details_json
-        FROM payment_transactions pt
-        INNER JOIN register_sessions rs ON rs.id = pt.session_id
-        LEFT JOIN payment_allocations pa ON pa.transaction_id = pt.id
-        LEFT JOIN transactions o ON o.id = pa.target_transaction_id
+        FROM (
+            SELECT
+                pa.target_transaction_id AS ledger_transaction_id,
+                (ARRAY_AGG(pt.id ORDER BY pt.created_at, pt.id))[1] AS payment_transaction_id,
+                (ARRAY_AGG(pt.session_id ORDER BY pt.created_at, pt.id))[1] AS register_session_id,
+                MIN(rs.register_lane) AS register_lane,
+                MIN(pt.created_at) AS created_at,
+                CASE
+                    WHEN COUNT(DISTINCT pt.payment_method) = 1 THEN MIN(pt.payment_method)
+                    ELSE 'split'
+                END AS payment_method,
+                COALESCE(SUM(pa.amount_allocated), 0)::numeric AS amount,
+                NULLIF(STRING_AGG(DISTINCT NULLIF(TRIM(pt.check_number), ''), ', '), '') AS check_number,
+                COALESCE(
+                    (
+                        SELECT jsonb_agg(
+                            jsonb_build_object(
+                                'payment_method', payment_parts.payment_method,
+                                'amount', payment_parts.amount::text,
+                                'check_number', payment_parts.check_number
+                            )
+                            ORDER BY payment_parts.payment_method
+                        )
+                        FROM (
+                            SELECT
+                                pt_part.payment_method,
+                                SUM(pa_part.amount_allocated)::numeric(14, 2) AS amount,
+                                NULLIF(STRING_AGG(DISTINCT NULLIF(TRIM(pt_part.check_number), ''), ', '), '') AS check_number
+                            FROM payment_allocations pa_part
+                            INNER JOIN payment_transactions pt_part ON pt_part.id = pa_part.transaction_id
+                            WHERE pa_part.target_transaction_id = pa.target_transaction_id
+                              AND pt_part.session_id = ANY($1)
+                            GROUP BY pt_part.payment_method
+                        ) payment_parts
+                    ),
+                    '[]'::jsonb
+                ) AS payments_json
+            FROM payment_allocations pa
+            INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
+            INNER JOIN register_sessions rs ON rs.id = pt.session_id
+            WHERE pt.session_id = ANY($1)
+            GROUP BY pa.target_transaction_id
+        ) pay_tx
+        INNER JOIN transactions o ON o.id = pay_tx.ledger_transaction_id
         LEFT JOIN customers c ON c.id = o.customer_id
         LEFT JOIN transaction_lines oi ON oi.transaction_id = o.id
         LEFT JOIN products p ON p.id = oi.product_id
         LEFT JOIN product_variants pv ON pv.id = oi.variant_id
-        WHERE pt.session_id = ANY($1)
         GROUP BY
-            pt.id, pt.session_id, rs.register_lane, pt.created_at, pt.payment_method, pt.amount,
-            pt.check_number,
-            pa.target_transaction_id, o.display_id, o.status, o.total_price, o.amount_paid,
-            o.balance_due, c.first_name, c.last_name
-        ORDER BY pt.created_at DESC
+            pay_tx.payment_transaction_id, pay_tx.register_session_id, pay_tx.register_lane,
+            pay_tx.created_at, pay_tx.payment_method, pay_tx.amount, pay_tx.check_number,
+            pay_tx.ledger_transaction_id, pay_tx.payments_json,
+            o.display_id, o.status, o.total_price, o.amount_paid, o.balance_due,
+            c.first_name, c.last_name
+        ORDER BY pay_tx.created_at DESC
         LIMIT 300
         "#,
     )
@@ -1737,6 +1788,7 @@ async fn build_reconciliation(
             transaction_paid: row.transaction_paid,
             transaction_balance_due: row.transaction_balance_due,
             customer_name: row.customer_name,
+            payments: parse_transaction_tender_lines(row.payments_json),
             items: parse_transaction_audit_items(row.items_json),
             override_reasons: row.override_reasons,
             override_details: parse_override_details(row.override_details_json),
@@ -2097,6 +2149,41 @@ fn parse_override_details(value: serde_json::Value) -> Vec<OverrideDetail> {
                 original_unit_price: parse_decimal("original_unit_price"),
                 overridden_unit_price: parse_decimal("overridden_unit_price"),
                 delta_amount: parse_decimal("delta_amount"),
+            })
+        })
+        .collect()
+}
+
+fn parse_transaction_tender_lines(value: serde_json::Value) -> Vec<TransactionTenderLine> {
+    let Some(items) = value.as_array() else {
+        return Vec::new();
+    };
+
+    items
+        .iter()
+        .filter_map(|item| {
+            let payment_method = item
+                .get("payment_method")
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(ToOwned::to_owned)?;
+            let amount = item
+                .get("amount")
+                .and_then(|v| v.as_str())
+                .and_then(|s| Decimal::from_str(s).ok())
+                .unwrap_or(Decimal::ZERO);
+            let check_number = item
+                .get("check_number")
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(ToOwned::to_owned);
+
+            Some(TransactionTenderLine {
+                payment_method,
+                amount,
+                check_number,
             })
         })
         .collect()
