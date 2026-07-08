@@ -10919,6 +10919,8 @@ pub struct CatalogCellRow {
     #[serde(default)]
     pub barcode: Option<String>,
     #[serde(default)]
+    pub barcode_aliases: Vec<String>,
+    #[serde(default)]
     pub variation_label: Option<String>,
     #[serde(default)]
     pub variation_values: Option<serde_json::Value>,
@@ -11457,6 +11459,7 @@ async fn upsert_catalog_item(
             row.barcode.as_deref(),
             None,
             None,
+            &[],
             row.retail_price,
             row.unit_cost,
             row.prc_2,
@@ -11481,6 +11484,7 @@ async fn upsert_catalog_item(
                 cell.barcode.as_deref(),
                 cell.variation_label.as_deref(),
                 cell.variation_values.as_ref(),
+                &cell.barcode_aliases,
                 cell.retail_price,
                 cell.unit_cost,
                 cell.prc_2,
@@ -11505,6 +11509,7 @@ async fn upsert_variant(
     barcode: Option<&str>,
     variation_label: Option<&str>,
     variation_values: Option<&serde_json::Value>,
+    barcode_aliases: &[String],
     override_retail: Option<Decimal>,
     override_cost: Option<Decimal>,
     counterpoint_prc_2: Option<Decimal>,
@@ -11543,7 +11548,7 @@ async fn upsert_variant(
         }
     }
 
-    if let Some((vid, _, old_stock)) = existing {
+    let variant_id = if let Some((vid, _, old_stock)) = existing {
         sqlx::query(
             r#"
             UPDATE product_variants SET
@@ -11583,6 +11588,7 @@ async fn upsert_variant(
             .await?;
         }
         summary.variants_updated += 1;
+        vid
     } else {
         let vv = variation_values
             .cloned()
@@ -11646,7 +11652,85 @@ async fn upsert_variant(
             .await?;
         }
         summary.variants_created += 1;
+        upserted_variant_id
+    };
+    persist_counterpoint_variant_barcode_aliases(
+        tx,
+        variant_id,
+        cp_key,
+        sku,
+        barcode,
+        barcode_aliases,
+    )
+    .await?;
+    Ok(())
+}
+
+async fn persist_counterpoint_variant_barcode_aliases(
+    tx: &mut Transaction<'_, Postgres>,
+    variant_id: Uuid,
+    cp_key: &str,
+    sku: &str,
+    barcode: Option<&str>,
+    barcode_aliases: &[String],
+) -> Result<(), sqlx::Error> {
+    let primary_aliases: HashSet<String> = [Some(sku), barcode]
+        .into_iter()
+        .flatten()
+        .filter_map(normalize_identity_key)
+        .collect();
+    let mut seen = HashSet::new();
+    let mut aliases = Vec::new();
+
+    for alias in barcode_aliases {
+        let Some(normalized) = normalize_identity_key(alias) else {
+            continue;
+        };
+        if !is_valid_counterpoint_b_sku(&normalized) || primary_aliases.contains(&normalized) {
+            continue;
+        }
+        if seen.insert(normalized.clone()) {
+            aliases.push(normalized);
+        }
     }
+
+    if aliases.is_empty() {
+        return Ok(());
+    }
+
+    let family_key = normalize_counterpoint_family_key(cp_key);
+    sqlx::query(
+        r#"
+        INSERT INTO product_variant_barcode_aliases (
+            variant_id,
+            alias_value,
+            alias_type,
+            source_system,
+            counterpoint_item_key,
+            family_key,
+            match_method,
+            status
+        )
+        SELECT
+            $1,
+            alias_value,
+            'counterpoint_b_sku',
+            'counterpoint_import',
+            $2,
+            $3,
+            'catalog_matrix_barcode_alias',
+            'active'
+        FROM unnest($4::text[]) AS alias_value
+        ON CONFLICT (normalized_alias) WHERE status = 'active' DO NOTHING
+        "#,
+    )
+    .bind(variant_id)
+    .bind(trim_str_opt(Some(cp_key)))
+    .bind(family_key)
+    .bind(&aliases)
+    .execute(&mut **tx)
+    .await?;
+
     Ok(())
 }
 
@@ -17005,6 +17089,7 @@ mod tests {
             counterpoint_item_key: key.into(),
             sku: sku.into(),
             barcode: None,
+            barcode_aliases: Vec::new(),
             variation_label: None,
             variation_values: None,
             stock_on_hand: None,

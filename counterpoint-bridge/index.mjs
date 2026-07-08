@@ -1648,27 +1648,40 @@ async function loadMatrixBarcodeLookup(pool) {
     ORDER BY ITEM_NO, DIM_1_UPR, DIM_2_UPR, DIM_3_UPR, SEQ_NO, BARCOD
   `);
   const lookup = new Map();
+  let aliasCount = 0;
   for (const raw of result.recordset ?? []) {
     const row = normalizeRowKeys(raw);
     const key = matrixLookupKey(row.item_no, row.dim_1_value, row.dim_2_value, row.dim_3_value);
     const barcode = String(row.barcode ?? "").trim();
-    if (!key || !barcode || lookup.has(key)) continue;
-    lookup.set(key, barcode);
+    if (!key || !barcode) continue;
+    const aliases = lookup.get(key) ?? [];
+    if (aliases.some((alias) => alias.toUpperCase() === barcode.toUpperCase())) continue;
+    aliases.push(barcode);
+    lookup.set(key, aliases);
+    aliasCount += 1;
   }
-  console.info(`[barcode] Buffered ${lookup.size} matrix barcode key(s).`);
+  console.info(`[barcode] Buffered ${lookup.size} matrix barcode key(s), ${aliasCount} barcode alias(es).`);
   matrixBarcodeLookupCache = lookup;
   return lookup;
+}
+
+function matrixBarcodeAliasesForKey(barcodeLookup, key) {
+  const aliases = key ? barcodeLookup?.get(key) : null;
+  if (Array.isArray(aliases)) return aliases;
+  return aliases ? [aliases] : [];
 }
 
 function applyMatrixBarcode(row, barcodeLookup) {
   const parent = row.parent_item_no ?? row.item_no ?? row.counterpoint_parent_item_no;
   const key = matrixLookupKey(parent, row.dim_1_value, row.dim_2_value, row.dim_3_value);
-  const barcode = key ? barcodeLookup?.get(key) : null;
+  const aliases = matrixBarcodeAliasesForKey(barcodeLookup, key);
+  const barcode = aliases[0];
   if (!barcode) return row;
   return {
     ...row,
     sku: barcode,
     barcode,
+    barcode_aliases: aliases,
   };
 }
 
@@ -3820,6 +3833,20 @@ function isCounterpointBSku(value) {
   return /^B-\d+$/i.test(String(value ?? "").trim());
 }
 
+function uniqueCounterpointBarcodeAliases(values) {
+  const seen = new Set();
+  const aliases = [];
+  for (const value of values.flat()) {
+    const alias = String(value ?? "").trim();
+    if (!isCounterpointBSku(alias)) continue;
+    const key = alias.toUpperCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    aliases.push(alias);
+  }
+  return aliases;
+}
+
 function stableCounterpointNumericSuffix(raw) {
   let hash = 2166136261 >>> 0;
   for (const byte of Buffer.from(String(raw), "utf8")) {
@@ -3880,7 +3907,8 @@ function recoveryCellFromLineRow(row, barcodeLookup) {
   if (!/^I-\d+$/.test(parent)) return null;
   const rawSku = String(nr.sku ?? "").trim();
   const [, d1 = "", d2 = "", d3 = ""] = key.split("|");
-  const sku = barcodeLookup?.get(matrixLookupKey(parent, d1, d2, d3)) ?? normalizeCounterpointLineSku(rawSku, key);
+  const aliases = matrixBarcodeAliasesForKey(barcodeLookup, matrixLookupKey(parent, d1, d2, d3));
+  const sku = aliases[0] ?? normalizeCounterpointLineSku(rawSku, key);
   if (!isCounterpointBSku(sku) && !/^CP-[A-Z0-9]{6,13}$/.test(sku)) return null;
   const options = key
     .split("|")
@@ -3895,6 +3923,8 @@ function recoveryCellFromLineRow(row, barcodeLookup) {
     retail_price: nr.unit_price != null ? String(nr.unit_price) : undefined,
     unit_cost: nr.unit_cost != null ? String(nr.unit_cost) : undefined,
     stock_on_hand: 0,
+    barcode: isCounterpointBSku(sku) ? sku : undefined,
+    barcode_aliases: aliases,
   };
 }
 
@@ -4262,6 +4292,7 @@ function mapCatalogRow(r, cellRows) {
       counterpoint_item_key: c.counterpoint_item_key,
       sku: String(c.sku ?? "").trim(),
       barcode: c.barcode ?? undefined,
+      barcode_aliases: uniqueCounterpointBarcodeAliases([c.barcode, c.sku, c.barcode_aliases]),
       variation_label: String(c.variation_label ?? c.descr ?? "").trim(),
       stock_on_hand: c.stock_on_hand != null ? Number(c.stock_on_hand) : undefined,
       reorder_point: c.reorder_point ?? (c.min_qty != null ? Number(c.min_qty) : undefined),

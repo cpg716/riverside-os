@@ -215,7 +215,7 @@ Conflicting `SYNC_*` combinations exit with `[sync-plan]` errors unless `SYNC_RE
 
 **Do not** enable `CP_IM_ITEM_VENDOR_SOURCE=po_vend_item` unless discover/SSMS shows you need it; a normal `IM_ITEM.VEND_NO` database should leave it **unset** (see `.env.example`).
 
-**Matrix SKUs:** maximal fills **`CP_CATALOG_QUERY`** and schema-flex matrix cells when those lines are empty. If a deliberate custom `CP_CATALOG_CELLS_QUERY` override is enabled, it must still emit the Counterpoint parent item, matrix dimensions, stable `counterpoint_item_key`, and the real `B-*` barcode where available.
+**Matrix SKUs:** maximal fills **`CP_CATALOG_QUERY`** and schema-flex matrix cells when those lines are empty. If a deliberate custom `CP_CATALOG_CELLS_QUERY` override is enabled, it must still emit the Counterpoint parent item, matrix dimensions, stable `counterpoint_item_key`, and the real `B-*` barcode where available. Counterpoint cells may have more than one valid `B-*` barcode; the bridge sends every barcode so ROS can keep one primary SKU and persist the rest as scan/search aliases for the same variant.
 
 ---
 
