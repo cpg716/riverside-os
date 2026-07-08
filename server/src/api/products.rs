@@ -1523,7 +1523,12 @@ pub async fn list_control_board(
                 let parent_pat = control_board_ilike_pattern(search_raw);
                 qb.push(" AND (pv.id = ANY(");
                 qb.push_bind(ids.clone());
-                qb.push(") OR p.name ILIKE ");
+                qb.push(") OR pv.product_id IN (");
+                qb.push(
+                    "SELECT pv_match.product_id FROM product_variants pv_match WHERE pv_match.id = ANY(",
+                );
+                qb.push_bind(ids.clone());
+                qb.push(")) OR p.name ILIKE ");
                 qb.push_bind(parent_pat.clone());
                 qb.push(" ESCAPE '\\' OR COALESCE(p.brand, '') ILIKE ");
                 qb.push_bind(parent_pat.clone());
@@ -1551,8 +1556,23 @@ pub async fn list_control_board(
         qb.push(" ESCAPE '\\' OR COALESCE(p.brand, '') ILIKE ");
         qb.push_bind(pat.clone());
         qb.push(" ESCAPE '\\' OR COALESCE(pv.variation_label, '') ILIKE ");
-        qb.push_bind(pat);
-        qb.push(" ESCAPE '\\')");
+        qb.push_bind(pat.clone());
+        qb.push(" ESCAPE '\\'");
+        if expand_parent_matches {
+            qb.push(" OR pv.product_id IN (");
+            qb.push(
+                "SELECT pv_match.product_id FROM product_variants pv_match WHERE pv_match.sku ILIKE ",
+            );
+            qb.push_bind(pat.clone());
+            qb.push(" ESCAPE '\\' OR COALESCE(pv_match.barcode, '') ILIKE ");
+            qb.push_bind(pat.clone());
+            qb.push(" ESCAPE '\\' OR COALESCE(pv_match.vendor_upc, '') ILIKE ");
+            qb.push_bind(pat.clone());
+            qb.push(" ESCAPE '\\' OR COALESCE(pv_match.variation_label, '') ILIKE ");
+            qb.push_bind(pat);
+            qb.push(" ESCAPE '\\')");
+        }
+        qb.push(")");
     }
 
     if let Some(category_id) = query.category_id {
