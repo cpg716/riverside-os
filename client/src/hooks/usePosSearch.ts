@@ -2,8 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { type RmsPaymentLineMeta } from "../components/pos/types";
 import { type SearchResult } from "../components/pos/cart/PosSearchResultList";
 
-const POS_SEARCH_RESULT_CAP = 200;
-
 function shouldAttemptExactSkuScan(query: string): boolean {
   return /\d/.test(query) || /^[a-z]{1,6}[-_/]/i.test(query);
 }
@@ -150,19 +148,17 @@ export function usePosSearch({
       }
     }
 
-    // 2. Control Board Fuzzy Search
+    // 2. Parent Product Fuzzy Search
     requests.push(
       fetch(
-        `${baseUrl}/api/products/control-board?search=${encodeURIComponent(q)}&limit=${POS_SEARCH_RESULT_CAP}&parent_rank_first=true&expand_parent_matches=true`,
+        `${baseUrl}/api/products/pos-parent-search?search=${encodeURIComponent(q)}&limit=100`,
         {
           headers: apiAuth(),
         },
       ).then(async (res) => {
         if (res.ok) {
-          const data = (await res.json()) as {
-            rows: Array<Record<string, unknown>>;
-          };
-          const mapped = (data.rows || []).map((r) => {
+          const data = (await res.json()) as Array<Record<string, unknown>>;
+          const mapped = (data || []).map((r) => {
             const sku = String(r.sku ?? "");
             const name = String(r.product_name ?? r.name ?? sku).trim() || sku;
             return {
@@ -179,6 +175,7 @@ export function usePosSearch({
               local_tax: r.local_tax || 0,
               tax_category: r.tax_category as "clothing" | "footwear" | "other",
               vendor_sku: (r.vendor_sku as string) || "",
+              total_variant_count: Number(r.total_variant_count ?? 1),
             };
           });
           collected.push(...(mapped as SearchResult[]));

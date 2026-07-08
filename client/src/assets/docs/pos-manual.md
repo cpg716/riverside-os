@@ -120,7 +120,7 @@ Inventory and bookkeeping follow server rules for takeaway, order, and wedding l
 1. When the cart is correct, select **Proceed to Payment**.
 2. If you are not using a saved customer, confirm **walk-in** when asked.
 3. The **Payment ledger** side panel opens. Enter amounts on the keypad, then **Apply payment** for each tender (card, cash, gift card, etc.) the way you were trained.
-   - **Card Not Present** opens secure HelcimPay.js card entry for keyed payments. Riverside OS validates the Helcim approval response and does not store card numbers or CVV. On the desktop app, Riverside embeds the one-time public HTTPS handoff inside the checkout drawer and attaches the approved payment back to the sale. Use **Open in Chrome** only if the embedded page does not load.
+   - **Card Not Present** opens secure HelcimPay.js card entry for keyed payments. Riverside OS validates the Helcim approval response and does not store card numbers or CVV. On the desktop app, Riverside embeds the one-time public HTTPS handoff inside the checkout drawer, returns to the payment screen after approval, and attaches the approved payment back to the sale. Use **Open in Chrome** only if the embedded page does not load.
    - **Manual Card** records a card approval without a live Helcim connection. Enter only the approval/reference, last four digits, and reason. Never enter full card numbers or CVV in ROS.
    - **Physical Checks**: When a customer pays by check, select the **CHECK** tab and enter the **Check #** in the input field before pressing **Apply Payment**.
 4. On **Order / Layaway / Wedding** sales, any money paid before pickup is treated as a deposit even if you only use **Apply payment**. Use **Apply deposit** when you want the ledger to set a specific deposit target first. **Split deposit (wedding party)** opens wedding lookup in group-pay mode so you can select members and enter the deposit amount for each one, even when a member has no open balance yet. **Takeaway** items (walk out today) must be covered with regular tenders first; deposit and **open deposit** apply to order balances, not unpaid takeaway. If the linked customer has a **party deposit** waiting, you may be asked to apply it to this sale.
@@ -142,6 +142,8 @@ Select **View Receipt** to inspect the same formatted receipt layout used for cu
 Gift card load receipts list the sold gift card number under the gift-card line so staff and customers can confirm which card was activated.
 
 When staff open the loaded customer's profile from Register and save updated contact details, the selected customer shown in Register refreshes immediately.
+
+When Register search opens a parent product with variations, Riverside shows the full variation matrix for that parent. Barcode scans still add the exact scanned variation directly.
 
 ---
 

@@ -3236,6 +3236,7 @@ async fn mark_transaction_pickup(
         ) orl ON orl.transaction_line_id = oi.id
         WHERE oi.transaction_id = $1
           AND oi.is_fulfilled = FALSE
+          AND COALESCE(oi.is_internal, false) = FALSE
           AND GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0) > 0
         "#,
     )

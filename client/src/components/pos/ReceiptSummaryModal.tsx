@@ -73,6 +73,7 @@ type OrderDetail = {
   transaction_id?: string;
   transaction_display_id?: string;
   status?: string;
+  total_price?: string;
   amount_paid?: string;
   payment_methods_summary?: string;
   customer?: OrderCustomer | null;
@@ -120,6 +121,7 @@ export default function ReceiptSummaryModal({
   const [printingFailureTitle, setPrintingFailureTitle] = useState<string | null>(
     null,
   );
+  const [printingFailureDetail, setPrintingFailureDetail] = useState<string | null>(null);
   const [lastPrintAttemptLabel, setLastPrintAttemptLabel] = useState<string | null>(
     null,
   );
@@ -347,11 +349,13 @@ export default function ReceiptSummaryModal({
       setError(null);
       setPrintingFailure(null);
       setPrintingFailureTitle(null);
+      setPrintingFailureDetail(null);
       setPrintingSuccessMessage(null);
       setPrinterCheckMessage(null);
       setLastPrintAttemptLabel(attemptLabel);
       setLastPrintRequest(opts);
       let printableBase64 = "";
+      const printerTarget = resolvePrinterTarget("receipt");
       try {
         const q = buildReceiptQuery(
           opts?.gift || opts?.transactionLineIds?.length
@@ -377,7 +381,7 @@ export default function ReceiptSummaryModal({
         );
 
         printableBase64 = prepared.printableBase64;
-        await printReceiptBase64(printableBase64);
+        await printReceiptBase64(printableBase64, printerTarget);
         setPrintingSuccessMessage(
           `${opts?.gift ? "Gift receipt" : "Receipt"} sent to the station printer.`,
         );
@@ -390,6 +394,10 @@ export default function ReceiptSummaryModal({
         );
         setPrintingFailure(
           `${message} The sale is already complete. Retry printing, run printer check, or send the receipt by SMS or email.`,
+        );
+        const detail = e instanceof Error ? e.message : String(e);
+        setPrintingFailureDetail(
+          `Target: ${describePrinterTarget(printerTarget)}. Error: ${detail}`,
         );
         // Queue for retry from the POS header
         if (transactionId && printableBase64.trim()) {
@@ -867,6 +875,11 @@ export default function ReceiptSummaryModal({
                   {printerCheckMessage}
                 </p>
               ) : null}
+              {printingFailureDetail ? (
+                <p className="mt-3 rounded-lg border border-app-border bg-app-surface-2 px-3 py-2 text-[10px] font-semibold leading-relaxed text-app-text-muted">
+                  {printingFailureDetail}
+                </p>
+              ) : null}
             </div>
           ) : printingSuccessMessage ? (
             <div className="shrink-0 rounded-2xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 sm:px-5 sm:py-4">
@@ -893,7 +906,7 @@ export default function ReceiptSummaryModal({
                   Sale total
                 </p>
                 <p className="text-2xl font-black tabular-nums tracking-tighter text-app-text sm:text-3xl lg:text-4xl">
-                  ${transactionDetail?.amount_paid ?? "…"}
+                  ${transactionDetail?.total_price ?? transactionDetail?.amount_paid ?? "…"}
                 </p>
               </div>
               <div className="min-w-0 max-w-full text-right md:max-w-[50%]">

@@ -17,6 +17,7 @@ export interface ResolvedSkuItem {
   local_tax: string | number;
   tax_category?: "clothing" | "footwear" | "accessory" | "service" | "other";
   stock_on_hand?: number;
+  total_variant_count?: number;
   vendor_sku?: string;
   /** Present when API includes it (promotions, prompts). */
   category_id?: string | null;

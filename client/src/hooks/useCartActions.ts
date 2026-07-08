@@ -526,24 +526,65 @@ export function useCartActions({
     if (!ensureSaleCashier()) return;
     const siblings = searchResults.filter(r => r.product_id === item.product_id);
     const exactSkuMatch = search.trim().toLowerCase() === item.sku.toLowerCase();
+    const totalVariantCount = Math.max(
+      siblings.length,
+      Number(item.total_variant_count ?? 0) || 0,
+    );
 
-    if (siblings.length > 1 && !exactSkuMatch) {
+    if (totalVariantCount > 1 && !exactSkuMatch) {
        setSearchResults([]);
-       setActiveVariationSelection({
-         product_id: item.product_id,
-         name: item.name,
-         variants: siblings.map(s => ({
+       void (async () => {
+         const fallbackRows = siblings.length > 0 ? siblings : [item];
+         const fallbackVariants = fallbackRows.map(s => ({
            variant_id: s.variant_id,
            sku: s.sku,
            variation_label: s.variation_label || "Standard",
            stock_on_hand: s.stock_on_hand || 0,
            retail_price: String(s.standard_retail_price),
-         }))
-       });
+         }));
+         try {
+           const res = await fetch(
+             `${baseUrl}/api/products/control-board?product_id=${encodeURIComponent(item.product_id)}&limit=50000&include_hidden=true`,
+             { headers: apiAuth() },
+           );
+           if (!res.ok) {
+             setActiveVariationSelection({
+               product_id: item.product_id,
+               name: item.name,
+               variants: fallbackVariants,
+             });
+             return;
+           }
+           const data = (await res.json()) as { rows?: Array<Record<string, unknown>> };
+           const rows = Array.isArray(data.rows) ? data.rows : [];
+           const fullVariants = rows.map((row) => ({
+             variant_id: String(row.variant_id ?? ""),
+             sku: String(row.sku ?? ""),
+             variation_label:
+               typeof row.variation_label === "string" && row.variation_label.trim()
+                 ? row.variation_label
+                 : "Standard",
+             stock_on_hand: Number(row.stock_on_hand ?? 0),
+             retail_price: String(row.retail_price ?? 0),
+           }));
+           setActiveVariationSelection({
+             product_id: item.product_id,
+             name: item.name,
+             variants: fullVariants.length > 0 ? fullVariants : fallbackVariants,
+           });
+         } catch {
+           setActiveVariationSelection({
+             product_id: item.product_id,
+             name: item.name,
+             variants: fallbackVariants,
+           });
+           toast("Could not load every variation for this product. Search results are still available.", "error");
+         }
+       })();
     } else {
        addItem(item);
     }
-  }, [ensureSaleCashier, addItem, setSearchResults]);
+  }, [ensureSaleCashier, addItem, setSearchResults, baseUrl, apiAuth, toast]);
 
   const removeLine = useCallback((rowId: string) => {
     setLines((prev) => prev.filter((l) => l.cart_row_id !== rowId));

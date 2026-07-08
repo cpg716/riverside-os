@@ -64,7 +64,10 @@ export function PosSearchResultList({
           const isExactSku = group.some(
             (g) => g.sku.toLowerCase() === search.trim().toLowerCase(),
           );
-          const variationCount = group.length;
+          const variationCount = Math.max(
+            group.length,
+            Number(item.total_variant_count ?? 0) || group.length,
+          );
 
           return (
             <button

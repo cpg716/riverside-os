@@ -2090,21 +2090,8 @@ export default function Cart({
             projected_balance_after: "0.00",
           };
           setOrderPaymentLines([orderPaymentLine]);
-        } else if (balanceDueCents === 0 && detail.amount_paid && parseMoneyToCents(detail.amount_paid) > 0) {
-          // Show previous deposits even if no balance due
-          const customerName = `${detail.customer.first_name} ${detail.customer.last_name}`.trim();
-          const orderPaymentLine: OrderPaymentCartLine = {
-            line_type: "order_payment",
-            cart_row_id: newCartRowId(),
-            target_transaction_id: detail.transaction_id,
-            target_display_id: detail.transaction_display_id ?? detail.transaction_id.slice(0, 8).toUpperCase(),
-            customer_id: detail.customer.id,
-            customer_name: customerName || detail.customer.first_name || "Customer",
-            amount: "0.00",
-            balance_before: detail.balance_due ?? "0.00",
-            projected_balance_after: "0.00",
-          };
-          setOrderPaymentLines([orderPaymentLine]);
+        } else {
+          setOrderPaymentLines([]);
         }
 
         toast(

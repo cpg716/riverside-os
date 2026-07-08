@@ -172,6 +172,13 @@ export default function HelcimManualCardHandoff() {
           }
           setState("approved");
           setMessage("Card Not Present approved. Return to the register to complete the sale.");
+          const approvalMessage = {
+            source: "riverside-os",
+            type: "helcim-card-not-present-approved",
+            attempt_id: attemptId,
+          };
+          window.parent?.postMessage(approvalMessage, "*");
+          window.opener?.postMessage(approvalMessage, "*");
         } catch (error) {
           setState("error");
           setMessage(error instanceof Error ? error.message : "ROS could not confirm the Helcim payment.");

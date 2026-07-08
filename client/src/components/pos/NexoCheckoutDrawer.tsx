@@ -1227,6 +1227,32 @@ export default function NexoCheckoutDrawer({
   );
 
   useEffect(() => {
+    if (!isOpen || !manualCardHandoffUrl || !helcimAttempt?.id) return;
+    const attemptId = helcimAttempt.id;
+    const handleHostedCardMessage = (event: MessageEvent) => {
+      const data = event.data as
+        | {
+            source?: string;
+            type?: string;
+            attempt_id?: string;
+          }
+        | undefined;
+      if (
+        data?.source !== "riverside-os" ||
+        data.type !== "helcim-card-not-present-approved" ||
+        data.attempt_id !== attemptId
+      ) {
+        return;
+      }
+      setManualCardHandoffUrl(null);
+      void refreshHelcimAttempt(attemptId, { quietStaleSession: true });
+    };
+
+    window.addEventListener("message", handleHostedCardMessage);
+    return () => window.removeEventListener("message", handleHostedCardMessage);
+  }, [helcimAttempt?.id, isOpen, manualCardHandoffUrl, refreshHelcimAttempt]);
+
+  useEffect(() => {
     if (!isOpen || !selectedTerminalInUseByCurrentRegister || !selectedTerminalActiveAttemptId) {
       return;
     }

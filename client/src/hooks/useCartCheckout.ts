@@ -404,7 +404,10 @@ export function useCartCheckout({
 
       const isEmployeeSale = selectedCustomer?.employee_discount_eligible === true;
       const primaryTrim = isEmployeeSale ? "" : primarySalespersonId.trim();
-      if (orderPaymentLines.length > 0) {
+      const positiveOrderPaymentLines = orderPaymentLines.filter(
+        (line) => parseMoneyToCents(line.amount) > 0,
+      );
+      if (positiveOrderPaymentLines.length > 0) {
         if (!selectedCustomer?.id) {
           toast("Select a customer before checking out with an order payment.", "error");
           setCheckoutBusy(false);
@@ -412,21 +415,13 @@ export function useCartCheckout({
         }
         const targetIds = new Set<string>();
         const clientLineIds = new Set<string>();
-        for (const line of orderPaymentLines) {
+        for (const line of positiveOrderPaymentLines) {
           const amountCents = parseMoneyToCents(line.amount);
           const balanceCents = parseMoneyToCents(line.balance_before);
-          if (balanceCents > 0) {
-            if (amountCents <= 0 || amountCents > balanceCents) {
-              toast("Review the order payment amount before checkout.", "error");
-              setCheckoutBusy(false);
-              return null;
-            }
-          } else {
-            if (amountCents !== 0) {
-              toast("Review the order payment amount before checkout.", "error");
-              setCheckoutBusy(false);
-              return null;
-            }
+          if (balanceCents <= 0 || amountCents > balanceCents) {
+            toast("Review the order payment amount before checkout.", "error");
+            setCheckoutBusy(false);
+            return null;
           }
           if (line.customer_id !== selectedCustomer.id) {
             toast("Order payments must belong to the selected customer.", "error");
@@ -442,6 +437,17 @@ export function useCartCheckout({
           clientLineIds.add(line.cart_row_id);
         }
       }
+      const payloadSaleLines = checkoutLines.filter((line) => !line.transaction_line_id);
+      const payloadLineTotalCents = payloadSaleLines.reduce((sum, line) => {
+        const quantity = Math.max(0, line.quantity);
+        const stateTaxCents = ledgerSignals.isTaxExempt ? 0 : parseMoneyToCents(line.state_tax);
+        const localTaxCents = ledgerSignals.isTaxExempt ? 0 : parseMoneyToCents(line.local_tax);
+        return (
+          sum +
+          (parseMoneyToCents(line.standard_retail_price) + stateTaxCents + localTaxCents) * quantity
+        );
+      }, 0);
+      const payloadTotalPriceCents = payloadLineTotalCents + (posShipping?.amount_cents ?? 0);
       const alterationLines = checkoutLines.filter((line) => line.line_type === "alteration_service");
       if (pendingAlterationIntakes.length > 0 || alterationLines.length > 0) {
         if (!selectedCustomer?.id) {
@@ -503,7 +509,7 @@ export function useCartCheckout({
         customer_id: selectedCustomer?.id ?? null,
         wedding_member_id: activeWeddingMember?.id ?? null,
         payment_method: payment_splits.length === 1 ? payment_splits[0]!.payment_method : "split",
-        total_price: centsToFixed2(ledgerSignals.isTaxExempt ? checkoutTotals.orderTotalCents - (checkoutTotals.stateTaxCents + checkoutTotals.localTaxCents) : checkoutTotals.orderTotalCents),
+        total_price: centsToFixed2(payloadTotalPriceCents),
         amount_paid: centsToFixed2(tenderPaidCents),
         checkout_client_id: checkoutClientId,
         booked_at_local: saleDateTimeLocal?.trim() || undefined,
@@ -529,8 +535,7 @@ export function useCartCheckout({
         tax_exempt_reason: ledgerSignals.isTaxExempt ? (ledgerSignals.taxExemptReason ?? "Other") : undefined,
         rounding_adjustment: optionalCentsField(ledgerSignals.roundingAdjustmentCents),
         final_cash_due: optionalCentsField(ledgerSignals.finalCashDueCents),
-        items: checkoutLines
-          .filter((l) => !l.transaction_line_id)
+        items: payloadSaleLines
           .map((l) => {
             const unitCents = parseMoneyToCents(l.standard_retail_price);
             const origCents = l.original_unit_price != null ? parseMoneyToCents(l.original_unit_price) : unitCents;
@@ -584,7 +589,7 @@ export function useCartCheckout({
           due_at: intake.due_at ?? null,
           notes: intake.notes ?? null,
         })),
-        order_payments: orderPaymentLines.length > 0 ? orderPaymentLines.map((line) => ({
+        order_payments: positiveOrderPaymentLines.length > 0 ? positiveOrderPaymentLines.map((line) => ({
           client_line_id: line.cart_row_id,
           target_transaction_id: line.target_transaction_id,
           target_display_id: line.target_display_id,

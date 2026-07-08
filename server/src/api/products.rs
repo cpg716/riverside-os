@@ -562,6 +562,107 @@ fn control_board_ilike_pattern(raw: &str) -> String {
     format!("%{esc}%")
 }
 
+pub async fn pos_parent_search(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<PosParentSearchQuery>,
+) -> Result<Json<Vec<PosParentSearchRow>>, ProductError> {
+    middleware::require_staff_or_pos_register_session(&state, &headers)
+        .await
+        .map_err(map_perm_err_products)?;
+
+    let search_raw = query.search.trim();
+    if search_raw.len() < 2 {
+        return Ok(Json(Vec::new()));
+    }
+
+    let pat = control_board_ilike_pattern(search_raw);
+    let limit = query.limit.unwrap_or(100).clamp(1, 500);
+
+    let rows = sqlx::query_as::<_, PosParentSearchRow>(
+        r#"
+        WITH matched_products AS (
+            SELECT p.id
+            FROM products p
+            WHERE p.is_active = true
+              AND (
+                p.name ILIKE $1 ESCAPE '\'
+                OR COALESCE(p.brand, '') ILIKE $1 ESCAPE '\'
+                OR COALESCE(p.catalog_handle, '') ILIKE $1 ESCAPE '\'
+                OR EXISTS (
+                    SELECT 1
+                    FROM product_variants pv_match
+                    WHERE pv_match.product_id = p.id
+                      AND (
+                        pv_match.sku ILIKE $1 ESCAPE '\'
+                        OR COALESCE(pv_match.barcode, '') ILIKE $1 ESCAPE '\'
+                        OR COALESCE(pv_match.vendor_upc, '') ILIKE $1 ESCAPE '\'
+                        OR COALESCE(pv_match.variation_label, '') ILIKE $1 ESCAPE '\'
+                      )
+                )
+              )
+            ORDER BY
+              CASE
+                WHEN p.name ILIKE $1 ESCAPE '\' THEN 0
+                WHEN COALESCE(p.catalog_handle, '') ILIKE $1 ESCAPE '\' THEN 1
+                ELSE 2
+              END,
+              p.name
+            LIMIT $2
+        )
+        SELECT
+            p.id AS product_id,
+            rep.id AS variant_id,
+            rep.sku,
+            p.name AS product_name,
+            rep.variation_label,
+            COALESCE(rep.retail_price_override, p.base_retail_price) AS retail_price,
+            COALESCE(rep.cost_override, p.base_cost) AS cost_price,
+            rep.stock_on_hand,
+            variant_totals.total_variant_count,
+            p.tax_category,
+            0::numeric AS state_tax,
+            0::numeric AS local_tax
+        FROM matched_products mp
+        INNER JOIN products p ON p.id = mp.id
+        INNER JOIN LATERAL (
+            SELECT pv.*
+            FROM product_variants pv
+            WHERE pv.product_id = p.id
+            ORDER BY
+              CASE
+                WHEN pv.sku ILIKE $1 ESCAPE '\' THEN 0
+                WHEN COALESCE(pv.barcode, '') ILIKE $1 ESCAPE '\' THEN 1
+                WHEN COALESCE(pv.vendor_upc, '') ILIKE $1 ESCAPE '\' THEN 2
+                WHEN COALESCE(pv.variation_label, '') ILIKE $1 ESCAPE '\' THEN 3
+                ELSE 4
+              END,
+              CASE WHEN pv.stock_on_hand > 0 THEN 0 ELSE 1 END,
+              pv.sku
+            LIMIT 1
+        ) rep ON true
+        INNER JOIN LATERAL (
+            SELECT COUNT(*)::bigint AS total_variant_count
+            FROM product_variants pv_total
+            WHERE pv_total.product_id = p.id
+        ) variant_totals ON true
+        ORDER BY
+          CASE
+            WHEN p.name ILIKE $1 ESCAPE '\' THEN 0
+            WHEN COALESCE(p.catalog_handle, '') ILIKE $1 ESCAPE '\' THEN 1
+            ELSE 2
+          END,
+          p.name
+        "#,
+    )
+    .bind(pat)
+    .bind(limit)
+    .fetch_all(&state.db)
+    .await?;
+
+    Ok(Json(rows))
+}
+
 #[derive(Debug, Serialize, FromRow)]
 pub struct InventoryControlRow {
     pub variant_id: Uuid,
@@ -990,12 +1091,35 @@ pub struct InventoryReconciliationResponse {
     pub findings: Vec<InventoryReconciliationFinding>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct PosParentSearchQuery {
+    pub search: String,
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Serialize, FromRow)]
+pub struct PosParentSearchRow {
+    pub product_id: Uuid,
+    pub variant_id: Uuid,
+    pub sku: String,
+    pub product_name: String,
+    pub variation_label: Option<String>,
+    pub retail_price: Decimal,
+    pub cost_price: Decimal,
+    pub stock_on_hand: i32,
+    pub total_variant_count: i64,
+    pub tax_category: Option<crate::logic::tax::TaxCategory>,
+    pub state_tax: Decimal,
+    pub local_tax: Decimal,
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/maintenance", get(get_maintenance_ledger))
         .route("/", post(create_product).get(list_products))
         .route("/next-ros-skus", get(next_ros_skus))
         .route("/control-board", get(list_control_board))
+        .route("/pos-parent-search", get(pos_parent_search))
         .route("/cleanup-summary", get(get_cleanup_summary))
         .route("/reconciliation", get(get_inventory_reconciliation))
         .route("/bulk-update", post(bulk_update_product_model))
