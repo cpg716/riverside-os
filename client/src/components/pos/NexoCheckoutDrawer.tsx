@@ -2072,6 +2072,19 @@ export default function NexoCheckoutDrawer({
       return;
     }
     if (!canFinalize) return;
+    if (
+      helcimAttempt &&
+      (helcimAttempt.status === "approved" || helcimAttempt.status === "captured") &&
+      !hasAppliedHelcimAttempt(applied, helcimAttempt)
+    ) {
+      addApprovedHelcimAttempt(
+        helcimAttempt,
+        pendingHelcimTenderRef.current.method,
+        pendingHelcimTenderRef.current.label,
+      );
+      toast("Helcim payment approved. Review the attached payment, then Record Sale.", "info");
+      return;
+    }
     const depositCents = parseMoneyToCents(appliedDepositAmount.trim());
 
     // Calculate final rounding if last payment was not explicitly added or if we are at full balance
