@@ -451,7 +451,6 @@ async fn search_products(
             FROM product_variants pv
             JOIN products p ON p.id = pv.product_id
             WHERE p.is_active = true
-              AND COALESCE(pv.hidden_from_inventory, false) = false
               AND pv.id = ANY($1)
             ORDER BY array_position($2::uuid[], pv.id)
             LIMIT $3
@@ -476,7 +475,6 @@ async fn search_products(
         FROM product_variants pv
         JOIN products p ON p.id = pv.product_id
         WHERE p.is_active = true
-          AND COALESCE(pv.hidden_from_inventory, false) = false
           AND (
             pv.sku ILIKE $1
             OR COALESCE(pv.barcode, '') ILIKE $1
@@ -502,7 +500,6 @@ async fn search_exact_sku(pool: &PgPool, q: &str) -> Result<Option<UniversalSkuH
         FROM product_variants pv
         JOIN products p ON p.id = pv.product_id
         WHERE p.is_active = true
-          AND COALESCE(pv.hidden_from_inventory, false) = false
           AND LOWER(pv.sku) = LOWER($1)
         LIMIT 1
         "#,

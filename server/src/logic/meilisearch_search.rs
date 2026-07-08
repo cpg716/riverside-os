@@ -76,9 +76,6 @@ fn control_board_meili_filter_parts(filters: &ControlBoardMeiliFilters<'_>) -> O
     if filters.negative_stock_only == Some(true) {
         parts.push("stock_status = \"negative\"".to_string());
     }
-    if !filters.include_hidden {
-        parts.push("hidden_from_inventory = false".to_string());
-    }
     if parts.is_empty() {
         None
     } else {

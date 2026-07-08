@@ -33,9 +33,9 @@ The product list is primary. Item Readiness and Inventory Cleanup Review sit bel
 
 ## Search and filters
 
-Use the main search field for product name, SKU, product UPC, catalog/vendor style number, or variation text. The list is product-centered and shows each product's variation count; direct SKU or exact variation searches show the matched SKU/variation on that product row. Use vendor, category, stock, label, high value, web, hidden, and department filters to narrow the list.
+Use the main search field for product name, SKU, product UPC, catalog/vendor style number, or variation text. The list is product-centered and shows each product's variation count; direct SKU or exact variation searches show the matched SKU/variation on that product row. Use vendor, category, stock, label, high value, web, and department filters to narrow the list.
 
-Default Inventory List results hide stale variants that have zero stock on hand and no non-cancelled sales in the last five years. Select **Hidden** to include those records. Hidden records keep their Counterpoint SKU/key and history; **Show** makes a hidden SKU visible in normal Inventory List results again. For matrix products, open Product Hub and use the per-variant **Show** action so only the intended size/color is restored.
+Riverside keeps the full variation matrix visible for qualifying parent products. Zero stock on hand does not hide a size, color, or style option; staff should use the stock count on the variation row to decide whether it can be sold immediately, ordered, or handled as a special order.
 
 Select **Load More Inventory** to keep paging through results without losing the current filters.
 

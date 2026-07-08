@@ -38,7 +38,7 @@ To edit an existing item, always start in **Find Item**. Search for the SKU, pro
 5. Use **Item Setup** for product family details, vendor, category, tax, employee pricing, and cleanup review.
 6. Use **SKUs & Stock** for SKU-level price, Product UPC, Catalog # / vendor style #, web status, tags, low-stock alerts, small count corrections, damage, and vendor returns.
 
-By default, Find Item hides stale variants that have **zero stock on hand** and **no non-cancelled sales in the last five years**. This does not delete Counterpoint data or history. Turn on **Hidden** when you need to inspect those old zero-stock records. If a hidden SKU should return to normal lookup, select **Show** on the row; for matrix products, open Product Hub and use the per-variant **Show** action so only the intended size/color is restored. Adding stock through an approved stock adjustment also makes the SKU visible again.
+Find Item keeps the full variation matrix visible for qualifying parent products. A zero-stock size, color, or style remains searchable and selectable so staff can confirm the exact requested variation and then decide whether it can be sold immediately, ordered, or handled as a special order. Stock availability is shown on the row; it is not used to hide the variation.
 
 **Common pitfall:** Do not use Product Hub count corrections for vendor shipments. Vendor shipments belong in **Receive Stock** so PO, receiving, reserved stock, and financial staging stay connected.
 

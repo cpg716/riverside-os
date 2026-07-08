@@ -434,7 +434,6 @@ export default function InventoryControlBoard({
   const [vendorId, setVendorId] = useState("");
   const [groupByPrimaryVendor, setGroupByPrimaryVendor] = useState(false);
   const [webOnly, setWebOnly] = useState(false);
-  const [includeHidden, setIncludeHidden] = useState(false);
   const [readinessFilter, setReadinessFilter] =
     useState<ReadinessFilter | null>(null);
   const [showCleanupDiagnostics, setShowCleanupDiagnostics] = useState(true);
@@ -591,7 +590,6 @@ export default function InventoryControlBoard({
     if (categoryId) params.set("category_id", categoryId);
     if (vendorId) params.set("vendor_id", vendorId);
     if (webOnly) params.set("web_published_only", "true");
-    if (includeHidden) params.set("include_hidden", "true");
     params.set("limit", String(boardPageLimit));
     params.set("offset", "0");
 
@@ -631,7 +629,6 @@ export default function InventoryControlBoard({
     categoryId,
     vendorId,
     webOnly,
-    includeHidden,
     boardPageLimit,
     apiAuth,
     toast,
@@ -670,7 +667,6 @@ export default function InventoryControlBoard({
     if (categoryId) params.set("category_id", categoryId);
     if (vendorId) params.set("vendor_id", vendorId);
     if (webOnly) params.set("web_published_only", "true");
-    if (includeHidden) params.set("include_hidden", "true");
     params.set("limit", String(boardPageLimit));
     params.set("offset", String(rows.length));
 
@@ -710,7 +706,6 @@ export default function InventoryControlBoard({
     categoryId,
     vendorId,
     webOnly,
-    includeHidden,
     boardPageLimit,
     rows.length,
     apiAuth,
@@ -1667,9 +1662,6 @@ export default function InventoryControlBoard({
             setHighValueOnly(!highValueOnly),
           )}
           {discoveryBtn(webOnly, "On web", () => setWebOnly(!webOnly))}
-          {!isPosSurface
-            ? discoveryBtn(includeHidden, "Hidden", () => setIncludeHidden(!includeHidden))
-            : null}
           <div className="w-full pb-1 sm:w-auto sm:pb-0">
             <div className="flex flex-wrap items-center gap-2">
               <div className="mx-1 h-6 w-px shrink-0 bg-app-border" />
@@ -1717,9 +1709,6 @@ export default function InventoryControlBoard({
           )}
           {webOnly && (
             <FilterChip label="On web" onRemove={() => setWebOnly(false)} />
-          )}
-          {includeHidden && (
-            <FilterChip label="Hidden included" onRemove={() => setIncludeHidden(false)} />
           )}
           {oosLowOnly && (
             <FilterChip label="Low Stock" onRemove={() => setOosLowOnly(false)} />

@@ -1449,9 +1449,6 @@ pub async fn list_control_board(
             WHERE pv_total.product_id = p.id
         "#,
     );
-    if !include_hidden {
-        qb.push(" AND COALESCE(pv_total.hidden_from_inventory, false) = false ");
-    }
     qb.push(
         r#"
         ) variant_totals ON true
@@ -1511,9 +1508,6 @@ pub async fn list_control_board(
         );
     }
     qb.push(" WHERE p.is_active = true ");
-    if !include_hidden {
-        qb.push(" AND COALESCE(pv.hidden_from_inventory, false) = false ");
-    }
 
     if let Some(ids) = &meili_variant_ids {
         if ids.is_empty() {
@@ -1692,7 +1686,6 @@ pub async fn list_control_board(
                     JOIN products p2 ON p2.id = pv2.product_id
                     WHERE p2.is_active = true
                       AND p2.primary_vendor_id = $1
-                      AND ($2 OR COALESCE(pv2.hidden_from_inventory, false) = false)
                       AND pv2.stock_on_hand <= 0
                       AND EXISTS (
                           SELECT 1
@@ -1707,11 +1700,9 @@ pub async fn list_control_board(
             JOIN products p ON p.id = pv.product_id
             WHERE p.is_active = true
               AND p.primary_vendor_id = $1
-              AND ($2 OR COALESCE(pv.hidden_from_inventory, false) = false)
             "#,
         )
         .bind(vid)
-        .bind(include_hidden)
         .fetch_one(&state.db)
         .await?
     } else {
@@ -1727,7 +1718,6 @@ pub async fn list_control_board(
                     FROM product_variants pv2
                     JOIN products p2 ON p2.id = pv2.product_id
                     WHERE p2.is_active = true
-                      AND ($1 OR COALESCE(pv2.hidden_from_inventory, false) = false)
                       AND pv2.stock_on_hand <= 0
                       AND EXISTS (
                           SELECT 1
@@ -1741,10 +1731,8 @@ pub async fn list_control_board(
             FROM product_variants pv
             JOIN products p ON p.id = pv.product_id
             WHERE p.is_active = true
-              AND ($1 OR COALESCE(pv.hidden_from_inventory, false) = false)
             "#,
         )
-        .bind(include_hidden)
         .fetch_one(&state.db)
         .await?
     };
