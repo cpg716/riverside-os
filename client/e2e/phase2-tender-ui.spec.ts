@@ -105,7 +105,7 @@ test.describe("Phase 2: POS tender UI smoke", () => {
       drawer.getByRole("button", { name: /CARD READER/i }),
     ).toBeVisible();
     await expect(
-      drawer.getByRole("button", { name: /MANUAL CARD/i }),
+      drawer.getByRole("button", { name: /CARD NOT PRESENT/i }),
     ).toBeVisible();
     await expect(drawer.getByRole("button", { name: /^cash$/i })).toBeVisible();
     await expect(
@@ -123,7 +123,7 @@ test.describe("Phase 2: POS tender UI smoke", () => {
     // Smoke-select a few tabs to validate switching works.
     await drawer.getByRole("button", { name: /^cash$/i }).click();
     await drawer.getByRole("button", { name: /^check$/i }).click();
-    await drawer.getByRole("button", { name: /MANUAL CARD/i }).click();
+    await drawer.getByRole("button", { name: /CARD NOT PRESENT/i }).click();
     await drawer.getByRole("button", { name: /gift card/i }).click();
   });
 

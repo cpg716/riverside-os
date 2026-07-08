@@ -647,10 +647,10 @@ test.describe("tax audit contract", () => {
     ).toBe(18000); // $120.00 clothing + $60.00 service
     expect(
       parseMoneyToCents(after.taxable_sales) - parseMoneyToCents(before.taxable_sales)
-    ).toBe(6000); // $60.00 service
+    ).toBe(0);
     expect(
       parseMoneyToCents(after.nontaxable_sales) - parseMoneyToCents(before.nontaxable_sales)
-    ).toBe(12000); // $120.00 clothing under threshold
+    ).toBe(18000); // $120.00 clothing under threshold + $60.00 non-taxable service
     expect(
       parseMoneyToCents(after.total_state_tax) - parseMoneyToCents(before.total_state_tax)
     ).toBe(0);

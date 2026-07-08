@@ -346,13 +346,34 @@ export async function ensurePosSaleCashierSignedIn(page: Page): Promise<void> {
   await expect(pin1).toBeEnabled({ timeout: 15_000 });
 
   const code = e2eBackofficeStaffCode();
-  for (const digit of code) {
+  for (const [index, digit] of Array.from(code).entries()) {
     await cashierDlg.getByTestId(`pin-key-${digit}`).click();
+    const expectedLength = String(index + 1);
+    if ((await cashierDlg.getAttribute("data-pin-length").catch(() => null)) !== expectedLength) {
+      await page.keyboard.press(digit);
+    }
+    await expect(cashierDlg).toHaveAttribute("data-pin-length", expectedLength, {
+      timeout: 5_000,
+    });
   }
-  
+
   const contBtn = cashierDlg.getByTestId("pos-sale-cashier-continue");
-  await expect(contBtn).toBeEnabled({ timeout: 10_000 });
-  await contBtn.click();
+  await expect
+    .poll(
+      async () =>
+        ((await cartShell.getAttribute("data-register-ready").catch(() => null)) === "true") ||
+        !(await cashierDlg.isVisible().catch(() => false)) ||
+        ((await contBtn.isVisible().catch(() => false)) &&
+          (await contBtn.isEnabled().catch(() => false))),
+      { timeout: 10_000 },
+    )
+    .toBeTruthy();
+  if (
+    (await cashierDlg.isVisible().catch(() => false)) &&
+    ((await cartShell.getAttribute("data-register-ready").catch(() => null)) !== "true")
+  ) {
+    await contBtn.click();
+  }
 
   await expect
     .poll(

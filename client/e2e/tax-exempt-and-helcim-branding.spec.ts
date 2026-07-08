@@ -89,7 +89,7 @@ test.describe("Tax Exempt and Helcim Branding", () => {
 
     // 1. Verify Helcim card tender methods
     await expect(drawer.getByRole("button", { name: /CARD READER/i })).toBeVisible();
-    await expect(drawer.getByRole("button", { name: /MANUAL CARD/i })).toBeVisible();
+    await expect(drawer.getByRole("button", { name: /CARD NOT PRESENT/i })).toBeVisible();
     await expect(drawer.getByRole("button", { name: /SAVED CARD/i })).toBeVisible();
 
     // 2. Verify Tax Exempt Toggle
@@ -121,7 +121,7 @@ test.describe("Tax Exempt and Helcim Branding", () => {
     
     await openPaymentLedger(page);
     await expect(drawer.getByRole("button", { name: /CARD READER/i })).toBeVisible();
-    await expect(drawer.getByRole("button", { name: /MANUAL CARD/i })).toBeVisible();
+    await expect(drawer.getByRole("button", { name: /CARD NOT PRESENT/i })).toBeVisible();
     await expect(drawer.getByRole("button", { name: /SAVED CARD/i })).toBeVisible();
   });
 });

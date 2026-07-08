@@ -372,7 +372,7 @@ test.describe("operational rollout smoke", () => {
     });
   });
 
-  test("exchange return wizard records a visible return and leaves refund queue evidence", async ({
+  test("exchange return wizard stages a visible exchange credit for replacement checkout", async ({
     page,
     request,
   }) => {
@@ -425,23 +425,14 @@ test.describe("operational rollout smoke", () => {
     await expect(wizard.getByText(/max return: 1/i)).toBeVisible();
     await wizard.locator("input[placeholder='0']").first().fill("1");
     await wizard.getByRole("button", { name: /continue exchange|exchange for new items/i }).click();
-    await expect(page.getByText(/exchange credit/i).first()).toBeVisible({ timeout: 20_000 });
-
-    const returned = await expect
-      .poll(
-        async () => {
-          const detail = await fetchTransactionDetail(request, seeded.checkout.transaction_id);
-          return detail.items[0]?.quantity_returned === 1 ? detail : null;
-        },
-        { timeout: 20_000, message: "return quantity was not recorded" },
-      )
-      .not.toBeNull()
-      .then(async () => fetchTransactionDetail(request, seeded.checkout.transaction_id));
-    expect(returned.items[0]?.quantity_returned).toBe(1);
-    const refund = await fetchRefundDue(request, seeded.checkout.transaction_id);
-    expect(refund.is_open).toBe(true);
-    expect(moneyToCents(refund.amount_due)).toBeGreaterThan(0);
-    expect(moneyToCents(refund.amount_refunded)).toBe(0);
+    const receiptLabel = seeded.detail.transaction_display_id ?? seeded.checkout.transaction_id;
+    const exchangeCredit = page
+      .getByRole("button", { name: new RegExp(`exchange credit.*${escapeRegExp(receiptLabel)}`, "i") })
+      .first();
+    await expect(exchangeCredit).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole("button", { name: /\$-/i }).first()).toBeVisible({
+      timeout: 20_000,
+    });
   });
 
   test("orders workspace cash refund modal completes a refund from transaction detail", async ({

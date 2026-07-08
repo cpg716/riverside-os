@@ -3055,7 +3055,7 @@ async fn mark_transaction_pickup(
         SELECT
             COALESCE(MAX(o.amount_paid), 0)::numeric(14,2) AS amount_paid,
             COALESCE(MAX(o.balance_due), 0)::numeric(14,2) AS balance_due,
-            COALESCE(MAX(o.is_counterpoint_import), false) AS is_counterpoint_import,
+            BOOL_OR(COALESCE(o.is_counterpoint_import, false)) AS is_counterpoint_import,
             COALESCE(SUM(line_total) FILTER (WHERE line_values.is_fulfilled), 0)::numeric(14,2) AS already_released_value,
             COALESCE(SUM(line_total) FILTER (
                 WHERE line_values.is_fulfilled = false
@@ -3627,7 +3627,7 @@ async fn mark_transaction_ship(
         SELECT
             COALESCE(MAX(o.amount_paid), 0)::numeric(14,2) AS amount_paid,
             COALESCE(MAX(o.balance_due), 0)::numeric(14,2) AS balance_due,
-            COALESCE(MAX(o.is_counterpoint_import), false) AS is_counterpoint_import,
+            BOOL_OR(COALESCE(o.is_counterpoint_import, false)) AS is_counterpoint_import,
             COALESCE(SUM(line_total) FILTER (WHERE line_values.is_fulfilled), 0)::numeric(14,2) AS already_released_value,
             COALESCE(SUM(line_total) FILTER (
                 WHERE line_values.is_fulfilled = false

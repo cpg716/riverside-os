@@ -67,6 +67,7 @@ export default function PosSaleCashierSignInOverlay({
       data-roster-ready={roster.length > 0 ? "true" : "false"}
       data-staff-selected={selectedStaffExists ? "true" : "false"}
       data-pin-entry-ready={!busy && selectedStaffExists ? "true" : "false"}
+      data-pin-length={credential.length}
       style={{
         paddingBottom: "max(1rem, env(safe-area-inset-bottom))",
         paddingTop: "max(1rem, env(safe-area-inset-top))",

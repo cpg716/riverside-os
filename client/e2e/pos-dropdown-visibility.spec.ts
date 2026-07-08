@@ -1,9 +1,7 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { signInToBackOffice } from "./helpers/backofficeSignIn";
 import {
-  e2eBackofficeStaffCode,
-  signInToBackOffice,
-} from "./helpers/backofficeSignIn";
-import {
+  ensurePosRegisterSessionOpen,
   ensurePosSaleCashierSignedIn,
 } from "./helpers/openPosRegister";
 
@@ -100,44 +98,8 @@ async function openPosRegisterSurface(page: Page): Promise<void> {
     page.getByRole("navigation", { name: "POS Navigation" }),
   ).toBeVisible({ timeout: 20_000 });
 
-  const laneRequirementDialog = page.getByRole("dialog", {
-    name: /cash drawer not open yet/i,
-  });
-  if (await laneRequirementDialog.isVisible().catch(() => false)) {
-    await laneRequirementDialog
-      .getByRole("button", { name: /open register #1/i })
-      .click();
-  }
-
-  const accessRegisterDialog = page.getByRole("dialog", {
-    name: /access register|riverside register/i,
-  });
-  if (await accessRegisterDialog.isVisible().catch(() => false)) {
-    for (const digit of e2eBackofficeStaffCode()) {
-      await accessRegisterDialog.getByRole("button", { name: digit, exact: true }).click();
-    }
-    await accessRegisterDialog.getByRole("button", { name: /open register/i }).click();
-    await expect(accessRegisterDialog).toBeHidden({ timeout: 30_000 });
-  }
-
+  await ensurePosRegisterSessionOpen(page);
   const cartShell = page.getByTestId("pos-register-cart-shell");
-  if (!(await cartShell.isVisible().catch(() => false))) {
-    const registerNavButton = page
-      .getByRole("navigation", { name: "POS Navigation" })
-      .getByRole("button", { name: /^register$/i });
-    if (await registerNavButton.isVisible().catch(() => false)) {
-      await registerNavButton.click().catch(() => {});
-    }
-  }
-  if (!(await cartShell.isVisible().catch(() => false))) {
-    const goToRegisterButton = page.getByRole("button", {
-      name: /go to register/i,
-    });
-    if (await goToRegisterButton.isVisible().catch(() => false)) {
-      await goToRegisterButton.click().catch(() => {});
-    }
-  }
-
   await expect(cartShell).toBeVisible({ timeout: 25_000 });
   await ensurePosSaleCashierSignedIn(page);
 
