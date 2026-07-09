@@ -354,6 +354,8 @@ for (const copy of [
   "RIVERSIDE_MEILISEARCH_API_KEY",
   "--master-key",
   "Wait-MeilisearchReady",
+  "Repair-MeilisearchDataCompatibility",
+  "data-incompatible-",
 ]) {
   assertIncludes(
     mainHubInstaller,

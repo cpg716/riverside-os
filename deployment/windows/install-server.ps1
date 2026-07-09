@@ -1083,6 +1083,46 @@ function Wait-MeilisearchReady([string]$BaseUrl) {
   throw "Meilisearch did not pass the health check at $healthUrl. Check the 'Riverside OS Meilisearch' scheduled task and C:\RiversideOS\meilisearch."
 }
 
+function Get-MeilisearchBinaryVersion([string]$MeilisearchExe) {
+  if (-not (Test-Path $MeilisearchExe)) {
+    return ""
+  }
+  try {
+    $versionOutput = & $MeilisearchExe --version 2>$null | Select-Object -First 1
+    if ("$versionOutput" -match '(\d+\.\d+\.\d+)') {
+      return $Matches[1]
+    }
+  } catch {}
+  return ""
+}
+
+function Repair-MeilisearchDataCompatibility([string]$MeilisearchExe, [string]$DataDir, [string]$MeiliDir) {
+  $versionFile = Join-Path $DataDir "VERSION"
+  if (-not (Test-Path $versionFile)) {
+    return
+  }
+
+  $dataVersion = ""
+  try {
+    $dataVersion = (Get-Content $versionFile -Raw).Trim()
+  } catch {
+    $dataVersion = ""
+  }
+  $binaryVersion = Get-MeilisearchBinaryVersion $MeilisearchExe
+  if ([string]::IsNullOrWhiteSpace($dataVersion) -or [string]::IsNullOrWhiteSpace($binaryVersion)) {
+    return
+  }
+  if ($dataVersion -eq $binaryVersion) {
+    return
+  }
+
+  $timestamp = (Get-Date).ToUniversalTime().ToString("yyyyMMddTHHmmssZ")
+  $archiveDir = Join-Path $MeiliDir "data-incompatible-$dataVersion-$timestamp"
+  Write-Warning "Meilisearch data version $dataVersion is incompatible with runtime $binaryVersion. Archiving local search index to $archiveDir so ROS can rebuild it."
+  Move-Item -Path $DataDir -Destination $archiveDir -Force
+  New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
+}
+
 function Ensure-RiversideMeilisearchHost(
   [string]$PackageRoot,
   [string]$InstallRoot,
@@ -1137,10 +1177,11 @@ function Ensure-RiversideMeilisearchHost(
   Start-Sleep -Seconds 1
 
   New-Item -ItemType Directory -Force -Path $meiliDir | Out-Null
-  New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
   if (Test-Path $meiliSrc) {
     Copy-Item $meiliSrc $meiliExe -Force
   }
+  Repair-MeilisearchDataCompatibility $meiliExe $dataDir $meiliDir
+  New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
 
   $argument = "--http-addr 127.0.0.1:$port --master-key `"$apiKey`" --db-path `"$dataDir`" --env production"
   Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue

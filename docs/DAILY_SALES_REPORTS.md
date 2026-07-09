@@ -42,6 +42,8 @@ The dashboard opens on the existing **Booked** basis for the selected period. Us
 - Custom date range with Apply button
 - Print button (full page report for the currently selected basis)
 - Export CSV button (includes grand total row with summed Transaction Total, Sales Total, Tax, and Net Total)
+- Pickups Today section after the transaction list, showing customer info, Transaction Record, and picked-up items without treating pickup activity as a new sale card
+- Historical Counterpoint import echo transactions are suppressed from Daily and Z reporting when a native ROS transaction exists for the same customer, store day, and item variation. This keeps old parallel-run imports from double-counting sales or pickups without deleting the source audit records.
 
 **CSV Export Features:**
 - **Grand Total Row**: Added at end of CSV with TOTAL label and summed values for Transaction Total, Sales Total, Tax, and Net Total
@@ -58,6 +60,11 @@ Detailed transaction listing grouped by date.
 
 **Z-Report Print Layout (Updated):**
 - **Activity Cards**: Card-based layout showing payment method pill, timestamp, customer name, transaction ID chip, and lane chip
+- **Business-only close packet**: The Z-Report no longer appends non-sale inventory activity; it focuses on tenders, cash reconciliation, sales/orders/refunds/exchanges, pickups, and vendor invoice counts.
+- **Tender completeness**: The tender table always lists the supported tender methods, even when they have 0 transactions and $0.00 for the day.
+- **Credit Card Total**: CC totals combine standard card reader, Card Manual, and Card Not Present activity for the store-day credit card total.
+- **Register breakdown**: Each register lane shows Cash Total and CC Total only, with Card Manual and Card Not Present included in the CC lane total.
+- **Quick Look page**: The second page presents the day’s quick-look business boxes before the transaction and pickup detail sections.
 - **Item Display**: Enhanced item rows with bold product names, muted SKU/fulfillment details, final line price, regular price, and discount percent applied
 - **Money Section**: Reorganized transaction totals with clear labels for Transaction Amount, Sale Total, Paid, and Balance Due
 - **Visual Improvements**: New CSS classes for activity cards, pills, chips, section labels, and improved spacing/borders
@@ -68,11 +75,14 @@ Detailed transaction listing grouped by date.
 
 **Daily Sales Report Print (Updated):**
 - **Grand Total**: Added grand total calculation displayed at end of report
+- **Balanced Quick Look**: The summary prints 15 boxes in 5-column rows, including New Appts, New Layaways, Picked Up $, and Discounts.
+- **Dollar Counts**: Dollar summary boxes that represent grouped activity show amount plus count, such as `$500.00 (2)`.
 - **Line Discount Detail**: Each printed transaction line includes regular price, final sale price, and discount percent applied
 - **Document Title**: Added document title for browser tab identification
 - **Generated Timestamp**: Added generated timestamp to report header and footer
 - **Tauri Integration**: Desktop app saves HTML file via native dialog with save-and-open workflow
 - **Section Rename**: Changed "Activity Detail" to "Transaction List" for clarity
+- **Pickups Today**: Adds a compact pickup list after the Transaction List for customer, Transaction Record, and picked-up item review
 - **Branding**: Changed header and footer from "RIVERSIDE OS" to "Riverside Men's Shop"
 
 **Transaction Details:**

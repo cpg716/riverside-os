@@ -139,6 +139,7 @@ interface RegisterDaySummary {
   weather_days?: RegisterDayWeatherSummary[];
   weather_summary?: string | null;
   activities: RegisterActivityItem[];
+  pickups_today?: RegisterActivityItem[];
   amount_label?: string;
 }
 
@@ -394,6 +395,34 @@ function activityRmsPaymentTotalCents(activities: RegisterActivityItem[] | undef
   }, 0);
 }
 
+function activityNewLayawayCount(activities: RegisterActivityItem[] | undefined): number {
+  return (activities ?? []).filter((row) =>
+    (row.items ?? []).some((item) => item.fulfillment === "layaway"),
+  ).length;
+}
+
+function activityDiscountTotalCents(activities: RegisterActivityItem[] | undefined): number {
+  return (activities ?? []).reduce((sum, row) => {
+    return sum + (row.items ?? []).reduce((itemSum, item) => {
+      const regularCents = parseMoneyToCents(item.reg_price || item.price);
+      const saleCents = parseMoneyToCents(item.price);
+      return itemSum + Math.max(regularCents - saleCents, 0) * Math.max(item.quantity, 0);
+    }, 0);
+  }, 0);
+}
+
+function activityDiscountTransactionCount(activities: RegisterActivityItem[] | undefined): number {
+  return (activities ?? []).filter((row) =>
+    (row.items ?? []).some((item) => parseMoneyToCents(item.reg_price || item.price) > parseMoneyToCents(item.price)),
+  ).length;
+}
+
+function activityPickupTotalCents(pickups: RegisterActivityItem[] | undefined): number {
+  return (pickups ?? []).reduce((sum, row) => {
+    return sum + parseMoneyToCents(row.sales_total ?? row.transaction_total ?? row.amount_label ?? "0");
+  }, 0);
+}
+
 function activityVoidTarget(row: RegisterActivityItem): PosVoidTransactionTarget | null {
   const transactionId = activityTransactionId(row);
   if (!transactionId) return null;
@@ -540,6 +569,24 @@ async function openZReportFromSession(
     newAppointmentsCount: daySummary?.new_appointment_count ?? 0,
     newWeddingPartiesCount: daySummary?.new_wedding_parties_count ?? 0,
     newInvoicesCount: daySummary?.new_invoice_count ?? 0,
+    salesCount: daySummary?.sales_count,
+    salesTaxTotal: daySummary?.sales_tax_total,
+    cashCollected: daySummary?.cash_collected,
+    depositsCollected: daySummary?.deposits_collected,
+    netSales: daySummary?.net_sales,
+    pickupsToday: (daySummary?.pickups_today ?? []).map((pickup) => ({
+      occurred_at: pickup.occurred_at,
+      customer_name: pickup.customer_name,
+      customer_code: pickup.customer_code,
+      short_id: pickup.short_id,
+      sales_total: pickup.sales_total,
+      transaction_total: pickup.transaction_total,
+      items: pickup.items?.map((item) => ({
+        name: item.name,
+        sku: item.sku,
+        quantity: item.quantity,
+      })),
+    })),
     transactions:
       snapshot?.transactions?.map((transaction) => ({
         created_at: transaction.created_at,
@@ -769,6 +816,11 @@ export default function RegisterReports({
       count: acts.length,
     }));
   }, [summary, summaryBooked, reportBasis, activitySearch]);
+  const filteredPickupsToday = useMemo(() => {
+    const source = (reportBasis === "booked" ? summaryBooked : summary)?.pickups_today ?? [];
+    const needle = activitySearch.trim().toLowerCase();
+    return source.filter((row) => !needle || activitySearchText(row).includes(needle));
+  }, [summary, summaryBooked, reportBasis, activitySearch]);
   const activitySourceCount = (reportBasis === "booked" ? summaryBooked : summary)?.activities?.length ?? 0;
 
   const coordinationGroups = useMemo((): RegisterCoordinationGroup[] => {
@@ -834,6 +886,12 @@ export default function RegisterReports({
         merchant_fees_total: printSummary.merchant_fees_total,
         cash_collected: printSummary.cash_collected,
         deposits_collected: printSummary.deposits_collected,
+        new_appointment_count: printSummary.new_appointment_count,
+        new_layaway_count: activityNewLayawayCount(printSummary.activities),
+        pickup_total: centsToFixed2(activityPickupTotalCents(printSummary.pickups_today)),
+        pickup_total_count: printSummary.pickups_today?.length ?? 0,
+        discount_total: centsToFixed2(activityDiscountTotalCents(printSummary.activities)),
+        discount_count: activityDiscountTransactionCount(printSummary.activities),
       },
       activities: printSummary.activities.map(a => ({
         ...a,
@@ -851,6 +909,20 @@ export default function RegisterReports({
         fulfillment_label: activityFulfillmentLabel(a),
         is_takeaway: a.is_takeaway,
         channel: a.channel,
+      })),
+      pickupsToday: (printSummary.pickups_today ?? []).map(a => ({
+        occurred_at: a.occurred_at,
+        customer_name: a.customer_name,
+        customer_code: a.customer_code,
+        short_id: a.short_id,
+        sales_total: a.sales_total,
+        transaction_total: a.transaction_total,
+        items: a.items?.map(i => ({
+          name: i.name,
+          sku: i.sku,
+          quantity: i.quantity,
+          fulfillment: i.fulfillment,
+        })),
       }))
     });
   };
@@ -886,6 +958,7 @@ export default function RegisterReports({
     });
 
     // Calculate totals
+    const totalTransaction = selectedSummary.activities.reduce((sum, a) => sum + (parseFloat(a.transaction_total || a.amount_label || "0") || 0), 0);
     const totalSales = selectedSummary.activities.reduce((sum, a) => sum + (parseFloat(a.sales_total || "0") || 0), 0);
     const totalTax = selectedSummary.activities.reduce((sum, a) => sum + (parseFloat(a.tax_total || "0") || 0), 0);
     const totalNet = selectedSummary.activities.reduce((sum, a) => sum + (parseFloat(a.amount_label || "0") || 0), 0);
@@ -909,19 +982,19 @@ export default function RegisterReports({
       "Fulfillment": "",
       "Deposit Paid": "",
       "Balance Due": "",
-      "Transaction Total": totalSales.toFixed(2),
+      "Transaction Total": totalTransaction.toFixed(2),
       "Sales Total": totalSales.toFixed(2),
       "Tax": totalTax.toFixed(2),
       "Net Total": totalNet.toFixed(2),
     };
 
-    const headers = ["Date", "Time", "Kind", "Order ID", "Customer Name", "Customer #", "Wedding Party", "Item", "SKU", "Qty", "Reg Price", "Sale Price", "Takeaway", "Fulfillment", "Deposit Paid", "Balance Due", "Transaction Total", "Sales Total", "Tax", "Net Total"];
+    const headers = ["Date", "Time", "Transaction #", "Imported At", "Kind", "Order ID", "Customer Name", "Customer #", "Wedding Party", "Item", "SKU", "Qty", "Reg Price", "Sale Price", "Takeaway", "Fulfillment", "Deposit Paid", "Balance Due", "Transaction Total", "Sales Total", "Tax", "Net Total"];
     const csv = [headers.join(","), ...rows.map(r => headers.map(h => {
       const v = r[h as keyof typeof r]?.toString() || "";
-      return v.includes(",") ? `"${v}"` : v;
+      return /[",\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
     }).join(",")), headers.map(h => {
       const v = totalRow[h as keyof typeof totalRow]?.toString() || "";
-      return v.includes(",") ? `"${v}"` : v;
+      return /[",\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
     }).join(",")].join("\n");
 
     await downloadTextFile(`daily-sales-${preset}.csv`, csv, "text/csv;charset=utf-8", [
@@ -1258,6 +1331,26 @@ export default function RegisterReports({
 	                  <div className="flex items-center gap-1 text-xs font-bold text-app-text-muted"><DollarSign className="h-3 w-3" />RMS Charge</div>
                   <p className="text-base font-black">${centsToFixed2(activityRmsChargeTotalCents(summaryBooked?.activities))}</p>
                 </div>
+                <div className="ui-metric-cell ui-tint-neutral p-2">
+	                  <div className="flex items-center gap-1 text-xs font-bold text-app-text-muted"><Clock className="h-3 w-3" />New Appts</div>
+                  <p className="text-base font-black">{summaryBooked?.new_appointment_count || 0}</p>
+                </div>
+                <div className="ui-metric-cell ui-tint-neutral p-2">
+	                  <div className="flex items-center gap-1 text-xs font-bold text-app-text-muted"><Package className="h-3 w-3" />New Layaways</div>
+                  <p className="text-base font-black">{activityNewLayawayCount(summaryBooked?.activities)}</p>
+                </div>
+                <div className="ui-metric-cell ui-tint-info p-2">
+	                  <div className="flex items-center gap-1 text-xs font-bold text-app-text-muted"><Truck className="h-3 w-3" />Picked Up $</div>
+                  <p className="text-base font-black">
+                    ${centsToFixed2(activityPickupTotalCents(summaryBooked?.pickups_today))} ({summaryBooked?.pickups_today?.length || 0})
+                  </p>
+                </div>
+                <div className="ui-metric-cell ui-tint-warning p-2">
+	                  <div className="flex items-center gap-1 text-xs font-bold text-app-text-muted"><DollarSign className="h-3 w-3" />Discounts</div>
+                  <p className="text-base font-black">
+                    ${centsToFixed2(activityDiscountTotalCents(summaryBooked?.activities))} ({activityDiscountTransactionCount(summaryBooked?.activities)})
+                  </p>
+                </div>
               </div>
               {/* Combined Totals Placeholder - already handled by individual summary boxes */}
             </div>
@@ -1307,11 +1400,13 @@ export default function RegisterReports({
                 </button>
               </div>
               </div>
-              {groupedActivities.length === 0 ? (
+              {groupedActivities.length === 0 && filteredPickupsToday.length === 0 ? (
                 <div className="flex flex-1 flex-col items-center justify-center py-20 text-app-text-muted">
                   No daily sales activity matches this search.
                 </div>
-              ) : groupedActivities.map((group) => (
+              ) : (
+                <>
+                {groupedActivities.map((group) => (
                 <div key={group.date} className="flex flex-col gap-2">
                   <div className="flex items-center justify-between border-b border-app-border pb-2">
                     <div>
@@ -1577,7 +1672,59 @@ export default function RegisterReports({
                     </div>
                   ))}
                 </div>
-              ))}
+                ))}
+                {filteredPickupsToday.length > 0 && (
+                  <div className="ui-panel ui-tint-success mt-2 flex flex-col gap-3 p-4">
+                    <div className="flex items-center justify-between border-b border-app-border pb-2">
+                      <div>
+                        <span className="text-xs font-black uppercase tracking-wider text-app-success">Pickups Today</span>
+                        <span className="ml-2 text-[10px] text-app-text-muted">({filteredPickupsToday.length} pickup{filteredPickupsToday.length === 1 ? "" : "s"})</span>
+                      </div>
+                    </div>
+                    <div className="divide-y divide-app-border/40">
+                      {filteredPickupsToday.map((pickup) => (
+                        <div key={`pickup-${pickup.id}`} className="grid gap-3 py-3 lg:grid-cols-[220px_1fr]">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
+                              <Clock size={11} />
+                              {new Date(pickup.occurred_at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
+                            </div>
+                            <div className="mt-1 truncate text-sm font-black text-app-text">
+                              {pickup.customer_name || "Walk-in Customer"}
+                            </div>
+                            <div className="mt-1 flex flex-wrap gap-1.5">
+                              {pickup.customer_code ? (
+                                <span className="ui-pill bg-app-surface-3 text-xs font-bold text-app-text-muted">#{pickup.customer_code}</span>
+                              ) : null}
+                              {pickup.short_id ? (
+                                <span className="ui-pill bg-app-surface-3 font-mono text-xs font-bold text-app-text-muted">{pickup.short_id}</span>
+                              ) : null}
+                            </div>
+                          </div>
+                          <div className="min-w-0">
+                            <div className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Items picked up</div>
+                            <div className="mt-2 flex flex-col gap-1">
+                              {(pickup.items ?? []).map((item, index) => (
+                                <div key={`${pickup.id}-${item.sku}-${index}`} className="flex items-start justify-between gap-3 rounded-lg bg-app-surface-2 px-3 py-2">
+                                  <div className="min-w-0">
+                                    <div className="truncate text-xs font-black text-app-text">{item.name}</div>
+                                    <div className="font-mono text-[10px] text-app-text-muted">{item.sku}</div>
+                                  </div>
+                                  <div className="shrink-0 text-xs font-black text-app-text">x{item.quantity}</div>
+                                </div>
+                              ))}
+                              {!pickup.items?.length && (
+                                <div className="rounded-lg bg-app-surface-2 px-3 py-2 text-xs text-app-text-muted">No picked-up item details recorded.</div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                </>
+              )}
               {/* Grand Total */}
               {reportBasis === "booked" ? summaryBooked && (
                 <div className="ui-panel ui-tint-success mt-4 flex items-center justify-between px-4 py-3">

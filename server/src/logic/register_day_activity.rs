@@ -190,6 +190,8 @@ pub struct RegisterDaySummary {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub weather_summary: Option<String>,
     pub activities: Vec<RegisterActivityItem>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pickups_today: Vec<RegisterActivityItem>,
 }
 
 fn default_reporting_basis() -> String {
@@ -575,6 +577,29 @@ pub async fn fetch_register_day_summary(
 
     let order_in_range = crate::logic::report_basis::order_date_filter_sql(basis);
     let order_session_filter = order_session_filter_sql(basis);
+    let duplicate_counterpoint_import_filter = r#"
+          AND NOT (
+              COALESCE(o.is_counterpoint_import, false) = true
+              AND o.counterpoint_doc_ref IS NOT NULL
+              AND EXISTS (
+                  SELECT 1
+                  FROM transactions native_o
+                  WHERE native_o.id <> o.id
+                    AND COALESCE(native_o.is_counterpoint_import, false) = false
+                    AND native_o.customer_id IS NOT DISTINCT FROM o.customer_id
+                    AND COALESCE(native_o.business_date, (native_o.booked_at AT TIME ZONE reporting.effective_store_timezone())::date)
+                        = COALESCE(o.business_date, (o.booked_at AT TIME ZONE reporting.effective_store_timezone())::date)
+                    AND EXISTS (
+                        SELECT 1
+                        FROM transaction_lines imported_line
+                        INNER JOIN transaction_lines native_line
+                            ON native_line.transaction_id = native_o.id
+                           AND native_line.variant_id = imported_line.variant_id
+                        WHERE imported_line.transaction_id = o.id
+                    )
+              )
+          )
+    "#;
 
     let agg_sql = format!(
         r#"
@@ -608,6 +633,7 @@ pub async fn fetch_register_day_summary(
             GROUP BY transaction_id
         ) ln ON ln.transaction_id = o.id
         WHERE {order_in_range}
+        {duplicate_counterpoint_import_filter}
         {order_session_filter}
         "#,
     );
@@ -634,6 +660,7 @@ pub async fn fetch_register_day_summary(
               AND o.fulfilled_at IS NOT NULL
               AND o.fulfilled_at >= $1
               AND o.fulfilled_at < $2
+            {duplicate_counterpoint_import_filter}
             AND EXISTS (
                   SELECT 1
                   FROM transaction_lines tl_pickup
@@ -665,6 +692,7 @@ pub async fn fetch_register_day_summary(
         FROM transactions o
         INNER JOIN transaction_lines oi ON oi.transaction_id = o.id
         WHERE {order_in_range}
+          {duplicate_counterpoint_import_filter}
           AND oi.fulfillment::text IN ('special_order', 'custom')
         {order_session_filter}
         "#
@@ -1006,6 +1034,7 @@ pub async fn fetch_register_day_summary(
             GROUP BY transaction_line_id
         ) orl ON orl.transaction_line_id = oi.id
         WHERE {order_in_range}
+          {duplicate_counterpoint_import_filter}
           AND EXISTS (
               SELECT 1
               FROM transaction_lines tl_activity
@@ -1018,6 +1047,92 @@ pub async fn fetch_register_day_summary(
         "#
     );
     let sales: Vec<SaleAct> = sqlx::query_as(&sales_sql)
+        .bind(start_utc)
+        .bind(end_utc)
+        .bind(register_session_id)
+        .fetch_all(pool)
+        .await?;
+
+    let pickups_today_sql = format!(
+        r#"
+        SELECT
+            o.id AS transaction_id,
+            COALESCE(NULLIF(TRIM(o.display_id), ''), o.counterpoint_doc_ref, o.counterpoint_ticket_ref, o.id::text) AS short_id,
+            MAX(tl.fulfilled_at) AS booked_at,
+            o.created_at,
+            o.counterpoint_doc_ref,
+            o.total_price,
+            COALESCE(SUM(
+                GREATEST(tl.quantity - COALESCE(orl.returned, 0), 0)::numeric
+                * (tl.state_tax + tl.local_tax)
+            ), 0)::numeric(14,2) AS tax_total,
+            wp.id AS wedding_party_id,
+            wp.party_name,
+            c.id AS customer_id,
+            c.first_name AS customer_first,
+            c.last_name AS customer_last,
+            c.customer_code,
+            c.phone AS customer_phone,
+            c.email AS customer_email,
+            false AS is_takeaway,
+            o.sale_channel::text AS channel,
+            NULL::text AS pay,
+            NULL::jsonb AS payments_json,
+            NULL::numeric AS merchant_fees,
+            NULL::numeric AS net_amount,
+            NULL::numeric AS amount_paid_in_window,
+            COALESCE(SUM(
+                GREATEST(tl.quantity - COALESCE(orl.returned, 0), 0)::numeric
+                * (tl.unit_price + tl.state_tax + tl.local_tax)
+            ), 0)::numeric(14,2) AS sales_total_booked,
+            'pickup'::text AS fulfillment_type,
+            o.balance_due,
+            false AS has_rms_charge_payment_line,
+            false AS has_alteration_service_line,
+            (
+                SELECT jsonb_agg(jsonb_build_object(
+                    'name', px.name,
+                    'sku', pvx.sku,
+                    'quantity', tlx.quantity,
+                    'price', tlx.unit_price::text,
+                    'reg_price', COALESCE(pvx.retail_price_override, px.base_retail_price)::text,
+                    'product_id', px.id,
+                    'fulfillment', 'pickup',
+                    'is_internal', COALESCE(tlx.is_internal, false),
+                    'line_kind', COALESCE(NULLIF(TRIM(px.pos_line_kind), ''), NULLIF(TRIM(tlx.custom_item_type), ''))
+                ) ORDER BY tlx.fulfilled_at, tlx.id)
+                FROM transaction_lines tlx
+                INNER JOIN products px ON px.id = tlx.product_id
+                INNER JOIN product_variants pvx ON pvx.id = tlx.variant_id
+                WHERE tlx.transaction_id = o.id
+                  AND COALESCE(tlx.is_internal, false) = false
+                  AND tlx.fulfillment::text <> 'takeaway'
+                  AND tlx.fulfilled_at >= $1
+                  AND tlx.fulfilled_at < $2
+            ) AS items_json
+        FROM transactions o
+        INNER JOIN transaction_lines tl ON tl.transaction_id = o.id
+        LEFT JOIN customers c ON c.id = o.customer_id
+        LEFT JOIN wedding_members wm ON wm.id = o.wedding_member_id
+        LEFT JOIN wedding_parties wp ON wp.id = wm.wedding_party_id
+        LEFT JOIN (
+            SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
+            FROM transaction_return_lines
+            GROUP BY transaction_line_id
+        ) orl ON orl.transaction_line_id = tl.id
+        WHERE o.status::text <> 'cancelled'
+          {duplicate_counterpoint_import_filter}
+          AND COALESCE(tl.is_internal, false) = false
+          AND tl.fulfillment::text <> 'takeaway'
+          AND tl.fulfilled_at >= $1
+          AND tl.fulfilled_at < $2
+          AND ($3::uuid IS NULL OR o.register_session_id = $3)
+        GROUP BY o.id, o.created_at, o.counterpoint_doc_ref, o.total_price, o.balance_due, wp.id, wp.party_name, c.id, c.first_name, c.last_name, c.customer_code, c.phone, c.email, o.sale_channel::text
+        ORDER BY MAX(tl.fulfilled_at) DESC
+        LIMIT 80
+        "#,
+    );
+    let pickups_today: Vec<SaleAct> = sqlx::query_as(&pickups_today_sql)
         .bind(start_utc)
         .bind(end_utc)
         .bind(register_session_id)
@@ -1294,6 +1409,68 @@ pub async fn fetch_register_day_summary(
     activities.sort_by(|x, y| y.occurred_at.cmp(&x.occurred_at));
     activities.truncate(200);
 
+    let pickups_today = pickups_today
+        .into_iter()
+        .map(|p| {
+            let customer_full = match (
+                p.customer_first
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty()),
+                p.customer_last
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty()),
+            ) {
+                (Some(f), Some(l)) => Some(format!("{f} {l}")),
+                (Some(f), None) => Some(f.to_string()),
+                (None, Some(l)) => Some(l.to_string()),
+                _ => p.customer_code.clone(),
+            };
+            RegisterActivityItem {
+                id: format!("pickup-today:{}", p.transaction_id),
+                kind: "pickup".to_string(),
+                occurred_at: p.booked_at,
+                title: "Pickup Today".to_string(),
+                subtitle: customer_label(
+                    p.party_name.as_deref(),
+                    p.customer_first.as_deref(),
+                    p.customer_last.as_deref(),
+                ),
+                transaction_id: Some(p.transaction_id),
+                payment_id: None,
+                payment_allocation_id: None,
+                wedding_party_id: p.wedding_party_id,
+                amount_label: Some(format!("${}", money_label(p.sales_total_booked))),
+                payment_summary: None,
+                payments: None,
+                sales_total: Some(money_label(p.sales_total_booked)),
+                tax_total: Some(money_label(p.tax_total)),
+                is_takeaway: Some(false),
+                channel: Some(p.channel),
+                wedding_party_name: p.party_name,
+                items: p
+                    .items_json
+                    .and_then(|v| serde_json::from_value::<Vec<ActivityItemDetail>>(v).ok()),
+                merchant_fees_total: None,
+                net_amount: None,
+                customer_id: p.customer_id,
+                customer_first_name: p.customer_first,
+                customer_last_name: p.customer_last,
+                customer_name: customer_full,
+                customer_code: p.customer_code,
+                customer_phone: p.customer_phone,
+                customer_email: p.customer_email,
+                deposits_paid: None,
+                balance_due: Some(money_label(p.balance_due.max(Decimal::ZERO))),
+                fulfillment_type: Some("pickup".to_string()),
+                transaction_total: None,
+                short_id: p.short_id,
+                imported_at: None,
+            }
+        })
+        .collect();
+
     Ok(RegisterDaySummary {
         timezone: tz_name,
         from_local: from_l,
@@ -1321,5 +1498,6 @@ pub async fn fetch_register_day_summary(
         weather_days,
         weather_summary,
         activities,
+        pickups_today,
     })
 }

@@ -149,6 +149,8 @@ Helcim terminal payments use **`POST /api/payments/providers/helcim/purchase`** 
 - **`HELCIM_SIMULATOR_ENABLED=true`**, and
 - **`RIVERSIDE_STRICT_PRODUCTION`** is not enabled.
 
+If a live terminal attempt is canceled, released, declined, or expires without a provider reference, checkout must let staff use **Clear / retry** to remove the local attempt from the payment status panel and send a new request to the terminal. A genuinely pending attempt must be canceled or released before starting another terminal request.
+
 See **`client/src/components/pos/NexoCheckoutDrawer.tsx`**.
 
 ---

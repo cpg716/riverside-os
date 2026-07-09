@@ -102,6 +102,103 @@ function isCreditCardTender(method: string): boolean {
   );
 }
 
+const Z_REPORT_TENDER_KEYS = [
+  "cash",
+  "card_reader",
+  "card_manual",
+  "card_not_present",
+  "check",
+  "gift_card",
+  "store_credit",
+  "rms_charge",
+  "rms_payment",
+  "staff_account",
+  "donation",
+] as const;
+
+type ZReportTenderKey = typeof Z_REPORT_TENDER_KEYS[number];
+
+function normalizedTenderKey(method: string): ZReportTenderKey | "other" {
+  const tender = method.toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (tender === "cash") return "cash";
+  if (tender.includes("manualcard") || tender.includes("cardmanual")) return "card_manual";
+  if (tender.includes("cardnotpresent") || tender === "cnp") return "card_not_present";
+  if (tender === "check" || tender === "cheque") return "check";
+  if (tender.includes("gift")) return "gift_card";
+  if (tender.includes("storecredit") || tender === "sc") return "store_credit";
+  if (tender.includes("rmspayment")) return "rms_payment";
+  if (tender.includes("rms")) return "rms_charge";
+  if (tender.includes("staffaccount")) return "staff_account";
+  if (tender.includes("donation")) return "donation";
+  if (isCreditCardTender(method)) return "card_reader";
+  return "other";
+}
+
+function tenderKeyLabel(key: ZReportTenderKey | "other"): string {
+  switch (key) {
+    case "cash":
+      return "Cash";
+    case "card_reader":
+      return "CC";
+    case "card_manual":
+      return "Card Manual";
+    case "card_not_present":
+      return "Card Not Present";
+    case "check":
+      return "Check";
+    case "gift_card":
+      return "Gift Card";
+    case "store_credit":
+      return "Store Credit";
+    case "rms_charge":
+      return "RMS Charge";
+    case "rms_payment":
+      return "RMS Payment";
+    case "staff_account":
+      return "Staff Account";
+    case "donation":
+      return "Donation";
+    default:
+      return "Other";
+  }
+}
+
+function tenderRowsWithZeros(tenders: ZReportTenderRow[], extras?: Partial<Record<ZReportTenderKey, { amountCents: number; txCount: number }>>) {
+  const buckets = new Map<ZReportTenderKey | "other", { amountCents: number; txCount: number }>();
+  for (const key of Z_REPORT_TENDER_KEYS) {
+    buckets.set(key, { amountCents: extras?.[key]?.amountCents ?? 0, txCount: extras?.[key]?.txCount ?? 0 });
+  }
+  for (const tender of tenders) {
+    const key = normalizedTenderKey(tender.payment_method);
+    const bucket = buckets.get(key) ?? { amountCents: 0, txCount: 0 };
+    bucket.amountCents += parseMoneyToCents(tender.total_amount);
+    bucket.txCount += tender.tx_count;
+    buckets.set(key, bucket);
+  }
+  return Array.from(buckets.entries()).map(([key, value]) => ({
+    key,
+    label: tenderKeyLabel(key),
+    amountCents: value.amountCents,
+    txCount: value.txCount,
+  }));
+}
+
+function creditCardTenderTotalCents(tenders: ZReportTenderRow[]): number {
+  return tenders.reduce((sum, tender) => {
+    return isCreditCardTender(tender.payment_method) ? sum + parseMoneyToCents(tender.total_amount) : sum;
+  }, 0);
+}
+
+function creditCardTenderCount(tenders: ZReportTenderRow[]): number {
+  return tenders.reduce((sum, tender) => {
+    return isCreditCardTender(tender.payment_method) ? sum + tender.tx_count : sum;
+  }, 0);
+}
+
+function moneyWithCount(cents: number, count: number): string {
+  return `${formatReportMoney(cents)} (${count})`;
+}
+
 function isRmsChargeTender(method: string): boolean {
   const tender = method.toLowerCase().replace(/[\s_-]/g, "");
   return tender === "rms" || tender === "rmscharge" || tender === "rms90" || tender.includes("rmscharge");
@@ -185,6 +282,7 @@ function reportLabel(value: string | null | undefined): string {
   switch (tenderKey) {
     case "card":
     case "cardterminal":
+    case "cardreader":
     case "credit":
     case "creditcard":
     case "creditcards":
@@ -197,6 +295,12 @@ function reportLabel(value: string | null | undefined): string {
     case "americanexpress":
     case "discover":
       return "CC";
+    case "cardmanual":
+    case "manualcard":
+      return "Card Manual";
+    case "cardnotpresent":
+    case "cnp":
+      return "Card Not Present";
     case "cash":
       return "Cash";
     case "rms90":
@@ -205,7 +309,9 @@ function reportLabel(value: string | null | undefined): string {
       return "RMS90";
     case "rms":
     case "rmscharge":
-      return "RMS";
+      return "RMS Charge";
+    case "rmspayment":
+      return "RMS Payment";
     case "check":
     case "cheque":
       return "Check";
@@ -289,23 +395,6 @@ function fulfillmentLabel(value: string | null | undefined): string {
       return "Custom order";
     case "layaway":
       return "Layaway";
-    default:
-      return reportLabel(value);
-  }
-}
-
-function inventoryTxLabel(value: string | null | undefined): string {
-  switch ((value ?? "").trim()) {
-    case "po_receipt":
-      return "Receiving";
-    case "return_to_vendor":
-      return "Return to Vendor";
-    case "damaged":
-      return "Damaged";
-    case "physical_inventory":
-      return "Physical Count";
-    case "adjustment":
-      return "Adjustment";
     default:
       return reportLabel(value);
   }
@@ -442,24 +531,35 @@ export async function openProfessionalZReportPrint(opts: {
   inventoryActivity?: ZReportInventoryActivityRow[];
   /** Optional payment lines for audit trail. */
   transactions?: ZReportPrintTransaction[];
+	  pickupsToday?: {
+	    occurred_at: string;
+	    customer_name?: string | null;
+	    customer_code?: string | null;
+	    short_id?: string | null;
+	    sales_total?: string | null;
+	    transaction_total?: string | null;
+	    items?: {
+	      name: string;
+	      sku: string;
+	      quantity: number;
+	    }[] | null;
+  }[];
   newOrdersCount?: number;
   ordersPickedUpCount?: number;
   todayAppointmentsCount?: number;
-  newAppointmentsCount?: number;
-  newWeddingPartiesCount?: number;
-  newInvoicesCount?: number;
-}): Promise<boolean> {
+	  newAppointmentsCount?: number;
+	  newWeddingPartiesCount?: number;
+	  newInvoicesCount?: number;
+	  salesCount?: number;
+	  salesTaxTotal?: string | null;
+	  cashCollected?: string | null;
+	  depositsCollected?: string | null;
+	  netSales?: string | null;
+	}): Promise<boolean> {
   const target = createPrintDocument(`${opts.title} — ${opts.sessionId}`);
 
   const ord = opts.registerOrdinal != null ? ` #${opts.registerOrdinal}` : "";
   const reportPrinter = reportPrinterName();
-
-  const tendersRows = opts.tenders
-    .map(
-      (t) =>
-        `<tr><td>${escapeReportHtml(reportLabel(t.payment_method))}</td><td class="center">${t.tx_count}</td><td class="money">${formatReportMoney(t.total_amount)}</td></tr>`,
-    )
-    .join("");
 
   const overrideRows = opts.overrideSummary
     .map(
@@ -477,26 +577,6 @@ export async function openProfessionalZReportPrint(opts: {
       return `<tr><td>${escapeReportHtml(tm)}</td><td>${escapeReportHtml(event.staff_name)}</td><td>${escapeReportHtml(event.reason)}</td></tr>`;
     })
     .join("");
-
-  const byLaneSections =
-    opts.tendersByLane && opts.tendersByLane.length > 0
-      ? opts.tendersByLane
-          .map((lane) => {
-            const laneTendersItems = lane.tenders
-              .map(
-                (t) =>
-                  `<tr><td>${escapeReportHtml(reportLabel(t.payment_method))}</td><td class="center">${t.tx_count}</td><td class="money">${formatReportMoney(t.total_amount)}</td></tr>`,
-              )
-              .join("");
-            return `
-              <div class="lane-block">
-                <p class="subhead">Register #${lane.register_lane}</p>
-                <table>${laneTendersItems || "<tr><td colspan='3' class='muted'>No payments</td></tr>"}</table>
-              </div>
-            `;
-          })
-          .join("")
-      : "";
 
   const transactions = normalizeZReportTransactions(opts.transactions ?? []);
   const transactionHasFulfillment = (transaction: ZReportPrintTransaction, fulfillment: string): boolean =>
@@ -516,14 +596,21 @@ export async function openProfessionalZReportPrint(opts: {
     (sum, transaction) => sum + parseMoneyToCents(transaction.shipping_amount ?? "0"),
     0,
   );
-  const discountTotalCents = transactions.reduce((sum, transaction) => {
-    return sum + (transaction.items ?? []).reduce((itemSum, item) => {
+	  const discountTotalCents = transactions.reduce((sum, transaction) => {
+	    return sum + (transaction.items ?? []).reduce((itemSum, item) => {
+	      const regularCents = parseMoneyToCents(item.original_unit_price ?? item.unit_price);
+	      const saleCents = parseMoneyToCents(item.overridden_unit_price ?? item.unit_price);
+	      return itemSum + Math.max(regularCents - saleCents, 0) * Math.max(item.quantity, 0);
+	    }, 0);
+	  }, 0);
+  const discountTransactionCount = transactions.filter((transaction) =>
+    (transaction.items ?? []).some((item) => {
       const regularCents = parseMoneyToCents(item.original_unit_price ?? item.unit_price);
       const saleCents = parseMoneyToCents(item.overridden_unit_price ?? item.unit_price);
-      return itemSum + Math.max(regularCents - saleCents, 0) * Math.max(item.quantity, 0);
-    }, 0);
-  }, 0);
-  const creditCardTotalCents = transactions.reduce((sum, transaction) => {
+      return regularCents > saleCents;
+    }),
+  ).length;
+  const transactionCreditCardTotalCents = transactions.reduce((sum, transaction) => {
     return sum + tenderLinesForTransaction(transaction).reduce((paymentSum, payment) => {
       return isCreditCardTender(payment.payment_method)
         ? paymentSum + parseMoneyToCents(payment.amount)
@@ -537,15 +624,62 @@ export async function openProfessionalZReportPrint(opts: {
         : paymentSum;
     }, 0);
   }, 0);
-  const rmsPaymentTotalCents = transactions.reduce((sum, transaction) => {
-    return sum + (transaction.items ?? []).reduce((itemSum, item) => {
-      return item.line_kind === "rms_charge_payment"
-        ? itemSum + parseMoneyToCents(item.unit_price) * Math.max(item.quantity, 0)
-        : itemSum;
-    }, 0);
-  }, 0);
-  const newOrdersDisplayCount = opts.newOrdersCount ?? newOrderCount;
+	  const rmsPaymentTotalCents = transactions.reduce((sum, transaction) => {
+	    return sum + (transaction.items ?? []).reduce((itemSum, item) => {
+	      return item.line_kind === "rms_charge_payment"
+	        ? itemSum + parseMoneyToCents(item.unit_price) * Math.max(item.quantity, 0)
+	        : itemSum;
+	    }, 0);
+	  }, 0);
+	  const newLayawayCount = transactions.filter((transaction) =>
+	    (transaction.items ?? []).some((item) => item.fulfillment === "layaway"),
+	  ).length;
+	  const pickupTotalCents = (opts.pickupsToday ?? []).reduce(
+	    (sum, pickup) => sum + parseMoneyToCents(pickup.sales_total ?? pickup.transaction_total ?? "0"),
+	    0,
+	  );
+	  const pickupTotalCount = opts.pickupsToday?.length ?? 0;
+	  const newOrdersDisplayCount = opts.newOrdersCount ?? newOrderCount;
   const ordersPickedUpDisplayCount = opts.ordersPickedUpCount ?? ordersPickedUpCount;
+  const creditCardTotalCents = creditCardTenderTotalCents(opts.tenders) || transactionCreditCardTotalCents;
+  const creditCardTxCount = creditCardTenderCount(opts.tenders) || transactions.filter((transaction) =>
+    tenderLinesForTransaction(transaction).some((payment) => isCreditCardTender(payment.payment_method)),
+  ).length;
+  const normalizedTenderRows = tenderRowsWithZeros(opts.tenders, {
+    rms_payment: { amountCents: rmsPaymentTotalCents, txCount: rmsPaymentTotalCents === 0 ? 0 : 1 },
+  });
+  const tendersRows = normalizedTenderRows
+    .map(
+      (t) =>
+        `<tr><td>${escapeReportHtml(t.label)}</td><td class="center">${t.txCount}</td><td class="money">${formatReportMoney(t.amountCents)}</td></tr>`,
+    )
+    .join("");
+  const byLaneSections =
+    opts.tendersByLane && opts.tendersByLane.length > 0
+      ? opts.tendersByLane
+          .map((lane) => {
+            const cashTotal = lane.tenders
+              .filter((tender) => normalizedTenderKey(tender.payment_method) === "cash")
+              .reduce((sum, tender) => sum + parseMoneyToCents(tender.total_amount), 0);
+            const cashCount = lane.tenders
+              .filter((tender) => normalizedTenderKey(tender.payment_method) === "cash")
+              .reduce((sum, tender) => sum + tender.tx_count, 0);
+            const ccTotal = creditCardTenderTotalCents(lane.tenders);
+            const ccCount = creditCardTenderCount(lane.tenders);
+            return `
+              <div class="lane-block">
+                <p class="subhead">Register #${lane.register_lane}</p>
+                <table>
+                  <tbody>
+                    <tr><td>Cash Total</td><td class="center">${cashCount}</td><td class="money">${formatReportMoney(cashTotal)}</td></tr>
+                    <tr><td>CC Total</td><td class="center">${ccCount}</td><td class="money">${formatReportMoney(ccTotal)}</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            `;
+          })
+          .join("")
+      : "";
 
   const txAuditRows =
     transactions.length > 0
@@ -607,6 +741,36 @@ export async function openProfessionalZReportPrint(opts: {
           })
           .join("")
       : "";
+  const pickupRows = (opts.pickupsToday ?? [])
+    .map((pickup) => {
+      const tm = new Date(pickup.occurred_at).toLocaleString([], {
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+      const customerInfo = [
+        pickup.customer_name,
+        pickup.customer_code ? `(#${pickup.customer_code})` : null,
+      ].filter(Boolean).join(" ");
+      const itemRows = (pickup.items ?? []).map((item) => `
+        <div class="pickup-item">
+          <span><strong>${escapeReportHtml(`${item.quantity}x ${item.name}`)}</strong></span>
+          <span class="mono muted">${escapeReportHtml(item.sku)}</span>
+        </div>
+      `).join("");
+      return `
+        <section class="pickup-row">
+          <div>
+            <div class="time">${escapeReportHtml(tm)}</div>
+            <div class="customer">${escapeReportHtml(customerInfo || "Walk-in Customer")}</div>
+            ${pickup.short_id ? `<div class="chips"><span class="chip mono">Transaction ${escapeReportHtml(pickup.short_id)}</span></div>` : ""}
+          </div>
+          <div>${itemRows || `<div class="muted">No picked-up item details recorded.</div>`}</div>
+        </section>
+      `;
+    })
+    .join("");
 
   const qboJournalRows =
     opts.qboJournal && opts.qboJournal.lines.length > 0
@@ -623,32 +787,6 @@ export async function openProfessionalZReportPrint(opts: {
   const qboWarnings = opts.qboJournal?.warnings?.length
     ? opts.qboJournal.warnings.map((warning) => `<li>${escapeReportHtml(warning)}</li>`).join("")
     : "";
-
-  const inventoryActivityRows =
-    opts.inventoryActivity && opts.inventoryActivity.length > 0
-      ? opts.inventoryActivity
-          .map((row) => {
-            const tm = new Date(row.created_at).toLocaleTimeString([], {
-              hour: "2-digit",
-              minute: "2-digit",
-            });
-            const detail = [
-              row.category_name,
-              row.notes,
-              row.reference_table ? `${row.reference_table}${row.reference_id ? ` ${row.reference_id.slice(0, 8)}` : ""}` : null,
-            ].filter(Boolean).join(" · ");
-            return `<tr>
-              <td>${escapeReportHtml(tm)}</td>
-              <td>${escapeReportHtml(inventoryTxLabel(row.tx_type))}</td>
-              <td><strong>${escapeReportHtml(row.product_name)}</strong><br><span class="muted mono">${escapeReportHtml(row.sku)}</span></td>
-              <td class="center mono">${row.quantity_delta > 0 ? "+" : ""}${row.quantity_delta}</td>
-              <td class="money">${row.unit_cost ? formatReportMoney(row.unit_cost) : "—"}</td>
-              <td class="money">${formatReportMoney(row.value_delta)}</td>
-              <td>${escapeReportHtml(row.staff_name || "System")}<br><span class="muted">${escapeReportHtml(detail || "No detail")}</span></td>
-            </tr>`;
-          })
-          .join("")
-      : "";
 
   const dc = opts.discrepancyCents;
   const statusLabel = dc === 0 ? "BALANCED" : dc < 0 ? "SHORTFALL" : "OVERAGE";
@@ -672,44 +810,50 @@ export async function openProfessionalZReportPrint(opts: {
     `Assigned Reports Printer: ${reportPrinter}`,
     "",
     "SALES SUMMARY",
+    `Transactions: ${opts.salesCount ?? transactions.length}`,
+    `Tax Collected: ${formatReportMoney(opts.salesTaxTotal ?? "0")}`,
+    `Cash Collected: ${formatReportMoney(opts.cashCollected ?? opts.cashSalesCents)}`,
+    `Deposits Taken: ${formatReportMoney(opts.depositsCollected ?? "0")}`,
     `New Vendor Invoices: ${opts.newInvoicesCount ?? 0}`,
     `New Orders: ${newOrdersDisplayCount}`,
     `Orders Picked Up: ${ordersPickedUpDisplayCount}`,
-    `Credit Card Total: ${formatReportMoney(creditCardTotalCents)}`,
+    `Credit Card Total: ${moneyWithCount(creditCardTotalCents, creditCardTxCount)}`,
     `RMS Payments: ${formatReportMoney(rmsPaymentTotalCents)}`,
     `RMS Charge: ${formatReportMoney(rmsChargeTotalCents)}`,
     `Today's Appointments: ${opts.todayAppointmentsCount ?? 0}`,
     `New Appointments: ${opts.newAppointmentsCount ?? 0}`,
+    `New Layaways: ${newLayawayCount}`,
+    `Picked Up: ${moneyWithCount(pickupTotalCents, pickupTotalCount)}`,
     `Total Alterations: ${alterationCount}`,
     `New Wedding Parties: ${opts.newWeddingPartiesCount ?? 0}`,
     `Shipping Total: ${formatReportMoney(shippingTotalCents)}`,
-    `Discounts Total: ${formatReportMoney(discountTotalCents)}`,
+    `Discounts Total: ${moneyWithCount(discountTotalCents, discountTransactionCount)}`,
     `Subtotal Before Tax: ${formatReportMoney(subtotalBeforeTaxCents)}`,
+    `Merchandise Subtotal: ${formatReportMoney(opts.netSales ?? subtotalBeforeTaxCents)}`,
     "",
     "COMBINED TENDERS",
-    ...(opts.tenders.length > 0
-      ? opts.tenders.map(
-          (t) =>
-            `${reportLabel(t.payment_method)} | Transactions: ${t.tx_count} | Total: ${formatReportMoney(
-              t.total_amount,
-            )}`,
-        )
-      : ["No payment activity recorded"]),
+    ...normalizedTenderRows.map(
+      (t) => `${t.label} | Transactions: ${t.txCount} | Total: ${formatReportMoney(t.amountCents)}`,
+    ),
     "",
     ...(opts.tendersByLane?.length
       ? [
           "BREAKDOWN BY REGISTER",
-          ...opts.tendersByLane.flatMap((lane) => [
-            `Register #${lane.register_lane}`,
-            ...(lane.tenders.length > 0
-              ? lane.tenders.map(
-                  (t) =>
-                    `  ${reportLabel(t.payment_method)} | Transactions: ${t.tx_count} | Total: ${formatReportMoney(
-                      t.total_amount,
-                    )}`,
-                )
-              : ["  No payments"]),
-          ]),
+          ...opts.tendersByLane.flatMap((lane) => {
+            const cashTotal = lane.tenders
+              .filter((tender) => normalizedTenderKey(tender.payment_method) === "cash")
+              .reduce((sum, tender) => sum + parseMoneyToCents(tender.total_amount), 0);
+            const cashCount = lane.tenders
+              .filter((tender) => normalizedTenderKey(tender.payment_method) === "cash")
+              .reduce((sum, tender) => sum + tender.tx_count, 0);
+            const ccTotal = creditCardTenderTotalCents(lane.tenders);
+            const ccCount = creditCardTenderCount(lane.tenders);
+            return [
+              `Register #${lane.register_lane}`,
+              `  Cash Total | Transactions: ${cashCount} | Total: ${formatReportMoney(cashTotal)}`,
+              `  CC Total | Transactions: ${ccCount} | Total: ${formatReportMoney(ccTotal)}`,
+            ];
+          }),
           "",
         ]
       : []),
@@ -759,43 +903,6 @@ export async function openProfessionalZReportPrint(opts: {
           "",
         ]
       : []),
-    ...(opts.inventoryActivity?.length
-      ? [
-          "INVENTORY ACTIVITY (NON-SALE)",
-          ...opts.inventoryActivity.map(
-            (row) =>
-              `${new Date(row.created_at).toLocaleString()} | ${inventoryTxLabel(row.tx_type)} | ${textValue(
-                row.sku,
-              )} | ${textValue(row.product_name)} | Qty: ${row.quantity_delta} | Value: ${formatReportMoney(
-                row.value_delta,
-              )} | Staff: ${textValue(row.staff_name) || "System"}`,
-          ),
-          "",
-        ]
-      : []),
-    ...(opts.qboJournal?.lines?.length || opts.qboJournalError
-      ? [
-          "QBO JOURNAL ENTRY PREVIEW",
-          opts.qboJournalError ? `Error: ${opts.qboJournalError}` : "",
-          opts.qboJournal
-            ? `Activity Date: ${opts.qboActivityDate ?? opts.qboJournal.activity_date} | Debits: ${formatReportMoney(
-                opts.qboJournal.totals.debits,
-              )} | Credits: ${formatReportMoney(opts.qboJournal.totals.credits)} | ${
-                opts.qboJournal.totals.balanced ? "Balanced" : "Needs review"
-              }`
-            : "",
-          ...(opts.qboJournal?.lines ?? []).map(
-            (line) =>
-              `${textValue(line.qbo_account_name)} (${textValue(line.qbo_account_id)}) | ${textValue(
-                line.memo,
-              )} | Debit: ${line.debit ? formatReportMoney(line.debit) : ""} | Credit: ${
-                line.credit ? formatReportMoney(line.credit) : ""
-              }`,
-          ),
-          ...(opts.qboJournal?.warnings ?? []).map((warning) => `Warning: ${warning}`),
-          "",
-        ]
-      : []),
     ...(transactions.length
       ? [
           "TRANSACTION LIST",
@@ -821,6 +928,46 @@ export async function openProfessionalZReportPrint(opts: {
               ...(items.length > 0 ? items : ["  No item details recorded"]),
             ];
           }),
+          "",
+        ]
+      : []),
+    ...(opts.pickupsToday?.length
+      ? [
+          "PICKUPS TODAY",
+          ...opts.pickupsToday.flatMap((pickup) => {
+            const customer = [
+              pickup.customer_name,
+              pickup.customer_code ? `(#${pickup.customer_code})` : null,
+            ].filter(Boolean).join(" ") || "Walk-in Customer";
+            const header = `${new Date(pickup.occurred_at).toLocaleString()} | ${customer}${
+              pickup.short_id ? ` | Transaction: ${pickup.short_id}` : ""
+            }`;
+            const items = (pickup.items ?? []).map((item) => `  ${item.quantity}x ${textValue(item.name)} | ${textValue(item.sku)}`);
+            return [header, ...(items.length > 0 ? items : ["  No picked-up item details recorded"])];
+          }),
+          "",
+        ]
+      : []),
+    ...(opts.qboJournal?.lines?.length || opts.qboJournalError
+      ? [
+          "QBO JOURNAL ENTRY PREVIEW",
+          opts.qboJournalError ? `Error: ${opts.qboJournalError}` : "",
+          opts.qboJournal
+            ? `Activity Date: ${opts.qboActivityDate ?? opts.qboJournal.activity_date} | Debits: ${formatReportMoney(
+                opts.qboJournal.totals.debits,
+              )} | Credits: ${formatReportMoney(opts.qboJournal.totals.credits)} | ${
+                opts.qboJournal.totals.balanced ? "Balanced" : "Needs review"
+              }`
+            : "",
+          ...(opts.qboJournal?.lines ?? []).map(
+            (line) =>
+              `${textValue(line.qbo_account_name)} (${textValue(line.qbo_account_id)}) | ${textValue(
+                line.memo,
+              )} | Debit: ${line.debit ? formatReportMoney(line.debit) : ""} | Credit: ${
+                line.credit ? formatReportMoney(line.credit) : ""
+              }`,
+          ),
+          ...(opts.qboJournal?.warnings ?? []).map((warning) => `Warning: ${warning}`),
           "",
         ]
       : []),
@@ -853,6 +1000,8 @@ export async function openProfessionalZReportPrint(opts: {
     .reconciliation-grid { display: grid; grid-template-columns: 1.4fr 1fr; gap: 18px; margin-top: 16px; }
     .cash-line { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid #f1f5f9; }
     .signature-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; margin-top: 24px; border-top: 1px solid #e2e8f0; padding-top: 12px; }
+    .page-break { break-before: page; page-break-before: always; }
+    .quick-look-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin-top: 14px; }
     .activity-card { display: grid; grid-template-columns: 1.05fr 1.6fr 1fr; border: 1px solid #e2e8f0; border-radius: 16px; overflow: hidden; margin-top: 14px; break-inside: avoid; }
     .activity-left, .activity-money { background: #f8fafc; padding: 18px; }
     .activity-items { padding: 18px; border-left: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0; }
@@ -873,6 +1022,8 @@ export async function openProfessionalZReportPrint(opts: {
     .money-sub { color: #64748b; }
     .money-good { color: #047857; }
     .money-due { color: #b45309; }
+    .pickup-row { border: 1px solid #e2e8f0; border-radius: 12px; display: grid; grid-template-columns: 1fr 2fr; gap: 14px; margin-top: 10px; padding: 12px; break-inside: avoid; }
+    .pickup-item { align-items: baseline; border-top: 1px solid #f1f5f9; display: flex; justify-content: space-between; gap: 10px; padding: 5px 0; }
     @media print { body { padding: 0; } .no-print { display: none; } }
   </style></head><body>
   <div style="display: flex; justify-content: space-between; align-items: flex-start;">
@@ -897,61 +1048,6 @@ export async function openProfessionalZReportPrint(opts: {
     <div style="text-align: right;">
       <p class="stat-label">Register Group</p>
       <p style="font-size: 16px; font-weight: 700;">Register Group ${ord}</p>
-	    </div>
-	  </div>
-
-	  <div class="summary-grid">
-	    <div class="summary-card">
-	      <p class="stat-label">New Vendor Invoices</p>
-	      <p class="stat-value">${opts.newInvoicesCount ?? 0}</p>
-	    </div>
-	    <div class="summary-card">
-	      <p class="stat-label">New Orders</p>
-	      <p class="stat-value">${newOrdersDisplayCount}</p>
-	    </div>
-	    <div class="summary-card">
-	      <p class="stat-label">Orders Picked Up</p>
-	      <p class="stat-value">${ordersPickedUpDisplayCount}</p>
-	    </div>
-	    <div class="summary-card">
-	      <p class="stat-label">Credit Card Total</p>
-	      <p class="stat-value">${formatReportMoney(creditCardTotalCents)}</p>
-	    </div>
-	    <div class="summary-card">
-	      <p class="stat-label">RMS Payments</p>
-	      <p class="stat-value">${formatReportMoney(rmsPaymentTotalCents)}</p>
-	    </div>
-	    <div class="summary-card">
-	      <p class="stat-label">RMS Charge</p>
-	      <p class="stat-value">${formatReportMoney(rmsChargeTotalCents)}</p>
-	    </div>
-	    <div class="summary-card">
-	      <p class="stat-label">Today's Appts</p>
-	      <p class="stat-value">${opts.todayAppointmentsCount ?? 0}</p>
-	    </div>
-	    <div class="summary-card">
-	      <p class="stat-label">New Appointments</p>
-	      <p class="stat-value">${opts.newAppointmentsCount ?? 0}</p>
-	    </div>
-	    <div class="summary-card">
-	      <p class="stat-label">Total Alterations</p>
-	      <p class="stat-value">${alterationCount}</p>
-	    </div>
-	    <div class="summary-card">
-	      <p class="stat-label">New Wedding Parties</p>
-	      <p class="stat-value">${opts.newWeddingPartiesCount ?? 0}</p>
-	    </div>
-	    <div class="summary-card">
-	      <p class="stat-label">Shipping Total</p>
-	      <p class="stat-value">${formatReportMoney(shippingTotalCents)}</p>
-	    </div>
-	    <div class="summary-card">
-	      <p class="stat-label">Discounts Total</p>
-	      <p class="stat-value">${formatReportMoney(discountTotalCents)}</p>
-	    </div>
-	    <div class="summary-card">
-	      <p class="stat-label">Subtotal Before Tax</p>
-	      <p class="stat-value">${formatReportMoney(subtotalBeforeTaxCents)}</p>
 	    </div>
 	  </div>
 
@@ -1043,13 +1139,43 @@ export async function openProfessionalZReportPrint(opts: {
     </div>
   ` : ""}
 
-  ${inventoryActivityRows ? `
-    <div style="margin-top: 14px; break-inside: avoid;">
-      <h2>Inventory Activity (Non-Sale)</h2>
-      <table style="font-size: 8.2px;">
-        <thead><tr><th>Time</th><th>Type</th><th>Item</th><th style="text-align:center">Qty</th><th style="text-align:right">Unit Cost</th><th style="text-align:right">Value</th><th>Staff / Detail</th></tr></thead>
-        <tbody>${inventoryActivityRows}</tbody>
-      </table>
+  <div class="page-break">
+	    <h2>Quick Look</h2>
+	    <div class="quick-look-grid">
+	      <div class="summary-card"><p class="stat-label">Transactions</p><p class="stat-value">${opts.salesCount ?? transactions.length}</p></div>
+	      <div class="summary-card"><p class="stat-label">Subtotal Before Tax</p><p class="stat-value">${formatReportMoney(subtotalBeforeTaxCents)}</p></div>
+	      <div class="summary-card"><p class="stat-label">Tax Collected</p><p class="stat-value">${formatReportMoney(opts.salesTaxTotal ?? "0")}</p></div>
+	      <div class="summary-card"><p class="stat-label">Cash Collected</p><p class="stat-value">${formatReportMoney(opts.cashCollected ?? opts.cashSalesCents)}</p></div>
+	      <div class="summary-card"><p class="stat-label">Credit Card Total</p><p class="stat-value">${moneyWithCount(creditCardTotalCents, creditCardTxCount)}</p></div>
+	      <div class="summary-card"><p class="stat-label">Deposits Taken</p><p class="stat-value">${formatReportMoney(opts.depositsCollected ?? "0")}</p></div>
+	      <div class="summary-card"><p class="stat-label">New Orders</p><p class="stat-value">${newOrdersDisplayCount}</p></div>
+	      <div class="summary-card"><p class="stat-label">Orders Picked Up</p><p class="stat-value">${ordersPickedUpDisplayCount}</p></div>
+	      <div class="summary-card"><p class="stat-label">RMS Payments</p><p class="stat-value">${formatReportMoney(rmsPaymentTotalCents)}</p></div>
+	      <div class="summary-card"><p class="stat-label">RMS Charge</p><p class="stat-value">${formatReportMoney(rmsChargeTotalCents)}</p></div>
+	      <div class="summary-card"><p class="stat-label">Merchandise Subtotal</p><p class="stat-value">${formatReportMoney(opts.netSales ?? subtotalBeforeTaxCents)}</p></div>
+	      <div class="summary-card"><p class="stat-label">New Appointments</p><p class="stat-value">${opts.newAppointmentsCount ?? 0}</p></div>
+	      <div class="summary-card"><p class="stat-label">New Layaways</p><p class="stat-value">${newLayawayCount}</p></div>
+	      <div class="summary-card"><p class="stat-label">Picked Up $</p><p class="stat-value">${moneyWithCount(pickupTotalCents, pickupTotalCount)}</p></div>
+	      <div class="summary-card"><p class="stat-label">Discounts</p><p class="stat-value">${moneyWithCount(discountTotalCents, discountTransactionCount)}</p></div>
+	      <div class="summary-card"><p class="stat-label">New Vendor Invoices</p><p class="stat-value">${opts.newInvoicesCount ?? 0}</p></div>
+	      <div class="summary-card"><p class="stat-label">Today's Appts</p><p class="stat-value">${opts.todayAppointmentsCount ?? 0}</p></div>
+	      <div class="summary-card"><p class="stat-label">Total Alterations</p><p class="stat-value">${alterationCount}</p></div>
+	      <div class="summary-card"><p class="stat-label">New Wedding Parties</p><p class="stat-value">${opts.newWeddingPartiesCount ?? 0}</p></div>
+	      <div class="summary-card"><p class="stat-label">Shipping Total</p><p class="stat-value">${formatReportMoney(shippingTotalCents)}</p></div>
+	    </div>
+	  </div>
+
+  ${txAuditRows ? `
+    <div style="margin-top: 14px; page-break-before: auto;">
+      <h2>Transaction List</h2>
+      ${txAuditRows}
+    </div>
+  ` : ""}
+
+  ${pickupRows ? `
+    <div style="margin-top: 14px;">
+      <h2>Pickups Today</h2>
+      ${pickupRows}
     </div>
   ` : ""}
 
@@ -1065,13 +1191,6 @@ export async function openProfessionalZReportPrint(opts: {
         </table>
       ` : ""}
       ${qboWarnings ? `<ul class="muted" style="margin:6px 0 0 14px;padding:0;">${qboWarnings}</ul>` : ""}
-    </div>
-  ` : ""}
-
-  ${txAuditRows ? `
-    <div style="margin-top: 14px; page-break-before: auto;">
-      <h2>Transaction List</h2>
-      ${txAuditRows}
     </div>
   ` : ""}
 
@@ -1108,6 +1227,12 @@ export async function openProfessionalDailySalesPrint(opts: {
     merchant_fees_total: string;
     cash_collected: string;
     deposits_collected: string;
+    new_appointment_count?: number;
+    new_layaway_count?: number;
+    pickup_total?: string;
+    pickup_total_count?: number;
+    discount_total?: string;
+    discount_count?: number;
   };
   activities: {
     occurred_at: string;
@@ -1143,13 +1268,27 @@ export async function openProfessionalDailySalesPrint(opts: {
       line_kind?: string | null;
     }[] | null;
   }[];
+  pickupsToday?: {
+    occurred_at: string;
+    customer_name?: string | null;
+    customer_code?: string | null;
+    short_id?: string | null;
+    items?: {
+      name: string;
+      sku: string;
+      quantity: number;
+      fulfillment?: string | null;
+    }[] | null;
+    sales_total?: string | null;
+    transaction_total?: string | null;
+  }[];
 }): Promise<boolean> {
   const target = createPrintDocument("Daily Sales Report");
 
   target.doc.title = "Daily Sales Report";
 
   const reportPrinter = reportPrinterName();
-  const { summary, activities } = opts;
+  const { summary, activities, pickupsToday = [] } = opts;
 
   const groupedActivities = activities.reduce<Record<string, typeof activities>>((groups, row) => {
     const date = new Date(row.occurred_at).toLocaleDateString("en-US", {
@@ -1245,6 +1384,37 @@ export async function openProfessionalDailySalesPrint(opts: {
     })
     .join("");
 
+  const pickupRows = pickupsToday
+    .map((pickup) => {
+      const tm = new Date(pickup.occurred_at).toLocaleString([], {
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+      const customerInfo = [
+        pickup.customer_name,
+        pickup.customer_code ? `(#${pickup.customer_code})` : null,
+      ].filter(Boolean).join(" ");
+      const itemRows = (pickup.items ?? []).map((item) => `
+        <div class="pickup-item">
+          <span><strong>${escapeReportHtml(`${item.quantity}x ${item.name}`)}</strong></span>
+          <span class="mono muted">${escapeReportHtml(item.sku)}</span>
+        </div>
+      `).join("");
+      return `
+        <section class="pickup-row">
+          <div>
+            <div class="time">${escapeReportHtml(tm)}</div>
+            <div class="customer">${escapeReportHtml(customerInfo || "Walk-in Customer")}</div>
+            ${pickup.short_id ? `<div class="chips"><span class="chip mono">Transaction ${escapeReportHtml(pickup.short_id)}</span></div>` : ""}
+          </div>
+          <div>${itemRows || `<div class="muted">No picked-up item details recorded.</div>`}</div>
+        </section>
+      `;
+    })
+    .join("");
+
   // Calculate grand total across all groups
   const grandTotal = Object.values(groupedActivities)
     .flat()
@@ -1271,6 +1441,29 @@ export async function openProfessionalDailySalesPrint(opts: {
         : itemSum;
     }, 0);
   }, 0);
+  const creditCardPaymentCount = activities.filter((row) =>
+    (row.payments ?? []).some((payment) => isCreditCardTender(payment.method)),
+  ).length;
+  const newLayawayCount = summary.new_layaway_count ?? activities.filter((row) =>
+    (row.items ?? []).some((item) => item.fulfillment === "layaway"),
+  ).length;
+  const pickupTotalCents = summary.pickup_total
+    ? parseMoneyToCents(summary.pickup_total)
+    : pickupsToday.reduce((sum, pickup) => sum + parseMoneyToCents(pickup.sales_total ?? pickup.transaction_total ?? "0"), 0);
+  const pickupTotalCount = summary.pickup_total_count ?? pickupsToday.length;
+  const discountTotalCents = summary.discount_total
+    ? parseMoneyToCents(summary.discount_total)
+    : activities.reduce((sum, row) => {
+        const rowDiscount = (row.items ?? []).reduce((itemSum, item) => {
+          const regularCents = parseMoneyToCents(item.reg_price || item.price);
+          const saleCents = parseMoneyToCents(item.price);
+          return itemSum + Math.max(regularCents - saleCents, 0) * Math.max(item.quantity, 0);
+        }, 0);
+        return sum + rowDiscount;
+      }, 0);
+  const discountCount = summary.discount_count ?? activities.filter((row) =>
+    (row.items ?? []).some((item) => parseMoneyToCents(item.reg_price || item.price) > parseMoneyToCents(item.price)),
+  ).length;
   const generatedAt = new Date().toLocaleString();
   const dailyReportTextLines = [
     "RIVERSIDE MEN'S SHOP",
@@ -1284,13 +1477,17 @@ export async function openProfessionalDailySalesPrint(opts: {
     `Subtotal Before Tax: ${formatReportMoney(summary.sales_subtotal_no_tax)}`,
     `Tax Collected: ${formatReportMoney(summary.sales_tax_total)}`,
     `Cash Collected: ${formatReportMoney(summary.cash_collected)}`,
-    `Credit Card Total: ${formatReportMoney(creditCardTotalCents)}`,
+    `Credit Card Total: ${moneyWithCount(creditCardTotalCents, creditCardPaymentCount)}`,
     `Deposits Taken: ${formatReportMoney(summary.deposits_collected)}`,
     `New Orders: ${summary.special_order_sale_count}`,
     `Orders Picked Up: ${summary.pickup_count}`,
     `RMS Payments: ${formatReportMoney(rmsPaymentTotalCents)}`,
     `RMS Charge: ${formatReportMoney(rmsChargeTotalCents)}`,
     `Merchandise Subtotal: ${formatReportMoney(summary.net_sales)}`,
+    `New Appointments: ${summary.new_appointment_count ?? 0}`,
+    `New Layaways: ${newLayawayCount}`,
+    `Picked Up: ${moneyWithCount(pickupTotalCents, pickupTotalCount)}`,
+    `Discounts: ${moneyWithCount(discountTotalCents, discountCount)}`,
     "",
     "TRANSACTION LIST",
     ...(activities.length > 0
@@ -1339,6 +1536,23 @@ export async function openProfessionalDailySalesPrint(opts: {
         })
       : ["No activity recorded for this period."]),
     "",
+    "PICKUPS TODAY",
+    ...(pickupsToday.length > 0
+      ? pickupsToday.flatMap((pickup) => {
+          const customerInfo = [
+            pickup.customer_name,
+            pickup.customer_code ? `#${pickup.customer_code}` : null,
+          ].filter(Boolean).join(" | ");
+          const header = `${new Date(pickup.occurred_at).toLocaleString()}${
+            pickup.short_id ? ` | Transaction: ${pickup.short_id}` : ""
+          } | ${customerInfo || "Walk-in Customer"}`;
+          const items = (pickup.items ?? []).map(
+            (item) => `  ${item.quantity}x ${textValue(item.name)} | ${textValue(item.sku)}`,
+          );
+          return [header, ...(items.length > 0 ? items : ["  No picked-up item details recorded."])];
+        })
+      : ["No pickups recorded for this period."]),
+    "",
     `Grand Total: ${formatReportMoney(grandTotal)}`,
     `End of Summary Audit - Riverside Men's Shop - Generated: ${generatedAt}`,
   ];
@@ -1381,6 +1595,8 @@ export async function openProfessionalDailySalesPrint(opts: {
     .money-sub { color: #64748b; }
     .money-good { color: #047857; }
     .money-due { color: #b45309; }
+    .pickup-row { display: grid; grid-template-columns: 1fr 2fr; gap: 18px; border: 1px solid #d1fae5; background: #f0fdf4; border-radius: 14px; padding: 14px; margin-top: 10px; break-inside: avoid; }
+    .pickup-item { display: flex; justify-content: space-between; gap: 16px; border-top: 1px solid #bbf7d0; padding: 7px 0; font-size: 10px; }
     @media print { body { padding: 0; } }
   </style></head><body>
   <div style="display: flex; justify-content: space-between; align-items: flex-start;">
@@ -1415,7 +1631,7 @@ export async function openProfessionalDailySalesPrint(opts: {
     </div>
     <div class="stat-card">
       <p class="stat-label">Credit Card Total</p>
-      <p class="stat-value">${formatReportMoney(creditCardTotalCents)}</p>
+      <p class="stat-value">${moneyWithCount(creditCardTotalCents, creditCardPaymentCount)}</p>
     </div>
     <div class="stat-card" style="border-color:#10b981; background: #f0fdf4;">
       <p class="stat-label" style="color:#047857">Deposits Taken</p>
@@ -1441,10 +1657,29 @@ export async function openProfessionalDailySalesPrint(opts: {
       <p class="stat-label" style="color:#0f172a">Merchandise Subtotal</p>
       <p class="stat-value" style="color:#0f172a">$${centsToFixed2(parseMoneyToCents(summary.net_sales))}</p>
     </div>
+    <div class="stat-card">
+      <p class="stat-label">New Appts</p>
+      <p class="stat-value">${summary.new_appointment_count ?? 0}</p>
+    </div>
+    <div class="stat-card">
+      <p class="stat-label">New Layaways</p>
+      <p class="stat-value">${newLayawayCount}</p>
+    </div>
+    <div class="stat-card">
+      <p class="stat-label">Picked Up $</p>
+      <p class="stat-value">${moneyWithCount(pickupTotalCents, pickupTotalCount)}</p>
+    </div>
+    <div class="stat-card">
+      <p class="stat-label">Discounts</p>
+      <p class="stat-value">${moneyWithCount(discountTotalCents, discountCount)}</p>
+    </div>
   </div>
 
   <h2>Transaction List</h2>
   ${activityRows || "<div class='muted' style='padding:40px; text-align:center;'>No activity recorded for this period.</div>"}
+
+  <h2>Pickups Today</h2>
+  ${pickupRows || "<div class='muted' style='padding:20px 0;'>No pickups recorded for this period.</div>"}
 
   ${activityRows ? `
   <div style="margin-top: 30px; border-top: 2px solid #e2e8f0; padding-top: 20px; text-align: right;">

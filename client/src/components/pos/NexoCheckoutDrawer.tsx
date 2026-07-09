@@ -708,24 +708,24 @@ export default function NexoCheckoutDrawer({
     selectedTerminalInUseBy != null && !selectedTerminalInUseByCurrentRegister;
   const selectedTerminalActiveAttemptId = selectedTerminalStatus?.active_attempt_id ?? null;
   const helcimAttemptOutcomeUnverified = helcimAttempt?.status === "expired" || Boolean(helcimUnverifiedNotice);
-  const helcimAttemptRetryUnavailable =
-    helcimAttempt?.status === "pending" || helcimAttemptOutcomeUnverified;
+  const helcimAttemptRetryUnavailable = helcimAttempt?.status === "pending";
   const helcimAttemptId = helcimAttempt?.id ?? null;
   const helcimAttemptStatus = helcimAttempt?.status ?? null;
   useEffect(() => {
     if (!helcimAttemptStatus || helcimAttemptStatus === "pending") return;
     setManualCardHandoffUrl(null);
   }, [helcimAttemptId, helcimAttemptStatus]);
-  const terminalSelectionReady =
+  const terminalIndicatorReady =
     providerSettings?.active_provider === "helcim" &&
     providerSettings.helcim.enabled &&
+    !providerSettingsLoading &&
+    !providerSettingsError &&
+    !providerHealthHardFailed &&
     !registerLaneUnavailable &&
     Boolean(registerTerminalRoute) &&
     Boolean(selectedTerminalKey) &&
     selectedTerminalConfigured &&
-    !selectedTerminalInUseByOtherRegister &&
-    !helcimAttemptRetryUnavailable &&
-    (!selectedTerminalNeedsOverride || terminalOverrideConfirmed);
+    !selectedTerminalInUseByOtherRegister;
   const terminalStatusText = providerSettingsLoading
     ? "Checking"
     : providerSettingsError
@@ -744,9 +744,7 @@ export default function NexoCheckoutDrawer({
                     ? `In use R${selectedTerminalInUseBy}`
                     : selectedTerminalInUseByCurrentRegister
                       ? "Active here"
-                      : helcimAttemptOutcomeUnverified
-                        ? "Review needed"
-                      : selectedTerminalNeedsOverride && !terminalOverrideConfirmed
+                    : selectedTerminalNeedsOverride && !terminalOverrideConfirmed
                         ? "Confirm terminal"
                         : "Ready";
   const tenderTabIds = useMemo(() => {
@@ -1430,24 +1428,68 @@ export default function NexoCheckoutDrawer({
     [applyHelcimAttemptUpdate, backofficeHeaders, baseUrl, toast],
   );
 
+  const clearHelcimAttemptForRetry = useCallback(
+    (
+      attempt: HelcimAttempt | null,
+      options: { quiet?: boolean } = {},
+    ) => {
+      const absRemainingCents = Math.abs(remainingCents);
+      const retryCents = attempt
+        ? absRemainingCents > 0
+          ? Math.min(Math.abs(attempt.amount_cents), absRemainingCents)
+          : Math.abs(attempt.amount_cents)
+        : absRemainingCents;
+      const hostedManual = attempt ? isHostedManualHelcimAttempt(attempt) : false;
+      setHelcimAttempt(null);
+      setHelcimUnverifiedNotice(null);
+      setManualCardHandoffUrl(null);
+      setTerminalPickerOpen(false);
+      pendingHelcimCentsRef.current = 0;
+      pendingHelcimTenderRef.current = hostedManual
+        ? { method: "card_manual", label: "CARD NOT PRESENT" }
+        : { method: "card_terminal", label: "HELCIM CARD" };
+      setTab(hostedManual ? "card_manual" : "card_terminal");
+      setKeypad(retryCents > 0 ? centsToFixed2(retryCents) : "");
+      void loadProviderSettings();
+      if (!options.quiet) {
+        toast(
+          hostedManual
+            ? "Card Not Present cleared. Ready to retry."
+            : "Card reader cleared. Send a new request when the customer is ready.",
+          "info",
+        );
+      }
+    },
+    [loadProviderSettings, remainingCents, toast],
+  );
+
   const retryFinalHelcimAttempt = useCallback(() => {
-    if (!helcimAttempt || !["failed", "canceled"].includes(helcimAttempt.status)) return;
-    const retryCents = Math.min(Math.abs(helcimAttempt.amount_cents), Math.abs(remainingCents));
-    setHelcimAttempt(null);
-    setHelcimUnverifiedNotice(null);
-    pendingHelcimCentsRef.current = 0;
-    pendingHelcimTenderRef.current = isHostedManualHelcimAttempt(helcimAttempt)
-      ? { method: "card_manual", label: "CARD NOT PRESENT" }
-      : { method: "card_terminal", label: "HELCIM CARD" };
-    setTab(isHostedManualHelcimAttempt(helcimAttempt) ? "card_manual" : "card_terminal");
-    setKeypad(retryCents > 0 ? centsToFixed2(retryCents) : "");
+    if (!helcimAttempt || !["failed", "canceled", "expired"].includes(helcimAttempt.status)) return;
+    clearHelcimAttemptForRetry(helcimAttempt);
+  }, [clearHelcimAttemptForRetry, helcimAttempt]);
+
+  const clearUnverifiedHelcimAttempt = useCallback(() => {
+    clearHelcimAttemptForRetry(helcimAttempt);
+  }, [clearHelcimAttemptForRetry, helcimAttempt]);
+
+  const resetHelcimAttemptAfterRelease = useCallback((attempt: HelcimAttempt) => {
+    clearHelcimAttemptForRetry(attempt, { quiet: true });
     toast(
-      isHostedManualHelcimAttempt(helcimAttempt)
-        ? "Ready to retry Card Not Present."
-        : "Ready to retry card. Send a new request to the terminal when the customer is ready.",
+      isHostedManualHelcimAttempt(attempt)
+        ? "Card Not Present canceled. Ready to retry."
+        : "Terminal cleared. Ready to retry card.",
       "info",
     );
-  }, [helcimAttempt, remainingCents, toast]);
+  }, [clearHelcimAttemptForRetry, toast]);
+
+  const clearHelcimAttemptState = useCallback(() => {
+    setHelcimAttempt(null);
+    setHelcimUnverifiedNotice(null);
+    setManualCardHandoffUrl(null);
+    pendingHelcimCentsRef.current = 0;
+    pendingHelcimTenderRef.current = { method: "card_terminal", label: "HELCIM CARD" };
+    void loadProviderSettings();
+  }, [loadProviderSettings]);
 
   const releaseHelcimAttempt = useCallback(
     async (attemptId: string) => {
@@ -1488,20 +1530,7 @@ export default function NexoCheckoutDrawer({
     setHelcimAttemptLoading(true);
     try {
       const attempt = await releaseHelcimAttempt(attemptId);
-      const hostedManualReleased = isHostedManualHelcimAttempt(attempt);
-      setHelcimAttempt(attempt);
-      pendingHelcimCentsRef.current = 0;
-      pendingHelcimTenderRef.current = hostedManualReleased
-        ? { method: "card_manual", label: "CARD NOT PRESENT" }
-        : { method: "card_terminal", label: "HELCIM CARD" };
-      setHelcimUnverifiedNotice(
-        hostedManualReleased && attempt.status === "canceled"
-          ? null
-          : HELCIM_UNVERIFIED_OUTCOME_MESSAGE,
-      );
-      setManualCardHandoffUrl(null);
-      setTab(hostedManualReleased ? "card_manual" : "cash");
-      setTerminalPickerOpen(false);
+      resetHelcimAttemptAfterRelease(attempt);
     } catch (error) {
       toast(
         error instanceof Error ? error.message : "Could not release the Helcim terminal attempt.",
@@ -1514,6 +1543,7 @@ export default function NexoCheckoutDrawer({
     helcimAttempt?.id,
     helcimAttempt?.status,
     releaseHelcimAttempt,
+    resetHelcimAttemptAfterRelease,
     selectedTerminalActiveAttemptId,
     selectedTerminalInUseByCurrentRegister,
     toast,
@@ -1925,8 +1955,7 @@ export default function NexoCheckoutDrawer({
         return;
       }
       if (helcimAttemptOutcomeUnverified) {
-        toast(HELCIM_UNVERIFIED_OUTCOME_MESSAGE, "error");
-        return;
+        clearHelcimAttemptState();
       }
       if (tab === "card_credit") {
         const originalTransactionId = Number.parseInt(refundOriginalTransactionId.trim(), 10);
@@ -2251,7 +2280,7 @@ export default function NexoCheckoutDrawer({
     setDonationNote("");
     setCheckNumber("");
     setRmsReferenceNumber("");
-  }, [giftCardCode, donationNote, checkNumber, remainingCents, cashRounding.rounded, tab, offlineCardApprovalCode, offlineCardLast4, offlineCardReason, providerSettings, providerSettingsLoading, helcimAttempt?.status, helcimAttemptOutcomeUnverified, registerLaneUnavailable, registerTerminalRoute, selectedTerminalKey, selectedTerminalConfigured, selectedTerminalInUseBy, selectedTerminalInUseByOtherRegister, selectedTerminalNeedsOverride, terminalOverrideConfirmed, registerLane, registerSessionId, refundOriginalTransactionId, refundOriginalCardPresentConfirmed, cardRefundRoute, baseUrl, backofficeHeaders, customerId, customerCode, toast, setApplied, rmsSelectedAccount, rmsPrograms, rmsSelectedProgramCode, rmsReferenceNumber, rmsSummary, rmsResolve, rmsPaymentCollectionMode, chargeSavedHelcimCard, loadProviderSettings, processHelcimApiRefund, startHostedManualCardPayment, storeCreditBalanceCents, storeCreditError, storeCreditLoading, staffAccount]);
+  }, [giftCardCode, donationNote, checkNumber, remainingCents, cashRounding.rounded, tab, offlineCardApprovalCode, offlineCardLast4, offlineCardReason, providerSettings, providerSettingsLoading, helcimAttempt?.status, helcimAttemptOutcomeUnverified, clearHelcimAttemptState, registerLaneUnavailable, registerTerminalRoute, selectedTerminalKey, selectedTerminalConfigured, selectedTerminalInUseBy, selectedTerminalInUseByOtherRegister, selectedTerminalNeedsOverride, terminalOverrideConfirmed, registerLane, registerSessionId, refundOriginalTransactionId, refundOriginalCardPresentConfirmed, cardRefundRoute, baseUrl, backofficeHeaders, customerId, customerCode, toast, setApplied, rmsSelectedAccount, rmsPrograms, rmsSelectedProgramCode, rmsReferenceNumber, rmsSummary, rmsResolve, rmsPaymentCollectionMode, chargeSavedHelcimCard, loadProviderSettings, processHelcimApiRefund, startHostedManualCardPayment, storeCreditBalanceCents, storeCreditError, storeCreditLoading, staffAccount]);
 
   const removePaymentLine = async (line: AppliedPaymentLine) => {
     setApplied((prev) => prev.filter((row) => row.id !== line.id));
@@ -2383,12 +2412,12 @@ export default function NexoCheckoutDrawer({
       <button
         type="button"
         onClick={() => setTerminalPickerOpen((open) => !open)}
-        className="flex min-h-10 items-center gap-2 rounded-xl border border-app-border bg-app-surface px-3 text-left shadow-sm transition-colors hover:bg-app-bg"
+        className="flex min-h-10 max-w-[12rem] items-center gap-2 rounded-xl border border-app-border bg-app-surface px-3 text-left shadow-sm transition-colors hover:bg-app-bg"
         aria-expanded={terminalPickerOpen}
       >
         <span
-          className={`h-2.5 w-2.5 rounded-full ${
-            terminalSelectionReady ? "bg-app-success" : "bg-app-danger"
+          className={`h-2.5 w-2.5 shrink-0 rounded-full ${
+            terminalIndicatorReady ? "bg-app-success" : "bg-app-danger"
           }`}
           aria-hidden="true"
         />
@@ -2403,21 +2432,21 @@ export default function NexoCheckoutDrawer({
       </button>
 
       {terminalPickerOpen && (
-        <div className="absolute right-0 top-12 z-[220] w-80 rounded-2xl border border-app-border bg-app-surface p-3 text-xs shadow-2xl">
+        <div className="absolute right-0 top-12 z-[220] w-[min(22rem,calc(100vw-2rem))] rounded-2xl border border-app-border bg-app-surface p-3 text-xs shadow-2xl">
           <div className="mb-3 flex items-start justify-between gap-3">
-            <div>
+            <div className="min-w-0">
               <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                 {registerLane ? `Register #${registerLane}` : "Register"} Terminal
               </p>
-              <p className="mt-1 text-sm font-black text-app-text">{terminalStatusText}</p>
+              <p className="mt-1 break-words text-sm font-black text-app-text">{terminalStatusText}</p>
             </div>
             {helcimAttempt?.status === "pending" && (
-              <div className="flex shrink-0 gap-2">
+              <div className="flex shrink-0 flex-wrap justify-end gap-2">
                 <button
                   type="button"
                   disabled={helcimAttemptLoading}
                   onClick={() => void refreshHelcimAttempt(helcimAttempt.id)}
-                  className="min-h-9 rounded-lg border border-app-border bg-app-bg px-3 text-[10px] font-black uppercase tracking-widest text-app-text-muted disabled:opacity-50"
+                  className="min-h-9 max-w-32 rounded-lg border border-app-border bg-app-bg px-3 text-[10px] font-black uppercase tracking-widest text-app-text-muted disabled:opacity-50"
                 >
                   {helcimAttemptLoading ? "Checking" : "Recover payment"}
                 </button>
@@ -2425,7 +2454,7 @@ export default function NexoCheckoutDrawer({
                   type="button"
                   disabled={helcimAttemptLoading}
                   onClick={handlePendingTerminalCancel}
-                  className="min-h-9 rounded-lg border border-app-danger/25 bg-app-danger/10 px-3 text-[10px] font-black uppercase tracking-widest text-app-danger disabled:opacity-50"
+                  className="min-h-9 max-w-32 rounded-lg border border-app-danger/25 bg-app-danger/10 px-3 text-[10px] font-black uppercase tracking-widest text-app-danger disabled:opacity-50"
                 >
                   {isHostedManualHelcimAttempt(helcimAttempt) ? "Cancel manual card" : "Cancel on terminal"}
                 </button>
@@ -2496,15 +2525,15 @@ export default function NexoCheckoutDrawer({
                       : "border-app-border bg-app-bg text-app-text-muted hover:border-app-input-border"
                   }`}
                 >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-black text-app-text">{terminalLabel(key)}</span>
+                  <div className="flex min-w-0 items-center justify-between gap-2">
+                    <span className="min-w-0 truncate font-black text-app-text">{terminalLabel(key)}</span>
                     {isDefault && (
-                      <span className="rounded-full bg-app-surface-2 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                      <span className="shrink-0 rounded-full bg-app-surface-2 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-app-text-muted">
                         Default
                       </span>
                     )}
                   </div>
-                  <div className="mt-1 text-[11px] font-bold text-app-text-muted">{statusText}</div>
+                  <div className="mt-1 break-words text-[11px] font-bold text-app-text-muted">{statusText}</div>
                 </button>
               );
             })}
@@ -2816,11 +2845,17 @@ export default function NexoCheckoutDrawer({
                 helcimAttempt?.status === "expired" ? (
                   <button
                     type="button"
-                    onClick={() => void releasePendingTerminalAttempt()}
+                    onClick={() => {
+                      if (helcimAttempt?.status === "pending") {
+                        void releasePendingTerminalAttempt();
+                      } else {
+                        clearUnverifiedHelcimAttempt();
+                      }
+                    }}
                     disabled={helcimAttemptLoading}
                     className="min-h-10 rounded-xl border border-current/30 bg-app-surface px-3 text-[10px] font-black uppercase tracking-widest text-app-text"
                   >
-                    Mark unresolved
+                    Clear / retry
                   </button>
                 ) : null}
               </div>
@@ -3698,12 +3733,12 @@ export default function NexoCheckoutDrawer({
                              )}
                            </div>
                          </div>
-                         {["pending", "failed", "canceled"].includes(helcimAttempt.status) && (
+                         {["pending", "failed", "canceled", "expired"].includes(helcimAttempt.status) && (
                            <div
                              className={[
                                "mt-3 grid gap-2",
                                (providerSettings?.helcim.simulator_enabled && helcimAttempt.status === "pending") ||
-                               ["failed", "canceled"].includes(helcimAttempt.status) ||
+                               ["failed", "canceled", "expired"].includes(helcimAttempt.status) ||
                                (isHostedManualHelcimAttempt(helcimAttempt) && helcimAttempt.status === "pending")
                                  ? "grid-cols-2"
                                  : "grid-cols-1",
@@ -3717,7 +3752,7 @@ export default function NexoCheckoutDrawer({
                              >
                                {helcimAttemptLoading ? "Checking" : "Check status"}
                              </button>
-                             {["failed", "canceled"].includes(helcimAttempt.status) && (
+                             {["failed", "canceled", "expired"].includes(helcimAttempt.status) && (
                                <button
                                  type="button"
                                  disabled={helcimAttemptLoading}
@@ -3756,11 +3791,17 @@ export default function NexoCheckoutDrawer({
                          helcimAttempt.status === "expired" ? (
                            <button
                              type="button"
-                             onClick={() => void releasePendingTerminalAttempt()}
+                             onClick={() => {
+                               if (helcimAttempt.status === "pending") {
+                                 void releasePendingTerminalAttempt();
+                               } else {
+                                 clearUnverifiedHelcimAttempt();
+                               }
+                             }}
                              disabled={helcimAttemptLoading}
                              className="mt-2 min-h-9 w-full rounded-lg border border-rose-400/25 bg-rose-400/10 px-2.5 text-[9px] font-black uppercase tracking-widest text-rose-200 transition-colors hover:bg-rose-400/15 disabled:opacity-50"
                            >
-                             Mark for review
+                             Clear / retry
                            </button>
                          ) : null}
                      </div>

@@ -59,5 +59,11 @@ If the Counterpoint sync fails:
 6. The API also runs a staged full rebuild once per store-local day after 3 AM by default when Meilisearch is configured, but do not wait for that worker during a restore/import/deploy incident.
 7. If search is still blank, confirm the relevant card has rows and no error message. SQL fallback should still keep core lookup usable while Meilisearch is unavailable.
 
+### "Main Hub Update Stops Waiting for Meilisearch"
+1. Check `C:\RiversideOS\meilisearch\data\VERSION` and the installed runtime with `C:\RiversideOS\meilisearch\meilisearch.exe --version`.
+2. If the versions differ, the local Meilisearch index is incompatible with the runtime. This index is rebuildable from PostgreSQL; archive the `data` folder to `data-incompatible-<version>-<timestamp>`, create a fresh `data` folder, and restart the **Riverside OS Meilisearch** scheduled task.
+3. Confirm `http://127.0.0.1:7700/health` returns `{"status":"available"}`, then let the Main Hub update continue and rebuild search indices from **Settings → Integrations → Meilisearch** if results are stale.
+4. Current installers perform this archive step automatically before starting the local Meilisearch task.
+
 ---
 *Version: 0.1.8 - April 2026*
