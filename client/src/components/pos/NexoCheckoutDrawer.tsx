@@ -1331,23 +1331,51 @@ export default function NexoCheckoutDrawer({
         | {
             source?: string;
             type?: string;
+            outcome?: "approved" | "failed" | "canceled";
             attempt_id?: string;
           }
         | undefined;
       if (
         data?.source !== "riverside-os" ||
-        data.type !== "helcim-card-not-present-approved" ||
+        !["helcim-card-not-present-outcome", "helcim-card-not-present-approved"].includes(data.type ?? "") ||
         data.attempt_id !== attemptId
       ) {
         return;
       }
       setManualCardHandoffUrl(null);
-      void refreshHelcimAttempt(attemptId, { quietStaleSession: true });
+      void (async () => {
+        if (data.type === "helcim-card-not-present-outcome" && data.outcome === "canceled") {
+          try {
+            const res = await fetch(
+              `${baseUrl}/api/payments/providers/helcim/attempts/${attemptId}/release`,
+              {
+                method: "POST",
+                headers: mergedPosStaffHeaders(backofficeHeaders),
+              },
+            );
+            if (!res.ok) throw new Error("Could not cancel Card Not Present.");
+            const attempt = (await res.json()) as HelcimAttempt;
+            applyHelcimAttemptUpdate(attempt);
+            return;
+          } catch {
+            // Fall through to status refresh; Helcim may have already finalized the attempt.
+          }
+        }
+        await refreshHelcimAttempt(attemptId, { quietStaleSession: true });
+      })();
     };
 
     window.addEventListener("message", handleHostedCardMessage);
     return () => window.removeEventListener("message", handleHostedCardMessage);
-  }, [helcimAttempt?.id, isOpen, manualCardHandoffUrl, refreshHelcimAttempt]);
+  }, [
+    applyHelcimAttemptUpdate,
+    backofficeHeaders,
+    baseUrl,
+    helcimAttempt?.id,
+    isOpen,
+    manualCardHandoffUrl,
+    refreshHelcimAttempt,
+  ]);
 
   useEffect(() => {
     if (!isOpen || !selectedTerminalInUseByCurrentRegister || !selectedTerminalActiveAttemptId) {
@@ -1402,30 +1430,23 @@ export default function NexoCheckoutDrawer({
     [applyHelcimAttemptUpdate, backofficeHeaders, baseUrl, toast],
   );
 
-  const handlePendingTerminalCancel = useCallback(() => {
-    if (!helcimAttempt || helcimAttempt.status !== "pending") return;
-    if (providerSettings?.helcim.simulator_enabled) {
-      void simulateHelcimAttempt(helcimAttempt.id, "cancel");
-      return;
-    }
-    const label = helcimAttempt.selected_terminal_key
-      ? terminalLabel(helcimAttempt.selected_terminal_key)
-      : selectedTerminalKey
-        ? terminalLabel(selectedTerminalKey)
-        : "the terminal";
-    toast(`Cancel on ${label}, then tap Check. Riverside will release the terminal when Helcim reports the cancel.`, "info");
-  }, [helcimAttempt, providerSettings?.helcim.simulator_enabled, selectedTerminalKey, simulateHelcimAttempt, toast]);
-
   const retryFinalHelcimAttempt = useCallback(() => {
     if (!helcimAttempt || !["failed", "canceled"].includes(helcimAttempt.status)) return;
     const retryCents = Math.min(Math.abs(helcimAttempt.amount_cents), Math.abs(remainingCents));
     setHelcimAttempt(null);
     setHelcimUnverifiedNotice(null);
     pendingHelcimCentsRef.current = 0;
-    pendingHelcimTenderRef.current = { method: "card_terminal", label: "HELCIM CARD" };
-    setTab("card_terminal");
+    pendingHelcimTenderRef.current = isHostedManualHelcimAttempt(helcimAttempt)
+      ? { method: "card_manual", label: "CARD NOT PRESENT" }
+      : { method: "card_terminal", label: "HELCIM CARD" };
+    setTab(isHostedManualHelcimAttempt(helcimAttempt) ? "card_manual" : "card_terminal");
     setKeypad(retryCents > 0 ? centsToFixed2(retryCents) : "");
-    toast("Ready to retry card. Send a new request to the terminal when the customer is ready.", "info");
+    toast(
+      isHostedManualHelcimAttempt(helcimAttempt)
+        ? "Ready to retry Card Not Present."
+        : "Ready to retry card. Send a new request to the terminal when the customer is ready.",
+      "info",
+    );
   }, [helcimAttempt, remainingCents, toast]);
 
   const releaseHelcimAttempt = useCallback(
@@ -1467,11 +1488,19 @@ export default function NexoCheckoutDrawer({
     setHelcimAttemptLoading(true);
     try {
       const attempt = await releaseHelcimAttempt(attemptId);
+      const hostedManualReleased = isHostedManualHelcimAttempt(attempt);
       setHelcimAttempt(attempt);
       pendingHelcimCentsRef.current = 0;
-      pendingHelcimTenderRef.current = { method: "card_terminal", label: "HELCIM CARD" };
-      setHelcimUnverifiedNotice(HELCIM_UNVERIFIED_OUTCOME_MESSAGE);
-      setTab("cash");
+      pendingHelcimTenderRef.current = hostedManualReleased
+        ? { method: "card_manual", label: "CARD NOT PRESENT" }
+        : { method: "card_terminal", label: "HELCIM CARD" };
+      setHelcimUnverifiedNotice(
+        hostedManualReleased && attempt.status === "canceled"
+          ? null
+          : HELCIM_UNVERIFIED_OUTCOME_MESSAGE,
+      );
+      setManualCardHandoffUrl(null);
+      setTab(hostedManualReleased ? "card_manual" : "cash");
       setTerminalPickerOpen(false);
     } catch (error) {
       toast(
@@ -1487,6 +1516,31 @@ export default function NexoCheckoutDrawer({
     releaseHelcimAttempt,
     selectedTerminalActiveAttemptId,
     selectedTerminalInUseByCurrentRegister,
+    toast,
+  ]);
+
+  const handlePendingTerminalCancel = useCallback(() => {
+    if (!helcimAttempt || helcimAttempt.status !== "pending") return;
+    if (providerSettings?.helcim.simulator_enabled) {
+      void simulateHelcimAttempt(helcimAttempt.id, "cancel");
+      return;
+    }
+    if (isHostedManualHelcimAttempt(helcimAttempt)) {
+      void releasePendingTerminalAttempt();
+      return;
+    }
+    const label = helcimAttempt.selected_terminal_key
+      ? terminalLabel(helcimAttempt.selected_terminal_key)
+      : selectedTerminalKey
+        ? terminalLabel(selectedTerminalKey)
+        : "the terminal";
+    toast(`Cancel on ${label}, then tap Check. Riverside will release the terminal when Helcim reports the cancel.`, "info");
+  }, [
+    helcimAttempt,
+    providerSettings?.helcim.simulator_enabled,
+    releasePendingTerminalAttempt,
+    selectedTerminalKey,
+    simulateHelcimAttempt,
     toast,
   ]);
 
@@ -2917,8 +2971,11 @@ export default function NexoCheckoutDrawer({
                         Helcim Card Not Present
                       </span>
                       <p className="mt-1">
-                        Opens secure Helcim card entry for this phone-order sale. ROS records the
-                        approved Helcim attempt and does not store card numbers or CVV.
+                        Opens secure Helcim card entry. Keep checkout open; ROS attaches approved
+                        payments automatically.
+                      </p>
+                      <p className="mt-2 text-[11px] font-bold text-app-text-muted">
+                        Helcim may ask for name, card, CVV, expiration, ZIP, and billing address.
                       </p>
                     </div>
                   )}
@@ -3641,12 +3698,13 @@ export default function NexoCheckoutDrawer({
                              )}
                            </div>
                          </div>
-                         {["pending", "failed"].includes(helcimAttempt.status) && (
+                         {["pending", "failed", "canceled"].includes(helcimAttempt.status) && (
                            <div
                              className={[
                                "mt-3 grid gap-2",
                                (providerSettings?.helcim.simulator_enabled && helcimAttempt.status === "pending") ||
-                               helcimAttempt.status === "failed"
+                               ["failed", "canceled"].includes(helcimAttempt.status) ||
+                               (isHostedManualHelcimAttempt(helcimAttempt) && helcimAttempt.status === "pending")
                                  ? "grid-cols-2"
                                  : "grid-cols-1",
                              ].join(" ")}
@@ -3657,19 +3715,31 @@ export default function NexoCheckoutDrawer({
                                onClick={() => void refreshHelcimAttempt(helcimAttempt.id)}
                                className="min-h-9 rounded-lg border border-white/10 bg-app-surface-2/50 px-2.5 text-[9px] font-black uppercase tracking-widest text-zinc-300 transition-colors hover:bg-app-surface-2 disabled:opacity-50"
                              >
-                               {helcimAttemptLoading ? "Checking" : "Recover payment"}
+                               {helcimAttemptLoading ? "Checking" : "Check status"}
                              </button>
-                             {helcimAttempt.status === "failed" && (
+                             {["failed", "canceled"].includes(helcimAttempt.status) && (
                                <button
                                  type="button"
                                  disabled={helcimAttemptLoading}
                                  onClick={retryFinalHelcimAttempt}
                                  className="min-h-9 rounded-lg border border-sky-400/25 bg-sky-400/10 px-2.5 text-[9px] font-black uppercase tracking-widest text-sky-100 transition-colors hover:bg-sky-400/15 disabled:opacity-50"
                                >
-                                 Retry card
+                                 {isHostedManualHelcimAttempt(helcimAttempt) ? "Retry CNP" : "Retry card"}
                                </button>
                              )}
-                             {providerSettings?.helcim.simulator_enabled && helcimAttempt.status === "pending" && (
+                             {isHostedManualHelcimAttempt(helcimAttempt) && helcimAttempt.status === "pending" && (
+                               <button
+                                 type="button"
+                                 disabled={helcimAttemptLoading}
+                                 onClick={handlePendingTerminalCancel}
+                                 className="min-h-9 rounded-lg border border-rose-400/25 bg-rose-400/10 px-2.5 text-[9px] font-black uppercase tracking-widest text-rose-200 transition-colors hover:bg-rose-400/15 disabled:opacity-50"
+                               >
+                                 Cancel CNP
+                               </button>
+                             )}
+                             {providerSettings?.helcim.simulator_enabled &&
+                             helcimAttempt.status === "pending" &&
+                             !isHostedManualHelcimAttempt(helcimAttempt) && (
                                <button
                                  type="button"
                                  disabled={helcimAttemptLoading}

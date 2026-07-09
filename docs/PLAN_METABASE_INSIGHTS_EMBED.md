@@ -179,7 +179,7 @@ Use current [Metabase installation](https://www.metabase.com/docs/latest/install
 Add optional services to [docker-compose.yml](../docker-compose.yml):
 
 - **`metabase-db`:** Postgres for Metabase **metadata** only (separate volume from `riverside_pgdata`).
-- **`metabase`:** `metabase/metabase:v0.62.3.x` with `MB_DB_TYPE=postgres`, `MB_DB_*` → `metabase-db`; root `.env` may override **`METABASE_SITE_URL`**, **`METABASE_SITE_NAME`**, **`METABASE_JAVA_TIMEZONE`**, **`METABASE_ANON_TRACKING_ENABLED`**, **`METABASE_ENABLE_PUBLIC_SHARING`**, and optional native **`MB_ENCRYPTION_SECRET_KEY`**.
+- **`metabase`:** `metabase/metabase:v0.62.4.x` with `MB_DB_TYPE=postgres`, `MB_DB_*` → `metabase-db`; root `.env` may override **`METABASE_SITE_URL`**, **`METABASE_SITE_NAME`**, **`METABASE_JAVA_TIMEZONE`**, **`METABASE_ANON_TRACKING_ENABLED`**, **`METABASE_ENABLE_PUBLIC_SHARING`**, and optional native **`MB_ENCRYPTION_SECRET_KEY`**.
 - **Publish:** Either **internal-only** port (proxy on host reaches Metabase) or a dev port (e.g. **3001**) with Vite/nginx proxying `/metabase/` → that port.
 
 **Do not** store Metabase application data in the `riverside_os` database.

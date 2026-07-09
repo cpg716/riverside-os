@@ -116,7 +116,7 @@ function Ensure-MeilisearchRuntime([string]$DestPackageRoot) {
     return
   }
 
-  $url = "https://github.com/meilisearch/meilisearch/releases/download/v1.11.3/meilisearch-windows-amd64.exe"
+  $url = "https://github.com/meilisearch/meilisearch/releases/download/v1.49.0/meilisearch-windows-amd64.exe"
   Write-Host "Downloading Meilisearch runtime for package..."
   Invoke-WebRequest -Uri $url -OutFile $destExe -UseBasicParsing
 }

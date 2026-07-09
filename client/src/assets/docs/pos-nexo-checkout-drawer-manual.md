@@ -35,8 +35,9 @@ The checkout drawer collects payment, shows the remaining balance due, and compl
 Choose the tender type on the left, then collect the amount in the center panel.
 
 - **Card reader** sends the payment to the selected Helcim terminal.
-- **Card Not Present** is for phone orders. It opens the public HTTPS ROS handoff page; select **Open Helcim Card Entry** on that page to render the secure HelcimPay.js card form. After Helcim approves, ROS returns to the payment screen and shows the attached **CARD NOT PRESENT** tender.
+- **Card Not Present** is for phone orders. It opens the public HTTPS ROS handoff page; select **Open Helcim Card Entry** on that page to render the secure HelcimPay.js card form. After Helcim approves, ROS returns to the payment screen and shows the attached **CARD NOT PRESENT** tender. If the customer cancels or the card is declined, the drawer returns to the ledger so you can retry or cancel the pending attempt.
 - Riverside does not ask staff to enter a Helcim invoice number for Card Not Present. ROS records the approved Helcim attempt returned by the secure handoff.
+- Helcim may ask for billing ZIP and street address during Card Not Present entry. Those fields are controlled by Helcim's hosted verification form, not by ROS.
 - **Card refund** appears only when ROS already has the original Helcim payment reference for the refund. Staff do not enter Helcim invoice, provider, or transaction IDs. Use **Card Not Present** refund when the original card is not present. Use **Original Card** only when the customer and original card are present at the terminal.
 - **Manual Card** records a card sale or refund without a live Helcim connection. Enter only the approval/reference, last four digits, and reason. Never enter full card numbers or CVV.
 - **Cash**, **check**, **gift card**, **store credit**, and other tenders remain separate so the sale ledger stays auditable.

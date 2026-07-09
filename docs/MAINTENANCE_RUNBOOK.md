@@ -56,7 +56,8 @@ If the Counterpoint sync fails:
 3. Restart the API if the key was corrected but the panel still reports `invalid_api_key`, then use **Refresh**.
 4. Perform **Rebuild all indices** from the Meilisearch Settings panel.
 5. Use **Refresh** after the rebuild response returns to reload the health view.
-6. If search is still blank, confirm the relevant card has rows and no error message. SQL fallback should still keep core lookup usable while Meilisearch is unavailable.
+6. The API also runs a staged full rebuild once per store-local day after 3 AM by default when Meilisearch is configured, but do not wait for that worker during a restore/import/deploy incident.
+7. If search is still blank, confirm the relevant card has rows and no error message. SQL fallback should still keep core lookup usable while Meilisearch is unavailable.
 
 ---
 *Version: 0.1.8 - April 2026*

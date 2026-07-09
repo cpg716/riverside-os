@@ -87,6 +87,25 @@ fn first_nonempty_env(keys: &[&str]) -> Option<String> {
     })
 }
 
+fn env_flag_disabled(key: &str) -> bool {
+    std::env::var(key)
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "0" | "false" | "off" | "disabled" | "no"
+            )
+        })
+        .unwrap_or(false)
+}
+
+fn meilisearch_daily_reindex_hour() -> u32 {
+    std::env::var("RIVERSIDE_MEILISEARCH_DAILY_REINDEX_HOUR_LOCAL")
+        .ok()
+        .and_then(|value| value.parse::<u32>().ok())
+        .filter(|hour| *hour <= 23)
+        .unwrap_or(3)
+}
+
 async fn apply_static_cache_control(request: axum::extract::Request, next: Next) -> Response {
     let path = request.uri().path().to_string();
     let mut response = next.run(request).await;
@@ -593,6 +612,63 @@ async fn launch_server_inner(
         }
     });
 
+    if state.meilisearch.is_some()
+        && !env_flag_disabled("RIVERSIDE_MEILISEARCH_DAILY_REINDEX_ENABLED")
+    {
+        let meilisearch_reindex_state = state.clone();
+        let reindex_hour = meilisearch_daily_reindex_hour();
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(std::time::Duration::from_secs(3600));
+            loop {
+                ticker.tick().await;
+                crate::api::health::WorkerHealth::mark_heartbeat("meilisearch_reindex").await;
+                let (today, hour) =
+                    match store_local_today_and_hour(&meilisearch_reindex_state.db).await {
+                        Ok(v) => v,
+                        Err(e) => {
+                            tracing::error!(
+                                error = %e,
+                                "Meilisearch daily reindex: failed to load store-local clock"
+                            );
+                            continue;
+                        }
+                    };
+                if hour < reindex_hour {
+                    continue;
+                }
+                match latest_successful_meilisearch_reindex_day(&meilisearch_reindex_state.db)
+                    .await
+                {
+                    Ok(Some(last_success_day)) if last_success_day >= today => continue,
+                    Ok(_) => {}
+                    Err(e) => {
+                        tracing::error!(
+                            error = %e,
+                            "Meilisearch daily reindex: failed to load last success day"
+                        );
+                        continue;
+                    }
+                }
+                let Some(client) = meilisearch_reindex_state.meilisearch.as_ref() else {
+                    continue;
+                };
+                tracing::info!(
+                    activity_date = %today,
+                    hour,
+                    "Meilisearch daily reindex worker: rebuilding all search indexes"
+                );
+                if let Err(e) = crate::logic::meilisearch_sync::reindex_all_meilisearch(
+                    client,
+                    &meilisearch_reindex_state.db,
+                )
+                .await
+                {
+                    tracing::error!(error = %e, "Meilisearch daily reindex worker failed");
+                }
+            }
+        });
+    }
+
     let backup_state = state.clone();
     tokio::spawn(async move {
         if let Err(e) = start_backup_worker(backup_state).await {
@@ -1084,6 +1160,22 @@ async fn store_local_today_and_hour(pool: &sqlx::PgPool) -> Result<(NaiveDate, u
     .fetch_one(pool)
     .await?;
     Ok((today, hour.max(0) as u32))
+}
+
+async fn latest_successful_meilisearch_reindex_day(
+    pool: &sqlx::PgPool,
+) -> Result<Option<NaiveDate>, sqlx::Error> {
+    sqlx::query_scalar(
+        r#"
+        SELECT (last_success_at AT TIME ZONE reporting.effective_store_timezone())::date
+        FROM meilisearch_sync_status
+        WHERE index_name = 'ros_reindex_run'
+          AND is_success IS TRUE
+          AND last_success_at IS NOT NULL
+        "#,
+    )
+    .fetch_optional(pool)
+    .await
 }
 
 async fn store_local_hh_mm(pool: &sqlx::PgPool) -> Result<String, sqlx::Error> {

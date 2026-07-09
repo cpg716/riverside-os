@@ -249,7 +249,7 @@ function Add-RosieSherpaBinaries([string]$PackageRoot) {
 }
 
 function Add-MeilisearchBinary([string]$PackageRoot) {
-  $meiliVersion = "1.11.3"
+  $meiliVersion = "1.49.0"
   $assetName = "meilisearch-windows-amd64.exe"
   $meiliUrl = "https://github.com/meilisearch/meilisearch/releases/download/v$meiliVersion/$assetName"
   $meiliDest = Join-Path $PackageRoot "meilisearch"

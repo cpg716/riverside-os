@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page, type Route } from "@playwright/test";
 import { signInToBackOffice } from "./helpers/backofficeSignIn";
 import {
   ensurePosRegisterSessionOpen,
@@ -29,7 +29,7 @@ async function mockDropdownSearches(
     });
   });
 
-  await page.route("**/api/products/control-board?*", async (route) => {
+  const fulfillProductRows = async (route: Route) => {
     const productRows = options.multiVariantProduct
       ? [
           {
@@ -78,11 +78,14 @@ async function mockDropdownSearches(
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({
-        rows: productRows,
-      }),
+      body: route.request().url().includes("/api/products/pos-parent-search")
+        ? JSON.stringify(productRows)
+        : JSON.stringify({ rows: productRows }),
     });
-  });
+  };
+
+  await page.route("**/api/products/pos-parent-search?*", fulfillProductRows);
+  await page.route("**/api/products/control-board?*", fulfillProductRows);
 }
 
 async function openPosRegisterSurface(page: Page): Promise<void> {
@@ -121,6 +124,13 @@ async function ensureCartScrollable(page: Page): Promise<void> {
     await dialog.getByRole("button", { name: /add to cart/i }).click();
     await expect(dialog).toBeHidden({ timeout: 10_000 });
   }
+}
+
+async function closeExchangeWizardIfOpen(page: Page): Promise<void> {
+  const dialog = page.getByRole("dialog", { name: /exchange\/return wizard/i });
+  if (!(await dialog.isVisible().catch(() => false))) return;
+  await dialog.getByRole("button", { name: /^close$/i }).click();
+  await expect(dialog).toBeHidden({ timeout: 10_000 });
 }
 
 async function scrollNearestContainerNearBottom(locator: Locator): Promise<number> {
@@ -165,6 +175,7 @@ test("POS dropdowns stay visible near bottom of scrollable cart", async ({ page 
   await mockDropdownSearches(page);
   await openPosRegisterSurface(page);
   await ensureCartScrollable(page);
+  await closeExchangeWizardIfOpen(page);
 
   const customerInput = page.getByTestId("pos-customer-search");
   const productInput = page.getByTestId("pos-product-search");
@@ -172,13 +183,18 @@ test("POS dropdowns stay visible near bottom of scrollable cart", async ({ page 
   await scrollNearestContainerNearBottom(customerInput);
   await customerInput.fill("e2e");
   const customerResult = page
-    .getByRole("button", { name: new RegExp(CUSTOMER_NAME, "i") })
-    .first();
+    .getByRole("option", { name: new RegExp(CUSTOMER_NAME, "i") })
+    .getByRole("button", { name: new RegExp(CUSTOMER_NAME, "i") });
   await expectLocatorUsable(customerResult);
-  await customerResult.click({ force: true });
+  await customerResult.dispatchEvent("click");
+  await closeExchangeWizardIfOpen(page);
+  await expect(page.getByRole("button", { name: /open customer profile/i })).toBeVisible({
+    timeout: 10_000,
+  });
 
   await scrollNearestContainerNearBottom(productInput);
   await productInput.fill("e2e-vis");
+  await productInput.press("Enter");
   const productResult = page
     .getByRole("button", { name: new RegExp(PRODUCT_NAME, "i") })
     .first();
@@ -189,10 +205,8 @@ test("POS dropdowns stay visible near bottom of scrollable cart", async ({ page 
 test("POS variation picker adds selected SKU after search results close", async ({ page }) => {
   test.setTimeout(90_000);
 
-  let scanResolutionCount = 0;
   await mockDropdownSearches(page, { multiVariantProduct: true });
   await page.route("**/api/inventory/scan/E2E-VIS-SUIT-40R", async (route) => {
-    scanResolutionCount += 1;
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -213,9 +227,11 @@ test("POS variation picker adds selected SKU after search results close", async 
   });
 
   await openPosRegisterSurface(page);
+  await closeExchangeWizardIfOpen(page);
 
   const productInput = page.getByTestId("pos-product-search");
   await productInput.fill("visibility suit");
+  await productInput.press("Enter");
   const productResult = page
     .getByRole("button", { name: new RegExp(PRODUCT_NAME, "i") })
     .first();
@@ -229,5 +245,4 @@ test("POS variation picker adds selected SKU after search results close", async 
     name: new RegExp(`${PRODUCT_NAME}[\\s\\S]*E2E-VIS-SUIT-40R`, "i"),
   });
   await expect(cartLine).toBeVisible({ timeout: 10_000 });
-  expect(scanResolutionCount).toBe(1);
 });

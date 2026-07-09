@@ -2,6 +2,23 @@ import { expect, type Page } from "@playwright/test";
 
 const SESSION_KEY = "ros.backoffice.session.v1";
 
+async function clearBackofficeSessionStorage(page: Page): Promise<void> {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      await page.evaluate((key) => sessionStorage.removeItem(key), SESSION_KEY);
+      return;
+    } catch (error) {
+      if (
+        attempt > 0 ||
+        !String(error).includes("Execution context was destroyed")
+      ) {
+        throw error;
+      }
+      await page.waitForLoadState("domcontentloaded").catch(() => {});
+    }
+  }
+}
+
 function resolveBackofficeStaffName(staffName?: string): string {
   return staffName?.trim() || process.env.E2E_BO_STAFF_NAME?.trim() || "Chris G";
 }
@@ -208,7 +225,7 @@ export function e2eBackofficeStaffCode(staffCode?: string): string {
  */
 export async function clearBackofficeSession(page: Page): Promise<void> {
   await page.goto("/");
-  await page.evaluate((key) => sessionStorage.removeItem(key), SESSION_KEY);
+  await clearBackofficeSessionStorage(page);
   await page.reload({ waitUntil: "domcontentloaded" });
 }
 
@@ -314,7 +331,7 @@ export async function signInToBackOffice(
     );
     return;
   }
-  await page.evaluate((key) => sessionStorage.removeItem(key), SESSION_KEY);
+  await clearBackofficeSessionStorage(page);
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(page.getByText(/loading riverside/i)).not.toBeVisible({
     timeout: 30_000,

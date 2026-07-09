@@ -8,10 +8,15 @@ const STAFF_TABLE_LABELS = {
   alterations_active: "Active Alterations",
   appointments_no_show: "Appointments and No-Shows",
   customer_follow_up: "Customer Follow-Up",
+  daily_order_totals_fulfilled: "Fulfilled Daily Sales Totals",
   daily_order_totals: "Daily Sales Totals",
+  daily_sales_weather: "Daily Sales Weather",
+  donation_payments: "Donation Payments",
   exception_risk: "Exception and Risk",
   fulfillment_orders_core: "Fulfillment Orders",
+  layaway_snapshot: "Layaway Snapshot",
   loyalty_customer_snapshot: "Loyalty Customer Snapshot",
+  loyalty_daily_velocity: "Loyalty Daily Velocity",
   loyalty_point_ledger: "Loyalty Point Ledger",
   loyalty_reward_issuances: "Loyalty Reward Issuances",
   merchant_reconciliation: "Merchant Reconciliation",
@@ -23,10 +28,31 @@ const STAFF_TABLE_LABELS = {
   shipments_active: "Active Shipments",
   staff_schedule_coverage_vs_sales: "Staff Coverage vs Sales",
   transaction_fulfillment_status: "Transaction Fulfillment Status",
+  transaction_status_integrity: "Transaction Status Integrity",
   transactions_core: "Transactions",
   wedding_event_readiness: "Wedding Event Readiness",
   wedding_party_economics: "Wedding Party Economics",
 };
+
+const REQUIRED_REPORTING_TABLES = [
+  "alterations_active",
+  "daily_order_totals",
+  "daily_order_totals_fulfilled",
+  "daily_sales_weather",
+  "donation_payments",
+  "layaway_snapshot",
+  "loyalty_customer_snapshot",
+  "loyalty_daily_velocity",
+  "loyalty_point_ledger",
+  "merchant_reconciliation",
+  "order_lines",
+  "orders_core",
+  "payment_ledger",
+  "shipments_active",
+  "transaction_status_integrity",
+  "transactions_core",
+  "wedding_party_economics",
+];
 
 const FIELD_MODEL = {
   order_lines: {
@@ -441,6 +467,19 @@ async function applyFieldModel(metadata, headers) {
 
 async function verifyFieldModel(databaseId, headers) {
   const metadata = await loadMetadata(databaseId, headers);
+  const reportingTables = (metadata.tables || []).filter(
+    (candidate) => candidate.schema === "reporting",
+  );
+  const reportingTableNames = new Set(reportingTables.map((table) => table.name));
+  const missingTables = REQUIRED_REPORTING_TABLES.filter(
+    (tableName) => !reportingTableNames.has(tableName),
+  );
+  if (missingTables.length > 0) {
+    throw new Error(
+      `Verification failed: Metabase is missing reporting tables: ${missingTables.join(", ")}.`,
+    );
+  }
+
   const checks = [
     ["order_lines", "order_short_id", "Order / Transaction #", "normal"],
     ["order_lines", "product_name", "Product", "normal"],
@@ -450,9 +489,7 @@ async function verifyFieldModel(databaseId, headers) {
   ];
 
   for (const [tableName, fieldName, displayName, visibilityType] of checks) {
-    const table = (metadata.tables || []).find(
-      (candidate) => candidate.schema === "reporting" && candidate.name === tableName,
-    );
+    const table = reportingTables.find((candidate) => candidate.name === tableName);
     const field = table?.fields?.find((candidate) => candidate.name === fieldName);
     if (!field) throw new Error(`Verification failed: missing reporting.${tableName}.${fieldName}.`);
     if (displayName && field.display_name !== displayName) {

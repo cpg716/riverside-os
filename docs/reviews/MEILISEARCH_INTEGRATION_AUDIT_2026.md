@@ -25,7 +25,7 @@ Per-index configuration is stored in `meilisearch_client.rs`:
 
 ### 2.3 Sync Pipeline (`meilisearch_sync.rs`)
 - **Incremental sync**: Upsert/delete individual documents on create/update/delete events.
-- **Full reindex**: Nightly or on-demand rebuild using temp-index swap pattern to avoid downtime.
+- **Full reindex**: Admin/script-triggered rebuild using temp-index swap pattern to avoid downtime. Meilisearch does not scan PostgreSQL by itself; ROS keeps search fresh through explicit incremental upserts on covered write paths plus manual rebuilds after imports, restores, or direct database repair.
 - **Sync status tracking**: `meilisearch_sync_status` table records last attempt, success flag, row count, and error message per index.
 
 ### 2.4 Help Corpus Indexing (`help_corpus.rs`)

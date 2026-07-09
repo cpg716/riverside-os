@@ -36,7 +36,7 @@ services:
   # npm run dev starts and verifies this service when RIVERSIDE_MEILISEARCH_URL is configured.
   # Set RIVERSIDE_MEILISEARCH_URL=http://127.0.0.1:7700 and RIVERSIDE_MEILISEARCH_API_KEY to match MEILI_MASTER_KEY.
   meilisearch:
-    image: getmeili/meilisearch:v1.11
+    image: getmeili/meilisearch:v1.49.0
     container_name: riverside-os-meilisearch
     restart: unless-stopped
     environment:
@@ -65,7 +65,7 @@ services:
       start_period: 10s
 
   metabase:
-    image: metabase/metabase:v0.62.3.x
+    image: metabase/metabase:v0.62.4.x
     container_name: riverside-os-metabase
     hostname: metabase
     restart: unless-stopped

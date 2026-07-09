@@ -65,7 +65,7 @@ async function selectFirstStaffMember(dialog: Locator): Promise<void> {
     /select staff member|select\.\.\.|select your name/i.test(currentLabel) ||
     (await dialog.getByText(/please select a staff member first/i).isVisible().catch(() => false));
 
-  if (!selectionRequired || currentLabel.match(new RegExp(preferredName, "i"))) {
+  if (!selectionRequired && currentLabel.match(new RegExp(preferredName, "i"))) {
     return;
   }
 

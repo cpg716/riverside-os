@@ -12,6 +12,7 @@ declare global {
 }
 
 type HandoffState = "idle" | "loading" | "ready" | "approved" | "canceled" | "error";
+type HandoffOutcome = "approved" | "failed" | "canceled";
 
 interface HelcimPayMessage {
   eventName?: string;
@@ -101,6 +102,17 @@ function hasHelcimPayIframe(): boolean {
   return document.getElementById("helcimPayIframe") instanceof HTMLIFrameElement;
 }
 
+function postHandoffOutcome(attemptId: string, outcome: HandoffOutcome) {
+  const message = {
+    source: "riverside-os",
+    type: "helcim-card-not-present-outcome",
+    outcome,
+    attempt_id: attemptId,
+  };
+  window.parent?.postMessage(message, "*");
+  window.opener?.postMessage(message, "*");
+}
+
 export default function HelcimManualCardHandoff() {
   const baseUrl = getBaseUrl();
   const iframeLaunchedRef = useRef(false);
@@ -140,13 +152,15 @@ export default function HelcimManualCardHandoff() {
       if (data.eventStatus === "ABORTED" || data.eventStatus === "HIDE") {
         iframeLaunchedRef.current = false;
         setState("canceled");
-        setMessage("Card Not Present entry was canceled. Open Helcim card entry again or return to the register.");
+        setMessage("Card entry canceled. Return to the register or retry.");
+        postHandoffOutcome(attemptId, "canceled");
         return;
       }
       if (data.eventStatus !== "SUCCESS") {
         iframeLaunchedRef.current = false;
         setState("error");
-        setMessage("Helcim did not approve this Card Not Present payment.");
+        setMessage("Helcim did not approve this payment.");
+        postHandoffOutcome(attemptId, "failed");
         return;
       }
 
@@ -166,22 +180,29 @@ export default function HelcimManualCardHandoff() {
               hash: payload.hash,
             }),
           });
-          const body = (await res.json().catch(() => ({}))) as { error?: string; status?: string };
+          const body = (await res.json().catch(() => ({}))) as { error?: string; status?: string; error_message?: string | null; safe_message?: string | null };
           if (!res.ok) {
             throw new Error(body.error ?? "ROS could not confirm the Helcim payment.");
           }
-          setState("approved");
-          setMessage("Card Not Present approved. Return to the register to complete the sale.");
-          const approvalMessage = {
-            source: "riverside-os",
-            type: "helcim-card-not-present-approved",
-            attempt_id: attemptId,
-          };
-          window.parent?.postMessage(approvalMessage, "*");
-          window.opener?.postMessage(approvalMessage, "*");
+          if (body.status === "approved" || body.status === "captured") {
+            setState("approved");
+            setMessage("Approved. Return to the register to complete the sale.");
+            postHandoffOutcome(attemptId, "approved");
+            return;
+          }
+          if (body.status === "canceled") {
+            setState("canceled");
+            setMessage("Card entry canceled. Return to the register or retry.");
+            postHandoffOutcome(attemptId, "canceled");
+            return;
+          }
+          setState("error");
+          setMessage(body.safe_message ?? body.error_message ?? "Helcim did not approve this payment.");
+          postHandoffOutcome(attemptId, "failed");
         } catch (error) {
           setState("error");
           setMessage(error instanceof Error ? error.message : "ROS could not confirm the Helcim payment.");
+          postHandoffOutcome(attemptId, "failed");
         }
       })();
     };
@@ -254,7 +275,7 @@ export default function HelcimManualCardHandoff() {
           });
         }, HELCIM_IFRAME_DIAGNOSTIC_MS);
         setState("ready");
-        setMessage("Enter the card securely in Helcim.");
+        setMessage("Enter the card in Helcim.");
       })
       .catch((error) => {
         iframeLaunchedRef.current = false;
@@ -291,16 +312,18 @@ export default function HelcimManualCardHandoff() {
           {message}
         </p>
         <p className="mt-4 text-sm leading-relaxed text-app-text-muted">
-          Keep the register checkout drawer open. Riverside will attach the approved Helcim payment
-          to that sale automatically after confirmation.
+          Keep checkout open. ROS attaches approved Helcim payments automatically.
         </p>
-        <p className="mt-4 text-xs font-semibold leading-relaxed text-app-text-muted">
-          {HELCIM_DOMAIN_ERROR_MESSAGE}
-        </p>
-        <p className="mt-2 text-xs font-semibold leading-relaxed text-app-text-muted">
-          If Chrome shows “www.helcim.com refused to connect”, Helcim blocked the hosted card form
-          before ROS received a payment event.
-        </p>
+        {state === "idle" || state === "loading" || state === "ready" ? (
+          <p className="mt-3 text-xs font-semibold leading-relaxed text-app-text-muted">
+            Helcim may ask for billing ZIP and street address for card verification.
+          </p>
+        ) : null}
+        {state === "error" ? (
+          <p className="mt-4 text-xs font-semibold leading-relaxed text-app-text-muted">
+            {HELCIM_DOMAIN_ERROR_MESSAGE}
+          </p>
+        ) : null}
         <div className="mt-6 flex flex-col justify-center gap-3 sm:flex-row">
           <button
             type="button"

@@ -14,7 +14,7 @@ Riverside's Metabase architecture is viable for the free open source install:
 
 ## Fixes Applied
 
-- Updated the Metabase image pin from `metabase/metabase:v0.60.1` to `metabase/metabase:v0.62.3.x`.
+- Updated the Metabase image pin from `metabase/metabase:v0.60.1` to `metabase/metabase:v0.62.4.x`.
 - Added OSS-safe Compose defaults:
   - `MB_SITE_NAME=Riverside Insights`
   - `JAVA_TIMEZONE=America/New_York`

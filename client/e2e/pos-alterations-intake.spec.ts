@@ -51,12 +51,13 @@ const OPEN_ORDER = {
 async function openPosRegisterSurface(page: Page): Promise<void> {
   await signInToBackOffice(page, { staffName: "Avery Staff" });
 
-  await page
-    .getByRole("navigation", { name: "Main Navigation" })
-    .getByRole("button", { name: "POS", exact: true })
-    .click();
-
   const posNav = page.getByRole("navigation", { name: "POS Navigation" });
+  if (!(await posNav.isVisible().catch(() => false))) {
+    await page
+      .getByRole("navigation", { name: "Main Navigation" })
+      .getByRole("button", { name: "POS", exact: true })
+      .click();
+  }
   await expect(posNav).toBeVisible({ timeout: 20_000 });
 
   await ensurePosRegisterSessionOpen(page);
@@ -127,7 +128,20 @@ async function mockPosCashierAuth(page: Page): Promise<void> {
       ]),
     });
   });
-  await page.route("**/api/staff/verify-pin", async (route) => {
+  await page.route("**/api/staff/effective-permissions", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: "55555555-5555-4555-8555-555555555555",
+        staff_id: "55555555-5555-4555-8555-555555555555",
+        full_name: "Avery Staff",
+        role: "salesperson",
+        permissions: ["register.session_attach", "orders.modify", "alterations.manage"],
+      }),
+    });
+  });
+  await page.route("**/api/staff/verify-pin**", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -154,7 +168,19 @@ async function addProductToCart(page: Page): Promise<void> {
   const search = page.getByTestId("pos-product-search");
   await search.fill(PRODUCT.sku);
   await search.press("Enter");
-  await expect(page.getByText(PRODUCT.sku)).toBeVisible({ timeout: 10_000 });
+  await expect(
+    page.getByRole("button", {
+      name: new RegExp(`${PRODUCT.name}[\\s\\S]*${PRODUCT.sku}`, "i"),
+    }).last(),
+  ).toBeVisible({ timeout: 10_000 });
+  await search.press("Escape");
+}
+
+async function openAlterationIntakeDialog(page: Page) {
+  await page.getByTestId("pos-alteration-intake-trigger").dispatchEvent("click");
+  const dialog = page.getByTestId("pos-alteration-intake-dialog");
+  await expect(dialog).toBeVisible({ timeout: 10_000 });
+  return dialog;
 }
 
 test.describe("POS alteration intake", () => {
@@ -191,7 +217,7 @@ test.describe("POS alteration intake", () => {
   });
 
   test("modal requires customer before opening", async ({ page }) => {
-    await page.getByTestId("pos-alteration-intake-trigger").click();
+    await page.getByTestId("pos-alteration-intake-trigger").click({ force: true });
     await expect(
       page.getByText(/select or create a customer before starting an alteration/i),
     ).toBeVisible();
@@ -201,8 +227,7 @@ test.describe("POS alteration intake", () => {
   test("lookup-only source selection does not add item to cart", async ({ page }) => {
     await selectCustomer(page);
 
-    await page.getByTestId("pos-alteration-intake-trigger").click();
-    const dialog = page.getByTestId("pos-alteration-intake-dialog");
+    const dialog = await openAlterationIntakeDialog(page);
     await expect(dialog).toBeVisible();
 
     await dialog.getByTestId("pos-alteration-source-catalog_item").click();
@@ -231,8 +256,7 @@ test.describe("POS alteration intake", () => {
       });
     });
 
-    await page.getByTestId("pos-alteration-intake-trigger").click();
-    const dialog = page.getByTestId("pos-alteration-intake-dialog");
+    const dialog = await openAlterationIntakeDialog(page);
     await dialog.getByTestId("pos-alteration-cart-source-option").click();
     await dialog.getByTestId("pos-alteration-work-requested").fill("Hem sleeves");
     await dialog.getByTestId("pos-alteration-save").click();
@@ -254,8 +278,7 @@ test.describe("POS alteration intake", () => {
     await selectCustomer(page);
     await addProductToCart(page);
 
-    await page.getByTestId("pos-alteration-intake-trigger").click();
-    const dialog = page.getByTestId("pos-alteration-intake-dialog");
+    const dialog = await openAlterationIntakeDialog(page);
     await dialog.getByTestId("pos-alteration-cart-source-option").click();
     await dialog.getByTestId("pos-alteration-work-requested").fill("Hem pants");
     await dialog.getByTestId("pos-alteration-charge-toggle").check();
@@ -282,8 +305,7 @@ test.describe("POS alteration intake", () => {
     await addProductToCart(page);
     await selectDefaultSalesperson(page);
 
-    await page.getByTestId("pos-alteration-intake-trigger").click();
-    const dialog = page.getByTestId("pos-alteration-intake-dialog");
+    const dialog = await openAlterationIntakeDialog(page);
     await dialog.getByTestId("pos-alteration-cart-source-option").click();
     await dialog.getByRole("button", { name: /Shorten Sleeves · 4 slots/i }).click();
     await dialog.getByTestId("pos-alteration-save").click();
@@ -387,7 +409,7 @@ test.describe("POS alteration intake", () => {
       unit_price: "0.00",
     });
 
-    await page.getByRole("button", { name: "Alterations" }).click();
+    await page.getByTestId("pos-sidebar-tab-alterations").click();
     const intakeSection = page.getByTestId("alteration-workbench-section-intake");
     await expect(intakeSection.getByText("Shorten Sleeves").first()).toBeVisible({ timeout: 20_000 });
     await expect(intakeSection.getByText("TXN-ALT-P3")).toBeVisible();
@@ -502,8 +524,7 @@ test.describe("POS alteration intake", () => {
       });
     });
 
-    await page.getByTestId("pos-alteration-intake-trigger").click();
-    const dialog = page.getByTestId("pos-alteration-intake-dialog");
+    const dialog = await openAlterationIntakeDialog(page);
     await dialog.getByTestId("pos-alteration-source-custom_item").click();
     await dialog
       .getByTestId("pos-alteration-custom-description")
