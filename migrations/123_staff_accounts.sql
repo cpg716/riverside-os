@@ -100,6 +100,13 @@ ON CONFLICT (id) DO UPDATE SET
     product_id = EXCLUDED.product_id,
     sku = EXCLUDED.sku;
 
+INSERT INTO qbo_accounts_cache (id, name, account_type, is_active)
+VALUES ('STAFF_ACCOUNTS_RECEIVABLE', 'Staff Accounts Receivable', 'Other Current Asset', true)
+ON CONFLICT (id) DO UPDATE SET
+    name = EXCLUDED.name,
+    account_type = EXCLUDED.account_type,
+    is_active = true;
+
 INSERT INTO qbo_mappings (source_type, source_id, qbo_account_id, qbo_account_name)
 SELECT 'asset_staff_accounts_receivable', 'default', 'STAFF_ACCOUNTS_RECEIVABLE', 'Staff Accounts Receivable'
 WHERE NOT EXISTS (
