@@ -4,6 +4,7 @@ import {
   type FulfillmentKind,
   type ResolvedSkuItem,
   type RmsPaymentLineMeta,
+  type StaffAccountPaymentLineMeta,
   type GiftCardLoadLineMeta,
   type SearchResult,
   type AppliedPaymentLine,
@@ -46,11 +47,13 @@ function isEmployeeDiscountLine(line: CartLineItem): boolean {
 function isAutomaticPricingEligible(
   line: CartLineItem,
   rmsPaymentSku?: string | null,
+  staffAccountPaymentSku?: string | null,
   giftCardLoadSku?: string | null,
 ): boolean {
   if (line.line_type === "alteration_service") return false;
   if (line.gift_card_load_code) return false;
   if (rmsPaymentSku && line.sku === rmsPaymentSku) return false;
+  if (staffAccountPaymentSku && line.sku === staffAccountPaymentSku) return false;
   if (giftCardLoadSku && line.sku === giftCardLoadSku) return false;
   if (line.discount_event_id) return false;
   if (line.price_override_reason && !isCustomerProfileDiscountLine(line) && !isEmployeeDiscountLine(line)) return false;
@@ -61,9 +64,10 @@ function applyCustomerPricingAndDiscounts(
   line: CartLineItem,
   customer: Customer | null,
   rmsPaymentSku?: string | null,
+  staffAccountPaymentSku?: string | null,
   giftCardLoadSku?: string | null,
 ): CartLineItem {
-  if (!isAutomaticPricingEligible(line, rmsPaymentSku, giftCardLoadSku)) {
+  if (!isAutomaticPricingEligible(line, rmsPaymentSku, staffAccountPaymentSku, giftCardLoadSku)) {
     return line;
   }
 
@@ -147,6 +151,7 @@ function applyCustomerPricingAndDiscounts(
 interface UseCartActionsProps {
   checkoutOperator: { staffId: string; fullName: string } | null;
   rmsPaymentMeta: RmsPaymentLineMeta | null;
+  staffAccountPaymentMeta: StaffAccountPaymentLineMeta | null;
   giftCardLoadMeta: GiftCardLoadLineMeta | null;
   activeWeddingMember: WeddingMember | null;
   selectedCustomer: Customer | null;
@@ -174,6 +179,7 @@ interface UseCartActionsProps {
 export function useCartActions({
   checkoutOperator,
   rmsPaymentMeta,
+  staffAccountPaymentMeta,
   giftCardLoadMeta,
   activeWeddingMember,
   selectedCustomer,
@@ -212,6 +218,7 @@ export function useCartActions({
           line,
           selectedCustomer,
           rmsPaymentMeta?.sku,
+          staffAccountPaymentMeta?.sku,
           giftCardLoadMeta?.sku,
         );
         const updated = isEmployeeMode && priced.salesperson_id
@@ -231,6 +238,7 @@ export function useCartActions({
     isEmployeeMode,
     lines,
     rmsPaymentMeta?.sku,
+    staffAccountPaymentMeta?.sku,
     giftCardLoadMeta?.sku,
     setPrimarySalespersonId,
   ]);
@@ -302,6 +310,20 @@ export function useCartActions({
       setDisbursementMembers([]);
     }
 
+    if (staffAccountPaymentMeta && item.sku === staffAccountPaymentMeta.sku) {
+      if (lines.some((l) => l.sku === staffAccountPaymentMeta.sku)) {
+        toast("STAFF ACCOUNT PAYMENT is already in the cart.", "error");
+        return;
+      }
+      if (activeWeddingMember) {
+        toast("Clear the wedding party link before collecting a Staff Account payment.", "error");
+        return;
+      }
+      setActiveWeddingMember(null);
+      setActiveWeddingPartyName(null);
+      setDisbursementMembers([]);
+    }
+
     setLines((prev) => {
       const existing = prev.find(
         (l) =>
@@ -350,6 +372,17 @@ export function useCartActions({
         newLine.price_override_reason = "rms_charge_payment";
       }
 
+      if (staffAccountPaymentMeta && item.sku === staffAccountPaymentMeta.sku) {
+        newLine.custom_item_type = "staff_account_payment";
+        newLine.variation_label = "Payment on Staff Account";
+        newLine.standard_retail_price = "0.00";
+        newLine.state_tax = "0.00";
+        newLine.local_tax = "0.00";
+        newLine.original_unit_price = undefined;
+        newLine.price_override_reason = "staff_account_payment";
+        newLine.fulfillment = "takeaway";
+      }
+
       const cartUsesEmployeePrice =
         selectedCustomer?.employee_discount_eligible === true &&
         !priceOverride &&
@@ -374,8 +407,9 @@ export function useCartActions({
         );
         newLine.price_override_reason = "Manual override";
         const isRmsLine = rmsPaymentMeta && item.sku === rmsPaymentMeta.sku;
+        const isStaffAccountLine = staffAccountPaymentMeta && item.sku === staffAccountPaymentMeta.sku;
         const isGcLine = giftCardLoadMeta && item.sku === giftCardLoadMeta.sku;
-        if (!isRmsLine && !isGcLine) {
+        if (!isRmsLine && !isStaffAccountLine && !isGcLine) {
           const { stateTax, localTax } = calculateNysErieTaxStringsForUnit(item.tax_category || "other", overrideCents);
           newLine.state_tax = stateTax;
           newLine.local_tax = localTax;
@@ -391,7 +425,7 @@ export function useCartActions({
     playPosScanSuccess();
     onReadyForNextScan();
   }, [
-    checkoutOperator, giftCardLoadMeta, rmsPaymentMeta, lines, activeWeddingMember,
+    checkoutOperator, giftCardLoadMeta, rmsPaymentMeta, staffAccountPaymentMeta, lines, activeWeddingMember,
     selectedCustomer, toast, setPendingCustomItem,
     setCustomPromptOpen, setActiveWeddingMember, setActiveWeddingPartyName,
     setDisbursementMembers, setSearch, setSearchResults, onReadyForNextScan
@@ -601,6 +635,10 @@ export function useCartActions({
       toast("Gift card load must stay on Take Now.", "info");
       return;
     }
+    if (staffAccountPaymentMeta && line && line.sku === staffAccountPaymentMeta.sku && next !== "takeaway") {
+      toast("Staff Account payment must stay on Take Now.", "info");
+      return;
+    }
 
     let resolvedNext = next;
     if (line && next !== "takeaway" && (isCustomOrderSku(line.sku) || line.custom_item_type)) {
@@ -619,7 +657,7 @@ export function useCartActions({
           : l,
       )
     );
-  }, [lines, rmsPaymentMeta, giftCardLoadMeta, toast]);
+  }, [lines, rmsPaymentMeta, staffAccountPaymentMeta, giftCardLoadMeta, toast]);
 
   const updateLineSalesperson = useCallback((rowId: string, salespersonId: string) => {
     setLines((prev) =>
@@ -684,6 +722,15 @@ export function useCartActions({
       }
 
       if (keypadMode === "qty") {
+        if (
+          (rmsPaymentMeta && line.sku === rmsPaymentMeta.sku) ||
+          (giftCardLoadMeta && line.sku === giftCardLoadMeta.sku) ||
+          (staffAccountPaymentMeta && line.sku === staffAccountPaymentMeta.sku)
+        ) {
+          toast("Payment lines stay at quantity 1.", "info");
+          setKeypadBuffer("");
+          return;
+        }
         const nextQty = parseInt(keypadBuffer || "1", 10);
         if (isNaN(nextQty) || nextQty === 0) {
           toast("Invalid quantity", "error");
@@ -700,8 +747,13 @@ export function useCartActions({
         setLines(prev => prev.map(l => {
           if (l.cart_row_id !== selectedLineKey) return l;
           const oldPrice = parseMoneyToCents(l.original_unit_price || l.standard_retail_price);
-
-          const { stateTax, localTax } = calculateNysErieTaxStringsForUnit(l.tax_category || "other", amt);
+          const isInternalPaymentLine =
+            (rmsPaymentMeta && l.sku === rmsPaymentMeta.sku) ||
+            (giftCardLoadMeta && l.sku === giftCardLoadMeta.sku) ||
+            (staffAccountPaymentMeta && l.sku === staffAccountPaymentMeta.sku);
+          const { stateTax, localTax } = isInternalPaymentLine
+            ? { stateTax: "0.00", localTax: "0.00" }
+            : calculateNysErieTaxStringsForUnit(l.tax_category || "other", amt);
 
           return {
             ...l,
@@ -729,6 +781,15 @@ export function useCartActions({
       if (!line) return;
       if (line.return_tender_original_transaction_id) {
         toast("Return credit lines use the original receipt values.", "info");
+        setKeypadBuffer("");
+        return;
+      }
+      if (
+        (rmsPaymentMeta && line.sku === rmsPaymentMeta.sku) ||
+        (giftCardLoadMeta && line.sku === giftCardLoadMeta.sku) ||
+        (staffAccountPaymentMeta && line.sku === staffAccountPaymentMeta.sku)
+      ) {
+        toast("Discounts do not apply to payment lines.", "info");
         setKeypadBuffer("");
         return;
       }
@@ -768,7 +829,7 @@ export function useCartActions({
       if (key === "." && prev.includes(".")) return prev;
       return prev + key;
     });
-  }, [selectedLineKey, keypadBuffer, keypadMode, lines, toast]);
+  }, [selectedLineKey, keypadBuffer, keypadMode, lines, rmsPaymentMeta, giftCardLoadMeta, staffAccountPaymentMeta, toast]);
 
   const applyDiscountEvent = useCallback((event: ActiveDiscountEvent) => {
     if (!selectedLineKey) {
@@ -785,6 +846,10 @@ export function useCartActions({
 
     if (rmsPaymentMeta && line.sku === rmsPaymentMeta.sku) {
       toast("Discounts do not apply to R2S payments.", "info");
+      return;
+    }
+    if (staffAccountPaymentMeta && line.sku === staffAccountPaymentMeta.sku) {
+      toast("Discounts do not apply to Staff Account payments.", "info");
       return;
     }
 
@@ -808,7 +873,7 @@ export function useCartActions({
       };
     }));
     toast(`${event.receipt_label} applied`, "success");
-  }, [selectedLineKey, lines, rmsPaymentMeta, toast]);
+  }, [selectedLineKey, lines, rmsPaymentMeta, staffAccountPaymentMeta, toast]);
 
   return {
     lines,

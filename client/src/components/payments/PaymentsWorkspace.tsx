@@ -2016,8 +2016,10 @@ function TransactionsPanel({
               >
                 {transaction.transaction_display_id ?? "Open Transaction"}
               </button>
+            ) : transaction.payment_transaction_id || transaction.provider_transaction_id ? (
+              <span className="text-sm font-semibold text-amber-700">Missing ROS TXN</span>
             ) : (
-              "Not linked"
+              <span className="text-sm font-semibold text-app-text-muted">No TXN</span>
             ),
           ],
         }))}

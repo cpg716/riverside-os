@@ -87,6 +87,26 @@ function formatReportMoney(value: string | number): string {
   return `${sign}$${centsToFixed2(Math.abs(cents))}`;
 }
 
+function isCreditCardTender(method: string): boolean {
+  const tender = method.toLowerCase();
+  return (
+    tender.includes("card") ||
+    tender.includes("cc") ||
+    tender.includes("helcim") ||
+    tender.includes("credit") ||
+    tender.includes("debit") ||
+    tender.includes("visa") ||
+    tender.includes("master") ||
+    tender.includes("discover") ||
+    tender.includes("amex")
+  );
+}
+
+function isRmsChargeTender(method: string): boolean {
+  const tender = method.toLowerCase().replace(/[\s_-]/g, "");
+  return tender === "rms" || tender === "rmscharge" || tender === "rms90" || tender.includes("rmscharge");
+}
+
 function textValue(value: string | number | null | undefined): string {
   if (value === null || value === undefined) return "";
   return String(value).replace(/\s+/g, " ").trim();
@@ -306,6 +326,7 @@ type ZReportPrintTransaction = {
   transaction_total?: string | null;
   transaction_paid?: string | null;
   transaction_balance_due?: string | null;
+  shipping_amount?: string | null;
   items?: ZReportAuditItem[];
   register_lane: number;
 };
@@ -421,6 +442,12 @@ export async function openProfessionalZReportPrint(opts: {
   inventoryActivity?: ZReportInventoryActivityRow[];
   /** Optional payment lines for audit trail. */
   transactions?: ZReportPrintTransaction[];
+  newOrdersCount?: number;
+  ordersPickedUpCount?: number;
+  todayAppointmentsCount?: number;
+  newAppointmentsCount?: number;
+  newWeddingPartiesCount?: number;
+  newInvoicesCount?: number;
 }): Promise<boolean> {
   const target = createPrintDocument(`${opts.title} — ${opts.sessionId}`);
 
@@ -472,6 +499,53 @@ export async function openProfessionalZReportPrint(opts: {
       : "";
 
   const transactions = normalizeZReportTransactions(opts.transactions ?? []);
+  const transactionHasFulfillment = (transaction: ZReportPrintTransaction, fulfillment: string): boolean =>
+    (transaction.items ?? []).some((item) => item.fulfillment === fulfillment);
+  const newOrderCount = transactions.filter((transaction) =>
+    (transaction.items ?? []).some((item) => ["special_order", "custom", "wedding_order", "layaway"].includes(item.fulfillment)),
+  ).length;
+  const ordersPickedUpCount = transactions.filter((transaction) =>
+    transaction.transaction_status === "fulfilled" || transactionHasFulfillment(transaction, "pickup"),
+  ).length;
+  const alterationCount = transactions.reduce((sum, transaction) => {
+    return sum + (transaction.items ?? []).reduce((itemSum, item) => {
+      return item.line_kind === "alteration_service" ? itemSum + Math.max(item.quantity, 0) : itemSum;
+    }, 0);
+  }, 0);
+  const shippingTotalCents = transactions.reduce(
+    (sum, transaction) => sum + parseMoneyToCents(transaction.shipping_amount ?? "0"),
+    0,
+  );
+  const discountTotalCents = transactions.reduce((sum, transaction) => {
+    return sum + (transaction.items ?? []).reduce((itemSum, item) => {
+      const regularCents = parseMoneyToCents(item.original_unit_price ?? item.unit_price);
+      const saleCents = parseMoneyToCents(item.overridden_unit_price ?? item.unit_price);
+      return itemSum + Math.max(regularCents - saleCents, 0) * Math.max(item.quantity, 0);
+    }, 0);
+  }, 0);
+  const creditCardTotalCents = transactions.reduce((sum, transaction) => {
+    return sum + tenderLinesForTransaction(transaction).reduce((paymentSum, payment) => {
+      return isCreditCardTender(payment.payment_method)
+        ? paymentSum + parseMoneyToCents(payment.amount)
+        : paymentSum;
+    }, 0);
+  }, 0);
+  const rmsChargeTotalCents = transactions.reduce((sum, transaction) => {
+    return sum + tenderLinesForTransaction(transaction).reduce((paymentSum, payment) => {
+      return isRmsChargeTender(payment.payment_method)
+        ? paymentSum + parseMoneyToCents(payment.amount)
+        : paymentSum;
+    }, 0);
+  }, 0);
+  const rmsPaymentTotalCents = transactions.reduce((sum, transaction) => {
+    return sum + (transaction.items ?? []).reduce((itemSum, item) => {
+      return item.line_kind === "rms_charge_payment"
+        ? itemSum + parseMoneyToCents(item.unit_price) * Math.max(item.quantity, 0)
+        : itemSum;
+    }, 0);
+  }, 0);
+  const newOrdersDisplayCount = opts.newOrdersCount ?? newOrderCount;
+  const ordersPickedUpDisplayCount = opts.ordersPickedUpCount ?? ordersPickedUpCount;
 
   const txAuditRows =
     transactions.length > 0
@@ -512,7 +586,7 @@ export async function openProfessionalZReportPrint(opts: {
                   <div class="pill">${reportLabel(t.payment_method)}</div>
                   <div class="time">${tm}</div>
                   <div class="customer">${t.customer_name || "Walk-in Customer"}</div>
-                  <div class="chips">${t.transaction_display_id ? `<span class="chip mono">#${t.transaction_display_id}</span>` : ""}<span class="chip mono">Lane #${t.register_lane}</span>${chips}</div>
+                  <div class="chips">${t.transaction_display_id ? `<span class="chip mono">Transaction ${t.transaction_display_id}</span>` : ""}<span class="chip mono">Lane #${t.register_lane}</span>${chips}</div>
                 </div>
                 <div class="activity-items">
                   <div class="section-label">Line Items</div>
@@ -598,6 +672,18 @@ export async function openProfessionalZReportPrint(opts: {
     `Assigned Reports Printer: ${reportPrinter}`,
     "",
     "SALES SUMMARY",
+    `New Vendor Invoices: ${opts.newInvoicesCount ?? 0}`,
+    `New Orders: ${newOrdersDisplayCount}`,
+    `Orders Picked Up: ${ordersPickedUpDisplayCount}`,
+    `Credit Card Total: ${formatReportMoney(creditCardTotalCents)}`,
+    `RMS Payments: ${formatReportMoney(rmsPaymentTotalCents)}`,
+    `RMS Charge: ${formatReportMoney(rmsChargeTotalCents)}`,
+    `Today's Appointments: ${opts.todayAppointmentsCount ?? 0}`,
+    `New Appointments: ${opts.newAppointmentsCount ?? 0}`,
+    `Total Alterations: ${alterationCount}`,
+    `New Wedding Parties: ${opts.newWeddingPartiesCount ?? 0}`,
+    `Shipping Total: ${formatReportMoney(shippingTotalCents)}`,
+    `Discounts Total: ${formatReportMoney(discountTotalCents)}`,
     `Subtotal Before Tax: ${formatReportMoney(subtotalBeforeTaxCents)}`,
     "",
     "COMBINED TENDERS",
@@ -718,7 +804,7 @@ export async function openProfessionalZReportPrint(opts: {
             const header = `${new Date(tx.created_at).toLocaleString()} | ${reportLabel(tx.payment_method)} | ${
               tx.customer_name || "Walk-in Customer"
             } | Lane #${tx.register_lane} | Amount: ${formatReportMoney(tx.amount)}${
-              tx.transaction_display_id ? ` | #${tx.transaction_display_id}` : ""
+              tx.transaction_display_id ? ` | Transaction: ${tx.transaction_display_id}` : ""
             }`;
             const items = (tx.items ?? [])
               .filter(isVisibleAuditItem)
@@ -750,7 +836,7 @@ export async function openProfessionalZReportPrint(opts: {
     h1 { font-size: 19px; font-weight: 800; margin: 0; letter-spacing: -0.02em; }
     h2 { font-size: 10.5px; font-weight: 800; margin: 14px 0 5px; text-transform: uppercase; letter-spacing: 0.1em; color: #475569; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px; }
     .header-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 14px; }
-    .summary-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 14px; }
+    .summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 14px; }
     .summary-card { border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 10px; }
     .stat-label { font-size: 7.5px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.1em; margin: 0 0 2px; }
     .stat-value { font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 800; margin: 0; }
@@ -815,6 +901,54 @@ export async function openProfessionalZReportPrint(opts: {
 	  </div>
 
 	  <div class="summary-grid">
+	    <div class="summary-card">
+	      <p class="stat-label">New Vendor Invoices</p>
+	      <p class="stat-value">${opts.newInvoicesCount ?? 0}</p>
+	    </div>
+	    <div class="summary-card">
+	      <p class="stat-label">New Orders</p>
+	      <p class="stat-value">${newOrdersDisplayCount}</p>
+	    </div>
+	    <div class="summary-card">
+	      <p class="stat-label">Orders Picked Up</p>
+	      <p class="stat-value">${ordersPickedUpDisplayCount}</p>
+	    </div>
+	    <div class="summary-card">
+	      <p class="stat-label">Credit Card Total</p>
+	      <p class="stat-value">${formatReportMoney(creditCardTotalCents)}</p>
+	    </div>
+	    <div class="summary-card">
+	      <p class="stat-label">RMS Payments</p>
+	      <p class="stat-value">${formatReportMoney(rmsPaymentTotalCents)}</p>
+	    </div>
+	    <div class="summary-card">
+	      <p class="stat-label">RMS Charge</p>
+	      <p class="stat-value">${formatReportMoney(rmsChargeTotalCents)}</p>
+	    </div>
+	    <div class="summary-card">
+	      <p class="stat-label">Today's Appts</p>
+	      <p class="stat-value">${opts.todayAppointmentsCount ?? 0}</p>
+	    </div>
+	    <div class="summary-card">
+	      <p class="stat-label">New Appointments</p>
+	      <p class="stat-value">${opts.newAppointmentsCount ?? 0}</p>
+	    </div>
+	    <div class="summary-card">
+	      <p class="stat-label">Total Alterations</p>
+	      <p class="stat-value">${alterationCount}</p>
+	    </div>
+	    <div class="summary-card">
+	      <p class="stat-label">New Wedding Parties</p>
+	      <p class="stat-value">${opts.newWeddingPartiesCount ?? 0}</p>
+	    </div>
+	    <div class="summary-card">
+	      <p class="stat-label">Shipping Total</p>
+	      <p class="stat-value">${formatReportMoney(shippingTotalCents)}</p>
+	    </div>
+	    <div class="summary-card">
+	      <p class="stat-label">Discounts Total</p>
+	      <p class="stat-value">${formatReportMoney(discountTotalCents)}</p>
+	    </div>
 	    <div class="summary-card">
 	      <p class="stat-label">Subtotal Before Tax</p>
 	      <p class="stat-value">${formatReportMoney(subtotalBeforeTaxCents)}</p>
@@ -968,6 +1102,8 @@ export async function openProfessionalDailySalesPrint(opts: {
     net_sales: string;
     appointment_count: number;
     online_order_count: number;
+    pickup_count: number;
+    special_order_sale_count: number;
     new_wedding_parties_count: number;
     merchant_fees_total: string;
     cash_collected: string;
@@ -993,6 +1129,7 @@ export async function openProfessionalDailySalesPrint(opts: {
     deposits_paid?: string | null;
     balance_due?: string | null;
     short_id?: string | null;
+    imported_at?: string | null;
     fulfillment_label?: string | null;
     is_takeaway?: boolean | null;
     channel?: string | null;
@@ -1003,6 +1140,7 @@ export async function openProfessionalDailySalesPrint(opts: {
       reg_price: string;
       price: string;
       fulfillment?: string | null;
+      line_kind?: string | null;
     }[] | null;
   }[];
 }): Promise<boolean> {
@@ -1049,6 +1187,9 @@ export async function openProfessionalDailySalesPrint(opts: {
       `).join("");
       const chips = [
         row.fulfillment_label,
+        row.imported_at
+          ? `Imported at ${new Date(row.imported_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+          : null,
         row.channel === "web" ? "Online" : null,
       ].filter(Boolean).map((chip) => `<span class="chip">${chip}</span>`).join("");
 
@@ -1070,7 +1211,7 @@ export async function openProfessionalDailySalesPrint(opts: {
             <div class="pill">${row.title}</div>
             <div class="time">${tm}</div>
             <div class="customer">${customerInfo || "Walk-in Customer"}</div>
-            <div class="chips">${row.short_id ? `<span class="chip mono">#${row.short_id}</span>` : ""}${chips}</div>
+            <div class="chips">${row.short_id ? `<span class="chip mono">Transaction ${row.short_id}</span>` : ""}${chips}</div>
           </div>
           <div class="activity-items">
             <div class="section-label">Line Items</div>
@@ -1109,6 +1250,27 @@ export async function openProfessionalDailySalesPrint(opts: {
     .flat()
     .reduce((sum, row) => sum + (Number.parseFloat(row.sales_total || "0") || 0), 0)
     .toFixed(2);
+  const creditCardTotalCents = activities.reduce((sum, row) => {
+    return sum + (row.payments ?? []).reduce((paymentSum, payment) => {
+      return isCreditCardTender(payment.method)
+        ? paymentSum + parseMoneyToCents(payment.amount_label)
+        : paymentSum;
+    }, 0);
+  }, 0);
+  const rmsChargeTotalCents = activities.reduce((sum, row) => {
+    return sum + (row.payments ?? []).reduce((paymentSum, payment) => {
+      return isRmsChargeTender(payment.method)
+        ? paymentSum + parseMoneyToCents(payment.amount_label)
+        : paymentSum;
+    }, 0);
+  }, 0);
+  const rmsPaymentTotalCents = activities.reduce((sum, row) => {
+    return sum + (row.items ?? []).reduce((itemSum, item) => {
+      return item.line_kind === "rms_charge_payment"
+        ? itemSum + parseMoneyToCents(item.price) * item.quantity
+        : itemSum;
+    }, 0);
+  }, 0);
   const generatedAt = new Date().toLocaleString();
   const dailyReportTextLines = [
     "RIVERSIDE MEN'S SHOP",
@@ -1122,12 +1284,13 @@ export async function openProfessionalDailySalesPrint(opts: {
     `Subtotal Before Tax: ${formatReportMoney(summary.sales_subtotal_no_tax)}`,
     `Tax Collected: ${formatReportMoney(summary.sales_tax_total)}`,
     `Cash Collected: ${formatReportMoney(summary.cash_collected)}`,
+    `Credit Card Total: ${formatReportMoney(creditCardTotalCents)}`,
     `Deposits Taken: ${formatReportMoney(summary.deposits_collected)}`,
-    `Total Appointments: ${summary.appointment_count}`,
-    `Online Orders: ${summary.online_order_count}`,
-    `New Weddings: ${summary.new_wedding_parties_count}`,
-    `Merchant Fees: -${formatReportMoney(summary.merchant_fees_total)}`,
-    `Net Daily Shift: ${formatReportMoney(summary.net_sales)}`,
+    `New Orders: ${summary.special_order_sale_count}`,
+    `Orders Picked Up: ${summary.pickup_count}`,
+    `RMS Payments: ${formatReportMoney(rmsPaymentTotalCents)}`,
+    `RMS Charge: ${formatReportMoney(rmsChargeTotalCents)}`,
+    `Merchandise Subtotal: ${formatReportMoney(summary.net_sales)}`,
     "",
     "TRANSACTION LIST",
     ...(activities.length > 0
@@ -1139,7 +1302,9 @@ export async function openProfessionalDailySalesPrint(opts: {
           ]
             .filter(Boolean)
             .join(" | ");
-          const header = `${new Date(row.occurred_at).toLocaleString()} | ${textValue(row.title)} | ${
+          const header = `${new Date(row.occurred_at).toLocaleString()} | ${textValue(row.title)}${
+            row.short_id ? ` | Transaction: ${row.short_id}` : ""
+          } | ${
             customerInfo || "Walk-in Customer"
           } | Sales: ${row.sales_total ? formatReportMoney(row.sales_total) : textValue(row.amount_label) || "-"}`;
           const paymentDetails =
@@ -1151,7 +1316,8 @@ export async function openProfessionalDailySalesPrint(opts: {
                 ? [`Payment: ${row.payment_summary}`]
                 : [];
           const details = [
-            row.short_id ? `Reference: ${row.short_id}` : "",
+            row.short_id ? `Transaction: ${row.short_id}` : "",
+            row.imported_at ? `Imported at: ${new Date(row.imported_at).toLocaleString()}` : "",
             ...paymentDetails,
             row.subtotal_before_tax ? `Subtotal Before Tax: ${formatReportMoney(row.subtotal_before_tax)}` : "",
             row.tax_total ? `Tax: ${formatReportMoney(row.tax_total)}` : "",
@@ -1247,28 +1413,32 @@ export async function openProfessionalDailySalesPrint(opts: {
       <p class="stat-label" style="color:#047857">Cash Collected</p>
       <p class="stat-value" style="color:#047857">$${summary.cash_collected}</p>
     </div>
+    <div class="stat-card">
+      <p class="stat-label">Credit Card Total</p>
+      <p class="stat-value">${formatReportMoney(creditCardTotalCents)}</p>
+    </div>
     <div class="stat-card" style="border-color:#10b981; background: #f0fdf4;">
       <p class="stat-label" style="color:#047857">Deposits Taken</p>
       <p class="stat-value" style="color:#047857">$${summary.deposits_collected}</p>
     </div>
     <div class="stat-card">
-      <p class="stat-label">Total Appointments</p>
-      <p class="stat-value">${summary.appointment_count}</p>
+      <p class="stat-label">New Orders</p>
+      <p class="stat-value">${summary.special_order_sale_count}</p>
     </div>
     <div class="stat-card">
-      <p class="stat-label">Online Orders</p>
-      <p class="stat-value">${summary.online_order_count}</p>
+      <p class="stat-label">Orders Picked Up</p>
+      <p class="stat-value">${summary.pickup_count}</p>
     </div>
     <div class="stat-card">
-      <p class="stat-label">New Weddings</p>
-      <p class="stat-value">${summary.new_wedding_parties_count}</p>
+      <p class="stat-label">RMS Payments</p>
+      <p class="stat-value">${formatReportMoney(rmsPaymentTotalCents)}</p>
     </div>
     <div class="stat-card">
-      <p class="stat-label">Merchant Fees</p>
-      <p class="stat-value" style="color:#dc2626">-$${centsToFixed2(parseMoneyToCents(summary.merchant_fees_total))}</p>
+      <p class="stat-label">RMS Charge</p>
+      <p class="stat-value">${formatReportMoney(rmsChargeTotalCents)}</p>
     </div>
     <div class="stat-card" style="border-color:#0f172a; background: #f8fafc;">
-      <p class="stat-label" style="color:#0f172a">Net Daily Shift</p>
+      <p class="stat-label" style="color:#0f172a">Merchandise Subtotal</p>
       <p class="stat-value" style="color:#0f172a">$${centsToFixed2(parseMoneyToCents(summary.net_sales))}</p>
     </div>
   </div>

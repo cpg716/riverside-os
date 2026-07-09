@@ -26,7 +26,7 @@ import {
 } from "../../lib/receiptPrint";
 import { receiptHtmlToPngBase64 } from "../../lib/receiptHtmlToPng";
 import { useToast } from "../ui/ToastProviderLogic";
-import { centsToFixed2 } from "../../lib/money";
+import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
 import { enqueueFailedPrint } from "../../lib/printRetryQueue";
 import { openPrintableHtml } from "../../lib/browserPrint";
 import type { OrderPaymentCartLine } from "./types";
@@ -672,6 +672,14 @@ export default function ReceiptSummaryModal({
     transactionDetail.status === "fulfilled" &&
     itemRows.length > 0 &&
     itemRows.filter((it) => !it.is_internal).every((it) => it.is_fulfilled === true);
+  const orderPaymentTotalCents = orderPaymentLines.reduce(
+    (sum, line) => sum + parseMoneyToCents(line.amount),
+    0,
+  );
+  const summaryTotal =
+    orderPaymentLines.length > 0
+      ? centsToFixed2(orderPaymentTotalCents)
+      : transactionDetail?.total_price ?? transactionDetail?.amount_paid ?? "…";
 
   const runGiftPrint = () => {
     if (giftPickEmpty) {
@@ -912,10 +920,10 @@ export default function ReceiptSummaryModal({
             <div className="flex flex-wrap items-end justify-between gap-3 lg:gap-6">
               <div>
                 <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted lg:text-[11px]">
-                  Sale total
+                  {orderPaymentLines.length > 0 ? "Payment total" : "Sale total"}
                 </p>
                 <p className="text-2xl font-black tabular-nums tracking-tighter text-app-text sm:text-3xl lg:text-4xl">
-                  ${transactionDetail?.total_price ?? transactionDetail?.amount_paid ?? "…"}
+                  ${summaryTotal}
                 </p>
               </div>
               <div className="min-w-0 max-w-full text-right md:max-w-[50%]">

@@ -33,7 +33,7 @@ Use this screen to review the current register session, void a completed sale wi
 6. Open **Z-Reports** to see which linked lanes are still open, which drawer is already reconciling, and whether Register #1 still needs to finish the shared close.
 
 ## Daily Sales Activity
-The **Daily Sales** view shows a chronological timeline of every transaction. Tap an entry to view the full receipt or reprint it. Use this for:
+The **Daily Sales** view shows a chronological timeline of every transaction. Each sale row shows its `TXN-` transaction number so the screen, printout, receipt, and payment records can be reconciled against the same reference. Counterpoint-imported rows keep the Counterpoint transaction time as the activity time and show **Imported at** only as secondary import context. Tap an entry to view the full receipt or reprint it. Use this for:
 - Verifying the status of recent sales.
 - Correcting tender types by reviewing the audit log.
 - Monitoring mid-shift velocity without closing the drawer.
@@ -58,14 +58,15 @@ Use the refund workflow to finish cash, card, gift card, store credit, or split-
 ## Professional Audit Printing
 You can now generate a professional, full-page **Daily Sales Report** that includes:
 - **Tender Breakdown**: Totals for Cash, Card, Gift Card, and R2S charges.
+- **Business Summary Boxes**: New Orders, Orders Picked Up, Credit Card Total, RMS Payments, and RMS Charge appear in the top summary so daily review focuses on register operations.
 - **Per-Transaction Subtotal Before Tax**: Each transaction card separates subtotal before tax, tax collected, and total before showing payments or balance.
-- **Transaction Audit**: A complete list of all ticket numbers and amounts.
+- **Transaction Audit**: A complete list of all `TXN-` transaction numbers and amounts.
 - **Activity Cards**: Printed activity mirrors the on-screen grouped list with customer context, fulfillment chips, line items, payment/pickup context, and amount details.
 - **Reporting Station**: The report header identifies the assigned printer for accountability.
 
 To review the report first, tap **View**. In the desktop app, the preview opens inside ROS instead of a browser tab. To print, tap **Print** from the report screen or from the in-app preview. Daily Sales prints through the configured Reports printer so the activity cards, customer context, pickup rows, line items, and totals stay on office paper instead of the receipt printer.
 
-Z-Reports also use the same contract in the desktop app. **Open Report** opens the Z-report inside ROS for review. **Close & Print Z-Report** and preview **Print** send the report to the configured Reports printer. If a report prints as raw text instead of the formatted layout, check that the workstation is using the current build and rerun the report print.
+Z-Reports also use the same contract in the desktop app. **Open Report** opens the Z-report inside ROS for review, with each sale row labeled by its `TXN-` transaction number. The Z-report quick-look boxes include daily business counts and amounts such as New Vendor Invoices from Back Office receiving, New Orders, Orders Picked Up, Credit Card Total, RMS Payments, RMS Charge, appointments, alterations, new wedding parties, shipping, and discounts. **Close & Print Z-Report** and preview **Print** send the report to the configured Reports printer. If a report prints as raw text instead of the formatted layout, check that the workstation is using the current build and rerun the report print.
 
 ## Performance Metrics
 The summary cards at the top of the screen provide instant visibility into:

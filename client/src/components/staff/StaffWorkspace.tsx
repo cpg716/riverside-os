@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   CalendarDays,
   ClipboardList,
+  CreditCard,
   LayoutGrid,
   ListChecks,
   Search,
@@ -175,7 +176,19 @@ interface StaffWorkspaceProps {
   onTasksFocusConsumed?: () => void;
 }
 
-type StaffTab = "team" | "tasks" | "schedule" | "commission" | "commission-payouts" | "audit";
+type StaffTab = "team" | "accounts" | "tasks" | "schedule" | "commission" | "commission-payouts" | "audit";
+
+interface StaffAccountSummary {
+  account_id: string;
+  staff_id: string;
+  staff_name: string;
+  customer_id: string;
+  customer_code?: string | null;
+  customer_name: string;
+  status: string;
+  current_balance: string | number;
+  credit_limit: string | number;
+}
 
 export default function StaffWorkspace({
   activeSection,
@@ -196,6 +209,7 @@ export default function StaffWorkspace({
   useEffect(() => {
     if (
       activeSection === "team" ||
+      activeSection === "accounts" ||
       activeSection === "tasks" ||
       activeSection === "schedule" ||
       activeSection === "commission" ||
@@ -228,6 +242,8 @@ export default function StaffWorkspace({
   }
   const [accessLog, setAccessLog] = useState<AccessLogRow[]>([]);
   const [accessLogLoading, setAccessLogLoading] = useState(false);
+  const [staffAccounts, setStaffAccounts] = useState<StaffAccountSummary[]>([]);
+  const [staffAccountsLoading, setStaffAccountsLoading] = useState(false);
 
 
   const refreshRoster = useCallback(async () => {
@@ -261,6 +277,22 @@ export default function StaffWorkspace({
     }
   }, [backofficeHeaders]);
 
+  const refreshStaffAccounts = useCallback(async () => {
+    setStaffAccountsLoading(true);
+    try {
+      const res = await fetch(`${baseUrl}/api/staff/admin/staff-accounts`, {
+        headers: backofficeHeaders(),
+      });
+      if (!res.ok) throw new Error("Could not load Staff Accounts");
+      const rows = (await res.json()) as StaffAccountSummary[];
+      setStaffAccounts(Array.isArray(rows) ? rows : []);
+    } catch {
+      setStaffAccounts([]);
+    } finally {
+      setStaffAccountsLoading(false);
+    }
+  }, [backofficeHeaders]);
+
   useEffect(() => {
     void refreshRoster();
   }, [refreshRoster]);
@@ -269,6 +301,11 @@ export default function StaffWorkspace({
     if (tab !== "audit") return;
     void refreshAccessLog();
   }, [tab, refreshAccessLog]);
+
+  useEffect(() => {
+    if (tab !== "accounts") return;
+    void refreshStaffAccounts();
+  }, [tab, refreshStaffAccounts]);
 
   const filteredAccessLog = useMemo(() => {
     const query = auditSearchInput.trim().toLowerCase();
@@ -487,6 +524,7 @@ export default function StaffWorkspace({
       requireAny?: string[];
     }[] = [
       { id: "team", label: "Team", icon: LayoutGrid, perm: "staff.view" },
+      { id: "accounts", label: "Accounts", icon: CreditCard, perm: "staff.view" },
       { id: "tasks", label: "Tasks", icon: ListChecks, perm: "tasks.complete" },
       { id: "schedule", label: "Schedule", icon: CalendarDays, perm: "staff.view" },
       {
@@ -744,6 +782,12 @@ export default function StaffWorkspace({
                       </dd>
                     </div>
                   ) : null}
+                  {r.staff_account_balance != null ? (
+                    <div className="flex justify-between gap-2">
+                      <dt>Staff acct</dt>
+                      <dd className="font-bold tabular-nums text-app-text">{money(r.staff_account_balance)}</dd>
+                    </div>
+                  ) : null}
                 </dl>
                 <div className="mt-auto pt-4">
                   <button
@@ -760,6 +804,81 @@ export default function StaffWorkspace({
               </div>
             ))}
           </div>
+          </div>
+        </section>
+      ) : null}
+
+      {tab === "accounts" ? (
+        <section className="ui-card flex flex-col gap-3 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm text-app-text-muted">
+              Employee customer accounts with receivable balances from Staff Account purchases and paydowns.
+            </p>
+            <button
+              type="button"
+              disabled={staffAccountsLoading}
+              onClick={() => void refreshStaffAccounts()}
+              className="ui-btn-secondary w-full px-3 py-1.5 sm:w-auto"
+            >
+              Refresh
+            </button>
+          </div>
+          <div className="grid gap-3 md:grid-cols-3">
+            <div className="rounded-2xl border border-app-border bg-app-surface p-4">
+              <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Open balances</p>
+              <p className="mt-1 text-2xl font-black text-app-text">
+                {money(staffAccounts.reduce((sum, row) => sum + parseMoneyToCents(row.current_balance), 0) / 100)}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-app-border bg-app-surface p-4">
+              <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Linked accounts</p>
+              <p className="mt-1 text-2xl font-black text-app-text">{staffAccounts.length}</p>
+            </div>
+            <div className="rounded-2xl border border-app-border bg-app-surface p-4">
+              <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">With balance</p>
+              <p className="mt-1 text-2xl font-black text-app-text">
+                {staffAccounts.filter((row) => parseMoneyToCents(row.current_balance) > 0).length}
+              </p>
+            </div>
+          </div>
+          <div className="ui-card overflow-hidden">
+            <table className="w-full text-left text-xs">
+              <thead className="border-b border-app-border bg-app-surface text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                <tr>
+                  <th className="px-3 py-2">Staff</th>
+                  <th className="px-3 py-2">Customer</th>
+                  <th className="px-3 py-2">Status</th>
+                  <th className="px-3 py-2 text-right">Balance</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-app-border text-[11px]">
+                {staffAccountsLoading && staffAccounts.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="px-3 py-8 text-center text-app-text-muted">Loading…</td>
+                  </tr>
+                ) : null}
+                {staffAccounts.map((row) => (
+                  <tr key={row.account_id} className="align-top hover:bg-app-surface-2">
+                    <td className="px-3 py-2 font-semibold text-app-text">{row.staff_name}</td>
+                    <td className="px-3 py-2 text-app-text-muted">
+                      <span className="font-semibold text-app-text">{row.customer_name}</span>
+                      {row.customer_code ? <span className="ml-2 font-mono text-[10px]">{row.customer_code}</span> : null}
+                    </td>
+                    <td className="px-3 py-2">
+                      <span className="rounded-full border border-app-border bg-app-surface-2 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-app-text-muted">
+                        {row.status}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-right font-black tabular-nums text-app-text">{money(row.current_balance)}</td>
+                  </tr>
+                ))}
+                {!staffAccountsLoading && staffAccounts.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="px-3 py-8 text-center text-app-text-muted">No linked Staff Accounts yet.</td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
           </div>
         </section>
       ) : null}

@@ -31,6 +31,7 @@ import NexoCheckoutDrawer from "./NexoCheckoutDrawer";
 import RegisterCashAdjustModal from "./RegisterCashAdjustModal";
 import RegisterGiftCardLoadModal from "./RegisterGiftCardLoadModal";
 import RegisterRmsPaymentModal from "./RegisterRmsPaymentModal";
+import RegisterStaffAccountPaymentModal from "./RegisterStaffAccountPaymentModal";
 import PosCustomerMeasurementsDrawer from "./PosCustomerMeasurementsDrawer";
 import ReceiptSummaryModal from "./ReceiptSummaryModal";
 import VariantSelectionModal, { type ProductWithVariants } from "./VariantSelectionModal";
@@ -77,6 +78,7 @@ import {
   type PosStaffRow,
   type ActiveDiscountEvent,
   type RmsPaymentLineMeta,
+  type StaffAccountPaymentLineMeta,
   type GiftCardLoadLineMeta,
   type AppliedPaymentLine,
   type CheckoutOperatorContext,
@@ -426,6 +428,7 @@ export default function Cart({
 
   // --- External States (managed by hooks) ---
   const [rmsPaymentMeta, setRmsPaymentMeta] = useState<RmsPaymentLineMeta | null>(null);
+  const [staffAccountPaymentMeta, setStaffAccountPaymentMeta] = useState<StaffAccountPaymentLineMeta | null>(null);
   const [giftCardLoadMeta, setGiftCardLoadMeta] = useState<GiftCardLoadLineMeta | null>(null);
   const [primarySalespersonId, setPrimarySalespersonId] = useState("");
   const [checkoutOperator, setCheckoutOperator] = useState<CheckoutOperatorContext | null>(null);
@@ -552,6 +555,7 @@ export default function Cart({
   const [pendingCustomItem, setPendingCustomItem] = useState<ResolvedSkuItem | null>(null);
   const [giftCardLoadOpen, setGiftCardLoadOpen] = useState(false);
   const [rmsPaymentOpen, setRmsPaymentOpen] = useState(false);
+  const [staffAccountPaymentOpen, setStaffAccountPaymentOpen] = useState(false);
   const [parkSalePromptOpen, setParkSalePromptOpen] = useState(false);
   const [parkSaleDraftLabel, setParkSaleDraftLabel] = useState("");
   const searchInputRef = useRef<HTMLInputElement | null>(null);
@@ -588,6 +592,7 @@ export default function Cart({
   } = useCartActions({
     checkoutOperator,
     rmsPaymentMeta,
+    staffAccountPaymentMeta,
     giftCardLoadMeta,
     activeWeddingMember,
     selectedCustomer,
@@ -2827,6 +2832,41 @@ export default function Cart({
               </button>
               <button
                 type="button"
+                data-testid="pos-action-staff-account-payment"
+                onClick={async () => {
+                  if (!ensureSaleCashier()) return;
+                  let meta = staffAccountPaymentMeta;
+                  if (!meta) {
+                    try {
+                      const res = await fetch(`${baseUrl}/api/pos/staff-account-payment-line-meta`, { headers: apiAuth() });
+                      if (!res.ok) {
+                        toast("Staff Account payment line is not available. Sign in or run migrations.", "error");
+                        return;
+                      }
+                      const payload = (await res.json()) as StaffAccountPaymentLineMeta | null;
+                      if (!payload) {
+                        toast("Staff Account payment line is not available. Ensure layout POS products are created.", "error");
+                        return;
+                      }
+                      meta = payload;
+                      setStaffAccountPaymentMeta(meta);
+                    } catch {
+                      toast("Staff Account payment line is not available. Ensure layout POS products are created.", "error");
+                      return;
+                    }
+                  }
+                  setStaffAccountPaymentOpen(true);
+                }}
+                title="Collect payment on a linked employee Staff Account"
+                className="ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border border-cyan-600/60 bg-cyan-600/10 px-2 text-center text-cyan-700 shadow-sm ring-1 ring-black/5 transition-all hover:bg-cyan-700 hover:text-white dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px]"
+              >
+                <CreditCard size={20} className="shrink-0" aria-hidden />
+                <span className="text-[10px] font-black uppercase leading-[12px] tracking-widest">
+                  Staff Pay
+                </span>
+              </button>
+              <button
+                type="button"
                 onClick={() => {
                   setLines(prev => prev.map(l => ({
                     ...l,
@@ -4229,6 +4269,29 @@ export default function Cart({
             stock_on_hand: 0,
             vendor_sku: "",
           }, centsToFixed2(amountCents));
+        }}
+        weddingMemberships={weddingMemberships}
+        onOpenWeddingParty={onOpenWeddingParty}
+      />
+      <RegisterStaffAccountPaymentModal
+        open={staffAccountPaymentOpen}
+        onClose={() => setStaffAccountPaymentOpen(false)}
+        selectedCustomer={selectedCustomer}
+        onSelectCustomer={(c) => setSelectedCustomer(c)}
+        onAddToCart={async (amountCents) => {
+          if (!staffAccountPaymentMeta) return;
+          addItem({
+            product_id: staffAccountPaymentMeta.product_id,
+            variant_id: staffAccountPaymentMeta.variant_id,
+            sku: staffAccountPaymentMeta.sku,
+            name: staffAccountPaymentMeta.name,
+            standard_retail_price: 0,
+            unit_cost: 0,
+            state_tax: 0,
+            local_tax: 0,
+            stock_on_hand: 0,
+            vendor_sku: "",
+          }, centsToFixed2(amountCents), "takeaway");
         }}
         weddingMemberships={weddingMemberships}
         onOpenWeddingParty={onOpenWeddingParty}

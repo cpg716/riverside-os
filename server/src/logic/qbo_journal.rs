@@ -24,6 +24,13 @@ fn is_rms_financing_tender(payment_method: &str, tender_family: Option<&str>) ->
             .unwrap_or(false)
 }
 
+fn is_staff_account_tender(payment_method: &str, tender_family: Option<&str>) -> bool {
+    payment_method.eq_ignore_ascii_case("staff_account_charge")
+        || tender_family
+            .map(|value| value.trim().eq_ignore_ascii_case("staff_account"))
+            .unwrap_or(false)
+}
+
 fn rms_payment_collection_flag(value: Option<bool>) -> bool {
     value.unwrap_or(false)
 }
@@ -336,7 +343,8 @@ pub async fn propose_daily_journal(
           AND ({line_recognition_ts} AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
           AND (p.pos_line_kind IS DISTINCT FROM 'rms_charge_payment')
           AND (p.pos_line_kind IS DISTINCT FROM 'pos_gift_card_load')
-          AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
+AND (p.pos_line_kind IS DISTINCT FROM 'staff_account_payment')
+AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
         GROUP BY
             p.category_id,
             c.name,
@@ -369,7 +377,8 @@ pub async fn propose_daily_journal(
               AND GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0) > 0
               AND (p.pos_line_kind IS DISTINCT FROM 'rms_charge_payment')
               AND (p.pos_line_kind IS DISTINCT FROM 'pos_gift_card_load')
-              AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
+AND (p.pos_line_kind IS DISTINCT FROM 'staff_account_payment')
+AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
             "#
         ))
         .bind(activity_date)
@@ -947,6 +956,7 @@ pub async fn propose_daily_journal(
             gift_card_route == Some(GiftCardAccountingRoute::LiabilityRelief);
         let is_loyalty_gc = gift_card_route == Some(GiftCardAccountingRoute::LoyaltyExpense);
         let is_rms_financing = is_rms_financing_tender(sid, t.tender_family.as_deref());
+        let is_staff_account = is_staff_account_tender(sid, t.tender_family.as_deref());
         let is_rms_collection = rms_payment_collection_flag(t.rms_charge_collection);
         let is_store_credit = sid.eq_ignore_ascii_case("store_credit");
         let is_open_deposit = sid.eq_ignore_ascii_case("open_deposit");
@@ -986,6 +996,14 @@ pub async fn propose_daily_journal(
                 "MISC_PAYMENT",
                 "default",
                 Some("RMS_CHARGE_FINANCING_CLEARING"),
+            )
+            .await?
+        } else if is_staff_account {
+            qbo_map_with_default_mapping(
+                pool,
+                "asset_staff_accounts_receivable",
+                "default",
+                Some("STAFF_ACCOUNTS_RECEIVABLE"),
             )
             .await?
         } else {
@@ -1050,6 +1068,8 @@ pub async fn propose_daily_journal(
                 "Gift card (refund / reversal) — liability".to_string()
             } else if is_rms_financing {
                 "RMS Charge financing (refund / reversal)".to_string()
+            } else if is_staff_account {
+                "Staff Account charge reversal".to_string()
             } else if is_rms_collection {
                 format!("Tenders (RMS payment collection outflow) — {sid}")
             } else {
@@ -1065,6 +1085,8 @@ pub async fn propose_daily_journal(
             "Gift card redemption (liability)".to_string()
         } else if is_rms_financing {
             "RMS Charge financing".to_string()
+        } else if is_staff_account {
+            "Staff Accounts Receivable".to_string()
         } else if is_rms_collection {
             format!("Tenders (RMS payment collection) — {sid}")
         } else {
@@ -1325,7 +1347,8 @@ pub async fn propose_daily_journal(
             INNER JOIN products p ON p.id = oi.product_id
                 AND (p.pos_line_kind IS DISTINCT FROM 'rms_charge_payment')
                 AND (p.pos_line_kind IS DISTINCT FROM 'pos_gift_card_load')
-                AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
+AND (p.pos_line_kind IS DISTINCT FROM 'staff_account_payment')
+AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
             LEFT JOIN categories c ON c.id = p.category_id
             LEFT JOIN (
                 SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
@@ -1389,7 +1412,8 @@ pub async fn propose_daily_journal(
             INNER JOIN products p ON p.id = oi.product_id
                 AND (p.pos_line_kind IS DISTINCT FROM 'rms_charge_payment')
                 AND (p.pos_line_kind IS DISTINCT FROM 'pos_gift_card_load')
-                AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
+AND (p.pos_line_kind IS DISTINCT FROM 'staff_account_payment')
+AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
             LEFT JOIN (
                 SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
                 FROM transaction_return_lines
@@ -1460,7 +1484,8 @@ pub async fn propose_daily_journal(
             INNER JOIN products p ON p.id = oi.product_id
                 AND (p.pos_line_kind IS DISTINCT FROM 'rms_charge_payment')
                 AND (p.pos_line_kind IS DISTINCT FROM 'pos_gift_card_load')
-                AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
+AND (p.pos_line_kind IS DISTINCT FROM 'staff_account_payment')
+AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
             LEFT JOIN (
                 SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
                 FROM transaction_return_lines
@@ -2026,6 +2051,81 @@ pub async fn propose_daily_journal(
         }
     }
 
+    let staff_account_payment_net: Decimal = sqlx::query_scalar(&format!(
+        r#"
+        SELECT COALESCE(SUM((oi.unit_price * GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0))::numeric(14, 2)), 0)::numeric(14, 2)
+        {TL_EFFECTIVE_JOIN}
+        WHERE o.status::text NOT IN ('cancelled')
+          AND {line_recognition_ts} IS NOT NULL
+          AND ({line_recognition_ts} AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
+          AND p.pos_line_kind = 'staff_account_payment'
+        "#
+    ))
+    .bind(activity_date)
+    .fetch_one(pool)
+    .await?;
+
+    if staff_account_payment_net > Decimal::ZERO {
+        if let Some((aid, aname)) = qbo_map_with_default_mapping(
+            pool,
+            "asset_staff_accounts_receivable",
+            "default",
+            Some("STAFF_ACCOUNTS_RECEIVABLE"),
+        )
+        .await?
+        {
+            lines.push(JournalLine {
+                qbo_account_id: aid,
+                qbo_account_name: aname,
+                debit: Decimal::ZERO,
+                credit: staff_account_payment_net,
+                memo: "Staff account payment collections".to_string(),
+                detail: vec![serde_json::json!({"kind": "staff_account_payment_receivable"})],
+            });
+        } else {
+            warnings.push(
+                "Staff Account payment lines detected but `asset_staff_accounts_receivable` mapping is missing."
+                    .to_string(),
+            );
+        }
+    }
+
+    let staff_account_payment_reversal_net: Decimal = sqlx::query_scalar(
+        r#"
+        SELECT COALESCE(SUM(ABS(amount)) FILTER (
+            WHERE amount < 0::numeric
+              AND COALESCE((metadata->>'staff_account_collection')::boolean, FALSE) = TRUE
+        ), 0)::numeric(14, 2)
+        FROM payment_transactions
+        WHERE COALESCE(effective_date, (created_at AT TIME ZONE reporting.effective_store_timezone())::date) = $1::date
+        "#,
+    )
+    .bind(activity_date)
+    .fetch_one(pool)
+    .await?;
+
+    if staff_account_payment_reversal_net > Decimal::ZERO {
+        if let Some((aid, aname)) = qbo_map_with_default_mapping(
+            pool,
+            "asset_staff_accounts_receivable",
+            "default",
+            Some("STAFF_ACCOUNTS_RECEIVABLE"),
+        )
+        .await?
+        {
+            lines.push(JournalLine {
+                qbo_account_id: aid,
+                qbo_account_name: aname,
+                debit: staff_account_payment_reversal_net,
+                credit: Decimal::ZERO,
+                memo: "Staff account payment reversals".to_string(),
+                detail: vec![
+                    serde_json::json!({"kind": "staff_account_payment_reversal_receivable"}),
+                ],
+            });
+        }
+    }
+
     let mut refund_liability_created = Decimal::ZERO;
     for rr in &return_day_rows {
         refund_liability_created += rr.net_product.unwrap_or(Decimal::ZERO)
@@ -2036,7 +2136,10 @@ pub async fn propose_daily_journal(
     let mut refund_liability_relieved = Decimal::ZERO;
     for t in &tender_rows {
         let amt = t.total.unwrap_or(Decimal::ZERO);
-        if amt < Decimal::ZERO && !rms_payment_collection_flag(t.rms_charge_collection) {
+        if amt < Decimal::ZERO
+            && !rms_payment_collection_flag(t.rms_charge_collection)
+            && !is_staff_account_tender(&t.payment_method, t.tender_family.as_deref())
+        {
             refund_liability_relieved += amt.abs();
         }
     }

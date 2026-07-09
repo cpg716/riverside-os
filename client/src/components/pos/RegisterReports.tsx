@@ -6,7 +6,6 @@ import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import {
   Loader2,
   Receipt,
-  Calendar,
   DollarSign,
   Globe,
   Heart,
@@ -108,6 +107,7 @@ interface RegisterActivityItem {
   fulfillment_type?: string | null;
   transaction_total?: string | null;
   short_id?: string | null;
+  imported_at?: string | null;
   payments?: TransactionPayment[] | null;
   cashier_name?: string | null;
 }
@@ -129,7 +129,9 @@ interface RegisterDaySummary {
   pickup_count: number;
   special_order_sale_count: number;
   appointment_count: number;
+  new_appointment_count: number;
   new_wedding_parties_count: number;
+  new_invoice_count: number;
   merchant_fees_total: string;
   net_sales: string;
   cash_collected: string;
@@ -212,6 +214,7 @@ interface ZReportSnapshot {
     transaction_total?: string | null;
     transaction_paid?: string | null;
     transaction_balance_due?: string | null;
+    shipping_amount?: string | null;
     items?: {
       name: string;
       sku: string;
@@ -341,6 +344,56 @@ function moneyFromValue(value: string | null | undefined): string {
   return moneyFromCents(parseMoneyToCents(value ?? "0"));
 }
 
+function isCreditCardTender(method: string): boolean {
+  const tender = method.toLowerCase();
+  return (
+    tender.includes("card") ||
+    tender.includes("cc") ||
+    tender.includes("helcim") ||
+    tender.includes("credit") ||
+    tender.includes("debit") ||
+    tender.includes("visa") ||
+    tender.includes("master") ||
+    tender.includes("discover") ||
+    tender.includes("amex")
+  );
+}
+
+function activityCreditCardTotalCents(activities: RegisterActivityItem[] | undefined): number {
+  return (activities ?? []).reduce((sum, row) => {
+    return sum + (row.payments ?? []).reduce((paymentSum, payment) => {
+      return isCreditCardTender(payment.method)
+        ? paymentSum + parseMoneyToCents(payment.amount_label)
+        : paymentSum;
+    }, 0);
+  }, 0);
+}
+
+function isRmsChargeTender(method: string): boolean {
+  const tender = method.toLowerCase().replace(/[\s_-]/g, "");
+  return tender === "rms" || tender === "rmscharge" || tender === "rms90" || tender.includes("rmscharge");
+}
+
+function activityRmsChargeTotalCents(activities: RegisterActivityItem[] | undefined): number {
+  return (activities ?? []).reduce((sum, row) => {
+    return sum + (row.payments ?? []).reduce((paymentSum, payment) => {
+      return isRmsChargeTender(payment.method)
+        ? paymentSum + parseMoneyToCents(payment.amount_label)
+        : paymentSum;
+    }, 0);
+  }, 0);
+}
+
+function activityRmsPaymentTotalCents(activities: RegisterActivityItem[] | undefined): number {
+  return (activities ?? []).reduce((sum, row) => {
+    return sum + (row.items ?? []).reduce((itemSum, item) => {
+      return item.line_kind === "rms_charge_payment"
+        ? itemSum + parseMoneyToCents(item.price) * item.quantity
+        : itemSum;
+    }, 0);
+  }, 0);
+}
+
 function activityVoidTarget(row: RegisterActivityItem): PosVoidTransactionTarget | null {
   const transactionId = activityTransactionId(row);
   if (!transactionId) return null;
@@ -452,6 +505,7 @@ function primaryRegisterSession(
 async function openZReportFromSession(
   session: RegisterSessionRow,
   action: ReportPrintAction = "preview",
+  daySummary?: RegisterDaySummary | null,
 ): Promise<boolean> {
   const snapshot = session.z_report_json;
   const cashTender = snapshot?.tenders?.find(
@@ -480,6 +534,12 @@ async function openZReportFromSession(
     overrideSummary: snapshot?.override_summary ?? [],
     tendersByLane: snapshot?.tenders_by_lane ?? [],
     manualDrawerOpens: snapshot?.manual_drawer_opens ?? [],
+    newOrdersCount: daySummary?.special_order_sale_count,
+    ordersPickedUpCount: daySummary?.pickup_count,
+    todayAppointmentsCount: daySummary?.appointment_count ?? 0,
+    newAppointmentsCount: daySummary?.new_appointment_count ?? 0,
+    newWeddingPartiesCount: daySummary?.new_wedding_parties_count ?? 0,
+    newInvoicesCount: daySummary?.new_invoice_count ?? 0,
     transactions:
       snapshot?.transactions?.map((transaction) => ({
         created_at: transaction.created_at,
@@ -492,6 +552,7 @@ async function openZReportFromSession(
         transaction_total: transaction.transaction_total,
         transaction_paid: transaction.transaction_paid,
         transaction_balance_due: transaction.transaction_balance_due,
+        shipping_amount: transaction.shipping_amount,
         items: transaction.items ?? [],
         register_lane: transaction.register_lane ?? session.register_lane,
       })) ?? [],
@@ -571,10 +632,9 @@ export default function RegisterReports({
     } else {
       params.set("preset", preset);
     }
-    if (sessionId) params.set("register_session_id", sessionId);
     params.set("basis", basis);
     return params;
-  }, [preset, customFrom, customTo, sessionId, reportBasis]);
+  }, [preset, customFrom, customTo, reportBasis]);
 
   const fetchSummary = useCallback(async (basis?: "booked" | "fulfilled") => {
     const targetBasis = basis || reportBasis;
@@ -601,15 +661,16 @@ export default function RegisterReports({
     }
   }, [apiAuth, buildActivityParams, sessionId, reportBasis]);
 
+  const loadSummaries = useCallback(async () => {
+    const bookedData = await fetchSummary("booked");
+    if (bookedData) setSummaryBooked(bookedData);
+    const fulfilledData = await fetchSummary("fulfilled");
+    if (fulfilledData) setSummary(fulfilledData);
+  }, [fetchSummary]);
+
   useEffect(() => {
-    const load = async () => {
-      const bookedData = await fetchSummary("booked");
-      if (bookedData) setSummaryBooked(bookedData);
-      const fulfilledData = await fetchSummary("fulfilled");
-      if (fulfilledData) setSummary(fulfilledData);
-    };
-    load();
-  }, [fetchSummary, preset, customFrom, customTo]);
+    void loadSummaries();
+  }, [loadSummaries, preset, customFrom, customTo]);
 
   const buildZLogParams = useCallback(() => {
     const params = new URLSearchParams({ limit: "40" });
@@ -767,6 +828,8 @@ export default function RegisterReports({
         net_sales: printSummary.net_sales,
         appointment_count: printSummary.appointment_count,
         online_order_count: printSummary.online_order_count,
+        pickup_count: printSummary.pickup_count,
+        special_order_sale_count: printSummary.special_order_sale_count,
         new_wedding_parties_count: printSummary.new_wedding_parties_count,
         merchant_fees_total: printSummary.merchant_fees_total,
         cash_collected: printSummary.cash_collected,
@@ -783,6 +846,7 @@ export default function RegisterReports({
           reg_price: i.reg_price || i.price,
           price: i.price,
           fulfillment: i.fulfillment,
+          line_kind: i.line_kind,
         })),
         fulfillment_label: activityFulfillmentLabel(a),
         is_takeaway: a.is_takeaway,
@@ -797,6 +861,8 @@ export default function RegisterReports({
       const itemRows = (a.items || []).map((item, idx) => ({
         "Date": new Date(a.occurred_at).toLocaleDateString(),
         "Time": new Date(a.occurred_at).toLocaleTimeString(),
+        "Transaction #": a.short_id || "",
+        "Imported At": idx === 0 && a.imported_at ? new Date(a.imported_at).toLocaleString() : "",
         "Kind": a.kind,
         "Order ID": a.order_id || "",
         "Customer Name": a.customer_name || "",
@@ -827,6 +893,8 @@ export default function RegisterReports({
     const totalRow = {
       "Date": "TOTAL",
       "Time": "",
+      "Transaction #": "",
+      "Imported At": "",
       "Kind": "",
       "Order ID": "",
       "Customer Name": "",
@@ -1037,7 +1105,7 @@ export default function RegisterReports({
             To
             <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} className="ui-input rounded-xl px-3 py-2 text-sm font-semibold" />
           </label>
-          <button type="button" onClick={() => { fetchSummary("booked"); fetchSummary("fulfilled"); }} className="rounded-xl bg-app-success px-4 py-2 text-sm font-black text-white shadow-[0_4px_0_0_color-mix(in_srgb,var(--app-success)_58%,black)] transition hover:brightness-105">
+          <button type="button" onClick={() => { void loadSummaries(); }} className="rounded-xl bg-app-success px-4 py-2 text-sm font-black text-white shadow-[0_4px_0_0_color-mix(in_srgb,var(--app-success)_58%,black)] transition hover:brightness-105">
             Apply
           </button>
         </div>
@@ -1123,8 +1191,8 @@ export default function RegisterReports({
                       <p className="text-lg font-black text-app-text">${centsToFixed2(parseMoneyToCents(summaryBooked.sales_tax_total))}</p>
                     </div>
                     <div className="ui-metric-cell ui-tint-danger p-2">
-	                      <div className="text-xs font-bold text-app-danger">Fees</div>
-                      <p className="text-lg font-black text-app-text">${centsToFixed2(parseMoneyToCents(summaryBooked.merchant_fees_total))}</p>
+	                      <div className="text-xs font-bold text-app-danger">Credit Card Total</div>
+                      <p className="text-lg font-black text-app-text">${centsToFixed2(activityCreditCardTotalCents(summaryBooked.activities))}</p>
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-2 mt-2">
@@ -1175,20 +1243,20 @@ export default function RegisterReports({
               {/* Additional Metrics - Compact */}
               <div className="grid grid-cols-4 gap-2">
                 <div className="ui-metric-cell ui-tint-neutral p-2">
-	                  <div className="flex items-center gap-1 text-xs font-bold text-app-text-muted"><Calendar className="h-3 w-3" />Appts</div>
-                  <p className="text-base font-black">{summaryBooked?.appointment_count || 0}</p>
+	                  <div className="flex items-center gap-1 text-xs font-bold text-app-text-muted"><Package className="h-3 w-3" />New Orders</div>
+                  <p className="text-base font-black">{summaryBooked?.special_order_sale_count || 0}</p>
                 </div>
                 <div className="ui-metric-cell ui-tint-info p-2">
-	                  <div className="flex items-center gap-1 text-xs font-bold text-app-text-muted"><Globe className="h-3 w-3" />Online</div>
-                  <p className="text-base font-black">{summaryBooked?.online_order_count || 0}</p>
+	                  <div className="flex items-center gap-1 text-xs font-bold text-app-text-muted"><Truck className="h-3 w-3" />Orders Picked Up</div>
+                  <p className="text-base font-black">{summaryBooked?.pickup_count || 0}</p>
                 </div>
                 <div className="ui-metric-cell ui-tint-accent p-2">
-	                  <div className="flex items-center gap-1 text-xs font-bold text-app-text-muted"><Heart className="h-3 w-3" />Weddings</div>
-                  <p className="text-base font-black">{summaryBooked?.new_wedding_parties_count || 0}</p>
+	                  <div className="flex items-center gap-1 text-xs font-bold text-app-text-muted"><DollarSign className="h-3 w-3" />RMS Payments</div>
+                  <p className="text-base font-black">${centsToFixed2(activityRmsPaymentTotalCents(summaryBooked?.activities))}</p>
                 </div>
                 <div className="ui-metric-cell ui-tint-warning p-2">
-	                  <div className="flex items-center gap-1 text-xs font-bold text-app-text-muted"><Package className="h-3 w-3" />Orders</div>
-                  <p className="text-base font-black">{summaryBooked?.special_order_sale_count || 0}</p>
+	                  <div className="flex items-center gap-1 text-xs font-bold text-app-text-muted"><DollarSign className="h-3 w-3" />RMS Charge</div>
+                  <p className="text-base font-black">${centsToFixed2(activityRmsChargeTotalCents(summaryBooked?.activities))}</p>
                 </div>
               </div>
               {/* Combined Totals Placeholder - already handled by individual summary boxes */}
@@ -1325,7 +1393,14 @@ export default function RegisterReports({
                                  )}
                                </div>
                                <div className="mt-3 flex items-center gap-1.5 flex-wrap">
-                                  <span className="font-mono text-[10px] font-black text-app-text uppercase tracking-tighter bg-app-surface-2 px-1.5 py-0.5 rounded">#{row.short_id || activityTransactionId(row)?.slice(0, 8)}</span>
+                                  <span className="font-mono text-[10px] font-black text-app-text uppercase tracking-tighter bg-app-surface-2 px-1.5 py-0.5 rounded">
+                                    {row.short_id ? `Transaction ${row.short_id}` : `#${activityTransactionId(row)?.slice(0, 8)}`}
+                                  </span>
+                                  {row.imported_at && (
+                                    <span className="rounded bg-app-info/10 px-1.5 py-0.5 text-xs font-bold leading-none text-app-info">
+                                      Imported at {new Date(row.imported_at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
+                                    </span>
+                                  )}
                                   {activityFulfillmentLabel(row) && (
                                     <span className="rounded bg-app-warning/10 px-1.5 py-0.5 text-xs font-bold leading-none text-app-warning">
                                       {activityFulfillmentLabel(row)}
@@ -1769,7 +1844,7 @@ export default function RegisterReports({
                         <button
                           type="button"
                           onClick={() => {
-                            void openZReportFromSession(session)
+                            void openZReportFromSession(session, "preview", summaryBooked)
                               .then((opened) => {
                                 if (opened) {
                                   toast("Z-report opened for review.", "success");

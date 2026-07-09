@@ -471,6 +471,16 @@ interface LoyaltyLedgerEntry {
   activity_detail: string;
 }
 
+interface StoreCreditLedgerEntry {
+  id: string;
+  amount: string | number;
+  balance_after: string | number;
+  reason: string;
+  transaction_id?: string | null;
+  transaction_display_id?: string | null;
+  created_at: string;
+}
+
 interface LoyaltyIssuanceRow {
   id: string;
   customer_id: string;
@@ -775,6 +785,7 @@ export function CustomerRelationshipHubDrawer({
   const [vaultLoading, setVaultLoading] = useState(false);
   const [vaultLoadError, setVaultLoadError] = useState<string | null>(null);
   const [storeCreditBal, setStoreCreditBal] = useState<string | null>(null);
+  const [storeCreditLedger, setStoreCreditLedger] = useState<StoreCreditLedgerEntry[]>([]);
   const [openDepositBal, setOpenDepositBal] = useState<string | null>(null);
   const [openSummary, setOpenSummary] = useState<CustomerOpenSummary>({
     orders: null,
@@ -1442,6 +1453,7 @@ export function CustomerRelationshipHubDrawer({
     if (!open || !permissionsLoaded || !canHubView) {
       if (!open) {
         setStoreCreditBal(null);
+        setStoreCreditLedger([]);
         setOpenDepositBal(null);
       }
       return;
@@ -1458,9 +1470,14 @@ export function CustomerRelationshipHubDrawer({
         ]);
         if (!scRes.ok) {
           setStoreCreditBal(null);
+          setStoreCreditLedger([]);
         } else {
-          const d = (await scRes.json()) as { balance?: string };
+          const d = (await scRes.json()) as {
+            balance?: string | number;
+            ledger?: StoreCreditLedgerEntry[];
+          };
           setStoreCreditBal(d.balance != null ? String(d.balance) : "0.00");
+          setStoreCreditLedger(Array.isArray(d.ledger) ? d.ledger : []);
         }
         if (!odRes.ok) {
           setOpenDepositBal(null);
@@ -1470,6 +1487,7 @@ export function CustomerRelationshipHubDrawer({
         }
       } catch {
         setStoreCreditBal(null);
+        setStoreCreditLedger([]);
         setOpenDepositBal(null);
       }
     })();
@@ -3318,6 +3336,67 @@ export function CustomerRelationshipHubDrawer({
 
           {tab === "profile" && (
             <div className="order-3 space-y-6">
+              {storeCreditBal != null || storeCreditLedger.length > 0 ? (
+                <section className="rounded-2xl border border-app-border bg-app-surface-2/80 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
+                        Store Credit
+                      </h3>
+                      <p className="mt-1 text-sm font-semibold text-app-text">
+                        Available balance {fmtMoney(storeCreditBal ?? "0.00")}
+                      </p>
+                    </div>
+                    <span className="rounded-full border border-app-accent/25 bg-app-accent/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-app-accent">
+                      {storeCreditLedger.length} recent
+                    </span>
+                  </div>
+                  {storeCreditLedger.length === 0 ? (
+                    <p className="mt-3 text-xs font-semibold text-app-text-muted">
+                      No Store Credit activity is recorded for this customer.
+                    </p>
+                  ) : (
+                    <div className="mt-3 divide-y divide-app-border overflow-hidden rounded-xl border border-app-border bg-app-surface">
+                      {storeCreditLedger.slice(0, 6).map((entry) => {
+                        const amountCents = parseMoneyToCents(entry.amount);
+                        const isCredit = amountCents > 0;
+                        return (
+                          <div
+                            key={entry.id}
+                            className="grid gap-2 px-3 py-2 text-xs sm:grid-cols-[1fr_auto]"
+                          >
+                            <div className="min-w-0">
+                              <p className="font-black text-app-text">
+                                {humanizeToken(entry.reason)}
+                              </p>
+                              <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-widest text-app-text-muted">
+                                {readableDateTime(entry.created_at)}
+                                {entry.transaction_display_id
+                                  ? ` · ${entry.transaction_display_id}`
+                                  : ""}
+                              </p>
+                            </div>
+                            <div className="text-left sm:text-right">
+                              <p
+                                className={`font-black ${
+                                  isCredit ? "text-app-success" : "text-app-text"
+                                }`}
+                              >
+                                {isCredit ? "+" : ""}
+                                {fmtMoney(entry.amount)}
+                              </p>
+                              <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-widest text-app-text-muted">
+                                Balance {fmtMoney(entry.balance_after)}
+                              </p>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </section>
+              ) : null}
+
               {canRmsChargeView ? (
                 <section className="rounded-2xl border border-app-border bg-app-surface-2/80 p-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">

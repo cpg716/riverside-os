@@ -174,6 +174,7 @@ export interface AppliedPaymentLine {
     masked_account?: string;
     resolution_status?: string;
     rms_charge_collection?: boolean;
+    staff_account_collection?: boolean;
     posting_status?: string;
     external_transaction_id?: string;
     external_auth_code?: string;
@@ -216,6 +217,7 @@ export type NexoTenderTab =
   | "gift_card"
   | "donation"
   | "rms_charge"
+  | "staff_account"
   | "store_credit";
 
 export interface CheckoutPaymentSplitPayload {
@@ -294,6 +296,8 @@ export type RmsPaymentLineMeta = {
   sku: string;
   name: string;
 };
+
+export type StaffAccountPaymentLineMeta = RmsPaymentLineMeta;
 
 export type GiftCardLoadLineMeta = {
   product_id: string;

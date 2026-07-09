@@ -24,8 +24,8 @@ use crate::auth::permissions::{
 use crate::auth::pins::{self, hash_pin, is_valid_staff_credential, log_staff_access};
 use crate::auth::staff_avatar;
 use crate::logic::{
-    notifications, pricing_limits, register_staff_metrics, staff_avatar_processor, staff_schedule,
-    tasks,
+    notifications, pricing_limits, register_staff_metrics, staff_accounts, staff_avatar_processor,
+    staff_schedule, tasks,
 };
 use crate::middleware::{require_authenticated_staff_headers, require_staff_with_permission};
 use crate::models::DbStaffRole;
@@ -114,6 +114,7 @@ pub struct StaffHubRow {
     pub birthday_day: Option<i16>,
     pub employee_customer_id: Option<Uuid>,
     pub employee_customer_code: Option<String>,
+    pub staff_account_balance: Option<Decimal>,
     pub notification_preferences: serde_json::Value,
     pub podium_user_uid: Option<String>,
     pub podium_display_name: Option<String>,
@@ -310,11 +311,17 @@ pub fn router() -> Router<AppState> {
             post(mark_staff_birthday_greeting_seen),
         )
         .route("/self", get(self_get_profile).patch(self_patch_profile))
+        .route("/self/staff-account", get(self_staff_account))
         .route("/self/avatar", patch(self_patch_staff_avatar))
         .route("/self/set-pin", post(self_set_pin))
         .route("/self/pricing-limits", get(self_pricing_limits))
         .route("/self/register-metrics", get(self_register_metrics))
         .route("/admin/access-log", get(admin_access_log))
+        .route("/admin/staff-accounts", get(admin_staff_accounts))
+        .route(
+            "/admin/staff-accounts/{staff_id}",
+            get(admin_staff_account_detail),
+        )
         .route("/admin/roster", get(admin_roster))
         .route("/admin/podium-users", get(admin_get_podium_users))
         .route(
@@ -562,11 +569,13 @@ async fn self_get_profile(
             s.birthday_day,
             s.employee_customer_id,
             NULLIF(trim(c.customer_code), '') AS employee_customer_code,
+            sa.current_balance AS staff_account_balance,
             COALESCE(s.notification_preferences, '{}'::jsonb) AS notification_preferences,
             NULLIF(trim(s.podium_user_uid), '') AS podium_user_uid,
             NULLIF(trim(s.podium_display_name), '') AS podium_display_name
         FROM staff s
         LEFT JOIN customers c ON c.id = s.employee_customer_id
+        LEFT JOIN staff_accounts sa ON sa.staff_id = s.id
         WHERE s.id = $1
         "#,
     )
@@ -575,6 +584,41 @@ async fn self_get_profile(
     .await?;
 
     Ok(Json(row))
+}
+
+async fn self_staff_account(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Option<staff_accounts::StaffAccountDetail>>, StaffApiError> {
+    let staff = require_authenticated_staff_headers(&state, &headers)
+        .await
+        .map_err(|_| StaffApiError::Forbidden)?;
+    Ok(Json(
+        staff_accounts::detail_for_staff(&state.db, staff.id).await?,
+    ))
+}
+
+async fn admin_staff_accounts(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<staff_accounts::StaffAccountSummary>>, StaffApiError> {
+    let _ = require_staff_with_permission(&state, &headers, STAFF_VIEW)
+        .await
+        .map_err(|_| StaffApiError::Forbidden)?;
+    Ok(Json(staff_accounts::list_staff_accounts(&state.db).await?))
+}
+
+async fn admin_staff_account_detail(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(staff_id): Path<Uuid>,
+) -> Result<Json<Option<staff_accounts::StaffAccountDetail>>, StaffApiError> {
+    let _ = require_staff_with_permission(&state, &headers, STAFF_VIEW)
+        .await
+        .map_err(|_| StaffApiError::Forbidden)?;
+    Ok(Json(
+        staff_accounts::detail_for_staff(&state.db, staff_id).await?,
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -1112,11 +1156,13 @@ async fn admin_roster(
             s.birthday_day,
             s.employee_customer_id,
             NULLIF(trim(c.customer_code), '') AS employee_customer_code,
+            sa.current_balance AS staff_account_balance,
             COALESCE(s.notification_preferences, '{}'::jsonb) AS notification_preferences,
             NULLIF(trim(s.podium_user_uid), '') AS podium_user_uid,
             NULLIF(trim(s.podium_display_name), '') AS podium_display_name
         FROM staff s
         LEFT JOIN customers c ON c.id = s.employee_customer_id
+        LEFT JOIN staff_accounts sa ON sa.staff_id = s.id
         ORDER BY s.full_name ASC
         "#,
     )

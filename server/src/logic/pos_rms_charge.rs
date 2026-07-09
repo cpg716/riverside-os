@@ -278,6 +278,9 @@ pub fn payment_method_summary(
     if trimmed_method.eq_ignore_ascii_case("store_credit") {
         return "Store Credit".to_string();
     }
+    if trimmed_method.eq_ignore_ascii_case("staff_account_charge") {
+        return "Staff Account".to_string();
+    }
     if trimmed_method.eq_ignore_ascii_case("donation") {
         return "Donation".to_string();
     }

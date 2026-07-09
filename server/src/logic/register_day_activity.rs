@@ -144,6 +144,10 @@ pub struct RegisterActivityItem {
     pub fulfillment_type: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub transaction_total: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub short_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub imported_at: Option<chrono::DateTime<Utc>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -170,7 +174,9 @@ pub struct RegisterDaySummary {
     pub pickup_count: i64,
     pub special_order_sale_count: i64,
     pub appointment_count: i64,
+    pub new_appointment_count: i64,
     pub new_wedding_parties_count: i64,
+    pub new_invoice_count: i64,
     /// Sum of all `merchant_fee` in `payment_transactions` for the range/session.
     pub merchant_fees_total: String,
     /// Merchandise sales excluding tax. Taxes remain in `sales_tax_total`.
@@ -704,6 +710,37 @@ pub async fn fetch_register_day_summary(
     .await?;
     let appointment_count = appt_row.0;
 
+    let new_appt_row: (i64,) = sqlx::query_as(
+        r#"
+        SELECT COUNT(*)::bigint
+        FROM wedding_appointments wa
+        WHERE (wa.created_at AT TIME ZONE $1)::date >= $2::date
+          AND (wa.created_at AT TIME ZONE $1)::date <= $3::date
+        "#,
+    )
+    .bind(&tz_name)
+    .bind(from_l)
+    .bind(to_l)
+    .fetch_one(pool)
+    .await?;
+    let new_appointment_count = new_appt_row.0;
+
+    let new_invoice_row: (i64,) = sqlx::query_as(
+        r#"
+        SELECT COUNT(*)::bigint
+        FROM purchase_orders po
+        WHERE po.po_kind = 'direct_invoice'
+          AND (po.ordered_at AT TIME ZONE $1)::date >= $2::date
+          AND (po.ordered_at AT TIME ZONE $1)::date <= $3::date
+        "#,
+    )
+    .bind(&tz_name)
+    .bind(from_l)
+    .bind(to_l)
+    .fetch_one(pool)
+    .await?;
+    let new_invoice_count = new_invoice_row.0;
+
     let wed_row: (i64,) = sqlx::query_as(
         r#"
         SELECT COUNT(*)::bigint
@@ -780,7 +817,10 @@ pub async fn fetch_register_day_summary(
     #[derive(sqlx::FromRow)]
     struct SaleAct {
         transaction_id: Uuid,
+        short_id: Option<String>,
         booked_at: chrono::DateTime<Utc>,
+        created_at: chrono::DateTime<Utc>,
+        counterpoint_doc_ref: Option<String>,
         total_price: Decimal,
         sales_total_booked: Decimal,
         tax_total: Decimal,
@@ -842,7 +882,10 @@ pub async fn fetch_register_day_summary(
         r#"
         SELECT
             o.id AS transaction_id,
+            COALESCE(NULLIF(TRIM(o.display_id), ''), o.counterpoint_doc_ref, o.counterpoint_ticket_ref, o.id::text) AS short_id,
             {sale_ts} AS booked_at,
+            o.created_at,
+            o.counterpoint_doc_ref,
             o.total_price,
             COALESCE(SUM(
                 GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0)::numeric
@@ -969,7 +1012,7 @@ pub async fn fetch_register_day_summary(
               WHERE tl_activity.transaction_id = o.id
           )
         {order_session_filter}
-        GROUP BY o.id, {sale_ts}, o.total_price, o.balance_due, wp.id, wp.party_name, c.id, c.first_name, c.last_name, c.customer_code, c.phone, c.email, o.sale_channel::text
+        GROUP BY o.id, {sale_ts}, o.created_at, o.counterpoint_doc_ref, o.total_price, o.balance_due, wp.id, wp.party_name, c.id, c.first_name, c.last_name, c.customer_code, c.phone, c.email, o.sale_channel::text
         ORDER BY {sale_order_by}
         LIMIT 120
         "#
@@ -1126,11 +1169,22 @@ pub async fn fetch_register_day_summary(
             .map(money_label);
         let balance = Some(money_label(s.balance_due.max(Decimal::ZERO)));
 
+        let is_counterpoint_import = s
+            .counterpoint_doc_ref
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .is_some();
+
         activities.push(RegisterActivityItem {
             id: format!("{sale_kind}:{}", s.transaction_id),
             kind: sale_kind.to_string(),
             occurred_at: s.booked_at,
-            title,
+            title: if is_counterpoint_import {
+                "Imported Order".to_string()
+            } else {
+                title
+            },
             subtitle: customer_label(
                 s.party_name.as_deref(),
                 s.customer_first.as_deref(),
@@ -1166,6 +1220,12 @@ pub async fn fetch_register_day_summary(
                 s.fulfillment_type
             },
             transaction_total: s.amount_paid_in_window.map(money_label),
+            short_id: s.short_id,
+            imported_at: if is_counterpoint_import {
+                Some(s.created_at)
+            } else {
+                None
+            },
         });
     }
 
@@ -1226,6 +1286,8 @@ pub async fn fetch_register_day_summary(
             balance_due: None,
             fulfillment_type: Some("payment".to_string()),
             transaction_total: Some(money_label(p.amount)),
+            short_id: p.target_display_id,
+            imported_at: None,
         });
     }
 
@@ -1249,7 +1311,9 @@ pub async fn fetch_register_day_summary(
         pickup_count,
         special_order_sale_count,
         appointment_count,
+        new_appointment_count,
         new_wedding_parties_count,
+        new_invoice_count,
         merchant_fees_total: money_label(merchant_fees),
         net_sales: money_label(subtotal),
         cash_collected: money_label(cash_collected),

@@ -194,7 +194,8 @@ pub async fn generate_report(
               AND ({line_recognition_ts} AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
               AND (p.pos_line_kind IS DISTINCT FROM 'rms_charge_payment')
               AND (p.pos_line_kind IS DISTINCT FROM 'pos_gift_card_load')
-              AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
+AND (p.pos_line_kind IS DISTINCT FROM 'staff_account_payment')
+AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
         )
         SELECT
             COALESCE(SUM(
@@ -251,7 +252,8 @@ pub async fn generate_report(
           AND ({line_recognition_ts} AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
           AND (p.pos_line_kind IS DISTINCT FROM 'rms_charge_payment')
           AND (p.pos_line_kind IS DISTINCT FROM 'pos_gift_card_load')
-          AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
+AND (p.pos_line_kind IS DISTINCT FROM 'staff_account_payment')
+AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
         "#
     ))
     .bind(activity_date)
@@ -461,7 +463,8 @@ pub async fn generate_report(
           AND ({line_recognition_ts} AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
           AND (p.pos_line_kind IS DISTINCT FROM 'rms_charge_payment')
           AND (p.pos_line_kind IS DISTINCT FROM 'pos_gift_card_load')
-          AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
+AND (p.pos_line_kind IS DISTINCT FROM 'staff_account_payment')
+AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
         GROUP BY c.name
         ORDER BY net_sales DESC NULLS LAST
         "#

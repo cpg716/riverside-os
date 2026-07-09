@@ -26,6 +26,7 @@ pub struct StoreCreditLedgerRow {
     pub balance_after: Decimal,
     pub reason: String,
     pub transaction_id: Option<Uuid>,
+    pub transaction_display_id: Option<String>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -54,9 +55,17 @@ pub async fn fetch_summary(
 
     let ledger = sqlx::query_as::<_, StoreCreditLedgerRow>(
         r#"
-        SELECT l.id, l.amount, l.balance_after, l.reason, l.transaction_id, l.created_at
+        SELECT
+            l.id,
+            l.amount,
+            l.balance_after,
+            l.reason,
+            l.transaction_id,
+            t.display_id AS transaction_display_id,
+            l.created_at
         FROM store_credit_ledger l
         JOIN store_credit_accounts a ON a.id = l.account_id
+        LEFT JOIN transactions t ON t.id = l.transaction_id
         WHERE a.customer_id = $1
         ORDER BY l.created_at DESC
         LIMIT 40

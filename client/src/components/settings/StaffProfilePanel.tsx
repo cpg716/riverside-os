@@ -62,6 +62,7 @@ interface StaffProfile {
   max_discount_percent: string;
   employee_customer_id: string | null;
   employee_customer_code: string | null;
+  staff_account_balance: string | number | null;
   notification_preferences: NotificationPreferences;
   podium_user_uid: string | null;
   podium_display_name: string | null;
@@ -627,6 +628,25 @@ export default function StaffProfilePanel() {
                         {profile.employee_customer_code}
                       </p>
                     </div>
+                  </div>
+                </div>
+              )}
+              {profile.staff_account_balance != null && (
+                <div className="block space-y-3">
+                  <span className="text-[11px] font-black uppercase tracking-widest text-app-text-muted ml-1 flex items-center gap-2">
+                    <CreditCard size={12} className="text-app-accent" />
+                    Staff Account Balance
+                  </span>
+                  <div className="flex items-center justify-between gap-4 h-16 px-6 rounded-2xl bg-cyan-700/5 border border-cyan-700/20">
+                    <div>
+                      <p className="text-xs font-black text-app-text">Employee receivable</p>
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
+                        Purchases still use normal tax rules
+                      </p>
+                    </div>
+                    <p className="text-xl font-black tabular-nums text-cyan-800">
+                      ${Number.parseFloat(String(profile.staff_account_balance ?? "0")).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </p>
                   </div>
                 </div>
               )}

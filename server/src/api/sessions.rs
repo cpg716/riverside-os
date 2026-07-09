@@ -368,6 +368,7 @@ pub struct TransactionLine {
     pub transaction_total: Option<Decimal>,
     pub transaction_paid: Option<Decimal>,
     pub transaction_balance_due: Option<Decimal>,
+    pub shipping_amount: Option<Decimal>,
     pub customer_name: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub payments: Vec<TransactionTenderLine>,
@@ -479,6 +480,7 @@ struct TransactionLineRow {
     transaction_total: Option<Decimal>,
     transaction_paid: Option<Decimal>,
     transaction_balance_due: Option<Decimal>,
+    shipping_amount: Option<Decimal>,
     customer_name: String,
     payments_json: serde_json::Value,
     items_json: serde_json::Value,
@@ -1660,6 +1662,7 @@ async fn build_reconciliation(
             o.total_price AS transaction_total,
             o.amount_paid AS transaction_paid,
             o.balance_due AS transaction_balance_due,
+            o.shipping_amount_usd AS shipping_amount,
             COALESCE(
                 NULLIF(TRIM(COALESCE(c.first_name, '') || ' ' || COALESCE(c.last_name, '')), ''),
                 'Walk-in'
@@ -1761,7 +1764,7 @@ async fn build_reconciliation(
             pay_tx.payment_transaction_id, pay_tx.register_session_id, pay_tx.register_lane,
             pay_tx.created_at, pay_tx.payment_method, pay_tx.amount, pay_tx.check_number,
             pay_tx.ledger_transaction_id, pay_tx.payments_json,
-            o.display_id, o.status, o.total_price, o.amount_paid, o.balance_due,
+            o.display_id, o.status, o.total_price, o.amount_paid, o.balance_due, o.shipping_amount_usd,
             c.first_name, c.last_name
         ORDER BY pay_tx.created_at DESC
         LIMIT 300
@@ -1787,6 +1790,7 @@ async fn build_reconciliation(
             transaction_total: row.transaction_total,
             transaction_paid: row.transaction_paid,
             transaction_balance_due: row.transaction_balance_due,
+            shipping_amount: row.shipping_amount,
             customer_name: row.customer_name,
             payments: parse_transaction_tender_lines(row.payments_json),
             items: parse_transaction_audit_items(row.items_json),

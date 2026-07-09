@@ -123,4 +123,5 @@ pub const EMBEDDED_MIGRATIONS: &[(&str, &str)] = &[
     ("120_resolve_browser_station_offline_alerts.sql", include_str!("../../migrations/120_resolve_browser_station_offline_alerts.sql")),
     ("121_pos_shipping_charge_links.sql", include_str!("../../migrations/121_pos_shipping_charge_links.sql")),
     ("122_unhide_inventory_variants.sql", include_str!("../../migrations/122_unhide_inventory_variants.sql")),
+    ("123_staff_accounts.sql", include_str!("../../migrations/123_staff_accounts.sql")),
 ];

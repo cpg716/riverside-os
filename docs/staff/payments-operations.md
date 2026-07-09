@@ -46,7 +46,7 @@ If there are no card payments yet, the tab shows **No payments yet today**. Run 
 
 ## POS Payments
 
-Use **POS → Payments** for same-day register review. It opens to **Today**, which lists the current day’s Helcim card transactions. Select a row to review the payment, provider reference, batch state, fee/net readiness, and related reconciliation history.
+Use **POS → Payments** for same-day register review. It opens to **Today**, which lists the current day’s Helcim card transactions. Each ROS-created payment is expected to show its **TXN-XXXXXX** Transaction number; select that number to open the Transaction Record from the register. Select the rest of the row to review the payment, provider reference, batch state, fee/net readiness, and related reconciliation history.
 
 Use **Refund** from the same POS Payments screen for a standalone Helcim card refund only when ROS already has the original Helcim payment reference. Staff do not type Helcim invoice, provider, or transaction IDs into ROS. ROS starts the provider refund and records the Helcim attempt in Payments, but it does not create a sales refund or change a Transaction Record by itself.
 
@@ -175,6 +175,15 @@ RMS Charge entries appear in customer history, RMS Charge reporting, and reconci
 Manual RMS Charge refunds and reversals are recorded manually against the RMS Charge transaction/reference trail.
 
 Every POS-created RMS Charge Sale and RMS Charge Payment must be reported to R2S by the next day. This is tracked in **Customers → RMS Charge**, not the Payments workspace. Use the `Report to R2S` status, due date, and `Mark Reported` action on the RMS Charge record after staff complete the R2S follow-up.
+
+## Staff Accounts
+
+Staff Account is an internal employee receivable workflow.
+
+- **Staff Account** tender in checkout records a normal taxable employee purchase against the linked employee customer profile. It does not remove sales tax. The item tax category, clothing/footwear exemption, tax-exempt toggle, and shipping tax rules still decide tax.
+- **Staff Pay** in the register toolbar records a payment against an existing Staff Account balance. This is a paydown line only, so it does not create merchandise revenue or new sales tax.
+- Back Office **Staff → Accounts** shows linked staff/customer accounts and current balances. Each staff member also sees their balance on their Staff Profile when one exists.
+- QBO maps Staff Account charges and paydowns to Staff Accounts Receivable.
 
 ## Deposits
 

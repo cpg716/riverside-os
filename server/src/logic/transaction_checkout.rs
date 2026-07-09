@@ -18,7 +18,6 @@ use crate::logic::custom_orders::{
 use crate::logic::customer_open_deposit;
 use crate::logic::gift_card_ops;
 use crate::logic::order_lifecycle;
-use crate::logic::pos_rms_charge;
 use crate::logic::pricing_limits;
 use crate::logic::sales_commission;
 use crate::logic::store_credit;
@@ -28,6 +27,7 @@ use crate::logic::transaction_fulfillment::persist_fulfillment;
 use crate::logic::transaction_recalc;
 use crate::logic::weather;
 use crate::logic::weddings as wedding_logic;
+use crate::logic::{pos_rms_charge, staff_accounts};
 use crate::models::{
     DbFulfillmentType, DbOrderFulfillmentMethod, DbOrderItemLifecycleStatus, DbOrderStatus,
     DbTransactionCategory,
@@ -516,6 +516,20 @@ fn validate_order_payment_shape(
                 "order_payments[].client_line_id is required".to_string(),
             ));
         }
+        let amount = payment.amount.round_dp(2);
+        if amount < Decimal::ZERO {
+            return Err(CheckoutError::InvalidPayload(
+                "order payment amount cannot be negative".to_string(),
+            ));
+        }
+        if amount == Decimal::ZERO {
+            tracing::info!(
+                client_line_id = client_line_id,
+                target_transaction_id = %payment.target_transaction_id,
+                "ignored zero-dollar order payment row"
+            );
+            continue;
+        }
         if !client_line_ids.insert(client_line_id.to_string()) {
             return Err(CheckoutError::InvalidPayload(
                 "duplicate order payment client_line_id is not supported".to_string(),
@@ -537,12 +551,6 @@ fn validate_order_payment_shape(
         if target_display_id.is_empty() {
             return Err(CheckoutError::InvalidPayload(
                 "order_payments[].target_display_id is required".to_string(),
-            ));
-        }
-        let amount = payment.amount.round_dp(2);
-        if amount <= Decimal::ZERO {
-            return Err(CheckoutError::InvalidPayload(
-                "order payment amount must be positive".to_string(),
             ));
         }
         let balance_before = payment.balance_before.round_dp(2);
@@ -1485,8 +1493,9 @@ fn resolve_payment_splits(
                     ));
                 }
                 if a < Decimal::ZERO {
-                    let refund_tender_allowed =
-                        m.eq_ignore_ascii_case("cash") || m.eq_ignore_ascii_case("card_credit");
+                    let refund_tender_allowed = m.eq_ignore_ascii_case("cash")
+                        || m.eq_ignore_ascii_case("card_credit")
+                        || m.eq_ignore_ascii_case("store_credit");
                     if !refund_checkout || !refund_tender_allowed {
                         return Err(CheckoutError::InvalidPayload(
                             "negative split amounts are only allowed for customer refunds"
@@ -1578,6 +1587,14 @@ fn resolve_payment_splits(
                             Value::String(code.to_ascii_uppercase()),
                         );
                     }
+                    normalized_meta = Value::Object(object);
+                }
+                if m.eq_ignore_ascii_case("staff_account_charge") {
+                    let mut object = normalized_meta.as_object().cloned().unwrap_or_default();
+                    object.insert(
+                        "tender_family".to_string(),
+                        Value::String("staff_account".to_string()),
+                    );
                     normalized_meta = Value::Object(object);
                 }
                 let payment_provider = normalized_meta
@@ -2032,6 +2049,7 @@ pub async fn execute_checkout(
     }
 
     let mut is_rms_payment_collection = false;
+    let mut is_staff_account_payment_collection = false;
     {
         let rms_line_count = payload
             .items
@@ -2058,6 +2076,31 @@ pub async fn execute_checkout(
             }
             is_rms_payment_collection = true;
         }
+        let staff_account_line_count = payload
+            .items
+            .iter()
+            .filter(|item| {
+                resolved_variants
+                    .get(&item.variant_id)
+                    .and_then(|r| r.pos_line_kind.as_deref())
+                    == Some("staff_account_payment")
+            })
+            .count();
+        if staff_account_line_count > 0 {
+            if payload.items.len() != 1 || payload.items[0].quantity != 1 {
+                return Err(CheckoutError::InvalidPayload(
+                    "STAFF ACCOUNT PAYMENT cannot be combined with other items and must be quantity 1"
+                        .to_string(),
+                ));
+            }
+            let r0 = resolved_variants.get(&payload.items[0].variant_id).unwrap();
+            if r0.pos_line_kind.as_deref() != Some("staff_account_payment") {
+                return Err(CheckoutError::InvalidPayload(
+                    "Invalid Staff Account payment line".to_string(),
+                ));
+            }
+            is_staff_account_payment_collection = true;
+        }
     }
 
     let mut has_pos_gift_card_load = false;
@@ -2070,7 +2113,9 @@ pub async fn execute_checkout(
             && !is_employee_purchase_order
             && !matches!(
                 kind,
-                Some("pos_gift_card_load") | Some("rms_charge_payment")
+                Some("pos_gift_card_load")
+                    | Some("rms_charge_payment")
+                    | Some("staff_account_payment")
             )
         {
             return Err(CheckoutError::InvalidPayload(
@@ -2142,6 +2187,45 @@ pub async fn execute_checkout(
         }
     }
 
+    if is_staff_account_payment_collection {
+        if payload.customer_id.is_none() {
+            return Err(CheckoutError::InvalidPayload(
+                "STAFF ACCOUNT PAYMENT requires a linked staff customer".to_string(),
+            ));
+        }
+        if payload.wedding_member_id.is_some() {
+            return Err(CheckoutError::InvalidPayload(
+                "STAFF ACCOUNT PAYMENT cannot be used with wedding member checkout".to_string(),
+            ));
+        }
+        if payload
+            .wedding_disbursements
+            .as_ref()
+            .map(|d| !d.is_empty())
+            .unwrap_or(false)
+        {
+            return Err(CheckoutError::InvalidPayload(
+                "STAFF ACCOUNT PAYMENT does not support wedding disbursements".to_string(),
+            ));
+        }
+        if !order_payments.is_empty() {
+            return Err(CheckoutError::InvalidPayload(
+                "STAFF ACCOUNT PAYMENT does not support existing order payments".to_string(),
+            ));
+        }
+        let summary =
+            staff_accounts::summary_for_customer(pool, payload.customer_id.unwrap()).await?;
+        if summary
+            .as_ref()
+            .map(|account| account.status.as_str() == "active")
+            != Some(true)
+        {
+            return Err(CheckoutError::InvalidPayload(
+                "Linked customer does not have an active staff account".to_string(),
+            ));
+        }
+    }
+
     let has_customer_profile_discount = payload.items.iter().any(|item| {
         item.price_override_reason
             .as_deref()
@@ -2205,6 +2289,7 @@ pub async fn execute_checkout(
                 kind,
                 Some("rms_charge_payment")
                     | Some("pos_gift_card_load")
+                    | Some("staff_account_payment")
                     | Some("alteration_service")
             ) || item.line_type.as_deref() == Some("alteration_service")
             {
@@ -2246,6 +2331,7 @@ pub async fn execute_checkout(
                 kind,
                 Some("rms_charge_payment")
                     | Some("pos_gift_card_load")
+                    | Some("staff_account_payment")
                     | Some("alteration_service")
             ) || item.line_type.as_deref() == Some("alteration_service")
             {
@@ -2294,6 +2380,11 @@ pub async fn execute_checkout(
         if resolved.pos_line_kind.as_deref() == Some("alteration_service") {
             return Err(CheckoutError::InvalidPayload(
                 "Discount events cannot apply to ALTERATION SERVICE".to_string(),
+            ));
+        }
+        if resolved.pos_line_kind.as_deref() == Some("staff_account_payment") {
+            return Err(CheckoutError::InvalidPayload(
+                "Discount events cannot apply to STAFF ACCOUNT PAYMENT".to_string(),
             ));
         }
         let row: Option<(Decimal, String, bool)> = sqlx::query_as(
@@ -2376,7 +2467,10 @@ pub async fn execute_checkout(
         let resolved = resolved_variants.get(&item.variant_id).unwrap();
         if matches!(
             resolved.pos_line_kind.as_deref(),
-            Some("rms_charge_payment") | Some("pos_gift_card_load") | Some("alteration_service")
+            Some("rms_charge_payment")
+                | Some("pos_gift_card_load")
+                | Some("staff_account_payment")
+                | Some("alteration_service")
         ) || item.line_type.as_deref() == Some("alteration_service")
             || item.fulfillment == DbFulfillmentType::Custom
         {
@@ -2488,6 +2582,23 @@ pub async fn execute_checkout(
                 "open_deposit payment requires customer_id on checkout".to_string(),
             ));
         }
+        if s.method.trim().eq_ignore_ascii_case("staff_account_charge") {
+            let Some(cid) = payload.customer_id else {
+                return Err(CheckoutError::InvalidPayload(
+                    "Staff Account charge requires a linked staff customer".to_string(),
+                ));
+            };
+            let summary = staff_accounts::summary_for_customer(pool, cid).await?;
+            if summary
+                .as_ref()
+                .map(|account| account.status.as_str() == "active")
+                != Some(true)
+            {
+                return Err(CheckoutError::InvalidPayload(
+                    "Staff Account charge requires an active staff account".to_string(),
+                ));
+            }
+        }
     }
 
     if is_rms_payment_collection {
@@ -2496,6 +2607,20 @@ pub async fn execute_checkout(
             if m != "cash" && m != "check" {
                 return Err(CheckoutError::InvalidPayload(
                     "RMS CHARGE PAYMENT accepts cash or check only".to_string(),
+                ));
+            }
+        }
+    }
+
+    if is_staff_account_payment_collection {
+        for s in &payment_splits {
+            let m = s.method.trim().to_ascii_lowercase();
+            if !matches!(
+                m.as_str(),
+                "cash" | "check" | "card_terminal" | "card_manual" | "card_saved"
+            ) {
+                return Err(CheckoutError::InvalidPayload(
+                    "STAFF ACCOUNT PAYMENT accepts cash, check, or approved card only".to_string(),
                 ));
             }
         }
@@ -3380,6 +3505,7 @@ pub async fn execute_checkout(
                 pos_kind.as_deref(),
                 Some("rms_charge_payment")
                     | Some("pos_gift_card_load")
+                    | Some("staff_account_payment")
                     | Some("alteration_service")
             ) {
                 (Decimal::ZERO, Decimal::ZERO)
@@ -3425,12 +3551,16 @@ pub async fn execute_checkout(
                     ),
                 )
             };
-            let line_is_internal = pos_kind.as_deref() == Some("rms_charge_payment");
+            let line_is_internal = matches!(
+                pos_kind.as_deref(),
+                Some("rms_charge_payment") | Some("staff_account_payment")
+            );
             if item.tax_category_override.is_some()
                 && !matches!(
                     pos_kind.as_deref(),
                     Some("rms_charge_payment")
                         | Some("pos_gift_card_load")
+                        | Some("staff_account_payment")
                         | Some("alteration_service")
                 )
                 && logic_tax_cat != catalog_tax_cat
@@ -3598,6 +3728,7 @@ pub async fn execute_checkout(
                 pos_kind.as_deref(),
                 Some("rms_charge_payment")
                     | Some("pos_gift_card_load")
+                    | Some("staff_account_payment")
                     | Some("alteration_service")
             );
 
@@ -3996,7 +4127,13 @@ pub async fn execute_checkout(
                 let cid = payload.customer_id.ok_or_else(|| {
                     CheckoutError::InvalidPayload("customer_id required".to_string())
                 })?;
-                store_credit::apply_checkout_redemption(&mut tx, cid, split.amount, transaction_id)
+                if split.amount > Decimal::ZERO {
+                    store_credit::apply_checkout_redemption(
+                        &mut tx,
+                        cid,
+                        split.amount,
+                        transaction_id,
+                    )
                     .await
                     .map_err(|e| match e {
                         store_credit::StoreCreditError::InsufficientBalance => {
@@ -4014,6 +4151,38 @@ pub async fn execute_checkout(
                         }
                         store_credit::StoreCreditError::Database(d) => CheckoutError::Database(d),
                     })?;
+                } else if split.amount < Decimal::ZERO {
+                    let balance_after = store_credit::credit_refund_in_tx(
+                        &mut tx,
+                        cid,
+                        -split.amount,
+                        transaction_id,
+                        "checkout_store_credit_refund",
+                    )
+                    .await
+                    .map_err(|e| match e {
+                        store_credit::StoreCreditError::InsufficientBalance => {
+                            CheckoutError::InvalidPayload(
+                                "Store credit balance is insufficient for this split".to_string(),
+                            )
+                        }
+                        store_credit::StoreCreditError::NotFound => CheckoutError::InvalidPayload(
+                            "Store credit account not found".to_string(),
+                        ),
+                        store_credit::StoreCreditError::ReasonRequired => {
+                            CheckoutError::InvalidPayload(
+                                "Store credit configuration error".to_string(),
+                            )
+                        }
+                        store_credit::StoreCreditError::Database(d) => CheckoutError::Database(d),
+                    })?;
+                    if let Some(metadata) = split.metadata.as_object_mut() {
+                        metadata.insert(
+                            "store_credit_balance_after".to_string(),
+                            json!(balance_after.to_string()),
+                        );
+                    }
+                }
             }
 
             if method.eq_ignore_ascii_case("open_deposit") {
@@ -4119,6 +4288,10 @@ pub async fn execute_checkout(
                 if is_rms_payment_collection {
                     metadata.insert("rms_charge_collection".to_string(), json!(true));
                 }
+                if is_staff_account_payment_collection {
+                    metadata.insert("staff_account_collection".to_string(), json!(true));
+                    metadata.insert("tender_family".to_string(), json!("staff_account"));
+                }
             }
 
             // 3. Create the movement record (payment_transactions)
@@ -4206,6 +4379,50 @@ pub async fn execute_checkout(
                     method: method.to_string(),
                     metadata: split.metadata.clone(),
                 });
+            }
+
+            if method.eq_ignore_ascii_case("staff_account_charge") {
+                let cid = payload.customer_id.ok_or_else(|| {
+                    CheckoutError::InvalidPayload(
+                        "Staff Account charge requires a linked staff customer".to_string(),
+                    )
+                })?;
+                staff_accounts::record_charge_in_tx(
+                    &mut tx,
+                    cid,
+                    split.amount,
+                    transaction_id,
+                    payment_tx_id,
+                    payload.session_id,
+                    payload.operator_staff_id,
+                    Some(&split.metadata),
+                )
+                .await
+                .map_err(|error| match error {
+                    staff_accounts::StaffAccountError::Database(d) => CheckoutError::Database(d),
+                    other => CheckoutError::InvalidPayload(other.to_string()),
+                })?;
+            } else if is_staff_account_payment_collection {
+                let cid = payload.customer_id.ok_or_else(|| {
+                    CheckoutError::InvalidPayload(
+                        "Staff Account payment requires a linked staff customer".to_string(),
+                    )
+                })?;
+                staff_accounts::record_payment_in_tx(
+                    &mut tx,
+                    cid,
+                    split.amount,
+                    transaction_id,
+                    Some(payment_tx_id),
+                    payload.session_id,
+                    payload.operator_staff_id,
+                    Some(&split.metadata),
+                )
+                .await
+                .map_err(|error| match error {
+                    staff_accounts::StaffAccountError::Database(d) => CheckoutError::Database(d),
+                    other => CheckoutError::InvalidPayload(other.to_string()),
+                })?;
             }
 
             if let Some(slot) = payment_tx_ids_by_split.get_mut(split_index) {
@@ -5066,6 +5283,18 @@ mod tests {
         }
     }
 
+    fn store_credit_split(amount: Decimal) -> CheckoutPaymentSplit {
+        CheckoutPaymentSplit {
+            payment_method: "store_credit".to_string(),
+            amount,
+            sub_type: None,
+            applied_deposit_amount: None,
+            gift_card_code: None,
+            check_number: None,
+            metadata: None,
+        }
+    }
+
     #[test]
     fn checkout_quantity_allows_negative_takeaway_retail_line() {
         let mut item = checkout_item_with_client_line(None);
@@ -5086,6 +5315,20 @@ mod tests {
 
         assert_eq!(splits[0].amount, Decimal::new(-7125, 2));
         assert_eq!(label, "cash");
+    }
+
+    #[test]
+    fn checkout_splits_allow_negative_store_credit_for_refund_checkout() {
+        let payload = checkout_request_for_split_validation(
+            Decimal::new(-7125, 2),
+            Decimal::new(-7125, 2),
+            vec![store_credit_split(Decimal::new(-7125, 2))],
+        );
+
+        let (splits, label) = resolve_payment_splits(&payload).unwrap();
+
+        assert_eq!(splits[0].amount, Decimal::new(-7125, 2));
+        assert_eq!(label, "store_credit");
     }
 
     #[test]
@@ -5442,6 +5685,25 @@ mod tests {
         )
         .unwrap_err();
         assert!(err.to_string().contains("customer_id is required"));
+    }
+
+    #[test]
+    fn transaction_checkout_order_payment_shape_ignores_zero_amount_rows() {
+        let customer_id = Uuid::new_v4();
+        let target_id = Uuid::new_v4();
+        let payload = validate_order_payment_shape(
+            Some(customer_id),
+            Some(customer_id),
+            &[order_payment_payload(
+                customer_id,
+                target_id,
+                Decimal::ZERO,
+                Decimal::new(10000, 2),
+            )],
+        )
+        .unwrap();
+
+        assert!(payload.is_empty());
     }
 
     #[test]

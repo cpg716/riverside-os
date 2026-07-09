@@ -45,6 +45,14 @@ function isRmsChargePaymentLine(line: CartLineItem): boolean {
   );
 }
 
+function isStaffAccountPaymentLine(line: CartLineItem): boolean {
+  return (
+    line.custom_item_type === "staff_account_payment" ||
+    line.sku === "ROS-STAFF-ACCOUNT-PAYMENT" ||
+    line.name.trim().toUpperCase() === "STAFF ACCOUNT PAYMENT"
+  );
+}
+
 export function CartItemRow({
   line,
   orderLaterFulfillment,
@@ -69,6 +77,7 @@ export function CartItemRow({
   const isSelected = selectedLineKey === lk;
   const isAlterationLine = line.line_type === "alteration_service";
   const isRmsPaymentLine = isRmsChargePaymentLine(line);
+  const isStaffAccountPayment = isStaffAccountPaymentLine(line);
   const regCents = parseMoneyToCents(
     line.original_unit_price ?? line.standard_retail_price,
   );
@@ -95,7 +104,7 @@ export function CartItemRow({
     line.tax_category === "clothing" || line.tax_category === "footwear"
       ? line.tax_category
       : "standard";
-  const canToggleTaxCategory = !isAlterationLine && !isRmsPaymentLine && !isLockedAmountLine;
+  const canToggleTaxCategory = !isAlterationLine && !isRmsPaymentLine && !isStaffAccountPayment && !isLockedAmountLine;
 
   return (
     <div
@@ -138,12 +147,17 @@ export function CartItemRow({
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <div className="flex items-center gap-1.5 shrink-0">
             <span className="flex items-center gap-1 rounded bg-app-surface-2 px-1.5 py-0.5 text-[10px] font-bold text-app-text-muted ring-1 ring-app-border/70">
-              {isRmsPaymentLine ? <CreditCard size={10} /> : isAlterationLine ? <Scissors size={10} /> : <Tag size={10} />}
+              {isRmsPaymentLine || isStaffAccountPayment ? <CreditCard size={10} /> : isAlterationLine ? <Scissors size={10} /> : <Tag size={10} />}
               {line.sku}
             </span>
             {isRmsPaymentLine ? (
               <span className="rounded bg-app-info/12 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-widest text-app-info ring-1 ring-app-info/15">
                 RMS Payment
+              </span>
+            ) : null}
+            {isStaffAccountPayment ? (
+              <span className="rounded bg-cyan-700/10 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-widest text-cyan-700 ring-1 ring-cyan-700/15">
+                Staff Account Payment
               </span>
             ) : null}
             {isAlterationLine ? (

@@ -113,6 +113,15 @@ interface HelcimCloseReviewAttempt {
   created_at: string;
 }
 
+interface ZReportDaySummary {
+  pickup_count: number;
+  special_order_sale_count: number;
+  appointment_count: number;
+  new_appointment_count: number;
+  new_wedding_parties_count: number;
+  new_invoice_count: number;
+}
+
 interface TransactionLine {
   payment_transaction_id?: string;
   transaction_id?: string;
@@ -131,6 +140,7 @@ interface TransactionLine {
   transaction_total?: string | null;
   transaction_paid?: string | null;
   transaction_balance_due?: string | null;
+  shipping_amount?: string | null;
   customer_name: string;
   items?: {
     name: string;
@@ -297,6 +307,7 @@ export default function CloseRegisterModal({
 }: CloseRegisterModalProps) {
   const { toast } = useToast();
   const { backofficeHeaders, staffCode, clearStaffCredentials } = useBackofficeAuth();
+  const baseUrl = getBaseUrl();
   useShellBackdropLayer(true);
 
   const jsonAuthHeaders = useCallback(() => {
@@ -304,6 +315,27 @@ export default function CloseRegisterModal({
     h.set("Content-Type", "application/json");
     return h;
   }, [backofficeHeaders]);
+
+  const fetchBookedDaySummaryForZ = useCallback(async (businessDate?: string | null): Promise<ZReportDaySummary | null> => {
+    const params = new URLSearchParams({ basis: "booked" });
+    if (businessDate?.trim()) {
+      params.set("preset", "custom");
+      params.set("from", businessDate.trim());
+      params.set("to", businessDate.trim());
+    } else {
+      params.set("preset", "today");
+    }
+    try {
+      const res = await fetch(`${baseUrl}/api/insights/register-day-activity?${params}`, {
+        headers: mergedPosStaffHeaders(backofficeHeaders),
+      });
+      if (!res.ok) return null;
+      return (await res.json()) as ZReportDaySummary;
+    } catch (error) {
+      console.warn("Failed to load Z-report day summary counters", error);
+      return null;
+    }
+  }, [backofficeHeaders, baseUrl]);
 
   const reconcileCashierCode = useMemo(() => {
     const c = staffCode.trim();
@@ -356,7 +388,6 @@ export default function CloseRegisterModal({
     blockedCount: 0,
   });
 
-  const baseUrl = getBaseUrl();
   const onReconcilingBegunRef = useRef(onReconcilingBegun);
   onReconcilingBegunRef.current = onReconcilingBegun;
 
@@ -680,6 +711,9 @@ export default function CloseRegisterModal({
     const currentRoundingCents = parseMoneyToCents(currentRecon.total_rounding_adjustments ?? "0");
     const currentCashSalesCents = currentExpectedCents - currentOpeningCents - currentNetAdjCents - currentRoundingCents;
     const closingNotesForReport = buildClosingNotesForReport();
+    const daySummary = await fetchBookedDaySummaryForZ(
+      currentRecon.qbo_activity_date ?? currentRecon.qbo_journal?.activity_date ?? null,
+    );
     const opened = await openProfessionalZReportPrint({
       title: "Z-Report",
       sessionId: currentRecon.session_id,
@@ -702,6 +736,12 @@ export default function CloseRegisterModal({
       overrideSummary: currentRecon.override_summary ?? [],
       tendersByLane: currentRecon.tenders_by_lane,
       manualDrawerOpens: currentRecon.manual_drawer_opens ?? [],
+      newOrdersCount: daySummary?.special_order_sale_count,
+      ordersPickedUpCount: daySummary?.pickup_count,
+      todayAppointmentsCount: daySummary?.appointment_count ?? 0,
+      newAppointmentsCount: daySummary?.new_appointment_count ?? 0,
+      newWeddingPartiesCount: daySummary?.new_wedding_parties_count ?? 0,
+      newInvoicesCount: daySummary?.new_invoice_count ?? 0,
       qboActivityDate: currentRecon.qbo_activity_date ?? currentRecon.qbo_journal?.activity_date ?? null,
       qboJournal: currentRecon.qbo_journal ?? null,
       qboJournalError: currentRecon.qbo_journal_error ?? null,
@@ -717,6 +757,7 @@ export default function CloseRegisterModal({
         transaction_total: t.transaction_total,
         transaction_paid: t.transaction_paid,
         transaction_balance_due: t.transaction_balance_due,
+        shipping_amount: t.shipping_amount,
         items: t.items ?? [],
         register_lane: t.register_lane ?? 1,
       })),
@@ -725,7 +766,7 @@ export default function CloseRegisterModal({
       toast("Z-report opened for review.", "success");
     }
     return opened;
-  }, [actualCash, buildClosingNotesForReport, cashDepositAmount, cashDepositDate, cashierName, closingComments, recon, registerOrdinal, toast]);
+  }, [actualCash, buildClosingNotesForReport, cashDepositAmount, cashDepositDate, cashierName, closingComments, fetchBookedDaySummaryForZ, recon, registerOrdinal, toast]);
 
   const handleFinalClose = async () => {
     setShowFinalConfirm(false);

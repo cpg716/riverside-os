@@ -53,6 +53,7 @@ export interface HubRow {
   birthday_day?: number | null;
   employee_customer_id?: string | null;
   employee_customer_code?: string | null;
+  staff_account_balance?: string | number | null;
   podium_user_uid?: string | null;
   podium_display_name?: string | null;
 }

@@ -344,6 +344,18 @@ interface RmsChargeProgramsResponse {
   summary: RmsChargeAccountSummary;
 }
 
+interface StaffAccountSummary {
+  account_id: string;
+  staff_id: string;
+  staff_name: string;
+  customer_id: string;
+  customer_code?: string | null;
+  customer_name: string;
+  status: string;
+  current_balance: string | number;
+  credit_limit: string | number;
+}
+
 const TAB_META: Record<
   NexoTenderTab,
   {
@@ -418,6 +430,14 @@ const TAB_META: Record<
     idle: "bg-amber-500/5 border border-app-border text-app-text-muted hover:border-amber-500/40",
     active: "bg-amber-600 border border-transparent text-white shadow-lg",
     accent: "text-amber-500",
+  },
+  staff_account: {
+    label: "STAFF ACCOUNT",
+    method: "staff_account_charge",
+    icon: Landmark,
+    idle: "bg-cyan-500/5 border border-app-border text-app-text-muted hover:border-cyan-500/40",
+    active: "bg-cyan-700 border border-transparent text-white shadow-lg",
+    accent: "text-cyan-600",
   },
   gift_card: {
     label: "GIFT CARD",
@@ -567,6 +587,9 @@ export default function NexoCheckoutDrawer({
   const [helcimCards, setHelcimCards] = useState<HelcimCard[]>([]);
   const [selectedHelcimCardToken, setSelectedHelcimCardToken] = useState<string>("");
   const [helcimCardsLoading, setHelcimCardsLoading] = useState(false);
+  const [storeCreditBalanceCents, setStoreCreditBalanceCents] = useState<number | null>(null);
+  const [storeCreditLoading, setStoreCreditLoading] = useState(false);
+  const [storeCreditError, setStoreCreditError] = useState<string | null>(null);
   const [selectedTerminalKey, setSelectedTerminalKey] = useState<"terminal_1" | "terminal_2" | "">("");
   const [terminalPickerOpen, setTerminalPickerOpen] = useState(false);
   const [terminalOverrideConfirmed, setTerminalOverrideConfirmed] = useState(false);
@@ -583,6 +606,9 @@ export default function NexoCheckoutDrawer({
   const [rmsSummary, setRmsSummary] = useState<RmsChargeAccountSummary | null>(null);
   const [rmsLoading, setRmsLoading] = useState(false);
   const [rmsProgramPickerOpen, setRmsProgramPickerOpen] = useState(false);
+  const [staffAccount, setStaffAccount] = useState<StaffAccountSummary | null>(null);
+  const [staffAccountLoading, setStaffAccountLoading] = useState(false);
+  const [staffAccountError, setStaffAccountError] = useState<string | null>(null);
 
   // ── Cash rounding (fetched from server on open) ──────────────────────────
   const [cashRoundingEnabled, setCashRoundingEnabled] = useState(false);
@@ -613,6 +639,41 @@ export default function NexoCheckoutDrawer({
     });
     return () => window.cancelAnimationFrame(frame);
   }, [isOpen, tab]);
+
+  useEffect(() => {
+    if (!isOpen || !allowStoreCredit || !customerId) {
+      setStoreCreditBalanceCents(null);
+      setStoreCreditError(null);
+      setStoreCreditLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setStoreCreditLoading(true);
+    setStoreCreditError(null);
+    fetch(`${baseUrl}/api/customers/${customerId}/store-credit`, {
+      headers: mergedPosStaffHeaders(backofficeHeaders),
+    })
+      .then(async (res) => {
+        if (!res.ok) throw new Error("Store credit balance unavailable");
+        return (await res.json()) as { balance?: string };
+      })
+      .then((data) => {
+        if (cancelled) return;
+        setStoreCreditBalanceCents(parseMoneyToCents(data.balance ?? "0"));
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setStoreCreditBalanceCents(null);
+        setStoreCreditError(error instanceof Error ? error.message : "Store credit balance unavailable");
+      })
+      .finally(() => {
+        if (!cancelled) setStoreCreditLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [allowStoreCredit, backofficeHeaders, baseUrl, customerId, isOpen]);
+
   const pendingHelcimCentsRef = useRef<number>(0);
   const pendingHelcimTenderRef = useRef<{
     method: "card_terminal" | "card_manual" | "card_credit";
@@ -706,12 +767,15 @@ export default function NexoCheckoutDrawer({
     } else {
       base = base.filter((id) => id !== "card_credit");
     }
+    if (!staffAccount || staffAccount.status !== "active" || amountDueCents <= 0) {
+      base = base.filter((id) => id !== "staff_account");
+    }
     // Circuit breaker: hide all card tabs after repeated provider failures
     if (providerHealthHardFailed) {
       base = base.filter((id) => !id.startsWith("card_"));
     }
     return base;
-  }, [allowStoreCredit, amountDueCents, rmsPaymentCollectionMode, providerHealthHardFailed, returnOnlyRefundMode, hasOriginalHelcimRefundReference]);
+  }, [allowStoreCredit, amountDueCents, rmsPaymentCollectionMode, providerHealthHardFailed, returnOnlyRefundMode, hasOriginalHelcimRefundReference, staffAccount]);
 
   const paidSoFarCents = useMemo(() => applied.reduce((s, p) => s + p.amountCents, 0), [applied]);
   const depositDisplayCents = useMemo(() => Math.max(0, parseMoneyToCents(appliedDepositAmount.trim())), [appliedDepositAmount]);
@@ -719,14 +783,16 @@ export default function NexoCheckoutDrawer({
   const effectiveStateTax = isTaxExempt ? 0 : stateTaxCents;
   const effectiveLocalTax = isTaxExempt ? 0 : localTaxCents;
   const effectiveTotalDue = isTaxExempt ? amountDueCents - (stateTaxCents + localTaxCents) : amountDueCents;
-
   const tw = Math.max(0, Math.round(takeawayDueCents));
 
-  const remainingCents = useMemo(() => {
+  const sessionTargetCents = useMemo(() => {
     // Financial Truth: If a deposit is set, that IS the target for this session.
-    const targetCents = depositDisplayCents > 0 ? depositDisplayCents : effectiveTotalDue;
-    return targetCents - paidSoFarCents;
-  }, [effectiveTotalDue, paidSoFarCents, depositDisplayCents]);
+    // Existing paid/deposit amounts are display evidence for pickups; Cart totals already exclude
+    // historical pickup lines and include only new money due now.
+    return depositDisplayCents > 0 ? depositDisplayCents : effectiveTotalDue;
+  }, [depositDisplayCents, effectiveTotalDue]);
+
+  const remainingCents = useMemo(() => sessionTargetCents - paidSoFarCents, [paidSoFarCents, sessionTargetCents]);
 
   const cashRounding = useMemo(() => {
     if (!cashRoundingEnabled || tab !== "cash" || remainingCents === 0) {
@@ -759,13 +825,13 @@ export default function NexoCheckoutDrawer({
   // A sale is "Full Balance Paid" if we have reached or exceeded the target (for positive balances)
   // or reached or gone below the target (for negative balances/credits).
   const fullBalancePaid = useMemo(() => {
-    const target = depositDisplayCents > 0 ? depositDisplayCents : effectiveTotalDue;
+    const target = sessionTargetCents;
     if (target === 0) return true;
     if (target > 0) return paidSoFarCents >= target;
     // For negative targets (like a $50 refund), we are balanced once we have applied $50 or more of refund tenders.
     // e.g. paidSoFarCents = -5000, target = -5000 => true.
     return paidSoFarCents <= target;
-  }, [effectiveTotalDue, paidSoFarCents, depositDisplayCents]);
+  }, [paidSoFarCents, sessionTargetCents]);
 
   const balanceSettled = fullBalancePaid || cashRoundedBalanceSettled;
 
@@ -947,6 +1013,32 @@ export default function NexoCheckoutDrawer({
     await loadRmsProgramsAndSummary(account);
   }, [loadRmsProgramsAndSummary]);
 
+  const resolveStaffAccount = useCallback(async () => {
+    if (!customerId) {
+      setStaffAccount(null);
+      setStaffAccountError(null);
+      return;
+    }
+    setStaffAccountLoading(true);
+    setStaffAccountError(null);
+    try {
+      const params = new URLSearchParams({ customer_id: customerId });
+      const res = await fetch(`${baseUrl}/api/pos/staff-account/by-customer?${params.toString()}`, {
+        headers: mergedPosStaffHeaders(backofficeHeaders),
+      });
+      if (!res.ok) {
+        throw new Error("Could not check Staff Account.");
+      }
+      const account = (await res.json()) as StaffAccountSummary | null;
+      setStaffAccount(account);
+    } catch (error) {
+      setStaffAccount(null);
+      setStaffAccountError(error instanceof Error ? error.message : "Could not check Staff Account.");
+    } finally {
+      setStaffAccountLoading(false);
+    }
+  }, [backofficeHeaders, baseUrl, customerId]);
+
   const resolveRmsAccount = useCallback(async () => {
     if (!customerId) {
       setRmsResolve({
@@ -1008,6 +1100,11 @@ export default function NexoCheckoutDrawer({
       setRmsLoading(false);
     }
   }, [backofficeHeaders, baseUrl, customerId, loadRmsProgramsAndSummary, toast]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    void resolveStaffAccount();
+  }, [isOpen, resolveStaffAccount]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -1662,6 +1759,25 @@ export default function NexoCheckoutDrawer({
 
     if (amtCents === 0) return;
 
+    if (tab === "store_credit" && amtCents > 0) {
+      if (!customerId) {
+        toast("Attach a customer before redeeming Store Credit.", "error");
+        return;
+      }
+      if (storeCreditLoading) {
+        toast("Store Credit balance is still loading. Try again in a moment.", "info");
+        return;
+      }
+      if (storeCreditBalanceCents == null) {
+        toast(storeCreditError ?? "Store Credit balance is unavailable.", "error");
+        return;
+      }
+      if (amtCents > storeCreditBalanceCents) {
+        toast(`Store Credit balance is only $${centsToFixed2(storeCreditBalanceCents)}.`, "error");
+        return;
+      }
+    }
+
     if (tab === "offline_cc") {
       const approvalCode = offlineCardApprovalCode.trim();
       const last4 = offlineCardLast4.replace(/\D/g, "");
@@ -1950,7 +2066,18 @@ export default function NexoCheckoutDrawer({
       }
     }
 
+    if (tab === "staff_account") {
+      if (!customerId || !staffAccount || staffAccount.status !== "active") {
+        toast("Attach a staff-linked customer before charging a Staff Account.", "error");
+        return;
+      }
+    }
+
     const isRmsCollectionTender = rmsPaymentCollectionMode && ["cash", "check"].includes(tab);
+    const projectedStaffAccountBalance =
+      staffAccount && tab === "staff_account"
+        ? parseMoneyToCents(staffAccount.current_balance) + amtCents
+        : null;
 
     setApplied((prev) => [
       ...prev,
@@ -2032,6 +2159,17 @@ export default function NexoCheckoutDrawer({
                     tender_family: "donation",
                     donation_note: normalizedDonationNote,
                   }
+              : tab === "staff_account"
+                ? {
+                    tender_family: "staff_account",
+                    staff_account_id: staffAccount?.account_id,
+                    staff_id: staffAccount?.staff_id,
+                    staff_name: staffAccount?.staff_name,
+                    balance_before_cents: staffAccount
+                      ? parseMoneyToCents(staffAccount.current_balance)
+                      : undefined,
+                    projected_balance_after_cents: projectedStaffAccountBalance ?? undefined,
+                  }
               : isRmsCollectionTender
                 ? {
                     ...(meta.method === "check"
@@ -2059,7 +2197,7 @@ export default function NexoCheckoutDrawer({
     setDonationNote("");
     setCheckNumber("");
     setRmsReferenceNumber("");
-  }, [giftCardCode, donationNote, checkNumber, remainingCents, cashRounding.rounded, tab, offlineCardApprovalCode, offlineCardLast4, offlineCardReason, providerSettings, providerSettingsLoading, helcimAttempt?.status, helcimAttemptOutcomeUnverified, registerLaneUnavailable, registerTerminalRoute, selectedTerminalKey, selectedTerminalConfigured, selectedTerminalInUseBy, selectedTerminalInUseByOtherRegister, selectedTerminalNeedsOverride, terminalOverrideConfirmed, registerLane, registerSessionId, refundOriginalTransactionId, refundOriginalCardPresentConfirmed, cardRefundRoute, baseUrl, backofficeHeaders, customerId, customerCode, toast, setApplied, rmsSelectedAccount, rmsPrograms, rmsSelectedProgramCode, rmsReferenceNumber, rmsSummary, rmsResolve, rmsPaymentCollectionMode, chargeSavedHelcimCard, loadProviderSettings, processHelcimApiRefund, startHostedManualCardPayment]);
+  }, [giftCardCode, donationNote, checkNumber, remainingCents, cashRounding.rounded, tab, offlineCardApprovalCode, offlineCardLast4, offlineCardReason, providerSettings, providerSettingsLoading, helcimAttempt?.status, helcimAttemptOutcomeUnverified, registerLaneUnavailable, registerTerminalRoute, selectedTerminalKey, selectedTerminalConfigured, selectedTerminalInUseBy, selectedTerminalInUseByOtherRegister, selectedTerminalNeedsOverride, terminalOverrideConfirmed, registerLane, registerSessionId, refundOriginalTransactionId, refundOriginalCardPresentConfirmed, cardRefundRoute, baseUrl, backofficeHeaders, customerId, customerCode, toast, setApplied, rmsSelectedAccount, rmsPrograms, rmsSelectedProgramCode, rmsReferenceNumber, rmsSummary, rmsResolve, rmsPaymentCollectionMode, chargeSavedHelcimCard, loadProviderSettings, processHelcimApiRefund, startHostedManualCardPayment, storeCreditBalanceCents, storeCreditError, storeCreditLoading, staffAccount]);
 
   const removePaymentLine = async (line: AppliedPaymentLine) => {
     setApplied((prev) => prev.filter((row) => row.id !== line.id));
@@ -2926,6 +3064,24 @@ export default function NexoCheckoutDrawer({
                     </div>
                   )}
 
+                  {tab === "store_credit" && (
+                    <div className="rounded-xl border border-violet-500/20 bg-violet-500/10 px-4 py-3 text-xs font-semibold text-app-text-muted">
+                      <span className="font-black uppercase tracking-widest text-app-text">
+                        Customer Store Credit
+                      </span>
+                      <p className="mt-1">
+                        {storeCreditLoading
+                          ? "Checking available Store Credit..."
+                          : storeCreditError
+                            ? storeCreditError
+                            : `Available balance: $${centsToFixed2(Math.max(0, storeCreditBalanceCents ?? 0))}`}
+                      </p>
+                      <p className="mt-1">
+                        Store Credit is tied to this customer and deducts only when the sale records successfully.
+                      </p>
+                    </div>
+                  )}
+
                   {tab === "donation" && (
                     <div className="rounded-xl border border-app-border bg-app-bg px-4 py-3 text-xs font-semibold text-app-text-muted">
                       <span className="font-black uppercase tracking-widest text-app-text">
@@ -3014,6 +3170,18 @@ export default function NexoCheckoutDrawer({
                             (offlineCardApprovalCode.trim().length < 3 ||
                               offlineCardLast4.replace(/\D/g, "").length !== 4 ||
                               offlineCardReason.trim().length < 3)) ||
+                          (tab === "store_credit" &&
+                            amountDueCents > 0 &&
+                            (!customerId ||
+                              storeCreditLoading ||
+                              storeCreditBalanceCents == null ||
+                              storeCreditBalanceCents <= 0 ||
+                              keypadCents > storeCreditBalanceCents)) ||
+                          (tab === "staff_account" &&
+                            (!customerId ||
+                              staffAccountLoading ||
+                              !staffAccount ||
+                              staffAccount.status !== "active")) ||
                           (tab === "card_saved" &&
                             (providerSettingsLoading ||
                               helcimCardsLoading ||
@@ -3050,6 +3218,7 @@ export default function NexoCheckoutDrawer({
                 {(tab === "gift_card" ||
                   tab === "check" ||
                   tab === "rms_charge" ||
+                  tab === "staff_account" ||
                   (rmsPaymentCollectionMode && ["cash", "check"].includes(tab))) && (
                   <div className="mt-4 border-t border-app-border pt-4 animate-in slide-in-from-top-2">
                     {tab === "rms_charge" && (
@@ -3201,6 +3370,47 @@ export default function NexoCheckoutDrawer({
                             </div>
                           </div>
                         ) : null}
+                      </div>
+                    )}
+                    {tab === "staff_account" && (
+                      <div className="space-y-2">
+                        <div className="rounded-xl border border-app-border bg-app-bg px-3 py-2">
+                          <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                            Staff Account
+                          </p>
+                          <p className="mt-1 text-[11px] font-semibold leading-snug text-app-text-muted">
+                            This purchase still uses normal item tax rules. The tender posts the amount to the employee receivable balance.
+                          </p>
+                        </div>
+                        {!customerId ? (
+                          <div className="rounded-xl border border-amber-300/40 bg-amber-500/10 p-3 text-sm font-semibold text-amber-700">
+                            Attach the staff member's linked customer profile before using Staff Account.
+                          </div>
+                        ) : staffAccountLoading ? (
+                          <div className="rounded-xl border border-app-border bg-app-bg p-3 text-sm text-app-text-muted">
+                            Checking Staff Account…
+                          </div>
+                        ) : staffAccount ? (
+                          <div className="rounded-xl border border-cyan-400/30 bg-cyan-500/10 p-3">
+                            <div className="flex items-center justify-between gap-3">
+                              <div>
+                                <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                                  {staffAccount.staff_name}
+                                </p>
+                                <p className="text-sm font-black text-app-text">
+                                  Current balance ${centsToFixed2(parseMoneyToCents(staffAccount.current_balance))}
+                                </p>
+                              </div>
+                              <span className="rounded-full bg-cyan-500/15 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-cyan-700">
+                                {staffAccount.status}
+                              </span>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="rounded-xl border border-rose-300/40 bg-rose-500/10 p-3 text-sm font-semibold text-rose-700">
+                            {staffAccountError ?? "This customer is not linked to a Staff Account."}
+                          </div>
+                        )}
                       </div>
                     )}
 

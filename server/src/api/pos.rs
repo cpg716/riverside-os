@@ -20,8 +20,8 @@ use crate::auth::permissions::{
     CUSTOMERS_RMS_CHARGE_REVERSE, ORDERS_REFUND_PROCESS, POS_RMS_CHARGE_HISTORY_BASIC,
     POS_RMS_CHARGE_LOOKUP, POS_RMS_CHARGE_PAYMENT_COLLECT, POS_RMS_CHARGE_USE,
 };
-use crate::logic::pos_rms_charge;
 use crate::logic::shippo::{self, ShippoError};
+use crate::logic::{pos_rms_charge, staff_accounts};
 use crate::middleware;
 
 #[derive(Debug, Error)]
@@ -102,6 +102,8 @@ struct RmsChargeProgramsResponse {
     programs: Vec<RmsChargeProgramOption>,
     summary: RmsChargeAccountSummary,
 }
+
+type StaffAccountPaymentLineMeta = RmsPaymentLineMeta;
 
 impl IntoResponse for PosMetaError {
     fn into_response(self) -> Response {
@@ -754,6 +756,65 @@ async fn gift_card_load_line_meta(
     })))
 }
 
+async fn staff_account_payment_line_meta(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Option<StaffAccountPaymentLineMeta>>, PosMetaError> {
+    middleware::require_staff_or_pos_register_session(&state, &headers)
+        .await
+        .map_err(|(_, axum::Json(v))| {
+            PosMetaError::Unauthorized(
+                v.get("error")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("unauthorized")
+                    .to_string(),
+            )
+        })?;
+
+    let row: Option<(Uuid, Uuid, String, String)> = sqlx::query_as(
+        r#"
+        SELECT p.id, v.id, v.sku, p.name
+        FROM products p
+        INNER JOIN product_variants v ON v.product_id = p.id
+        WHERE p.pos_line_kind = 'staff_account_payment'
+        ORDER BY p.created_at ASC
+        LIMIT 1
+        "#,
+    )
+    .fetch_optional(&state.db)
+    .await?;
+
+    Ok(Json(row.map(|(product_id, variant_id, sku, name)| {
+        StaffAccountPaymentLineMeta {
+            product_id,
+            variant_id,
+            sku,
+            name,
+        }
+    })))
+}
+
+async fn resolve_staff_account_by_customer(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<RmsCustomerQuery>,
+) -> Result<Json<Option<staff_accounts::StaffAccountSummary>>, PosMetaError> {
+    middleware::require_staff_or_pos_register_session(&state, &headers)
+        .await
+        .map_err(|(_, axum::Json(v))| {
+            PosMetaError::Unauthorized(
+                v.get("error")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("unauthorized")
+                    .to_string(),
+            )
+        })?;
+
+    Ok(Json(
+        staff_accounts::summary_for_customer(&state.db, q.customer_id).await?,
+    ))
+}
+
 async fn resolve_rms_charge_account(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1044,7 +1105,15 @@ async fn reverse_rms_charge_payment(
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/rms-payment-line-meta", get(rms_payment_line_meta))
+        .route(
+            "/staff-account-payment-line-meta",
+            get(staff_account_payment_line_meta),
+        )
         .route("/gift-card-load-line-meta", get(gift_card_load_line_meta))
+        .route(
+            "/staff-account/by-customer",
+            get(resolve_staff_account_by_customer),
+        )
         .route(
             "/rms-charge/resolve-account",
             get(resolve_rms_charge_account),
