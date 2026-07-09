@@ -1,5 +1,5 @@
 import { getBaseUrl } from "../../lib/apiConfig";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { UserRoundCog, X } from "lucide-react";
 import NumericPinKeypad, { PinDots } from "../ui/NumericPinKeypad";
@@ -30,6 +30,9 @@ export default function RegisterShiftHandoffModal({
   const [credential, setCredential] = useState("");
   const [busy, setBusy] = useState(false);
   const [roster, setRoster] = useState<{ id: string; full_name: string }[]>([]);
+  const [selectedStaffId, setSelectedStaffId] = useState("");
+  const autoSubmitKeyRef = useRef<string | null>(null);
+  const submitRef = useRef<() => void>(() => undefined);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -54,16 +57,17 @@ export default function RegisterShiftHandoffModal({
   useEffect(() => {
     if (!isOpen) return;
     setCredential("");
+    setSelectedStaffId(localStorage.getItem("ros_last_staff_id") || "");
+    autoSubmitKeyRef.current = null;
     setBusy(false);
   }, [isOpen]);
 
-  if (!isOpen) return null;
-
-  const root = document.getElementById("drawer-root");
-  if (!root) return null;
-
   const submit = async () => {
     const code = credential.trim();
+    if (!selectedStaffId) {
+      toast("Select your name first.", "error");
+      return;
+    }
     if (code.length !== 4) {
       toast("Enter your 4-digit PIN.", "error");
       return;
@@ -78,7 +82,7 @@ export default function RegisterShiftHandoffModal({
             "Content-Type": "application/json",
             ...mergedPosStaffHeaders(backofficeHeaders),
           },
-          body: JSON.stringify({ cashier_code: code, pin: code }),
+          body: JSON.stringify({ cashier_code: code, pin: code, staff_id: selectedStaffId }),
         },
       );
       const errData = (await res.json().catch(() => ({}))) as { error?: string };
@@ -94,6 +98,27 @@ export default function RegisterShiftHandoffModal({
       setBusy(false);
     }
   };
+  submitRef.current = () => {
+    void submit();
+  };
+
+  useEffect(() => {
+    const code = credential.trim();
+    if (code.length !== 4) {
+      autoSubmitKeyRef.current = null;
+      return;
+    }
+    if (!isOpen || busy || !selectedStaffId) return;
+    const key = `${selectedStaffId}:${code}`;
+    if (autoSubmitKeyRef.current === key) return;
+    autoSubmitKeyRef.current = key;
+    submitRef.current();
+  }, [busy, credential, isOpen, selectedStaffId]);
+
+  if (!isOpen) return null;
+
+  const root = document.getElementById("drawer-root");
+  if (!root) return null;
 
   return createPortal(
     <div className="ui-overlay-backdrop !z-[200]">
@@ -143,8 +168,13 @@ export default function RegisterShiftHandoffModal({
               </label>
               <select
                 className="ui-input w-full text-center font-bold"
-                value={localStorage.getItem("ros_last_staff_id") || ""}
-                onChange={(e) => localStorage.setItem("ros_last_staff_id", e.target.value)}
+                value={selectedStaffId}
+                onChange={(e) => {
+                  setSelectedStaffId(e.target.value);
+                  localStorage.setItem("ros_last_staff_id", e.target.value);
+                  setCredential("");
+                  autoSubmitKeyRef.current = null;
+                }}
               >
                 <option value="">-- Choose Name --</option>
                 {roster.map((s) => (
@@ -163,7 +193,7 @@ export default function RegisterShiftHandoffModal({
               <NumericPinKeypad
                 value={credential}
                 onChange={setCredential}
-                onEnter={() => void submit()}
+                onEnter={() => submitRef.current()}
                 disabled={busy}
                 maxDigits={4}
               />
@@ -182,7 +212,7 @@ export default function RegisterShiftHandoffModal({
             <button
               type="button"
               onClick={submit}
-              disabled={busy || credential.trim().length !== 4}
+              disabled={busy || !selectedStaffId || credential.trim().length !== 4}
               className="ui-btn-primary h-14 flex-[2] text-xs font-black uppercase tracking-widest rounded-2xl shadow-glow-accent-sm"
             >
               {busy ? "Updating…" : "Confirm handoff"}

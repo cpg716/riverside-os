@@ -123,7 +123,6 @@ test.describe("Back Office sign-in gate", () => {
     for (const digit of "9999") {
       await page.getByRole("button", { name: digit, exact: true }).click();
     }
-    await page.getByRole("button", { name: /^continue$/i }).click();
 
     await expect(
       page.getByText(

@@ -307,6 +307,8 @@ pub struct TransactionDetailedPayment {
     pub date: DateTime<Utc>,
     pub method: String,
     pub amount: Decimal,
+    pub cash_tendered: Option<Decimal>,
+    pub change_due: Option<Decimal>,
 }
 
 #[derive(Debug, Serialize)]
@@ -343,6 +345,8 @@ pub struct TransactionDetailResponse {
     pub payment_methods_summary: String,
     #[serde(default)]
     pub payment_applications: Vec<TransactionPaymentApplication>,
+    #[serde(default)]
+    pub pickup_applications: Vec<TransactionPickupApplication>,
     pub operator_staff_id: Option<Uuid>,
     pub operator_name: Option<String>,
     pub primary_salesperson_id: Option<Uuid>,
@@ -440,6 +444,22 @@ pub struct TransactionPaymentApplication {
     pub remaining_balance: Decimal,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct TransactionPickupApplicationItem {
+    pub product_name: String,
+    pub sku: String,
+    pub quantity: i32,
+    pub unit_price: Decimal,
+    pub variation_label: Option<String>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct TransactionPickupApplication {
+    pub target_transaction_id: Uuid,
+    pub target_display_id: String,
+    pub items: Vec<TransactionPickupApplicationItem>,
+}
+
 impl TransactionDetailResponse {
     fn selected_receipt_items<'a>(
         &'a self,
@@ -484,11 +504,11 @@ impl TransactionDetailResponse {
     ) -> Result<receipt_shared::ReceiptOrder, TransactionError> {
         let selected = self.selected_receipt_items(transaction_line_ids)?;
         let payment_only = selected.is_empty() && !self.payment_applications.is_empty();
-        let receipt_items: Vec<receipt_shared::ReceiptLine> = if payment_only {
+        let mut receipt_items: Vec<receipt_shared::ReceiptLine> = if payment_only {
             self.payment_applications
                 .iter()
                 .map(|app| receipt_shared::ReceiptLine {
-                    product_name: format!("Payment on {}", app.target_display_id),
+                    product_name: format!("Applied payment to {}", app.target_display_id),
                     sku: app.target_display_id.clone(),
                     quantity: 1,
                     unit_price: app.amount,
@@ -562,6 +582,30 @@ impl TransactionDetailResponse {
             }
             lines
         };
+        for pickup in &self.pickup_applications {
+            for item in &pickup.items {
+                receipt_items.push(receipt_shared::ReceiptLine {
+                    product_name: item.product_name.clone(),
+                    sku: item.sku.clone(),
+                    quantity: item.quantity,
+                    unit_price: item.unit_price,
+                    fulfillment: DbFulfillmentType::Takeaway,
+                    salesperson_name: None,
+                    variation_label: item.variation_label.clone(),
+                    original_unit_price: None,
+                    discount_event_label: Some(format!(
+                        "Picked up from {}",
+                        pickup.target_display_id
+                    )),
+                    gift_card_load_code: None,
+                    custom_order_details: None,
+                    custom_item_type: Some("linked_pickup".to_string()),
+                    is_fulfilled: true,
+                    adjustment: None,
+                    contributes_to_totals: false,
+                });
+            }
+        }
         if receipt_items.is_empty() {
             return Err(TransactionError::InvalidPayload(
                 "No order lines matched this receipt request.".to_string(),
@@ -653,6 +697,8 @@ impl TransactionDetailResponse {
                     date: p.date,
                     method: p.method.clone(),
                     amount: p.amount,
+                    cash_tendered: p.cash_tendered,
+                    change_due: p.change_due,
                 })
                 .collect(),
         })
@@ -722,6 +768,7 @@ mod tests {
             exchange_group_id: None,
             payment_methods_summary: "Card".to_string(),
             payment_applications: Vec::new(),
+            pickup_applications: Vec::new(),
             operator_staff_id: None,
             operator_name: None,
             primary_salesperson_id: None,
@@ -971,6 +1018,34 @@ mod tests {
     }
 
     #[test]
+    fn receipt_builder_includes_linked_pickup_without_changing_sale_totals() {
+        let mut detail = sample_transaction_detail(vec![sample_item(1, 0)]);
+        detail.pickup_applications = vec![TransactionPickupApplication {
+            target_transaction_id: Uuid::new_v4(),
+            target_display_id: "TXN-OLD".to_string(),
+            items: vec![TransactionPickupApplicationItem {
+                product_name: "Picked-up Suit".to_string(),
+                sku: "PICKUP-SKU".to_string(),
+                quantity: 1,
+                unit_price: Decimal::new(26000, 2),
+                variation_label: Some("42R".to_string()),
+            }],
+        }];
+
+        let receipt = detail.build_receipt_data(None).expect("receipt builds");
+
+        assert_eq!(receipt.items.len(), 2);
+        assert_eq!(receipt.items[1].sku, "PICKUP-SKU");
+        assert_eq!(
+            receipt.items[1].discount_event_label.as_deref(),
+            Some("Picked up from TXN-OLD")
+        );
+        assert!(!receipt.items[1].contributes_to_totals);
+        assert_eq!(receipt.subtotal_price, Decimal::new(25000, 2));
+        assert_eq!(receipt.total_price, Decimal::new(1000, 2));
+    }
+
+    #[test]
     fn receipt_builder_allows_order_payment_only_receipt() {
         let mut detail = sample_transaction_detail(Vec::new());
         detail.payment_applications = vec![TransactionPaymentApplication {
@@ -988,7 +1063,10 @@ mod tests {
             .expect("payment-only receipt should build");
 
         assert_eq!(receipt.items.len(), 1);
-        assert_eq!(receipt.items[0].product_name, "Payment on TXN-ORDER");
+        assert_eq!(
+            receipt.items[0].product_name,
+            "Applied payment to TXN-ORDER"
+        );
         assert_eq!(receipt.items[0].unit_price, Decimal::new(5000, 2));
         assert_eq!(receipt.payment_applications.len(), 1);
         assert_eq!(
@@ -1860,6 +1938,9 @@ pub struct PickupTransactionRequest {
     /// POS pickup without BO headers when this session has a positive allocation to the order.
     #[serde(default)]
     pub register_session_id: Option<Uuid>,
+    /// Checkout that collected payment or new sale lines alongside this pickup.
+    #[serde(default)]
+    pub checkout_transaction_id: Option<Uuid>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -2899,6 +2980,33 @@ async fn mark_transaction_pickup(
             .fetch_one(&mut *tx)
             .await?;
 
+    if let Some(checkout_transaction_id) = body.checkout_transaction_id {
+        let valid_checkout_link: bool = sqlx::query_scalar(
+            r#"
+            SELECT EXISTS (
+                SELECT 1
+                FROM transactions checkout_transaction
+                INNER JOIN transactions pickup_transaction ON pickup_transaction.id = $2
+                WHERE checkout_transaction.id = $1
+                  AND checkout_transaction.id <> pickup_transaction.id
+                  AND checkout_transaction.register_session_id = $3
+                  AND checkout_transaction.customer_id IS NOT DISTINCT FROM pickup_transaction.customer_id
+            )
+            "#,
+        )
+        .bind(checkout_transaction_id)
+        .bind(transaction_id)
+        .bind(register_session_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if !valid_checkout_link {
+            return Err(TransactionError::InvalidPayload(
+                "Pickup checkout link does not match this Register session and customer."
+                    .to_string(),
+            ));
+        }
+    }
+
     let pickup_guard_lines: Vec<PickupGuardLine> = if body.delivered_item_ids.is_empty() {
         sqlx::query_as(
             r#"
@@ -3355,6 +3463,39 @@ async fn mark_transaction_pickup(
             .fetch_one(&mut *tx)
             .await?;
 
+    let customer_id: Option<Uuid> =
+        sqlx::query_scalar("SELECT customer_id FROM transactions WHERE id = $1")
+            .bind(transaction_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .flatten();
+    let who = body
+        .actor
+        .as_deref()
+        .map(str::trim)
+        .filter(|actor| !actor.is_empty())
+        .unwrap_or("Register");
+    insert_transaction_activity_log_tx(
+        &mut tx,
+        transaction_id,
+        customer_id,
+        "pickup",
+        &format!("Pickup completed in Register by {who}"),
+        json!({
+            "delivered_item_count": claimed_fulfillment_line_ids.len(),
+            "requested_delivered_item_count": body.delivered_item_ids.len(),
+            "readiness_override": body.override_readiness,
+            "override_reason": if body.override_readiness { Some(override_reason) } else { None::<&str> },
+            "payment_override": pickup_payment_override_metadata.is_some(),
+            "payment_override_detail": pickup_payment_override_metadata,
+            "inventory_shortage_warning": has_inventory_shortage,
+            "inventory_shortage_lines": inventory_shortage_details,
+            "checkout_transaction_id": body.checkout_transaction_id,
+            "delivered_item_ids": claimed_fulfillment_line_ids,
+        }),
+    )
+    .await?;
+
     tx.commit().await?;
 
     spawn_meilisearch_transaction_upsert(&state, transaction_id);
@@ -3375,31 +3516,25 @@ async fn mark_transaction_pickup(
         });
     }
 
-    let customer_id: Option<Uuid> =
-        sqlx::query_scalar("SELECT customer_id FROM transactions WHERE id = $1")
-            .bind(transaction_id)
-            .fetch_optional(&state.db)
-            .await?
-            .flatten();
-    let who = body.actor.unwrap_or_else(|| "Register".to_string());
-    log_order_activity(
-        &state.db,
-        transaction_id,
-        customer_id,
-        "pickup",
-        &format!("Pickup completed in Register by {}", who.trim()),
-        json!({
-            "delivered_item_count": claimed_fulfillment_line_ids.len(),
-            "requested_delivered_item_count": body.delivered_item_ids.len(),
-            "readiness_override": body.override_readiness,
-            "override_reason": if body.override_readiness { Some(override_reason) } else { None::<&str> },
-            "payment_override": pickup_payment_override_metadata.is_some(),
-            "payment_override_detail": pickup_payment_override_metadata,
-            "inventory_shortage_warning": has_inventory_shortage,
-            "inventory_shortage_lines": inventory_shortage_details,
-        }),
-    )
-    .await?;
+    if let Some(customer_id) = customer_id {
+        if let Err(error) = sqlx::query(
+            r#"
+            INSERT INTO customer_timeline_notes (customer_id, body, created_by)
+            VALUES ($1, $2, NULL)
+            "#,
+        )
+        .bind(customer_id)
+        .bind(format!("Pickup completed in Register by {who}"))
+        .execute(&state.db)
+        .await
+        {
+            tracing::warn!(
+                error = %error,
+                transaction_id = %transaction_id,
+                "pickup customer timeline note failed after pickup committed"
+            );
+        }
+    }
 
     if let Some(alert_msg) = inventory_shortage_alert {
         if let Err(e) =
@@ -7005,12 +7140,33 @@ pub(crate) async fn load_transaction_detail(
     .fetch_all(pool)
     .await?;
 
-    let payments_db = sqlx::query_as::<_, (DateTime<Utc>, String, Decimal)>(
+    let payments_db = sqlx::query_as::<
+        _,
+        (
+            DateTime<Utc>,
+            String,
+            Decimal,
+            Option<Decimal>,
+            Option<Decimal>,
+        ),
+    >(
         r#"
         SELECT DISTINCT
             pt.created_at,
             pt.payment_method,
-            COALESCE(pa.amount_allocated, pt.amount)::numeric(14,2) AS amount
+            COALESCE(pa.amount_allocated, pt.amount)::numeric(14,2) AS amount,
+            CASE
+                WHEN LOWER(pt.payment_method) = 'cash'
+                 AND COALESCE(pt.metadata->>'cash_tendered_cents', '') ~ '^[0-9]+$'
+                THEN ROUND((pt.metadata->>'cash_tendered_cents')::numeric / 100, 2)
+                ELSE NULL
+            END AS cash_tendered,
+            CASE
+                WHEN LOWER(pt.payment_method) = 'cash'
+                 AND COALESCE(pt.metadata->>'change_due_cents', '') ~ '^[0-9]+$'
+                THEN ROUND((pt.metadata->>'change_due_cents')::numeric / 100, 2)
+                ELSE NULL
+            END AS change_due
         FROM payment_allocations pa
         INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
         WHERE pa.target_transaction_id = $1
@@ -7024,11 +7180,15 @@ pub(crate) async fn load_transaction_detail(
 
     let payments = payments_db
         .into_iter()
-        .map(|(date, method, amount)| TransactionDetailedPayment {
-            date,
-            method,
-            amount,
-        })
+        .map(
+            |(date, method, amount, cash_tendered, change_due)| TransactionDetailedPayment {
+                date,
+                method,
+                amount,
+                cash_tendered,
+                change_due,
+            },
+        )
         .collect::<Vec<_>>();
 
     let mut summary_parts: Vec<String> = Vec::new();
@@ -7089,6 +7249,55 @@ pub(crate) async fn load_transaction_detail(
             }
         },
     )
+    .collect::<Vec<_>>();
+
+    let pickup_applications = sqlx::query_as::<
+        _,
+        (
+            Uuid,
+            String,
+            sqlx::types::Json<Vec<TransactionPickupApplicationItem>>,
+        ),
+    >(
+        r#"
+        SELECT
+            target.id,
+            COALESCE(
+                NULLIF(TRIM(target.display_id), ''),
+                target.counterpoint_doc_ref,
+                target.counterpoint_ticket_ref,
+                target.id::text
+            ) AS target_display_id,
+            jsonb_agg(jsonb_build_object(
+                'product_name', COALESCE(NULLIF(TRIM(p.name), ''), pv.sku, 'Item'),
+                'sku', COALESCE(pv.sku, 'Unknown SKU'),
+                'quantity', tl.quantity,
+                'unit_price', tl.unit_price::text,
+                'variation_label', NULLIF(TRIM(pv.variation_label), '')
+            ) ORDER BY tl.id) AS items
+        FROM transaction_activity_log activity
+        INNER JOIN transactions target ON target.id = activity.transaction_id
+        CROSS JOIN LATERAL jsonb_array_elements_text(
+            COALESCE(activity.metadata->'delivered_item_ids', '[]'::jsonb)
+        ) delivered(line_id)
+        INNER JOIN transaction_lines tl ON tl.id = delivered.line_id::uuid
+        LEFT JOIN products p ON p.id = tl.product_id
+        LEFT JOIN product_variants pv ON pv.id = tl.variant_id
+        WHERE activity.event_kind = 'pickup'
+          AND activity.metadata->>'checkout_transaction_id' = $1::text
+        GROUP BY target.id, target.display_id, target.counterpoint_doc_ref, target.counterpoint_ticket_ref
+        ORDER BY target.display_id NULLS LAST, target.id
+        "#,
+    )
+    .bind(transaction_id)
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .map(|(target_transaction_id, target_display_id, items)| TransactionPickupApplication {
+        target_transaction_id,
+        target_display_id,
+        items: items.0,
+    })
     .collect::<Vec<_>>();
 
     let mut items: Vec<TransactionDetailItem> = items
@@ -7330,6 +7539,7 @@ pub(crate) async fn load_transaction_detail(
         exchange_group_id: h.exchange_group_id,
         payment_methods_summary,
         payment_applications,
+        pickup_applications,
         operator_staff_id: h.operator_staff_id,
         operator_name: h.operator_name,
         primary_salesperson_id: h.primary_salesperson_id,

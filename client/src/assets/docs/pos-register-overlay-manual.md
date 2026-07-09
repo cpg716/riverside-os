@@ -16,7 +16,7 @@ This is the **Register Access** screen shown before the POS cart can be used. It
 
 ## How to use it
 
-1. Choose your name and enter your **4-digit Access PIN**.
+1. Choose your name and enter your **4-digit Access PIN**. The register opens automatically when the PIN is correct.
 2. Review the **Station Readiness** panel.
 3. Confirm the Riverside API is reachable and the receipt printer is responding for this station.
 4. Pick the correct register lane for this terminal.

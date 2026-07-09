@@ -578,7 +578,7 @@ export function useCartActions({
          }));
          try {
            const res = await fetch(
-             `${baseUrl}/api/products/control-board?product_id=${encodeURIComponent(item.product_id)}&limit=50000&include_hidden=true`,
+             `${baseUrl}/api/products/control-board?product_id=${encodeURIComponent(item.product_id)}&limit=50000&include_hidden=true&pos_size_filter=true`,
              { headers: apiAuth() },
            );
            if (!res.ok) {

@@ -623,13 +623,39 @@ pub fn parse_card_batch_snapshot(payload: &Value) -> Option<HelcimCardBatchSnaps
         ),
         gross_amount: first_decimal_field(
             payload,
-            &["grossAmount", "gross_amount", "totalAmount", "totalSales"],
+            &[
+                "grossAmount",
+                "gross_amount",
+                "grossSales",
+                "gross_sales",
+                "totalAmount",
+                "totalSales",
+            ],
         )
         .map(|(_, amount)| amount),
-        fee_amount: first_decimal_field(payload, &["feeAmount", "fee_amount", "merchantFee"])
-            .map(|(_, amount)| amount),
-        net_amount: first_decimal_field(payload, &["netAmount", "net_amount"])
-            .map(|(_, amount)| amount),
+        fee_amount: first_decimal_field(
+            payload,
+            &[
+                "feeAmount",
+                "fee_amount",
+                "totalFees",
+                "total_fees",
+                "merchantFee",
+            ],
+        )
+        .map(|(_, amount)| amount),
+        net_amount: first_decimal_field(
+            payload,
+            &[
+                "depositAmount",
+                "deposit_amount",
+                "netSales",
+                "net_sales",
+                "netAmount",
+                "net_amount",
+            ],
+        )
+        .map(|(_, amount)| amount),
         transaction_count: first_i32_field(
             payload,
             &[
@@ -1926,6 +1952,28 @@ mod tests {
         assert_eq!(batch.net_amount, Some(Decimal::new(9709, 2)));
         assert_eq!(batch.transaction_count, Some(2));
         assert!(batch.opened_at.is_some());
+        assert!(batch.closed_at.is_some());
+    }
+
+    #[test]
+    fn parses_batch_snapshot_from_helcim_batch_screen_fields() {
+        let batch = parse_card_batch_snapshot(&json!({
+            "cardBatchId": 7,
+            "batchStatus": "settled",
+            "closedAt": "2026-07-08T20:01:00Z",
+            "grossSales": "2935.22",
+            "totalFees": "41.21",
+            "depositAmount": "2894.01",
+            "transactionCount": 4
+        }))
+        .expect("batch should parse");
+
+        assert_eq!(batch.provider_batch_id, "7");
+        assert_eq!(batch.status.as_deref(), Some("settled"));
+        assert_eq!(batch.gross_amount, Some(Decimal::new(293522, 2)));
+        assert_eq!(batch.fee_amount, Some(Decimal::new(4121, 2)));
+        assert_eq!(batch.net_amount, Some(Decimal::new(289401, 2)));
+        assert_eq!(batch.transaction_count, Some(4));
         assert!(batch.closed_at.is_some());
     }
 

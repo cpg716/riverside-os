@@ -103,6 +103,14 @@ pub fn format_pos_receipt_text_message(order: &ReceiptOrder, cfg: &ReceiptConfig
                 tender_display_label(&payment.method),
                 payment.amount
             ));
+            if let (Some(cash_tendered), Some(change_due)) =
+                (payment.cash_tendered, payment.change_due)
+            {
+                if change_due > Decimal::ZERO {
+                    lines.push(format!("Cash Tendered: {cash_tendered}"));
+                    lines.push(format!("Change: {change_due}"));
+                }
+            }
         }
         if payment_summary_has_receipt_detail(&order.payment_methods_summary) {
             lines.push(order.payment_methods_summary.trim().to_string());

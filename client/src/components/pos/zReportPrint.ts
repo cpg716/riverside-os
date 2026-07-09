@@ -828,7 +828,7 @@ export async function openProfessionalZReportPrint(opts: {
     `New Wedding Parties: ${opts.newWeddingPartiesCount ?? 0}`,
     `Shipping Total: ${formatReportMoney(shippingTotalCents)}`,
     `Discounts Total: ${moneyWithCount(discountTotalCents, discountTransactionCount)}`,
-    `Subtotal Before Tax: ${formatReportMoney(subtotalBeforeTaxCents)}`,
+    `Subtotal Before Tax: ${formatReportMoney(opts.netSales ?? subtotalBeforeTaxCents)}`,
     `Merchandise Subtotal: ${formatReportMoney(opts.netSales ?? subtotalBeforeTaxCents)}`,
     "",
     "COMBINED TENDERS",
@@ -1143,7 +1143,7 @@ export async function openProfessionalZReportPrint(opts: {
 	    <h2>Quick Look</h2>
 	    <div class="quick-look-grid">
 	      <div class="summary-card"><p class="stat-label">Transactions</p><p class="stat-value">${opts.salesCount ?? transactions.length}</p></div>
-	      <div class="summary-card"><p class="stat-label">Subtotal Before Tax</p><p class="stat-value">${formatReportMoney(subtotalBeforeTaxCents)}</p></div>
+	      <div class="summary-card"><p class="stat-label">Subtotal Before Tax</p><p class="stat-value">${formatReportMoney(opts.netSales ?? subtotalBeforeTaxCents)}</p></div>
 	      <div class="summary-card"><p class="stat-label">Tax Collected</p><p class="stat-value">${formatReportMoney(opts.salesTaxTotal ?? "0")}</p></div>
 	      <div class="summary-card"><p class="stat-label">Cash Collected</p><p class="stat-value">${formatReportMoney(opts.cashCollected ?? opts.cashSalesCents)}</p></div>
 	      <div class="summary-card"><p class="stat-label">Credit Card Total</p><p class="stat-value">${moneyWithCount(creditCardTotalCents, creditCardTxCount)}</p></div>

@@ -527,6 +527,8 @@ pub struct ShiftPrimaryRequest {
     pub cashier_code: String,
     #[serde(default)]
     pub pin: Option<String>,
+    #[serde(default)]
+    pub staff_id: Option<Uuid>,
 }
 
 #[derive(Debug, Serialize)]
@@ -844,6 +846,11 @@ async fn post_shift_primary(
     let target = pins::authenticate_pos_staff(&state.db, code, body.pin.as_deref())
         .await
         .map_err(|_| SessionError::InvalidCashier(code.to_string()))?;
+    if body.staff_id.is_some_and(|staff_id| staff_id != target.id) {
+        return Err(SessionError::InvalidPayload(
+            "Access PIN belongs to another staff member.".to_string(),
+        ));
+    }
 
     let new_shift: Option<Uuid> = if target.id == ctx.opened_by {
         None
@@ -1187,38 +1194,28 @@ async fn unresolved_helcim_attempts_for_sessions(
             ppa.status,
             ppa.amount_cents,
             ppa.selected_terminal_key,
-            CASE
-                WHEN ppa.status = 'pending' THEN 'waiting_on_terminal'
-                WHEN ppa.status IN ('approved', 'captured') THEN 'approved_not_recorded'
-                ELSE 'outcome_needs_review'
-            END AS review_reason,
+            'approved_not_recorded' AS review_reason,
             ppa.created_at
         FROM payment_provider_attempts ppa
         INNER JOIN register_sessions rs ON rs.id = ppa.register_session_id
         WHERE ppa.provider = 'helcim'
           AND ppa.register_session_id = ANY($1)
-          AND (
-              ppa.status = 'pending'
-              OR ppa.status = 'expired'
-              OR (
-                  ppa.status IN ('approved', 'captured')
-                  AND NOT EXISTS (
-                      SELECT 1
-                      FROM payment_transactions pt
-                      WHERE COALESCE(pt.payment_provider, '') = 'helcim'
-                        AND (
-                            pt.metadata->>'payment_provider_attempt_id' = ppa.id::text
-                            OR (
-                                NULLIF(TRIM(COALESCE(ppa.provider_transaction_id, '')), '') IS NOT NULL
-                                AND pt.provider_transaction_id = ppa.provider_transaction_id
-                            )
-                            OR (
-                                NULLIF(TRIM(COALESCE(ppa.provider_payment_id, '')), '') IS NOT NULL
-                                AND pt.provider_payment_id = ppa.provider_payment_id
-                            )
-                        )
-                  )
-              )
+          AND ppa.status IN ('approved', 'captured')
+          AND NOT EXISTS (
+              SELECT 1
+              FROM payment_transactions pt
+              WHERE COALESCE(pt.payment_provider, '') = 'helcim'
+                AND (
+                    pt.metadata->>'payment_provider_attempt_id' = ppa.id::text
+                    OR (
+                        NULLIF(TRIM(COALESCE(ppa.provider_transaction_id, '')), '') IS NOT NULL
+                        AND pt.provider_transaction_id = ppa.provider_transaction_id
+                    )
+                    OR (
+                        NULLIF(TRIM(COALESCE(ppa.provider_payment_id, '')), '') IS NOT NULL
+                        AND pt.provider_payment_id = ppa.provider_payment_id
+                    )
+                )
           )
           AND NOT EXISTS (
               SELECT 1
@@ -1233,105 +1230,6 @@ async fn unresolved_helcim_attempts_for_sessions(
     .fetch_all(db)
     .await
     .map_err(SessionError::Database)
-}
-
-async fn unresolved_helcim_attempts_for_sessions_in_tx(
-    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    session_ids: &[Uuid],
-) -> Result<Vec<HelcimCloseReviewAttempt>, SessionError> {
-    sqlx::query_as::<_, HelcimCloseReviewAttempt>(
-        r#"
-        SELECT
-            ppa.id,
-            ppa.register_session_id,
-            rs.register_lane,
-            ppa.status,
-            ppa.amount_cents,
-            ppa.selected_terminal_key,
-            CASE
-                WHEN ppa.status = 'pending' THEN 'waiting_on_terminal'
-                WHEN ppa.status IN ('approved', 'captured') THEN 'approved_not_recorded'
-                ELSE 'outcome_needs_review'
-            END AS review_reason,
-            ppa.created_at
-        FROM payment_provider_attempts ppa
-        INNER JOIN register_sessions rs ON rs.id = ppa.register_session_id
-        WHERE ppa.provider = 'helcim'
-          AND ppa.register_session_id = ANY($1)
-          AND (
-              ppa.status = 'pending'
-              OR ppa.status = 'expired'
-              OR (
-                  ppa.status IN ('approved', 'captured')
-                  AND NOT EXISTS (
-                      SELECT 1
-                      FROM payment_transactions pt
-                      WHERE COALESCE(pt.payment_provider, '') = 'helcim'
-                        AND (
-                            pt.metadata->>'payment_provider_attempt_id' = ppa.id::text
-                            OR (
-                                NULLIF(TRIM(COALESCE(ppa.provider_transaction_id, '')), '') IS NOT NULL
-                                AND pt.provider_transaction_id = ppa.provider_transaction_id
-                            )
-                            OR (
-                                NULLIF(TRIM(COALESCE(ppa.provider_payment_id, '')), '') IS NOT NULL
-                                AND pt.provider_payment_id = ppa.provider_payment_id
-                            )
-                        )
-                  )
-              )
-          )
-          AND NOT EXISTS (
-              SELECT 1
-              FROM helcim_terminal_recovery_actions hra
-              WHERE hra.source_kind = 'payment_provider_attempt'
-                AND hra.source_id = ppa.id
-          )
-        ORDER BY ppa.created_at ASC
-        "#,
-    )
-    .bind(session_ids)
-    .fetch_all(&mut **tx)
-    .await
-    .map_err(SessionError::Database)
-}
-
-fn unresolved_helcim_close_message(attempts: &[HelcimCloseReviewAttempt]) -> String {
-    let approved = attempts
-        .iter()
-        .filter(|attempt| attempt.review_reason == "approved_not_recorded")
-        .count();
-    let pending = attempts
-        .iter()
-        .filter(|attempt| attempt.review_reason == "waiting_on_terminal")
-        .count();
-    let review = attempts
-        .iter()
-        .filter(|attempt| attempt.review_reason == "outcome_needs_review")
-        .count();
-    let mut parts = Vec::new();
-    if approved > 0 {
-        parts.push(format!(
-            "{approved} approved Helcim payment{} not recorded in ROS",
-            if approved == 1 { "" } else { "s" }
-        ));
-    }
-    if pending > 0 {
-        parts.push(format!(
-            "{pending} Helcim terminal payment{} still waiting",
-            if pending == 1 { "" } else { "s" }
-        ));
-    }
-    if review > 0 {
-        parts.push(format!(
-            "{review} Helcim terminal outcome{} needing review",
-            if review == 1 { "" } else { "s" }
-        ));
-    }
-    format!(
-        "Helcim payment review required before Z-close: {}. Resolve in the checkout or Payments Health so the Z report includes every card outcome.",
-        parts.join(", ")
-    )
 }
 
 fn normalize_helcim_close_review_action(value: &str) -> Result<String, SessionError> {
@@ -2349,15 +2247,6 @@ async fn close_session(
     .bind(till_gid)
     .fetch_all(&mut *tx)
     .await?;
-
-    let unresolved_helcim_attempts =
-        unresolved_helcim_attempts_for_sessions_in_tx(&mut tx, &group_ids).await?;
-    if !unresolved_helcim_attempts.is_empty() {
-        let _ = tx.rollback().await;
-        return Err(SessionError::InvalidPayload(
-            unresolved_helcim_close_message(&unresolved_helcim_attempts),
-        ));
-    }
 
     let recon = build_reconciliation(&state.db, session_id, "z_report").await?;
     let primary_id = recon.session_id;

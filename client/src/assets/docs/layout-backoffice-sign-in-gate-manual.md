@@ -28,7 +28,7 @@ Use this gate to select the current staff identity and enter the correct **Acces
 
 1. Select your name.
 2. Enter your 4-digit **Access PIN**.
-3. Tap **Continue**.
+3. Riverside opens automatically when the PIN is correct. Use **Continue** only if you need to retry manually.
 
 ## API Host Settings
 

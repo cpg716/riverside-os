@@ -328,17 +328,22 @@ pub fn merge_receipt_studio_html(
         let tender_summary = if order.payments.is_empty() {
             html_escape(&order.payment_methods_summary)
         } else {
-            let mut lines = order
-                .payments
-                .iter()
-                .map(|payment| {
-                    format!(
-                        "{} ${}",
-                        html_escape(&tender_display_label(&payment.method)),
-                        payment.amount.round_dp(2)
-                    )
-                })
-                .collect::<Vec<_>>();
+            let mut lines = Vec::new();
+            for payment in &order.payments {
+                lines.push(format!(
+                    "{} ${}",
+                    html_escape(&tender_display_label(&payment.method)),
+                    payment.amount.round_dp(2)
+                ));
+                if let (Some(cash_tendered), Some(change_due)) =
+                    (payment.cash_tendered, payment.change_due)
+                {
+                    if change_due > Decimal::ZERO {
+                        lines.push(format!("Cash Tendered ${}", cash_tendered.round_dp(2)));
+                        lines.push(format!("Change ${}", change_due.round_dp(2)));
+                    }
+                }
+            }
             if payment_summary_has_receipt_detail(&order.payment_methods_summary) {
                 lines.push(html_escape(order.payment_methods_summary.trim()));
             }

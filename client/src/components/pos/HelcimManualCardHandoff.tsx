@@ -117,12 +117,75 @@ export default function HelcimManualCardHandoff() {
   const baseUrl = getBaseUrl();
   const iframeLaunchedRef = useRef(false);
   const diagnosticTimerRef = useRef<number | null>(null);
+  const helcimSuccessSeenRef = useRef(false);
+  const confirmationInFlightRef = useRef(false);
+  const pendingApprovalRef = useRef<{ data: unknown; hash: string } | null>(null);
   const params = useMemo(() => new URLSearchParams(window.location.search), []);
   const attemptId = params.get("attempt_id")?.trim() ?? "";
   const checkoutToken = params.get("checkout_token")?.trim() ?? "";
   const eventName = checkoutToken ? `helcim-pay-js-${checkoutToken}` : "";
   const [state, setState] = useState<HandoffState>("idle");
   const [message, setMessage] = useState("Ready to open secure Card Not Present entry in Helcim.");
+
+  const confirmApprovedPayment = useCallback(
+    async (payload: { data: unknown; hash: string }) => {
+      if (confirmationInFlightRef.current) return;
+      confirmationInFlightRef.current = true;
+      setState("loading");
+      setMessage("Attaching the approved Helcim payment to ROS...");
+      try {
+        const res = await fetch(
+          `${baseUrl}/api/payments/providers/helcim/helcim-pay/public-confirm`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              attempt_id: attemptId,
+              checkout_token: checkoutToken,
+              data: payload.data,
+              hash: payload.hash,
+            }),
+          },
+        );
+        const body = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          status?: string;
+          error_message?: string | null;
+          safe_message?: string | null;
+        };
+        if (!res.ok) {
+          throw new Error(body.error ?? "ROS could not confirm the Helcim payment.");
+        }
+        if (body.status === "approved" || body.status === "captured") {
+          pendingApprovalRef.current = null;
+          setState("approved");
+          setMessage("Approved and attached. Return to the register to complete the sale.");
+          postHandoffOutcome(attemptId, "approved");
+          return;
+        }
+        pendingApprovalRef.current = null;
+        if (body.status === "canceled") {
+          setState("canceled");
+          setMessage("Card entry canceled. Return to the register or retry.");
+          postHandoffOutcome(attemptId, "canceled");
+          return;
+        }
+        setState("error");
+        setMessage(body.safe_message ?? body.error_message ?? "Helcim did not approve this payment.");
+        postHandoffOutcome(attemptId, "failed");
+      } catch (error) {
+        setState("error");
+        setMessage(
+          `Helcim approved the payment, but ROS could not attach it yet. Select Retry Approval. ${
+            error instanceof Error ? error.message : ""
+          }`.trim(),
+        );
+      } finally {
+        confirmationInFlightRef.current = false;
+      }
+    },
+    [attemptId, baseUrl, checkoutToken],
+  );
 
   useEffect(() => {
     if (!attemptId || !checkoutToken || !eventName) {
@@ -149,7 +212,23 @@ export default function HelcimManualCardHandoff() {
         diagnosticTimerRef.current = null;
       }
 
-      if (data.eventStatus === "ABORTED" || data.eventStatus === "HIDE") {
+      if (
+        helcimSuccessSeenRef.current &&
+        (data.eventStatus === "ABORTED" || data.eventStatus === "HIDE")
+      ) {
+        logHelcimDiagnostic("Ignored iframe close event after Helcim success", {
+          eventStatus: data.eventStatus,
+        });
+        return;
+      }
+      if (data.eventStatus === "ABORTED") {
+        iframeLaunchedRef.current = false;
+        setState("error");
+        setMessage("Card declined. Return to the register and retry when ready.");
+        postHandoffOutcome(attemptId, "failed");
+        return;
+      }
+      if (data.eventStatus === "HIDE") {
         iframeLaunchedRef.current = false;
         setState("canceled");
         setMessage("Card entry canceled. Return to the register or retry.");
@@ -164,47 +243,22 @@ export default function HelcimManualCardHandoff() {
         return;
       }
 
-      void (async () => {
-        try {
-          const payload = parseHelcimPayEventMessage(data.eventMessage);
-          if (!payload.data || !payload.hash) {
-            throw new Error("Helcim response was incomplete.");
-          }
-          const res = await fetch(`${baseUrl}/api/payments/providers/helcim/helcim-pay/public-confirm`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              attempt_id: attemptId,
-              checkout_token: checkoutToken,
-              data: payload.data,
-              hash: payload.hash,
-            }),
-          });
-          const body = (await res.json().catch(() => ({}))) as { error?: string; status?: string; error_message?: string | null; safe_message?: string | null };
-          if (!res.ok) {
-            throw new Error(body.error ?? "ROS could not confirm the Helcim payment.");
-          }
-          if (body.status === "approved" || body.status === "captured") {
-            setState("approved");
-            setMessage("Approved. Return to the register to complete the sale.");
-            postHandoffOutcome(attemptId, "approved");
-            return;
-          }
-          if (body.status === "canceled") {
-            setState("canceled");
-            setMessage("Card entry canceled. Return to the register or retry.");
-            postHandoffOutcome(attemptId, "canceled");
-            return;
-          }
-          setState("error");
-          setMessage(body.safe_message ?? body.error_message ?? "Helcim did not approve this payment.");
-          postHandoffOutcome(attemptId, "failed");
-        } catch (error) {
-          setState("error");
-          setMessage(error instanceof Error ? error.message : "ROS could not confirm the Helcim payment.");
-          postHandoffOutcome(attemptId, "failed");
+      helcimSuccessSeenRef.current = true;
+      try {
+        const payload = parseHelcimPayEventMessage(data.eventMessage);
+        if (!payload.data || !payload.hash) {
+          throw new Error("Helcim response was incomplete.");
         }
-      })();
+        pendingApprovalRef.current = { data: payload.data, hash: payload.hash };
+        void confirmApprovedPayment(pendingApprovalRef.current);
+      } catch (error) {
+        setState("error");
+        setMessage(
+          error instanceof Error
+            ? `${error.message} Keep this page open and use Recover payment in ROS.`
+            : "Helcim response was incomplete. Keep this page open and use Recover payment in ROS.",
+        );
+      }
     };
 
     window.addEventListener("message", handleMessage);
@@ -215,7 +269,7 @@ export default function HelcimManualCardHandoff() {
         diagnosticTimerRef.current = null;
       }
     };
-  }, [attemptId, baseUrl, checkoutToken, eventName]);
+  }, [attemptId, checkoutToken, confirmApprovedPayment, eventName]);
 
   const openHelcimEntry = useCallback(() => {
     if (state === "approved" || iframeLaunchedRef.current) return;
@@ -231,6 +285,8 @@ export default function HelcimManualCardHandoff() {
       return;
     }
     iframeLaunchedRef.current = true;
+    helcimSuccessSeenRef.current = false;
+    pendingApprovalRef.current = null;
     setState("loading");
     setMessage("Opening secure Card Not Present entry...");
     logHelcimDiagnostic("Starting HelcimPay.js card entry", {
@@ -328,10 +384,22 @@ export default function HelcimManualCardHandoff() {
           <button
             type="button"
             className="ui-btn-primary px-5 py-2"
-            disabled={state === "loading" || state === "ready" || state === "approved" || state === "error"}
-            onClick={openHelcimEntry}
+            disabled={state === "loading" || state === "ready" || state === "approved"}
+            onClick={() => {
+              if (pendingApprovalRef.current) {
+                void confirmApprovedPayment(pendingApprovalRef.current);
+                return;
+              }
+              openHelcimEntry();
+            }}
           >
-            {state === "loading" || state === "ready" ? "Waiting for Helcim" : "Open Helcim Card Entry"}
+            {state === "loading" || state === "ready"
+              ? "Waiting for Helcim"
+              : pendingApprovalRef.current
+                ? "Retry Approval"
+                : state === "error"
+                  ? "Try Again"
+                  : "Open Helcim Card Entry"}
           </button>
           <button
             type="button"

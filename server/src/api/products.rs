@@ -9,7 +9,7 @@ use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use sqlx::{FromRow, QueryBuilder};
+use sqlx::{FromRow, Postgres, QueryBuilder};
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 use uuid::Uuid;
@@ -46,6 +46,7 @@ pub enum ProductError {
 /// Trailing `orders.booked_at` window for ranking control-board **text search** by **parent product**
 /// units sold (all variants of the product share the same score). Non-search board loads skip the join.
 const CONTROL_BOARD_SEARCH_SALES_WINDOW_DAYS: i32 = 45;
+const POS_ODD_SIZE_PATTERN: &str = r"(^|[^0-9])(?:31|33|35|37|39|41|43|45|47|49|51|53|55|57|59)[[:space:]]*(?:S|R|L)?([^0-9A-Z]|$)";
 
 fn map_perm_err_products(e: (StatusCode, axum::Json<serde_json::Value>)) -> ProductError {
     let (status, axum::Json(v)) = e;
@@ -519,6 +520,8 @@ pub struct InventoryBoardQuery {
     pub expand_parent_matches: Option<bool>,
     /// Include variants hidden from default Inventory Find because they are zero-stock with no recent sales.
     pub include_hidden: Option<bool>,
+    /// POS-only display cleanup: hide impossible odd suit sizes for vendors that stock even sizes only.
+    pub pos_size_filter: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -562,6 +565,96 @@ fn control_board_ilike_pattern(raw: &str) -> String {
     format!("%{esc}%")
 }
 
+fn pos_parent_search_term_groups(raw: &str) -> Vec<Vec<String>> {
+    raw.split_whitespace()
+        .map(|term| term.trim().to_lowercase())
+        .filter(|term| !term.is_empty())
+        .map(|term| match term.as_str() {
+            "slack" | "slacks" | "pant" | "pants" | "trouser" | "trousers" => vec![
+                "slack".to_string(),
+                "slacks".to_string(),
+                "pant".to_string(),
+                "pants".to_string(),
+                "trouser".to_string(),
+                "trousers".to_string(),
+            ],
+            "blazer" | "blazers" | "sportcoat" | "sportcoats" => vec![
+                "blazer".to_string(),
+                "blazers".to_string(),
+                "sport coat".to_string(),
+                "sportcoat".to_string(),
+                "jacket".to_string(),
+                "coat".to_string(),
+            ],
+            "suit" | "suits" => vec!["suit".to_string(), "suits".to_string()],
+            _ => vec![term],
+        })
+        .collect()
+}
+
+fn push_pos_parent_token_match(qb: &mut QueryBuilder<'_, Postgres>, groups: &[Vec<String>]) {
+    for group in groups {
+        qb.push(" AND (");
+        for (idx, term) in group.iter().enumerate() {
+            if idx > 0 {
+                qb.push(" OR ");
+            }
+            let pat = control_board_ilike_pattern(term);
+            qb.push("(p.name ILIKE ");
+            qb.push_bind(pat.clone());
+            qb.push(" ESCAPE '\\' OR COALESCE(p.brand, '') ILIKE ");
+            qb.push_bind(pat.clone());
+            qb.push(" ESCAPE '\\' OR COALESCE(p.catalog_handle, '') ILIKE ");
+            qb.push_bind(pat.clone());
+            qb.push(" ESCAPE '\\' OR COALESCE(c.name, '') ILIKE ");
+            qb.push_bind(pat.clone());
+            qb.push(" ESCAPE '\\' OR COALESCE(pvendor.name, '') ILIKE ");
+            qb.push_bind(pat.clone());
+            qb.push(
+                r#" ESCAPE '\' OR EXISTS (
+                    SELECT 1
+                    FROM product_variants pv_match
+                    WHERE pv_match.product_id = p.id
+                      AND "#,
+            );
+            push_pos_allowed_variant_predicate(qb, "pv_match", "p", "pvendor");
+            qb.push(" AND (pv_match.sku ILIKE ");
+            qb.push_bind(pat.clone());
+            qb.push(" ESCAPE '\\' OR COALESCE(pv_match.barcode, '') ILIKE ");
+            qb.push_bind(pat.clone());
+            qb.push(" ESCAPE '\\' OR COALESCE(pv_match.vendor_upc, '') ILIKE ");
+            qb.push_bind(pat.clone());
+            qb.push(" ESCAPE '\\' OR COALESCE(pv_match.variation_label, '') ILIKE ");
+            qb.push_bind(pat);
+            qb.push(" ESCAPE '\\')))");
+        }
+        qb.push(")");
+    }
+}
+
+fn push_pos_allowed_variant_predicate(
+    qb: &mut QueryBuilder<'_, Postgres>,
+    variant_alias: &str,
+    product_alias: &str,
+    vendor_alias: &str,
+) {
+    qb.push("NOT ((LOWER(COALESCE(");
+    qb.push(vendor_alias);
+    qb.push(".name, '')) IN ('gruppo bravo menswear', 'renoir fashion inc') OR LOWER(COALESCE(");
+    qb.push(product_alias);
+    qb.push(".brand, '')) LIKE '%gruppo bravo%' OR LOWER(COALESCE(");
+    qb.push(product_alias);
+    qb.push(".brand, '')) LIKE '%renoir%' OR LOWER(");
+    qb.push(product_alias);
+    qb.push(".name) LIKE 'gruppo bravo%' OR LOWER(");
+    qb.push(product_alias);
+    qb.push(".name) LIKE 'renoir%') AND COALESCE(");
+    qb.push(variant_alias);
+    qb.push(".variation_label, '') ~* ");
+    qb.push_bind(POS_ODD_SIZE_PATTERN);
+    qb.push(")");
+}
+
 pub async fn pos_parent_search(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -577,38 +670,42 @@ pub async fn pos_parent_search(
     }
 
     let pat = control_board_ilike_pattern(search_raw);
+    let term_groups = pos_parent_search_term_groups(search_raw);
     let limit = query.limit.unwrap_or(100).clamp(1, 500);
 
-    let rows = sqlx::query_as::<_, PosParentSearchRow>(
+    let mut qb = QueryBuilder::new(
         r#"
         WITH matched_products AS (
             SELECT p.id
             FROM products p
+            LEFT JOIN categories c ON c.id = p.category_id
+            LEFT JOIN vendors pvendor ON pvendor.id = p.primary_vendor_id
             WHERE p.is_active = true
-              AND (
-                p.name ILIKE $1 ESCAPE '\'
-                OR COALESCE(p.brand, '') ILIKE $1 ESCAPE '\'
-                OR COALESCE(p.catalog_handle, '') ILIKE $1 ESCAPE '\'
-                OR EXISTS (
-                    SELECT 1
-                    FROM product_variants pv_match
-                    WHERE pv_match.product_id = p.id
-                      AND (
-                        pv_match.sku ILIKE $1 ESCAPE '\'
-                        OR COALESCE(pv_match.barcode, '') ILIKE $1 ESCAPE '\'
-                        OR COALESCE(pv_match.vendor_upc, '') ILIKE $1 ESCAPE '\'
-                        OR COALESCE(pv_match.variation_label, '') ILIKE $1 ESCAPE '\'
-                      )
-                )
-              )
+        "#,
+    );
+    push_pos_parent_token_match(&mut qb, &term_groups);
+    qb.push(
+        r#"
             ORDER BY
               CASE
-                WHEN p.name ILIKE $1 ESCAPE '\' THEN 0
-                WHEN COALESCE(p.catalog_handle, '') ILIKE $1 ESCAPE '\' THEN 1
+                WHEN p.name ILIKE "#,
+    );
+    qb.push_bind(pat.clone());
+    qb.push(
+        r#" ESCAPE '\' THEN 0
+                WHEN COALESCE(p.catalog_handle, '') ILIKE "#,
+    );
+    qb.push_bind(pat.clone());
+    qb.push(
+        r#" ESCAPE '\' THEN 1
                 ELSE 2
               END,
               p.name
-            LIMIT $2
+            LIMIT "#,
+    );
+    qb.push_bind(limit);
+    qb.push(
+        r#"
         )
         SELECT
             p.id AS product_id,
@@ -620,21 +717,44 @@ pub async fn pos_parent_search(
             COALESCE(rep.cost_override, p.base_cost) AS cost_price,
             rep.stock_on_hand,
             variant_totals.total_variant_count,
+            pvendor.name AS primary_vendor_name,
             p.tax_category,
             0::numeric AS state_tax,
             0::numeric AS local_tax
         FROM matched_products mp
         INNER JOIN products p ON p.id = mp.id
+        LEFT JOIN vendors pvendor ON pvendor.id = p.primary_vendor_id
         INNER JOIN LATERAL (
             SELECT pv.*
             FROM product_variants pv
             WHERE pv.product_id = p.id
+              AND "#,
+    );
+    push_pos_allowed_variant_predicate(&mut qb, "pv", "p", "pvendor");
+    qb.push(
+        r#"
             ORDER BY
               CASE
-                WHEN pv.sku ILIKE $1 ESCAPE '\' THEN 0
-                WHEN COALESCE(pv.barcode, '') ILIKE $1 ESCAPE '\' THEN 1
-                WHEN COALESCE(pv.vendor_upc, '') ILIKE $1 ESCAPE '\' THEN 2
-                WHEN COALESCE(pv.variation_label, '') ILIKE $1 ESCAPE '\' THEN 3
+                WHEN pv.sku ILIKE "#,
+    );
+    qb.push_bind(pat.clone());
+    qb.push(
+        r#" ESCAPE '\' THEN 0
+                WHEN COALESCE(pv.barcode, '') ILIKE "#,
+    );
+    qb.push_bind(pat.clone());
+    qb.push(
+        r#" ESCAPE '\' THEN 1
+                WHEN COALESCE(pv.vendor_upc, '') ILIKE "#,
+    );
+    qb.push_bind(pat.clone());
+    qb.push(
+        r#" ESCAPE '\' THEN 2
+                WHEN COALESCE(pv.variation_label, '') ILIKE "#,
+    );
+    qb.push_bind(pat.clone());
+    qb.push(
+        r#" ESCAPE '\' THEN 3
                 ELSE 4
               END,
               CASE WHEN pv.stock_on_hand > 0 THEN 0 ELSE 1 END,
@@ -645,20 +765,34 @@ pub async fn pos_parent_search(
             SELECT COUNT(*)::bigint AS total_variant_count
             FROM product_variants pv_total
             WHERE pv_total.product_id = p.id
+              AND "#,
+    );
+    push_pos_allowed_variant_predicate(&mut qb, "pv_total", "p", "pvendor");
+    qb.push(
+        r#"
         ) variant_totals ON true
         ORDER BY
           CASE
-            WHEN p.name ILIKE $1 ESCAPE '\' THEN 0
-            WHEN COALESCE(p.catalog_handle, '') ILIKE $1 ESCAPE '\' THEN 1
+            WHEN p.name ILIKE "#,
+    );
+    qb.push_bind(pat.clone());
+    qb.push(
+        r#" ESCAPE '\' THEN 0
+            WHEN COALESCE(p.catalog_handle, '') ILIKE "#,
+    );
+    qb.push_bind(pat);
+    qb.push(
+        r#" ESCAPE '\' THEN 1
             ELSE 2
           END,
           p.name
         "#,
-    )
-    .bind(pat)
-    .bind(limit)
-    .fetch_all(&state.db)
-    .await?;
+    );
+
+    let rows = qb
+        .build_query_as::<PosParentSearchRow>()
+        .fetch_all(&state.db)
+        .await?;
 
     Ok(Json(rows))
 }
@@ -1108,6 +1242,7 @@ pub struct PosParentSearchRow {
     pub cost_price: Decimal,
     pub stock_on_hand: i32,
     pub total_variant_count: i64,
+    pub primary_vendor_name: Option<String>,
     pub tax_category: Option<crate::logic::tax::TaxCategory>,
     pub state_tax: Decimal,
     pub local_tax: Decimal,
@@ -1700,6 +1835,10 @@ pub async fn list_control_board(
     if let Some(product_id) = query.product_id {
         qb.push(" AND p.id = ");
         qb.push_bind(product_id);
+    }
+    if query.pos_size_filter.unwrap_or(false) {
+        qb.push(" AND ");
+        push_pos_allowed_variant_predicate(&mut qb, "pv", "p", "pvendor");
     }
     if let Some(vendor_id) = query.vendor_id {
         qb.push(" AND p.primary_vendor_id = ");
@@ -4779,8 +4918,9 @@ async fn delete_product_web_image(
 mod tests {
     use super::{
         ensure_skus_do_not_exist, load_product_normalization_review, patch_product_model,
-        patch_variant_pricing, validate_create_product_payload, CreateProductRequest,
-        CreateVariantInput, PatchProductModelRequest, ProductError, VariantPricingPatch,
+        patch_variant_pricing, pos_parent_search_term_groups, validate_create_product_payload,
+        CreateProductRequest, CreateVariantInput, PatchProductModelRequest, ProductError,
+        VariantPricingPatch,
     };
     use crate::api::{store_account_rate::StoreAccountRateState, AppState};
     use crate::auth::permissions::CATALOG_EDIT;
@@ -4827,6 +4967,25 @@ mod tests {
                 track_low_stock: false,
             }],
         }
+    }
+
+    #[test]
+    fn pos_parent_search_keeps_style_number_and_suit_as_required_terms() {
+        assert_eq!(
+            pos_parent_search_term_groups("40901/1 SUIT"),
+            vec![
+                vec!["40901/1".to_string()],
+                vec!["suit".to_string(), "suits".to_string()],
+            ]
+        );
+    }
+
+    #[test]
+    fn pos_parent_search_expands_slacks_without_weakening_style_match() {
+        let groups = pos_parent_search_term_groups("40901/1 slacks");
+        assert_eq!(groups[0], vec!["40901/1".to_string()]);
+        assert!(groups[1].contains(&"slacks".to_string()));
+        assert!(groups[1].contains(&"trousers".to_string()));
     }
 
     async fn connect_test_db() -> PgPool {

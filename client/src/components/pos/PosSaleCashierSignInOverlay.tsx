@@ -1,5 +1,5 @@
 import { getBaseUrl } from "../../lib/apiConfig";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Shield, X } from "lucide-react";
 import NumericPinKeypad, { PinDots } from "../ui/NumericPinKeypad";
@@ -32,6 +32,7 @@ export default function PosSaleCashierSignInOverlay({
   const [selectedStaffId, setSelectedStaffId] = useState<string>(() => {
     return localStorage.getItem("ros_last_staff_id") || "";
   });
+  const autoVerifyKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -51,14 +52,32 @@ export default function PosSaleCashierSignInOverlay({
   const handleStaffChange = (id: string) => {
     setSelectedStaffId(id);
     localStorage.setItem("ros_last_staff_id", id);
+    onCredentialChange("");
   };
+
+  const selectedStaffExists = roster.some((staff) => staff.id === selectedStaffId);
+
+  useEffect(() => {
+    if (!open) {
+      autoVerifyKeyRef.current = null;
+      return;
+    }
+    if (credential.length !== 4) {
+      autoVerifyKeyRef.current = null;
+      return;
+    }
+    if (busy || !selectedStaffExists) return;
+
+    const key = `${selectedStaffId}:${credential}`;
+    if (autoVerifyKeyRef.current === key) return;
+    autoVerifyKeyRef.current = key;
+    onVerify();
+  }, [busy, credential, onVerify, open, selectedStaffExists, selectedStaffId]);
 
   if (!open) return null;
 
   const root = document.getElementById("drawer-root");
   if (!root) return null;
-
-  const selectedStaffExists = roster.some((staff) => staff.id === selectedStaffId);
 
   return createPortal(
     <div

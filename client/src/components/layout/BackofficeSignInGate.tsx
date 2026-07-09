@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, type ReactNode } from "react";
+import { useEffect, useState, useMemo, useRef, type ReactNode } from "react";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { RefreshCw, ShieldCheck, Sparkles, Wifi } from "lucide-react";
 import { CLIENT_SEMVER } from "../../clientBuildMeta";
@@ -159,6 +159,8 @@ export default function BackofficeSignInGate({
   const [selectedStaffId, setSelectedStaffId] = useState<string>(() => {
     return localStorage.getItem("ros_last_staff_id") || "";
   });
+  const autoSignInKeyRef = useRef<string | null>(null);
+  const trySignInRef = useRef<() => void>(() => undefined);
   const [serverUrl, setServerUrl] = useState(() => {
     return localStorage.getItem("ros_api_base_override") || DEFAULT_BASE_URL;
   });
@@ -329,6 +331,8 @@ export default function BackofficeSignInGate({
   const handleStaffChange = (id: string) => {
     setSelectedStaffId(id);
     localStorage.setItem("ros_last_staff_id", id);
+    setCredential("");
+    setError(null);
   };
 
   useEffect(() => {
@@ -411,6 +415,23 @@ export default function BackofficeSignInGate({
       setBusy(false);
     }
   };
+  trySignInRef.current = () => {
+    void trySignIn();
+  };
+
+  useEffect(() => {
+    const code = credential.trim();
+    if (code.length !== 4) {
+      autoSignInKeyRef.current = null;
+      return;
+    }
+    if (busy || !selectedStaffId) return;
+
+    const key = `${selectedStaffId}:${code}`;
+    if (autoSignInKeyRef.current === key) return;
+    autoSignInKeyRef.current = key;
+    trySignInRef.current();
+  }, [busy, credential, selectedStaffId]);
 
   if (hasStaffCode && permissionsLoaded && permissions.length > 0) {
     return <>{children}</>;

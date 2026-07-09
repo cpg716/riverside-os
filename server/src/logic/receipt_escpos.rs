@@ -348,6 +348,14 @@ fn push_totals(out: &mut Vec<u8>, d: &ReceiptOrder) {
                     &money(payment.amount),
                 ),
             );
+            if let (Some(cash_tendered), Some(change_due)) =
+                (payment.cash_tendered, payment.change_due)
+            {
+                if change_due > Decimal::ZERO {
+                    push_line(out, &right_pair("Cash Tendered", &money(cash_tendered)));
+                    push_line(out, &right_pair("Change", &money(change_due)));
+                }
+            }
         }
         if payment_summary_has_receipt_detail(&d.payment_methods_summary) {
             push_line(out, d.payment_methods_summary.trim());
@@ -359,7 +367,7 @@ fn push_totals(out: &mut Vec<u8>, d: &ReceiptOrder) {
             push_line(
                 out,
                 &format!(
-                    "Payment on {} {} rem {}",
+                    "Applied to {} {} rem {}",
                     app.target_display_id,
                     money(app.amount),
                     money(app.remaining_balance)
@@ -635,7 +643,7 @@ fn receiptline_payment_lines(d: &ReceiptOrder) -> String {
     let mut lines = vec!["Applied payments:".to_string()];
     for app in &d.payment_applications {
         lines.push(format!(
-            "Payment on {} | {}",
+            "Applied to {} | {}",
             receiptline_escape(&app.target_display_id),
             money(app.amount)
         ));
@@ -654,17 +662,21 @@ fn receiptline_tender_lines(d: &ReceiptOrder, gift: bool) -> String {
             receiptline_escape(&d.payment_methods_summary)
         );
     }
-    let mut lines = d
-        .payments
-        .iter()
-        .map(|payment| {
-            format!(
-                "Tender {} | {}",
-                receiptline_escape(&tender_display_label(&payment.method)),
-                money(payment.amount)
-            )
-        })
-        .collect::<Vec<_>>();
+    let mut lines = Vec::new();
+    for payment in &d.payments {
+        lines.push(format!(
+            "Tender {} | {}",
+            receiptline_escape(&tender_display_label(&payment.method)),
+            money(payment.amount)
+        ));
+        if let (Some(cash_tendered), Some(change_due)) = (payment.cash_tendered, payment.change_due)
+        {
+            if change_due > Decimal::ZERO {
+                lines.push(format!("Cash Tendered | {}", money(cash_tendered)));
+                lines.push(format!("Change | {}", money(change_due)));
+            }
+        }
+    }
     if payment_summary_has_receipt_detail(&d.payment_methods_summary) {
         lines.push(receiptline_escape(d.payment_methods_summary.trim()));
     }
@@ -704,6 +716,12 @@ fn receiptline_payment_history_block(d: &ReceiptOrder) -> String {
             receiptline_escape(&tender_display_label(&pay.method)),
             money(pay.amount)
         ));
+        if let (Some(cash_tendered), Some(change_due)) = (pay.cash_tendered, pay.change_due) {
+            if change_due > Decimal::ZERO {
+                lines.push(format!("Cash Tendered | {}", money(cash_tendered)));
+                lines.push(format!("Change | {}", money(change_due)));
+            }
+        }
     }
     lines.join("\n")
 }
@@ -919,7 +937,7 @@ pub fn build_receipt_escpos(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::logic::receipt_shared::{ReceiptLine, ReceiptOrder};
+    use crate::logic::receipt_shared::{ReceiptLine, ReceiptOrder, ReceiptPayment};
     use crate::models::DbOrderStatus;
     use chrono::Utc;
     use uuid::Uuid;
@@ -1013,6 +1031,30 @@ mod tests {
         assert!(markdown.contains("Mantoni Classic Fit DrShirt"));
         assert!(!markdown.contains("^^^Special Order"));
         assert!(!markdown.contains("Gruppo Bravo Slacks"));
+    }
+
+    #[test]
+    fn receiptline_shows_cash_tendered_and_change_when_change_was_given() {
+        let mut order = receipt_order_with(vec![receipt_line("Cash Item", "CASH-1", None)]);
+        order.total_price = Decimal::new(5000, 2);
+        order.amount_paid = Decimal::new(5000, 2);
+        order.payments = vec![ReceiptPayment {
+            date: Utc::now(),
+            method: "cash".to_string(),
+            amount: Decimal::new(5000, 2),
+            cash_tendered: Some(Decimal::new(10000, 2)),
+            change_due: Some(Decimal::new(5000, 2)),
+        }];
+
+        let markdown = build_receiptline_markdown(
+            &order,
+            &ReceiptConfig::default(),
+            &HashMap::new(),
+            &LoyaltyReceiptData::default(),
+        );
+
+        assert!(markdown.contains("Cash Tendered | $100.00"));
+        assert!(markdown.contains("Change | $50.00"));
     }
 
     #[test]

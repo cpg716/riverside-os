@@ -38,7 +38,7 @@ To ensure each sale is attributed to the correct staff member, Riverside OS uses
 
 1. **Select Your Name**: When starting a sale or changing sessions, tap your avatar/name from the scrollable grid.
 2. **Enter Access PIN**: Type your 4-digit code.
-3. **Continue**: Unlock the register.
+3. **Automatic unlock**: Riverside proceeds as soon as the fourth correct digit is entered. Shift handoff also verifies that the Access PIN belongs to the selected staff member. Use **Continue** only if you need to retry manually.
 
 PIN keypads accept touch, mouse, physical number-pad, and keyboard entry. If keyboard entry does not start, tap or click the PIN display/keypad area once, then type the digits.
 
@@ -71,8 +71,9 @@ When the drawer is active, you often land on **Dashboard**. Here you can see shi
 1. Select **Register** in the left POS sidebar.
 2. Click in the **product search** field at the top of the sale. The field should auto-focus when the register opens.
 3. **Scan a barcode** or **type a SKU**, then press **Enter**. SKU-style entries such as `B-1626170`, `I-103881`, `CP-100001`, or `ROS-1001` must match exactly; if the SKU is missing, the Register shows **SKU NOT FOUND** instead of offering similar SKUs.
-4. If the system asks you to choose a size or variation, pick the correct line and confirm.
-5. Repeat for each item. The cart lists each line with quantity and price.
+4. For parent-style searches, combine the style number and product type when it helps narrow the list, such as `40901/1 suit`, `40901/1 slacks`, or `40901/1 blazer`.
+5. If the system asks you to choose a size or variation, pick the correct line and confirm.
+6. Repeat for each item. The cart lists each line with quantity and price.
 
 ![Cart with items added](../images/help/pos/cart-with-lines.png)
 
@@ -120,8 +121,9 @@ Inventory and bookkeeping follow server rules for takeaway, order, and wedding l
 1. When the cart is correct, select **Proceed to Payment**.
 2. If you are not using a saved customer, confirm **walk-in** when asked.
 3. The **Payment ledger** side panel opens. Enter amounts on the keypad, then **Apply payment** for each tender (card, cash, gift card, etc.) the way you were trained.
-   - **Card Not Present** opens secure HelcimPay.js card entry for keyed payments. Riverside OS validates the Helcim response and does not store card numbers or CVV. Keep the checkout drawer open; approved payments attach back to the payment ledger automatically. If the customer cancels or the card is declined, use the ledger status and retry/cancel controls before starting another card attempt. Helcim may ask for billing ZIP and street address for card verification.
+   - **Card Not Present** opens secure HelcimPay.js card entry for keyed payments. Riverside OS validates the Helcim response and does not store card numbers or CVV. Keep the checkout drawer open; approved payments attach back to the payment ledger automatically. Complete the sale only after the approved payment appears in the ledger. If Helcim approves but ROS cannot attach the response immediately, keep the secure page open and select **Retry Approval**; this retries the attachment without charging the card again. If the customer cancels or the card is declined, use the ledger retry controls before starting another card attempt. Helcim may ask for billing ZIP and street address for card verification.
    - **Manual Card** records a card approval without a live Helcim connection. Enter only the approval/reference, last four digits, and reason. Never enter full card numbers or CVV in ROS.
+   - **Cash** accepts the amount handed to you and shows the change due before checkout. When change is given, the customer receipt prints both **Cash Tendered** and **Change**.
    - **Physical Checks**: When a customer pays by check, select the **CHECK** tab and enter the **Check #** in the input field before pressing **Apply Payment**.
    - **Staff Account** charges an employee purchase to the linked staff receivable account. The sale still calculates tax from the item tax category. Use **Staff Pay** from the Register action ribbon only when the employee is paying down an existing Staff Account balance.
 4. On **Order / Layaway / Wedding** sales, any money paid before pickup is treated as a deposit even if you only use **Apply payment**. Use **Apply deposit** when you want the ledger to set a specific deposit target first. **Split deposit (wedding party)** opens wedding lookup in group-pay mode so you can select members and enter the deposit amount for each one, even when a member has no open balance yet. **Takeaway** items (walk out today) must be covered with regular tenders first; deposit and **open deposit** apply to order balances, not unpaid takeaway. If the linked customer has a **party deposit** waiting, you may be asked to apply it to this sale.

@@ -1342,7 +1342,10 @@ export default function NexoCheckoutDrawer({
       }
       setManualCardHandoffUrl(null);
       void (async () => {
-        if (data.type === "helcim-card-not-present-outcome" && data.outcome === "canceled") {
+        if (
+          data.type === "helcim-card-not-present-outcome" &&
+          (data.outcome === "canceled" || data.outcome === "failed")
+        ) {
           try {
             const res = await fetch(
               `${baseUrl}/api/payments/providers/helcim/attempts/${attemptId}/release`,
@@ -1353,7 +1356,10 @@ export default function NexoCheckoutDrawer({
             );
             if (!res.ok) throw new Error("Could not cancel Card Not Present.");
             const attempt = (await res.json()) as HelcimAttempt;
-            applyHelcimAttemptUpdate(attempt);
+            applyHelcimAttemptUpdate(attempt, { quietFinal: data.outcome === "failed" });
+            if (data.outcome === "failed") {
+              toast("Card declined. The payment ledger is ready to retry.", "error");
+            }
             return;
           } catch {
             // Fall through to status refresh; Helcim may have already finalized the attempt.
@@ -1373,6 +1379,7 @@ export default function NexoCheckoutDrawer({
     isOpen,
     manualCardHandoffUrl,
     refreshHelcimAttempt,
+    toast,
   ]);
 
   useEffect(() => {

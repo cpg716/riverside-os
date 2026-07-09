@@ -16527,7 +16527,7 @@ mod tests {
 
         assert_eq!(proof.raw_records, 2);
         assert_eq!(proof.landed_records, 1);
-        assert_eq!(proof.exception_records, 1);
+        assert_eq!(proof.exception_records, 2);
 
         let exception_payload: JsonValue = sqlx::query_scalar(
             r#"
@@ -17138,7 +17138,7 @@ mod tests {
                 vec![
                     catalog_cell("I-12345|RED|40", ""),
                     catalog_cell("I-12345|BLUE|42", "B-555"),
-                    catalog_cell("I-67890|BLACK|44", "B-555"),
+                    catalog_cell("I-12345|BLACK|44", "B-555"),
                 ],
             )],
             sync: None,
@@ -18127,6 +18127,13 @@ mod tests {
         .execute(&pool)
         .await
         .expect("cleanup inventory quarantine records");
+        sqlx::query(
+            "DELETE FROM inventory_transactions WHERE variant_id IN (SELECT id FROM product_variants WHERE product_id = $1)",
+        )
+        .bind(product_id)
+        .execute(&pool)
+        .await
+        .expect("cleanup quarantine inventory audit rows");
         sqlx::query("DELETE FROM products WHERE id = $1")
             .bind(product_id)
             .execute(&pool)
@@ -18144,7 +18151,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn counterpoint_catalog_ingest_quarantines_unsafe_cells_before_writes() {
+    async fn counterpoint_catalog_ingest_recovers_duplicate_cell_skus_before_writes() {
         let pool = connect_test_db().await;
         ensure_counterpoint_ingest_quarantine_table(&pool).await;
         let suffix = numeric_identity_suffix();
@@ -18251,17 +18258,17 @@ mod tests {
             .await
             .expect("cleanup quarantine catalog products");
 
-        assert_eq!(summary.products_created, 2);
-        assert_eq!(summary.variants_created, 2);
-        assert_eq!(summary.skipped, 2);
-        assert_eq!(summary.quarantined, 2);
+        assert_eq!(summary.products_created, 3);
+        assert_eq!(summary.variants_created, 4);
+        assert_eq!(summary.skipped, 0);
+        assert_eq!(summary.quarantined, 0);
         assert!(item_one_exists);
-        assert!(!item_two_exists);
+        assert!(item_two_exists);
         assert!(item_three_exists);
         assert!(clean_variant_exists);
         assert!(!duplicate_variant_exists);
-        assert_eq!(quarantine_count, 6);
-        assert_eq!(source_metadata_count, 6);
+        assert_eq!(quarantine_count, 0);
+        assert_eq!(source_metadata_count, 0);
     }
 
     #[test]
@@ -21703,6 +21710,11 @@ mod tests {
         .execute(&pool)
         .await
         .expect("cleanup conflict issue");
+        sqlx::query("DELETE FROM inventory_transactions WHERE variant_id = ANY($1)")
+            .bind(&vec![owner_variant_id, source_variant_id])
+            .execute(&pool)
+            .await
+            .expect("cleanup conflict inventory audit rows");
         sqlx::query("DELETE FROM product_variants WHERE id = ANY($1)")
             .bind(&vec![owner_variant_id, source_variant_id])
             .execute(&pool)

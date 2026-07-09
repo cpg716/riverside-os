@@ -577,30 +577,6 @@ pub async fn fetch_register_day_summary(
 
     let order_in_range = crate::logic::report_basis::order_date_filter_sql(basis);
     let order_session_filter = order_session_filter_sql(basis);
-    let duplicate_counterpoint_import_filter = r#"
-          AND NOT (
-              COALESCE(o.is_counterpoint_import, false) = true
-              AND o.counterpoint_doc_ref IS NOT NULL
-              AND EXISTS (
-                  SELECT 1
-                  FROM transactions native_o
-                  WHERE native_o.id <> o.id
-                    AND COALESCE(native_o.is_counterpoint_import, false) = false
-                    AND native_o.customer_id IS NOT DISTINCT FROM o.customer_id
-                    AND COALESCE(native_o.business_date, (native_o.booked_at AT TIME ZONE reporting.effective_store_timezone())::date)
-                        = COALESCE(o.business_date, (o.booked_at AT TIME ZONE reporting.effective_store_timezone())::date)
-                    AND EXISTS (
-                        SELECT 1
-                        FROM transaction_lines imported_line
-                        INNER JOIN transaction_lines native_line
-                            ON native_line.transaction_id = native_o.id
-                           AND native_line.variant_id = imported_line.variant_id
-                        WHERE imported_line.transaction_id = o.id
-                    )
-              )
-          )
-    "#;
-
     let agg_sql = format!(
         r#"
         SELECT
@@ -633,7 +609,6 @@ pub async fn fetch_register_day_summary(
             GROUP BY transaction_id
         ) ln ON ln.transaction_id = o.id
         WHERE {order_in_range}
-        {duplicate_counterpoint_import_filter}
         {order_session_filter}
         "#,
     );
@@ -660,7 +635,6 @@ pub async fn fetch_register_day_summary(
               AND o.fulfilled_at IS NOT NULL
               AND o.fulfilled_at >= $1
               AND o.fulfilled_at < $2
-            {duplicate_counterpoint_import_filter}
             AND EXISTS (
                   SELECT 1
                   FROM transaction_lines tl_pickup
@@ -692,7 +666,6 @@ pub async fn fetch_register_day_summary(
         FROM transactions o
         INNER JOIN transaction_lines oi ON oi.transaction_id = o.id
         WHERE {order_in_range}
-          {duplicate_counterpoint_import_filter}
           AND oi.fulfillment::text IN ('special_order', 'custom')
         {order_session_filter}
         "#
@@ -1034,7 +1007,6 @@ pub async fn fetch_register_day_summary(
             GROUP BY transaction_line_id
         ) orl ON orl.transaction_line_id = oi.id
         WHERE {order_in_range}
-          {duplicate_counterpoint_import_filter}
           AND EXISTS (
               SELECT 1
               FROM transaction_lines tl_activity
@@ -1121,7 +1093,6 @@ pub async fn fetch_register_day_summary(
             GROUP BY transaction_line_id
         ) orl ON orl.transaction_line_id = tl.id
         WHERE o.status::text <> 'cancelled'
-          {duplicate_counterpoint_import_filter}
           AND COALESCE(tl.is_internal, false) = false
           AND tl.fulfillment::text <> 'takeaway'
           AND tl.fulfilled_at >= $1
@@ -1173,6 +1144,34 @@ pub async fn fetch_register_day_summary(
                   FROM transaction_lines tl_same_day_sale
                   WHERE tl_same_day_sale.transaction_id = o.id
               )
+          )
+          AND NOT EXISTS (
+              SELECT 1
+              FROM payment_allocations pa_same_day_sale
+              INNER JOIN transactions o_same_day_sale ON o_same_day_sale.id = pa_same_day_sale.target_transaction_id
+              WHERE pa_same_day_sale.transaction_id = pt.id
+                AND pa_same_day_sale.id <> pa.id
+                AND o_same_day_sale.status::text <> 'cancelled'
+                AND COALESCE(o_same_day_sale.business_date, (o_same_day_sale.booked_at AT TIME ZONE reporting.effective_store_timezone())::date) >= ($1 AT TIME ZONE reporting.effective_store_timezone())::date
+                AND COALESCE(o_same_day_sale.business_date, (o_same_day_sale.booked_at AT TIME ZONE reporting.effective_store_timezone())::date) < ($2 AT TIME ZONE reporting.effective_store_timezone())::date
+                AND EXISTS (
+                    SELECT 1
+                    FROM transaction_lines tl_same_day_sale
+                    WHERE tl_same_day_sale.transaction_id = o_same_day_sale.id
+                )
+          )
+          AND NOT EXISTS (
+              SELECT 1
+              FROM transactions checkout_o
+              WHERE checkout_o.id::text = pt.metadata->>'checkout_transaction_id'
+                AND checkout_o.status::text <> 'cancelled'
+                AND COALESCE(checkout_o.business_date, (checkout_o.booked_at AT TIME ZONE reporting.effective_store_timezone())::date) >= ($1 AT TIME ZONE reporting.effective_store_timezone())::date
+                AND COALESCE(checkout_o.business_date, (checkout_o.booked_at AT TIME ZONE reporting.effective_store_timezone())::date) < ($2 AT TIME ZONE reporting.effective_store_timezone())::date
+                AND EXISTS (
+                    SELECT 1
+                    FROM transaction_lines checkout_line
+                    WHERE checkout_line.transaction_id = checkout_o.id
+                )
           )
         ORDER BY pt.created_at DESC
         LIMIT 120

@@ -114,12 +114,26 @@ interface HelcimCloseReviewAttempt {
 }
 
 interface ZReportDaySummary {
+  sales_count: number;
+  sales_tax_total: string;
+  cash_collected: string;
+  deposits_collected: string;
+  net_sales: string;
   pickup_count: number;
   special_order_sale_count: number;
   appointment_count: number;
   new_appointment_count: number;
   new_wedding_parties_count: number;
   new_invoice_count: number;
+  pickups_today?: Array<{
+    occurred_at: string;
+    customer_name?: string | null;
+    customer_code?: string | null;
+    short_id?: string | null;
+    sales_total?: string | null;
+    transaction_total?: string | null;
+    items?: Array<{ name: string; sku: string; quantity: number }> | null;
+  }>;
 }
 
 interface TransactionLine {
@@ -506,13 +520,9 @@ export default function CloseRegisterModal({
   const helcimReviewMessage = useMemo(() => {
     if (unresolvedHelcimAttempts.length === 0) return null;
     const approved = unresolvedHelcimAttempts.filter((attempt) => attempt.review_reason === "approved_not_recorded").length;
-    const pending = unresolvedHelcimAttempts.filter((attempt) => attempt.review_reason === "waiting_on_terminal").length;
-    const review = unresolvedHelcimAttempts.filter((attempt) => attempt.review_reason === "outcome_needs_review").length;
     const parts: string[] = [];
     if (approved > 0) parts.push(`${approved} card approval${approved === 1 ? "" : "s"} not recorded in ROS`);
-    if (pending > 0) parts.push(`${pending} card outcome${pending === 1 ? "" : "s"} still waiting on the terminal`);
-    if (review > 0) parts.push(`${review} card outcome${review === 1 ? "" : "s"} unresolved`);
-    return `Card payment review required before Z-close: ${parts.join(", ")}. Review the terminal result, then record or void the attempt before closing.`;
+    return `Helcim approval review: ${parts.join(", ")}. Repair or add a close note so accounting can follow up.`;
   }, [unresolvedHelcimAttempts]);
 
   const checkPayments = useMemo(
@@ -550,12 +560,6 @@ export default function CloseRegisterModal({
       }),
     [checkPayments, checkReview],
   );
-
-  const blockForHelcimReview = useCallback(() => {
-    if (!helcimReviewMessage) return false;
-    toast(helcimReviewMessage, "error");
-    return true;
-  }, [helcimReviewMessage, toast]);
 
   const recordHelcimCloseReview = useCallback(async (attemptId: string) => {
     if (helcimReviewSubmitting) return;
@@ -654,7 +658,6 @@ export default function CloseRegisterModal({
     if (totalCents == null || totalCents < 0) return;
     void (async () => {
       if (await blockForOfflineQueue()) return;
-      if (blockForHelcimReview()) return;
       setActualCash(centsToFixed2(totalCents));
       setStep("checks");
     })();
@@ -742,6 +745,24 @@ export default function CloseRegisterModal({
       newAppointmentsCount: daySummary?.new_appointment_count ?? 0,
       newWeddingPartiesCount: daySummary?.new_wedding_parties_count ?? 0,
       newInvoicesCount: daySummary?.new_invoice_count ?? 0,
+      salesCount: daySummary?.sales_count,
+      salesTaxTotal: daySummary?.sales_tax_total,
+      cashCollected: daySummary?.cash_collected,
+      depositsCollected: daySummary?.deposits_collected,
+      netSales: daySummary?.net_sales,
+      pickupsToday: (daySummary?.pickups_today ?? []).map((pickup) => ({
+        occurred_at: pickup.occurred_at,
+        customer_name: pickup.customer_name,
+        customer_code: pickup.customer_code,
+        short_id: pickup.short_id,
+        sales_total: pickup.sales_total,
+        transaction_total: pickup.transaction_total,
+        items: pickup.items?.map((item) => ({
+          name: item.name,
+          sku: item.sku,
+          quantity: item.quantity,
+        })),
+      })),
       qboActivityDate: currentRecon.qbo_activity_date ?? currentRecon.qbo_journal?.activity_date ?? null,
       qboJournal: currentRecon.qbo_journal ?? null,
       qboJournalError: currentRecon.qbo_journal_error ?? null,
@@ -775,7 +796,6 @@ export default function CloseRegisterModal({
       return;
     }
     if (await blockForOfflineQueue()) return;
-    if (blockForHelcimReview()) return;
     if (!cashDepositDate.trim()) {
       toast("Enter the Daily Cash Deposit date before closing.", "error");
       return;
@@ -883,28 +903,22 @@ export default function CloseRegisterModal({
   const renderHelcimReviewBlocker = () => {
     if (!helcimReviewMessage) return null;
     return (
-      <div className="ui-panel ui-tint-danger p-3 text-xs text-app-text-muted">
+      <div className="ui-panel ui-tint-warning p-3 text-xs text-app-text-muted">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-[10px] font-black uppercase tracking-widest text-app-danger">
-            Card review
+          <p className="text-[10px] font-black uppercase tracking-widest text-app-warning">
+            Card approval review
           </p>
-          <span className="rounded-full border border-app-danger/25 bg-app-danger/10 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-app-danger">POS review</span>
+          <span className="rounded-full border border-app-warning/25 bg-app-warning/10 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-app-warning">Close review</span>
         </div>
         <p className="mt-1 font-semibold">
-          Clear {unresolvedHelcimAttempts.length} terminal outcome{unresolvedHelcimAttempts.length === 1 ? "" : "s"} before close.
+          {unresolvedHelcimAttempts.length} approved Helcim card payment{unresolvedHelcimAttempts.length === 1 ? "" : "s"} need repair or a close note. Z-close can continue.
         </p>
         <div className="mt-2 space-y-2">
           {unresolvedHelcimAttempts.slice(0, 4).map((attempt) => (
             <div key={attempt.id} className="rounded-2xl border border-app-border bg-app-surface/80 p-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="font-black text-app-text">
-                  Reg #{attempt.register_lane} · ${centsToFixed2(Math.abs(attempt.amount_cents))} · {
-                    attempt.review_reason === "approved_not_recorded"
-                      ? "Approved"
-                      : attempt.review_reason === "waiting_on_terminal"
-                        ? "Waiting"
-                        : "Review"
-                  }
+                  Reg #{attempt.register_lane} · ${centsToFixed2(Math.abs(attempt.amount_cents))} · Approved not attached
                 </p>
                 <button
                   type="button"
@@ -937,7 +951,7 @@ export default function CloseRegisterModal({
                     onClick={() => void recordHelcimCloseReview(attempt.id)}
                     className="ui-btn-primary py-2 text-xs font-black uppercase tracking-widest disabled:opacity-50"
                   >
-                    Clear Card Review
+                    Record Review Action
                   </button>
                 </div>
               ) : null}
@@ -1278,7 +1292,6 @@ export default function CloseRegisterModal({
     Math.abs(discrepancyCents) > MANDATORY_NOTE_OVER_USD * 100;
   const closeBlockers = [
     offlineQueueSummary.totalCount > 0 ? "Checkout recovery" : null,
-    helcimReviewMessage ? "Card payment review" : null,
     checkPayments.length > 0 && !checksReady ? "Check review" : null,
     needsNote && notes.trim() === "" ? "Cash discrepancy note" : null,
     cashDepositDate.trim() === "" ? "Cash deposit date" : null,
@@ -1315,8 +1328,8 @@ export default function CloseRegisterModal({
       },
       {
         id: "card-review",
-        label: helcimReviewMessage ?? "No unresolved card payment review blocker is visible.",
-        severity: helcimReviewMessage ? "warning" : "success",
+        label: helcimReviewMessage ?? "No approved Helcim card payments are missing from ROS.",
+        severity: helcimReviewMessage ? "info" : "success",
       },
       {
         id: "offline-queue",
@@ -1548,7 +1561,7 @@ export default function CloseRegisterModal({
             </div>
             <p className="mt-1 text-sm font-semibold">
               {closeReady
-                ? "Cash and payment reviews are clear."
+                ? "Required close checks are clear."
                 : `Before closing: ${closeBlockers.join(", ")}.`}
             </p>
           </div>

@@ -95,6 +95,8 @@ pub struct ReceiptPayment {
     pub date: DateTime<Utc>,
     pub method: String,
     pub amount: Decimal,
+    pub cash_tendered: Option<Decimal>,
+    pub change_due: Option<Decimal>,
 }
 
 #[derive(Debug, Clone)]

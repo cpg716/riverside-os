@@ -1272,21 +1272,6 @@ export default function PaymentsWorkspace({
     [apiHeaders, canSync, refresh, toast],
   );
 
-  const replayLastFailedEvent = useCallback(async () => {
-    const eventId = data.health?.last_failed_event_id;
-    if (!eventId) {
-      toast("No failed Helcim update is available to replay.", "info");
-      return;
-    }
-    try {
-      await sendJson(`/api/payments/providers/helcim/events/${eventId}/replay`, "POST");
-      toast("Helcim update replayed.", "success");
-      await refresh();
-    } catch (err) {
-      toast(err instanceof Error ? err.message : "Helcim update replay failed.", "error");
-    }
-  }, [data.health?.last_failed_event_id, refresh, sendJson, toast]);
-
   const pingDevice = useCallback(async (code: string) => {
     const normalized = code.trim();
     if (!normalized) return;
@@ -1322,6 +1307,31 @@ export default function PaymentsWorkspace({
     },
     [refresh, sendJson, toast],
   );
+
+  const replayFailedHelcimEvent = useCallback((eventId: string) => {
+    if (!canSync) {
+      toast("Webhook replay requires payment sync access.", "error");
+      return;
+    }
+    confirmAction({
+      title: "Replay Failed Helcim Update?",
+      message:
+        "Replay only after the configuration or data problem that caused this Helcim update to fail has been corrected.",
+      confirmLabel: "Replay Update",
+      variant: "danger",
+      onConfirm: () => {
+        void (async () => {
+          try {
+            await sendJson(`/api/payments/providers/helcim/events/${encodeURIComponent(eventId)}/replay`, "POST");
+            toast("Helcim update replayed.", "success");
+            await refresh();
+          } catch (err) {
+            toast(err instanceof Error ? err.message : "Helcim update replay failed.", "error");
+          }
+        })();
+      },
+    });
+  }, [canSync, confirmAction, refresh, sendJson, toast]);
 
   const startStandaloneCardRefund = useCallback(
     (payload: { amountCents: number; originalTransactionId: number }) => {
@@ -1402,7 +1412,6 @@ export default function PaymentsWorkspace({
   const healthBadge =
     (posSurface || !lastError ? 0 : 1) +
     (data.health?.failed_event_count ?? 0) +
-    (data.health?.unmatched_event_count ?? 0) +
     (data.health?.terminal_review_attempts.length ?? 0) +
     (data.health?.terminal_review_events.length ?? 0);
 
@@ -1557,9 +1566,9 @@ export default function PaymentsWorkspace({
                 canRecoveryResolve={canReconcileResolve}
                 onSyncBatches={() => void runSync("batches")}
                 onSyncFees={() => void runSync("fees")}
-                onReplayLastFailedEvent={() => void replayLastFailedEvent()}
                 onPingDevice={(code) => void pingDevice(code)}
                 onRecordRecoveryAction={recordHelcimRecoveryAction}
+                onReplayFailedEvent={replayFailedHelcimEvent}
               />
             )}
           </>
@@ -2303,9 +2312,9 @@ function HealthPanel({
   canRecoveryResolve,
   onSyncBatches,
   onSyncFees,
-  onReplayLastFailedEvent,
   onPingDevice,
   onRecordRecoveryAction,
+  onReplayFailedEvent,
 }: {
   surface?: "backoffice" | "pos";
   overview: OverviewResponse | null;
@@ -2324,8 +2333,8 @@ function HealthPanel({
   canRecoveryResolve: boolean;
   onSyncBatches: () => void;
   onSyncFees: () => void;
-  onReplayLastFailedEvent: () => void;
   onPingDevice: (code: string) => void;
+  onReplayFailedEvent: (eventId: string) => void;
   onRecordRecoveryAction: (
     sourceKind: HelcimTerminalRecoverySourceKind,
     sourceId: string,
@@ -2336,12 +2345,11 @@ function HealthPanel({
   const posSurface = surface === "pos";
   const terminalReviewAttempts = health?.terminal_review_attempts ?? [];
   const terminalReviewEvents = health?.terminal_review_events ?? [];
-  const terminalReviewAttemptCount = terminalReviewAttempts.length;
+  const unlinkedApprovalCount = terminalReviewAttempts.length + terminalReviewEvents.length;
   const paymentAlertCount =
     (posSurface || !lastError ? 0 : 1) +
     (health?.failed_event_count ?? 0) +
-    (health?.unmatched_event_count ?? 0) +
-    terminalReviewAttemptCount +
+    unlinkedApprovalCount +
     (posSurface ? 0 : depositAlertCount + reconciliationAlertCount);
   const lastChecked =
     (posSurface ? null : runs[0]?.completed_at ?? runs[0]?.started_at) ??
@@ -2357,22 +2365,15 @@ function HealthPanel({
       : null,
     (health?.failed_event_count ?? 0) > 0
       ? {
-          label: "Payment update failed",
-          detail: `${health?.failed_event_count ?? 0} payment update(s) need review.`,
-          tone: "warning" as const,
+          label: "Helcim update failed",
+          detail: health?.last_failed_message ?? `${health?.failed_event_count ?? 0} Helcim update(s) failed processing.`,
+          tone: "danger" as const,
         }
       : null,
-    (health?.unmatched_event_count ?? 0) > 0
+    unlinkedApprovalCount > 0
       ? {
-          label: "Provider event not attached to ROS checkout",
-          detail: `${health?.unmatched_event_count ?? 0} provider event(s) need Helcim review before staff assumes ROS recorded the payment.`,
-          tone: "warning" as const,
-        }
-      : null,
-    terminalReviewAttemptCount > 0
-      ? {
-          label: "Terminal attempt needs review",
-          detail: `${terminalReviewAttemptCount} terminal attempt(s) are pending, expired, or provider-approved without a ROS payment row.`,
+          label: "Approved card not attached",
+          detail: `${unlinkedApprovalCount} Helcim card approval(s) have no matching ROS purchase or refund payment row.`,
           tone: "warning" as const,
         }
       : null,
@@ -2397,7 +2398,7 @@ function HealthPanel({
       {posSurface ? (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <MetricCard label="Terminal Routing" value={terminalRouting ? "Loaded" : "Not ready"} tone={terminalRouting ? "good" : "warning"} />
-          <MetricCard label="Needs Review" value={`${terminalReviewAttemptCount + terminalReviewEvents.length}`} tone={terminalReviewAttemptCount + terminalReviewEvents.length > 0 ? "warning" : "good"} />
+          <MetricCard label="Unlinked Approvals" value={`${unlinkedApprovalCount}`} tone={unlinkedApprovalCount > 0 ? "warning" : "good"} />
           <MetricCard label="Recent Updates" value={`${health?.recent_event_count ?? 0}`} />
           <MetricCard label="Last Update" value={shortDateTime(health?.last_event_at)} />
         </div>
@@ -2415,7 +2416,7 @@ function HealthPanel({
             <h2 className="text-lg font-black text-app-text">Payment Alerts</h2>
             <p className="mt-1 text-sm font-semibold text-app-text-muted">
               {posSurface
-                ? `Last checked ${shortDateTime(lastChecked)}. Resolve card review items before closing.`
+                ? `Last checked ${shortDateTime(lastChecked)}. Unlinked Helcim approvals can be reviewed during close without blocking close.`
                 : `Last checked ${shortDateTime(lastChecked)}. Alerts do not close issues or change payment totals.`}
             </p>
           </div>
@@ -2425,7 +2426,7 @@ function HealthPanel({
           {alertRows.length === 0 ? (
             <EmptyState
               title="No payment alerts right now"
-              body={posSurface ? "Card updates and terminal attempts are clear." : "Payments, deposits, and updates are clear right now."}
+              body={posSurface ? "No approved Helcim card payments are missing from ROS." : "Payments, deposits, and updates are clear right now."}
               compact
             />
           ) : (
@@ -2449,25 +2450,26 @@ function HealthPanel({
         <h2 className="text-lg font-black text-app-text">Payment Updates</h2>
         <div className="mt-4 grid gap-3 md:grid-cols-4">
           <MetricCard label="Recent Updates" value={`${health?.recent_event_count ?? 0}`} />
-          <MetricCard label="Needs Review" value={`${(health?.failed_event_count ?? 0) + (health?.unmatched_event_count ?? 0)}`} tone={(health?.failed_event_count ?? 0) + (health?.unmatched_event_count ?? 0) > 0 ? "warning" : "good"} />
+          <MetricCard label="Failed Updates" value={`${health?.failed_event_count ?? 0}`} tone={(health?.failed_event_count ?? 0) > 0 ? "warning" : "good"} />
           <MetricCard label="No Action Needed" value={`${health?.ignored_event_count ?? 0}`} />
           <MetricCard label="Last Update" value={shortDateTime(health?.last_event_at)} />
         </div>
-        {!posSurface && (health?.failed_event_count ?? 0) > 0 ? (
-          <div className="mt-4 flex flex-col gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 text-sm font-semibold text-app-text-muted sm:flex-row sm:items-center sm:justify-between">
-            <span>{health?.last_failed_message ?? "A Helcim payment update failed and can be replayed."}</span>
-            <button
-              type="button"
-              onClick={onReplayLastFailedEvent}
-              disabled={!canSync || !health?.last_failed_event_id}
-              title={!canSync ? "You do not have permission to perform this action" : undefined}
-              className="rounded-lg border border-app-border bg-app-surface px-4 py-2 text-sm font-bold text-app-text disabled:opacity-50"
-            >
-              Replay Last Update
-            </button>
+        {health?.failed_event_count ? (
+          <div className="mt-4 rounded-lg border border-rose-500/30 bg-rose-500/10 p-4 text-sm font-semibold text-app-text-muted">
+            <div className="font-black text-app-text">Helcim update failed</div>
+            <div className="mt-1">{health.last_failed_message ?? "A signed Helcim update could not be processed."}</div>
+            {!posSurface && canSync && health.last_failed_event_id ? (
+              <button
+                type="button"
+                className="mt-3 inline-flex items-center gap-2 rounded-lg border border-rose-500/40 bg-app-surface px-3 py-2 text-xs font-black uppercase tracking-widest text-app-text"
+                onClick={() => onReplayFailedEvent(health.last_failed_event_id as string)}
+              >
+                <RotateCcw size={14} aria-hidden />
+                Replay Failed Update
+              </button>
+            ) : null}
           </div>
-        ) : null}
-        {health && health.webhook_delivery_status !== "receiving" && health.webhook_delivery_status !== "not_required" ? (
+        ) : health && ["not_configured", "missing_secret", "not_receiving"].includes(health.webhook_delivery_status) ? (
           <div className="mt-4 rounded-lg border border-rose-500/30 bg-rose-500/10 p-4 text-sm font-semibold text-app-text-muted">
             <div className="font-black text-app-text">{health.webhook_delivery_label}</div>
             <div className="mt-1">{health.webhook_delivery_detail}</div>
@@ -2485,16 +2487,14 @@ function HealthPanel({
           <div>
             <h2 className="text-lg font-black text-app-text">Helcim Terminal Review</h2>
             <p className="mt-1 text-sm font-semibold text-app-text-muted">
-              {posSurface
-                ? "Verify the terminal result, choose the outcome, then record the review."
-                : "These rows are read-only. They do not record payments, close checkouts, or reconcile provider activity."}
+              Only approved Helcim card purchases or refunds missing from ROS appear here.
             </p>
           </div>
-          <StatusPill value={terminalReviewAttemptCount + terminalReviewEvents.length > 0 ? "Needs Review" : "Clear"} />
+          <StatusPill value={unlinkedApprovalCount > 0 ? "Needs Review" : "Clear"} />
         </div>
-        {terminalReviewAttemptCount + terminalReviewEvents.length === 0 ? (
+        {unlinkedApprovalCount === 0 ? (
           <div className="mt-4">
-            <EmptyState title="No terminal review items" body="Helcim terminal attempts and payment updates have no recent review flags." compact />
+            <EmptyState title="No unlinked Helcim approvals" body="Every approved Helcim card payment currently known to ROS is attached or cleared." compact />
           </div>
         ) : (
           <div className="mt-4 space-y-4">

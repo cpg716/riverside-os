@@ -1154,6 +1154,7 @@ async fn handle_helcim_card_transaction(
         attempt_id,
         final_payment_transaction_id,
         final_match_type,
+        Some(&normalized_status),
     )
     .await?;
     tx.commit().await?;
@@ -1230,7 +1231,8 @@ async fn handle_helcim_terminal_cancel(
     } else {
         "terminal"
     };
-    mark_helcim_event_processed(&mut tx, event_id, None, attempt_id, None, match_type).await?;
+    mark_helcim_event_processed(&mut tx, event_id, None, attempt_id, None, match_type, None)
+        .await?;
     tx.commit().await?;
     Ok(HelcimProcessingOutcome {
         updated: u64::from(attempt_id.is_some()),
@@ -1361,6 +1363,7 @@ async fn mark_helcim_event_processed(
     payment_provider_attempt_id: Option<Uuid>,
     payment_transaction_id: Option<Uuid>,
     match_type: &str,
+    provider_status: Option<&str>,
 ) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"
@@ -1370,7 +1373,11 @@ async fn mark_helcim_event_processed(
             provider_transaction_id = COALESCE($2, provider_transaction_id),
             payment_provider_attempt_id = $3,
             payment_transaction_id = $4,
-            match_type = $5
+            match_type = $5,
+            payload_json = CASE
+                WHEN $6::text IS NULL THEN payload_json
+                ELSE payload_json || jsonb_build_object('_ros_provider_status', $6::text)
+            END
         WHERE id = $1
         "#,
     )
@@ -1379,6 +1386,7 @@ async fn mark_helcim_event_processed(
     .bind(payment_provider_attempt_id)
     .bind(payment_transaction_id)
     .bind(match_type)
+    .bind(provider_status)
     .execute(&mut **tx)
     .await?;
     Ok(())

@@ -370,7 +370,6 @@ export async function signInToBackOffice(
   for (const digit of code) {
     await page.getByTestId(`pin-key-${digit}`).click();
   }
-  await page.getByRole("button", { name: /^continue$/i }).click();
 
   await expect(signInHeading).toBeHidden({ timeout: 20_000 });
 

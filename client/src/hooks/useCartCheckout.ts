@@ -281,6 +281,7 @@ export function useCartCheckout({
       const postPickup = async (
         deliveredItemIds: string[],
         pickupOptions?: PosOrderOptions,
+        checkoutTransactionId?: string,
       ): Promise<{ ok: true; warnings: string[] } | { ok: false; status: number; message: string }> => {
         const pickupRes = await fetch(`${baseUrl}/api/transactions/${pickupTransactionId}/pickup`, {
           method: "POST",
@@ -296,6 +297,7 @@ export function useCartCheckout({
             payment_override_manager_pin: pickupOptions?.pickupPaymentOverride?.managerPin,
             payment_override_reason: pickupOptions?.pickupPaymentOverride?.reason,
             register_session_id: sessionId,
+            checkout_transaction_id: checkoutTransactionId,
           }),
         });
 
@@ -321,8 +323,9 @@ export function useCartCheckout({
       const completePickupWithOptionalPaymentOverride = async (
         deliveredItemIds: string[],
         pickupOptions?: PosOrderOptions,
+        checkoutTransactionId?: string,
       ): Promise<{ ok: true; warnings: string[] } | { ok: false; status: number; message: string }> => {
-        const firstAttempt = await postPickup(deliveredItemIds, pickupOptions);
+        const firstAttempt = await postPickup(deliveredItemIds, pickupOptions, checkoutTransactionId);
         if (
           firstAttempt.ok ||
           pickupOptions?.pickupPaymentOverride ||
@@ -334,10 +337,14 @@ export function useCartCheckout({
 
         const approval = await requestPickupPaymentOverride(firstAttempt.message);
         if (!approval) return firstAttempt;
-        return postPickup(deliveredItemIds, {
-          ...pickupOptions,
-          pickupPaymentOverride: approval,
-        });
+        return postPickup(
+          deliveredItemIds,
+          {
+            ...pickupOptions,
+            pickupPaymentOverride: approval,
+          },
+          checkoutTransactionId,
+        );
       };
 
       const isZeroBalancePickup =
@@ -726,7 +733,11 @@ export function useCartCheckout({
           line.transaction_line_id ? [line.transaction_line_id] : [],
         );
         try {
-          const pickupResult = await completePickupWithOptionalPaymentOverride(deliveredItemIds, options);
+          const pickupResult = await completePickupWithOptionalPaymentOverride(
+            deliveredItemIds,
+            options,
+            data.transaction_id,
+          );
           if (pickupResult.ok) {
             for (const warning of pickupResult.warnings) {
               if (warning.trim()) toast(warning, "info");
@@ -761,8 +772,10 @@ export function useCartCheckout({
               });
               toast("Pickup saved, but alteration pickup recovery needs review before closing.", "error");
             }
-            receiptTransactionId = pickupTransactionId;
-            receiptTransactionLineIds = deliveredItemIds;
+            if (payloadSaleLines.length === 0) {
+              receiptTransactionId = pickupTransactionId;
+              receiptTransactionLineIds = deliveredItemIds;
+            }
           } else {
             await recordBlockedCheckoutRecovery(payload, pickupResult.status, pickupResult.message, {
               recoveryKind: "pickup_after_payment",

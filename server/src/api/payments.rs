@@ -1033,6 +1033,7 @@ pub struct HelcimSettlementSyncResponse {
     pub api_integration_active: bool,
     pub helcim_batches_fetched: i64,
     pub helcim_batch_transactions_fetched: i64,
+    pub actual_deposits_upserted: i64,
     pub message: String,
 }
 
@@ -2568,6 +2569,7 @@ async fn run_helcim_settlement_sync(
                 "net_mismatches": summary.net_mismatches,
                 "helcim_batches_fetched": summary.helcim_batches_fetched,
                 "helcim_batch_transactions_fetched": summary.helcim_batch_transactions_fetched,
+                "actual_deposits_upserted": summary.actual_deposits_upserted,
                 "source": if api_integration_active { "helcim_api" } else { "local_payment_metadata" },
                 "api_integration_active": api_integration_active,
             });
@@ -2604,6 +2606,7 @@ async fn run_helcim_settlement_sync(
                 api_integration_active,
                 helcim_batches_fetched: summary.helcim_batches_fetched,
                 helcim_batch_transactions_fetched: summary.helcim_batch_transactions_fetched,
+                actual_deposits_upserted: summary.actual_deposits_upserted,
                 message: if api_integration_active {
                     "Helcim API batch and transaction data synced into settlement records."
                         .to_string()
@@ -3592,8 +3595,27 @@ async fn get_helcim_events_health(
                 WHERE processing_status = 'processed'
                   AND COALESCE(match_type, 'none') = 'none'
                   AND payment_transaction_id IS NULL
-                  AND event_type IN ('cardTransaction', 'terminalCancel')
+                  AND event_type = 'cardTransaction'
+                  AND NULLIF(TRIM(COALESCE(provider_transaction_id, '')), '') IS NOT NULL
+                  AND LOWER(COALESCE(
+                      NULLIF(payload_json->>'_ros_provider_status', ''),
+                      NULLIF(payload_json->>'status', ''),
+                      NULLIF(payload_json->'data'->>'status', '')
+                  )) IN ('approved', 'approval', 'captured', 'capture')
                   AND received_at >= now() - interval '7 days'
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM payment_transactions pt
+                      WHERE pt.payment_provider = 'helcim'
+                        AND pt.provider_transaction_id = helcim_event_log.provider_transaction_id
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM payment_provider_batch_transactions btx
+                      WHERE btx.provider = 'helcim'
+                        AND btx.provider_transaction_id = helcim_event_log.provider_transaction_id
+                        AND btx.payment_transaction_id IS NOT NULL
+                  )
             )::bigint AS unmatched_event_count,
             MAX(received_at) AS last_event_at,
             (
@@ -3640,23 +3662,17 @@ async fn get_helcim_events_health(
         FROM payment_provider_attempts ppa
         LEFT JOIN register_sessions rs ON rs.id = ppa.register_session_id
         WHERE ppa.provider = 'helcim'
-          AND (
-            ppa.status = 'pending'
-            OR (ppa.status = 'expired' AND COALESCE(ppa.completed_at, ppa.updated_at) >= now() - interval '24 hours')
-            OR (
-                ppa.status IN ('approved', 'captured')
-                AND COALESCE(ppa.completed_at, ppa.updated_at) >= now() - interval '24 hours'
-                AND NOT EXISTS (
-                    SELECT 1
-                    FROM payment_transactions pt
-                    WHERE pt.payment_provider = 'helcim'
-                      AND (
-                        pt.provider_transaction_id = ppa.provider_transaction_id
-                        OR pt.provider_payment_id = ppa.provider_payment_id
-                        OR pt.metadata->>'payment_provider_attempt_id' = ppa.id::text
-                      )
+          AND ppa.status IN ('approved', 'captured')
+          AND COALESCE(ppa.completed_at, ppa.updated_at) >= now() - interval '7 days'
+          AND NOT EXISTS (
+              SELECT 1
+              FROM payment_transactions pt
+              WHERE pt.payment_provider = 'helcim'
+                AND (
+                  pt.provider_transaction_id = ppa.provider_transaction_id
+                  OR pt.provider_payment_id = ppa.provider_payment_id
+                  OR pt.metadata->>'payment_provider_attempt_id' = ppa.id::text
                 )
-            )
           )
           AND NOT EXISTS (
               SELECT 1
@@ -3693,15 +3709,29 @@ async fn get_helcim_events_health(
             match_type
         FROM helcim_event_log
         WHERE provider = 'helcim'
-          AND (
-            processing_status = 'failed'
-            OR (
-                processing_status = 'processed'
-                AND COALESCE(match_type, 'none') = 'none'
-                AND payment_transaction_id IS NULL
-                AND event_type IN ('cardTransaction', 'terminalCancel')
-                AND received_at >= now() - interval '7 days'
-            )
+          AND processing_status = 'processed'
+          AND COALESCE(match_type, 'none') = 'none'
+          AND payment_transaction_id IS NULL
+          AND event_type = 'cardTransaction'
+          AND NULLIF(TRIM(COALESCE(provider_transaction_id, '')), '') IS NOT NULL
+          AND LOWER(COALESCE(
+              NULLIF(payload_json->>'_ros_provider_status', ''),
+              NULLIF(payload_json->>'status', ''),
+              NULLIF(payload_json->'data'->>'status', '')
+          )) IN ('approved', 'approval', 'captured', 'capture')
+          AND received_at >= now() - interval '7 days'
+          AND NOT EXISTS (
+              SELECT 1
+              FROM payment_transactions pt
+              WHERE pt.payment_provider = 'helcim'
+                AND pt.provider_transaction_id = helcim_event_log.provider_transaction_id
+          )
+          AND NOT EXISTS (
+              SELECT 1
+              FROM payment_provider_batch_transactions btx
+              WHERE btx.provider = 'helcim'
+                AND btx.provider_transaction_id = helcim_event_log.provider_transaction_id
+                AND btx.payment_transaction_id IS NOT NULL
           )
           AND NOT EXISTS (
               SELECT 1
@@ -3786,17 +3816,13 @@ async fn get_helcim_events_health(
             let status: String = attempt.get("status");
             let amount_cents: i64 = attempt.get("amount_cents");
             let label = match status.as_str() {
-                "pending" => "Terminal payment still waiting",
-                "approved" | "captured" => "Provider approval not attached to checkout",
-                "expired" => "Expired local terminal attempt",
-                _ => "Terminal attempt needs review",
+                "approved" | "captured" => "Helcim approval not attached to transaction",
+                _ => "Helcim approval needs review",
             }
             .to_string();
             let detail = match status.as_str() {
-                "pending" => "This terminal attempt is still open in ROS. Do not start another card payment on the same terminal until the checkout or terminal status is clear.",
-                "approved" | "captured" => "Provider approval exists for this attempt, but no ROS payment row was found. Review Helcim and the checkout before taking another payment.",
-                "expired" => "ROS expired this local wait state. The provider outcome is not proven here, so review Helcim before retrying the card payment.",
-                _ => "Review this terminal attempt before treating the checkout as settled.",
+                "approved" | "captured" => "Helcim approved this card payment, but ROS has no matching payment row on a purchase or refund transaction.",
+                _ => "Review this Helcim approval before treating the checkout as settled.",
             }
             .to_string();
             HelcimTerminalReviewAttemptRow {
@@ -3830,26 +3856,8 @@ async fn get_helcim_events_health(
             let id: Uuid = event.get("id");
             let event_type: String = event.get("event_type");
             let processing_status: String = event.get("processing_status");
-            let label = if processing_status == "failed" {
-                "Payment update failed"
-            } else if event_type == "cardTransaction" {
-                "Provider event not attached to ROS checkout"
-            } else if event_type == "terminalCancel" {
-                "Terminal cancel not attached to ROS checkout"
-            } else {
-                "Provider event needs review"
-            }
-            .to_string();
-            let detail = if processing_status == "failed" {
-                "ROS recorded this webhook delivery but could not process it. Replay only after reviewing the error."
-            } else if event_type == "cardTransaction" {
-                "ROS recorded the signed Helcim provider event but did not attach it to a checkout. Review Helcim before assuming ROS recorded the payment."
-            } else if event_type == "terminalCancel" {
-                "ROS recorded the signed terminal cancel event but did not attach it to a pending checkout attempt."
-            } else {
-                "Review this provider event before taking follow-up payment action."
-            }
-            .to_string();
+            let label = "Helcim approval not attached to transaction".to_string();
+            let detail = "ROS received a Helcim card approval update, but it is not attached to a purchase or refund transaction.".to_string();
             HelcimTerminalReviewEventRow {
                 id,
                 event_type,
@@ -4630,6 +4638,7 @@ struct HelcimSettlementSyncStats {
     net_mismatches: i64,
     helcim_batches_fetched: i64,
     helcim_batch_transactions_fetched: i64,
+    actual_deposits_upserted: i64,
 }
 
 #[derive(Debug, Default)]
@@ -4993,10 +5002,10 @@ async fn sync_helcim_settlement_rows(
         r#"
         UPDATE payment_provider_batches batch
         SET
-            gross_amount = totals.gross_amount,
-            fee_amount = totals.fee_amount,
-            net_amount = totals.net_amount,
-            transaction_count = totals.transaction_count,
+            gross_amount = COALESCE(batch.gross_amount, totals.gross_amount),
+            fee_amount = COALESCE(batch.fee_amount, totals.fee_amount),
+            net_amount = COALESCE(batch.net_amount, totals.net_amount),
+            transaction_count = COALESCE(batch.transaction_count, totals.transaction_count),
             last_synced_at = now()
         FROM (
             SELECT
@@ -5018,10 +5027,209 @@ async fn sync_helcim_settlement_rows(
     .await
     .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
 
+    stats.actual_deposits_upserted += upsert_auto_helcim_batch_deposits(tx).await?;
+
+    resolve_stale_helcim_reconciliation_items(tx).await?;
+
     stats.reconciliation_items_opened +=
         create_existing_batch_transaction_findings(tx, run_id, &mut stats).await?;
 
     Ok(stats)
+}
+
+async fn resolve_stale_helcim_reconciliation_items(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<(), PaymentError> {
+    sqlx::query(
+        r#"
+        UPDATE payment_settlement_items item
+        SET status = 'resolved',
+            resolved_at = now(),
+            resolution_type = 'auto_resolved',
+            resolution_note = 'Resolved automatically because the Helcim processor payment is now linked to a ROS payment.',
+            payment_transaction_id = COALESCE(item.payment_transaction_id, btx.payment_transaction_id),
+            updated_at = now()
+        FROM payment_provider_batch_transactions btx
+        WHERE item.provider = 'helcim'
+          AND item.status = 'open'
+          AND item.item_type = 'processor_transaction_missing_ros_payment'
+          AND item.provider_transaction_id = btx.provider_transaction_id
+          AND btx.provider = 'helcim'
+          AND btx.payment_transaction_id IS NOT NULL
+        "#,
+    )
+    .execute(&mut **tx)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+
+    sqlx::query(
+        r#"
+        UPDATE payment_settlement_items item
+        SET status = 'resolved',
+            resolved_at = now(),
+            resolution_type = 'auto_resolved',
+            resolution_note = 'Resolved automatically because this ROS payment is now present in synced Helcim batch data.',
+            payment_provider_batch_id = COALESCE(item.payment_provider_batch_id, btx.payment_provider_batch_id),
+            provider_batch_id = COALESCE(item.provider_batch_id, btx.provider_batch_id),
+            updated_at = now()
+        FROM payment_provider_batch_transactions btx
+        WHERE item.provider = 'helcim'
+          AND item.status = 'open'
+          AND item.item_type IN ('ros_payment_missing_processor_batch', 'missing_processor_batch_row')
+          AND item.payment_transaction_id = btx.payment_transaction_id
+          AND btx.provider = 'helcim'
+          AND btx.payment_transaction_id IS NOT NULL
+        "#,
+    )
+    .execute(&mut **tx)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+
+    Ok(())
+}
+
+async fn upsert_auto_helcim_batch_deposits(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<i64, PaymentError> {
+    let rows = sqlx::query(
+        r#"
+        SELECT
+            batch.id,
+            batch.provider_batch_id,
+            batch.status,
+            batch.net_amount,
+            COALESCE(batch.expected_deposit_at, batch.settled_at, batch.closed_at, batch.last_synced_at) AS posted_at,
+            existing.id AS existing_deposit_id
+        FROM payment_provider_batches batch
+        LEFT JOIN payment_actual_deposits existing
+          ON existing.provider = 'helcim'
+         AND existing.source_system = 'helcim_batch_api'
+         AND existing.source_reference = 'helcim-card-batch:' || batch.provider_batch_id
+        WHERE batch.provider = 'helcim'
+          AND batch.net_amount IS NOT NULL
+          AND batch.net_amount <> 0
+          AND (
+              LOWER(COALESCE(batch.status, '')) IN ('closed', 'settled', 'deposited')
+              OR batch.expected_deposit_at IS NOT NULL
+              OR batch.settled_at IS NOT NULL
+          )
+          AND (
+              existing.id IS NOT NULL
+              OR NOT EXISTS (
+                  SELECT 1
+                  FROM payment_actual_deposit_batches link
+                  WHERE link.payment_provider_batch_id = batch.id
+                    AND link.status = 'linked'
+              )
+          )
+        ORDER BY posted_at ASC, batch.provider_batch_id ASC
+        "#,
+    )
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+
+    let mut upserted = 0_i64;
+    for row in rows {
+        let batch_id: Uuid = row.get("id");
+        let provider_batch_id: String = row.get("provider_batch_id");
+        let amount: Decimal = row.get::<Decimal, _>("net_amount").round_dp(2);
+        let posted_at: DateTime<Utc> = row.get("posted_at");
+        let source_reference = format!("helcim-card-batch:{provider_batch_id}");
+        let before_existing: Option<Uuid> = row.get("existing_deposit_id");
+        let deposit_id: Uuid = sqlx::query_scalar(
+            r#"
+            INSERT INTO payment_actual_deposits (
+                provider,
+                source_system,
+                source_reference,
+                posted_at,
+                amount,
+                currency,
+                status,
+                raw_payload
+            )
+            VALUES (
+                'helcim',
+                'helcim_batch_api',
+                $1,
+                $2,
+                $3,
+                'USD',
+                'open',
+                $4
+            )
+            ON CONFLICT (source_system, source_reference)
+            WHERE source_reference IS NOT NULL AND btrim(source_reference) <> ''
+            DO UPDATE SET
+                posted_at = EXCLUDED.posted_at,
+                amount = EXCLUDED.amount,
+                raw_payload = COALESCE(payment_actual_deposits.raw_payload, '{}'::jsonb) || EXCLUDED.raw_payload,
+                status = CASE
+                    WHEN payment_actual_deposits.status IN ('open', 'matched', 'needs_review', 'reopened') THEN 'open'
+                    ELSE payment_actual_deposits.status
+                END,
+                updated_at = now()
+            RETURNING id
+            "#,
+        )
+        .bind(&source_reference)
+        .bind(posted_at)
+        .bind(amount)
+        .bind(json!({
+            "source": "helcim_card_batch_api",
+            "provider_batch_id": provider_batch_id,
+        }))
+        .fetch_one(&mut **tx)
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+
+        sqlx::query(
+            r#"
+            INSERT INTO payment_actual_deposit_batches (
+                deposit_id,
+                payment_provider_batch_id,
+                provider_batch_id,
+                expected_net_amount,
+                linked_amount,
+                match_type,
+                status
+            )
+            VALUES ($1, $2, $3, $4, $4, 'helcim_batch_api', 'linked')
+            ON CONFLICT (deposit_id, payment_provider_batch_id)
+            DO UPDATE SET
+                expected_net_amount = EXCLUDED.expected_net_amount,
+                linked_amount = EXCLUDED.linked_amount,
+                match_type = EXCLUDED.match_type,
+                status = 'linked'
+            "#,
+        )
+        .bind(deposit_id)
+        .bind(batch_id)
+        .bind(&provider_batch_id)
+        .bind(amount)
+        .execute(&mut **tx)
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+
+        refresh_deposit_match_status(tx, deposit_id).await?;
+        if before_existing.is_none() {
+            let after = load_deposit_state(&mut **tx, deposit_id).await?;
+            insert_deposit_event(
+                tx,
+                deposit_id,
+                None,
+                "created",
+                Some("Imported from Helcim settled batch data."),
+                json!({}),
+                after,
+            )
+            .await?;
+        }
+        upserted += 1;
+    }
+
+    Ok(upserted)
 }
 
 async fn upsert_helcim_processor_settlement_data(
@@ -5296,7 +5504,7 @@ async fn create_existing_batch_transaction_findings(
                 tx,
                 run_id,
                 "processor_transaction_missing_ros_payment",
-                "critical",
+                "warning",
                 provider_batch_id.as_deref(),
                 Some(&provider_transaction_id),
                 None,
@@ -6997,7 +7205,7 @@ fn deposit_issue_label(item_type: &str) -> &'static str {
 
 fn issue_label(item_type: &str) -> &'static str {
     match item_type {
-        "processor_transaction_missing_ros_payment" => "Missing Payment",
+        "processor_transaction_missing_ros_payment" => "Unlinked Helcim Payment",
         "ros_payment_missing_processor_batch" | "missing_processor_batch_row" => "Not in Deposit",
         "missing_provider_transaction_id" => "Processor Data Missing",
         "amount_mismatch" => "Amount Difference",
@@ -8069,10 +8277,12 @@ async fn confirm_helcim_pay_attempt(
         Option<Uuid>,
         Option<String>,
         Option<String>,
+        Option<String>,
         DateTime<Utc>,
     )> = sqlx::query_as(
         r#"
-        SELECT status, amount_cents, register_session_id, provider_client_secret, raw_audit_reference, created_at
+        SELECT status, amount_cents, register_session_id, provider_client_secret,
+               raw_audit_reference, provider_transaction_id, created_at
         FROM payment_provider_attempts
         WHERE id = $1
           AND provider = 'helcim'
@@ -8090,6 +8300,7 @@ async fn confirm_helcim_pay_attempt(
         register_session_id,
         client_secret,
         raw_audit_reference,
+        stored_provider_transaction_id,
         created_at,
     )) = row
     else {
@@ -8116,6 +8327,13 @@ async fn confirm_helcim_pay_attempt(
                     .to_string(),
             ));
         }
+    }
+    if completed_helcim_pay_confirmation_matches(
+        &attempt_status,
+        stored_provider_transaction_id.as_deref(),
+        &payload.data,
+    ) {
+        return load_helcim_attempt(state, payload.attempt_id, pos_session_id).await;
     }
     if attempt_status != "pending" {
         return Err(PaymentError::InvalidPayload(
@@ -8626,6 +8844,23 @@ fn value_decimal_string(value: &Value, key: &str) -> Option<String> {
     Some(decimal.round_dp(2).to_string())
 }
 
+fn completed_helcim_pay_confirmation_matches(
+    attempt_status: &str,
+    stored_provider_transaction_id: Option<&str>,
+    response_data: &Value,
+) -> bool {
+    if !matches!(attempt_status, "approved" | "captured") {
+        return false;
+    }
+    let Some(stored) = stored_provider_transaction_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return false;
+    };
+    value_string(response_data, "transactionId").as_deref() == Some(stored)
+}
+
 fn cents_to_decimal_string(amount_cents: i64) -> String {
     let sign = if amount_cents < 0 { "-" } else { "" };
     let abs = amount_cents.unsigned_abs();
@@ -9133,6 +9368,25 @@ mod tests {
             helcim_manual_invoice_number(attempt_id),
             "ROS-4b1c7a4f3a1e43dcbb10bfcb20c7b1e2"
         );
+    }
+
+    #[test]
+    fn completed_helcim_pay_confirmation_retry_matches_same_approval() {
+        let data = json!({
+            "status": "APPROVED",
+            "transactionId": "51209354"
+        });
+
+        assert!(completed_helcim_pay_confirmation_matches(
+            "approved",
+            Some("51209354"),
+            &data
+        ));
+        assert!(!completed_helcim_pay_confirmation_matches(
+            "approved",
+            Some("different"),
+            &data
+        ));
     }
 
     #[test]

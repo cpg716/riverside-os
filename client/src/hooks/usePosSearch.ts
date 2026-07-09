@@ -175,6 +175,10 @@ export function usePosSearch({
               local_tax: r.local_tax || 0,
               tax_category: r.tax_category as "clothing" | "footwear" | "other",
               vendor_sku: (r.vendor_sku as string) || "",
+              primary_vendor_name:
+                typeof r.primary_vendor_name === "string"
+                  ? r.primary_vendor_name
+                  : null,
               total_variant_count: Number(r.total_variant_count ?? 1),
             };
           });

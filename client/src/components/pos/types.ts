@@ -22,6 +22,7 @@ export interface ResolvedSkuItem {
   /** Present when API includes it (promotions, prompts). */
   category_id?: string | null;
   primary_vendor_id?: string | null;
+  primary_vendor_name?: string | null;
   /** Custom Work Order fields */
   custom_item_type?: string;
   custom_order_details?: CustomOrderDetails | null;

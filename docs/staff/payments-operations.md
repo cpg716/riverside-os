@@ -50,7 +50,9 @@ Use **POS → Payments** for same-day register review. It opens to **Today**, wh
 
 Use **Refund** from the same POS Payments screen for a standalone Helcim card refund only when ROS already has the original Helcim payment reference. Staff do not type Helcim invoice, provider, or transaction IDs into ROS. ROS starts the provider refund and records the Helcim attempt in Payments, but it does not create a sales refund or change a Transaction Record by itself.
 
-Use **Terminal Health** when a terminal attempt, webhook update, or close-blocking card issue needs review before Z-close. POS Payments does not replace the checkout drawer for collecting sale payments and does not change sale totals.
+Use **Terminal Health** when an approved Helcim purchase or refund is not attached to ROS, or when a Helcim update failed processing. Declines, cancellations, and successful updates are not review issues. These items are reported during close but do not block Z-close. POS Payments does not replace the checkout drawer for collecting sale payments and does not change sale totals.
+
+Back Office staff with payment sync access can replay the latest failed Helcim update after correcting its configuration or data error. Replay does not create a second card charge; it reprocesses the stored signed provider update.
 
 Managers and bookkeepers still use **Back Office → Payments** for broader batch, deposit, reconciliation, and sync work.
 
@@ -59,7 +61,7 @@ Managers and bookkeepers still use **Back Office → Payments** for broader batc
 Use the POS checkout drawer for live card collection.
 
 - **Card Reader** sends the sale amount to the selected Helcim terminal for tap, insert, or swipe.
-- **Card Not Present** is for phone orders. It opens the public HTTPS ROS handoff page; select **Open Helcim Card Entry** on that page to render the secure HelcimPay.js card form. Do not type card numbers or CVV into ROS notes, references, search fields, or support chats.
+- **Card Not Present** is for phone orders. It opens the public HTTPS ROS handoff page; select **Open Helcim Card Entry** on that page to render the secure HelcimPay.js card form. Keep the payment drawer open and complete the sale only after the approved payment appears in the ledger. If Helcim approves but the page says ROS could not attach it, select **Retry Approval** on the same page; ROS verifies and reuses that approval instead of charging the card again. Do not type card numbers or CVV into ROS notes, references, search fields, or support chats.
 - **Saved Card** charges a Helcim-saved card token for the selected customer. ROS shows masked card details when Helcim returns them, but staff should never copy or expose the token.
 - **Card Refund** appears only when ROS already has the original Helcim payment reference for the refund. Staff do not enter Helcim invoice, provider, or transaction IDs. Use **Card Not Present** refund when the original card is not present. Use **Original Card** only when the customer and original card are present at the register.
 - **Manual Card** records a card sale or refund without a live Helcim connection. Enter only the approval/reference, last four digits, and reason. Never enter the full card number or CVV.
@@ -78,12 +80,12 @@ Before pilot, rehearse these scenarios with the real terminal path the store wil
 |----------|-----------------|---------|
 | Normal card sale approved | Approved payment appears in ROS and sale completes once. | |
 | Terminal decline | Sale remains unpaid; cashier can choose another tender without duplicate payment. | |
-| Terminal pending longer than expected | Payment Status shows pending/recovery guidance and Z-close remains blocked until resolved. | |
-| Terminal approved but ROS not finalized | Manager checks terminal outcome, records or resolves the attempt, and does not retry blindly. | |
+| Terminal pending longer than expected | Payment Status shows pending/recovery guidance; staff should clear or retry the payment before the next customer. | |
+| Terminal approved but ROS not finalized | Manager checks Helcim, repairs the payment link or records a close review note, and does not retry blindly. | |
 | Terminal cancel | Attempt is canceled or marked unresolved with manager review before close. | |
 | Offline queue exists before close | Z-close remains blocked until offline recovery is clear or assigned. | |
 | Card refund through terminal | Refund records only after provider approval and appears in end-of-day review. | |
-| Register close after payment recovery | Z-report includes the final card outcome and no unresolved payment attempts remain. | |
+| Register close after payment recovery | Z-report can be completed; any approved Helcim payment missing from ROS is listed for review instead of blocking close. | |
 
 Pilot rule: if the terminal and ROS disagree, stop the sale flow and get manager review. Do not create a second card attempt until the first attempt is checked from the Payment Status panel or Payments Health.
 
@@ -99,6 +101,8 @@ Check:
 - Transaction count.
 - Issue count.
 
+Use **Sync Batches** to pull Helcim card batch data into ROS. When Helcim provides settled batch totals, ROS records the gross card sales, fees, net deposit amount, and an actual deposit row linked to that batch. CSV imports are only needed when staff need to reconcile a bank export or when Helcim does not expose a deposit detail through the API.
+
 Open a batch to see the transactions inside it, fee/net completeness, and any issues tied to that batch.
 
 ## Reconciliation
@@ -109,7 +113,7 @@ Common labels:
 
 | Label | Meaning |
 |-------|---------|
-| **Missing Payment** | Helcim shows a processor payment that is not linked to a Riverside payment. |
+| **Unlinked Helcim Payment** | Helcim shows an approved processor payment that still is not linked to a Riverside payment. |
 | **Not in Deposit** | Riverside has a Helcim payment that has not appeared in processor batch data. |
 | **Amount Difference** | Riverside and Helcim amounts do not match. |
 | **Status Difference** | Riverside and Helcim disagree about payment state. |
@@ -213,14 +217,15 @@ Watch for:
 - **Sync failed**
 - **Batch has not settled**
 - **Deposit needs review**
-- **Payment update failed**
+- **Unlinked Helcim approval**
+- **Helcim update failed**
 - **Terminal not ready**
 
 Sync actions:
 
 - **Sync Batches** pulls Helcim batch/transaction data.
 - **Sync Fees** pulls explicit Helcim fee/net data. If fees are not available yet, ROS keeps them as **Fee not ready** instead of estimating them or treating them as `$0.00`.
-- **Replay Last Update** retries the latest failed Helcim payment update from the stored webhook event. Processed or ignored updates cannot be replayed.
+- **Replay Failed Update** retries a failed signed Helcim update after staff confirm the underlying cause has been corrected.
 - **Ping** sends a Helcim device ping to confirm that an API-mode terminal is listening.
 
 Payment alerts are reminders, not financial corrections. Alerts may clear when the condition disappears, but reconciliation and deposit issues remain manual until staff act.
@@ -251,7 +256,9 @@ Keep these two states separate during review:
 - **Provider event attached to ROS checkout** means ROS matched that stored event to one safe pending terminal checkout attempt.
 - **Provider reference attached to ROS payment** means the ROS payment has the Helcim transaction ID required for card-not-present refunds.
 
-Webhook receipt alone does not record a payment in ROS. If Payments Health says **Provider event not attached to ROS checkout**, treat it as provider evidence requiring review only when the ROS payment is missing a Helcim provider reference.
+Webhook receipt alone does not record a payment in ROS. Payments Health does not treat normal provider history, pending terminal attempts, expired local waits, or manual card entries as payment issues. Staff review is required only when Helcim shows an approved purchase or refund that ROS has not attached to a Transaction Record payment.
+
+Unlinked Helcim approvals are reported during register close and in Payments Health so staff can repair the link or add a review note. They do not block closing the register or printing the final Z-Report.
 
 If the webhook signing secret is missing or wrong, ROS rejects the delivery before it enters Payments Health. Ask an admin to check server logs and Settings → Helcim before assuming Helcim did not send anything.
 
@@ -308,7 +315,7 @@ Do not use Settings for daily payment review.
 |-------|------------|
 | Fee not ready | Run **Sync Fees** later. Helcim may not have exposed the fee yet. |
 | Batch not settled | Check **Batches** and rerun **Sync Batches** after settlement time. |
-| Missing Payment | Open the issue and use **Link Payment** only if the matching Riverside payment is clearly the same amount/provider. |
+| Unlinked Helcim Payment | Open the issue and use **Link Payment** only if the matching Riverside payment is clearly the same amount/provider. |
 | Not in Deposit | Check whether the batch has settled and whether sync is current. |
 | Deposit difference | Compare linked expected batches with the actual bank deposit. Add a note before accepting any variance. |
 | Sync failed | Check **Health**, then escalate to an admin if the failure repeats. |

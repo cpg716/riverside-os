@@ -332,6 +332,20 @@ fn metadata_required_text(
         .ok_or_else(|| CheckoutError::InvalidPayload(message.to_string()))
 }
 
+fn metadata_nonnegative_cents(metadata: &Value, key: &str) -> Result<Option<i64>, CheckoutError> {
+    let Some(raw) = metadata.get(key) else {
+        return Ok(None);
+    };
+    let cents = raw
+        .as_i64()
+        .or_else(|| raw.as_str().and_then(|value| value.parse::<i64>().ok()))
+        .filter(|value| *value >= 0)
+        .ok_or_else(|| {
+            CheckoutError::InvalidPayload(format!("{key} must be a non-negative whole-cent amount"))
+        })?;
+    Ok(Some(cents))
+}
+
 fn metadata_optional_text(metadata: &Value, key: &str) -> Option<String> {
     metadata
         .get(key)
@@ -1542,6 +1556,33 @@ fn resolve_payment_splits(
                 } else {
                     incoming_meta
                 };
+                let cash_tendered_cents =
+                    metadata_nonnegative_cents(&normalized_meta, "cash_tendered_cents")?;
+                let change_due_cents =
+                    metadata_nonnegative_cents(&normalized_meta, "change_due_cents")?;
+                if cash_tendered_cents.is_some() || change_due_cents.is_some() {
+                    if !m.eq_ignore_ascii_case("cash") {
+                        return Err(CheckoutError::InvalidPayload(
+                            "cash tendered and change metadata is only allowed for cash payments"
+                                .to_string(),
+                        ));
+                    }
+                    let (Some(tendered_cents), Some(change_cents)) =
+                        (cash_tendered_cents, change_due_cents)
+                    else {
+                        return Err(CheckoutError::InvalidPayload(
+                            "cash tendered and change must be recorded together".to_string(),
+                        ));
+                    };
+                    if change_cents > tendered_cents
+                        || Decimal::new(tendered_cents - change_cents, 2) != a
+                    {
+                        return Err(CheckoutError::InvalidPayload(
+                            "cash tendered minus change must equal the applied cash payment"
+                                .to_string(),
+                        ));
+                    }
+                }
                 if m.eq_ignore_ascii_case("donation") {
                     let donation_note = metadata_optional_text(&normalized_meta, "donation_note")
                         .or_else(|| metadata_optional_text(&normalized_meta, "note"))
@@ -5344,6 +5385,45 @@ mod tests {
         assert!(err
             .to_string()
             .contains("negative split amounts are only allowed for customer refunds"));
+    }
+
+    #[test]
+    fn checkout_splits_preserve_valid_cash_tendered_and_change() {
+        let mut split = cash_split(Decimal::new(5000, 2));
+        split.metadata = Some(json!({
+            "cash_tendered_cents": 10000,
+            "change_due_cents": 5000
+        }));
+        let payload = checkout_request_for_split_validation(
+            Decimal::new(5000, 2),
+            Decimal::new(5000, 2),
+            vec![split],
+        );
+
+        let (splits, _) = resolve_payment_splits(&payload).unwrap();
+
+        assert_eq!(splits[0].metadata["cash_tendered_cents"], json!(10000));
+        assert_eq!(splits[0].metadata["change_due_cents"], json!(5000));
+    }
+
+    #[test]
+    fn checkout_splits_reject_incorrect_cash_change_math() {
+        let mut split = cash_split(Decimal::new(5000, 2));
+        split.metadata = Some(json!({
+            "cash_tendered_cents": 10000,
+            "change_due_cents": 4000
+        }));
+        let payload = checkout_request_for_split_validation(
+            Decimal::new(5000, 2),
+            Decimal::new(5000, 2),
+            vec![split],
+        );
+
+        let err = resolve_payment_splits(&payload).unwrap_err();
+
+        assert!(err
+            .to_string()
+            .contains("cash tendered minus change must equal the applied cash payment"));
     }
 
     #[test]

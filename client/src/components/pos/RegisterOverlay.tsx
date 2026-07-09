@@ -276,6 +276,8 @@ export default function RegisterOverlay({
   onOpenedRef.current = onSessionOpened;
   const credentialRef = useRef(credential);
   credentialRef.current = credential;
+  const autoSubmitKeyRef = useRef<string | null>(null);
+  const onSubmitRef = useRef<() => void>(() => undefined);
   const openingFloatRef = useRef(openingFloat);
   openingFloatRef.current = openingFloat;
   const registerLaneRef = useRef(registerLane);
@@ -741,6 +743,9 @@ export default function RegisterOverlay({
       setSubmitting(false);
     }
   };
+  onSubmitRef.current = () => {
+    void onSubmit();
+  };
 
   const busy = booting || submitting;
 
@@ -866,6 +871,32 @@ export default function RegisterOverlay({
   }, [booting, registerLane, runReadinessChecks]);
 
   const hasBlockingReadinessIssue = apiReadiness.status === "error";
+
+  useEffect(() => {
+    const code = credential.trim();
+    if (code.length !== 4) {
+      autoSubmitKeyRef.current = null;
+      return;
+    }
+    if (
+      busy ||
+      hasBlockingReadinessIssue ||
+      !selectedStaffId
+    ) {
+      return;
+    }
+
+    const key = `${selectedStaffId}:${registerLane}:${code}`;
+    if (autoSubmitKeyRef.current === key) return;
+    autoSubmitKeyRef.current = key;
+    onSubmitRef.current();
+  }, [
+    busy,
+    credential,
+    hasBlockingReadinessIssue,
+    registerLane,
+    selectedStaffId,
+  ]);
 
   const root = document.getElementById("drawer-root");
   if (!root) return null;
@@ -1315,14 +1346,8 @@ export default function RegisterOverlay({
                     onChange={(next) => {
                       setCredential(next);
                       setError(null);
-                      if (next.length === 4 && selectedStaffId) {
-                        // Auto-submit
-                        setTimeout(() => {
-                          credentialRef.current = next;
-                          void onSubmit();
-                        }, 150);
-                      }
                     }}
+                    onEnter={() => void onSubmit()}
                     disabled={
                       busy || hasBlockingReadinessIssue || !selectedStaffId
                     }

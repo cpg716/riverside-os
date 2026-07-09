@@ -158,6 +158,7 @@ interface RegisterSessionRow {
   register_ordinal: number;
   opened_at: string;
   closed_at: string | null;
+  business_date: string;
   qbo_sync_date?: string | null;
   qbo_status?: string | null;
   qbo_journal_entry_id?: string | null;
@@ -707,6 +708,23 @@ export default function RegisterReports({
       setLoading(false);
     }
   }, [apiAuth, buildActivityParams, sessionId, reportBasis]);
+
+  const fetchBookedSummaryForDate = useCallback(async (businessDate: string) => {
+    const params = new URLSearchParams({
+      preset: "custom",
+      from: businessDate,
+      to: businessDate,
+      basis: "booked",
+    });
+    const res = await fetch(`${baseUrl}/api/insights/register-day-activity?${params}`, {
+      headers: apiAuth(),
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new Error(body.error || "Failed to load the Z-report business day.");
+    }
+    return (await res.json()) as RegisterDaySummary;
+  }, [apiAuth]);
 
   const loadSummaries = useCallback(async () => {
     const bookedData = await fetchSummary("booked");
@@ -1991,7 +2009,8 @@ export default function RegisterReports({
                         <button
                           type="button"
                           onClick={() => {
-                            void openZReportFromSession(session, "preview", summaryBooked)
+                            void fetchBookedSummaryForDate(session.business_date)
+                              .then((businessDaySummary) => openZReportFromSession(session, "preview", businessDaySummary))
                               .then((opened) => {
                                 if (opened) {
                                   toast("Z-report opened for review.", "success");
