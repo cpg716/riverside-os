@@ -62,7 +62,7 @@ export async function mirrorRecoveryJob(
   const context = recoveryRequestContext();
   if (!context) return false;
   try {
-    const response = await fetch(`${context.baseUrl}/api/recovery/`, {
+    const response = await fetch(`${context.baseUrl}/api/recovery`, {
       method: "POST",
       headers: { ...context.headers, "Content-Type": "application/json" },
       body: JSON.stringify(job),
@@ -99,7 +99,7 @@ export async function listCurrentRegisterRecoveryJobs(): Promise<ServerRecoveryJ
   const context = recoveryRequestContext();
   if (!context || !getPosRegisterAuth()?.sessionId) return [];
   try {
-    const response = await fetch(`${context.baseUrl}/api/recovery/`, {
+    const response = await fetch(`${context.baseUrl}/api/recovery`, {
       headers: context.headers,
     });
     if (!response.ok) return [];
