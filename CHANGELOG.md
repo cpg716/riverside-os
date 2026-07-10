@@ -8,12 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.90.0] - 2026-06-04
 
 ### Added
+- **Wedding Party Held Deposits in Register**: Added immediate beneficiary-customer deposit notices, Pay-screen application, customer-history visibility, fulfillment-timed QBO liability release, and atomic void/cancellation restoration for split wedding deposits held before a member has a Transaction Record.
+- **Operational Outbox and Recovery Telemetry**: Added durable post-checkout side-effect processing, Main Hub-backed offline/print recovery visibility, phase metrics, and migration `124` operational recovery tables.
 - **v0.90.0 Release Documentation Set**: Added current release notes and certification evidence for the v0.90.0 publication, replacing stale v0.85.9 current-release guidance in active deployment docs.
 - **Pre-Go-Live Local Review Evidence**: Documented the source-side pre-go-live review results for QBO, Counterpoint sync, backups/restore, Helcim, Podium, Shippo, and release/update code paths that can be validated locally.
 - **Shippo Health Coverage**: Added local Shippo health-check test coverage so disabled, missing-token, and healthy credential states are verified without requiring live shipping labels.
 - **GO-LIVE Performance and Connectivity Review**: Added a current review artifact and focused Register/Back Office connection recovery coverage for LAN, Tailscale, PWA, and Tauri API-base behavior.
 
 ### Fixed
+- **Financial Runtime Boundaries**: Removed weather/provider waits from locked checkout/refund sections, enforced exact-cent tax and total parity, bounded printer dispatch, and made print failures activate the retry path.
+- **Helcim, QBO, and IMAP Contracts**: Constrained provider idempotency/request identifiers, added Intuit webhook/OAuth/token-refresh validation, and replaced the legacy synchronous mailbox stack with bounded `async-imap` using current `imap-proto`.
 - **RMS Charge CoreCard Purge**: Removed obsolete CoreCard credential surfaces, fake-host E2E dependencies, stale validation scripts, and deployment/manual guidance so RMS Charge is documented and tested as the internal Riverside/R2S workflow.
 - **QBO Mapping Fallback Removal**: Removed fallback account mapping behavior from QBO journal staging and workspace copy. Exportable financial activity must now have explicit Chart of Accounts mappings instead of silently routing through a generic fallback.
 - **QBO Inventory Adjustment Mapping**: Renamed the legacy inventory adjustment revenue mapping key to `REVENUE_INVENTORY_ADJUSTMENT` so the mapping matrix remains explicit, mappable, and auditable.
@@ -25,7 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Release Metadata Bump**: Updated root, client, server, Tauri, standalone app, ROS Dev Center, and Windows deployment package metadata to v0.90.0.
 - **Help/Manual Refresh**: Refreshed active manuals and help-manifest sources so in-app Help Center content reflects the current release guidance and avoids stale v0.85.9 "current release" directions.
 - **Deployment Guidance Truthfulness**: Updated active deployment status docs to distinguish source readiness, GitHub release publication, release workflow assets, and physical Windows/hardware go-live gates.
-- **Latest Same-Version Rebuild**: Republished `v0.90.0` from build `6064e91c` on 2026-07-01 with Windows deployment asset `RiversideOS-v0.90.0-6064e91c-Windows-Deployment.zip`; local full Playwright and GitHub release workflows passed on the released commit.
+- **Latest Same-Version Rebuild**: Prepared the 2026-07-10 `v0.90.0` replacement-tag rebuild with current production hardening and wedding held-deposit changes. Local E2E was intentionally not run by operator request; tag-driven GitHub validation and package workflows provide the release-run evidence.
 
 ## [0.85.9] - 2026-06-04
 
