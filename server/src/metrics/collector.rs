@@ -54,6 +54,7 @@ impl MetricsCollector {
 
             while *is_running.read().await {
                 interval.tick().await;
+                crate::api::health::WorkerHealth::mark_heartbeat("metrics").await;
 
                 let start_time = std::time::Instant::now();
 

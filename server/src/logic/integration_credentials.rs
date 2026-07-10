@@ -150,6 +150,11 @@ pub const INTEGRATION_CREDENTIAL_MAPPINGS: &[IntegrationCredentialMapping] = &[
         env_key: "RIVERSIDE_QBO_REFRESH_TOKEN",
     },
     IntegrationCredentialMapping {
+        integration_key: "qbo",
+        credential_key: "webhook_verifier_token",
+        env_key: "RIVERSIDE_QBO_WEBHOOK_VERIFIER_TOKEN",
+    },
+    IntegrationCredentialMapping {
         integration_key: "counterpoint",
         credential_key: "sync_token",
         env_key: "COUNTERPOINT_SYNC_TOKEN",
@@ -854,6 +859,21 @@ mod tests {
         assert!(keys.contains(&"api_key"));
         assert!(is_supported_integration_credential("geoapify", "api_key"));
         assert_eq!(env_key_for("geoapify", "api_key"), Some("GEOAPIFY_API_KEY"));
+    }
+
+    #[test]
+    fn qbo_webhook_verifier_credential_is_supported() {
+        let keys = credential_keys_for_integration("qbo");
+
+        assert!(keys.contains(&"webhook_verifier_token"));
+        assert!(is_supported_integration_credential(
+            "qbo",
+            "webhook_verifier_token"
+        ));
+        assert_eq!(
+            env_key_for("qbo", "webhook_verifier_token"),
+            Some("RIVERSIDE_QBO_WEBHOOK_VERIFIER_TOKEN")
+        );
     }
 
     #[test]

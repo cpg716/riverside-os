@@ -2166,6 +2166,7 @@ async fn close_session(
     headers: HeaderMap,
     Json(payload): Json<CloseSessionRequest>,
 ) -> Result<Json<CloseSessionResponse>, SessionError> {
+    let close_started = std::time::Instant::now();
     middleware::require_pos_session_secret_or_permission(
         &state,
         &headers,
@@ -2183,17 +2184,6 @@ async fn close_session(
     let closer_from_headers = try_authenticated_staff_headers(&state, &headers)
         .await
         .map(|s| s.id);
-
-    let weather = crate::logic::weather::fetch_weather_range(
-        &state.http_client,
-        &state.db,
-        Utc::now().date_naive(),
-        Utc::now().date_naive(),
-    )
-    .await
-    .into_iter()
-    .next();
-    let weather_val = serde_json::to_value(weather).unwrap_or(serde_json::Value::Null);
 
     let mut tx = state.db.begin().await.map_err(SessionError::Database)?;
 
@@ -2356,12 +2346,11 @@ async fn close_session(
             cash_over_short = $3,
             closing_notes = $4,
             closing_comments = $5,
-            weather_snapshot = $6,
-            z_report_json = $7,
-            cash_deposit_date = $8,
-            cash_deposit_amount = $9,
+            z_report_json = $6,
+            cash_deposit_date = $7,
+            cash_deposit_amount = $8,
             lifecycle_status = 'closed'
-        WHERE till_close_group_id = $10 AND is_open = true
+        WHERE till_close_group_id = $9 AND is_open = true
         "#,
     )
     .bind(expected_cash)
@@ -2369,7 +2358,6 @@ async fn close_session(
     .bind(discrepancy)
     .bind(notes_trimmed)
     .bind(payload.closing_comments.as_ref().map(|s| s.trim()))
-    .bind(weather_val)
     .bind(&z_snapshot)
     .bind(cash_deposit_date)
     .bind(cash_deposit_amount)
@@ -2383,8 +2371,19 @@ async fn close_session(
     }
 
     tx.commit().await.map_err(SessionError::Database)?;
+    crate::logic::operation_metrics::record_phase(
+        state.db.clone(),
+        "register_close",
+        "transaction_commit",
+        close_started.elapsed(),
+        true,
+        None,
+        Some(primary_id),
+        json!({ "closed_session_count": group_ids.len() }),
+    );
 
     let snapshot_pool = state.db.clone();
+    let snapshot_http = state.http_client.clone();
     let snapshot_till = till_gid;
     let snapshot_primary = primary_id;
     tokio::spawn(async move {
@@ -2405,6 +2404,16 @@ async fn close_session(
                 return;
             }
         };
+        if let Err(e) = crate::logic::weather::capture_store_daily_weather(
+            &snapshot_http,
+            &snapshot_pool,
+            local_date,
+            "register_close",
+        )
+        .await
+        {
+            tracing::warn!(error = %e, store_local_date = %local_date, "register close store-day weather capture failed");
+        }
         match crate::logic::register_day_activity::fetch_register_day_summary(
             &snapshot_pool,
             None,

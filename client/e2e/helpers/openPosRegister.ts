@@ -277,8 +277,25 @@ export async function ensurePosRegisterSessionOpen(
       await enterPosShell(page);
     }
     await waitForPosRegisterPanel(page);
-    await waitForRegisterCartMounted(page).catch(() => {});
-    return;
+    if (await cartShell.isVisible().catch(() => false)) {
+      await waitForRegisterCartMounted(page);
+      return;
+    }
+    await expect
+      .poll(
+        async () =>
+          (await cartShell.isVisible().catch(() => false)) ||
+          (await registerDialog.isVisible().catch(() => false)),
+        {
+          timeout: 15_000,
+          message: "Register did not finish mounting the cart or access dialog",
+        },
+      )
+      .toBeTruthy();
+    if (await cartShell.isVisible().catch(() => false)) {
+      await waitForRegisterCartMounted(page);
+      return;
+    }
   }
 
   const laneSelect = registerDialog.getByLabel(/terminal #|physical register number/i);
@@ -359,32 +376,35 @@ export async function ensurePosSaleCashierSignedIn(page: Page): Promise<void> {
 
   const code = e2eBackofficeStaffCode();
   for (const [index, digit] of Array.from(code).entries()) {
+    if (
+      !(await cashierDlg.isVisible().catch(() => false)) ||
+      ((await cartShell.getAttribute("data-register-ready").catch(() => null)) === "true")
+    ) {
+      break;
+    }
     await cashierDlg.getByTestId(`pin-key-${digit}`).click();
     const expectedLength = String(index + 1);
-    if ((await cashierDlg.getAttribute("data-pin-length").catch(() => null)) !== expectedLength) {
+    const entryAdvanced = async () =>
+      !(await cashierDlg.isVisible().catch(() => false)) ||
+      ((await cartShell.getAttribute("data-register-ready").catch(() => null)) === "true") ||
+      ((await cashierDlg.getAttribute("data-pin-length").catch(() => null)) === expectedLength);
+    const clickRegistered = await expect
+      .poll(entryAdvanced, { timeout: 1_000 })
+      .toBeTruthy()
+      .then(
+        () => true,
+        () => false,
+      );
+    if (
+      !clickRegistered &&
+      (await cashierDlg.isVisible().catch(() => false)) &&
+      ((await cartShell.getAttribute("data-register-ready").catch(() => null)) !== "true")
+    ) {
       await page.keyboard.press(digit);
     }
-    await expect(cashierDlg).toHaveAttribute("data-pin-length", expectedLength, {
-      timeout: 5_000,
-    });
-  }
-
-  const contBtn = cashierDlg.getByTestId("pos-sale-cashier-continue");
-  await expect
-    .poll(
-      async () =>
-        ((await cartShell.getAttribute("data-register-ready").catch(() => null)) === "true") ||
-        !(await cashierDlg.isVisible().catch(() => false)) ||
-        ((await contBtn.isVisible().catch(() => false)) &&
-          (await contBtn.isEnabled().catch(() => false))),
-      { timeout: 10_000 },
-    )
-    .toBeTruthy();
-  if (
-    (await cashierDlg.isVisible().catch(() => false)) &&
-    ((await cartShell.getAttribute("data-register-ready").catch(() => null)) !== "true")
-  ) {
-    await contBtn.click();
+    await expect
+      .poll(entryAdvanced, { timeout: 5_000 })
+      .toBeTruthy();
   }
 
   await expect

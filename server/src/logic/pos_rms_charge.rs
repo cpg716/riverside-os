@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 pub const RMS_TENDER_FAMILY: &str = "rms_charge";
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RmsChargeNotify {
     pub payment_transaction_id: Uuid,
     pub amount: Decimal,
@@ -604,7 +604,7 @@ pub async fn notify_sales_support_after_checkout(
             .await?;
     }
 
-    let _ = crate::auth::pins::log_staff_access(
+    let _ = crate::auth::pins::log_staff_access_once(
         pool,
         operator_staff_id,
         "rms_charge_notified",
@@ -613,6 +613,7 @@ pub async fn notify_sales_support_after_checkout(
             "register_session_id": register_session_id,
             "charge_count": charges.len(),
         }),
+        &format!("rms_charge_notified:{transaction_id}"),
     )
     .await;
 

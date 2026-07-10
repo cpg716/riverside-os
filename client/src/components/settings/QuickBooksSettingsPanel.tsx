@@ -25,6 +25,7 @@ interface QboCredentialsPublic {
   client_id_set: boolean;
   has_client_secret: boolean;
   has_refresh_token: boolean;
+  webhook_verifier_configured: boolean;
   use_sandbox: boolean;
   token_expires_at: string | null;
   is_active: boolean;
@@ -558,6 +559,15 @@ export default function QuickBooksSettingsPanel({
             type: "password",
             help: "Stored encrypted and never displayed after save.",
           },
+          {
+            key: "webhook_verifier_token",
+            label: "Webhook Verifier Token",
+            placeholder: credentials.webhook_verifier_configured
+              ? "Saved - enter only to replace"
+              : "Intuit Webhooks Verifier Token",
+            type: "password",
+            help: "Validates the intuit-signature header before Riverside accepts QBO webhook events.",
+          },
         ]}
         onSaved={loadCredentials}
       />
@@ -645,6 +655,11 @@ export default function QuickBooksSettingsPanel({
             </p>
             <p className="mt-1 text-app-text-muted">
               {connectionReady ? "Connection settings complete" : "Connection settings incomplete"}
+            </p>
+            <p className="mt-1 text-app-text-muted">
+              {credentials.webhook_verifier_configured
+                ? "Webhook signature verification configured"
+                : "Webhook verifier token missing"}
             </p>
           </div>
         </div>

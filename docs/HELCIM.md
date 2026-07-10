@@ -109,9 +109,11 @@ Webhook intake:
 
 All outbound Helcim API calls use centralized retry logic with exponential backoff:
 
+- ROS keeps its descriptive idempotency key in the local provider-attempt ledger, but sends a stable UUID-form key to Helcim. This satisfies Helcim's current 25-36 character Payment API contract without losing local replay identity.
+
 - **Transient failures**: Network timeouts, connection errors, HTTP 429 (rate limit), and HTTP 5xx responses are retried up to 3 times with delays of 500ms, 1000ms, and 2000ms.
 - **Non-retryable errors**: HTTP 4xx client errors (except 429) fail immediately without retry.
-- **Idempotency keys**: Payment POSTs (`purchase`, `refund`, `reverse`, terminal refund, HelcimPay.js initialize) include deterministic idempotency keys so retries are safe against duplicate transactions.
+- **Idempotency keys**: Payment POSTs (`purchase`, `refund`, `reverse`, and terminal operations) include deterministic idempotency keys so retries are safe against duplicate transactions. HelcimPay.js initialization follows its separate checkout-session token contract.
 - **Rate-limit awareness**: Error messages include `retry-after`, `minute-limit-remaining`, and `hour-limit-remaining` headers when Helcim returns them.
 - **HTML response detection**: If the API returns an HTML page (e.g., WAF block or wrong base URL), the error message explicitly flags it so operators can check networking settings.
 

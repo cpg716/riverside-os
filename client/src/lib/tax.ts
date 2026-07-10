@@ -6,6 +6,10 @@ const CLOTHING_FOOTWEAR_EXEMPTION_THRESHOLD_CENTS = 11000; // $110.00
 const NYS_STATE_SALES_TAX_RATE = 0.04;
 const ERIE_LOCAL_SALES_TAX_RATE = 0.0475;
 
+function roundHalfAwayFromZero(value: number): number {
+  return value < 0 ? -Math.round(-value) : Math.round(value);
+}
+
 /** 
  * Recalculates tax for a single unit based on NYS §3.3 rules.
  * Clothing/Footwear under $110 net price is exempt from the 4% state tax.
@@ -25,9 +29,9 @@ export function calculateNysErieTaxForUnit(
   const stateRate = exemptFromState ? 0 : NYS_STATE_SALES_TAX_RATE;
   const localRate = ERIE_LOCAL_SALES_TAX_RATE;
 
-  // Use Math.round to match rust_decimal MidpointAwayFromZero for positive numbers
-  const stateTaxCents = Math.round(unitPriceCents * stateRate);
-  const localTaxCents = Math.round(unitPriceCents * localRate);
+  // Match rust_decimal MidpointAwayFromZero for both sales and negative adjustments.
+  const stateTaxCents = roundHalfAwayFromZero(unitPriceCents * stateRate);
+  const localTaxCents = roundHalfAwayFromZero(unitPriceCents * localRate);
 
   return { stateTaxCents, localTaxCents };
 }

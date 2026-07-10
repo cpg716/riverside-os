@@ -5,6 +5,7 @@ import {
   maxCollectableTenderCents,
   optionalCentsField,
 } from "./useCartCheckout";
+import { calculateNysErieTaxForUnit } from "../lib/tax";
 
 function payment(amountCents, overrides = {}) {
   return {
@@ -86,5 +87,14 @@ describe("checkoutTaxCategoryOverride", () => {
     expect(checkoutTaxCategoryOverride("accessory")).toBeUndefined();
     expect(checkoutTaxCategoryOverride("service")).toBeUndefined();
     expect(checkoutTaxCategoryOverride(undefined)).toBeUndefined();
+  });
+});
+
+describe("calculateNysErieTaxForUnit", () => {
+  it("matches server half-away-from-zero rounding for negative adjustments", () => {
+    expect(calculateNysErieTaxForUnit("other", -200)).toEqual({
+      stateTaxCents: -8,
+      localTaxCents: -10,
+    });
   });
 });

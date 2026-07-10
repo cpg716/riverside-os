@@ -47,6 +47,8 @@ pub mod notifications;
 pub mod notifications_jobs;
 pub mod nuorder;
 pub mod nuorder_sync;
+pub mod operation_metrics;
+pub mod operational_outbox;
 pub mod ops_dev_center;
 pub mod order_lifecycle;
 pub mod physical_inventory;

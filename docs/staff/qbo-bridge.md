@@ -16,7 +16,7 @@ Data flows **ROS → mappings → staging → approve → sync → QuickBooks**.
 
 **Purpose:** Link the store’s QBO company and confirm **OAuth** health.
 
-1. **Settings** → **QuickBooks Online** → save or update the **Client ID** and **Client Secret** in the secure credentials card.
+1. **Settings** → **QuickBooks Online** → save or update the **Client ID**, **Client Secret**, and Intuit **Webhook Verifier Token** in the secure credentials card. The verifier token is copied from the Development or Production Webhooks page for the same Intuit app/environment.
 2. Pick the sandbox/production setting, then click **Connect to QuickBooks** and approve the Riverside app in the Intuit authorization window.
 3. Confirm the returned **Realm ID / company ID** in the same Settings panel.
 4. Use the **QBO Health** card in Settings to check token status, company verification, live API health, and sandbox/production mode.
@@ -25,7 +25,8 @@ Data flows **ROS → mappings → staging → approve → sync → QuickBooks**.
 7. **QBO bridge** → **Connection**.
 8. Verify **connected** state and **company** name match expectation.
 9. If **token expired**, use the Settings health card first, then reconnect per UI if refresh is not possible. The system also auto-refreshes tokens in the background when within 10 minutes of expiry.
-10. Never share **client secret** in chat. Routine QBO credential updates belong in Backoffice Settings, not environment files.
+10. Configure Intuit's webhook URL as `https://<public-ros-api-host>/api/auth/qbo/webhook`. Riverside rejects missing or invalid `intuit-signature` values, does not store unsigned payloads, and returns an error if the signed event cannot be durably recorded so Intuit can retry it.
+11. Never share the **client secret** or **Webhook Verifier Token** in chat. Routine QBO credential updates belong in Backoffice Settings, not environment files.
 
 ## Mappings
 

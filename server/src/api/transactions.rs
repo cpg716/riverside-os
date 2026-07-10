@@ -1216,6 +1216,21 @@ mod tests {
         let original_provider_transaction_id =
             (9_000_000_000_i64 + (Utc::now().timestamp_micros() % 900_000_000)).to_string();
         let session_ordinal = 9_000_000_000_i64 + (Utc::now().timestamp_micros() % 900_000_000);
+        let register_lane: i16 = sqlx::query_scalar(
+            r#"
+            SELECT gs.lane::smallint
+            FROM generate_series(1, 99) AS gs(lane)
+            WHERE NOT EXISTS (
+                SELECT 1
+                FROM register_sessions rs
+                WHERE rs.is_open = TRUE AND rs.register_lane = gs.lane
+            )
+            LIMIT 1
+            "#,
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("find open register lane for refund durability test");
 
         sqlx::query(
             r#"
@@ -1235,12 +1250,13 @@ mod tests {
                 id, opened_by, opening_float, lifecycle_status, session_ordinal,
                 shift_primary_staff_id, register_lane, till_close_group_id
             )
-            VALUES ($1, $2, 0.00, 'open', $3, $2, 1, $4)
+            VALUES ($1, $2, 0.00, 'open', $3, $2, $4, $5)
             "#,
         )
         .bind(session_id)
         .bind(staff_id)
         .bind(session_ordinal)
+        .bind(register_lane)
         .bind(till_close_group_id)
         .execute(&pool)
         .await
@@ -5567,6 +5583,18 @@ async fn process_refund(
             attempt
         };
 
+        let provider_call_required = approved_provider_payment_id.is_none();
+        let mut ledger_tx = Some(tx);
+        if provider_call_required {
+            // The durable pending attempt serializes provider work. Never hold the register
+            // session or refund-queue row locks while waiting on Helcim.
+            ledger_tx
+                .take()
+                .expect("refund ledger transaction is available before provider call")
+                .commit()
+                .await?;
+        }
+
         let (refund_provider_payment_id, refund_provider_status) = if let Some(
             provider_payment_id,
         ) =
@@ -5581,14 +5609,25 @@ async fn process_refund(
                 ip_address: request_ip_address(&headers),
                 ecommerce: false,
             };
-            let refund_transaction = match helcim::process_card_refund(
+            let provider_started = std::time::Instant::now();
+            let provider_result = helcim::process_card_refund(
                 &state.http_client,
                 &config,
                 refund_request,
                 &idempotency_key,
             )
-            .await
-            {
+            .await;
+            crate::logic::operation_metrics::record_phase(
+                state.db.clone(),
+                "refund",
+                "helcim_provider",
+                provider_started.elapsed(),
+                provider_result.is_ok(),
+                Some(transaction_id),
+                Some(body.session_id),
+                json!({ "amount_cents": amount_cents }),
+            );
+            let refund_transaction = match provider_result {
                 Ok(transaction) => transaction,
                 Err(error) => {
                     let persisted_message = helcim::redact_provider_text(&error)
@@ -5653,6 +5692,96 @@ async fn process_refund(
 
             (refund_provider_payment_id, refund_provider_status)
         };
+
+        if provider_call_required {
+            let mut resumed_tx = state.db.begin().await?;
+            let session_open: Option<bool> = sqlx::query_scalar(
+                r#"
+                SELECT lifecycle_status = 'open'
+                FROM register_sessions
+                WHERE id = $1
+                FOR UPDATE
+                "#,
+            )
+            .bind(body.session_id)
+            .fetch_optional(&mut *resumed_tx)
+            .await?;
+            if session_open != Some(true) {
+                return Err(TransactionError::InvalidPayload(
+                    "register session closed after the Helcim refund was approved; retry to record the approved refund locally"
+                        .to_string(),
+                ));
+            }
+
+            refund = sqlx::query_as(
+                r#"
+                SELECT id, transaction_id, customer_id, amount_due, amount_refunded, is_open, reason, created_at
+                FROM transaction_refund_queue
+                WHERE transaction_id = $1 AND is_open = TRUE
+                ORDER BY created_at DESC
+                LIMIT 1
+                FOR UPDATE
+                "#,
+            )
+            .bind(transaction_id)
+            .fetch_optional(&mut *resumed_tx)
+            .await?
+            .ok_or_else(|| {
+                TransactionError::InvalidPayload(
+                    "refund queue changed after the Helcim refund was approved; retry to reconcile the approved refund locally"
+                        .to_string(),
+                )
+            })?;
+            capacity = validate_refund_capacity_in_tx(
+                &mut resumed_tx,
+                transaction_id,
+                &refund,
+                exact_refund_amount,
+            )
+            .await?;
+
+            let refreshed_card_remaining: Option<i64> = sqlx::query_scalar(
+                r#"
+                SELECT
+                    ROUND(SUM(pa.amount_allocated) * 100)::bigint
+                    - COALESCE(
+                        ROUND(SUM(
+                            CASE
+                                WHEN ref_pt.amount < 0
+                                 AND ref_pt.payment_provider = 'helcim'
+                                 AND (ref_pt.metadata->>'original_provider_transaction_id') = pt.provider_transaction_id
+                                THEN ABS(ref_pt.amount)
+                                ELSE 0
+                            END
+                        ) * 100),
+                        0
+                    )::bigint AS remaining_cents
+                FROM payment_allocations pa
+                INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
+                LEFT JOIN payment_transactions ref_pt
+                    ON ref_pt.payment_provider = 'helcim'
+                   AND (ref_pt.metadata->>'original_provider_transaction_id') = pt.provider_transaction_id
+                WHERE pa.target_transaction_id = $1
+                  AND pa.amount_allocated > 0
+                  AND pt.payment_provider = 'helcim'
+                  AND pt.provider_transaction_id = $2
+                GROUP BY pt.provider_transaction_id
+                "#,
+            )
+            .bind(transaction_id)
+            .bind(original_transaction_id.to_string())
+            .fetch_optional(&mut *resumed_tx)
+            .await?;
+            if amount_cents > refreshed_card_remaining.unwrap_or(0) {
+                return Err(TransactionError::InvalidPayload(
+                    "refund capacity changed after Helcim approval; retry to reconcile the approved refund locally"
+                    .to_string(),
+                ));
+            }
+            ledger_tx = Some(resumed_tx);
+        }
+
+        tx = ledger_tx.expect("refund ledger transaction is restored after provider call");
 
         provider_payment_id = refund_provider_payment_id;
         provider_transaction_id =
@@ -8524,88 +8653,21 @@ async fn checkout(
             display_id,
             operator_staff_id,
             customer_id: _customer_id,
-            price_override_audit,
+            price_override_audit: _price_override_audit,
             alteration_order_ids,
             amount_paid,
             total_price,
             warnings,
         } => {
-            for detail in price_override_audit {
-                let _ = log_staff_access(
-                    &state.db,
-                    operator_staff_id,
-                    "price_override",
-                    json!({ "transaction_id": transaction_id, "detail": detail }),
-                )
-                .await;
-            }
-
-            let _ = log_staff_access(
-                &state.db,
-                operator_staff_id,
-                "checkout_auth",
-                json!({
-                    "transaction_id": transaction_id,
-                    "amount_paid": amount_paid,
-                    "total_price": total_price,
-                }),
-            )
-            .await;
-
-            let accrual_res = loyalty_logic::try_accrue_for_order(&state.db, transaction_id).await;
-            let loyalty_points_earned = match &accrual_res {
-                Ok(Some(o)) => o.points_earned,
-                Ok(None) => 0,
-                Err(e) => {
-                    tracing::error!(
-                        error = %e,
-                        transaction_id = %transaction_id,
-                        "loyalty accrual failed after checkout"
-                    );
-                    0
-                }
-            };
-
-            let loyalty_points_balance: Option<i32> = match &accrual_res {
-                Ok(Some(o)) => Some(o.balance_after),
-                _ => None,
-            };
-
             spawn_meilisearch_transaction_upsert(&state, transaction_id);
             spawn_meilisearch_alteration_upserts(&state, alteration_order_ids);
-
-            if let Ok(url_raw) = std::env::var("RIVERSIDE_WEBHOOK_URL") {
-                let target_url = url_raw.trim().to_string();
-                if !target_url.is_empty() {
-                    let amount_paid_s = amount_paid.to_string();
-                    let total_price_s = total_price.to_string();
-                    let d_id = display_id.clone();
-                    tokio::spawn(async move {
-                        let client = reqwest::Client::new();
-                        let webhook_payload = serde_json::json!({
-                            "event": "transaction.finalized",
-                            "transaction_id": transaction_id.to_string(),
-                            "transaction_display_id": d_id,
-                            "amount_paid": amount_paid_s,
-                            "total_price": total_price_s,
-                            "loyalty_points_earned": loyalty_points_earned
-                        });
-                        if let Err(e) = client.post(&target_url).json(&webhook_payload).send().await
-                        {
-                            tracing::warn!(error = %e, transaction_id = %transaction_id, "Webhook dispatch failed");
-                        } else {
-                            tracing::info!(transaction_id = %transaction_id, "Webhook successfully dispatched");
-                        }
-                    });
-                }
-            }
 
             Ok(Json(CheckoutResponse {
                 transaction_id,
                 transaction_display_id: display_id,
                 status: "success".to_string(),
-                loyalty_points_earned,
-                loyalty_points_balance,
+                loyalty_points_earned: 0,
+                loyalty_points_balance: None,
                 warnings,
             }))
         }

@@ -5,7 +5,10 @@
 //! - Syncing approved staging entries to QBO
 //! - Token health pre-refresh before expiry
 
-use crate::api::qbo::{integration_row, qbo_base_url, refresh_access_token, QBO_MINOR_VERSION};
+use crate::api::qbo::{
+    access_token_for_api_call, integration_row, qbo_base_url, qbo_journal_request_id,
+    refresh_access_token, QBO_MINOR_VERSION,
+};
 use crate::jobs::{JobContext, JobHandler};
 use chrono::{NaiveDate, Utc};
 use serde_json::json;
@@ -65,16 +68,9 @@ impl QboSyncHandler {
             .filter(|s| !s.is_empty())
             .ok_or("missing realm_id")?;
 
-        let access_token = match integ
-            .access_token
-            .as_deref()
-            .filter(|s| !s.trim().is_empty())
-        {
-            Some(t) => t.to_string(),
-            None => refresh_access_token(&self.pool, &integ)
-                .await
-                .map_err(|e| format!("token refresh failed: {e}"))?,
-        };
+        let access_token = access_token_for_api_call(&self.pool, &integ)
+            .await
+            .map_err(|e| format!("token refresh failed: {e}"))?;
 
         let sync_date = payload
             .get("activity_date")
@@ -130,7 +126,7 @@ impl QboSyncHandler {
             "TxnDate": sync_date,
             "Line": line_payloads
         });
-        let request_id = format!("ros-qbo-journal-{staging_id}");
+        let request_id = qbo_journal_request_id(staging_id);
         let url = format!(
             "{}/v3/company/{}/journalentry?minorversion={}&requestid={}",
             qbo_base_url(integ.use_sandbox),

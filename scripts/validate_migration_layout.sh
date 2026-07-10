@@ -104,6 +104,30 @@ expected=(
   "098_transaction_line_booked_at.sql"
   "099_transaction_line_shipping_release.sql"
   "100_allow_wedding_import_customer_source.sql"
+  "101_register_open_lane_uniqueness_guard.sql"
+  "102_counterpoint_open_doc_tax_repair.sql"
+  "103_counterpoint_open_doc_tax_header_repair.sql"
+  "104_wedding_import_customer_identity_repair.sql"
+  "105_wedding_import_duplicate_customer_repair.sql"
+  "106_counterpoint_variation_label_cleanup.sql"
+  "107_counterpoint_variation_all_star_cleanup.sql"
+  "108_inventory_hide_stale_zero_stock.sql"
+  "109_wedding_party_numbers.sql"
+  "110_donation_tender_reporting.sql"
+  "111_helcim_event_payment_match_backfill.sql"
+  "112_weather_vc_request_cache.sql"
+  "113_system_staff_admin_salesperson.sql"
+  "114_counterpoint_inventory_and_return_audit_backfill.sql"
+  "115_qbo_blocking_warning_review_status.sql"
+  "116_payment_allocation_transaction_index.sql"
+  "117_retire_counterpoint_stale_notifications.sql"
+  "118_repair_joe_webb_failed_exchange_return.sql"
+  "119_backfill_open_deferred_payment_deposit_metadata.sql"
+  "120_resolve_browser_station_offline_alerts.sql"
+  "121_pos_shipping_charge_links.sql"
+  "122_unhide_inventory_variants.sql"
+  "123_staff_accounts.sql"
+  "124_operational_recovery_and_telemetry.sql"
 )
 
 active=()
@@ -156,6 +180,8 @@ if rg -n "INSERT INTO (public\\.)?(staff\\b|staff_permission|store_settings|prod
   --glob '!*049_constant_contact_permissions.sql' \
   --glob '!*089_restore_custom_order_catalog_skus.sql' \
   --glob '!*097_manager_approval_permission.sql' \
+  --glob '!*113_system_staff_admin_salesperson.sql' \
+  --glob '!*123_staff_accounts.sql' \
   >/tmp/ros_migration_seed_hits.$$; then
   echo "Seed-like data is not allowed in active schema migrations:" >&2
   cat /tmp/ros_migration_seed_hits.$$ >&2
@@ -164,4 +190,4 @@ if rg -n "INSERT INTO (public\\.)?(staff\\b|staff_permission|store_settings|prod
 fi
 rm -f /tmp/ros_migration_seed_hits.$$
 
-echo "Migration layout OK: active baseline 001-100."
+echo "Migration layout OK: active baseline 001-124."

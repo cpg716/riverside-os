@@ -9,6 +9,7 @@ use base64::Engine;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::time::Duration;
+use std::time::Instant;
 use thiserror::Error;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
@@ -318,14 +319,26 @@ async fn dispatch_network_bytes(ip: &str, port: u16, bytes: &[u8]) -> Result<(),
             }
         };
 
-    if let Err(e) = stream.write_all(bytes).await {
-        tracing::error!(error = %e, "Thermal Hub: Write failed to {}", addr);
-        return Err(HardwareError::Internal(format!("Write failed: {e}")));
+    match tokio::time::timeout(Duration::from_secs(5), async {
+        stream.write_all(bytes).await?;
+        stream.flush().await
+    })
+    .await
+    {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(error)) => {
+            tracing::error!(%error, "Thermal Hub: write/flush failed for {}", addr);
+            Err(HardwareError::Internal(format!(
+                "Printer did not accept the full job: {error}"
+            )))
+        }
+        Err(_) => {
+            tracing::error!("Thermal Hub: write/flush timeout for {}", addr);
+            Err(HardwareError::Internal(
+                "Printer did not accept the job within 5 seconds.".to_string(),
+            ))
+        }
     }
-    if let Err(e) = stream.flush().await {
-        tracing::error!(error = %e, "Thermal Hub: Flush failed for {}", addr);
-    }
-    Ok(())
 }
 
 #[cfg(windows)]
@@ -748,7 +761,19 @@ async fn handle_print_station(
     match target {
         ResolvedPrintTarget::Network { ip, port } => {
             require_allowed_printer_target(&state, &ip, port).await?;
-            dispatch_network_bytes(&ip, port, &bytes_to_send).await?;
+            let dispatch_started = Instant::now();
+            let dispatch_result = dispatch_network_bytes(&ip, port, &bytes_to_send).await;
+            crate::logic::operation_metrics::record_phase(
+                state.db.clone(),
+                "printing",
+                "network_dispatch",
+                dispatch_started.elapsed(),
+                dispatch_result.is_ok(),
+                None,
+                None,
+                json!({ "station": payload.station.as_key(), "bytes": bytes_to_send.len() }),
+            );
+            dispatch_result?;
             let target = format!("{ip}:{port}");
             tracing::info!(
                 station = payload.station.as_key(),
@@ -868,8 +893,6 @@ async fn handle_print(
         ));
     }
     require_allowed_printer_target(&state, ip, payload.port).await?;
-    let addr = format!("{}:{}", ip, payload.port);
-
     let bytes_to_send: Vec<u8> = if payload.format.as_deref() == Some("raw_escpos_base64") {
         match base64::engine::general_purpose::STANDARD.decode(payload.payload.trim()) {
             Ok(b) => b,
@@ -882,39 +905,21 @@ async fn handle_print(
         payload.payload.into_bytes()
     };
 
-    match tokio::time::timeout(Duration::from_secs(5), TcpStream::connect(&addr)).await {
-        Ok(Ok(mut stream)) => {
-            if let Err(e) = stream.write_all(&bytes_to_send).await {
-                tracing::error!(error = %e, "Thermal Hub: Write failed to {}", addr);
-                return Ok((
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(json!({"error": format!("Write failed: {}", e)})),
-                )
-                    .into_response());
-            }
-            if let Err(e) = stream.flush().await {
-                tracing::error!(error = %e, "Thermal Hub: Flush failed for {}", addr);
-            }
-            tracing::info!("Thermal Hub: Dispatched payload to {}", addr);
-            Ok((StatusCode::OK, Json(json!({"status": "dispatched"}))).into_response())
-        }
-        Ok(Err(e)) => {
-            tracing::warn!(error = %e, "Thermal Hub: Connection refused at {}", addr);
-            Ok((
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(json!({"error": format!("Connection refused: {}", e)})),
-            )
-                .into_response())
-        }
-        Err(_) => {
-            tracing::warn!("Thermal Hub: Connection timeout for {}", addr);
-            Ok((
-                StatusCode::GATEWAY_TIMEOUT,
-                Json(json!({"error": "Printer connection timeout"})),
-            )
-                .into_response())
-        }
-    }
+    let dispatch_started = Instant::now();
+    let dispatch_result = dispatch_network_bytes(ip, payload.port, &bytes_to_send).await;
+    crate::logic::operation_metrics::record_phase(
+        state.db.clone(),
+        "printing",
+        "network_dispatch",
+        dispatch_started.elapsed(),
+        dispatch_result.is_ok(),
+        None,
+        None,
+        json!({ "station": "legacy", "bytes": bytes_to_send.len() }),
+    );
+    dispatch_result?;
+    tracing::info!("Thermal Hub: Dispatched payload to {}:{}", ip, payload.port);
+    Ok((StatusCode::OK, Json(json!({"status": "dispatched"}))).into_response())
 }
 
 async fn handle_escpos_from_png(

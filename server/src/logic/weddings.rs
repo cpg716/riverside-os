@@ -243,3 +243,42 @@ where
     .await?;
     Ok(())
 }
+
+#[allow(clippy::too_many_arguments)]
+pub async fn insert_wedding_activity_once(
+    pool: &sqlx::PgPool,
+    wedding_party_id: Uuid,
+    wedding_member_id: Option<Uuid>,
+    actor_name: &str,
+    action_type: &str,
+    description: &str,
+    metadata: serde_json::Value,
+    idempotency_key: &str,
+) -> Result<(), sqlx::Error> {
+    let actor = actor_name.trim();
+    let actor = if actor.is_empty() {
+        "Riverside POS"
+    } else {
+        actor
+    };
+    sqlx::query(
+        r#"
+        INSERT INTO wedding_activity_log (
+            wedding_party_id, wedding_member_id, actor_name, action_type, description, metadata,
+            idempotency_key
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        ON CONFLICT (idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING
+        "#,
+    )
+    .bind(wedding_party_id)
+    .bind(wedding_member_id)
+    .bind(actor)
+    .bind(action_type)
+    .bind(description)
+    .bind(metadata)
+    .bind(idempotency_key)
+    .execute(pool)
+    .await?;
+    Ok(())
+}

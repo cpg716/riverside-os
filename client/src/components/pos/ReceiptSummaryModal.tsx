@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { isTauri } from "@tauri-apps/api/core";
 import { transform } from "receiptline";
@@ -42,6 +42,8 @@ export interface ReceiptSummaryModalProps {
   orderPaymentLines?: OrderPaymentCartLine[];
   cashChangeDueCents?: number;
   receiptTransactionLineIds?: string[];
+  /** Only the just-completed sale flow may auto-print. Historical receipt views stay manual. */
+  autoPrintOnOpen?: boolean;
 }
 
 type OrderCustomer = {
@@ -113,6 +115,7 @@ export default function ReceiptSummaryModal({
   orderPaymentLines = [],
   cashChangeDueCents = 0,
   receiptTransactionLineIds = [],
+  autoPrintOnOpen = false,
 }: ReceiptSummaryModalProps) {
   const { toast } = useToast();
   const [printing, setPrinting] = useState(false);
@@ -151,6 +154,7 @@ export default function ReceiptSummaryModal({
   const [receiptPreviewError, setReceiptPreviewError] = useState<string | null>(null);
   /** Per line; only lines checked here are included on the next gift receipt. */
   const [giftLinePick, setGiftLinePick] = useState<Record<string, boolean>>({});
+  const autoPrintAttemptedTransactionRef = useRef<string | null>(null);
 
   const buildReceiptQuery = useCallback(
     (extra?: { gift?: boolean; transactionLineIds?: string[] }) => {
@@ -450,10 +454,17 @@ export default function ReceiptSummaryModal({
   }, []);
 
   useEffect(() => {
-    if (transactionDetail && localStorage.getItem("ros.hardware.printer.receipt.autoPrint") === "true") {
+    if (
+      autoPrintOnOpen &&
+      transactionId &&
+      transactionDetail &&
+      autoPrintAttemptedTransactionRef.current !== transactionId &&
+      localStorage.getItem("ros.hardware.printer.receipt.autoPrint") === "true"
+    ) {
+      autoPrintAttemptedTransactionRef.current = transactionId;
       void handlePrint();
     }
-  }, [transactionDetail, handlePrint]);
+  }, [autoPrintOnOpen, transactionId, transactionDetail, handlePrint]);
 
   const getGiftLineIds = (): string[] =>
     (transactionDetail?.items ?? [])

@@ -88,31 +88,6 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-async function mockPosCashierAuth(page: Page): Promise<void> {
-  await page.route("**/api/staff/list-for-pos**", async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify([
-        {
-          id: "55555555-5555-4555-8555-555555555555",
-          full_name: "Avery Staff",
-        },
-      ]),
-    });
-  });
-  await page.route("**/api/staff/verify-pin", async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({
-        staff_id: "55555555-5555-4555-8555-555555555555",
-        full_name: "Avery Staff",
-      }),
-    });
-  });
-}
-
 async function mockCustomerSearch(page: Page): Promise<void> {
   await page.route("**/api/customers/search?*", async (route) => {
     await route.fulfill({
@@ -304,7 +279,6 @@ test.describe("operational rollout smoke", () => {
     page,
   }) => {
     test.setTimeout(90_000);
-    await mockPosCashierAuth(page);
     await mockCustomerSearch(page);
     await openPosRegisterSurface(page);
     await selectCustomer(page);

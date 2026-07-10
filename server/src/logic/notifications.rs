@@ -2222,14 +2222,21 @@ pub async fn emit_nuorder_sync_failed(
 
 /// Broadcast critical system alert to all admin staff
 pub async fn broadcast_system_alert(pool: &PgPool, message: &str) -> Result<(), sqlx::Error> {
+    let dedupe = system_alert_dedupe_key(message);
+    broadcast_system_alert_with_key(pool, message, &dedupe).await
+}
+
+pub async fn broadcast_system_alert_with_key(
+    pool: &PgPool,
+    message: &str,
+    dedupe_key: &str,
+) -> Result<(), sqlx::Error> {
     let admin_staff = admin_staff_ids(pool).await?;
 
     if admin_staff.is_empty() {
         tracing::warn!("No admin staff found for system alert broadcast");
         return Ok(());
     }
-
-    let dedupe = system_alert_dedupe_key(message);
 
     // Create the notification
     let notification_id = insert_app_notification_deduped(
@@ -2243,7 +2250,7 @@ pub async fn broadcast_system_alert(pool: &PgPool, message: &str) -> Result<(), 
         }),
         "system",
         json!({"roles": ["admin"]}),
-        Some(&dedupe),
+        Some(dedupe_key),
     )
     .await?;
 

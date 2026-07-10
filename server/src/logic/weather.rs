@@ -25,6 +25,7 @@ use std::str::FromStr;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration as StdDuration, Instant};
 use tracing::{debug, info, warn};
+use uuid::Uuid;
 
 const WEATHER_MAX_RETRIES: u32 = 2;
 const WEATHER_BASE_RETRY_DELAY_MS: u64 = 300;
@@ -464,6 +465,106 @@ pub async fn fetch_weather_range(
     }
 }
 
+pub async fn persist_store_daily_weather(
+    pool: &PgPool,
+    weather: &DailyWeatherContext,
+    source: &str,
+    finalized: bool,
+) -> anyhow::Result<()> {
+    let snapshot = serde_json::to_value(weather).context("serialize daily weather")?;
+    sqlx::query(
+        r#"
+        INSERT INTO store_daily_weather (weather_date, snapshot, source, finalized_at)
+        VALUES ($1, $2, $3, CASE WHEN $4 THEN now() ELSE NULL END)
+        ON CONFLICT (weather_date) DO UPDATE SET
+            snapshot = CASE
+                WHEN store_daily_weather.finalized_at IS NULL OR EXCLUDED.finalized_at IS NOT NULL
+                    THEN EXCLUDED.snapshot
+                ELSE store_daily_weather.snapshot
+            END,
+            source = CASE
+                WHEN store_daily_weather.finalized_at IS NULL OR EXCLUDED.finalized_at IS NOT NULL
+                    THEN EXCLUDED.source
+                ELSE store_daily_weather.source
+            END,
+            captured_at = CASE
+                WHEN store_daily_weather.finalized_at IS NULL OR EXCLUDED.finalized_at IS NOT NULL
+                    THEN now()
+                ELSE store_daily_weather.captured_at
+            END,
+            finalized_at = COALESCE(EXCLUDED.finalized_at, store_daily_weather.finalized_at)
+        "#,
+    )
+    .bind(weather.date)
+    .bind(snapshot)
+    .bind(source)
+    .bind(finalized)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn capture_store_daily_weather(
+    http: &reqwest::Client,
+    pool: &PgPool,
+    business_date: NaiveDate,
+    source: &str,
+) -> anyhow::Result<()> {
+    let Some(weather) = fetch_weather_range(http, pool, business_date, business_date)
+        .await
+        .into_iter()
+        .next()
+    else {
+        anyhow::bail!("weather provider returned no row for {business_date}");
+    };
+    persist_store_daily_weather(pool, &weather, source, false).await
+}
+
+/// Captures store-day weather after the financial transaction has committed.
+/// Weather is reporting context only and must never extend checkout locks or delay the sale response.
+pub fn schedule_transaction_weather_snapshot(
+    http: reqwest::Client,
+    pool: PgPool,
+    transaction_id: Uuid,
+) {
+    tokio::spawn(async move {
+        let business_date: NaiveDate = match sqlx::query_scalar(
+            r#"
+            SELECT COALESCE(
+                business_date,
+                (booked_at AT TIME ZONE reporting.effective_store_timezone())::date
+            )
+            FROM transactions
+            WHERE id = $1
+            "#,
+        )
+        .bind(transaction_id)
+        .fetch_one(&pool)
+        .await
+        {
+            Ok(date) => date,
+            Err(error) => {
+                warn!(
+                    %error,
+                    %transaction_id,
+                    "checkout weather snapshot date lookup failed after sale commit"
+                );
+                return;
+            }
+        };
+
+        if let Err(error) =
+            capture_store_daily_weather(&http, &pool, business_date, "checkout").await
+        {
+            warn!(
+                %error,
+                %transaction_id,
+                "checkout store-day weather capture failed after sale commit"
+            );
+        }
+    });
+}
+
 /// Historical daily rows from Visual Crossing only (no mock). Used to refresh stored snapshots after the day has ended.
 pub async fn fetch_weather_range_vc_only(
     http: &reqwest::Client,
@@ -491,7 +592,7 @@ pub async fn fetch_weather_range_vc_only(
 }
 
 /// After local hour (default 3) on a new store-local day, re-fetch the last 7 calendar days from Visual Crossing
-/// and overwrite `weather_snapshot` on closed register sessions and transactions whose local activity date matches.
+/// and finalize one canonical store-day weather row per calendar day.
 /// Advances `weather_snapshot_finalize_ledger` only on full success. Skips when VC is off or the API fails.
 pub async fn maybe_finalize_daily_weather_snapshots(
     http: &reqwest::Client,
@@ -544,51 +645,26 @@ pub async fn maybe_finalize_daily_weather_snapshots(
         .await
         .map_err(|e| anyhow::anyhow!("visual crossing finalize fetch: {e}"))?;
 
-    let tz_name = settings.timezone.trim().to_string();
     let mut tx = pool.begin().await?;
 
     for day in &daily {
         let js = serde_json::to_value(day).context("serialize daily weather")?;
-
-        let n_sessions = sqlx::query(
+        sqlx::query(
             r#"
-            UPDATE public.register_sessions
-            SET weather_snapshot = $1
-            WHERE is_open = false
-              AND closed_at IS NOT NULL
-              AND (closed_at AT TIME ZONE $2)::date = $3::date
+            INSERT INTO store_daily_weather (weather_date, snapshot, source, finalized_at)
+            VALUES ($1, $2, 'visual_crossing_final', now())
+            ON CONFLICT (weather_date) DO UPDATE SET
+                snapshot = EXCLUDED.snapshot,
+                source = EXCLUDED.source,
+                captured_at = now(),
+                finalized_at = now()
             "#,
         )
-        .bind(&js)
-        .bind(&tz_name)
         .bind(day.date)
+        .bind(js)
         .execute(&mut *tx)
-        .await?
-        .rows_affected();
-
-        let n_transactions = sqlx::query(
-            r#"
-            UPDATE public.transactions
-            SET weather_snapshot = $1
-            WHERE booked_at IS NOT NULL
-              AND (booked_at AT TIME ZONE $2)::date = $3::date
-            "#,
-        )
-        .bind(&js)
-        .bind(&tz_name)
-        .bind(day.date)
-        .execute(&mut *tx)
-        .await?
-        .rows_affected();
-
-        if n_sessions > 0 || n_transactions > 0 {
-            info!(
-                date = %day.date,
-                register_sessions = n_sessions,
-                transactions = n_transactions,
-                "weather EOD finalize: snapshots updated"
-            );
-        }
+        .await?;
+        info!(date = %day.date, "weather EOD finalize: store-day snapshot updated");
     }
 
     sqlx::query(

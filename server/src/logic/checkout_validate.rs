@@ -37,6 +37,11 @@ fn money_close(a: Decimal, b: Decimal) -> bool {
     (a - b).abs() <= CHECKOUT_MONEY_TOLERANCE
 }
 
+#[inline]
+fn tax_cents_match(a: Decimal, b: Decimal) -> bool {
+    a.round_dp(2) == b.round_dp(2)
+}
+
 /// Exposed for order checkout (discount events, etc.).
 #[inline]
 pub fn money_close_decimal(a: Decimal, b: Decimal) -> bool {
@@ -130,8 +135,9 @@ pub async fn validate_checkout_lines_and_sum(
                 erie_local_tax_usd(tax_category, line.unit_price, line.unit_price)
             };
 
-            // Use money_close for all monetary comparisons to avoid precision issues
-            if !money_close(line.state_tax, exp_state) || !money_close(line.local_tax, exp_local) {
+            if !tax_cents_match(line.state_tax, exp_state)
+                || !tax_cents_match(line.local_tax, exp_local)
+            {
                 tracing::error!(
                     variant_id = %line.variant_id,
                     sku = %resolved.sku,
@@ -166,7 +172,9 @@ pub async fn validate_checkout_lines_and_sum(
                 erie_local_tax_usd(tax_category, line.unit_price, line.unit_price)
             };
 
-            if !money_close(line.state_tax, exp_state) || !money_close(line.local_tax, exp_local) {
+            if !tax_cents_match(line.state_tax, exp_state)
+                || !tax_cents_match(line.local_tax, exp_local)
+            {
                 tracing::error!(
                     variant_id = %line.variant_id,
                     sku = %resolved.sku,
@@ -191,7 +199,30 @@ pub async fn validate_checkout_lines_and_sum(
             }
         }
 
-        sum += (line.unit_price + line.state_tax + line.local_tax) * Decimal::from(line.quantity);
+        let non_taxable_internal = is_rms_payment || is_pos_gc_load || is_alteration_service;
+        let (server_state_tax, server_local_tax) = if is_tax_exempt || non_taxable_internal {
+            (Decimal::ZERO, Decimal::ZERO)
+        } else {
+            (
+                nys_state_tax_usd(tax_category, line.unit_price, line.unit_price),
+                erie_local_tax_usd(tax_category, line.unit_price, line.unit_price),
+            )
+        };
+        sum +=
+            (line.unit_price + server_state_tax + server_local_tax) * Decimal::from(line.quantity);
     }
     Ok(sum)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rust_decimal_macros::dec;
+
+    #[test]
+    fn tax_comparison_requires_exact_cent_parity() {
+        assert!(tax_cents_match(dec!(4.75), dec!(4.75)));
+        assert!(!tax_cents_match(dec!(4.74), dec!(4.75)));
+        assert!(!tax_cents_match(dec!(4.76), dec!(4.75)));
+    }
 }

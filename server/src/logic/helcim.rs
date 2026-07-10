@@ -1303,6 +1303,7 @@ pub async fn start_terminal_purchase(
             message,
             raw_text: None,
         })?;
+    let provider_idempotency_key = provider_idempotency_key(idempotency_key);
 
     let mut last_error = String::new();
     for attempt in 0..=HELCIM_MAX_RETRIES {
@@ -1315,7 +1316,7 @@ pub async fn start_terminal_purchase(
             .header(reqwest::header::ACCEPT, "application/json")
             .header(reqwest::header::CONTENT_TYPE, "application/json")
             .header("api-token", token)
-            .header("idempotency-key", idempotency_key)
+            .header("idempotency-key", &provider_idempotency_key)
             .body(body.clone())
             .send()
             .await
@@ -1388,12 +1389,13 @@ pub async fn start_terminal_refund(
         config.api_base_url()
     );
     let body = terminal_refund_request_body(&request)?;
+    let provider_idempotency_key = provider_idempotency_key(idempotency_key);
     let response = send_request_with_retry("Helcim terminal refund", || {
         http.post(&url)
             .header(reqwest::header::ACCEPT, "application/json")
             .header(reqwest::header::CONTENT_TYPE, "application/json")
             .header("api-token", token)
-            .header("idempotency-key", idempotency_key)
+            .header("idempotency-key", &provider_idempotency_key)
             .body(body.clone())
             .send()
     })
@@ -1459,6 +1461,23 @@ fn helcim_retry_delay(attempt: u32) -> std::time::Duration {
     std::time::Duration::from_millis(HELCIM_BASE_RETRY_DELAY_MS * 2_u64.pow(attempt))
 }
 
+/// Helcim Payment API idempotency keys must be 25-36 URL-safe characters.
+/// Keep ROS's descriptive database key for local replay, but derive a stable
+/// provider-safe UUID whenever the local key is outside Helcim's contract.
+pub fn provider_idempotency_key(local_key: &str) -> String {
+    let trimmed = local_key.trim();
+    let valid_length = (25..=36).contains(&trimmed.len());
+    let valid_chars = trimmed
+        .bytes()
+        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'));
+    let valid_uuid = uuid::Uuid::parse_str(trimmed).is_ok();
+    if valid_length && valid_chars && valid_uuid {
+        trimmed.to_string()
+    } else {
+        uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_URL, trimmed.as_bytes()).to_string()
+    }
+}
+
 async fn send_payment_request<T: Serialize + ?Sized>(
     http: &reqwest::Client,
     config: &HelcimConfig,
@@ -1470,6 +1489,7 @@ async fn send_payment_request<T: Serialize + ?Sized>(
         .api_token()
         .ok_or_else(|| "Helcim API token is not saved in Backoffice Settings.".to_string())?;
     let url = format!("{}/{}", config.api_base_url(), path);
+    let provider_idempotency_key = provider_idempotency_key(idempotency_key);
 
     let mut last_error = String::new();
     for attempt in 0..=HELCIM_MAX_RETRIES {
@@ -1482,7 +1502,7 @@ async fn send_payment_request<T: Serialize + ?Sized>(
             .header(reqwest::header::ACCEPT, "application/json")
             .header(reqwest::header::CONTENT_TYPE, "application/json")
             .header("api-token", token)
-            .header("idempotency-key", idempotency_key)
+            .header("idempotency-key", &provider_idempotency_key)
             .json(request)
             .send()
             .await
@@ -2104,5 +2124,22 @@ mod tests {
         assert!(value["transactionAmount"].is_number());
         assert_eq!(value["transactionAmount"].to_string(), "10.99");
         assert_eq!(value["originalTransactionId"], 12345);
+    }
+
+    #[test]
+    fn provider_idempotency_key_normalizes_long_ros_keys_deterministically() {
+        let local = "helcim-card-refund-11111111-1111-4111-8111-111111111111";
+        let first = provider_idempotency_key(local);
+        let second = provider_idempotency_key(local);
+
+        assert_eq!(first, second);
+        assert_eq!(first.len(), 36);
+        assert!(uuid::Uuid::parse_str(&first).is_ok());
+    }
+
+    #[test]
+    fn provider_idempotency_key_preserves_valid_provider_key() {
+        let provider_key = "11111111-1111-4111-8111-111111111111";
+        assert_eq!(provider_idempotency_key(provider_key), provider_key);
     }
 }

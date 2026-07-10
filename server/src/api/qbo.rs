@@ -1,6 +1,7 @@
 //! QuickBooks Online bridge: credentials, mapping-first COA, journal staging (Phase 2.15).
 
 use axum::{
+    body::Bytes,
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
@@ -9,6 +10,7 @@ use axum::{
 };
 use base64::{engine::general_purpose, Engine as _};
 use chrono::{DateTime, NaiveDate, Utc};
+use hmac::{Hmac, Mac};
 use reqwest::Client;
 use ring::aead::{self, Aad, LessSafeKey, UnboundKey};
 use rust_decimal::Decimal;
@@ -19,6 +21,7 @@ use sqlx::{FromRow, PgPool};
 use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::str::FromStr;
+use subtle::ConstantTimeEq;
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -43,11 +46,13 @@ const QBO_CREDENTIAL_KEYS: &[&str] = &[
     "access_token",
     "refresh_token",
     "oauth_state",
+    "webhook_verifier_token",
 ];
 pub const QBO_MINOR_VERSION: &str = "75";
 const QBO_ACCOUNT_QUERY_PAGE_SIZE: i32 = 1000;
 const QBO_ACCOUNTING_SCOPE: &str = "com.intuit.quickbooks.accounting";
 const QBO_AUTHORIZATION_URL: &str = "https://appcenter.intuit.com/connect/oauth2";
+const QBO_WEBHOOK_VERIFIER_ENV: &str = "RIVERSIDE_QBO_WEBHOOK_VERIFIER_TOKEN";
 
 #[derive(Debug, Error)]
 pub enum QboError {
@@ -61,6 +66,10 @@ pub enum QboError {
     Conflict(String),
     #[error("Forbidden")]
     Forbidden,
+    #[error("Unauthorized")]
+    Unauthorized,
+    #[error("Service unavailable: {0}")]
+    ServiceUnavailable(String),
     #[error("Credential error: {0}")]
     Credential(#[from] IntegrationCredentialError),
 }
@@ -72,6 +81,10 @@ impl IntoResponse for QboError {
             QboError::NotFound => (StatusCode::NOT_FOUND, self.to_string()),
             QboError::Conflict(m) => (StatusCode::CONFLICT, m.clone()),
             QboError::Forbidden => (StatusCode::FORBIDDEN, self.to_string()),
+            QboError::Unauthorized => (StatusCode::UNAUTHORIZED, self.to_string()),
+            QboError::ServiceUnavailable(message) => {
+                (StatusCode::SERVICE_UNAVAILABLE, message.clone())
+            }
             QboError::Database(e) => {
                 tracing::error!(error = %e, "Database error in qbo");
                 (
@@ -108,6 +121,7 @@ pub struct QboCredentialsPublic {
     pub client_id_set: bool,
     pub has_client_secret: bool,
     pub has_refresh_token: bool,
+    pub webhook_verifier_configured: bool,
     pub use_sandbox: bool,
     pub token_expires_at: Option<DateTime<Utc>>,
     pub is_active: bool,
@@ -869,6 +883,44 @@ pub async fn refresh_access_token(
     Ok(body.access_token)
 }
 
+pub async fn access_token_for_api_call(
+    pool: &PgPool,
+    row: &IntegrationSecretsRow,
+) -> Result<String, QboError> {
+    if let Some(token) = row
+        .access_token
+        .as_deref()
+        .map(str::trim)
+        .filter(|token| !token.is_empty())
+        .filter(|_| {
+            row.token_expires_at
+                .map(|expires_at| expires_at > Utc::now() + chrono::Duration::minutes(1))
+                .unwrap_or(false)
+        })
+    {
+        return Ok(token.to_string());
+    }
+
+    refresh_access_token(pool, row).await
+}
+
+pub fn qbo_journal_request_id(staging_id: Uuid) -> String {
+    // Intuit caps requestid at 50 characters. This remains deterministic per
+    // staging row so an ambiguous retry returns the original JournalEntry.
+    format!("ros-qbo-{staging_id}")
+}
+
+pub fn qbo_journal_delete_request_id(staging_id: Uuid) -> String {
+    format!("ros-del-{staging_id}")
+}
+
+fn qbo_webhook_verifier_configured() -> bool {
+    env::var(QBO_WEBHOOK_VERIFIER_ENV)
+        .ok()
+        .map(|value| !value.trim().is_empty())
+        .unwrap_or(false)
+}
+
 pub async fn refresh_due_tokens(pool: &PgPool) -> Result<(), QboError> {
     let row = integration_row(pool).await?;
     let Some(r) = row else {
@@ -923,6 +975,7 @@ async fn get_credentials(
             client_id_set: false,
             has_client_secret: false,
             has_refresh_token: false,
+            webhook_verifier_configured: qbo_webhook_verifier_configured(),
             use_sandbox: true,
             token_expires_at: None,
             is_active: false,
@@ -948,6 +1001,7 @@ async fn get_credentials(
             .as_ref()
             .map(|s| !s.trim().is_empty())
             .unwrap_or(false),
+        webhook_verifier_configured: qbo_webhook_verifier_configured(),
         use_sandbox: r.use_sandbox,
         token_expires_at: r.token_expires_at,
         is_active: r.is_active,
@@ -1064,20 +1118,19 @@ async fn oauth_callback(
         .ok_or_else(|| QboError::InvalidPayload("missing client_secret".to_string()))?;
     let oauth_credentials =
         load_integration_credentials(&state.db, "qbo", &["oauth_state"]).await?;
-    if let Some(expected_state) = oauth_credentials
+    let expected_state = oauth_credentials
         .get("oauth_state")
         .map(|s| s.trim())
         .filter(|s| !s.is_empty())
-    {
-        let returned_state = q
-            .state
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .ok_or_else(|| QboError::InvalidPayload("missing oauth state".to_string()))?;
-        if returned_state != expected_state {
-            return Err(QboError::Forbidden);
-        }
+        .ok_or(QboError::Forbidden)?;
+    let returned_state = q
+        .state
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| QboError::InvalidPayload("missing oauth state".to_string()))?;
+    if returned_state != expected_state {
+        return Err(QboError::Forbidden);
     }
 
     let basic = general_purpose::STANDARD.encode(format!("{client_id}:{client_secret}"));
@@ -1197,21 +1250,7 @@ async fn get_company_info(
         .filter(|s| !s.is_empty() && *s != "pending")
         .ok_or_else(|| QboError::InvalidPayload("missing realm_id".to_string()))?;
 
-    let access_token = match integ
-        .access_token
-        .as_deref()
-        .filter(|s| !s.trim().is_empty())
-    {
-        Some(token)
-            if integ
-                .token_expires_at
-                .map(|t| t > Utc::now())
-                .unwrap_or(false) =>
-        {
-            token.to_string()
-        }
-        _ => refresh_access_token(&state.db, &integ).await?,
-    };
+    let access_token = access_token_for_api_call(&state.db, &integ).await?;
 
     let url = format!(
         "{}/v3/company/{}/companyinfo/{}",
@@ -1368,21 +1407,7 @@ async fn refresh_accounts_cache(
             "QuickBooks is not authorized yet. Complete OAuth authorization before refreshing accounts.".to_string(),
         ));
     }
-    let access_token = match integ
-        .access_token
-        .as_deref()
-        .filter(|s| !s.trim().is_empty())
-    {
-        Some(token)
-            if integ
-                .token_expires_at
-                .map(|t| t > Utc::now())
-                .unwrap_or(false) =>
-        {
-            token.to_string()
-        }
-        _ => refresh_access_token(&state.db, &integ).await?,
-    };
+    let access_token = access_token_for_api_call(&state.db, &integ).await?;
 
     let url = format!(
         "{}/v3/company/{}/query",
@@ -2200,14 +2225,7 @@ async fn sync_staging(
         .filter(|s| !s.is_empty())
         .ok_or_else(|| QboError::InvalidPayload("missing realm_id".to_string()))?;
 
-    let access_token = match integ
-        .access_token
-        .as_deref()
-        .filter(|s| !s.trim().is_empty())
-    {
-        Some(t) => t.to_string(),
-        None => refresh_access_token(&state.db, &integ).await?,
-    };
+    let access_token = access_token_for_api_call(&state.db, &integ).await?;
 
     fn to_amount(v: &serde_json::Value) -> Option<String> {
         if let Some(s) = v.as_str() {
@@ -2270,7 +2288,7 @@ async fn sync_staging(
         "TxnDate": sync_date,
         "Line": line_payloads
     });
-    let request_id = format!("ros-qbo-journal-{id}");
+    let request_id = qbo_journal_request_id(id);
     let url = format!(
         "{}/v3/company/{}/journalentry?minorversion={}&requestid={}",
         qbo_base_url(integ.use_sandbox),
@@ -2505,14 +2523,7 @@ async fn retry_failed(
         .filter(|s| !s.is_empty())
         .ok_or_else(|| QboError::InvalidPayload("missing realm_id".to_string()))?;
 
-    let access_token = match integ
-        .access_token
-        .as_deref()
-        .filter(|s| !s.trim().is_empty())
-    {
-        Some(t) => t.to_string(),
-        None => refresh_access_token(&state.db, &integ).await?,
-    };
+    let access_token = access_token_for_api_call(&state.db, &integ).await?;
 
     fn to_amount(v: &serde_json::Value) -> Option<String> {
         if let Some(s) = v.as_str() {
@@ -2575,7 +2586,7 @@ async fn retry_failed(
         "TxnDate": sync_date,
         "Line": line_payloads
     });
-    let request_id = format!("ros-qbo-journal-{id}");
+    let request_id = qbo_journal_request_id(id);
     let url = format!(
         "{}/v3/company/{}/journalentry?minorversion={}&requestid={}",
         qbo_base_url(integ.use_sandbox),
@@ -2733,14 +2744,7 @@ async fn void_synced(
         .filter(|s| !s.is_empty())
         .ok_or_else(|| QboError::InvalidPayload("missing realm_id".to_string()))?;
 
-    let access_token = match integ
-        .access_token
-        .as_deref()
-        .filter(|s| !s.trim().is_empty())
-    {
-        Some(t) => t.to_string(),
-        None => refresh_access_token(&state.db, &integ).await?,
-    };
+    let access_token = access_token_for_api_call(&state.db, &integ).await?;
 
     // First, read the JournalEntry from QBO to get its SyncToken (required for updates/voids)
     let read_url = format!(
@@ -2784,11 +2788,13 @@ async fn void_synced(
         .to_string();
 
     // Delete (void) the JournalEntry in QBO
+    let delete_request_id = qbo_journal_delete_request_id(id);
     let delete_url = format!(
-        "{}/v3/company/{}/journalentry?operation=delete&minorversion={}",
+        "{}/v3/company/{}/journalentry?operation=delete&minorversion={}&requestid={}",
         qbo_base_url(integ.use_sandbox),
         realm_id,
-        QBO_MINOR_VERSION
+        QBO_MINOR_VERSION,
+        delete_request_id
     );
     let delete_body = json!({
         "Id": je_id,
@@ -2856,32 +2862,64 @@ async fn void_synced(
     })))
 }
 
-async fn qbo_webhook(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Json(payload): Json<serde_json::Value>,
-) -> Result<StatusCode, QboError> {
+fn verify_qbo_webhook_signature(
+    headers: &HeaderMap,
+    body: &[u8],
+    verifier_token: &str,
+) -> Result<(), QboError> {
     let signature = headers
         .get("intuit-signature")
         .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
-    if signature.is_empty() {
-        tracing::warn!("QBO webhook received without intuit-signature header");
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or(QboError::Unauthorized)?;
+    let provided = general_purpose::STANDARD
+        .decode(signature)
+        .map_err(|_| QboError::Unauthorized)?;
+    let mut mac = Hmac::<Sha256>::new_from_slice(verifier_token.as_bytes())
+        .map_err(|_| QboError::ServiceUnavailable("QBO webhook verifier is invalid".to_string()))?;
+    mac.update(body);
+    let expected = mac.finalize().into_bytes();
+    if expected.as_slice().ct_eq(provided.as_slice()).into() {
+        Ok(())
+    } else {
+        Err(QboError::Unauthorized)
     }
+}
+
+async fn qbo_webhook(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<StatusCode, QboError> {
+    let verifier_token = env::var(QBO_WEBHOOK_VERIFIER_ENV)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            QboError::ServiceUnavailable("QBO webhook verifier token is not configured".to_string())
+        })?;
+    verify_qbo_webhook_signature(&headers, body.as_ref(), &verifier_token)?;
+    let payload: serde_json::Value = serde_json::from_slice(body.as_ref())
+        .map_err(|error| QboError::InvalidPayload(format!("invalid webhook JSON: {error}")))?;
 
     let event_types: Vec<String> = payload
         .get("eventNotifications")
         .and_then(|v| v.as_array())
         .into_iter()
         .flatten()
-        .filter_map(|n| {
+        .flat_map(|n| {
             n.get("dataChangeEvent")
                 .and_then(|e| e.get("entities"))
                 .and_then(|v| v.as_array())
                 .into_iter()
                 .flatten()
-                .filter_map(|ent| ent.get("name").and_then(|v| v.as_str()).map(String::from))
-                .next()
+                .filter_map(|entity| {
+                    entity
+                        .get("name")
+                        .and_then(|value| value.as_str())
+                        .map(String::from)
+                })
         })
         .collect();
 
@@ -2894,14 +2932,13 @@ async fn qbo_webhook(
 
     sqlx::query(
         r#"
-        INSERT INTO qbo_webhook_events (payload, received_at)
-        VALUES ($1, CURRENT_TIMESTAMP)
+        INSERT INTO qbo_webhook_events (payload, processed, received_at)
+        VALUES ($1, TRUE, CURRENT_TIMESTAMP)
         "#,
     )
     .bind(&payload)
     .execute(&state.db)
-    .await
-    .ok();
+    .await?;
 
     Ok(StatusCode::OK)
 }
@@ -2952,26 +2989,16 @@ pub async fn health_check(pool: &PgPool, http: &reqwest::Client) -> QboHealth {
             };
         }
     };
-    let access_token = match row.access_token.as_deref().filter(|s| !s.trim().is_empty()) {
-        Some(token)
-            if row
-                .token_expires_at
-                .map(|t| t > Utc::now())
-                .unwrap_or(false) =>
-        {
-            token.to_string()
+    let access_token = match access_token_for_api_call(pool, &row).await {
+        Ok(token) => token,
+        Err(e) => {
+            return QboHealth {
+                configured: true,
+                reachable: false,
+                latency_ms: start.elapsed().as_millis() as u64,
+                message: format!("QBO token refresh failed: {e}"),
+            };
         }
-        _ => match refresh_access_token(pool, &row).await {
-            Ok(token) => token,
-            Err(e) => {
-                return QboHealth {
-                    configured: true,
-                    reachable: false,
-                    latency_ms: start.elapsed().as_millis() as u64,
-                    message: format!("QBO token refresh failed: {e}"),
-                };
-            }
-        },
     };
     let url = format!(
         "{}/v3/company/{}/companyinfo/{}?minorversion={}",
@@ -3262,6 +3289,44 @@ mod tests {
             assert!(validate_qbo_token_key_for_startup().is_err());
             assert!(decrypt_legacy_token("not-real").is_none());
         });
+    }
+
+    #[test]
+    fn journal_request_id_is_stable_and_within_intuit_limit() {
+        let staging_id = Uuid::parse_str("11111111-1111-4111-8111-111111111111").unwrap();
+        let request_id = qbo_journal_request_id(staging_id);
+
+        assert_eq!(request_id, "ros-qbo-11111111-1111-4111-8111-111111111111");
+        assert!(request_id.len() <= 50);
+        let delete_request_id = qbo_journal_delete_request_id(staging_id);
+        assert_eq!(
+            delete_request_id,
+            "ros-del-11111111-1111-4111-8111-111111111111"
+        );
+        assert!(delete_request_id.len() <= 50);
+        assert_ne!(request_id, delete_request_id);
+    }
+
+    #[test]
+    fn qbo_webhook_signature_accepts_official_hmac_contract() {
+        use axum::http::HeaderValue;
+
+        let verifier = "intuit-verifier-token";
+        let body = br#"{"eventNotifications":[]}"#;
+        let mut mac = Hmac::<Sha256>::new_from_slice(verifier.as_bytes()).unwrap();
+        mac.update(body);
+        let signature = general_purpose::STANDARD.encode(mac.finalize().into_bytes());
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "intuit-signature",
+            HeaderValue::from_str(&signature).unwrap(),
+        );
+
+        assert!(verify_qbo_webhook_signature(&headers, body, verifier).is_ok());
+        assert!(matches!(
+            verify_qbo_webhook_signature(&headers, br#"{"tampered":true}"#, verifier),
+            Err(QboError::Unauthorized)
+        ));
     }
 
     async fn connect_test_db() -> PgPool {

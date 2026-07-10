@@ -4892,6 +4892,7 @@ export default function Cart({
           orderPaymentLines={lastReceiptOrderPaymentLines}
           cashChangeDueCents={lastCashChangeDueCents}
           receiptTransactionLineIds={lastReceiptTransactionLineIds}
+          autoPrintOnOpen
         />
       )}
 

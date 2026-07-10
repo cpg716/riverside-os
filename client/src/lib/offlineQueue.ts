@@ -15,6 +15,13 @@ import localforage from "localforage";
 import { useEffect, useState, useCallback } from "react";
 import type { CheckoutPayload } from "../components/pos/types";
 import { headersSafeForOfflinePersist } from "./posRegisterAuth";
+import {
+  listCurrentRegisterRecoveryJobs,
+  mirrorRecoveryJob,
+  resolveRecoveryJob,
+  validRecoveryUuid,
+  type ServerRecoveryKind,
+} from "./serverRecovery";
 
 // Define the shape of our queued objects for resilience
 export interface QueuedCheckout {
@@ -47,6 +54,52 @@ const checkoutStore = localforage.createInstance({
 });
 
 const CHECKOUT_REPLAY_TIMEOUT_MS = 15_000;
+const RECOVERY_SYNC_INTERVAL_MS = 30_000;
+
+function checkoutServerKey(id: string): string {
+  return `checkout:${id}`;
+}
+
+function serverKindForCheckout(item: QueuedCheckout): ServerRecoveryKind {
+  if (item.recoveryKind === "pickup_after_payment") return "pickup_after_payment";
+  if (item.recoveryKind === "online_unconfirmed") return "checkout_unconfirmed";
+  return "checkout_offline";
+}
+
+async function mirrorQueuedCheckout(item: QueuedCheckout): Promise<void> {
+  const serverSafeItem: QueuedCheckout = {
+    ...item,
+    authHeaders: headersSafeForOfflinePersist(item.authHeaders),
+  };
+  await mirrorRecoveryJob({
+    client_job_key: checkoutServerKey(item.id),
+    kind: serverKindForCheckout(item),
+    status: (item.status ?? "pending") === "blocked" ? "blocked" : "pending",
+    register_session_id: validRecoveryUuid(item.payload.session_id),
+    transaction_id: validRecoveryUuid(item.recoveryTransactionId),
+    checkout_client_id: validRecoveryUuid(item.payload.checkout_client_id),
+    label: item.recoveryKind ?? "Offline checkout replay",
+    payload: serverSafeItem,
+    last_error: item.lastErrorMessage,
+    attempt_count: item.attemptCount ?? 0,
+  });
+}
+
+async function syncCheckoutRecoveryWithServer(): Promise<void> {
+  const local = await getCheckoutQueue();
+  await Promise.all(local.map((item) => mirrorQueuedCheckout(item)));
+  const server = await listCurrentRegisterRecoveryJobs();
+  const localIds = new Set(local.map((item) => item.id));
+  let changed = false;
+  for (const job of server) {
+    if (job.kind === "receipt_print") continue;
+    const item = job.payload as Partial<QueuedCheckout>;
+    if (!item?.id || !item.payload || localIds.has(item.id)) continue;
+    await checkoutStore.setItem(item.id, item as QueuedCheckout);
+    changed = true;
+  }
+  if (changed) window.dispatchEvent(new Event("queue_changed"));
+}
 
 /** Enqueue a POS checkout when the network is unreachable. */
 export async function enqueueCheckout(
@@ -63,6 +116,7 @@ export async function enqueueCheckout(
     authHeaders: headersSafeForOfflinePersist(authHeaders),
   };
   await checkoutStore.setItem(id, item);
+  void mirrorQueuedCheckout(item);
   window.dispatchEvent(new Event("queue_changed")); // Notify React listeners
   return id;
 }
@@ -103,6 +157,7 @@ export async function enqueueBlockedCheckoutRecovery(
     authHeaders: headersSafeForOfflinePersist(options.authHeaders),
   };
   await checkoutStore.setItem(id, item);
+  void mirrorQueuedCheckout(item);
   window.dispatchEvent(new Event("queue_changed"));
   return id;
 }
@@ -128,6 +183,7 @@ export async function clearBlockedCheckoutRecovery(match: {
       (recoveryTransactionId && item.recoveryTransactionId === recoveryTransactionId);
     if (matched) {
       await checkoutStore.removeItem(item.id);
+      void resolveRecoveryJob(checkoutServerKey(item.id), "resolved", "Checkout recovery cleared");
       changed = true;
     }
   }
@@ -148,11 +204,13 @@ export async function getCheckoutQueue(): Promise<QueuedCheckout[]> {
 /** Remove an item from the queue after successful sync. */
 export async function dequeueCheckout(id: string): Promise<void> {
   await checkoutStore.removeItem(id);
+  void resolveRecoveryJob(checkoutServerKey(id), "resolved", "Checkout synchronized");
   window.dispatchEvent(new Event("queue_changed"));
 }
 
 export async function updateQueuedCheckout(item: QueuedCheckout): Promise<void> {
   await checkoutStore.setItem(item.id, item);
+  void mirrorQueuedCheckout(item);
   window.dispatchEvent(new Event("queue_changed"));
 }
 
@@ -292,10 +350,15 @@ export function useOfflineSync(
   }, []);
 
   useEffect(() => {
-    void reloadQueue();
+    const initialize = async () => {
+      if (navigator.onLine) await syncCheckoutRecoveryWithServer();
+      await reloadQueue();
+    };
+    void initialize();
 
     const handleOnline = async () => {
       setIsOnline(true);
+      await syncCheckoutRecoveryWithServer();
       await flushCheckoutQueue(baseUrl, getAuthHeaders);
       void reloadQueue();
     };
@@ -311,11 +374,16 @@ export function useOfflineSync(
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
     window.addEventListener("queue_changed", handleQueueChanged);
+    const recoveryPoll = window.setInterval(() => {
+      if (!navigator.onLine) return;
+      void syncCheckoutRecoveryWithServer().then(reloadQueue);
+    }, RECOVERY_SYNC_INTERVAL_MS);
 
     return () => {
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);
       window.removeEventListener("queue_changed", handleQueueChanged);
+      window.clearInterval(recoveryPoll);
     };
   }, [baseUrl, getAuthHeaders, reloadQueue]);
 

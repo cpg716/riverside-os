@@ -84,7 +84,7 @@ See also **[`SUIT_OUTFIT_COMPONENT_SWAP_AND_QBO.md`](./SUIT_OUTFIT_COMPONENT_SWA
 
 `activity_date` is the store-local business date from `store_settings.receipt_config.timezone` through `reporting.effective_store_timezone()`. QBO uses the same recognition basis as reporting: pickup / in-store takeaway recognizes from fulfillment timestamps, and shipped transactions recognize from the earliest qualifying shipment event (`label_purchased`, `in_transit`, or `delivered`). Re-running **propose** for an older `activity_date` after returns restates that day’s recognition nets. Return-day contra lines appear on the **return** business date. Align with your accountant on recognition policy.
 
-QBO API posts use a deterministic Riverside request id per staging row. If a JournalEntry call is retried after an ambiguous network failure, the same staging row reuses the same request id instead of intentionally creating a second accounting record.
+QBO API posts use deterministic Riverside request ids per staging row. Journal creation and deletion use distinct 44-character identifiers, both within Intuit's 50-character limit. If either call is retried after an ambiguous network failure, the same staging action reuses its request id instead of intentionally creating a duplicate operation.
 
 ## Connection health checks
 
@@ -92,6 +92,8 @@ Before relying on sync:
 - [ ] **Company Info** returns the expected QBO company name (live Intuit validation)
 - [ ] **Token Health** shows `valid` with > 10 minutes remaining, or `refreshable` with a healthy refresh token
 - [ ] After token refresh, **Token Health** updates to `valid` with new expiry
+- [ ] Intuit Webhooks has the public `/api/auth/qbo/webhook` URL and the matching Development/Production verifier token is saved in Settings
+- [ ] A missing, malformed, or bad `intuit-signature` is rejected before the payload enters `qbo_webhook_events`
 
 ## Automation checks
 

@@ -1313,13 +1313,14 @@ pub async fn create_adhoc_rms_payment_followup_tasks(
 
     for sid in staff_ids {
         let period_key = format!("rms_r2s_payment:{transaction_id}:{sid}");
-        let instance_id: Uuid = sqlx::query_scalar(
+        let instance_id: Option<Uuid> = sqlx::query_scalar(
             r#"
             INSERT INTO task_instance (
                 assignment_id, assignee_staff_id, period_key, due_date, status,
-                customer_id, title_snapshot, assigned_by_staff_id
+                customer_id, title_snapshot, assigned_by_staff_id, idempotency_key
             )
-            VALUES (NULL, $1, $2, $3, 'open', $4, $5, $6)
+            VALUES (NULL, $1, $2, $3, 'open', $4, $5, $6, $2)
+            ON CONFLICT (idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING
             RETURNING id
             "#,
         )
@@ -1329,8 +1330,12 @@ pub async fn create_adhoc_rms_payment_followup_tasks(
         .bind(customer_id)
         .bind(title)
         .bind(operator_staff_id)
-        .fetch_one(pool)
+        .fetch_optional(pool)
         .await?;
+
+        let Some(instance_id) = instance_id else {
+            continue;
+        };
 
         sqlx::query(
             r#"
@@ -1346,7 +1351,7 @@ pub async fn create_adhoc_rms_payment_followup_tasks(
         .await?;
     }
 
-    let _ = crate::auth::pins::log_staff_access(
+    let _ = crate::auth::pins::log_staff_access_once(
         pool,
         operator_staff_id,
         "rms_payment_tasks_created",
@@ -1355,6 +1360,7 @@ pub async fn create_adhoc_rms_payment_followup_tasks(
             "customer_id": customer_id,
             "assignee_count": assignee_count,
         }),
+        &format!("rms_payment_tasks_created:{transaction_id}"),
     )
     .await;
 

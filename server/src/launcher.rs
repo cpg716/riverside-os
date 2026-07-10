@@ -16,7 +16,6 @@ use axum::serve;
 use chrono::{NaiveDate, Utc};
 use rust_decimal_macros::dec;
 use sqlx::postgres::PgPoolOptions;
-use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use tokio::net::TcpListener;
@@ -444,6 +443,21 @@ async fn launch_server_inner(
         }
     };
 
+    let cache = crate::cache::CacheService::from_env().ok();
+    let metrics_config = crate::metrics::MetricsConfig {
+        // The legacy synthetic business/host collectors do not represent production truth.
+        // Keep the registry active for real HTTP middleware samples; durable operation-phase
+        // measurements are recorded separately in PostgreSQL.
+        enable_business_metrics: false,
+        enable_technical_metrics: false,
+        ..crate::metrics::MetricsConfig::default()
+    };
+    let metrics_collector =
+        crate::metrics::MetricsCollector::new(metrics_config, pool.clone(), cache.clone());
+    if let Err(error) = metrics_collector.start().await {
+        tracing::error!(%error, "Metrics collector failed to start");
+    }
+
     let state = AppState {
         db: pool,
         global_employee_markup,
@@ -463,8 +477,8 @@ async fn launch_server_inner(
         meilisearch,
         rosie_speech_state: std::sync::Arc::new(tokio::sync::Mutex::new(None)),
         server_log_ring: server_log_ring.clone(),
-        cache: crate::cache::CacheService::from_env().ok(),
-        metrics_collector: None, // Will be initialized later if needed
+        cache,
+        metrics_collector: Some(metrics_collector),
         rate_limit: crate::middleware::rate_limit::rate_limit_middleware(),
         github_token: first_nonempty_env(&[
             "RIVERSIDE_OPS_E2E_GITHUB_TOKEN",
@@ -510,6 +524,9 @@ async fn launch_server_inner(
     });
 
     // Workers
+    // PostgreSQL-backed operational outbox is always available, even when Redis is disabled.
+    crate::logic::operational_outbox::start_worker(state.db.clone());
+
     // Start background job worker if enabled
     if matches!(
         std::env::var("RIVERSIDE_JOB_QUEUE_ENABLED")
@@ -619,6 +636,9 @@ async fn launch_server_inner(
         let reindex_hour = meilisearch_daily_reindex_hour();
         tokio::spawn(async move {
             let mut ticker = tokio::time::interval(std::time::Duration::from_secs(3600));
+            // Tokio intervals tick immediately once. Consume that scheduling tick so a missing
+            // daily marker cannot start a full catalog reindex during server startup.
+            ticker.tick().await;
             loop {
                 ticker.tick().await;
                 crate::api::health::WorkerHealth::mark_heartbeat("meilisearch_reindex").await;
@@ -1192,29 +1212,35 @@ async fn store_local_hh_mm(pool: &sqlx::PgPool) -> Result<String, sqlx::Error> {
 }
 
 async fn perform_weather_backfill(state: &AppState) -> Result<(), anyhow::Error> {
-    let rows: Vec<(Uuid, chrono::DateTime<Utc>)> = sqlx::query_as("SELECT id, opened_at FROM register_sessions WHERE weather_snapshot IS NULL AND opened_at > (CURRENT_TIMESTAMP - INTERVAL '14 days')").fetch_all(&state.db).await?;
-    if rows.is_empty() {
-        return Ok(());
-    }
-    let mut by_date: HashMap<NaiveDate, Vec<Uuid>> = HashMap::new();
-    for (id, opened_at) in rows {
-        by_date.entry(opened_at.date_naive()).or_default().push(id);
-    }
-    for (date, ids) in by_date {
+    let dates: Vec<NaiveDate> = sqlx::query_scalar(
+        r#"
+        SELECT DISTINCT
+            (rs.opened_at AT TIME ZONE reporting.effective_store_timezone())::date
+        FROM register_sessions rs
+        LEFT JOIN store_daily_weather weather
+          ON weather.weather_date =
+             (rs.opened_at AT TIME ZONE reporting.effective_store_timezone())::date
+        WHERE rs.opened_at > CURRENT_TIMESTAMP - INTERVAL '14 days'
+          AND weather.weather_date IS NULL
+        ORDER BY 1
+        "#,
+    )
+    .fetch_all(&state.db)
+    .await?;
+    for date in dates {
         let weather =
             crate::logic::weather::fetch_weather_range(&state.http_client, &state.db, date, date)
                 .await
                 .into_iter()
                 .next();
         if let Some(w) = weather {
-            let json = serde_json::to_value(w)?;
-            for sid in ids {
-                sqlx::query("UPDATE register_sessions SET weather_snapshot = $1 WHERE id = $2")
-                    .bind(&json)
-                    .bind(sid)
-                    .execute(&state.db)
-                    .await?;
-            }
+            crate::logic::weather::persist_store_daily_weather(
+                &state.db,
+                &w,
+                "background_backfill",
+                false,
+            )
+            .await?;
         }
     }
     Ok(())

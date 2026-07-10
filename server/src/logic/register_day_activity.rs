@@ -241,45 +241,58 @@ async fn fetch_register_day_weather(
         SELECT
             days.weather_date,
             COALESCE(
-                register_weather.snapshot->0->>'condition',
-                transaction_weather.snapshot->0->>'condition'
+                daily_weather.snapshot->>'condition',
+                register_weather.snapshot->>'condition',
+                transaction_weather.snapshot->>'condition'
             ) AS condition,
             COALESCE(
-                register_weather.snapshot->0->>'temp_high',
-                transaction_weather.snapshot->0->>'temp_high'
+                daily_weather.snapshot->>'temp_high',
+                register_weather.snapshot->>'temp_high',
+                transaction_weather.snapshot->>'temp_high'
             ) AS temp_high,
             COALESCE(
-                register_weather.snapshot->0->>'temp_low',
-                transaction_weather.snapshot->0->>'temp_low'
+                daily_weather.snapshot->>'temp_low',
+                register_weather.snapshot->>'temp_low',
+                transaction_weather.snapshot->>'temp_low'
             ) AS temp_low,
             COALESCE(
-                register_weather.snapshot->0->>'precipitation_inches',
-                transaction_weather.snapshot->0->>'precipitation_inches'
+                daily_weather.snapshot->>'precipitation_inches',
+                register_weather.snapshot->>'precipitation_inches',
+                transaction_weather.snapshot->>'precipitation_inches'
             ) AS precipitation_inches,
             CASE
+                WHEN daily_weather.snapshot IS NOT NULL THEN daily_weather.source
                 WHEN register_weather.snapshot IS NOT NULL THEN 'Register close'
                 WHEN transaction_weather.snapshot IS NOT NULL THEN 'Checkout'
                 ELSE NULL
             END AS source
         FROM days
+        LEFT JOIN store_daily_weather daily_weather
+            ON daily_weather.weather_date = days.weather_date
         LEFT JOIN LATERAL (
-            SELECT rs.weather_snapshot AS snapshot
+            SELECT CASE
+                WHEN jsonb_typeof(rs.weather_snapshot) = 'array' THEN rs.weather_snapshot->0
+                ELSE rs.weather_snapshot
+            END AS snapshot
             FROM register_sessions rs
             WHERE rs.weather_snapshot IS NOT NULL
-              AND jsonb_typeof(rs.weather_snapshot) = 'array'
+              AND jsonb_typeof(rs.weather_snapshot) IN ('array', 'object')
               AND (rs.closed_at AT TIME ZONE $3)::date = days.weather_date
             ORDER BY rs.closed_at DESC NULLS LAST
             LIMIT 1
-        ) register_weather ON true
+        ) register_weather ON daily_weather.snapshot IS NULL
         LEFT JOIN LATERAL (
-            SELECT t.weather_snapshot AS snapshot
+            SELECT CASE
+                WHEN jsonb_typeof(t.weather_snapshot) = 'array' THEN t.weather_snapshot->0
+                ELSE t.weather_snapshot
+            END AS snapshot
             FROM transactions t
             WHERE t.weather_snapshot IS NOT NULL
-              AND jsonb_typeof(t.weather_snapshot) = 'array'
+              AND jsonb_typeof(t.weather_snapshot) IN ('array', 'object')
               AND COALESCE(t.business_date, (t.booked_at AT TIME ZONE $3)::date) = days.weather_date
             ORDER BY t.booked_at DESC
             LIMIT 1
-        ) transaction_weather ON register_weather.snapshot IS NULL
+        ) transaction_weather ON daily_weather.snapshot IS NULL AND register_weather.snapshot IS NULL
         ORDER BY days.weather_date DESC
         "#,
     )

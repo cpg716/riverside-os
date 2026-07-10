@@ -229,3 +229,26 @@ pub async fn log_staff_access(
     .await?;
     Ok(())
 }
+
+pub async fn log_staff_access_once(
+    pool: &PgPool,
+    staff_id: Uuid,
+    event_kind: &str,
+    metadata: serde_json::Value,
+    idempotency_key: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"
+        INSERT INTO staff_access_log (staff_id, event_kind, metadata, idempotency_key)
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT (idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING
+        "#,
+    )
+    .bind(staff_id)
+    .bind(event_kind)
+    .bind(metadata)
+    .bind(idempotency_key)
+    .execute(pool)
+    .await?;
+    Ok(())
+}

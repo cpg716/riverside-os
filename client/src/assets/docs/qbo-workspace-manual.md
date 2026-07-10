@@ -23,7 +23,7 @@ status: approved
 
 QBO Workspace is the review and staging area for QuickBooks Online journal proposals. It is designed for auditability before anything is synced to the accounting system.
 
-Before posting is enabled, an admin connects QuickBooks from Settings by saving the Intuit Client ID and Client Secret, choosing sandbox or production, clicking **Connect to QuickBooks**, approving the Riverside app in Intuit, refreshing QBO accounts, and mapping accounts.
+Before posting is enabled, an admin connects QuickBooks from Settings by saving the Intuit Client ID, Client Secret, and Webhook Verifier Token, choosing sandbox or production, clicking **Connect to QuickBooks**, approving the Riverside app in Intuit, refreshing QBO accounts, and mapping accounts. Intuit's webhook URL must point to the public Riverside `/api/auth/qbo/webhook` route; Riverside validates `intuit-signature` before storing an event and returns an error when durable storage fails so Intuit can retry delivery.
 
 ## How to use it
 
@@ -49,6 +49,7 @@ ROSIE does not create mappings, approve journals, post journals, retry journals,
 Before syncing, confirm the QBO connection is healthy:
 - **Company Info** validates the live connection against Intuit and shows the QBO company name.
 - **Token Health** shows whether the access token is valid, refreshable, or expired, and how many minutes remain before expiry. The system auto-refreshes tokens in the background when within 10 minutes of expiry.
+- **Webhook Verifier Token** must match the token from the same Intuit app environment. Unsigned or mismatched events are rejected.
 
 Backdated corrections keep two dates clear:
 

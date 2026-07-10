@@ -116,6 +116,7 @@ export function hasStaffOrPosAuthHeaders(h: Record<string, string>): boolean {
 /** Header names (case-insensitive) that must never be persisted (offline queue / IndexedDB). */
 const NON_PERSISTABLE_HEADER_NAMES = new Set([
   "x-riverside-staff-pin",
+  "x-riverside-pos-session-token",
   "authorization",
   "cookie",
 ]);

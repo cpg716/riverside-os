@@ -7,10 +7,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::{Error as SqlxError, PgPool};
 use std::collections::{HashMap, HashSet};
+use std::time::Instant;
 use thiserror::Error;
 use uuid::Uuid;
 
-use crate::auth::pins::log_staff_access;
 use crate::logic::checkout_validate;
 use crate::logic::custom_orders::{
     canonical_custom_order_details, known_custom_item_type_for_sku, known_custom_subtype_for_sku,
@@ -21,13 +21,11 @@ use crate::logic::order_lifecycle;
 use crate::logic::pricing_limits;
 use crate::logic::sales_commission;
 use crate::logic::store_credit;
-use crate::logic::tasks;
 use crate::logic::tax::{erie_local_tax_usd, nys_state_tax_usd, TaxCategory};
 use crate::logic::transaction_fulfillment::persist_fulfillment;
 use crate::logic::transaction_recalc;
 use crate::logic::weather;
-use crate::logic::weddings as wedding_logic;
-use crate::logic::{pos_rms_charge, staff_accounts};
+use crate::logic::{operational_outbox, pos_rms_charge, staff_accounts};
 use crate::models::{
     DbFulfillmentType, DbOrderFulfillmentMethod, DbOrderItemLifecycleStatus, DbOrderStatus,
     DbTransactionCategory,
@@ -1216,14 +1214,7 @@ pub enum CheckoutDone {
     },
 }
 
-#[derive(Debug)]
-struct DeferredWeddingActivity {
-    party_id: Uuid,
-    member_id: Option<Uuid>,
-    actor: String,
-    description: String,
-    metadata: serde_json::Value,
-}
+type DeferredWeddingActivity = operational_outbox::CheckoutWeddingActivity;
 
 async fn staff_id_active(pool: &PgPool, id: Uuid) -> Result<bool, CheckoutError> {
     let ok: bool =
@@ -1927,6 +1918,7 @@ pub async fn execute_checkout(
     global_employee_markup: Decimal,
     mut payload: CheckoutRequest,
 ) -> Result<CheckoutDone, CheckoutError> {
+    let checkout_started = Instant::now();
     let has_wedding_disbursements = payload
         .wedding_disbursements
         .as_ref()
@@ -2785,7 +2777,7 @@ pub async fn execute_checkout(
     }
 
     let tol = Decimal::new(2, 2);
-    if (payload.total_price - sum_expected).abs() > tol {
+    if !checkout_total_matches(payload.total_price, sum_expected) {
         return Err(CheckoutError::InvalidPayload(
             "total_price does not match server-calculated sum of cart lines and shipping (party disbursements are paid separately and are not included in total_price)"
                 .to_string(),
@@ -3165,13 +3157,6 @@ pub async fn execute_checkout(
         (DbOrderFulfillmentMethod::Pickup, None, None, None)
     };
 
-    let today = chrono::Utc::now().date_naive();
-    let weather_json = weather::fetch_weather_range(http, pool, today, today)
-        .await
-        .into_iter()
-        .next()
-        .and_then(|w| serde_json::to_value(w).ok());
-
     let ship_to_snapshot_for_registry = order_ship_to
         .as_ref()
         .map(|j| j.0.clone())
@@ -3238,7 +3223,7 @@ pub async fn execute_checkout(
         .bind(if payload.is_processing { payload.total_price } else { balance_due })
         .bind(checkout_booked_at_local.as_deref())
         .bind(checkout_business_date)
-        .bind(weather_json)
+        .bind(Option::<serde_json::Value>::None)
         .bind(payload.checkout_client_id)
         .bind(order_fulfillment_method)
         .bind(order_ship_to)
@@ -4090,6 +4075,7 @@ pub async fn execute_checkout(
 
     if payload.is_processing {
         tx.commit().await?;
+        weather::schedule_transaction_weather_snapshot(http.clone(), pool.clone(), transaction_id);
         return Ok(CheckoutDone::Completed {
             transaction_id,
             display_id: transaction_display_id,
@@ -4797,183 +4783,55 @@ pub async fn execute_checkout(
     let total_price = payload.total_price;
     let session_id_for_log = payload.session_id;
 
-    tx.commit().await?;
-
-    // Broadcast system alerts for negative stock
-    for alert_msg in negative_stock_alerts {
-        if let Err(e) = crate::logic::notifications::broadcast_system_alert(pool, &alert_msg).await
-        {
-            tracing::error!(error = %e, "Failed to broadcast system alert for negative stock");
-        }
-    }
-
-    for alert_msg in checkout_recovery_alerts {
-        if let Err(e) = crate::logic::notifications::broadcast_system_alert(pool, &alert_msg).await
-        {
-            tracing::error!(error = %e, "Failed to broadcast system alert for checkout recovery");
-        }
-    }
-
-    // Post-commit: commission events are non-critical back-office concerns.
-    // If this fails, the sale is already committed; log and warn only.
-    if let Err(e) = crate::logic::commission_events::upsert_fulfilled_transaction_events_pool(
-        pool,
-        transaction_id,
-        &[],
-    )
-    .await
-    {
-        tracing::error!(
-            error = %e,
-            transaction_id = %transaction_id,
-            "Commission event upsert failed after checkout commit"
-        );
-        let alert_msg = format!(
-            "Checkout Support Follow-up Required: commission calculation delayed for {transaction_display_id}; sale completed"
-        );
-        if let Err(alert_err) =
-            crate::logic::notifications::broadcast_system_alert(pool, &alert_msg).await
-        {
-            tracing::error!(
-                error = %alert_err,
-                transaction_id = %transaction_id,
-                "Failed to broadcast commission recovery alert"
-            );
-        }
-        checkout_warnings.push("Commission calculation delayed — sale completed.".to_string());
-    }
-
-    // Post-commit: wedding activity log is audit fluff; must never block a sale.
-    for activity in &deferred_wedding_activities {
-        if let Err(e) = wedding_logic::insert_wedding_activity(
-            pool,
-            activity.party_id,
-            activity.member_id,
-            &activity.actor,
-            "PAYMENT",
-            &activity.description,
-            activity.metadata.clone(),
-        )
-        .await
-        {
-            tracing::error!(
-                error = %e,
-                transaction_id = %transaction_id,
-                party_id = %activity.party_id,
-                "Wedding activity log failed after checkout commit"
-            );
-            let alert_msg = format!(
-                "Checkout Support Follow-up Required: wedding timeline update delayed for {transaction_display_id}; sale completed"
-            );
-            if let Err(alert_err) =
-                crate::logic::notifications::broadcast_system_alert(pool, &alert_msg).await
-            {
-                tracing::error!(
-                    error = %alert_err,
-                    transaction_id = %transaction_id,
-                    "Failed to broadcast wedding timeline recovery alert"
-                );
-            }
-            checkout_warnings.push("Wedding timeline update delayed — sale completed.".to_string());
-        }
-    }
-
-    if !rms_notifications.is_empty() {
-        if let Err(e) = pos_rms_charge::notify_sales_support_after_checkout(
-            pool,
+    operational_outbox::enqueue_checkout_post_commit(
+        &mut tx,
+        &operational_outbox::CheckoutPostCommitPayload {
             transaction_id,
-            session_id_for_log,
+            transaction_display_id: transaction_display_id.clone(),
+            operator_staff_id,
             customer_id,
-            customer_display_rms.as_deref(),
-            &order_short_ref,
-            operator_staff_id,
-            &rms_notifications,
-        )
-        .await
-        {
-            tracing::error!(
-                error = %e,
-                transaction_id = %transaction_id,
-                "RMS sales_support notification fan-out failed after checkout"
-            );
-            let alert_msg = format!(
-                "Checkout Support Follow-up Required: RMS sales-support notification failed for {transaction_display_id}; sale completed"
-            );
-            if let Err(alert_err) =
-                crate::logic::notifications::broadcast_system_alert(pool, &alert_msg).await
-            {
-                tracing::error!(
-                    error = %alert_err,
-                    transaction_id = %transaction_id,
-                    "Failed to broadcast RMS notification recovery alert"
-                );
-            }
-            checkout_warnings
-                .push("RMS sales-support notification delayed — sale completed.".to_string());
-        }
-    }
-
-    if is_rms_payment_collection && amount_paid > Decimal::ZERO {
-        if let Some(cid) = customer_id {
-            if let Err(e) = tasks::create_adhoc_rms_payment_followup_tasks(
-                pool,
-                transaction_id,
-                cid,
-                customer_display_rms.as_deref(),
-                &order_short_ref,
-                amount_paid,
-                payment_activity_label.as_str(),
-                operator_staff_id,
-            )
-            .await
-            {
-                tracing::error!(
-                    error = %e,
-                    transaction_id = %transaction_id,
-                    "RMS payment ad-hoc task creation failed"
-                );
-                let alert_msg = format!(
-                    "Checkout Support Follow-up Required: RMS payment follow-up task failed for {transaction_display_id}; sale completed"
-                );
-                if let Err(alert_err) =
-                    crate::logic::notifications::broadcast_system_alert(pool, &alert_msg).await
-                {
-                    tracing::error!(
-                        error = %alert_err,
-                        transaction_id = %transaction_id,
-                        "Failed to broadcast RMS task recovery alert"
-                    );
-                }
-                checkout_warnings
-                    .push("RMS payment follow-up task delayed — sale completed.".to_string());
-            }
-        }
-    }
-
-    let _ = log_staff_access(
-        pool,
-        operator_staff_id,
-        "sale_checkout",
-        json!({
-            "transaction_id": transaction_id,
-            "register_session_id": session_id_for_log,
-        }),
+            customer_display_rms,
+            order_short_ref,
+            register_session_id: session_id_for_log,
+            amount_paid,
+            total_price,
+            price_override_audit: price_override_audit.clone(),
+            payment_activity_label,
+            is_rms_payment_collection,
+            has_rms_charge,
+            transaction_financing_metadata,
+            negative_stock_alerts,
+            checkout_recovery_alerts,
+            wedding_activities: deferred_wedding_activities,
+            rms_notifications,
+        },
     )
-    .await;
+    .await?;
 
-    if has_rms_charge && transaction_financing_metadata != json!({}) {
-        let _ = log_staff_access(
-            pool,
-            operator_staff_id,
-            "rms_charge_program_selected",
-            json!({
-                "transaction_id": transaction_id,
-                "register_session_id": session_id_for_log,
-                "metadata": transaction_financing_metadata,
-            }),
-        )
-        .await;
-    }
+    let commit_started = Instant::now();
+    tx.commit().await?;
+    crate::logic::operation_metrics::record_phase(
+        pool.clone(),
+        "checkout",
+        "database_commit",
+        commit_started.elapsed(),
+        true,
+        Some(transaction_id),
+        Some(session_id_for_log),
+        json!({}),
+    );
+    crate::logic::operation_metrics::record_phase(
+        pool.clone(),
+        "checkout",
+        "total",
+        checkout_started.elapsed(),
+        true,
+        Some(transaction_id),
+        Some(session_id_for_log),
+        json!({}),
+    );
+
+    weather::schedule_transaction_weather_snapshot(http.clone(), pool.clone(), transaction_id);
 
     Ok(CheckoutDone::Completed {
         transaction_id,
@@ -4986,6 +4844,11 @@ pub async fn execute_checkout(
         total_price,
         warnings: checkout_warnings,
     })
+}
+
+#[inline]
+fn checkout_total_matches(client_total: Decimal, server_total: Decimal) -> bool {
+    client_total.round_dp(2) == server_total.round_dp(2)
 }
 
 #[derive(Debug, Serialize)]
@@ -5216,9 +5079,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::{
-        build_payment_allocation_plan, evaluate_combo_incentives, execute_checkout,
-        fetch_variant_pos_line_kind, helcim_attempt_comparison_cents, parse_combo_reward_amount,
-        resolve_payment_splits, validate_checkout_alteration_intakes,
+        build_payment_allocation_plan, checkout_total_matches, evaluate_combo_incentives,
+        execute_checkout, fetch_variant_pos_line_kind, helcim_attempt_comparison_cents,
+        parse_combo_reward_amount, resolve_payment_splits, validate_checkout_alteration_intakes,
         validate_checkout_item_quantity, validate_order_payment_against_target,
         validate_order_payment_shape, CheckoutAlterationIntake, CheckoutDone, CheckoutItem,
         CheckoutOrderPayment, CheckoutPaymentSplit, CheckoutRequest, ExistingOrderPaymentTarget,
@@ -5228,6 +5091,7 @@ mod tests {
     use crate::logic::qbo_journal;
     use crate::models::{DbFulfillmentType, DbOrderStatus};
     use rust_decimal::Decimal;
+    use rust_decimal_macros::dec;
     use serde_json::json;
     use sqlx::{Connection, PgPool};
     use std::sync::Arc;
@@ -5342,6 +5206,13 @@ mod tests {
         item.quantity = -1;
 
         validate_checkout_item_quantity(&item).unwrap();
+    }
+
+    #[test]
+    fn checkout_total_requires_exact_cent_parity() {
+        assert!(checkout_total_matches(dec!(108.75), dec!(108.75)));
+        assert!(!checkout_total_matches(dec!(108.74), dec!(108.75)));
+        assert!(!checkout_total_matches(dec!(108.76), dec!(108.75)));
     }
 
     #[test]
@@ -7266,14 +7137,15 @@ mod tests {
             sqlx::query(
                 r#"
                 INSERT INTO customers (
-                    id, first_name, last_name, email, customer_created_source,
+                    id, customer_code, first_name, last_name, email, customer_created_source,
                     marketing_email_opt_in, marketing_sms_opt_in,
                     transactional_sms_opt_in, transactional_email_opt_in
                 )
-                VALUES ($1, $2, $3, $4, 'store', FALSE, FALSE, TRUE, TRUE)
+                VALUES ($1, $2, $3, $4, $5, 'store', FALSE, FALSE, TRUE, TRUE)
                 "#,
             )
             .bind(id)
+            .bind(format!("TST-{}", id.simple()))
             .bind(first)
             .bind(format!("{} {}", last, id.simple()))
             .bind(format!("{}@example.test", id.simple()))
@@ -7501,7 +7373,7 @@ mod tests {
             .iter()
             .find(|line| line.memo == "New deposits received (liability increase)")
             .expect("new deposit liability line");
-        assert_eq!(deposit_line.credit, Decimal::new(20000, 2));
+        assert!(deposit_line.credit >= Decimal::new(20000, 2));
         let detail = &deposit_line.detail[0];
         let open_deposit_party_split_amount: Decimal = serde_json::from_value(
             detail
@@ -7510,14 +7382,36 @@ mod tests {
                 .clone(),
         )
         .expect("parse open deposit party split amount");
-        assert_eq!(open_deposit_party_split_amount, Decimal::new(20000, 2));
+        assert!(open_deposit_party_split_amount >= Decimal::new(20000, 2));
+        let group_pay_transaction_id_text = group_pay_transaction_id.to_string();
+        let matching_sources = detail
+            .get("open_deposit_sources")
+            .and_then(|v| v.as_array())
+            .expect("open deposit source rows")
+            .iter()
+            .filter(|source| {
+                source.get("source_transaction_id").and_then(|v| v.as_str())
+                    == Some(group_pay_transaction_id_text.as_str())
+            })
+            .collect::<Vec<_>>();
         assert_eq!(
-            detail
-                .get("open_deposit_sources")
-                .and_then(|v| v.as_array())
-                .map(Vec::len),
-            Some(3)
+            matching_sources.len(),
+            3,
+            "the group-pay transaction should preserve all three tender source rows"
         );
+        let matching_source_total = matching_sources
+            .iter()
+            .map(|source| {
+                serde_json::from_value::<Decimal>(
+                    source
+                        .get("amount")
+                        .expect("open deposit source amount")
+                        .clone(),
+                )
+                .expect("parse open deposit source amount")
+            })
+            .sum::<Decimal>();
+        assert_eq!(matching_source_total, Decimal::new(20000, 2));
 
         let redemption_payload = CheckoutRequest {
             session_id,
@@ -7534,7 +7428,7 @@ mod tests {
                 alteration_intake_id: None,
                 product_id,
                 variant_id,
-                fulfillment: DbFulfillmentType::Takeaway,
+                fulfillment: DbFulfillmentType::WeddingOrder,
                 quantity: 1,
                 unit_price: Decimal::new(7500, 2),
                 original_unit_price: None,

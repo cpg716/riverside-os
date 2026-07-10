@@ -1,6 +1,7 @@
 //! First-party store email via IMAP/SMTP (IONOS-compatible).
 
 use chrono::{DateTime, Utc};
+use futures_util::TryStreamExt;
 use lettre::message::{header::ContentType, Attachment, Mailbox, MultiPart, SinglePart};
 use lettre::transport::smtp::authentication::Credentials;
 use lettre::{Message, SmtpTransport, Transport};
@@ -878,11 +879,12 @@ pub async fn sync_inbox(pool: &PgPool) -> Result<MailboxSyncResult, EmailError> 
     let creds = load_email_credentials(pool)
         .await
         .ok_or(EmailError::NotConfigured)?;
-    let cfg_for_sync = cfg.clone();
-    let raw_messages =
-        tokio::task::spawn_blocking(move || fetch_imap_messages(cfg_for_sync, creds))
-            .await
-            .map_err(|e| EmailError::Imap(e.to_string()))??;
+    let raw_messages = tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        fetch_imap_messages(cfg, creds),
+    )
+    .await
+    .map_err(|_| EmailError::Imap("IMAP sync timed out after 30 seconds".to_string()))??;
 
     let mut inserted = 0usize;
     let mut matched = 0usize;
@@ -1040,34 +1042,44 @@ struct InsertInboundOutcome {
     matched_customer: bool,
 }
 
-fn fetch_imap_messages(
+async fn fetch_imap_messages(
     cfg: StoreEmailConfig,
     creds: EmailCredentials,
 ) -> Result<Vec<RawInboundMessage>, EmailError> {
+    let tcp = tokio::net::TcpStream::connect((cfg.imap_host.as_str(), cfg.imap_port))
+        .await
+        .map_err(|e| EmailError::Imap(e.to_string()))?;
     let tls = TlsConnector::builder()
         .build()
         .map_err(|e| EmailError::Imap(e.to_string()))?;
-    let client = imap::connect(
-        (cfg.imap_host.as_str(), cfg.imap_port),
-        cfg.imap_host.as_str(),
-        &tls,
-    )
-    .map_err(|e| EmailError::Imap(e.to_string()))?;
+    let tls = tokio_native_tls::TlsConnector::from(tls)
+        .connect(cfg.imap_host.as_str(), tcp)
+        .await
+        .map_err(|e| EmailError::Imap(e.to_string()))?;
+    let mut client = async_imap::Client::new(tls);
+    client
+        .read_response()
+        .await
+        .map_err(|e| EmailError::Imap(e.to_string()))?
+        .ok_or_else(|| EmailError::Imap("IMAP server closed before greeting".to_string()))?;
     let mut session = client
         .login(creds.imap_username, creds.imap_password)
+        .await
         .map_err(|e| EmailError::Imap(e.0.to_string()))?;
     session
         .select(cfg.imap_folder.as_str())
+        .await
         .map_err(|e| EmailError::Imap(e.to_string()))?;
     let mailbox = session
         .uid_search("ALL")
+        .await
         .map_err(|e| EmailError::Imap(e.to_string()))?;
     let mut uids: Vec<u32> = mailbox.into_iter().collect();
     uids.sort_unstable();
     uids.reverse();
     uids.truncate(cfg.sync_limit.clamp(1, 250) as usize);
     if uids.is_empty() {
-        let _ = session.logout();
+        let _ = session.logout().await;
         return Ok(Vec::new());
     }
     let sequence = uids
@@ -1075,11 +1087,15 @@ fn fetch_imap_messages(
         .map(u32::to_string)
         .collect::<Vec<_>>()
         .join(",");
-    let messages = session
+    let messages: Vec<_> = session
         .uid_fetch(sequence, "RFC822")
+        .await
+        .map_err(|e| EmailError::Imap(e.to_string()))?
+        .try_collect()
+        .await
         .map_err(|e| EmailError::Imap(e.to_string()))?;
     let mut out = Vec::new();
-    for message in messages.iter() {
+    for message in &messages {
         if let (Some(uid), Some(body)) = (message.uid, message.body()) {
             out.push(RawInboundMessage {
                 provider_uid: format!("imap:{uid}"),
@@ -1087,7 +1103,7 @@ fn fetch_imap_messages(
             });
         }
     }
-    let _ = session.logout();
+    let _ = session.logout().await;
     Ok(out)
 }
 

@@ -44,6 +44,7 @@ pub mod products;
 pub mod public_api;
 pub mod purchase_orders;
 pub mod qbo;
+pub mod recovery;
 pub mod reviews;
 pub mod search;
 pub mod sessions;
@@ -256,6 +257,7 @@ pub fn build_router(app_state: AppState) -> Router<AppState> {
         .nest("/api/staff", staff::router())
         .nest("/api/tasks", tasks::router())
         .nest("/api/payments", payments::router())
+        .nest("/api/recovery", recovery::router())
         .nest("/api/pos", pos::router())
         .nest("/api/customers", customers::router())
         .nest("/api/gift-cards", gift_cards::router())
@@ -320,8 +322,13 @@ pub fn build_router(app_state: AppState) -> Router<AppState> {
     router = router.route("/api/{*path}", any(api_not_found));
 
     // Add rate limiting middleware (IP-based only for now)
-    router.layer(axum::middleware::from_fn_with_state(
-        app_state.rate_limit,
-        crate::middleware::rate_limit::rate_limit_handler,
-    ))
+    router
+        .layer(axum::middleware::from_fn_with_state(
+            app_state.clone(),
+            crate::metrics::collector::metrics_middleware,
+        ))
+        .layer(axum::middleware::from_fn_with_state(
+            app_state.rate_limit,
+            crate::middleware::rate_limit::rate_limit_handler,
+        ))
 }

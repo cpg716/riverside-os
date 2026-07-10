@@ -49,7 +49,7 @@ const OPEN_ORDER = {
 };
 
 async function openPosRegisterSurface(page: Page): Promise<void> {
-  await signInToBackOffice(page, { staffName: "Avery Staff" });
+  await signInToBackOffice(page, { staffName: "Chris G" });
 
   const posNav = page.getByRole("navigation", { name: "POS Navigation" });
   if (!(await posNav.isVisible().catch(() => false))) {
@@ -114,45 +114,6 @@ async function mockProductLookup(page: Page): Promise<void> {
   });
 }
 
-async function mockPosCashierAuth(page: Page): Promise<void> {
-  await page.route("**/api/staff/list-for-pos**", async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify([
-        {
-          id: "55555555-5555-4555-8555-555555555555",
-          full_name: "Avery Staff",
-          role: "salesperson",
-        },
-      ]),
-    });
-  });
-  await page.route("**/api/staff/effective-permissions", async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({
-        id: "55555555-5555-4555-8555-555555555555",
-        staff_id: "55555555-5555-4555-8555-555555555555",
-        full_name: "Avery Staff",
-        role: "salesperson",
-        permissions: ["register.session_attach", "orders.modify", "alterations.manage"],
-      }),
-    });
-  });
-  await page.route("**/api/staff/verify-pin**", async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({
-        staff_id: "55555555-5555-4555-8555-555555555555",
-        full_name: "Avery Staff",
-      }),
-    });
-  });
-}
-
 async function selectCustomer(page: Page): Promise<void> {
   await page.getByTestId("pos-customer-search").fill("Avery");
   await page.getByRole("button", { name: /Avery Alter/i }).click();
@@ -161,7 +122,7 @@ async function selectCustomer(page: Page): Promise<void> {
 
 async function selectDefaultSalesperson(page: Page): Promise<void> {
   await page.locator("button").filter({ hasText: /Default \(None\)|Select Salesperson/i }).first().click();
-  await page.getByRole("button", { name: /Avery Staff/i }).last().click();
+  await page.getByRole("button", { name: /Staff Admin/i }).last().click();
 }
 
 async function addProductToCart(page: Page): Promise<void> {
@@ -191,7 +152,6 @@ test.describe("POS alteration intake", () => {
 
   test.beforeEach(async ({ page }) => {
     test.setTimeout(90_000);
-    await mockPosCashierAuth(page);
     await mockCustomerSearch(page);
     await mockProductLookup(page);
     await openPosRegisterSurface(page);

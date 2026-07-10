@@ -131,6 +131,10 @@ type TransactionDetailResponse = {
 
 type ReconciliationResponse = {
   expected_cash: string;
+  unresolved_helcim_attempts: Array<{
+    id: string;
+    review_reason: string;
+  }>;
 };
 
 type RegisterSessionHistoryRow = {
@@ -269,31 +273,6 @@ async function closeRegisterGroup(
   expect(res.status()).toBe(200);
 }
 
-async function expectCloseBlockedForHelcimReview(
-  request: Parameters<typeof test>[0]["request"],
-  sessionId: string,
-  sessionToken: string,
-): Promise<void> {
-  const recon = await fetchReconciliation(request, sessionId, sessionToken);
-  const res = await request.post(`${apiBase()}/api/sessions/${sessionId}/close`, {
-    headers: {
-      "Content-Type": "application/json",
-      "x-riverside-pos-session-id": sessionId,
-      "x-riverside-pos-session-token": sessionToken,
-      "x-riverside-station-key": "station-e2e",
-    },
-    data: {
-      actual_cash: recon.expected_cash,
-      closing_notes: null,
-      closing_comments: null,
-    },
-    failOnStatusCode: false,
-  });
-  const bodyText = await res.text();
-  expect(res.status(), bodyText.slice(0, 1000)).toBe(400);
-  expect(bodyText).toMatch(/Helcim payment review required before Z-close/i);
-}
-
 async function startHelcimPurchaseOrSkip(
   request: Parameters<typeof test>[0]["request"],
   sessionId: string,
@@ -347,6 +326,21 @@ async function simulateHelcimAttempt(
   const bodyText = await res.text();
   expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
   return JSON.parse(bodyText) as HelcimAttemptResponse;
+}
+
+async function releaseHelcimAttemptAsStaff(
+  request: Parameters<typeof test>[0]["request"],
+  attemptId: string,
+): Promise<void> {
+  const res = await request.post(
+    `${apiBase()}/api/payments/providers/helcim/attempts/${attemptId}/release`,
+    {
+      headers: adminHeaders(),
+      failOnStatusCode: false,
+    },
+  );
+  const bodyText = await res.text();
+  expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
 }
 
 async function postCheckoutWithApprovedHelcimAttempt(
@@ -732,7 +726,7 @@ test.describe("Register close / reconciliation", () => {
     expect(withNotes.status()).toBe(200);
   });
 
-  test("pending Helcim terminal attempt blocks Z-close", async ({ request }) => {
+  test("pending Helcim terminal attempt does not block Z-close", async ({ request }) => {
     await closeAnyExistingOpenGroup(request);
 
     const opened = await openFreshPrimarySession(request);
@@ -743,30 +737,16 @@ test.describe("Register close / reconciliation", () => {
       10875,
     );
 
-    await expectCloseBlockedForHelcimReview(
-      request,
-      opened.session_id,
-      opened.pos_api_token ?? "",
-    );
-
-    await simulateHelcimAttempt(
-      request,
-      opened.session_id,
-      opened.pos_api_token ?? "",
-      attempt.id,
-      "cancel",
-    );
     await closeRegisterGroup(request, opened.session_id, opened.pos_api_token ?? "");
+    await releaseHelcimAttemptAsStaff(request, attempt.id);
   });
 
-  test("approved Helcim attempt without ROS payment blocks Z-close", async ({
+  test("approved Helcim attempt without ROS payment is reported without blocking Z-close", async ({
     request,
   }) => {
     await closeAnyExistingOpenGroup(request);
 
-    const operatorStaffId = await verifyAdminStaffId(request);
     const opened = await openFreshPrimarySession(request);
-    const product = await createDeterministicProduct(request, operatorStaffId);
     const pendingAttempt = await startHelcimPurchaseOrSkip(
       request,
       opened.session_id,
@@ -782,19 +762,16 @@ test.describe("Register close / reconciliation", () => {
     );
     expect(approvedAttempt.status).toBe("approved");
 
-    await expectCloseBlockedForHelcimReview(
+    const recon = await fetchReconciliation(
       request,
       opened.session_id,
       opened.pos_api_token ?? "",
     );
-
-    await checkoutWithApprovedHelcimAttempt(
-      request,
-      opened.session_id,
-      opened.pos_api_token ?? "",
-      operatorStaffId,
-      product,
-      approvedAttempt,
+    expect(recon.unresolved_helcim_attempts).toContainEqual(
+      expect.objectContaining({
+        id: approvedAttempt.id,
+        review_reason: "approved_not_recorded",
+      }),
     );
     await closeRegisterGroup(request, opened.session_id, opened.pos_api_token ?? "");
   });

@@ -88,7 +88,8 @@ When the drawer is active, you often land on **Dashboard**. Here you can see shi
 - Confirm the correct staff identity before you start the sale.
 - Open the correct register lane before serving customers.
 - Do not guess between takeaway, order, and wedding handling if the drawer is asking for a fulfillment decision.
-- Treat receipt printer failures as delivery issues only after the sale already succeeded.
+- Treat receipt printer failures as delivery issues only after the sale already succeeded. Receipt auto-print runs once for the newly completed sale; opening an older receipt from Reports, Orders, Customer history, or Staff Profile never auto-prints it.
+- Pending checkout recovery and failed receipt-print jobs are copied to the Main Hub when a connection is available. Another linked register in the same open till shift can restore those unresolved jobs for review. Never dismiss one until the Transaction Record or replacement receipt has been confirmed.
 
 ---
 

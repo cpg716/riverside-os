@@ -11,7 +11,7 @@ use axum::{
     Json, Router,
 };
 use futures_core::stream::Stream;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::convert::Infallible;
 use std::time::Duration;
@@ -1107,6 +1107,103 @@ async fn get_connectivity_logs(
     Ok(Json(logs))
 }
 
+#[derive(Debug, Serialize, sqlx::FromRow)]
+struct PhaseMetricSummary {
+    operation: String,
+    phase: String,
+    sample_count: i64,
+    failure_count: i64,
+    p50_ms: f64,
+    p95_ms: f64,
+    max_ms: f64,
+}
+
+async fn get_operational_metrics(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, Response> {
+    let _ = require_view(&state, &headers).await?;
+    let phases: Vec<PhaseMetricSummary> = sqlx::query_as(
+        r#"
+        SELECT operation,
+               phase,
+               COUNT(*)::bigint AS sample_count,
+               COUNT(*) FILTER (WHERE success IS FALSE)::bigint AS failure_count,
+               percentile_cont(0.50) WITHIN GROUP (ORDER BY duration_ms)::float8 AS p50_ms,
+               percentile_cont(0.95) WITHIN GROUP (ORDER BY duration_ms)::float8 AS p95_ms,
+               MAX(duration_ms)::float8 AS max_ms
+        FROM operational_phase_metric
+        WHERE recorded_at >= now() - interval '24 hours'
+        GROUP BY operation, phase
+        ORDER BY operation, phase
+        "#,
+    )
+    .fetch_all(&state.db)
+    .await
+    .map_err(|error| {
+        tracing::error!(%error, "ops phase metric summary failed");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": "could not load operational metrics" })),
+        )
+            .into_response()
+    })?;
+
+    let outbox: Value = sqlx::query_scalar(
+        r#"
+        SELECT COALESCE(jsonb_object_agg(status, count), '{}'::jsonb)
+        FROM (
+            SELECT status, COUNT(*)::bigint AS count
+            FROM operational_outbox
+            GROUP BY status
+        ) counts
+        "#,
+    )
+    .fetch_one(&state.db)
+    .await
+    .map_err(|error| {
+        tracing::error!(%error, "ops outbox metric summary failed");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": "could not load operational metrics" })),
+        )
+            .into_response()
+    })?;
+    let recovery: Value = sqlx::query_scalar(
+        r#"
+        SELECT COALESCE(jsonb_object_agg(kind, count), '{}'::jsonb)
+        FROM (
+            SELECT kind, COUNT(*)::bigint AS count
+            FROM operational_recovery_job
+            WHERE status IN ('pending', 'blocked')
+            GROUP BY kind
+        ) counts
+        "#,
+    )
+    .fetch_one(&state.db)
+    .await
+    .map_err(|error| {
+        tracing::error!(%error, "ops recovery metric summary failed");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": "could not load operational metrics" })),
+        )
+            .into_response()
+    })?;
+    let in_memory = match &state.metrics_collector {
+        Some(collector) => collector.get_metrics_snapshot().await,
+        None => json!({}),
+    };
+
+    Ok(Json(json!({
+        "window": "24h",
+        "phases": phases,
+        "outbox": outbox,
+        "recovery": recovery,
+        "api": in_memory,
+    })))
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/health/snapshot", get(get_health_snapshot))
@@ -1139,5 +1236,6 @@ pub fn router() -> Router<AppState> {
         .route("/bugs/link-alert", post(post_bug_alert_link))
         .route("/logs/stream", get(stream_logs))
         .route("/connectivity-logs", get(get_connectivity_logs))
+        .route("/metrics", get(get_operational_metrics))
         .route("/update-check", get(get_update_check))
 }
