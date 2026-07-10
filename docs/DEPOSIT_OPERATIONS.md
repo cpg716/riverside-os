@@ -113,9 +113,13 @@ When a group pay disbursement targets a wedding member who has no open order row
 
 - Stored in: `customer_open_deposit_accounts` / `customer_open_deposit_ledger` (migration **83**).
 - **Not** the same as store credit — open deposits are earmarked for a specific future purchase.
-- When the member later comes in and their transaction is created, the cashier is **prompted automatically** at checkout: *"A party member paid a deposit held on this account ($X available). Apply it to this sale?"*
-- If accepted, the open deposit is applied as an `open_deposit` tender line, reducing the amount the member owes.
+- When staff select that customer in the Register, Riverside immediately shows a **Wedding deposit available** notice with the held balance and the most recent payer name when available.
+- The **Pay** screen keeps the held balance visible and provides **Apply $X**. The amount is capped to the selected member's eligible deferred sale balance.
+- The held deposit cannot pay takeaway merchandise, another party disbursement, or an existing-order allocation staged in the same checkout. Those amounts require their normal tender paths.
+- Applying the balance creates an `open_deposit` payment line and an atomic negative `checkout_redemption` ledger entry tied to the new Transaction Record. A failed checkout rolls both back, and the locked account balance prevents reuse or overspending.
+- If that Transaction Record is cancelled without forfeiture or voided, Riverside atomically restores the held amount to the member's open-deposit account, records a restoration ledger entry, and excludes it from any cash-refund queue.
 - The server treats `deposit_ledger` and `open_deposit` payment methods as non-real-tender (excluded from `tender_sum_excluding_deposit_like` in checkout validation).
+- QBO keeps the redeemed amount in **Deposit liability** while the sale is unfulfilled. On fulfillment, the held amount is included in the deposit release that debits the liability and credits recognized revenue.
 
 ---
 

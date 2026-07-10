@@ -6419,6 +6419,37 @@ struct PaymentTimelineRow {
 }
 
 #[derive(Debug, FromRow)]
+struct OpenDepositTimelineRow {
+    id: Uuid,
+    created_at: DateTime<Utc>,
+    amount: Decimal,
+    reason: String,
+    payer_display_name: Option<String>,
+    wedding_party_id: Option<Uuid>,
+}
+
+fn open_deposit_timeline_summary(
+    amount: Decimal,
+    reason: &str,
+    payer_display_name: Option<&str>,
+) -> String {
+    let amount_label = format!("${:.2}", amount.abs());
+    match reason {
+        "party_split_deposit" => payer_display_name
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .map(|name| format!("Wedding deposit received: {amount_label} from {name}"))
+            .unwrap_or_else(|| format!("Wedding deposit received: {amount_label}")),
+        "checkout_redemption" => format!("Wedding deposit applied: {amount_label}"),
+        "transaction_void_reversal" | "transaction_cancel_reversal" => {
+            format!("Wedding deposit restored: {amount_label}")
+        }
+        _ if amount >= Decimal::ZERO => format!("Deposit credit recorded: {amount_label}"),
+        _ => format!("Deposit applied: {amount_label}"),
+    }
+}
+
+#[derive(Debug, FromRow)]
 struct WeddingLogTimelineRow {
     created_at: DateTime<Utc>,
     description: String,
@@ -6485,7 +6516,7 @@ struct VoidTimelineRow {
     manager_name: Option<String>,
 }
 
-async fn build_customer_timeline(
+pub(crate) async fn build_customer_timeline(
     pool: &sqlx::PgPool,
     customer_id: Uuid,
 ) -> Result<Vec<CustomerTimelineEvent>, sqlx::Error> {
@@ -6550,7 +6581,11 @@ async fn build_customer_timeline(
 
             UNION
 
-            SELECT p.id, p.created_at, p.payment_method, p.amount
+            SELECT
+                p.id,
+                p.created_at,
+                p.payment_method,
+                CASE WHEN p.payer_id = $1 THEN p.amount ELSE pa.amount_allocated END AS amount
             FROM transactions target
             INNER JOIN payment_allocations pa ON pa.target_transaction_id = target.id
             INNER JOIN payment_transactions p ON p.id = pa.transaction_id
@@ -6578,7 +6613,7 @@ async fn build_customer_timeline(
 
             UNION
 
-            SELECT p.id, p.created_at, p.payment_method, p.amount
+            SELECT p.id, p.created_at, p.payment_method, pa.amount_allocated AS amount
             FROM customer_relationship_periods crp
             INNER JOIN transactions target ON target.customer_id = crp.child_customer_id
             INNER JOIN payment_allocations pa ON pa.target_transaction_id = target.id
@@ -6590,7 +6625,7 @@ async fn build_customer_timeline(
 
             UNION
 
-            SELECT p.id, p.created_at, p.payment_method, p.amount
+            SELECT p.id, p.created_at, p.payment_method, pa.amount_allocated AS amount
             FROM customer_relationship_periods crp
             INNER JOIN transactions target ON target.customer_id = crp.parent_customer_id
             INNER JOIN payment_allocations pa ON pa.target_transaction_id = target.id
@@ -6604,6 +6639,26 @@ async fn build_customer_timeline(
         FROM candidate_payments
         ORDER BY created_at DESC
         LIMIT 28
+        "#,
+    )
+    .bind(customer_id)
+    .fetch_all(pool)
+    .await?;
+
+    let open_deposits = sqlx::query_as::<_, OpenDepositTimelineRow>(
+        r#"
+        SELECT
+            l.id,
+            l.created_at,
+            l.amount,
+            l.reason,
+            l.payer_display_name,
+            l.wedding_party_id
+        FROM customer_open_deposit_ledger l
+        INNER JOIN customer_open_deposit_accounts a ON a.id = l.account_id
+        WHERE a.customer_id = $1
+        ORDER BY l.created_at DESC
+        LIMIT 40
         "#,
     )
     .bind(customer_id)
@@ -6906,6 +6961,21 @@ async fn build_customer_timeline(
             reference_id: Some(p.id),
             reference_type: Some("payment".to_string()),
             wedding_party_id: None,
+        });
+    }
+
+    for deposit in open_deposits {
+        events.push(CustomerTimelineEvent {
+            at: deposit.created_at,
+            kind: "payment".to_string(),
+            summary: open_deposit_timeline_summary(
+                deposit.amount,
+                &deposit.reason,
+                deposit.payer_display_name.as_deref(),
+            ),
+            reference_id: Some(deposit.id),
+            reference_type: Some("open_deposit".to_string()),
+            wedding_party_id: deposit.wedding_party_id,
         });
     }
 
@@ -7395,4 +7465,38 @@ async fn post_customer_timeline_note(
     .map_err(CustomerError::Database)?;
 
     Ok((StatusCode::CREATED, Json(json!({ "id": id }))))
+}
+
+#[cfg(test)]
+mod customer_timeline_tests {
+    use super::open_deposit_timeline_summary;
+    use rust_decimal::Decimal;
+
+    #[test]
+    fn split_wedding_deposit_timeline_names_payer_and_amount() {
+        assert_eq!(
+            open_deposit_timeline_summary(
+                Decimal::new(7500, 2),
+                "party_split_deposit",
+                Some(" Alex Sponsor ")
+            ),
+            "Wedding deposit received: $75.00 from Alex Sponsor"
+        );
+    }
+
+    #[test]
+    fn redeemed_wedding_deposit_is_visible_as_applied() {
+        assert_eq!(
+            open_deposit_timeline_summary(Decimal::new(-7500, 2), "checkout_redemption", None),
+            "Wedding deposit applied: $75.00"
+        );
+    }
+
+    #[test]
+    fn reversed_wedding_deposit_is_visible_as_restored() {
+        assert_eq!(
+            open_deposit_timeline_summary(Decimal::new(7500, 2), "transaction_void_reversal", None),
+            "Wedding deposit restored: $75.00"
+        );
+    }
 }

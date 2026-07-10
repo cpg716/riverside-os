@@ -42,6 +42,21 @@ pub struct OpenDepositSourceChunk {
     pub amount: Decimal,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum OpenDepositRestoreReason {
+    TransactionVoid,
+    TransactionCancel,
+}
+
+impl OpenDepositRestoreReason {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::TransactionVoid => "transaction_void_reversal",
+            Self::TransactionCancel => "transaction_cancel_reversal",
+        }
+    }
+}
+
 pub async fn fetch_summary(
     pool: &sqlx::PgPool,
     customer_id: Uuid,
@@ -64,7 +79,9 @@ pub async fn fetch_summary(
         SELECT l.amount, l.payer_display_name
         FROM customer_open_deposit_ledger l
         JOIN customer_open_deposit_accounts a ON a.id = l.account_id
-        WHERE a.customer_id = $1 AND l.amount > 0
+        WHERE a.customer_id = $1
+          AND l.amount > 0
+          AND l.reason = 'party_split_deposit'
         ORDER BY l.created_at DESC
         LIMIT 1
         "#,
@@ -277,4 +294,51 @@ pub async fn apply_checkout_redemption(
     .await?;
 
     Ok(())
+}
+
+pub async fn restore_checkout_redemption(
+    tx: &mut Transaction<'_, Postgres>,
+    customer_id: Uuid,
+    amount: Decimal,
+    transaction_id: Uuid,
+    reason: OpenDepositRestoreReason,
+) -> Result<Decimal, CustomerOpenDepositError> {
+    if amount <= Decimal::ZERO {
+        return Ok(Decimal::ZERO);
+    }
+    let account_id = ensure_account(tx, customer_id).await?;
+    let balance: Decimal = sqlx::query_scalar(
+        "SELECT balance FROM customer_open_deposit_accounts WHERE id = $1 FOR UPDATE",
+    )
+    .bind(account_id)
+    .fetch_one(&mut **tx)
+    .await?;
+    let new_balance = (balance + amount).round_dp(2);
+
+    sqlx::query(
+        "UPDATE customer_open_deposit_accounts SET balance = $1, updated_at = now() WHERE id = $2",
+    )
+    .bind(new_balance)
+    .bind(account_id)
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query(
+        r#"
+        INSERT INTO customer_open_deposit_ledger (
+            account_id, amount, balance_after, reason, transaction_id,
+            payer_customer_id, payer_display_name, wedding_party_id
+        )
+        VALUES ($1, $2, $3, $4, $5, NULL, NULL, NULL)
+        "#,
+    )
+    .bind(account_id)
+    .bind(amount)
+    .bind(new_balance)
+    .bind(reason.as_str())
+    .bind(transaction_id)
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(new_balance)
 }

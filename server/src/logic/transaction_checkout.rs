@@ -455,6 +455,42 @@ fn tender_sum_excluding_deposit_like(splits: &[ResolvedPaymentSplit]) -> Decimal
     s.round_dp(2)
 }
 
+fn validate_open_deposit_scope(
+    splits: &[ResolvedPaymentSplit],
+    current_sale_total: Decimal,
+    takeaway_total: Decimal,
+    wedding_disbursement_total: Decimal,
+    order_payment_total: Decimal,
+) -> Result<(), CheckoutError> {
+    let open_deposit_total = splits
+        .iter()
+        .filter(|split| split.method.trim().eq_ignore_ascii_case("open_deposit"))
+        .map(|split| split.amount)
+        .sum::<Decimal>()
+        .round_dp(2);
+    if open_deposit_total <= Decimal::ZERO {
+        return Ok(());
+    }
+
+    if wedding_disbursement_total > Decimal::ZERO || order_payment_total > Decimal::ZERO {
+        return Err(CheckoutError::InvalidPayload(
+            "open deposit may only be applied to the selected customer's current sale; clear party disbursements and existing-order payments"
+                .to_string(),
+        ));
+    }
+
+    let eligible_deferred_total = (current_sale_total - takeaway_total)
+        .max(Decimal::ZERO)
+        .round_dp(2);
+    if open_deposit_total > eligible_deferred_total {
+        return Err(CheckoutError::InvalidPayload(
+            "open deposit amount exceeds the deferred order portion of this sale".to_string(),
+        ));
+    }
+
+    Ok(())
+}
+
 fn can_carry_applied_deposit_metadata(method: &str) -> bool {
     let method = method.trim().to_ascii_lowercase();
     method != "deposit_ledger" && method != "open_deposit"
@@ -2858,6 +2894,13 @@ pub async fn execute_checkout(
     }
 
     let takeaway_total = takeaway_line_total_decimal(&payload.items);
+    validate_open_deposit_scope(
+        &payment_splits,
+        payload.total_price,
+        takeaway_total,
+        d_total,
+        order_payment_total,
+    )?;
     let tender_ex_deposit = tender_sum_excluding_deposit_like(&payment_splits);
     if takeaway_total > Decimal::ZERO && tender_ex_deposit + tol < takeaway_total {
         return Err(CheckoutError::InvalidPayload(
@@ -5082,11 +5125,13 @@ mod tests {
         build_payment_allocation_plan, checkout_total_matches, evaluate_combo_incentives,
         execute_checkout, fetch_variant_pos_line_kind, helcim_attempt_comparison_cents,
         parse_combo_reward_amount, resolve_payment_splits, validate_checkout_alteration_intakes,
-        validate_checkout_item_quantity, validate_order_payment_against_target,
-        validate_order_payment_shape, CheckoutAlterationIntake, CheckoutDone, CheckoutItem,
-        CheckoutOrderPayment, CheckoutPaymentSplit, CheckoutRequest, ExistingOrderPaymentTarget,
-        ResolvedOrderPayment, ResolvedPaymentSplit, WeddingDisbursement,
+        validate_checkout_item_quantity, validate_open_deposit_scope,
+        validate_order_payment_against_target, validate_order_payment_shape,
+        CheckoutAlterationIntake, CheckoutDone, CheckoutItem, CheckoutOrderPayment,
+        CheckoutPaymentSplit, CheckoutRequest, ExistingOrderPaymentTarget, ResolvedOrderPayment,
+        ResolvedPaymentSplit, WeddingDisbursement,
     };
+    use crate::logic::customer_open_deposit;
     use crate::logic::customers::{insert_customer, CustomerCreatedSource, InsertCustomerParams};
     use crate::logic::qbo_journal;
     use crate::models::{DbFulfillmentType, DbOrderStatus};
@@ -5618,6 +5663,47 @@ mod tests {
             card_brand: None,
             card_last4: None,
         }
+    }
+
+    fn resolved_open_deposit_split(amount: Decimal) -> ResolvedPaymentSplit {
+        let mut split = resolved_split(amount);
+        split.method = "open_deposit".to_string();
+        split
+    }
+
+    #[test]
+    fn open_deposit_scope_allows_only_the_deferred_current_sale_portion() {
+        assert!(validate_open_deposit_scope(
+            &[resolved_open_deposit_split(Decimal::new(6000, 2))],
+            Decimal::new(10000, 2),
+            Decimal::new(4000, 2),
+            Decimal::ZERO,
+            Decimal::ZERO,
+        )
+        .is_ok());
+
+        let error = validate_open_deposit_scope(
+            &[resolved_open_deposit_split(Decimal::new(6001, 2))],
+            Decimal::new(10000, 2),
+            Decimal::new(4000, 2),
+            Decimal::ZERO,
+            Decimal::ZERO,
+        )
+        .expect_err("takeaway value must remain cash-equivalent");
+        assert!(error.to_string().contains("deferred order portion"));
+    }
+
+    #[test]
+    fn open_deposit_scope_rejects_external_allocations() {
+        let error = validate_open_deposit_scope(
+            &[resolved_open_deposit_split(Decimal::new(5000, 2))],
+            Decimal::new(5000, 2),
+            Decimal::ZERO,
+            Decimal::new(100, 2),
+            Decimal::ZERO,
+        )
+        .expect_err("member-held funds cannot be redirected to another member");
+        assert!(error.to_string().contains("current sale"));
     }
 
     #[test]
@@ -6997,6 +7083,14 @@ mod tests {
             Decimal::new(5000, 2)
         );
 
+        let beneficiary_timeline =
+            crate::api::customers::build_customer_timeline(&pool, beneficiary_customer_id)
+                .await
+                .expect("build beneficiary customer timeline");
+        assert!(beneficiary_timeline.iter().any(|event| {
+            event.reference_type.as_deref() == Some("payment") && event.summary.contains("50.00")
+        }));
+
         cleanup_wedding_group_pay_checkout_test(
             &pool,
             &[order_transaction_id, group_pay_transaction_id],
@@ -7359,6 +7453,22 @@ mod tests {
             *customer_id == second_customer_id && *balance == Decimal::new(12500, 2)
         }));
 
+        let first_beneficiary_timeline =
+            crate::api::customers::build_customer_timeline(&pool, first_customer_id)
+                .await
+                .expect("build first open-deposit beneficiary timeline");
+        assert!(first_beneficiary_timeline.iter().any(|event| {
+            event.reference_type.as_deref() == Some("open_deposit")
+                && event.summary.contains("Wedding deposit received: $75.00")
+                && event.summary.contains("from Wedding Open Deposit Payer")
+                && event.wedding_party_id == Some(party_id)
+        }));
+        let first_beneficiary_hub_stats =
+            crate::logic::customer_hub::fetch_hub_stats(&pool, first_customer_id)
+                .await
+                .expect("fetch first open-deposit beneficiary hub stats");
+        assert!(first_beneficiary_hub_stats.last_activity_at.is_some());
+
         let activity_date: chrono::NaiveDate = sqlx::query_scalar(
             "SELECT (CURRENT_TIMESTAMP AT TIME ZONE reporting.effective_store_timezone())::date",
         )
@@ -7497,6 +7607,129 @@ mod tests {
         .await
         .expect("fetch first beneficiary open deposit after redemption");
         assert_eq!(first_balance_after, Decimal::ZERO);
+
+        let redemption_payment_transaction_id: Uuid = sqlx::query_scalar(
+            r#"
+            SELECT id
+            FROM payment_transactions
+            WHERE payment_method = 'open_deposit'
+              AND metadata->>'checkout_transaction_id' = $1
+              AND amount = 75.00
+            "#,
+        )
+        .bind(redemption_transaction_id.to_string())
+        .fetch_one(&pool)
+        .await
+        .expect("fetch financially recorded open-deposit payment transaction");
+
+        let (ledger_amount, ledger_balance_after, ledger_transaction_id): (
+            Decimal,
+            Decimal,
+            Option<Uuid>,
+        ) = sqlx::query_as(
+            r#"
+            SELECT l.amount, l.balance_after, l.transaction_id
+            FROM customer_open_deposit_ledger l
+            JOIN customer_open_deposit_accounts a ON a.id = l.account_id
+            WHERE a.customer_id = $1
+              AND l.reason = 'checkout_redemption'
+            ORDER BY l.created_at DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(first_customer_id)
+        .fetch_one(&pool)
+        .await
+        .expect("fetch open-deposit redemption ledger entry");
+        assert_eq!(ledger_amount, Decimal::new(-7500, 2));
+        assert_eq!(ledger_balance_after, Decimal::ZERO);
+        assert_eq!(ledger_transaction_id, Some(redemption_transaction_id));
+
+        let booking_day_proposal = qbo_journal::propose_daily_journal(&pool, activity_date)
+            .await
+            .expect("propose booking-day qbo journal after redemption");
+        let redemption_payment_id = redemption_payment_transaction_id.to_string();
+        assert!(
+            booking_day_proposal.lines.iter().all(|line| {
+                line.detail.iter().all(|detail| {
+                    !detail
+                        .get("payment_transaction_ids")
+                        .and_then(|value| value.as_array())
+                        .is_some_and(|ids| {
+                            ids.iter()
+                                .any(|id| id.as_str() == Some(redemption_payment_id.as_str()))
+                        })
+                })
+            }),
+            "unfulfilled held-deposit use must remain in deposit liability on booking day"
+        );
+
+        let fulfillment_date = activity_date
+            .succ_opt()
+            .expect("activity date should have a following day");
+        sqlx::query(
+            r#"
+            UPDATE transactions
+            SET fulfilled_at = (($2::date + TIME '12:00') AT TIME ZONE reporting.effective_store_timezone()),
+                status = 'fulfilled'
+            WHERE id = $1
+            "#,
+        )
+        .bind(redemption_transaction_id)
+        .bind(fulfillment_date)
+        .execute(&pool)
+        .await
+        .expect("mark held-deposit sale fulfilled on following business date");
+
+        let fulfillment_proposal = qbo_journal::propose_daily_journal(&pool, fulfillment_date)
+            .await
+            .expect("propose fulfillment-day qbo journal");
+        assert!(
+            fulfillment_proposal.lines.iter().any(|line| {
+                line.memo
+                    .starts_with("Deposit release — Wedding Open Deposit Regression")
+                    && line.debit == Decimal::new(7500, 2)
+            }),
+            "fulfillment must debit deposit liability for the redeemed held deposit"
+        );
+
+        let mut reversal_tx = pool.begin().await.expect("begin open-deposit reversal");
+        let restored_balance = customer_open_deposit::restore_checkout_redemption(
+            &mut reversal_tx,
+            first_customer_id,
+            Decimal::new(7500, 2),
+            redemption_transaction_id,
+            customer_open_deposit::OpenDepositRestoreReason::TransactionVoid,
+        )
+        .await
+        .expect("restore held deposit after void");
+        reversal_tx
+            .commit()
+            .await
+            .expect("commit open-deposit reversal");
+        assert_eq!(restored_balance, Decimal::new(7500, 2));
+        let restored_ledger: (Decimal, Decimal, String) = sqlx::query_as(
+            r#"
+            SELECT l.amount, l.balance_after, l.reason
+            FROM customer_open_deposit_ledger l
+            JOIN customer_open_deposit_accounts a ON a.id = l.account_id
+            WHERE a.customer_id = $1
+            ORDER BY l.created_at DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(first_customer_id)
+        .fetch_one(&pool)
+        .await
+        .expect("fetch held-deposit restoration ledger entry");
+        assert_eq!(
+            restored_ledger,
+            (
+                Decimal::new(7500, 2),
+                Decimal::new(7500, 2),
+                "transaction_void_reversal".to_string()
+            )
+        );
 
         cleanup_wedding_group_pay_checkout_test(
             &pool,

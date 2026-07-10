@@ -305,9 +305,9 @@ pub async fn propose_daily_journal(
             .fetch_one(pool)
             .await?;
     let mut warnings: Vec<String> = vec![
-        format!("Journal uses recognized fulfillment activity on store-local business date {activity_date} ({business_timezone}); shipped orders recognize at label purchase / in-transit / delivered events. Deposit release posts from checkout `applied_deposit_amount` metadata; verify `liability_deposit` + revenue mappings before sync."),
+        format!("Journal uses recognized fulfillment activity on store-local business date {activity_date} ({business_timezone}); shipped orders recognize at label purchase / in-transit / delivered events. Deposit release posts from checkout deposit evidence, including held wedding-deposit redemptions; verify `liability_deposit` + revenue mappings before sync."),
         "Gift card: purchased-card sales credit `liability_gift_card` / default, purchased-card redemptions debit that liability, and loyalty/donated redemptions debit `expense_loyalty` / default when checkout stores canonical gift card metadata. Unmapped cases fall back to tender mapping.".to_string(),
-        "Store credit and open deposit redemptions post as liability relief when mapped; they are not cash/card tender revenue.".to_string(),
+        "Store credit redemptions post as liability relief when mapped. Held wedding deposits remain in deposit liability until the linked sale is fulfilled, then release to revenue; neither is cash/card tender revenue.".to_string(),
         "Customer-charged shipping posts as fulfillment-day shipping income when `income_shipping` / default or `REVENUE_SHIPPING` is mapped.".to_string(),
         "Revenue/COGS/tax for recognized transactions use effective qty (sold minus returns). Returns booked today add contra lines; re-run past dates after returns to restate recognition-day nets.".to_string(),
     ];
@@ -404,7 +404,7 @@ AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
         source_payments: Option<Value>,
     }
 
-    let tender_rows: Vec<TenderAgg> = sqlx::query_as(
+    let tender_rows: Vec<TenderAgg> = sqlx::query_as(&format!(
         r#"
         SELECT
             CASE
@@ -434,6 +434,16 @@ AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
             ) AS source_payments
         FROM payment_transactions
         WHERE COALESCE(effective_date, (created_at AT TIME ZONE reporting.effective_store_timezone())::date) = $1::date
+          AND (
+              LOWER(payment_method) <> 'open_deposit'
+              OR EXISTS (
+                  SELECT 1
+                  FROM transactions o
+                  WHERE o.id::text = NULLIF(TRIM(COALESCE(payment_transactions.metadata->>'checkout_transaction_id', '')), '')
+                    AND ({order_recognition_ts}) IS NOT NULL
+                    AND (({order_recognition_ts}) AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
+              )
+          )
         GROUP BY
             CASE
                 WHEN LOWER(COALESCE(payment_provider, '')) = 'helcim'
@@ -444,7 +454,7 @@ AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
             NULLIF(TRIM(COALESCE(metadata->>'sub_type', '')), ''),
             NULLIF(TRIM(COALESCE(metadata->>'tender_family', '')), '')
         "#,
-    )
+    ))
     .bind(activity_date)
     .fetch_all(pool)
     .await?;
@@ -1105,7 +1115,9 @@ AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
                 "tender_family": t.tender_family,
                 "rms_charge_collection": t.rms_charge_collection,
                 "liability_relief": (is_open_deposit || is_store_credit || is_paid_liability_gc) && liability_mapped.is_some(),
-                "amount": amt
+                "amount": amt,
+                "payment_transaction_ids": t.payment_transaction_ids,
+                "source_payments": t.source_payments.clone().unwrap_or_else(|| json!([]))
             })],
         });
 
@@ -1327,7 +1339,7 @@ AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
               AND ({order_recognition_ts}) IS NOT NULL
               AND (({order_recognition_ts}) AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
         ),
-        order_deposit AS (
+        allocated_deposit AS (
             SELECT
                 pa.target_transaction_id AS transaction_id,
                 COALESCE(SUM((pa.metadata->>'applied_deposit_amount')::numeric(14,2)), 0::numeric) AS deposit_total
@@ -1336,6 +1348,27 @@ AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
             INNER JOIN fulfilled_transactions fo ON fo.id = pa.target_transaction_id
             WHERE COALESCE(pt.effective_date, (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date) < $1::date
             GROUP BY pa.target_transaction_id
+        ),
+        held_wedding_deposit AS (
+            SELECT
+                l.transaction_id,
+                COALESCE(SUM(-l.amount), 0::numeric) AS deposit_total
+            FROM customer_open_deposit_ledger l
+            INNER JOIN fulfilled_transactions fo ON fo.id = l.transaction_id
+            INNER JOIN transactions o ON o.id = l.transaction_id
+            WHERE l.reason = 'checkout_redemption'
+              AND l.amount < 0::numeric
+              AND COALESCE(o.business_date, (o.booked_at AT TIME ZONE reporting.effective_store_timezone())::date) < $1::date
+            GROUP BY l.transaction_id
+        ),
+        order_deposit AS (
+            SELECT transaction_id, SUM(deposit_total)::numeric(14,2) AS deposit_total
+            FROM (
+                SELECT transaction_id, deposit_total FROM allocated_deposit
+                UNION ALL
+                SELECT transaction_id, deposit_total FROM held_wedding_deposit
+            ) deposit_sources
+            GROUP BY transaction_id
         ),
         category_net AS (
             SELECT
@@ -1394,7 +1427,7 @@ AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
               AND ({order_recognition_ts}) IS NOT NULL
               AND (({order_recognition_ts}) AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
         ),
-        order_deposit AS (
+        allocated_deposit AS (
             SELECT
                 pa.target_transaction_id AS transaction_id,
                 COALESCE(SUM((pa.metadata->>'applied_deposit_amount')::numeric(14,2)), 0::numeric) AS deposit_total
@@ -1403,6 +1436,27 @@ AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
             INNER JOIN fulfilled_transactions fo ON fo.id = pa.target_transaction_id
             WHERE COALESCE(pt.effective_date, (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date) < $1::date
             GROUP BY pa.target_transaction_id
+        ),
+        held_wedding_deposit AS (
+            SELECT
+                l.transaction_id,
+                COALESCE(SUM(-l.amount), 0::numeric) AS deposit_total
+            FROM customer_open_deposit_ledger l
+            INNER JOIN fulfilled_transactions fo ON fo.id = l.transaction_id
+            INNER JOIN transactions o ON o.id = l.transaction_id
+            WHERE l.reason = 'checkout_redemption'
+              AND l.amount < 0::numeric
+              AND COALESCE(o.business_date, (o.booked_at AT TIME ZONE reporting.effective_store_timezone())::date) < $1::date
+            GROUP BY l.transaction_id
+        ),
+        order_deposit AS (
+            SELECT transaction_id, SUM(deposit_total)::numeric(14,2) AS deposit_total
+            FROM (
+                SELECT transaction_id, deposit_total FROM allocated_deposit
+                UNION ALL
+                SELECT transaction_id, deposit_total FROM held_wedding_deposit
+            ) deposit_sources
+            GROUP BY transaction_id
         ),
         category_net AS (
             SELECT
@@ -1466,7 +1520,7 @@ AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
               AND ({order_recognition_ts}) IS NOT NULL
               AND (({order_recognition_ts}) AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
         ),
-        order_deposit AS (
+        allocated_deposit AS (
             SELECT
                 pa.target_transaction_id AS transaction_id,
                 COALESCE(SUM((pa.metadata->>'applied_deposit_amount')::numeric(14,2)), 0::numeric) AS deposit_total
@@ -1475,6 +1529,27 @@ AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
             INNER JOIN fulfilled_transactions fo ON fo.id = pa.target_transaction_id
             WHERE COALESCE(pt.effective_date, (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date) < $1::date
             GROUP BY pa.target_transaction_id
+        ),
+        held_wedding_deposit AS (
+            SELECT
+                l.transaction_id,
+                COALESCE(SUM(-l.amount), 0::numeric) AS deposit_total
+            FROM customer_open_deposit_ledger l
+            INNER JOIN fulfilled_transactions fo ON fo.id = l.transaction_id
+            INNER JOIN transactions o ON o.id = l.transaction_id
+            WHERE l.reason = 'checkout_redemption'
+              AND l.amount < 0::numeric
+              AND COALESCE(o.business_date, (o.booked_at AT TIME ZONE reporting.effective_store_timezone())::date) < $1::date
+            GROUP BY l.transaction_id
+        ),
+        order_deposit AS (
+            SELECT transaction_id, SUM(deposit_total)::numeric(14,2) AS deposit_total
+            FROM (
+                SELECT transaction_id, deposit_total FROM allocated_deposit
+                UNION ALL
+                SELECT transaction_id, deposit_total FROM held_wedding_deposit
+            ) deposit_sources
+            GROUP BY transaction_id
         ),
         category_net AS (
             SELECT

@@ -30,6 +30,7 @@ use crate::logic::custom_orders::{canonical_custom_order_details, known_custom_s
 use crate::logic::customer_notifications::{
     record_customer_notification, CustomerNotificationChannel, CustomerNotificationKind,
 };
+use crate::logic::customer_open_deposit;
 use crate::logic::email as store_email;
 use crate::logic::gift_card_ops;
 use crate::logic::helcim;
@@ -2902,11 +2903,78 @@ async fn patch_transaction(
                 )
                 .await?;
             } else {
+                let open_deposit_restore: Decimal = sqlx::query_scalar(
+                    r#"
+                    SELECT COALESCE(SUM(pa.amount_allocated), 0)::numeric(14,2)
+                    FROM payment_allocations pa
+                    INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
+                    WHERE pa.target_transaction_id = $1
+                      AND LOWER(pt.payment_method) = 'open_deposit'
+                      AND COALESCE(pt.status, 'success') <> 'canceled'
+                    "#,
+                )
+                .bind(transaction_id)
+                .fetch_one(&mut *tx)
+                .await?;
+                if open_deposit_restore > Decimal::ZERO {
+                    let customer_id = customer_id.ok_or_else(|| {
+                        TransactionError::InvalidPayload(
+                            "open deposit cancellation reversal requires a customer".to_string(),
+                        )
+                    })?;
+                    let balance_after = customer_open_deposit::restore_checkout_redemption(
+                        &mut tx,
+                        customer_id,
+                        open_deposit_restore,
+                        transaction_id,
+                        customer_open_deposit::OpenDepositRestoreReason::TransactionCancel,
+                    )
+                    .await
+                    .map_err(|error| match error {
+                        customer_open_deposit::CustomerOpenDepositError::Database(db) => {
+                            TransactionError::Database(db)
+                        }
+                        customer_open_deposit::CustomerOpenDepositError::NotFound
+                        | customer_open_deposit::CustomerOpenDepositError::InsufficientBalance => {
+                            TransactionError::InvalidPayload(
+                                "open deposit could not be restored during cancellation"
+                                    .to_string(),
+                            )
+                        }
+                    })?;
+                    sqlx::query(
+                        r#"
+                        UPDATE payment_transactions
+                        SET status = 'canceled',
+                            amount = 0,
+                            net_amount = 0,
+                            metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb
+                        WHERE id IN (
+                            SELECT pa.transaction_id
+                            FROM payment_allocations pa
+                            WHERE pa.target_transaction_id = $1
+                        )
+                          AND LOWER(payment_method) = 'open_deposit'
+                          AND COALESCE(status, 'success') <> 'canceled'
+                        "#,
+                    )
+                    .bind(transaction_id)
+                    .bind(json!({
+                        "cancelled_by_transaction_id": transaction_id,
+                        "cancelled_at": Utc::now(),
+                        "open_deposit_balance_after": balance_after
+                    }))
+                    .execute(&mut *tx)
+                    .await?;
+                }
+
                 let refundable: Decimal = sqlx::query_scalar(
                     r#"
                     SELECT COALESCE(SUM(pa.amount_allocated), 0)::numeric(14,2)
                     FROM payment_allocations pa
+                    INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
                     WHERE pa.target_transaction_id = $1
+                      AND LOWER(pt.payment_method) <> 'open_deposit'
                     "#,
                 )
                 .bind(transaction_id)
@@ -4725,6 +4793,50 @@ async fn post_transaction_void(
                 "voided_by_transaction_id": transaction_id,
                 "voided_at": Utc::now(),
                 "gift_card_balance_after": balance_after
+            }))
+            .execute(&mut *tx)
+            .await?;
+        } else if payment.payment_method.eq_ignore_ascii_case("open_deposit") {
+            let customer_id = customer_id.ok_or_else(|| {
+                TransactionError::InvalidPayload(
+                    "open deposit void reversal requires a customer on the transaction".to_string(),
+                )
+            })?;
+            let balance_after = customer_open_deposit::restore_checkout_redemption(
+                &mut tx,
+                customer_id,
+                payment.amount,
+                transaction_id,
+                customer_open_deposit::OpenDepositRestoreReason::TransactionVoid,
+            )
+            .await
+            .map_err(|error| match error {
+                customer_open_deposit::CustomerOpenDepositError::Database(db) => {
+                    TransactionError::Database(db)
+                }
+                customer_open_deposit::CustomerOpenDepositError::NotFound
+                | customer_open_deposit::CustomerOpenDepositError::InsufficientBalance => {
+                    TransactionError::InvalidPayload(
+                        "open deposit could not be restored during void".to_string(),
+                    )
+                }
+            })?;
+
+            sqlx::query(
+                r#"
+                UPDATE payment_transactions
+                SET status = 'canceled',
+                    amount = 0,
+                    net_amount = 0,
+                    metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb
+                WHERE id = $1
+                "#,
+            )
+            .bind(payment.id)
+            .bind(json!({
+                "voided_by_transaction_id": transaction_id,
+                "voided_at": Utc::now(),
+                "open_deposit_balance_after": balance_after
             }))
             .execute(&mut *tx)
             .await?;

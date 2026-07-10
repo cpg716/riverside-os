@@ -99,6 +99,10 @@ import { deleteParkedSaleOnServer } from "../../lib/posParkedSales";
 import StaffMiniSelector from "../ui/StaffMiniSelector";
 import { CartItemRow } from "./cart/CartItemRow";
 import { getAppIcon } from "../../lib/icons";
+import {
+  heldOpenDepositNoticeMessage,
+  type HeldOpenDeposit,
+} from "./openDeposit";
 
 const WEDDINGS_ICON = getAppIcon("weddings");
 const GIFT_CARDS_ICON = getAppIcon("giftCards");
@@ -106,12 +110,6 @@ const ORDER_HISTORY_ICON = getAppIcon("orderHistory");
 const ALTERATION_SERVICE_PRODUCT_ID = "b7c0a006-0006-4006-8006-000000000006";
 const ALTERATION_SERVICE_VARIANT_ID = "b7c0a007-0007-4007-8007-000000000007";
 const ALTERATION_SERVICE_SKU = "ROS-ALTERATION-SERVICE";
-
-interface OpenDepositPrompt {
-  cents: number;
-  payerName: string | null;
-  customerId: string;
-}
 
 interface ExchangeReturnHandoffLine {
   transaction_line_id: string;
@@ -481,12 +479,11 @@ export default function Cart({
   const [customerProfileHubOpen, setCustomerProfileHubOpen] = useState(false);
   const [checkoutOrderOptions, setCheckoutOrderOptions] = useState<PosOrderOptions | null>(null);
   const [cashAdjustOpen, setCashAdjustOpen] = useState(false);
-  const [openDepositPrompt, setOpenDepositPrompt] = useState<OpenDepositPrompt | null>(null);
+  const [heldOpenDeposit, setHeldOpenDeposit] = useState<HeldOpenDeposit | null>(null);
+  const [openDepositNotice, setOpenDepositNotice] = useState<HeldOpenDeposit | null>(null);
   const [intelligenceVariantId, setIntelligenceVariantId] = useState<string | null>(null);
   const [intelligenceLine, setIntelligenceLine] = useState<CartLineItem | null>(null);
   const [showPrintRetryPanel, setShowPrintRetryPanel] = useState(false);
-  const openDepositSuppressedRef = useRef(false);
-
   const [activeDiscountEvents, setActiveDiscountEvents] = useState<ActiveDiscountEvent[]>([]);
   const [selectedDiscountEventId, setSelectedDiscountEventId] = useState("");
   const [exchangeWizardInitialTransactionId, setExchangeWizardInitialTransactionId] = useState<string | null>(null);
@@ -764,6 +761,11 @@ export default function Cart({
 
   useEffect(() => {
     const customerId = selectedCustomer?.id ?? null;
+    setCheckoutAppliedPayments((prev) =>
+      prev.some((payment) => payment.method === "open_deposit")
+        ? prev.filter((payment) => payment.method !== "open_deposit")
+        : prev,
+    );
     setPendingAlterationIntakes((prev) => {
       const next = customerId ? prev.filter((intake) => intake.customer_id === customerId) : [];
       return next.length === prev.length ? prev : next;
@@ -773,6 +775,51 @@ export default function Cart({
       return next.length === prev.length ? prev : next;
     });
   }, [selectedCustomer?.id]);
+
+  useEffect(() => {
+    const customerId = selectedCustomer?.id;
+    setHeldOpenDeposit(null);
+    setOpenDepositNotice(null);
+    if (!customerId) return;
+
+    let cancelled = false;
+    fetch(`${baseUrl}/api/customers/${customerId}/open-deposit`, {
+      headers: { ...apiAuth() },
+    })
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return (await res.json()) as {
+          balance?: string | number;
+          last_payer_display_name?: string | null;
+          last_credit_amount?: string | number | null;
+        };
+      })
+      .then((payload) => {
+        if (cancelled) return;
+        const balanceCents = Math.max(0, parseMoneyToCents(payload.balance ?? "0"));
+        if (balanceCents <= 0) return;
+        const deposit: HeldOpenDeposit = {
+          customerId,
+          balanceCents,
+          lastPayerName: payload.last_payer_display_name?.trim() || null,
+          lastCreditCents:
+            payload.last_credit_amount == null
+              ? null
+              : Math.max(0, parseMoneyToCents(payload.last_credit_amount)),
+        };
+        setHeldOpenDeposit(deposit);
+        setOpenDepositNotice(deposit);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          toast("Wedding deposit balance unavailable. Verify the connection before taking payment.", "error");
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [apiAuth, baseUrl, selectedCustomer?.id, toast]);
 
   useEffect(() => {
     const customerId = selectedCustomer?.id;
@@ -3717,6 +3764,11 @@ export default function Cart({
         returnOnlyRefundMode={pendingReturnTender?.returnOnly ?? false}
         authoritativeDepositCents={0}
         existingPaidAmountCents={pickupPaidAmountCents}
+        heldOpenDeposit={heldOpenDeposit}
+        currentSaleAmountCents={totals.orderTotalCents}
+        openDepositExternalAllocations={
+          disbursementMembers.length > 0 || orderPaymentLines.length > 0
+        }
         profileBlocksCheckout={false}
         onOpenProfileGate={() => {}}
         busy={checkoutBusy}
@@ -3991,39 +4043,13 @@ export default function Cart({
       />
 
       <ConfirmationModal
-        isOpen={openDepositPrompt != null}
-        onClose={() => {
-          openDepositSuppressedRef.current = true;
-          setOpenDepositPrompt(null);
-        }}
-        onConfirm={() => {
-          if (!openDepositPrompt) return;
-          const paid = checkoutAppliedPayments.reduce(
-            (s, p) => s + p.amountCents,
-            0,
-          );
-          const remaining = Math.max(0, totals.collectTotalCents - paid);
-          const useCents = Math.min(openDepositPrompt.cents, remaining);
-          if (useCents > 0) {
-            setCheckoutAppliedPayments((prev) => [
-              ...prev,
-              {
-                id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-                method: "open_deposit",
-                amountCents: useCents,
-                label: "Open deposit",
-              },
-            ]);
-          }
-          setOpenDepositPrompt(null);
-        }}
-        title="Use open deposit?"
-        message={
-          openDepositPrompt
-            ? `${openDepositPrompt.payerName ? `${openDepositPrompt.payerName} paid` : "A party member paid"} a deposit held on this account (${centsToFixed2(openDepositPrompt.cents)} available). Apply it to this sale?`
-            : ""
-        }
-        confirmLabel="Apply to sale"
+        isOpen={openDepositNotice != null}
+        onClose={() => setOpenDepositNotice(null)}
+        onConfirm={() => setOpenDepositNotice(null)}
+        title="Wedding deposit available"
+        message={openDepositNotice ? heldOpenDepositNoticeMessage(openDepositNotice) : ""}
+        confirmLabel="Got it"
+        cancelLabel="Close"
         variant="info"
       />
       {parkedListOpen && document.getElementById("drawer-root")

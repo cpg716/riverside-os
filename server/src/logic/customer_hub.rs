@@ -422,6 +422,11 @@ pub async fn fetch_hub_stats(pool: &PgPool, customer_id: Uuid) -> Result<HubStat
                 SELECT MAX(created_at) FROM customer_timeline_notes WHERE customer_id IN (SELECT id FROM customers WHERE couple_id = $1)
                 UNION ALL
                 SELECT MAX(l.created_at)
+                FROM customer_open_deposit_ledger l
+                INNER JOIN customer_open_deposit_accounts a ON a.id = l.account_id
+                WHERE a.customer_id IN (SELECT id FROM customers WHERE couple_id = $1)
+                UNION ALL
+                SELECT MAX(l.created_at)
                 FROM wedding_activity_log l
                 WHERE EXISTS (
                     SELECT 1 FROM wedding_members wm
@@ -483,6 +488,11 @@ pub async fn fetch_hub_stats(pool: &PgPool, customer_id: Uuid) -> Result<HubStat
                 SELECT MAX(measured_at) FROM customer_measurements WHERE customer_id = $1
                 UNION ALL
                 SELECT MAX(created_at) FROM customer_timeline_notes WHERE customer_id = $1
+                UNION ALL
+                SELECT MAX(l.created_at)
+                FROM customer_open_deposit_ledger l
+                INNER JOIN customer_open_deposit_accounts a ON a.id = l.account_id
+                WHERE a.customer_id = $1
                 UNION ALL
                 SELECT MAX(l.created_at)
                 FROM wedding_activity_log l

@@ -29,6 +29,10 @@ import {
   type CheckoutOperatorContext,
   type NexoTenderTab
 } from "./types";
+import {
+  openDepositApplicationCents,
+  type HeldOpenDeposit,
+} from "./openDeposit";
 
 // Cash rounding is configured in Settings → Register (Terminal Overrides).
 // Value is fetched from /api/settings/pos-station-config/public on drawer open.
@@ -520,6 +524,9 @@ export interface NexoCheckoutDrawerProps {
   hasLaterItems?: boolean;
   onOpenSplitDeposit?: () => void;
   existingPaidAmountCents?: number;
+  heldOpenDeposit?: HeldOpenDeposit | null;
+  currentSaleAmountCents?: number;
+  openDepositExternalAllocations?: boolean;
 }
 
 export default function NexoCheckoutDrawer({
@@ -555,6 +562,9 @@ export default function NexoCheckoutDrawer({
   hasLaterItems = false,
   onOpenSplitDeposit,
   existingPaidAmountCents = 0,
+  heldOpenDeposit = null,
+  currentSaleAmountCents = amountDueCents,
+  openDepositExternalAllocations = false,
 }: NexoCheckoutDrawerProps) {
   const baseUrl = getBaseUrl();
   const { backofficeHeaders } = useBackofficeAuth();
@@ -818,7 +828,57 @@ export default function NexoCheckoutDrawer({
     return note ? `${taxExemptReason} - ${note}` : taxExemptReason;
   }, [isTaxExempt, taxExemptNote, taxExemptReason]);
 
-  const takeawaySatisfied = paidSoFarCents >= tw;
+  const cashEquivalentPaidCents = useMemo(
+    () =>
+      applied.reduce(
+        (sum, payment) =>
+          ["deposit_ledger", "open_deposit"].includes(payment.method.trim().toLowerCase())
+            ? sum
+            : sum + payment.amountCents,
+        0,
+      ),
+    [applied],
+  );
+  const takeawaySatisfied = cashEquivalentPaidCents >= tw;
+  const appliedOpenDepositCents = useMemo(
+    () =>
+      applied.reduce(
+        (sum, payment) =>
+          payment.method.trim().toLowerCase() === "open_deposit"
+            ? sum + payment.amountCents
+            : sum,
+        0,
+      ),
+    [applied],
+  );
+  const heldOpenDepositApplyCents = heldOpenDeposit
+    ? openDepositApplicationCents({
+        heldBalanceCents: heldOpenDeposit.balanceCents,
+        alreadyAppliedCents: appliedOpenDepositCents,
+        remainingCheckoutCents: remainingCents,
+        currentSaleCents: currentSaleAmountCents,
+        takeawayCents: tw,
+        hasExternalAllocations: openDepositExternalAllocations,
+      })
+    : 0;
+
+  const applyHeldOpenDeposit = useCallback(() => {
+    if (!heldOpenDeposit || heldOpenDepositApplyCents <= 0) return;
+    setApplied((prev) => [
+      ...prev,
+      {
+        id: newId(),
+        method: "open_deposit",
+        amountCents: heldOpenDepositApplyCents,
+        label: "Wedding deposit",
+        metadata: {
+          tender_family: "open_deposit",
+          held_for_customer_id: heldOpenDeposit.customerId,
+          source: "wedding_party_split",
+        },
+      },
+    ]);
+  }, [heldOpenDeposit, heldOpenDepositApplyCents, setApplied]);
 
   // A sale is "Full Balance Paid" if we have reached or exceeded the target (for positive balances)
   // or reached or gone below the target (for negative balances/credits).
@@ -838,7 +898,9 @@ export default function NexoCheckoutDrawer({
    * 1. The full balance is paid with tenders.
    * 2. Any takeaway items are paid with tenders AND a deposit protocol is established for the remainder.
    */
-  const balanced = balanceSettled || (takeawaySatisfied && hasLaterItems && (depositDisplayCents > 0 || allowDepositOnlyComplete));
+  const balanced =
+    (balanceSettled && takeawaySatisfied) ||
+    (takeawaySatisfied && hasLaterItems && (depositDisplayCents > 0 || allowDepositOnlyComplete));
 
   const canFinalize = balanced && operator != null && !busy && !taxExemptNoteRequired;
 
@@ -2978,6 +3040,47 @@ export default function NexoCheckoutDrawer({
             </div>
 
             <div className="flex-1 min-w-0 flex flex-col gap-3">
+              {heldOpenDeposit && heldOpenDeposit.balanceCents > 0 && (
+                <div className="rounded-2xl border border-indigo-500/30 bg-indigo-500/10 p-4 shadow-sm">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-500">
+                        Wedding Deposit Available
+                      </p>
+                      <p className="mt-1 text-xl font-black italic tracking-tight text-app-text">
+                        ${centsToFixed2(Math.max(0, heldOpenDeposit.balanceCents - appliedOpenDepositCents))}
+                      </p>
+                      <p className="mt-1 text-xs font-semibold text-app-text-muted">
+                        {heldOpenDeposit.lastPayerName
+                          ? `Most recent contribution by ${heldOpenDeposit.lastPayerName}.`
+                          : "Placed on this member's account by another wedding party member."}
+                      </p>
+                      {openDepositExternalAllocations ? (
+                        <p className="mt-2 text-xs font-bold text-app-warning">
+                          Clear party disbursements and existing-order payments before applying this member's held deposit.
+                        </p>
+                      ) : heldOpenDepositApplyCents <= 0 && tw > 0 ? (
+                        <p className="mt-2 text-xs font-bold text-app-warning">
+                          Held wedding deposits cannot pay the takeaway portion of this sale.
+                        </p>
+                      ) : null}
+                    </div>
+                    <button
+                      type="button"
+                      data-testid="pos-apply-open-deposit"
+                      disabled={heldOpenDepositApplyCents <= 0 || busy}
+                      onClick={applyHeldOpenDeposit}
+                      className="min-h-11 shrink-0 rounded-xl border-b-4 border-indigo-700 bg-indigo-600 px-5 py-2 text-[10px] font-black uppercase tracking-[0.16em] text-white shadow-lg shadow-indigo-600/20 transition-all hover:brightness-110 active:translate-y-1 active:border-b-0 disabled:cursor-not-allowed disabled:opacity-45"
+                    >
+                      {heldOpenDepositApplyCents > 0
+                        ? `Apply $${centsToFixed2(heldOpenDepositApplyCents)}`
+                        : appliedOpenDepositCents > 0
+                          ? "Deposit applied"
+                          : "Not eligible"}
+                    </button>
+                  </div>
+                </div>
+              )}
               <div className="bg-app-surface border border-app-border rounded-2xl p-3 sm:p-4 shadow-sm flex flex-col">
                 <div className="mb-3 flex flex-col gap-3 border-b border-app-border pb-3 sm:flex-row sm:items-end sm:justify-between">
                   <div className="flex flex-col gap-2">

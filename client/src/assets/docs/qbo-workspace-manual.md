@@ -66,7 +66,7 @@ Processing a cash refund should leave negative payment or allocation evidence an
 
 ## Store credit and open deposits
 
-Store credit and open deposit redemptions are liability-release activity. They should not be treated as cash or card tender revenue.
+Store credit redemptions are liability-release activity. A wedding open deposit applied to an unfulfilled order remains in **Deposit liability**; fulfillment later releases that amount to recognized revenue. Neither path is cash or card tender revenue.
 
 Manual store-credit adjustments are audit-sensitive and should only post to QBO when the configured accounting path intentionally includes them.
 
