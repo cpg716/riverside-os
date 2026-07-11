@@ -50,7 +50,7 @@ Use **exact sidebar names** from the app (Back Office and POS rails). For engine
 | Pilot go/no-go criteria | [pilot-go-no-go-criteria.md](pilot-go-no-go-criteria.md) |
 | Pilot freeze rules | [pilot-freeze-rules.md](pilot-freeze-rules.md) |
 | Pilot support package | [pilot-support-package.md](pilot-support-package.md) |
-| RC/pilot release signoff | [../RC_SIGNOFF_SUMMARY.md](../RC_SIGNOFF_SUMMARY.md), [../RELEASE_OPERATIONAL_SIGNOFF.md](../RELEASE_OPERATIONAL_SIGNOFF.md), [../releases/v0.70.0-release-notes.md](../releases/v0.70.0-release-notes.md), [../releases/v0.70.0-printable-deployment-guide.md](../releases/v0.70.0-printable-deployment-guide.md) |
+| RC/pilot release signoff | [../RC_SIGNOFF_SUMMARY.md](../RC_SIGNOFF_SUMMARY.md), [../RELEASE_OPERATIONAL_SIGNOFF.md](../RELEASE_OPERATIONAL_SIGNOFF.md), [../releases/v0.90.0-release-notes.md](../releases/v0.90.0-release-notes.md), [../releases/v0.90.0-certification.md](../releases/v0.90.0-certification.md) |
 | Abstract: transactions & stock | [abstracts/transactions-and-stock.md](abstracts/transactions-and-stock.md) |
 | Abstract: returns / refunds | [abstracts/returns-refunds-exchanges.md](abstracts/returns-refunds-exchanges.md) |
 | Abstract: wedding group pay | [abstracts/wedding-group-pay.md](abstracts/wedding-group-pay.md) |
@@ -117,40 +117,46 @@ Source of truth for labels: `client/src/components/layout/sidebarSections.ts` (`
 | Tab | Subsection | Covered in |
 |-----|------------|------------|
 | Operations | Dashboard | [operations-home.md](operations-home.md) |
+| Operations | Timeline | [operations-home.md](operations-home.md) |
 | Operations | Daily Sales | [operations-home.md](operations-home.md) |
 | Operations | Pickup Queue | [operations-home.md](operations-home.md) |
+| Operations | Customer Notifications | [operations-home.md](operations-home.md) |
 | Operations | Podium Inbox | [operations-home.md](operations-home.md) |
 | Operations | Mailbox | [operations-home.md](operations-home.md) |
 | Operations | Reviews | [operations-home.md](operations-home.md) |
 | POS | Register | [register-tab-back-office.md](register-tab-back-office.md) |
 | Customers | All Customers | [customers-back-office.md](customers-back-office.md) |
 | Customers | Add Customer | [customers-back-office.md](customers-back-office.md) |
-| Customers | RMS charge | [customers-back-office.md](customers-back-office.md) |
-| Alterations | Work queue | [alterations-back-office.md](alterations-back-office.md) |
-| Transactions | Open Transactions | [transactions-back-office.md](transactions-back-office.md) |
-| Transactions | All Transactions | [transactions-back-office.md](transactions-back-office.md) |
-| Inventory | Inventory List | [inventory-back-office.md](inventory-back-office.md) |
-| Inventory | Add Inventory | [inventory-back-office.md](inventory-back-office.md) |
-| Inventory | Receiving | [inventory-back-office.md](inventory-back-office.md) |
-| Inventory | Categories | [inventory-back-office.md](inventory-back-office.md) |
-| Inventory | Discount events | [inventory-back-office.md](inventory-back-office.md) |
-| Inventory | Import | [inventory-back-office.md](inventory-back-office.md) |
-| Inventory | Vendors | [inventory-back-office.md](inventory-back-office.md) |
-| Inventory | Physical count | [inventory-back-office.md](inventory-back-office.md) |
+| Customers | Shipments Hub | [../SHIPPING_AND_SHIPMENTS_HUB.md](../SHIPPING_AND_SHIPMENTS_HUB.md) |
+| Customers | Layaways | [../LAYAWAY_OPERATIONS.md](../LAYAWAY_OPERATIONS.md) |
+| Customers | RMS Charge | [customers-back-office.md](customers-back-office.md) |
+| Customers | Duplicate Review | [customers-back-office.md](customers-back-office.md) |
+| Alterations | Queue | [alterations-back-office.md](alterations-back-office.md) |
+| Orders | _(no subsections)_ | [transactions-back-office.md](transactions-back-office.md) |
+| Inventory | Find Item | [inventory-back-office.md](inventory-back-office.md) |
+| Inventory | Add/Edit Catalog | [inventory-back-office.md](inventory-back-office.md) |
+| Inventory | Promotions | [inventory-back-office.md](inventory-back-office.md) |
+| Inventory | Order Stock | [inventory-back-office.md](inventory-back-office.md) |
+| Inventory | Receive Stock | [inventory-back-office.md](inventory-back-office.md) |
+| Inventory | Batch Scan | [inventory-back-office.md](inventory-back-office.md) |
+| Inventory | Correct Stock | [inventory-back-office.md](inventory-back-office.md) |
+| Inventory | Reports | [inventory-back-office.md](inventory-back-office.md) |
+| Inventory | Physical Inventory | [inventory-back-office.md](inventory-back-office.md) |
+| Online Store | Dashboard, Storefront, Products, Orders, Customers, Promotions, Shipping, Analytics | [../ONLINE_STORE.md](../ONLINE_STORE.md) |
 | Weddings | Action Board | [weddings-back-office.md](weddings-back-office.md) |
 | Weddings | Parties | [weddings-back-office.md](weddings-back-office.md) |
 | Weddings | Calendar | [weddings-back-office.md](weddings-back-office.md) |
-| Gift Cards | Card Inventory | [gift-cards-loyalty-back-office.md](gift-cards-loyalty-back-office.md) |
-| Gift Cards | Issue Purchased | [gift-cards-loyalty-back-office.md](gift-cards-loyalty-back-office.md) |
+| Gift Cards | Gift Cards | [gift-cards-loyalty-back-office.md](gift-cards-loyalty-back-office.md) |
 | Gift Cards | Issue Donated | [gift-cards-loyalty-back-office.md](gift-cards-loyalty-back-office.md) |
 | Gift Cards | Issue Promo | [gift-cards-loyalty-back-office.md](gift-cards-loyalty-back-office.md) |
 | Loyalty | Monthly Eligible | [gift-cards-loyalty-back-office.md](gift-cards-loyalty-back-office.md) |
+| Loyalty | Reward History | [gift-cards-loyalty-back-office.md](gift-cards-loyalty-back-office.md) |
 | Loyalty | Adjust Points | [gift-cards-loyalty-back-office.md](gift-cards-loyalty-back-office.md) |
 | Loyalty | Program Settings | [gift-cards-loyalty-back-office.md](gift-cards-loyalty-back-office.md) |
 | Staff | Team | [staff-administration.md](staff-administration.md) |
 | Staff | Tasks | [staff-administration.md](staff-administration.md) |
 | Staff | Schedule | [staff-administration.md](staff-administration.md) |
-| Staff | Commission | [staff-administration.md](staff-administration.md) |
+| Staff | Commissions | [staff-administration.md](staff-administration.md) |
 | Staff | Audit | [staff-administration.md](staff-administration.md) |
 | QBO bridge | Connection | [qbo-bridge.md](qbo-bridge.md) |
 | QBO bridge | Mappings | [qbo-bridge.md](qbo-bridge.md) |
@@ -164,22 +170,32 @@ Source of truth for labels: `client/src/components/layout/sidebarSections.ts` (`
 | Payments | Health | [payments-operations.md](payments-operations.md) |
 | Reports | _(no subsections)_ | [reports-curated-manual.md](reports-curated-manual.md), [reports-curated-admin.md](reports-curated-admin.md) |
 | Insights | _(no subsections; full-screen Metabase)_ | [insights-back-office.md](insights-back-office.md) |
-| Staff | Commission reports | [insights-back-office.md](insights-back-office.md) |
 | Appointments | Scheduler | [appointments.md](appointments.md) |
 | Appointments | Conflicts | [appointments.md](appointments.md) |
+| Shipping | _(no subsections)_ | [../SHIPPING_AND_SHIPMENTS_HUB.md](../SHIPPING_AND_SHIPMENTS_HUB.md) |
+| Tasks | _(no subsections)_ | [pos-tasks.md](pos-tasks.md), [staff-administration.md](staff-administration.md) |
+| Layaways | _(no subsections)_ | [../LAYAWAY_OPERATIONS.md](../LAYAWAY_OPERATIONS.md) |
+| Settings | Settings Hub | [settings-back-office.md](settings-back-office.md) |
 | Settings | Profile | [settings-back-office.md](settings-back-office.md) |
-| Settings | General | [settings-back-office.md](settings-back-office.md) |
+| Settings | Staff Access Defaults | [settings-back-office.md](settings-back-office.md) |
+| Settings | Online Store | [settings-back-office.md](settings-back-office.md), [../ONLINE_STORE.md](../ONLINE_STORE.md) |
+| Settings | Tag Designer | [settings-back-office.md](settings-back-office.md) |
+| Settings | Terminal Overrides | [settings-back-office.md](settings-back-office.md) |
+| Settings | Station & Network | [settings-back-office.md](settings-back-office.md) |
 | Settings | Data & Backups | [settings-back-office.md](settings-back-office.md) |
 | Settings | Printers & Scanners | [settings-back-office.md](settings-back-office.md) |
 | Settings | Receipt Settings | [../RECEIPT_BUILDER_AND_DELIVERY.md](../RECEIPT_BUILDER_AND_DELIVERY.md) (product doc; staff: test receipts after edits) |
-| Settings | Integrations | [settings-back-office.md](settings-back-office.md) |
-| Settings | Staff access defaults | [settings-back-office.md](settings-back-office.md) |
+| Settings | Daily Financial Report | [../DAILY_FINANCIAL_REPORT.md](../DAILY_FINANCIAL_REPORT.md) |
+| Settings | Remote Access | [settings-back-office.md](settings-back-office.md) |
+| Settings | Integrations Overview | [settings-back-office.md](settings-back-office.md) |
+| Settings | Podium, Email, Shippo, Helcim, QuickBooks, Constant Contact | [settings-back-office.md](settings-back-office.md) and the linked integration guides in this index |
 | Settings | Counterpoint | [../COUNTERPOINT_SYNC_GUIDE.md](../COUNTERPOINT_SYNC_GUIDE.md), [../COUNTERPOINT_BRIDGE_OPERATOR_MANUAL.md](../COUNTERPOINT_BRIDGE_OPERATOR_MANUAL.md) |
+| Settings | Fal.ai, Geoapify, Weather, Insights, Meilisearch | [settings-back-office.md](settings-back-office.md) and the linked integration guides in this index |
 | Settings | ROS Dev Center | [settings-back-office.md](settings-back-office.md), [../ROS_DEV_CENTER.md](../ROS_DEV_CENTER.md) |
 | Settings | NuORDER | [../NUORDER_INTEGRATION.md](../NUORDER_INTEGRATION.md) |
-| Settings | Online store | [settings-back-office.md](settings-back-office.md), [../ONLINE_STORE.md](../ONLINE_STORE.md) |
-| Settings | Help center | [../MANUAL_CREATION.md](../MANUAL_CREATION.md), **Help** drawer in-app |
-| Settings | Bug reports | [settings-back-office.md](settings-back-office.md), [bug-reports-submit-manual.md](bug-reports-submit-manual.md), [bug-reports-admin-manual.md](bug-reports-admin-manual.md) |
+| Settings | Help Center | [../MANUAL_CREATION.md](../MANUAL_CREATION.md), in-app **Help Center Manager** manual |
+| Settings | ROSIE | [../ROSIE_HOST_STACK.md](../ROSIE_HOST_STACK.md), in-app **ROSIE Settings** manual |
+| Settings | ROS Operations & Support Center | [settings-back-office.md](settings-back-office.md) |
 
 ---
 
@@ -209,4 +225,4 @@ Source: `client/src/components/pos/PosSidebar.tsx` (`PosTabId`).
 
 ---
 
-**Last reviewed:** 2026-05-19 (v0.70.0 deployment docs refresh)
+**Last reviewed:** 2026-07-10 (current navigation and Help/ROSIE review)

@@ -13,11 +13,11 @@ status: approved
 
 ## Screenshots
 
-![Help Center settings](../images/help/settings-help-center-settings-panel/example.png)
+![Help Library](../images/help/help-center-drawer/example.png)
 
-![ROSIE settings](../images/help/settings-rosie-settings-panel/example.png)
+![Search results](../images/help/help-center-drawer/search.png)
 
-![Help Center drawer](../images/help/help-center-drawer/example.png)
+![Ask ROSIE](../images/help/help-center-drawer/ask-rosie.png)
 ## What this is
 
 Help Center is the in-app place for staff manuals, workflow search, and ROSIE assistance.
@@ -40,11 +40,15 @@ Use **Help Library** to read manuals, **Ask ROSIE** for a direct sourced answer,
 
 ## Search Manuals
 
-Type into the search box to find matching help sections. If live search is unavailable, treat it as a Help Center Host stack issue and report it.
+Type into the search box to find matching help sections. Riverside uses the live Help index when it is healthy and automatically searches the bundled on-device manuals when that service is unavailable. The fallback supports normal phrases, word variants, and common typing mistakes, so staff can continue finding procedures during an indexing outage.
+
+If the fallback notice appears, staff can keep using the results. A manager or support person should still repair or rebuild the live Help index so store-specific manual overrides and the server search stay current.
 
 ## Print the Current Help Section
 
 When a manual is open, select **Print This Manual** to print only the viewed help article. Select **Print Full Guide** to build the current Help Library guide and open the system print dialog when it is ready.
+
+Managers can also open **Settings -> Help Center -> User Manual PDF** to download the complete current `RiversideOS-User-Manual.pdf`, including its clickable table of contents, PDF bookmarks, page numbers, and all available manual screenshots.
 
 Printed help includes:
 
@@ -105,4 +109,5 @@ Use **Speech On** only when it is appropriate for ROSIE to speak aloud at the st
 ## Related Workflows
 
 - [ROSIE Settings](manual:settings-rosie-settings-panel)
+- [Help Center Manager](manual:settings-help-center-settings-panel)
 - [Bug Report Flow](manual:bug-report-flow)

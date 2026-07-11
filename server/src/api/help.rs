@@ -1565,10 +1565,66 @@ mod tests {
             .iter()
             .any(|action| action.id == "review_offline_recovery"));
     }
+
+    #[test]
+    fn help_excerpt_removes_markdown_images_and_link_targets() {
+        let excerpt = super::excerpt_from_body(
+            "![Register](../images/help/register.png) Read [Closing the Register](manual:pos-close-register-modal) before continuing.",
+            220,
+        );
+
+        assert_eq!(excerpt, "Read Closing the Register before continuing.");
+    }
+}
+
+fn strip_markdown_links(body: &str) -> String {
+    let mut output = String::with_capacity(body.len());
+    let mut remaining = body;
+
+    while let Some(open) = remaining.find('[') {
+        let is_image = remaining[..open].ends_with('!');
+        let prefix_end = if is_image {
+            open.saturating_sub(1)
+        } else {
+            open
+        };
+        output.push_str(&remaining[..prefix_end]);
+
+        let label_start = open + 1;
+        let Some(label_end_offset) = remaining[label_start..].find("](") else {
+            output.push_str(&remaining[open..]);
+            return output;
+        };
+        let label_end = label_start + label_end_offset;
+        let target_start = label_end + 2;
+        let Some(target_end_offset) = remaining[target_start..].find(')') else {
+            output.push_str(&remaining[open..]);
+            return output;
+        };
+        let target_end = target_start + target_end_offset;
+
+        if !is_image {
+            output.push_str(&remaining[label_start..label_end]);
+        }
+        remaining = &remaining[target_end + 1..];
+    }
+
+    output.push_str(remaining);
+    output
 }
 
 fn excerpt_from_body(body: &str, max: usize) -> String {
-    let t = body.split_whitespace().collect::<Vec<_>>().join(" ");
+    let plain = strip_markdown_links(body)
+        .chars()
+        .map(|character| {
+            if matches!(character, '`' | '*' | '_' | '>' | '#' | '|' | '~') {
+                ' '
+            } else {
+                character
+            }
+        })
+        .collect::<String>();
+    let t = plain.split_whitespace().collect::<Vec<_>>().join(" ");
     if t.len() <= max {
         t
     } else {

@@ -248,6 +248,8 @@ npm run generate:help:components
 Or: `cd client && npm run generate:help:components`
 
 - **Dry run** (list only): append **`-- --dry-run`**
+
+Dry runs do not prune `.trash`, rewrite manuals, or refresh generated Help artifacts.
 - **Include** `ui-shadcn` primitives: append **`-- --include-shadcn`**
 
 Each new file is named from the component path, e.g. `pos/Cart.tsx` → **`pos-cart-manual.md`**, with **`order`** in the **1000+** range so hand-written manuals (lower `order`) stay at the top of the Help picker. Tags include **`auto-scaffold`** so you can find generated stubs. Stubs also get **`source:`** (repo path to the `.tsx` file), **`last_scanned:`** (ISO date), and a **`<!-- help:component-source -->`** block in the body linking to that file. Existing `*-manual.md` files with the same name are **skipped** (safe to re-run).

@@ -13,6 +13,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -432,7 +433,7 @@ function buildImageUsageMap(manuals) {
   return imageUsage;
 }
 
-function collectManualQuality(manual, imageUsage) {
+function collectManualQuality(manual, imageUsage, knownManualIds) {
   const raw = fs.readFileSync(path.join(REPO_ROOT, manual.markdown), "utf8");
   const { attrs, body } = splitFrontMatter(raw);
   const headings = extractHeadings(body);
@@ -445,13 +446,21 @@ function collectManualQuality(manual, imageUsage) {
   const manualFolderImages = uniqueLocalImages.filter((imagePath) =>
     imagePath.startsWith(`${dedicatedImagePrefix}/`),
   );
+  const uniqueImageContentCount = (imagePaths) =>
+    new Set(
+      imagePaths
+        .filter((imagePath) => fs.existsSync(path.join(REPO_ROOT, imagePath)))
+        .map((imagePath) =>
+          crypto
+            .createHash("sha256")
+            .update(fs.readFileSync(path.join(REPO_ROOT, imagePath)))
+            .digest("hex"),
+        ),
+    ).size;
+  const contentUniqueLocalImages = uniqueImageContentCount(uniqueLocalImages);
+  const dedicatedContentUniqueLocalImages = uniqueImageContentCount(manualFolderImages);
   const reusedLocalImages = uniqueLocalImages.filter(
     (imagePath) => (imageUsage.get(imagePath)?.size ?? 0) > 1,
-  );
-  const workflowLocalImages = uniqueLocalImages.filter(
-    (imagePath) =>
-      imagePath.startsWith(`${dedicatedImagePrefix}/`) ||
-      imagePath.startsWith("client/src/assets/images/help/"),
   );
   const requiredBuckets = Object.entries(HELP_MANUAL_STANDARD.required).map(
     ([key, bucket]) => ({
@@ -470,11 +479,24 @@ function collectManualQuality(manual, imageUsage) {
   const placeholderHits = HELP_MANUAL_STANDARD.placeholderPatterns.filter((pattern) =>
     body.toLowerCase().includes(pattern),
   );
+  const missingLocalImages = uniqueLocalImages.filter(
+    (imagePath) => !fs.existsSync(path.join(REPO_ROOT, imagePath)),
+  );
+  const brokenManualLinks = [...body.matchAll(/\]\(manual:([^)]+)\)/g)]
+    .map((match) => match[1].trim())
+    .filter((manualId) => !knownManualIds.has(manualId));
 
   /** @type {string[]} */
   const errors = [];
   /** @type {string[]} */
   const warnings = [];
+
+  for (const imagePath of missingLocalImages) {
+    errors.push(`Missing local screenshot: ${imagePath}.`);
+  }
+  for (const manualId of brokenManualLinks) {
+    errors.push(`Broken manual link: manual:${manualId}.`);
+  }
 
   if (!extractFirstH1(body)) {
     errors.push("Missing visible H1 title.");
@@ -494,9 +516,9 @@ function collectManualQuality(manual, imageUsage) {
         `Approved manuals need at least ${MIN_APPROVED_UNIQUE_SCREENSHOTS} unique local screenshots.`,
       );
     }
-    if (workflowLocalImages.length < TARGET_APPROVED_DEDICATED_SCREENSHOTS) {
+    if (dedicatedContentUniqueLocalImages < TARGET_APPROVED_DEDICATED_SCREENSHOTS) {
       warnings.push(
-        `Add workflow screenshots under client/src/assets/images/help/; target ${TARGET_APPROVED_DEDICATED_SCREENSHOTS}-${TARGET_MAJOR_WORKFLOW_SCREENSHOTS}.`,
+        `Add dedicated workflow screenshots under client/src/assets/images/help/${manual.id}/; target ${TARGET_APPROVED_DEDICATED_SCREENSHOTS}-${TARGET_MAJOR_WORKFLOW_SCREENSHOTS}.`,
       );
     }
     if (placeholderHits.length > 0) {
@@ -523,13 +545,14 @@ function collectManualQuality(manual, imageUsage) {
     screenshots: {
       local_refs: localImageRefs.length,
       unique_local: uniqueLocalImages.length,
-      dedicated_unique_local: workflowLocalImages.length,
+      content_unique_local: contentUniqueLocalImages,
+      dedicated_unique_local: dedicatedContentUniqueLocalImages,
       manual_folder_unique_local: manualFolderImages.length,
       reused_unique_local: reusedLocalImages.length,
       target_unique_local_minimum: MIN_APPROVED_UNIQUE_SCREENSHOTS,
       target_dedicated_unique_local: TARGET_APPROVED_DEDICATED_SCREENSHOTS,
       major_workflow_target_unique_local: TARGET_MAJOR_WORKFLOW_SCREENSHOTS,
-      dedicated_paths: workflowLocalImages,
+      dedicated_paths: manualFolderImages,
       manual_folder_paths: manualFolderImages,
       reused_paths: reusedLocalImages,
     },
@@ -571,7 +594,7 @@ function writeQualityReport(allManuals, qualityById) {
     });
   const report = {
     generated_at: new Date().toISOString(),
-    standard_version: "help-manual-standard-v2",
+    standard_version: "help-manual-standard-v3",
     published_manual_count: allManuals.filter((manual) => manual.status === "approved").length,
     draft_manual_count: allManuals.filter((manual) => manual.status === "draft").length,
     screenshot_standard: {
@@ -659,18 +682,19 @@ function discoverManuals() {
   return manuals;
 }
 
-function validateManuals(manuals) {
+function validateManuals(manuals, writeReport = true) {
   /** @type {Map<string, ReturnType<typeof collectManualQuality>>} */
   const qualityById = new Map();
   const imageUsage = buildImageUsageMap(manuals);
+  const knownManualIds = new Set(manuals.map((manual) => manual.id));
   for (const m of manuals) {
     const abs = path.join(REPO_ROOT, m.markdown);
     if (!fs.existsSync(abs)) {
       throw new Error(`Manual ${m.id}: file not found: ${m.markdown}`);
     }
-    qualityById.set(m.id, collectManualQuality(m, imageUsage));
+    qualityById.set(m.id, collectManualQuality(m, imageUsage, knownManualIds));
   }
-  writeQualityReport(manuals, qualityById);
+  if (writeReport) writeQualityReport(manuals, qualityById);
 
   const approvedErrors = manuals
     .filter((manual) => manual.status === "approved")
@@ -901,7 +925,7 @@ function runRescanComponents() {
   let skippedUnchanged = 0;
   let skippedNotTracked = 0;
 
-  pruned = pruneTrash(60);
+  if (!dryRun) pruned = pruneTrash(60);
 
   for (let index = 0; index < sortedIds.length; index += 1) {
     const id = sortedIds[index];
@@ -1155,7 +1179,12 @@ if (argv.includes("--rescan-components")) {
 }
 
 const manuals = discoverManuals();
-validateManuals(manuals);
-writeTs(manuals);
-writeRs(manuals);
+const dryRun = argv.includes("--dry-run");
+validateManuals(manuals, !dryRun);
+if (!dryRun) {
+  writeTs(manuals);
+  writeRs(manuals);
+} else {
+  console.log("Dry run: generated Help artifacts were not written.");
+}
 console.log("generate-help-manifest: ok");

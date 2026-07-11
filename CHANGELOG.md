@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.90.0] - 2026-06-04
 
 ### Added
+- **RiversideOS User Manual PDF**: Added live, on-demand PDF generation in Help Center Settings with current effective manuals, embedded screenshots, clickable contents, PDF bookmarks, native desktop download, and print/save-to-PDF support.
 - **Wedding Party Held Deposits in Register**: Added immediate beneficiary-customer deposit notices, Pay-screen application, customer-history visibility, fulfillment-timed QBO liability release, and atomic void/cancellation restoration for split wedding deposits held before a member has a Transaction Record.
 - **Operational Outbox and Recovery Telemetry**: Added durable post-checkout side-effect processing, Main Hub-backed offline/print recovery visibility, phase metrics, and migration `124` operational recovery tables.
 - **v0.90.0 Release Documentation Set**: Added current release notes and certification evidence for the v0.90.0 publication, replacing stale v0.85.9 current-release guidance in active deployment docs.

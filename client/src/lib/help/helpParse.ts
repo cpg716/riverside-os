@@ -177,14 +177,99 @@ export function buildLocalSearchChunks(
   return chunks;
 }
 
-function scoreChunk(qLower: string, chunk: HelpSearchChunk): number {
-  const hay = `${chunk.sectionHeading} ${chunk.body}`.toLowerCase();
-  if (!hay.includes(qLower)) return 0;
-  let s = 0;
-  if (chunk.sectionHeading.toLowerCase().includes(qLower)) s += 10;
-  const n = hay.split(qLower).length - 1;
-  s += Math.min(n, 5) * 2;
-  return s;
+const SEARCH_STOP_WORDS = new Set([
+  "a",
+  "an",
+  "and",
+  "do",
+  "for",
+  "how",
+  "i",
+  "in",
+  "is",
+  "of",
+  "on",
+  "the",
+  "to",
+  "what",
+  "where",
+  "with",
+]);
+
+function searchWords(value: string): string[] {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .split(/\s+/)
+    .filter((word) => word.length > 1 && !SEARCH_STOP_WORDS.has(word));
+}
+
+function stemSearchWord(value: string): string {
+  if (value.length > 6 && value.endsWith("ing")) return value.slice(0, -3);
+  if (value.length > 5 && value.endsWith("ed")) return value.slice(0, -2);
+  if (value.length > 5 && value.endsWith("es")) return value.slice(0, -2);
+  if (value.length > 4 && value.endsWith("s")) return value.slice(0, -1);
+  return value;
+}
+
+function oneEditOrLess(left: string, right: string): boolean {
+  if (left === right) return true;
+  if (Math.abs(left.length - right.length) > 1) return false;
+  let i = 0;
+  let j = 0;
+  let edits = 0;
+  while (i < left.length && j < right.length) {
+    if (left[i] === right[j]) {
+      i += 1;
+      j += 1;
+      continue;
+    }
+    edits += 1;
+    if (edits > 1) return false;
+    if (left.length > right.length) i += 1;
+    else if (right.length > left.length) j += 1;
+    else {
+      i += 1;
+      j += 1;
+    }
+  }
+  return edits + Number(i < left.length || j < right.length) <= 1;
+}
+
+function searchWordMatches(queryWord: string, candidateWord: string): boolean {
+  const queryStem = stemSearchWord(queryWord);
+  const candidateStem = stemSearchWord(candidateWord);
+  if (queryStem === candidateStem) return true;
+  if (
+    queryStem.length >= 4 &&
+    candidateStem.length >= 4 &&
+    queryStem.slice(0, 4) === candidateStem.slice(0, 4)
+  ) {
+    return true;
+  }
+  return queryStem.length >= 5 && candidateStem.length >= 5
+    ? oneEditOrLess(queryStem, candidateStem)
+    : false;
+}
+
+function scoreChunk(query: string, chunk: HelpSearchChunk): number {
+  const normalizedQuery = query.trim().toLowerCase().replace(/\s+/g, " ");
+  const title = `${chunk.manualTitle} ${chunk.sectionHeading}`.toLowerCase();
+  const hay = `${title} ${chunk.body}`.toLowerCase();
+  const queryWords = searchWords(query);
+  if (queryWords.length === 0) return 0;
+  const candidateWords = searchWords(hay);
+  let score = hay.includes(normalizedQuery) ? 24 : 0;
+  let matched = 0;
+
+  for (const queryWord of queryWords) {
+    if (!candidateWords.some((candidate) => searchWordMatches(queryWord, candidate))) continue;
+    matched += 1;
+    score += title.includes(queryWord) ? 8 : 3;
+  }
+
+  const requiredMatches = Math.max(1, Math.ceil(queryWords.length * 0.6));
+  return matched >= requiredMatches ? score + matched * 2 : 0;
 }
 
 export function localHelpSearch(
@@ -192,7 +277,7 @@ export function localHelpSearch(
   allChunks: HelpSearchChunk[],
   limit: number,
 ): Array<HelpSearchChunk & { excerpt: string }> {
-  const q = query.trim().toLowerCase();
+  const q = query.trim();
   if (q.length < 2) return [];
   const scored = allChunks
     .map((c) => ({ c, score: scoreChunk(q, c) }))
@@ -207,7 +292,13 @@ export function localHelpSearch(
 }
 
 function excerptFromBody(body: string, max: number): string {
-  const t = body.split(/\s+/).join(" ");
+  const t = body
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/[`*_>#|~-]+/g, " ")
+    .split(/\s+/)
+    .join(" ")
+    .trim();
   if (t.length <= max) return t;
   return `${t.slice(0, max - 1)}…`;
 }

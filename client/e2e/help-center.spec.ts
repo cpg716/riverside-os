@@ -7,6 +7,7 @@
  *   E2E_BASE_URL="http://localhost:43173" E2E_API_BASE="http://127.0.0.1:43300" npm run test:e2e -- e2e/help-center.spec.ts --workers=1
  */
 import { expect, test } from "@playwright/test";
+import { readFile } from "node:fs/promises";
 import {
   ensureMainNavigationVisible,
   openBackofficeSidebarTab,
@@ -88,6 +89,7 @@ test("opens Help from Back Office header", async ({ page }) => {
 });
 
 test("prints the currently viewed Help section", async ({ page }) => {
+  test.setTimeout(60_000);
   await signInToBackOffice(page);
   await page.goto("/", { waitUntil: "domcontentloaded" });
   await page.getByTestId("help-center-trigger").click();
@@ -97,12 +99,13 @@ test("prints the currently viewed Help section", async ({ page }) => {
   await page.getByTestId("help-center-print-current").click();
   const printPage = await popupPromise;
 
-  await expect(printPage.locator("body")).toContainText("Register (POS)");
-  await expect(printPage.locator("body")).toContainText(/staff guide/i);
+  await expect(printPage.locator("body")).toContainText(/Getting Started with Riverside OS/i);
+  await expect(printPage.locator("body")).toContainText(/starting guide for every Riverside OS staff member/i);
   await expect(printPage.getByTestId("help-center-search")).toHaveCount(0);
 });
 
 test("opens Help from POS top bar", async ({ page }) => {
+  test.setTimeout(60_000);
   await signInToBackOffice(page);
   await page.goto("/", { waitUntil: "domcontentloaded" });
   await enterPosShell(page);
@@ -123,6 +126,37 @@ test("help search lists Results after query (Meilisearch or local fallback)", as
   await expect(page.getByText("Results").first()).toBeVisible({
     timeout: 15_000,
   });
+});
+
+test("help search uses bundled manuals when live search is unavailable", async ({
+  page,
+}) => {
+  test.setTimeout(60_000);
+  await signInToBackOffice(page);
+  await page.route("**/api/help/search?**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ hits: [], search_mode: "unavailable" }),
+    });
+  });
+
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+  const manualListLoaded = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/api/help/manuals") &&
+      response.request().method() === "GET" &&
+      response.status() === 200,
+    { timeout: 20_000 },
+  );
+  await page.getByTestId("help-center-trigger").click();
+  await manualListLoaded;
+  await expect(page.getByText(/loading manuals/i)).toBeHidden({ timeout: 20_000 });
+  await page.getByTestId("help-center-search").fill("how do I close the register");
+
+  await expect(page.getByText("Results").first()).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText(/bundled on-device manuals/i)).toBeVisible();
+  await expect(page.getByTestId("help-center-search-result").first()).toContainText(/register/i);
 });
 
 test("Ask ROSIE sends Help request and renders sources", async ({
@@ -1081,6 +1115,9 @@ test.describe("Help Center Manager (settings)", () => {
       managerPanel.getByRole("button", { name: /automation/i }).first(),
     ).toBeVisible();
     await expect(
+      managerPanel.getByRole("button", { name: /user manual pdf/i }).first(),
+    ).toBeVisible();
+    await expect(
       managerPanel.getByRole("button", { name: /search & index/i }).first(),
     ).toBeVisible();
     await expect(
@@ -1148,6 +1185,71 @@ test.describe("Help Center Manager (settings)", () => {
 
     expect(typeof body).toBe("object");
     expect(typeof body.full_reindex_fallback).toBe("boolean");
+  });
+
+  test("downloads a current RiversideOS User Manual PDF", async ({ page }) => {
+    test.setTimeout(120_000);
+    await signInToBackOffice(page);
+
+    await page.route("**/api/help/manuals", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          manuals: [
+            {
+              id: "getting-started",
+              title: "Getting Started with Riverside OS",
+              summary: "First-day orientation for staff.",
+              order: 1,
+            },
+            {
+              id: "payments-workspace",
+              title: "Payments Operations",
+              summary: "Review payment health and recovery.",
+              order: 2,
+            },
+          ],
+        }),
+      });
+    });
+    await page.route("**/api/help/manuals/getting-started", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          id: "getting-started",
+          title: "Getting Started with Riverside OS",
+          markdown: "# Getting Started\n\n## Sign in\n\n1. Select your identity.\n2. Enter your **Access PIN**.",
+        }),
+      });
+    });
+    await page.route("**/api/help/manuals/payments-workspace", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          id: "payments-workspace",
+          title: "Payments Operations",
+          markdown: "# Payments Operations\n\n## Payment health\n\nReview uncertain attempts before retrying a card.",
+        }),
+      });
+    });
+
+    await openSettingsHelpCenterManager(page);
+    await page.getByRole("button", { name: /user manual pdf/i }).click();
+    await expect(page.getByText(/build one friendly, letter-size pdf/i)).toBeVisible();
+
+    const downloadPromise = page.waitForEvent("download", { timeout: 60_000 });
+    await page.getByTestId("help-center-user-manual-download").click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toBe("RiversideOS-User-Manual.pdf");
+    const path = await download.path();
+    expect(path).not.toBeNull();
+    const bytes = await readFile(path!);
+    expect(bytes.subarray(0, 5).toString("ascii")).toBe("%PDF-");
+    expect(bytes.length).toBeGreaterThan(5_000);
+    await expect(page.getByText(/last generated/i)).toBeVisible();
   });
 });
 

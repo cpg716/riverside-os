@@ -119,6 +119,7 @@ async function waitForBackofficeShellReady(page, message) {
 async function selectBackofficeStaffMember(page) {
   const preferredName = process.env.E2E_BO_STAFF_NAME?.trim() || "Chris G";
   const selectorButton = page.getByTestId("staff-selector-button");
+  await selectorButton.waitFor({ state: "visible", timeout: 15000 }).catch(() => {});
   if (!(await selectorButton.isVisible().catch(() => false))) {
     return;
   }
@@ -134,13 +135,11 @@ async function selectBackofficeStaffMember(page) {
     await preferredOption.click();
     return;
   }
-  const options = page
-    .locator("button")
-    .filter({ has: page.locator("img") })
-    .filter({ hasNotText: /select staff member/i });
-  await options.first().waitFor({ state: "visible", timeout: 5000 }).catch(() => {});
-  if ((await options.count()) > 0) {
-    await options.first().click();
+  const dropdown = page.getByTestId("staff-selector-dropdown");
+  const firstIdentity = dropdown.getByTestId("staff-identity-selector-1");
+  await firstIdentity.waitFor({ state: "visible", timeout: 15000 }).catch(() => {});
+  if (await firstIdentity.isVisible().catch(() => false)) {
+    await firstIdentity.click();
   }
 }
 
@@ -158,9 +157,8 @@ async function signInToBackOffice(page, { staffCode }) {
   await selectBackofficeStaffMember(page);
 
   for (const digit of staffCode) {
-    await page.getByRole("button", { name: new RegExp(`^${digit}$`) }).click();
+    await page.getByTestId(`pin-key-${digit}`).click();
   }
-  await page.getByRole("button", { name: /^continue$/i }).click();
   await signInHeading.waitFor({ state: "hidden", timeout: 20000 });
   await waitForBackofficeShellReady(page, "Back Office shell never finished bootstrap after sign-in");
 }
@@ -582,6 +580,26 @@ async function runSpec(page, api, spec, opts) {
         state: "visible",
         timeout: 15000,
       });
+      const helpDialog = page.getByRole("dialog", { name: /help/i });
+      await helpDialog.getByText(/loading manuals/i).waitFor({
+        state: "hidden",
+        timeout: 20000,
+      }).catch(() => {});
+      if (spec.modeButton) {
+        await page.getByTestId(spec.modeButton).click();
+        await page.waitForTimeout(500);
+      }
+      if (spec.searchQuery) {
+        await page.getByTestId("help-center-search").fill(spec.searchQuery);
+        await helpDialog.getByText("Results", { exact: true }).waitFor({
+          state: "visible",
+          timeout: 15000,
+        });
+        await helpDialog.getByText("Searching…", { exact: true }).waitFor({
+          state: "hidden",
+          timeout: 15000,
+        }).catch(() => {});
+      }
       return capture(page, spec);
     }
     case "bug-report-dialog": {
@@ -637,6 +655,20 @@ async function runSpec(page, api, spec, opts) {
       } else {
         await page.waitForTimeout(1200);
       }
+      if (spec.tabButton) {
+        await page.getByRole("button", { name: spec.tabButton }).first().click();
+        await page.waitForTimeout(900);
+      }
+      return capture(page, spec);
+    }
+    case "wedding-workspace": {
+      await prepareBase(page, opts);
+      await openBackofficeSidebarTab(page, /^weddings$/i);
+      const partiesTab = page.getByRole("button", { name: /^parties$/i }).first();
+      await partiesTab.waitFor({ state: "visible", timeout: 20000 });
+      const targetTab = page.getByRole("button", { name: spec.weddingTab }).first();
+      await targetTab.click();
+      await page.waitForTimeout(1200);
       return capture(page, spec);
     }
     case "pos-dashboard": {
@@ -753,9 +785,14 @@ async function main() {
     return;
   }
 
-  const wanted = args.targets.length
+  const selected = args.targets.length
     ? HELP_SCREENSHOT_SPECS.filter((spec) => args.targets.includes(spec.id))
     : HELP_SCREENSHOT_SPECS;
+  // Sign-in captures deliberately clear browser identity. Keep them last so a
+  // full refresh cannot strand every later authenticated target at the gate.
+  const wanted = [...selected].sort(
+    (left, right) => Number(left.kind === "sign-in-gate") - Number(right.kind === "sign-in-gate"),
+  );
 
   if (wanted.length === 0) {
     throw new Error("No matching screenshot targets were selected.");

@@ -35,6 +35,8 @@ The shipped Help Center still uses:
 - generated manifests:
   - `client/src/lib/help/help-manifest.generated.ts`
   - `server/src/logic/help_corpus_manuals.generated.rs`
+- on-demand **RiversideOS User Manual PDF** generation from the live effective
+  Help catalog in Settings -> Help Center -> User Manual PDF
 
 Deterministic screenshot capture is handled by:
 
@@ -49,10 +51,11 @@ npm run generate:help:refresh
 
 By default it will:
 
-1. run `aidocs check` if `uv` is available
-2. auto-boot the local E2E stack when the app is not already running
-3. capture configured Help screenshots with Playwright
-4. run `npm run generate:help`
+1. auto-boot the local E2E stack when the app is not already running
+2. capture configured Help screenshots with Playwright
+3. run `npm run generate:help`
+
+`aidocs check` is optional and runs only with `--run-aidocs-check`.
 
 Optional reindex:
 
@@ -64,6 +67,7 @@ Useful flags:
 
 ```bash
 npm run generate:help:refresh -- --no-auto-boot
+npm run generate:help:refresh -- --run-aidocs-check
 npm run generate:help:refresh -- --skip-screenshots
 npm run generate:help:refresh -- --skip-generate-help
 npm run generate:help:screenshots -- --list
@@ -74,8 +78,17 @@ npm run generate:help:screenshots -- --target settings-help-center-library
 
 The checked-in capture script currently refreshes these shipped Help assets:
 
+- `client/src/assets/images/help/getting-started/sign-in.png`
+- `client/src/assets/images/help/getting-started/back-office.png`
+- `client/src/assets/images/help/getting-started/pos.png`
 - `client/src/assets/images/help/help-center-drawer/example.png`
+- `client/src/assets/images/help/help-center-drawer/search.png`
+- `client/src/assets/images/help/help-center-drawer/ask-rosie.png`
 - `client/src/assets/images/help/settings-help-center-settings-panel/example.png`
+- `client/src/assets/images/help/settings-help-center-settings-panel/library.png`
+- `client/src/assets/images/help/settings-help-center-settings-panel/search-index.png`
+- `client/src/assets/images/help/settings-help-center-settings-panel/rosie-readiness.png`
+- `client/src/assets/images/help/settings-help-center-settings-panel/user-manual-pdf.png`
 - `client/src/assets/images/help/settings-rosie-settings-panel/example.png`
 - `client/src/assets/images/help/remote-access/panel-main.png`
 - `client/src/assets/images/help/pos/register-dashboard.png`
@@ -150,9 +163,37 @@ The checked-in capture script currently refreshes these shipped Help assets:
 - `client/src/assets/images/help/inventory-product-master-form/inventory-list.png`
 - `client/src/assets/images/help/inventory-product-master-form/receiving-context.png`
 - `client/src/assets/images/help/inventory-product-master-form/purchase-orders-context.png`
+- `client/src/assets/images/help/wedding-manager/parties.png`
+- `client/src/assets/images/help/wedding-manager/appointments.png`
+- `client/src/assets/images/help/wedding-manager/readiness.png`
+- `client/src/assets/images/help/payments-workspace/overview.png`
+- `client/src/assets/images/help/payments-workspace/batches.png`
+- `client/src/assets/images/help/payments-workspace/health.png`
+- `client/src/assets/images/help/online-store-workspace/dashboard.png`
+- `client/src/assets/images/help/online-store-workspace/products.png`
+- `client/src/assets/images/help/online-store-workspace/orders.png`
 
 More flows can be added safely by extending
 `client/scripts/help-screenshot-specs.mjs`.
+
+## RiversideOS User Manual PDF
+
+The printable User Manual is generated on demand in the client. It fetches the
+current visible catalog from `/api/help/manuals`, loads each effective manual
+body, embeds the referenced screenshots, and creates a letter-size PDF with a
+cover, clickable table of contents, PDF bookmarks, headers, footers, and page
+numbers.
+
+This is intentionally a live build rather than a checked-in PDF snapshot:
+
+- approved bundled manual updates are included after deployment
+- saved Help Center title, body, ordering, and visibility overrides are included
+- intentionally hidden manuals are omitted
+- **Download Current PDF** uses the native Tauri save dialog on desktop
+- **Print / Save as PDF** opens the current PC print dialog
+
+Previously downloaded or printed copies are snapshots. Generate a new copy
+after Help content changes to receive the latest manual.
 
 ## CI automation
 
@@ -177,6 +218,8 @@ To add a new Help screenshot:
 3. implement the UI steps in `client/scripts/capture-help-screenshots.mjs`
 4. run `npm run generate:help:refresh`
 5. verify the target manual references the same filename
+
+`npm run generate:help` reports a screenshot as **dedicated** only when it lives under that manual's own `client/src/assets/images/help/<manual-id>/` folder. Reused screenshots remain valid context, but they stay visible in the generated backlog instead of satisfying dedicated workflow coverage.
 
 Keep flows deterministic. Prefer:
 

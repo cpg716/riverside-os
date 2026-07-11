@@ -71,6 +71,7 @@ riverside-os-secure-deployment-bundles/
 client/test-results/
 client/playwright-report/
 repomix-output.xml
+output/pdf/*.pdf
 venv/
 .fastembed_cache/
 

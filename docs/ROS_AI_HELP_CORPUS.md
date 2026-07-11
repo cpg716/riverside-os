@@ -18,9 +18,9 @@ The legacy `POST /api/ai/help`, `POST /api/ai/admin/reindex-docs`, `ai_doc_chunk
 
 ## Runtime retrieval
 
-Current Help search uses the `ros_help` Meilisearch index and `GET /api/help/search`.
+Current Help search prefers the `ros_help` Meilisearch index through `GET /api/help/search`. When that service is unavailable, the Help drawer searches the permission-filtered bundled manuals on device so staff can still find procedures. Store-specific database overrides require the live index to be rebuilt before their changed wording is searchable.
 
-ROSIE uses the same Help retrieval path through the server-validated `help_search` tool context. It may also use approved read tools, live Store SOP, short-session UI context, and server-authored operational playbooks when authenticated. It must not query raw business tables or use retired `/api/ai/*` routes.
+ROSIE uses the server-validated local knowledge index built from visible Help manuals, the approved staff corpus, and policy contracts; it does not depend on Meilisearch availability. Its tool context may also use approved read tools, live Store SOP, short-session UI context, and server-authored operational playbooks when authenticated. It must not query raw business tables or use retired `/api/ai/*` routes.
 
 Source priority for answers:
 

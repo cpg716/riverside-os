@@ -13,6 +13,8 @@ import {
   Sparkles,
   Camera,
   ClipboardList,
+  Download,
+  Printer,
 } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import {
@@ -23,7 +25,12 @@ import { useToast } from "../ui/ToastProviderLogic";
 import ConfirmationModal from "../ui/ConfirmationModal";
 import StoreStaffPlaybookCard from "./StoreStaffPlaybookCard";
 import RosieIcon from "../common/RosieIcon";
-import { downloadTextFile } from "../../lib/desktopFileBridge";
+import { downloadBinaryFile, downloadTextFile } from "../../lib/desktopFileBridge";
+import {
+  buildCurrentRiversideUserManual,
+  RIVERSIDE_USER_MANUAL_FILENAME,
+  type RiversideUserManualProgress,
+} from "../../lib/help/userManualPdf";
 
 const baseUrl = getBaseUrl();
 
@@ -96,6 +103,7 @@ type ManagerTab =
   | "editor"
   | "ai-authoring"
   | "automation"
+  | "user-manual"
   | "search-index"
   | "rosie-readiness";
 
@@ -178,6 +186,16 @@ export default function HelpCenterSettingsPanel() {
   const [fullSyncStage, setFullSyncStage] = useState<
     "idle" | "manifest" | "reindex" | "done" | "error"
   >("idle");
+  const [userManualAction, setUserManualAction] = useState<"download" | "print" | null>(null);
+  const [userManualProgress, setUserManualProgress] = useState<RiversideUserManualProgress | null>(
+    null,
+  );
+  const [userManualLastBuild, setUserManualLastBuild] = useState<{
+    generatedAt: Date;
+    manualCount: number;
+    screenshotCount: number;
+    warningCount: number;
+  } | null>(null);
   const [libraryQuery, setLibraryQuery] = useState("");
   const [libraryFilter, setLibraryFilter] = useState<
     "all" | "hidden" | "overridden" | "markdown-overrides"
@@ -425,6 +443,63 @@ export default function HelpCenterSettingsPanel() {
     }
     return out;
   }, [detail, editorMarkdown, useBundledBody]);
+
+  const createUserManual = async (action: "download" | "print") => {
+    if (userManualAction) return;
+    setUserManualAction(action);
+    setUserManualProgress(null);
+    try {
+      const manual = await buildCurrentRiversideUserManual({
+        baseUrl,
+        headers: backofficeHeaders() as Record<string, string>,
+        onProgress: setUserManualProgress,
+      });
+      setUserManualLastBuild({
+        generatedAt: manual.generatedAt,
+        manualCount: manual.manualCount,
+        screenshotCount: manual.screenshotCount,
+        warningCount: manual.warningCount,
+      });
+
+      if (action === "download") {
+        const saved = await downloadBinaryFile(
+          RIVERSIDE_USER_MANUAL_FILENAME,
+          new Uint8Array(await manual.blob.arrayBuffer()),
+          "application/pdf",
+          [{ name: "PDF document", extensions: ["pdf"] }],
+        );
+        if (saved) {
+          toast(
+            `Saved ${RIVERSIDE_USER_MANUAL_FILENAME} with ${manual.manualCount} manuals`,
+            "success",
+          );
+        }
+      } else {
+        await manual.print();
+        toast("Opened the RiversideOS User Manual print dialog", "success");
+      }
+
+      if (manual.warningCount > 0) {
+        pushLog(
+          "user-manual",
+          false,
+          `${manual.warningCount} screenshot(s) could not be embedded in the generated PDF.`,
+        );
+      } else {
+        pushLog(
+          "user-manual",
+          true,
+          `${manual.manualCount} manuals and ${manual.screenshotCount} screenshots were included.`,
+        );
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not create the User Manual PDF";
+      toast(message, "error");
+      pushLog("user-manual", false, message);
+    } finally {
+      setUserManualAction(null);
+    }
+  };
 
   const exportOpsLogs = async () => {
     const body = {
@@ -1040,6 +1115,15 @@ export default function HelpCenterSettingsPanel() {
             }`}
           >
             <Wand2 size={14} /> Automation
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab("user-manual")}
+            className={`ui-btn-secondary inline-flex items-center gap-2 px-3 py-2 text-xs font-black uppercase tracking-wider ${
+              tab === "user-manual" ? "ring-2 ring-app-accent" : ""
+            }`}
+          >
+            <BookOpen size={14} /> User Manual PDF
           </button>
           <button
             type="button"
@@ -1863,6 +1947,145 @@ export default function HelpCenterSettingsPanel() {
         </div>
       )}
 
+      {tab === "user-manual" && (
+        <div className="grid gap-4 lg:grid-cols-[minmax(320px,420px)_1fr]">
+          <section className="rounded-xl border border-app-border bg-app-surface p-5">
+            <h3 className="flex items-center gap-2 text-lg font-black uppercase tracking-tight text-app-text">
+              <BookOpen size={20} /> RiversideOS User Manual
+            </h3>
+            <p className="mt-2 text-sm leading-relaxed text-app-text-muted">
+              Build one friendly, letter-size PDF from every current visible Help manual and its
+              screenshots. The PDF includes a cover, clickable table of contents, section
+              bookmarks, page numbers, and print-optimized typography.
+            </p>
+
+            <div className="mt-4 rounded-xl border border-app-accent/25 bg-app-accent/5 p-3 text-xs text-app-text-muted">
+              Riverside rebuilds the document from the live Help catalog every time. Saved titles,
+              manual bodies, ordering, and visibility overrides are included automatically. Hidden
+              manuals are intentionally omitted.
+            </div>
+
+            <div className="mt-4 grid gap-2 sm:grid-cols-2">
+              <button
+                type="button"
+                data-testid="help-center-user-manual-download"
+                onClick={() => void createUserManual("download")}
+                disabled={userManualAction !== null}
+                className="ui-btn-primary inline-flex min-h-11 items-center justify-center gap-2 px-4 py-2 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <Download size={17} aria-hidden />
+                {userManualAction === "download" ? "Building PDF..." : "Download Current PDF"}
+              </button>
+              <button
+                type="button"
+                data-testid="help-center-user-manual-print"
+                onClick={() => void createUserManual("print")}
+                disabled={userManualAction !== null}
+                className="ui-btn-secondary inline-flex min-h-11 items-center justify-center gap-2 px-4 py-2 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <Printer size={17} aria-hidden />
+                {userManualAction === "print" ? "Preparing Print..." : "Print / Save as PDF"}
+              </button>
+            </div>
+
+            <p className="mt-3 text-xs text-app-text-muted">
+              On a Riverside desktop PC, Download opens the native save dialog. Print opens the PC
+              print dialog, where staff can select a physical printer or Microsoft Print to PDF.
+            </p>
+          </section>
+
+          <section className="rounded-xl border border-app-border bg-app-surface p-5">
+            <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
+              Current build
+            </h3>
+            <div className="mt-3 grid gap-2 sm:grid-cols-3">
+              <div className="rounded-lg border border-app-border bg-app-surface-2/50 p-3">
+                <p className="text-[10px] font-black uppercase tracking-wider text-app-text-muted">
+                  Available manuals
+                </p>
+                <p className="mt-1 text-2xl font-black text-app-text">
+                  {rows.filter((row) => !row.hidden).length}
+                </p>
+              </div>
+              <div className="rounded-lg border border-app-border bg-app-surface-2/50 p-3">
+                <p className="text-[10px] font-black uppercase tracking-wider text-app-text-muted">
+                  Last PDF manuals
+                </p>
+                <p className="mt-1 text-2xl font-black text-app-text">
+                  {userManualLastBuild?.manualCount ?? "—"}
+                </p>
+              </div>
+              <div className="rounded-lg border border-app-border bg-app-surface-2/50 p-3">
+                <p className="text-[10px] font-black uppercase tracking-wider text-app-text-muted">
+                  Screenshots embedded
+                </p>
+                <p className="mt-1 text-2xl font-black text-app-text">
+                  {userManualLastBuild?.screenshotCount ?? "—"}
+                </p>
+              </div>
+            </div>
+
+            {userManualProgress ? (
+              <div className="mt-4 rounded-xl border border-app-border bg-app-surface-2/40 p-3">
+                <div className="flex items-center justify-between gap-3 text-xs">
+                  <span className="font-semibold text-app-text">{userManualProgress.message}</span>
+                  <span className="font-mono text-app-text-muted">
+                    {userManualProgress.total > 0
+                      ? `${userManualProgress.completed}/${userManualProgress.total}`
+                      : "working"}
+                  </span>
+                </div>
+                <div
+                  role="progressbar"
+                  aria-label="RiversideOS User Manual generation"
+                  aria-valuemin={0}
+                  aria-valuemax={Math.max(1, userManualProgress.total)}
+                  aria-valuenow={userManualProgress.completed}
+                  className="mt-2 h-2 overflow-hidden rounded-full bg-app-border/50"
+                >
+                  <div
+                    className="h-full rounded-full bg-app-accent transition-[width]"
+                    style={{
+                      width: `${
+                        userManualProgress.total > 0
+                          ? Math.min(
+                              100,
+                              Math.round(
+                                (userManualProgress.completed / userManualProgress.total) * 100,
+                              ),
+                            )
+                          : 8
+                      }%`,
+                    }}
+                  />
+                </div>
+              </div>
+            ) : (
+              <p className="mt-4 rounded-xl border border-dashed border-app-border p-4 text-sm text-app-text-muted">
+                No PDF has been generated in this session. Select Download or Print to build the
+                latest manual now.
+              </p>
+            )}
+
+            {userManualLastBuild ? (
+              <div className="mt-3 text-xs text-app-text-muted">
+                Last generated {userManualLastBuild.generatedAt.toLocaleString()}.
+                {userManualLastBuild.warningCount > 0 ? (
+                  <span className="ml-1 font-semibold text-amber-700 dark:text-amber-300">
+                    {userManualLastBuild.warningCount} screenshot warning(s) were recorded in the
+                    operations log.
+                  </span>
+                ) : (
+                  <span className="ml-1 font-semibold text-emerald-700 dark:text-emerald-300">
+                    All referenced screenshots were embedded.
+                  </span>
+                )}
+              </div>
+            ) : null}
+          </section>
+        </div>
+      )}
+
       {tab === "search-index" && (
         <div className="grid gap-4 lg:grid-cols-[minmax(280px,360px)_1fr]">
           <section className="rounded-xl border border-app-border bg-app-surface p-4">
@@ -2021,7 +2244,7 @@ export default function HelpCenterSettingsPanel() {
               <RosieIcon size={16} alt="" /> ROSIE readiness
             </h3>
             <p className="mt-1 text-xs text-app-text-muted">
-              Early quality gates for future local-LLM Help integration.
+              Current Help Library inputs used by staff search and ROSIE grounding.
             </p>
             <div className="mt-4 space-y-2 text-sm">
               <div className="rounded border border-app-border bg-app-surface-2/40 p-2">
@@ -2050,7 +2273,7 @@ export default function HelpCenterSettingsPanel() {
             <ul className="mt-2 list-disc space-y-2 pl-5 text-sm text-app-text">
               <li>
                 Keep summaries and headings clear so chunked search results are
-                easier for staff and future ROSIE grounding.
+                easier for staff and current ROSIE grounding.
               </li>
               <li>
                 Run <strong>One-click full sync</strong> after structural manual
@@ -2062,7 +2285,7 @@ export default function HelpCenterSettingsPanel() {
               </li>
               <li>
                 Use manual tags/order consistently to improve prioritization in
-                the Help picker and future AI context routing.
+                the Help picker and ROSIE context routing.
               </li>
             </ul>
           </section>

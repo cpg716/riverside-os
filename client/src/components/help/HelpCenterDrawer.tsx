@@ -22,6 +22,8 @@ import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { HELP_MANUALS, helpManualById } from "../../lib/help/help-manifest";
 import {
+  buildLocalSearchChunks,
+  localHelpSearch,
   orderedSectionSlugs,
   parseHelpToc,
 } from "../../lib/help/helpParse";
@@ -129,6 +131,7 @@ export type HelpCenterInitialTarget = {
 
 const PINNED_HELP_MANUAL_ORDER = new Map(
   [
+    "getting-started",
     "pos",
     "pos-nexo-checkout-drawer",
     "pos-receipt-summary-modal",
@@ -136,6 +139,7 @@ const PINNED_HELP_MANUAL_ORDER = new Map(
     "pos-register-dashboard",
     "pos-register-reports",
     "operations-operational-home",
+    "wedding-manager",
     "customers-customer-relationship-hub-drawer",
     "customers-workspace",
     "orders-workspace",
@@ -147,7 +151,10 @@ const PINNED_HELP_MANUAL_ORDER = new Map(
     "inventory-product-hub-drawer",
     "gift-cards-workspace",
     "qbo-workspace",
+    "payments-workspace",
+    "online-store-workspace",
     "settings-counterpoint-sync-settings-panel",
+    "settings-help-center-settings-panel",
     "help-center-drawer",
     "bug-report-flow",
     "settings-bug-reports-settings-panel",
@@ -160,6 +167,7 @@ function helpManualDomainRank(entry: HelpManualListEntry): number {
   const text = `${entry.id} ${entry.title}`.toLowerCase();
   if (text.includes("pos") || text.includes("register") || text.includes("checkout") || text.includes("receipt")) return 10;
   if (text.includes("operation")) return 20;
+  if (text.includes("wedding")) return 25;
   if (text.includes("customer") || text.includes("podium")) return 30;
   if (text.includes("order") || text.includes("pickup")) return 40;
   if (text.includes("alteration") || text.includes("scheduler")) return 50;
@@ -173,9 +181,30 @@ function helpManualDomainRank(entry: HelpManualListEntry): number {
   ) return 60;
   if (text.includes("gift") || text.includes("loyalty") || text.includes("reward")) return 70;
   if (text.includes("shipping") || text.includes("shipment")) return 80;
+  if (text.includes("payment")) return 85;
+  if (text.includes("online store") || text.includes("storefront")) return 88;
   if (text.includes("qbo") || text.includes("counterpoint") || text.includes("report") || text.includes("insight")) return 90;
   if (text.includes("settings") || text.includes("help") || text.includes("rosie") || text.includes("bug") || text.includes("dev")) return 100;
   return 200;
+}
+
+function helpManualDomainLabel(entry: HelpManualListEntry): string {
+  if (entry.id === "getting-started") return "Start Here";
+  const rank = helpManualDomainRank(entry);
+  if (rank <= 10) return "Register & Checkout";
+  if (rank <= 20) return "Operations";
+  if (rank <= 25) return "Weddings";
+  if (rank <= 30) return "Customers";
+  if (rank <= 40) return "Orders & Pickup";
+  if (rank <= 50) return "Alterations & Appointments";
+  if (rank <= 60) return "Inventory & Receiving";
+  if (rank <= 70) return "Gift Cards & Loyalty";
+  if (rank <= 80) return "Shipping";
+  if (rank <= 85) return "Payments";
+  if (rank <= 88) return "Online Store";
+  if (rank <= 90) return "Accounting & Reports";
+  if (rank <= 100) return "Settings, Help & Support";
+  return "More Guides";
 }
 
 function orderHelpManuals(entries: HelpManualListEntry[]): HelpManualListEntry[] {
@@ -989,7 +1018,27 @@ export default function HelpCenterDrawer({
     };
   }, [apiAuth]);
 
-  const effectiveList = manualList ?? [];
+  const effectiveList = useMemo(() => manualList ?? [], [manualList]);
+  const groupedManuals = useMemo(() => {
+    const groups = new Map<string, HelpManualListEntry[]>();
+    for (const manual of effectiveList) {
+      const label = helpManualDomainLabel(manual);
+      const rows = groups.get(label) ?? [];
+      rows.push(manual);
+      groups.set(label, rows);
+    }
+    return [...groups.entries()];
+  }, [effectiveList]);
+  const localSearchChunks = useMemo(() => {
+    const visibleIds = new Set(effectiveList.map((manual) => manual.id));
+    return HELP_MANUALS.filter((manual) => visibleIds.has(manual.id)).flatMap((manual) =>
+      buildLocalSearchChunks(
+        manual.id,
+        manual.title,
+        cleanHelpMarkdownForDisplay(stripYamlFrontMatter(manual.markdown)),
+      ),
+    );
+  }, [effectiveList]);
   const activeEntry = effectiveList.find((x) => x.id === activeManualId);
   const activeTitle =
     activeEntry?.title ?? helpManualById(activeManualId)?.title ?? activeManualId;
@@ -1200,7 +1249,19 @@ export default function HelpCenterDrawer({
       }
       if (cancelled) return;
 
-      setResultRows(apiHits.map((h) => ({ ...h, source: "api" as const })));
+      if (searchUnavailable) {
+        const localHits = localHelpSearch(debouncedQ, localSearchChunks, 12).map((hit) => ({
+          source: "local" as const,
+          manual_id: hit.manualId,
+          manual_title: hit.manualTitle,
+          section_slug: hit.sectionSlug,
+          section_heading: hit.sectionHeading,
+          excerpt: hit.excerpt,
+        }));
+        setResultRows(localHits);
+      } else {
+        setResultRows(apiHits.map((h) => ({ ...h, source: "api" as const })));
+      }
       setSearchFallbackActive(searchUnavailable);
       setSearchBusy(false);
     };
@@ -1209,7 +1270,7 @@ export default function HelpCenterDrawer({
     return () => {
       cancelled = true;
     };
-  }, [debouncedQ, isOpen, apiAuth]);
+  }, [debouncedQ, isOpen, apiAuth, localSearchChunks]);
 
   const scrollToSection = useCallback((manualId: string, sectionSlug: string) => {
     setActiveManualId(manualId);
@@ -1696,10 +1757,14 @@ export default function HelpCenterDrawer({
                   setResultRows(null);
                 }}
               >
-                {effectiveList.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {formatHelpDisplayTitle(m.title)}
-                  </option>
+                {groupedManuals.map(([group, manuals]) => (
+                  <optgroup key={group} label={group}>
+                    {manuals.map((manual) => (
+                      <option key={manual.id} value={manual.id}>
+                        {formatHelpDisplayTitle(manual.title)}
+                      </option>
+                    ))}
+                  </optgroup>
                 ))}
               </select>
             ) : null}
@@ -1740,7 +1805,7 @@ export default function HelpCenterDrawer({
           ) : null}
           {searchFallbackActive ? (
             <p className="rounded-xl border border-app-warning/20 bg-app-warning/10 px-3 py-2 text-xs font-medium text-app-warning">
-              Help search is unavailable. Meilisearch should be running on this station before staff use Help search or ROSIE grounding.
+              Live Help search is unavailable, so Riverside is searching the bundled on-device manuals. ROSIE uses its separate approved local knowledge index and remains available when its configured provider is healthy.
             </p>
           ) : null}
             </>
@@ -2176,6 +2241,7 @@ export default function HelpCenterDrawer({
                   <li key={`${row.manual_id}-${row.section_slug}-${i}`}>
                     <button
                       type="button"
+                      data-testid="help-center-search-result"
                       onClick={() => scrollToSection(row.manual_id, row.section_slug)}
                       className="w-full rounded-xl border border-app-border bg-app-surface-2 p-3 text-left transition-colors hover:bg-app-border/15"
                     >

@@ -1,6 +1,6 @@
 # Local multimodal help — **ROSIE** (RiversideOS Intelligence Engine)
 
-**Status:** **Active program** — architecture + **Help-only** maintainer automation (**nightly** AIDOCS/Playwright manual pipeline, `generate:help`, `ros_help`, and **Orphan Cleanup/Pruning**) ship **fully implemented**; conversational **Ask ROSIE** in the Help drawer may still roll out behind flags (verify routes in [`server/src/api/mod.rs`](../server/src/api/mod.rs)). **Last updated:** 2026-04-11.
+**Status:** **Shipped baseline with active roadmap** — Help Library, on-device fallback search, **Ask ROSIE**, **ROSIE Chat**, server-governed local/private/cloud providers, approved local knowledge retrieval, permission-gated read tools, optional voice, Help authoring automation, and `ros_help` indexing are implemented. Vision, developer-mode code assistance, and other phases remain roadmap work. **Last updated:** 2026-07-10.
 
 **Product name:** **ROSIE** = **RiversideOS Intelligence Engine**—orchestration + whitelisted **read** tools for answers autonomously build **only** the in-app Help Center (AIDOCS + Playwright → **`client/src/assets/docs/*-manual.md`**, **`client/src/assets/images/help/**`**, **`generate:help`**, **`ros_help`** reindex, and **help-scoped** embedding slices if used).
 
@@ -470,9 +470,9 @@ Staff will ask ROSIE about **real store operations**, not only help prose. **Num
 
 Train the model that **`spec_id`** values **`sales_pivot`**, **`margin_pivot`**, **`best_sellers`**, … are **aliases** for the documented GETs in the catalog **Curated Reports** table — not free-form labels. **Admin-only** tiles (**`margin_pivot`**) must fail closed with the same **403** UX copy as direct API calls.
 
-### Planned ROSIE HTTP surface (optional BFF)
+### Shipped ROSIE HTTP surface
 
-**Not in repo until implemented:** `POST /api/help/rosie/*` (chat turn, tool orchestration, streaming) should reuse **`require_help_viewer`** or stricter staff auth and **must not** widen access beyond tool table above. **Before shipping:** grep [`server/src/api/mod.rs`](../server/src/api/mod.rs) for `rosie`; until present, treat as **design only**.
+The current BFF lives under **`/api/help/rosie/v1/*`**. **`tool-context`** performs permission-filtered local knowledge retrieval and approved read-tool planning; **`chat/completions`** uses the configured provider; voice capability/transcribe/speak routes remain staff-gated. Every path reuses Help-viewer or stricter authorization and must not widen access beyond the approved tool table. Retired **`/api/ai/*`** routes remain out of scope.
 
 ## Privacy protocol (local-first)
 
@@ -484,7 +484,7 @@ Train the model that **`spec_id`** values **`sales_pivot`**, **`margin_pivot`**,
 ## Phased roadmap (implementation)
 
 1. **Spec & spike (order of weeks):** Confirm **Windows 11** inference build + GPU path (or CPU-only); pick exact model artifact; measure TTFT / tokens/sec for text-only; define tool JSON schema between Axum and sidecar.
-2. **Phase 1:** Server-mediated RAG over manuals + Help search fusion; streaming **Ask ROSIE** UI in [`HelpCenterDrawer`](../client/src/components/help/HelpCenterDrawer.tsx) alongside existing **Browse** + **Search** (see **Help Center integration** below); **no vision**. **UX:** Composer and header **reserve** mic, speaker, and **voice state** indicators (can be disabled stub until Phase 4 backend lands) so voice is **not** a layout retrofit.
+2. **Phase 1 — shipped:** Server-mediated approved local knowledge retrieval over manuals/staff docs, streaming **Ask ROSIE** and **ROSIE Chat** in [`HelpCenterDrawer`](../client/src/components/help/HelpCenterDrawer.tsx), source navigation, approved read tools, and typed/voice interaction where the station supports it.
 3. **Phase 2:** Tauri capture pipeline + optional vision model path; structured “what screen is this” from **route name + component stack** before pixels.
 4. **Phase 3:** Developer bundle with code search + linkbacks; still read-only.
 5. **Phase 4:** **Voice stack** — wire STT/TTS (CPU-first), **barge-in**, Tauri/audio into the **already-designed** Ask ROSIE UI; **backend** may follow text MVP, but **product UX** treats voice as **fully integrated**, not optional polish. Align with appendix **§ Voice Interaction (CPU-Optimized)**.
@@ -503,7 +503,7 @@ Pick the **inference backend** first (llama.cpp vs candle/mistral.rs vs external
   - **States:** Distinct UI for **idle / listening / processing / speaking** (ROSIE orb or bar—`prefers-reduced-motion` safe).
   - **Settings:** **Help Center** or **Settings → Integrations**: voice on/off, mic permission hint, **no always-listening** on shared lanes unless policy allows.
 - **Visuals:** On-brand **data-theme** tokens only ([`ROS_UI_CONSISTENCY_PLAN.md`](ROS_UI_CONSISTENCY_PLAN.md)); distinct **ROSIE** identity (wordmark **ROSIE**, expand **RiversideOS Intelligence Engine** where space allows).
-- **Flags / API:** Prefer **`VITE_ROSIE_HELP_ENABLED`** (client gate) and a **`POST /api/help/rosie/*`** (or `/api/rosie/*`) BFF **once implemented** — must mirror **help viewer** auth or stricter staff-only policy; **verify** routes in [`server/src/api/mod.rs`](../server/src/api/mod.rs) before docs claim ship. Phase A may **search-fuse** text only; **UI chrome** for voice (mic/speaker/disabled stub) should land early per **§ Phased roadmap**.
+- **API and provider policy:** The shipped **`POST /api/help/rosie/v1/*`** BFF mirrors Help-viewer or stricter staff authorization. Provider selection and secrets stay server-owned; direct local desktop mode is optional and must preserve the same bounded grounding and authorization contract.
 - **Pairing docs:** shipped Help Center behavior and maintenance: [`MANUAL_CREATION.md`](MANUAL_CREATION.md), [`HELP_CENTER_AUTOMATION.md`](HELP_CENTER_AUTOMATION.md), and [`ROS_AI_HELP_CORPUS.md`](ROS_AI_HELP_CORPUS.md).
 
 ## Authoring new Help manuals: AIDOCS, Playwright, and governed learning
@@ -541,9 +541,9 @@ Each run should be **idempotent**, **logged**, and **redaction-safe**:
 
 Indicative Axum/Tauri/CI surfaces: **`help_propose_manual_patch`** (**must reject** any path outside **`client/src/assets/docs/*-manual.md`** and **`client/src/assets/images/help/**`**), **`aidocs_run_capture`** (wrapped CLI, argv allow-list), **`playwright_export_steps`** — **audited**, **maintainer/M2M** or **admin**-gated; behavior version-locked with the **three-document contract** for **prompt** invariants, **not** as an autonomous writer of those files. Names are not final until implemented; **verify** [`server/src/api/mod.rs`](../server/src/api/mod.rs).
 
-## ROSIE Settings panel (planned — beyond a volume slider)
+## ROSIE Settings panel (shipped baseline and remaining roadmap)
 
-**Placement:** **`Settings → Integrations`**, a **`ROSIE` / Assistant subsection**, and/or **Help** drawer gear — **React** in **Tauri** + persisted prefs (local + optional **`store_settings`** JSON via **`settings.admin`** for fleet defaults).
+**Placement:** **`Settings → ROSIE`** controls station help/chat/voice behavior, shows provider and speech health, manages encrypted provider credentials for authorized staff, and exposes ROSIE intelligence status. The Help drawer provides the staff-facing Help Library, Ask ROSIE, and ROSIE Chat surfaces.
 
 **Product naming:** Copy may use **persona** labels for **TTS only** (e.g. **Bella** = default / efficient; **Emma** = alternate timbre). **Canonical expansion** remains **RiversideOS Intelligence Engine** (not “Expert”) in spec and training docs.
 

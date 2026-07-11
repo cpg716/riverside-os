@@ -293,8 +293,8 @@ pub async fn health_check(http: &reqwest::Client) -> RosieUpstreamHealth {
     }
 }
 
-pub const ROSIE_POLICY_PACK_VERSION: &str = "rosie-policy-pack-2026-05-16-v1";
-pub const ROSIE_INTELLIGENCE_PACK_VERSION: &str = "rosie-intelligence-pack-2026-05-16-v1";
+pub const ROSIE_POLICY_PACK_VERSION: &str = "rosie-policy-pack-2026-07-10-v2";
+pub const ROSIE_INTELLIGENCE_PACK_VERSION: &str = "rosie-intelligence-pack-2026-07-10-v2";
 pub const OPTIONAL_CURATED_TRACE_ROOT: &str = "docs/rosie/curated_examples";
 
 const GENERATED_HELP_OUTPUTS: &[&str] = &[

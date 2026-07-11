@@ -1,6 +1,6 @@
 # Riverside OS
 
-**Riverside OS (ROS)** is a production-grade desktop ERM/POS platform for formalwear and wedding retail. Version 0.90.0 is the current release; the latest same-version release build is `6064e91c` from 2026-07-01. It preserves the v0.85.x GO LIVE readiness baseline and adds explicit QBO mapping enforcement, Counterpoint go-live import hardening, Register and Back Office connectivity recovery, direct layaway-deposit QBO journal handling, refreshed help manuals, and updated release documentation.
+**Riverside OS (ROS)** is a production-grade desktop ERM/POS platform for formalwear and wedding retail. Version 0.90.0 is the current release; the latest same-version release build is `dea835e0` from 2026-07-10. It preserves the v0.85.x GO LIVE readiness baseline and includes the current wedding-deposit, checkout-recovery, provider, printing, tax, Help, and deployment hardening documented in the v0.90.0 release notes.
 
 Current Version: **v0.90.0** (See [CHANGELOG.md](CHANGELOG.md))
 

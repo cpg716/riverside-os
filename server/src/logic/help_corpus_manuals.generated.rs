@@ -2,11 +2,16 @@
 
 /// `(manual_id, path relative to repository root)`
 pub const HELP_MANUAL_FILES: &[(&str, &str)] = &[
+    ("getting-started", "client/src/assets/docs/getting-started-manual.md"),
     ("pos", "client/src/assets/docs/pos-manual.md"),
     ("reports", "client/src/assets/docs/reports-manual.md"),
     ("insights", "client/src/assets/docs/insights-manual.md"),
+    ("wedding-manager", "client/src/assets/docs/wedding-manager-manual.md"),
     ("lockout", "client/src/assets/docs/lockout-manual.md"),
     ("remote-access", "client/src/assets/docs/remote-access-manual.md"),
+    ("payments-workspace", "client/src/assets/docs/payments-workspace-manual.md"),
+    ("online-store-workspace", "client/src/assets/docs/online-store-workspace-manual.md"),
+    ("settings-help-center-settings-panel", "client/src/assets/docs/settings-help-center-settings-panel-manual.md"),
     ("settings-backups", "client/src/assets/docs/settings-backups-manual.md"),
     ("alterations-workspace", "client/src/assets/docs/alterations-workspace-manual.md"),
     ("bug-report-flow", "client/src/assets/docs/bug-report-flow-manual.md"),
@@ -74,11 +79,16 @@ pub const HELP_MANUAL_FILES: &[(&str, &str)] = &[
 
 /// `(manual_id, path relative to repository root, bundled markdown)`
 pub const HELP_MANUAL_BUNDLED_MARKDOWN: &[(&str, &str, &str)] = &[
+    ("getting-started", "client/src/assets/docs/getting-started-manual.md", include_str!("../../../client/src/assets/docs/getting-started-manual.md")),
     ("pos", "client/src/assets/docs/pos-manual.md", include_str!("../../../client/src/assets/docs/pos-manual.md")),
     ("reports", "client/src/assets/docs/reports-manual.md", include_str!("../../../client/src/assets/docs/reports-manual.md")),
     ("insights", "client/src/assets/docs/insights-manual.md", include_str!("../../../client/src/assets/docs/insights-manual.md")),
+    ("wedding-manager", "client/src/assets/docs/wedding-manager-manual.md", include_str!("../../../client/src/assets/docs/wedding-manager-manual.md")),
     ("lockout", "client/src/assets/docs/lockout-manual.md", include_str!("../../../client/src/assets/docs/lockout-manual.md")),
     ("remote-access", "client/src/assets/docs/remote-access-manual.md", include_str!("../../../client/src/assets/docs/remote-access-manual.md")),
+    ("payments-workspace", "client/src/assets/docs/payments-workspace-manual.md", include_str!("../../../client/src/assets/docs/payments-workspace-manual.md")),
+    ("online-store-workspace", "client/src/assets/docs/online-store-workspace-manual.md", include_str!("../../../client/src/assets/docs/online-store-workspace-manual.md")),
+    ("settings-help-center-settings-panel", "client/src/assets/docs/settings-help-center-settings-panel-manual.md", include_str!("../../../client/src/assets/docs/settings-help-center-settings-panel-manual.md")),
     ("settings-backups", "client/src/assets/docs/settings-backups-manual.md", include_str!("../../../client/src/assets/docs/settings-backups-manual.md")),
     ("alterations-workspace", "client/src/assets/docs/alterations-workspace-manual.md", include_str!("../../../client/src/assets/docs/alterations-workspace-manual.md")),
     ("bug-report-flow", "client/src/assets/docs/bug-report-flow-manual.md", include_str!("../../../client/src/assets/docs/bug-report-flow-manual.md")),
