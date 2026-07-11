@@ -1,7 +1,7 @@
 name: Windows deployment package
 
 concurrency:
-  group: riverside-release-${{ github.ref }}
+  group: riverside-windows-release-${{ github.ref }}
   cancel-in-progress: false
 
 on:
@@ -28,6 +28,11 @@ on:
         description: "Release notes shown in updater prompts"
         required: false
         default: "Riverside POS update"
+      publish_release:
+        description: "Publish assets to the GitHub release (disable for benchmarks)"
+        required: true
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -101,7 +106,7 @@ jobs:
           toolchain: "1.91"
           components: rustfmt
 
-      - uses: mozilla-actions/sccache-action@d651010b8da762cde178750d8eda7b5febfe147a # v0.0.9
+      - uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
       - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
         with:
           shared-key: "ubuntu-pre-retag"
@@ -122,6 +127,7 @@ jobs:
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
       - name: Verify release tag targets this commit
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.publish_release }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: node scripts/verify-release-tag-target.mjs --tag "${{ github.event.inputs.release_tag || github.ref_name }}"
@@ -151,10 +157,8 @@ jobs:
           components: clippy, rustfmt
 
       - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
-        with:
-          shared-key: "windows-release"
 
-      - uses: mozilla-actions/sccache-action@d651010b8da762cde178750d8eda7b5febfe147a # v0.0.9
+      - uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
       - name: Install client dependencies
         working-directory: client
         run: npm ci
@@ -340,9 +344,12 @@ jobs:
     permissions:
       contents: write
     timeout-minutes: 20
-    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.package_scope == 'app-updater-only' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.package_scope == 'app-updater-only' && inputs.publish_release }}
     needs: [build-register-updater, require-playwright-green]
     runs-on: windows-latest
+    concurrency:
+      group: ${{ format('riverside-release-publish-{0}', inputs.release_tag || github.ref_name) }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
@@ -406,10 +413,8 @@ jobs:
           components: clippy, rustfmt
 
       - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
-        with:
-          shared-key: "windows-release"
 
-      - uses: mozilla-actions/sccache-action@d651010b8da762cde178750d8eda7b5febfe147a # v0.0.9
+      - uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
       - name: Build Windows server binary
         shell: pwsh
         run: cargo build --release --manifest-path server/Cargo.toml
@@ -442,10 +447,8 @@ jobs:
           components: clippy, rustfmt
 
       - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
-        with:
-          shared-key: "windows-release"
 
-      - uses: mozilla-actions/sccache-action@d651010b8da762cde178750d8eda7b5febfe147a # v0.0.9
+      - uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
       - name: Install manager-app dependencies
         working-directory: deployment/manager-app
         run: npm ci
@@ -574,10 +577,8 @@ jobs:
           components: clippy, rustfmt
 
       - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
-        with:
-          shared-key: "windows-release"
 
-      - uses: mozilla-actions/sccache-action@d651010b8da762cde178750d8eda7b5febfe147a # v0.0.9
+      - uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
       - name: Install server-manager-app dependencies
         working-directory: deployment/server-manager-app
         run: npm ci
@@ -714,10 +715,8 @@ jobs:
           components: clippy, rustfmt
 
       - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
-        with:
-          shared-key: "windows-release"
 
-      - uses: mozilla-actions/sccache-action@d651010b8da762cde178750d8eda7b5febfe147a # v0.0.9
+      - uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
       - name: Install bridge-gui dependencies
         working-directory: deployment/counterpoint-bridge-gui
         run: npm ci
@@ -853,9 +852,12 @@ jobs:
     permissions:
       contents: write
     timeout-minutes: 30
-    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.package_scope == 'main-hub-update' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.package_scope == 'main-hub-update' && inputs.publish_release }}
     needs: [build-register-updater, build-server-binary, require-playwright-green]
     runs-on: windows-latest
+    concurrency:
+      group: ${{ format('riverside-release-publish-{0}', inputs.release_tag || github.ref_name) }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
@@ -999,6 +1001,9 @@ jobs:
     if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.package_scope == 'full-deployment' }}
     needs: [build-register-updater, build-server-binary, build-deployment-manager, build-server-manager, build-counterpoint-bridge-gui, require-playwright-green]
     runs-on: windows-latest
+    concurrency:
+      group: ${{ (github.event_name != 'workflow_dispatch' || inputs.publish_release) && format('riverside-release-publish-{0}', inputs.release_tag || github.ref_name) || format('riverside-windows-benchmark-{0}', github.run_id) }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
@@ -1124,6 +1129,7 @@ jobs:
           path: client/updater-dist/
 
       - name: Publish deployment package to GitHub release
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.publish_release }}
         timeout-minutes: 60
         shell: pwsh
         env:

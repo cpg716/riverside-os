@@ -107,6 +107,29 @@ The isolated companion paths are:
 
 Do not add a new Dependabot package location without giving it a staggered time, a bounded PR limit, and appropriate CI scope classification.
 
+### Release build concurrency and benchmarks
+
+Windows and macOS release workflows use separate workflow-level concurrency groups so their build work can overlap. Release publication remains protected by the shared `riverside-release-publish-<tag>` job group, preventing both platforms from changing the same GitHub release simultaneously.
+
+Rust build caches must retain their default job-specific identity. Do not assign every parallel Windows job the same `shared-key`; GitHub cache entries are immutable, so that configuration makes jobs race to save one incomplete cache.
+
+For a timing benchmark that cannot alter a release, dispatch both workflows with `publish_release=false`. The workflows still run the release gates, build signed packages, and preserve short-lived Actions artifacts, but skip tag verification and all `gh release` mutations:
+
+```bash
+env -u GITHUB_TOKEN -u GH_TOKEN gh workflow run windows-deployment-package.yml \
+  --ref main \
+  -f package_scope=full-deployment \
+  -f release_tag=v0.90.0 \
+  -f publish_release=false
+
+env -u GITHUB_TOKEN -u GH_TOKEN gh workflow run macos-ros-dev-center-release.yml \
+  --ref main \
+  -f release_tag=v0.90.0 \
+  -f publish_release=false
+```
+
+Benchmark from the same commit and compare actual job start/completion times, not the queued workflow creation time.
+
 ### Pruning Failed Runs
 ```bash
 # Bulk delete all failed runs for the current repository

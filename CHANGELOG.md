@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Release Build Throughput**: Corrected per-job Rust cache identities, upgraded sccache setup to its native Node 24 action, allowed Windows and macOS release builds to run concurrently while serializing publication, and added non-publishing benchmark dispatches that preserve candidate artifacts without changing a release.
+
 ### Changed
 - **Dependabot CI Queue Controls**: Grouped routine, major, and security dependency updates; reduced version-update PR caps; staggered monthly ecosystem schedules; and routed isolated companion-app dependency PRs through targeted locked-install/build validation instead of the full Riverside Playwright matrix.
 

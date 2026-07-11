@@ -14,13 +14,18 @@ on:
         description: "Release notes"
         required: false
         default: ""
+      publish_release:
+        description: "Publish assets to the GitHub release (disable for benchmarks)"
+        required: true
+        type: boolean
+        default: true
 
 permissions:
   contents: read
   actions: read
 
 concurrency:
-  group: riverside-release-${{ github.ref }}
+  group: riverside-macos-release-${{ github.ref }}
   cancel-in-progress: false
 
 env:
@@ -36,6 +41,7 @@ jobs:
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
       - name: Verify release tag targets this commit
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.publish_release }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: node scripts/verify-release-tag-target.mjs --tag "${{ github.event.inputs.release_tag || github.ref_name }}"
@@ -63,7 +69,7 @@ jobs:
           toolchain: "1.91"
           components: rustfmt
 
-      - uses: mozilla-actions/sccache-action@d651010b8da762cde178750d8eda7b5febfe147a # v0.0.9
+      - uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
       - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
         with:
           shared-key: "macos-pre-retag"
@@ -80,6 +86,9 @@ jobs:
   build-macos:
     needs: [pre-retag-gate, require-playwright-green]
     runs-on: macos-latest
+    concurrency:
+      group: ${{ (github.event_name != 'workflow_dispatch' || inputs.publish_release) && format('riverside-release-publish-{0}', inputs.release_tag || github.ref_name) || format('riverside-macos-benchmark-{0}', github.run_id) }}
+      cancel-in-progress: false
     timeout-minutes: 90
     permissions:
       contents: write
@@ -107,7 +116,7 @@ jobs:
         with:
           shared-key: "macos-ros-dev"
 
-      - uses: mozilla-actions/sccache-action@d651010b8da762cde178750d8eda7b5febfe147a # v0.0.9
+      - uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
       - name: Install ROS Dev Center dependencies
         working-directory: ros-dev
         run: npm ci
@@ -162,6 +171,17 @@ jobs:
           codesign --verify --deep --strict --verbose=2 "$app"
           spctl --assess --type execute --verbose=2 "$app"
 
+      - name: Preserve macOS build candidate
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ros-dev-center-macos-release-candidate
+          retention-days: 7
+          if-no-files-found: error
+          path: |
+            target/universal-apple-darwin/release/bundle/dmg/*.dmg
+            target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz
+            target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz.sig
+
       - name: Prepare release metadata
         id: meta
         shell: bash
@@ -178,6 +198,7 @@ jobs:
           echo "notes=$notes" >> "$GITHUB_OUTPUT"
 
       - name: Upload to GitHub release
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.publish_release }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

@@ -335,13 +335,34 @@ for (const path of [
     'CARGO_INCREMENTAL: "0"',
     'RUSTC_WRAPPER: "sccache"',
     'SCCACHE_GHA_ENABLED: "true"',
-    "mozilla-actions/sccache-action@d651010b8da762cde178750d8eda7b5febfe147a # v0.0.9",
+    "mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10",
     "Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2",
   ]) {
     assertIncludes(
       path,
       copy,
       "release workflows must keep Rust/Tauri compiler caching wired for faster rebuilds",
+    );
+  }
+}
+assertNotIncludes(
+  ".github/workflows/windows-deployment-package.yml",
+  'shared-key: "windows-release"',
+  "parallel Windows release jobs must not race to save one shared Rust cache",
+);
+for (const path of [
+  ".github/workflows/windows-deployment-package.yml",
+  ".github/workflows/macos-ros-dev-center-release.yml",
+]) {
+  for (const copy of [
+    "publish_release:",
+    "disable for benchmarks",
+    "inputs.publish_release",
+  ]) {
+    assertIncludes(
+      path,
+      copy,
+      "release workflows must support non-publishing benchmark builds",
     );
   }
 }
