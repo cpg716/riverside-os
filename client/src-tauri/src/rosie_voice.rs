@@ -449,9 +449,11 @@ async fn transcribe_with_active_engine(wav_path: &Path) -> Result<String, String
     let model_path = resolve_sensevoice_model_path();
     let tokens_path = resolve_sensevoice_tokens_path();
 
-    if command_exists(&binary_path) && model_path.is_some() && tokens_path.is_some() {
-        let model = model_path.unwrap();
-        let tokens = tokens_path.unwrap();
+    if let (true, Some(model), Some(tokens)) = (
+        command_exists(&binary_path),
+        model_path.as_ref(),
+        tokens_path.as_ref(),
+    ) {
         let output = tokio::process::Command::new(&binary_path)
             .args([
                 &format!("--sense-voice-model={}", model.to_string_lossy()),
