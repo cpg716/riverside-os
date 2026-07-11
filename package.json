@@ -54,7 +54,7 @@
     "pack": "repomix"
   },
   "devDependencies": {
-    "concurrently": "^9.1.2",
+    "concurrently": "^10.0.3",
     "cross-env": "^7.0.3",
     "marked": "^18.0.4",
     "repomix": "^1.13.1",
