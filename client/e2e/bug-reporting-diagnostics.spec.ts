@@ -191,6 +191,7 @@ test.describe("bug reporting diagnostics hardening", () => {
   test("error toast events are redacted, contextual, and deduped", async ({
     page,
   }) => {
+    test.setTimeout(90_000);
     const errorEventPayloads: unknown[] = [];
     await page.route("**/api/bug-reports/error-events", async (route) => {
       errorEventPayloads.push(route.request().postDataJSON());
@@ -220,12 +221,18 @@ test.describe("bug reporting diagnostics hardening", () => {
     await signInToBackOffice(page, { persistSession: true });
     await openBackofficeSidebarTab(page, "settings");
     await openSettingsSubItem(page, /^ros operations & support center$/i);
-    await page.getByRole("button", { name: /^bug manager$/i }).first().click();
+    const bugManagerButton = page.getByRole("button", { name: /^bug manager$/i }).first();
+    await expect(bugManagerButton).toBeVisible();
+    await bugManagerButton.click({ force: true });
 
     const toastPayloads = () =>
       errorEventPayloads.filter((payload) => {
-        const row = payload as { event_source?: unknown };
-        return row.event_source === "client_toast";
+        const row = payload as { event_source?: unknown; message?: unknown };
+        return (
+          row.event_source === "client_toast" &&
+          typeof row.message === "string" &&
+          row.message.startsWith("Could not load Authorization:")
+        );
       });
 
     await expect

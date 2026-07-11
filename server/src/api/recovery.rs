@@ -66,27 +66,6 @@ async fn require_recovery_caller(
     state: &AppState,
     headers: &HeaderMap,
 ) -> Result<StaffOrPosSession, RecoveryError> {
-    if let Some((session_id, token, station_key)) =
-        crate::auth::pos_session::pos_session_headers(headers)
-    {
-        return match crate::auth::pos_session::verify_pos_session_token(
-            &state.db,
-            session_id,
-            &token,
-            &station_key,
-        )
-        .await
-        {
-            Ok(true) => Ok(StaffOrPosSession::PosSession { session_id }),
-            Ok(false) => Err(RecoveryError::Unauthorized(
-                "invalid or expired register session token".to_string(),
-            )),
-            Err(error) => {
-                tracing::error!(%error, "recovery register session verification failed");
-                Err(RecoveryError::Database(error))
-            }
-        };
-    }
     middleware::require_staff_or_pos_register_session(state, headers)
         .await
         .map_err(map_auth_error)
