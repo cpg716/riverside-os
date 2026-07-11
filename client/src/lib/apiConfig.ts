@@ -1,5 +1,5 @@
 function trimmedEnvBaseUrl(): string {
-  const raw = import.meta.env.VITE_API_BASE;
+  const raw = import.meta.env?.VITE_API_BASE;
   if (typeof raw !== "string") return "";
   return raw.trim().replace(/\/$/, "");
 }

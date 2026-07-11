@@ -51,6 +51,8 @@ The package builder normalizes packaged migration file line endings to match the
 
 If the Tauri register bundle is coming from GitHub Actions instead of the local machine, copy the downloaded MSI into the package's `register/` folder before running `install-register.ps1`. For v0.80.0 and later, do not mix the `server/`, `client-dist/`, or `register/` folders from different release zips. Updater manifests, signatures, and standalone updater installers are published as GitHub release assets instead of being duplicated inside the deployment ZIP.
 
+Every generated deployment ZIP includes `deployment-package.files.sha256`. The Main Hub and workstation installers verify every listed file before changing the machine and stop on any missing or altered file. Windows publisher trust is a separate Authenticode requirement; see [Release Code Signing](RELEASE_CODE_SIGNING.md) for the certificate requirements and verification command.
+
 ## Configure the package
 
 Normal path:
@@ -82,7 +84,7 @@ Main Hub deployment packages stamp the installed server and database as `product
 
 The Deployment Manager keeps the password work inside the installer flow:
 
-- **PostgreSQL install**: if PostgreSQL is missing, the manager can offer to install PostgreSQL 18 through Windows Package Manager. This needs internet access and the normal Windows Package Manager service.
+- **PostgreSQL install**: if PostgreSQL is missing, the manager can offer to install PostgreSQL 16 through Windows Package Manager. This needs internet access and the normal Windows Package Manager service.
 - **PostgreSQL admin password**: enter the existing PostgreSQL `postgres` password when installing, updating, or repairing the Server. The installer needs it to create/update the Riverside database user, fix permissions, and run migrations.
 - **New PostgreSQL admin password**: if PostgreSQL is installed by the manager and the field is blank or placeholder, the manager generates a password and writes it to `riverside-deployment.config.json`.
 - **Riverside database password**: generated automatically if left blank or still set to a placeholder. It is saved to `riverside-deployment.config.json` and written to `C:\RiversideOS\server\.env`.

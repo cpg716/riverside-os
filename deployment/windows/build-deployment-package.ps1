@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-  [string]$Version = "0.80.8",
+  [string]$Version = "",
   [string]$OutputDir = "$PSScriptRoot\..\..\dist\deployment",
   [string]$ServerBinaryPath = "$PSScriptRoot\..\..\target\release\riverside-server.exe",
   [string]$ClientDistPath = "$PSScriptRoot\..\..\client\dist",
@@ -17,6 +17,14 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+if ([string]::IsNullOrWhiteSpace($Version)) {
+  $packageJsonPath = Join-Path $PSScriptRoot "..\..\client\package.json"
+  if (-not (Test-Path $packageJsonPath)) {
+    throw "Version was not provided and client/package.json was not found."
+  }
+  $Version = (Get-Content $packageJsonPath -Raw | ConvertFrom-Json).version
+}
 
 function Resolve-FullPath([string]$Path) {
   $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Path)
@@ -148,9 +156,17 @@ function Invoke-DownloadFile([string]$Url, [string]$OutFile, [string]$Label) {
   }
 }
 
+function Assert-FileSha256([string]$Path, [string]$Expected) {
+  $actual = (Get-FileHash -Algorithm SHA256 -Path $Path).Hash.ToLowerInvariant()
+  if ($actual -ne $Expected.ToLowerInvariant()) {
+    throw "Downloaded file checksum mismatch for $Path. Expected $Expected, got $actual."
+  }
+}
+
 function Add-RosieHfFiles(
   [string]$PackageRoot,
   [string]$Repo,
+  [string]$Revision,
   [string]$TargetSubdir,
   [string[]]$Files
 ) {
@@ -163,7 +179,7 @@ function Add-RosieHfFiles(
     if (-not (Test-Path $destParent)) {
       New-Item -ItemType Directory -Force -Path $destParent | Out-Null
     }
-    $url = "https://huggingface.co/$Repo/resolve/main/$file"
+    $url = "https://huggingface.co/$Repo/resolve/$Revision/$file"
     Invoke-DownloadFile $url $dest $file
   }
 }
@@ -172,12 +188,14 @@ function Add-RosieVoiceModels([string]$PackageRoot) {
   Add-RosieHfFiles `
     -PackageRoot $PackageRoot `
     -Repo "chris-cao/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17" `
+    -Revision "20dc3ebe15651c2e26d7e07b04fcd84a39c3b920" `
     -TargetSubdir "rosie\stt\sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17" `
     -Files @("model.int8.onnx", "tokens.txt")
 
   Add-RosieHfFiles `
     -PackageRoot $PackageRoot `
     -Repo "csukuangfj/kokoro-multi-lang-v1_0" `
+    -Revision "7e9b67b79bfdcbd2b4bc144370345fcceac3cb0c" `
     -TargetSubdir "rosie\tts\kokoro-multi-lang-v1_0" `
     -Files @(
       "model.onnx",
@@ -217,6 +235,7 @@ function Add-RosieSherpaBinaries([string]$PackageRoot) {
 
   New-Item -ItemType Directory -Force -Path $cacheDir | Out-Null
   Invoke-DownloadFile $sherpaUrl $archivePath $sherpaArchiveName
+  Assert-FileSha256 $archivePath "f91f488186e797dd9e9bc2a3dcbe18ddd244627af5d9fa3707f7a2f3bc4032ce"
 
   if (Test-Path $extractDir) { Remove-Item $extractDir -Recurse -Force }
   New-Item -ItemType Directory -Force -Path $extractDir | Out-Null
@@ -257,6 +276,7 @@ function Add-MeilisearchBinary([string]$PackageRoot) {
 
   New-Item -ItemType Directory -Force -Path $meiliDest | Out-Null
   Invoke-DownloadFile $meiliUrl $meiliExe "Meilisearch $meiliVersion Windows runtime"
+  Assert-FileSha256 $meiliExe "db63bea71776371a6675d95034439dfbb58deaab694ca4dfb89e61d761afbf5f"
   Write-Host "Packaged meilisearch/meilisearch.exe"
 }
 
@@ -349,6 +369,8 @@ New-Item -ItemType Directory -Force -Path "$packageRoot\meilisearch" | Out-Null
 
 Copy-Item "$PSScriptRoot\install-server.ps1" $packageRoot -Force
 Copy-Item "$PSScriptRoot\install-register.ps1" $packageRoot -Force
+Copy-Item "$PSScriptRoot\verify-deployment-package.ps1" $packageRoot -Force
+Copy-Item "$PSScriptRoot\verify-release-code-signing.ps1" $packageRoot -Force
 Copy-Item "$PSScriptRoot\repair-bootstrap-admin.ps1" $packageRoot -Force
 Copy-Item "$PSScriptRoot\reset-riverside-database.ps1" $packageRoot -Force
 Copy-Item "$PSScriptRoot\Reset-RiversideDatabase.cmd" $packageRoot -Force
@@ -491,7 +513,7 @@ $readme = "# RiversideOS $Version Windows Deployment Package`n" +
   "- The local Meilisearch search runtime and startup task on http://127.0.0.1:7700.`n" +
   "- The Riverside Windows desktop app configured to use the local server.`n" +
   "`nPassword handling:`n" +
-  "`n- If PostgreSQL is missing, the manager can offer to install PostgreSQL 18 through Windows Package Manager.`n" +
+  "`n- If PostgreSQL is missing, the manager can offer to install PostgreSQL 16 through Windows Package Manager.`n" +
   "- Enter the existing PostgreSQL admin password when PostgreSQL is already installed.`n" +
   "- Riverside database and app secrets are generated automatically when left blank or placeholder.`n" +
   "- Station settings are written automatically for Register and Back Office workstation installs.`n" +
@@ -514,6 +536,16 @@ $readme = "# RiversideOS $Version Windows Deployment Package`n" +
   "`n- If the app starts but a screen reports a missing relation/table, double-click Apply-RiversideMigrations.cmd.`n" +
   "`nUpdater manifests, installers, and signatures are published as GitHub release assets, not duplicated inside this deployment ZIP."
 Set-Content -Path "$packageRoot\README.md" -Value $readme -Encoding UTF8
+
+$checksumLines = Get-ChildItem $packageRoot -Recurse -File |
+  Where-Object { $_.Name -ne "deployment-package.files.sha256" } |
+  Sort-Object FullName |
+  ForEach-Object {
+    $relativePath = $_.FullName.Substring($packageRoot.Length + 1)
+    $hash = (Get-FileHash -Algorithm SHA256 -Path $_.FullName).Hash.ToLowerInvariant()
+    "$hash *$relativePath"
+  }
+Set-Content -Path "$packageRoot\deployment-package.files.sha256" -Value $checksumLines -Encoding ASCII
 
 Compress-Archive -Path "$packageRoot\*" -DestinationPath "$packageRoot.zip" -Force
 Write-Host "Deployment package created:"

@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.90.0] - 2026-06-04
 
 ### Added
+- **Release Provenance and Package Integrity Gates**: Added exact tag-to-commit verification, deployment-package SHA-256 manifests, external download checksum/revision pins, aggregate Playwright gating, and optional Authenticode/Apple trust enforcement before release publication.
+- **Expanded Dependency Monitoring**: Added Dependabot and weekly npm audit coverage for every active JavaScript package alongside the existing Cargo audit.
 - **RiversideOS User Manual PDF**: Added live, on-demand PDF generation in Help Center Settings with current effective manuals, embedded screenshots, clickable contents, PDF bookmarks, native desktop download, and print/save-to-PDF support.
 - **Wedding Party Held Deposits in Register**: Added immediate beneficiary-customer deposit notices, Pay-screen application, customer-history visibility, fulfillment-timed QBO liability release, and atomic void/cancellation restoration for split wedding deposits held before a member has a Transaction Record.
 - **Operational Outbox and Recovery Telemetry**: Added durable post-checkout side-effect processing, Main Hub-backed offline/print recovery visibility, phase metrics, and migration `124` operational recovery tables.
@@ -17,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **GO-LIVE Performance and Connectivity Review**: Added a current review artifact and focused Register/Back Office connection recovery coverage for LAN, Tailscale, PWA, and Tauri API-base behavior.
 
 ### Fixed
+- **Windows Install Failure Safety**: Main Hub installation now fails closed on database/migration/bootstrap/readiness errors, creates a pre-migration backup, restores prior application files and scheduled-task configuration after failure, and no longer removes the workstation app before its replacement succeeds.
+- **Playwright Result Truthfulness**: Added a required aggregate blocking check and repaired nightly Counterpoint/printing harnesses so failed shards or production-bundle source imports cannot be reported as an overall successful E2E result.
 - **Recovery Authentication Continuity**: Operational recovery endpoints now use the shared Staff-or-Register authentication middleware, preventing a stale Register token from overriding valid Staff Access during recovery polling.
 - **Mobile Toast Interaction Safety**: Toast notification bodies no longer intercept taps on Register controls underneath them; the visible dismiss control remains interactive.
 - **Financial Runtime Boundaries**: Removed weather/provider waits from locked checkout/refund sections, enforced exact-cent tax and total parity, bounded printer dispatch, and made print failures activate the retry path.
@@ -29,10 +33,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Helcim Health Test Isolation**: Serialized Helcim environment mutation in unit tests to prevent nondeterministic credential-state failures during parallel cargo test execution.
 
 ### Changed
+- **Build Runtime and Supply-Chain Refresh**: Upgraded CI to Node 24 and Rust 1.91, pinned GitHub Actions to immutable SHAs, narrowed release-token and signing-secret scope, removed redundant `node_modules` caches, added bounded job timeouts, and serialized same-tag release publishers.
+- **Dependency Security Refresh**: Upgraded patched Rust and npm dependency graphs, including OpenDAL, Calamine, ammonia, quinn-proto, crossbeam-epoch, anyhow, and keyring, while retaining audit visibility for upstream Tauri/Linux maintenance warnings.
+- **Actions Storage Retention**: Added short-lived build/report artifact retention and removed 4,316 obsolete Actions artifacts (about 276 GB) without deleting published release assets.
 - **Release Metadata Bump**: Updated root, client, server, Tauri, standalone app, ROS Dev Center, and Windows deployment package metadata to v0.90.0.
 - **Help/Manual Refresh**: Refreshed active manuals and help-manifest sources so in-app Help Center content reflects the current release guidance and avoids stale v0.85.9 "current release" directions.
 - **Deployment Guidance Truthfulness**: Updated active deployment status docs to distinguish source readiness, GitHub release publication, release workflow assets, and physical Windows/hardware go-live gates.
-- **Latest Same-Version Rebuild**: Prepared the 2026-07-11 `v0.90.0` replacement-tag rebuild with current production hardening, wedding held-deposit changes, recovery-auth continuity, and mobile toast interaction safety. The final local release suite completed with 380 passed, 12 expected skips, and 0 failures before the replacement tag was moved.
+- **Latest Same-Version Rebuild**: Prepared the 2026-07-11 `v0.90.0` replacement-tag rebuild with current production hardening, wedding held-deposit changes, recovery-auth continuity, release supply-chain verification, rollback-safe Windows deployment, and truthful CI gating. The prior full local release suite completed with 380 passed, 12 expected skips, and 0 failures; the rebuilt release additionally requires same-commit GitHub Playwright success before package publication.
 
 ## [0.85.9] - 2026-06-04
 

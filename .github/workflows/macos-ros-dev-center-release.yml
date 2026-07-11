@@ -16,12 +16,12 @@ on:
         default: ""
 
 permissions:
-  contents: write
+  contents: read
   actions: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: riverside-release-${{ github.ref }}
+  cancel-in-progress: false
 
 env:
   CARGO_INCREMENTAL: "0"
@@ -32,9 +32,13 @@ jobs:
   require-playwright-green:
     name: Require Playwright E2E green
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v5
-
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - name: Verify release tag targets this commit
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/verify-release-tag-target.mjs --tag "${{ github.event.inputs.release_tag || github.ref_name }}"
       - name: Wait for same-commit Playwright E2E
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -43,25 +47,24 @@ jobs:
   pre-retag-gate:
     name: Pre-retag release gate
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v5
-
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
-          node-version: "20"
+          node-version: "24"
           cache: npm
           cache-dependency-path: |
             package-lock.json
             client/package-lock.json
 
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
         with:
-          toolchain: "1.88"
+          toolchain: "1.91"
           components: rustfmt
 
-      - uses: mozilla-actions/sccache-action@v0.0.9
-
-      - uses: swatinem/rust-cache@v2
+      - uses: mozilla-actions/sccache-action@d651010b8da762cde178750d8eda7b5febfe147a # v0.0.9
+      - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
         with:
           shared-key: "macos-pre-retag"
 
@@ -77,6 +80,9 @@ jobs:
   build-macos:
     needs: [pre-retag-gate, require-playwright-green]
     runs-on: macos-latest
+    timeout-minutes: 90
+    permissions:
+      contents: write
     env:
       RIVERSIDE_BUILD_SHA: ${{ github.sha }}
       RIVERSIDE_ROS_DEV_UPDATER_ENDPOINT: https://github.com/${{ github.repository }}/releases/latest/download/latest-ros-dev-center-macos.json
@@ -85,35 +91,24 @@ jobs:
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
     steps:
-      - uses: actions/checkout@v5
-
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
-          node-version: "20"
+          node-version: "24"
           cache: npm
           cache-dependency-path: ros-dev/package-lock.json
 
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
         with:
-          toolchain: "1.88"
+          toolchain: "1.91"
           targets: aarch64-apple-darwin,x86_64-apple-darwin
 
-      - uses: swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
         with:
           shared-key: "macos-ros-dev"
 
-      - uses: mozilla-actions/sccache-action@v0.0.9
-
-      - name: Cache ros-dev node_modules
-        id: cache-ros-dev-node-modules
-        uses: actions/cache@v4
-        with:
-          path: ros-dev/node_modules
-          key: macos-ros-dev-npm-${{ hashFiles('ros-dev/package-lock.json') }}
-          restore-keys: macos-ros-dev-npm-
-
+      - uses: mozilla-actions/sccache-action@d651010b8da762cde178750d8eda7b5febfe147a # v0.0.9
       - name: Install ROS Dev Center dependencies
-        if: steps.cache-ros-dev-node-modules.outputs.cache-hit != 'true'
         working-directory: ros-dev
         run: npm ci
 
@@ -154,6 +149,18 @@ jobs:
           }
           EOF
           npm run tauri build -- --target universal-apple-darwin --config src-tauri/tauri.updater.conf.json
+
+      - name: Verify Apple signing and notarization
+        if: vars.RIVERSIDE_REQUIRE_APPLE_SIGNING == 'true'
+        shell: bash
+        run: |
+          app=$(find target/universal-apple-darwin/release/bundle/macos -maxdepth 1 -name '*.app' -print -quit)
+          if [ -z "$app" ]; then
+            echo "No macOS app bundle was found for signing verification." >&2
+            exit 1
+          fi
+          codesign --verify --deep --strict --verbose=2 "$app"
+          spctl --assess --type execute --verbose=2 "$app"
 
       - name: Prepare release metadata
         id: meta

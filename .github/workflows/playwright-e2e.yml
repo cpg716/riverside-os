@@ -13,53 +13,55 @@ defaults:
   run:
     shell: bash
 
+permissions:
+  contents: read
+
+concurrency:
+  group: playwright-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'schedule' }}
+
 jobs:
   build:
     name: Build Stack
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v5
-
-      - uses: dtolnay/rust-toolchain@master
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
         with:
-          toolchain: "1.88"
+          toolchain: "1.91"
           components: clippy, rustfmt
 
-      - uses: Swatinem/rust-cache@v2
-
+      - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
       - name: Build server
         run: cd server && cargo build
 
-      - uses: actions/setup-node@v5
+      - name: Strip server binary
+        run: strip target/debug/riverside-server
+
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
-          node-version: "20"
+          node-version: "24"
           cache: npm
           cache-dependency-path: client/package-lock.json
 
-      - name: Cache client node_modules
-        id: cache-node-modules
-        uses: actions/cache@v4
-        with:
-          path: client/node_modules
-          key: e2e-node-modules-${{ hashFiles('client/package-lock.json') }}
-          restore-keys: e2e-node-modules-
-
       - name: Install client dependencies
-        if: steps.cache-node-modules.outputs.cache-hit != 'true'
         run: cd client && npm ci
 
       - name: Build client (SPA)
         run: cd client && npm run build
 
       - name: Upload Server Binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
+          retention-days: 2
           name: server-binary
           path: target/debug/riverside-server
 
       - name: Upload Frontend Bundle
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
+          retention-days: 2
           name: frontend-dist
           path: client/dist/
 
@@ -106,8 +108,7 @@ jobs:
       FRONTEND_DIST: ./dist
 
     steps:
-      - uses: actions/checkout@v5
-
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
       - name: Install psql client and curl
         run: sudo apt-get update && sudo apt-get install -y postgresql-client curl
 
@@ -123,43 +124,34 @@ jobs:
       - name: Seed default admin staff for E2E
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/seed_staff_register_test.sql
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
-          node-version: "20"
+          node-version: "24"
           cache: npm
           cache-dependency-path: client/package-lock.json
 
-      - name: Restore client node_modules
-        id: cache-node-modules
-        uses: actions/cache@v4
-        with:
-          path: client/node_modules
-          key: e2e-node-modules-${{ hashFiles('client/package-lock.json') }}
-          restore-keys: e2e-node-modules-
-
       - name: Install client dependencies
-        if: steps.cache-node-modules.outputs.cache-hit != 'true'
         run: cd client && npm ci
 
       - name: Cache Playwright browsers
         id: cache-playwright
-        uses: actions/cache@v4
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ hashFiles('client/package-lock.json') }}
-          restore-keys: playwright-
+          key: playwright-${{ runner.os }}-node24-${{ hashFiles('client/package-lock.json') }}
+          restore-keys: playwright-${{ runner.os }}-node24-
 
       - name: Install Playwright Chromium
         if: steps.cache-playwright.outputs.cache-hit != 'true'
         run: cd client && npx playwright install chromium --with-deps
 
       - name: Download Server Binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: server-binary
 
       - name: Download Frontend Bundle
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: frontend-dist
           path: dist
@@ -233,8 +225,9 @@ jobs:
 
       - name: Upload blocking lane report
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
+          retention-days: 14
           name: playwright-report-blocking-shard-${{ matrix.shard }}
           path: |
             client/test-results/
@@ -314,7 +307,7 @@ jobs:
       - name: Create or update blocking lane failure issue
         if: failure()
         continue-on-error: true
-        uses: actions/github-script@v8
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         env:
           RUN_URL: ${{ steps.blocking_failure_meta.outputs.run_url }}
           FAILURE_TIMESTAMP: ${{ steps.blocking_failure_meta.outputs.timestamp }}
@@ -473,7 +466,6 @@ jobs:
   e2e-nightly:
     name: Playwright Nightly Lane (shard ${{ matrix.shard }} / ${{ matrix.shardTotal }})
     if: github.event_name == 'schedule'
-    continue-on-error: true
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 90
@@ -511,8 +503,7 @@ jobs:
       FRONTEND_DIST: ./dist
 
     steps:
-      - uses: actions/checkout@v5
-
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
       - name: Install psql client and curl
         run: sudo apt-get update && sudo apt-get install -y postgresql-client curl
 
@@ -528,43 +519,34 @@ jobs:
       - name: Seed default admin staff for E2E
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/seed_staff_register_test.sql
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
-          node-version: "20"
+          node-version: "24"
           cache: npm
           cache-dependency-path: client/package-lock.json
 
-      - name: Restore client node_modules
-        id: cache-node-modules
-        uses: actions/cache@v4
-        with:
-          path: client/node_modules
-          key: e2e-node-modules-${{ hashFiles('client/package-lock.json') }}
-          restore-keys: e2e-node-modules-
-
       - name: Install client dependencies
-        if: steps.cache-node-modules.outputs.cache-hit != 'true'
         run: cd client && npm ci
 
       - name: Cache Playwright browsers
         id: cache-playwright
-        uses: actions/cache@v4
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ hashFiles('client/package-lock.json') }}
-          restore-keys: playwright-
+          key: playwright-${{ runner.os }}-node24-${{ hashFiles('client/package-lock.json') }}
+          restore-keys: playwright-${{ runner.os }}-node24-
 
       - name: Install Playwright Chromium
         if: steps.cache-playwright.outputs.cache-hit != 'true'
         run: cd client && npx playwright install chromium --with-deps
 
       - name: Download Server Binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: server-binary
 
       - name: Download Frontend Bundle
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: frontend-dist
           path: dist
@@ -637,8 +619,9 @@ jobs:
 
       - name: Upload nightly lane report
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
+          retention-days: 14
           name: playwright-report-nightly-shard-${{ matrix.shard }}
           path: |
             client/test-results/
@@ -658,4 +641,22 @@ jobs:
         run: |
           if [[ -f /tmp/ros-server.pid ]]; then
             kill "$(cat /tmp/ros-server.pid)" 2>/dev/null || true
+          fi
+
+  e2e-blocking-gate:
+    name: Playwright Blocking Gate
+    if: always() && github.event_name != 'schedule'
+    needs: [build, e2e-blocking]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require build and every blocking shard to pass
+        env:
+          BUILD_RESULT: ${{ needs.build.result }}
+          BLOCKING_RESULT: ${{ needs.e2e-blocking.result }}
+        run: |
+          if [[ "$BUILD_RESULT" != "success" || "$BLOCKING_RESULT" != "success" ]]; then
+            echo "Build result: $BUILD_RESULT"
+            echo "Blocking shard aggregate result: $BLOCKING_RESULT"
+            exit 1
           fi

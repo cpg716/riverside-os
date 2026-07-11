@@ -43,7 +43,7 @@ fn get_secure_pin(profile_id: &str) -> Result<String, String> {
 fn delete_secure_pin(profile_id: &str) -> Result<(), String> {
     let entry =
         Entry::new("com.riverside.ros-dev-center", profile_id).map_err(|e| e.to_string())?;
-    match entry.delete_password() {
+    match entry.delete_credential() {
         Ok(_) | Err(keyring::Error::NoEntry) => Ok(()),
         Err(e) => Err(e.to_string()),
     }

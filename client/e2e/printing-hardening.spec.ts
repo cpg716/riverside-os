@@ -1,44 +1,43 @@
 import { expect, test } from "@playwright/test";
+import {
+  buildEplDocument,
+  buildZplDocument,
+  getInventoryTagPrintConfig,
+  getInventoryTagPrinterLanguage,
+} from "../src/components/inventory/labelPrint";
 
 test.describe("printing hardening contracts", () => {
-  test("inventory tag payloads use fixed LP 2844 EPL2 without hardware", async ({ page }) => {
-    await page.goto("/", { waitUntil: "domcontentloaded" });
-
-    const payloads = await page.evaluate(async () => {
-      const labelPrint = await import("/src/components/inventory/labelPrint.ts");
-
-      const config = {
-        ...labelPrint.getInventoryTagPrintConfig(),
-        footerText: "Riverside Test",
-        showBarcode: true,
-      };
-      const items = [
-        {
-          sku: "SKU^ONE~BAD",
-          productName: "Suit \"Quoted\" <Name>",
-          variation: "Navy\n42R",
-          brand: "Riverside",
-          price: "$199.99",
-          regularPrice: null,
-          salePrice: null,
-        },
-        {
-          sku: "SKU-TWO",
-          productName: "Second tag",
-          variation: "Black",
-          brand: "Riverside",
-          price: "$99.99",
-          regularPrice: null,
-          salePrice: null,
-        },
-      ];
-
-      return {
-        language: labelPrint.getInventoryTagPrinterLanguage(),
-        zpl: labelPrint.buildZplDocument(items, config),
-        epl: labelPrint.buildEplDocument(items, config),
-      };
-    });
+  test("inventory tag payloads use fixed LP 2844 EPL2 without hardware", async () => {
+    const config = {
+      ...getInventoryTagPrintConfig(),
+      footerText: "Riverside Test",
+      showBarcode: true,
+    };
+    const items = [
+      {
+        sku: "SKU^ONE~BAD",
+        productName: "Suit \"Quoted\" <Name>",
+        variation: "Navy\n42R",
+        brand: "Riverside",
+        price: "$199.99",
+        regularPrice: null,
+        salePrice: null,
+      },
+      {
+        sku: "SKU-TWO",
+        productName: "Second tag",
+        variation: "Black",
+        brand: "Riverside",
+        price: "$99.99",
+        regularPrice: null,
+        salePrice: null,
+      },
+    ];
+    const payloads = {
+      language: getInventoryTagPrinterLanguage(),
+      zpl: buildZplDocument(items, config),
+      epl: buildEplDocument(items, config),
+    };
 
     expect(payloads.language).toBe("epl");
     expect(payloads.zpl).toContain("^XA");

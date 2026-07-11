@@ -21,6 +21,11 @@ if ([string]::IsNullOrWhiteSpace($ScriptRoot)) {
 $packageManifestPath = Join-Path $ScriptRoot "deployment-package.manifest.json"
 $packageManifest = $null
 if (Test-Path $packageManifestPath) {
+  $packageVerifier = Join-Path $ScriptRoot "verify-deployment-package.ps1"
+  if (-not (Test-Path $packageVerifier)) {
+    throw "Packaged install is missing verify-deployment-package.ps1."
+  }
+  & $packageVerifier -PackageRoot $ScriptRoot
   try {
     $packageManifest = Get-Content $packageManifestPath -Raw | ConvertFrom-Json
   } catch {}
@@ -345,7 +350,9 @@ if (-not $SkipAppInstall) {
     Write-Host "Unblocking installer file: $installer"
     Unblock-File -Path $installer -ErrorAction SilentlyContinue
   } catch {}
-  Uninstall-ExistingRiversideApp
+  # Tauri MSI/NSIS installers perform an in-place upgrade. Keep the current app
+  # installed until the replacement installer succeeds so a failed update does
+  # not leave the workstation unusable.
   Clear-RiversideClientCaches
   Write-Host "Installing Riverside desktop app from $installer"
   Install-RegisterApp $installer

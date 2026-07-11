@@ -127,7 +127,7 @@ docker compose exec -T db psql -U postgres -d riverside_os -v ON_ERROR_STOP=1 < 
 #    Staff/Admin credentials in Settings -> Integrations -> Insights after the app starts.
 #    RIVERSIDE_METABASE_* values in server/.env are fallback/bootstrap only.
 #
-# 3. API server (http://127.0.0.1:3000) — from repo root, prefer npm (`dev-server.sh` / `cargo-server.sh` put Rust 1.88 first on PATH when Homebrew rustc shadows rustup):
+# 3. API server (http://127.0.0.1:3000) — from repo root, prefer npm (`dev-server.sh` / `cargo-server.sh` put Rust 1.91 first on PATH when Homebrew rustc shadows rustup):
 npm run dev:server
 
 # 4. Web client (http://localhost:5173)
@@ -215,7 +215,7 @@ Production browser releases require **`RIVERSIDE_STRICT_PRODUCTION=true`** toget
 Refer to **[`docs/CI_CD_AND_CODE_HYGIENE_STANDARDS.md`](docs/CI_CD_AND_CODE_HYGIENE_STANDARDS.md)** for detailed linting, hook stability, and GitHub CLI maintenance standards.
 
 ```bash
-npm run check:server              # cargo check with Rust 1.88 (avoids Homebrew rustc shadowing rust-toolchain)
+npm run check:server              # cargo check with Rust 1.91 (avoids Homebrew rustc shadowing rust-toolchain)
 npm run bump <version>            # Cross-platform synchronize versions (JSON/TOML/README)
 cd client && npm run lint        # ESLint check
 cd client && npm run build       # tsc --noEmit + vite build

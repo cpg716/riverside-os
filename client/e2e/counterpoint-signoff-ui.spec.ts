@@ -546,10 +546,14 @@ async function mockCounterpointWorkbenchState(page: Page, overrides: Record<stri
 
 function runCounterpointSql(sql: string): string {
   const dbName = process.env.E2E_DB_NAME ?? "riverside_os_e2e";
-  return execFileSync(
-    "docker",
-    ["exec", "riverside-os-db", "psql", "-U", "postgres", "-d", dbName, "-At", "-c", sql],
-    { encoding: "utf8" },
+  const databaseUrl = process.env.DATABASE_URL?.trim();
+  return (databaseUrl
+    ? execFileSync("psql", [databaseUrl, "-At", "-c", sql], { encoding: "utf8" })
+    : execFileSync(
+        "docker",
+        ["exec", "riverside-os-db", "psql", "-U", "postgres", "-d", dbName, "-At", "-c", sql],
+        { encoding: "utf8" },
+      )
   ).trim();
 }
 

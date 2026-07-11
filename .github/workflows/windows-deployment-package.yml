@@ -1,8 +1,8 @@
 name: Windows deployment package
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: riverside-release-${{ github.ref }}
+  cancel-in-progress: false
 
 on:
   push:
@@ -30,7 +30,7 @@ on:
         default: "Riverside POS update"
 
 permissions:
-  contents: write
+  contents: read
   actions: read
 
 env:
@@ -41,8 +41,6 @@ env:
   RIVERSIDE_SERVER_MANAGER_UPDATER_ENDPOINT: https://github.com/${{ github.repository }}/releases/latest/download/latest-server-manager.json
   RIVERSIDE_COUNTERSYNC_UPDATER_ENDPOINT: https://github.com/${{ github.repository }}/releases/latest/download/latest-countersync-bridge-gui.json
   RIVERSIDE_UPDATER_PUBLIC_KEY: ${{ vars.RIVERSIDE_UPDATER_PUBLIC_KEY }}
-  TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-  TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
   RIVERSIDE_UPDATER_BASE_URL: https://github.com/${{ github.repository }}/releases/latest/download
   RELEASE_NOTES: ${{ github.event.inputs.release_notes }}
   RELEASE_TAG_OVERRIDE: ${{ github.event.inputs.release_tag }}
@@ -50,13 +48,15 @@ env:
   SCCACHE_GHA_ENABLED: "true"
   LLAMA_CPP_RELEASE: b8994
   LLAMA_CPP_WIN_CPU_ASSET: llama-b8994-bin-win-cpu-x64.zip
+  LLAMA_CPP_WIN_CPU_SHA256: b9391a4c3ffceb5a8af9746aeb3b45f56fe372fdfa48c29fe98144af7c5cf6c1
+  WIX314_SHA256: 6ac824e1642d6f7277d0ed7ea09411a508f6116ba6fae0aa5f2c7daa2ff43d31
 
 jobs:
   validate-scripts:
     runs-on: windows-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v5
-
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
       - name: Validate deployment PowerShell scripts
         shell: pwsh
         run: |
@@ -85,25 +85,24 @@ jobs:
   pre-retag-gate:
     name: Pre-retag release gate
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v5
-
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
-          node-version: "20"
+          node-version: "24"
           cache: npm
           cache-dependency-path: |
             package-lock.json
             client/package-lock.json
 
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
         with:
-          toolchain: "1.88"
+          toolchain: "1.91"
           components: rustfmt
 
-      - uses: mozilla-actions/sccache-action@v0.0.9
-
-      - uses: swatinem/rust-cache@v2
+      - uses: mozilla-actions/sccache-action@d651010b8da762cde178750d8eda7b5febfe147a # v0.0.9
+      - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
         with:
           shared-key: "ubuntu-pre-retag"
 
@@ -119,9 +118,13 @@ jobs:
   require-playwright-green:
     name: Require Playwright E2E green
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v5
-
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - name: Verify release tag targets this commit
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/verify-release-tag-target.mjs --tag "${{ github.event.inputs.release_tag || github.ref_name }}"
       - name: Wait for same-commit Playwright E2E
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -130,36 +133,29 @@ jobs:
   build-register-updater:
     needs: [validate-scripts, pre-retag-gate]
     runs-on: windows-latest
+    timeout-minutes: 75
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
     steps:
-      - uses: actions/checkout@v5
-
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
-          node-version: "20"
+          node-version: "24"
           cache: npm
           cache-dependency-path: client/package-lock.json
 
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
         with:
-          toolchain: "1.88"
+          toolchain: "1.91"
           components: clippy, rustfmt
 
-      - uses: swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
         with:
           shared-key: "windows-release"
 
-      - uses: mozilla-actions/sccache-action@v0.0.9
-
-      - name: Cache client node_modules
-        id: cache-client-node-modules
-        uses: actions/cache@v4
-        with:
-          path: client/node_modules
-          key: windows-client-npm-${{ hashFiles('client/package-lock.json') }}
-          restore-keys: windows-client-npm-
-
+      - uses: mozilla-actions/sccache-action@d651010b8da762cde178750d8eda7b5febfe147a # v0.0.9
       - name: Install client dependencies
-        if: steps.cache-client-node-modules.outputs.cache-hit != 'true'
         working-directory: client
         run: npm ci
 
@@ -174,6 +170,9 @@ jobs:
           $extractDir = Join-Path $env:RUNNER_TEMP "llama-cpp-win"
           $downloadUrl = "https://github.com/ggml-org/llama.cpp/releases/download/$env:LLAMA_CPP_RELEASE/$env:LLAMA_CPP_WIN_CPU_ASSET"
           Invoke-WebRequest -Uri $downloadUrl -OutFile $archive
+          if ((Get-FileHash -Algorithm SHA256 $archive).Hash.ToLowerInvariant() -ne $env:LLAMA_CPP_WIN_CPU_SHA256) {
+            throw "llama.cpp archive checksum mismatch."
+          }
           Expand-Archive -Path $archive -DestinationPath $extractDir -Force
           $binaryDir = "src-tauri/binaries"
           New-Item -ItemType Directory -Force -Path $binaryDir | Out-Null
@@ -191,7 +190,7 @@ jobs:
 
       - name: Cache WiX Toolset
         id: cache-wix
-        uses: actions/cache@v4
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: ${{ runner.temp }}/wix314
           key: wix314-binaries-v1
@@ -221,6 +220,9 @@ jobs:
                 throw $_
               }
             }
+          }
+          if ((Get-FileHash -Algorithm SHA256 $wixZip).Hash.ToLowerInvariant() -ne $env:WIX314_SHA256) {
+            throw "WiX Toolset archive checksum mismatch."
           }
           Write-Host "Extracting WiX Toolset..."
           Expand-Archive -Path $wixZip -DestinationPath $wixDir -Force
@@ -310,42 +312,53 @@ jobs:
             builtAt = $pubDate
           } | ConvertTo-Json -Depth 4 | Set-Content -Path "updater-dist/riverside-updater-build-manifest.json" -NoNewline
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
+          retention-days: 7
           name: client-dist
           path: client/dist/
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
+          retention-days: 7
           name: llama-binaries
           path: client/src-tauri/binaries/
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
+          retention-days: 7
           name: register-bundle
           path: target/release/bundle/
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
+          retention-days: 7
           name: updater-dist
           path: client/updater-dist/
 
   publish-app-updater-only:
+    permissions:
+      contents: write
+    timeout-minutes: 20
     if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.package_scope == 'app-updater-only' }}
     needs: [build-register-updater, require-playwright-green]
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v5
-
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
-          node-version: "22"
+          node-version: "24"
 
       - name: Download updater dist
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: updater-dist
           path: client/updater-dist
+
+      - name: Verify Windows publisher signatures
+        if: vars.RIVERSIDE_REQUIRE_AUTHENTICODE == 'true'
+        shell: pwsh
+        run: .\deployment\windows\verify-release-code-signing.ps1 -Path ".\client\updater-dist"
 
       - name: Publish app updater assets to GitHub release
         shell: pwsh
@@ -384,26 +397,26 @@ jobs:
     if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.package_scope != 'app-updater-only' }}
     needs: [validate-scripts, pre-retag-gate]
     runs-on: windows-latest
+    timeout-minutes: 75
     steps:
-      - uses: actions/checkout@v5
-
-      - uses: dtolnay/rust-toolchain@master
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
         with:
-          toolchain: "1.88"
+          toolchain: "1.91"
           components: clippy, rustfmt
 
-      - uses: swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
         with:
           shared-key: "windows-release"
 
-      - uses: mozilla-actions/sccache-action@v0.0.9
-
+      - uses: mozilla-actions/sccache-action@d651010b8da762cde178750d8eda7b5febfe147a # v0.0.9
       - name: Build Windows server binary
         shell: pwsh
         run: cargo build --release --manifest-path server/Cargo.toml
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
+          retention-days: 7
           name: server-binary
           path: target/release/riverside-server.exe
 
@@ -411,42 +424,35 @@ jobs:
     if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.package_scope == 'full-deployment' }}
     needs: [validate-scripts, pre-retag-gate]
     runs-on: windows-latest
+    timeout-minutes: 75
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
     steps:
-      - uses: actions/checkout@v5
-
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
-          node-version: "20"
+          node-version: "24"
           cache: npm
           cache-dependency-path: deployment/manager-app/package-lock.json
 
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
         with:
-          toolchain: "1.88"
+          toolchain: "1.91"
           components: clippy, rustfmt
 
-      - uses: swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
         with:
           shared-key: "windows-release"
 
-      - uses: mozilla-actions/sccache-action@v0.0.9
-
-      - name: Cache manager-app node_modules
-        id: cache-manager-node-modules
-        uses: actions/cache@v4
-        with:
-          path: deployment/manager-app/node_modules
-          key: windows-manager-npm-${{ hashFiles('deployment/manager-app/package-lock.json') }}
-          restore-keys: windows-manager-npm-
-
+      - uses: mozilla-actions/sccache-action@d651010b8da762cde178750d8eda7b5febfe147a # v0.0.9
       - name: Install manager-app dependencies
-        if: steps.cache-manager-node-modules.outputs.cache-hit != 'true'
         working-directory: deployment/manager-app
         run: npm ci
 
       - name: Cache WiX Toolset
         id: cache-wix
-        uses: actions/cache@v4
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: ${{ runner.temp }}/wix314
           key: wix314-binaries-v1
@@ -476,6 +482,9 @@ jobs:
                 throw $_
               }
             }
+          }
+          if ((Get-FileHash -Algorithm SHA256 $wixZip).Hash.ToLowerInvariant() -ne $env:WIX314_SHA256) {
+            throw "WiX Toolset archive checksum mismatch."
           }
           Write-Host "Extracting WiX Toolset..."
           Expand-Archive -Path $wixZip -DestinationPath $wixDir -Force
@@ -525,18 +534,21 @@ jobs:
             -Notes "Riverside Deployment Manager update" `
             -PlatformKey "windows-x86_64"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
+          retention-days: 7
           name: deployment-manager-binary
           path: target/release/riverside-deployment-manager.exe
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
+          retention-days: 7
           name: deployment-manager-bundle
           path: target/release/bundle/
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
+          retention-days: 7
           name: deployment-manager-updater-dist
           path: deployment/manager-app/updater-dist/
 
@@ -544,42 +556,35 @@ jobs:
     if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.package_scope == 'full-deployment' }}
     needs: [validate-scripts, pre-retag-gate]
     runs-on: windows-latest
+    timeout-minutes: 75
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
     steps:
-      - uses: actions/checkout@v5
-
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
-          node-version: "20"
+          node-version: "24"
           cache: npm
           cache-dependency-path: deployment/server-manager-app/package-lock.json
 
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
         with:
-          toolchain: "1.88"
+          toolchain: "1.91"
           components: clippy, rustfmt
 
-      - uses: swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
         with:
           shared-key: "windows-release"
 
-      - uses: mozilla-actions/sccache-action@v0.0.9
-
-      - name: Cache server-manager-app node_modules
-        id: cache-server-manager-node-modules
-        uses: actions/cache@v4
-        with:
-          path: deployment/server-manager-app/node_modules
-          key: windows-server-manager-npm-${{ hashFiles('deployment/server-manager-app/package-lock.json') }}
-          restore-keys: windows-server-manager-npm-
-
+      - uses: mozilla-actions/sccache-action@d651010b8da762cde178750d8eda7b5febfe147a # v0.0.9
       - name: Install server-manager-app dependencies
-        if: steps.cache-server-manager-node-modules.outputs.cache-hit != 'true'
         working-directory: deployment/server-manager-app
         run: npm ci
 
       - name: Cache WiX Toolset
         id: cache-wix
-        uses: actions/cache@v4
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: ${{ runner.temp }}/wix314
           key: wix314-binaries-v1
@@ -609,6 +614,9 @@ jobs:
                 throw $_
               }
             }
+          }
+          if ((Get-FileHash -Algorithm SHA256 $wixZip).Hash.ToLowerInvariant() -ne $env:WIX314_SHA256) {
+            throw "WiX Toolset archive checksum mismatch."
           }
           Write-Host "Extracting WiX Toolset..."
           Expand-Archive -Path $wixZip -DestinationPath $wixDir -Force
@@ -666,18 +674,21 @@ jobs:
             -Notes "ROS Server Manager update" `
             -PlatformKey "windows-x86_64"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
+          retention-days: 7
           name: server-manager-binary
           path: target/release/ros-server-manager.exe
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
+          retention-days: 7
           name: server-manager-bundle
           path: deployment/server-manager-app/src-tauri/target/release/bundle/
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
+          retention-days: 7
           name: server-manager-updater-dist
           path: deployment/server-manager-app/updater-dist/
 
@@ -685,36 +696,29 @@ jobs:
     if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.package_scope == 'full-deployment' }}
     needs: [validate-scripts, pre-retag-gate]
     runs-on: windows-latest
+    timeout-minutes: 75
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
     steps:
-      - uses: actions/checkout@v5
-
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
-          node-version: "20"
+          node-version: "24"
           cache: npm
           cache-dependency-path: deployment/counterpoint-bridge-gui/package-lock.json
 
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
         with:
-          toolchain: "1.88"
+          toolchain: "1.91"
           components: clippy, rustfmt
 
-      - uses: swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
         with:
           shared-key: "windows-release"
 
-      - uses: mozilla-actions/sccache-action@v0.0.9
-
-      - name: Cache bridge-gui node_modules
-        id: cache-bridge-gui-node-modules
-        uses: actions/cache@v4
-        with:
-          path: deployment/counterpoint-bridge-gui/node_modules
-          key: windows-bridge-gui-npm-${{ hashFiles('deployment/counterpoint-bridge-gui/package-lock.json') }}
-          restore-keys: windows-bridge-gui-npm-
-
+      - uses: mozilla-actions/sccache-action@d651010b8da762cde178750d8eda7b5febfe147a # v0.0.9
       - name: Install bridge-gui dependencies
-        if: steps.cache-bridge-gui-node-modules.outputs.cache-hit != 'true'
         working-directory: deployment/counterpoint-bridge-gui
         run: npm ci
 
@@ -735,7 +739,7 @@ jobs:
 
       - name: Cache WiX Toolset
         id: cache-wix
-        uses: actions/cache@v4
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: ${{ runner.temp }}/wix314
           key: wix314-binaries-v1
@@ -765,6 +769,9 @@ jobs:
                 throw $_
               }
             }
+          }
+          if ((Get-FileHash -Algorithm SHA256 $wixZip).Hash.ToLowerInvariant() -ne $env:WIX314_SHA256) {
+            throw "WiX Toolset archive checksum mismatch."
           }
           Write-Host "Extracting WiX Toolset..."
           Expand-Archive -Path $wixZip -DestinationPath $wixDir -Force
@@ -830,56 +837,65 @@ jobs:
             -Notes "Counterpoint Sync Bridge GUI update" `
             -PlatformKey "windows-x86_64"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
+          retention-days: 7
           name: counterpoint-bridge-gui-bundle
           path: target/release/bundle/
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
+          retention-days: 7
           name: counterpoint-bridge-gui-updater-dist
           path: deployment/counterpoint-bridge-gui/updater-dist/
 
   publish-main-hub-update:
+    permissions:
+      contents: write
+    timeout-minutes: 30
     if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.package_scope == 'main-hub-update' }}
     needs: [build-register-updater, build-server-binary, require-playwright-green]
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v5
-
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
-          node-version: "22"
+          node-version: "24"
 
       - name: Download client dist
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: client-dist
           path: client/dist
 
       - name: Download llama binaries
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: llama-binaries
           path: client/src-tauri/binaries
 
       - name: Download register bundle
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: register-bundle
           path: target/release/bundle
 
       - name: Download updater dist
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: updater-dist
           path: client/updater-dist
 
       - name: Download server binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: server-binary
           path: target/release
+
+      - name: Verify Windows publisher signatures
+        if: vars.RIVERSIDE_REQUIRE_AUTHENTICODE == 'true'
+        shell: pwsh
+        run: .\deployment\windows\verify-release-code-signing.ps1 -Path ".\target\release"
 
       - name: Ensure CRLF in deployment scripts
         shell: pwsh
@@ -916,8 +932,9 @@ jobs:
           }
           "Main Hub update package: $($mainHubZipFiles[0].Name)" | Add-Content $env:GITHUB_STEP_SUMMARY
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
+          retention-days: 7
           name: riverside-main-hub-update-package
           path: dist/deployment/RiversideOS-v*-MainHub-Update.zip
 
@@ -976,78 +993,80 @@ jobs:
             --build-manifest riverside-updater-build-manifest.json
 
   assemble-package:
+    permissions:
+      contents: write
+    timeout-minutes: 120
     if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.package_scope == 'full-deployment' }}
     needs: [build-register-updater, build-server-binary, build-deployment-manager, build-server-manager, build-counterpoint-bridge-gui, require-playwright-green]
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v5
-
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
-          node-version: "22"
+          node-version: "24"
 
       - name: Download client dist
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: client-dist
           path: client/dist
 
       - name: Download llama binaries
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: llama-binaries
           path: client/src-tauri/binaries
 
       - name: Download register bundle
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: register-bundle
           path: target/release/bundle
 
       - name: Download updater dist
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: updater-dist
           path: client/updater-dist
 
       - name: Download server binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: server-binary
           path: target/release
 
       - name: Download deployment manager binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: deployment-manager-binary
           path: target/release
 
       - name: Download deployment manager bundle
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: deployment-manager-bundle
           path: target/release/deployment-manager-bundle
 
       - name: Download server manager binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: server-manager-binary
           path: target/release
 
       - name: Download server manager bundle
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: server-manager-bundle
           path: target/release/server-manager-bundle
 
       - name: Download bridge GUI bundle
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: counterpoint-bridge-gui-bundle
           path: target/release/bundle
 
       - name: Download companion updater dists
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           pattern: "*-updater-dist"
           path: companion-updater-dist
@@ -1087,13 +1106,20 @@ jobs:
           }
           "Deployment package: $($deploymentZipFiles[0].Name)" | Add-Content $env:GITHUB_STEP_SUMMARY
 
-      - uses: actions/upload-artifact@v4
+      - name: Verify Windows publisher signatures
+        if: vars.RIVERSIDE_REQUIRE_AUTHENTICODE == 'true'
+        shell: pwsh
+        run: .\deployment\windows\verify-release-code-signing.ps1 -Path ".\target\release"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
+          retention-days: 7
           name: riverside-windows-deployment-package
           path: dist/deployment/RiversideOS-v*-Windows-Deployment.zip
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
+          retention-days: 7
           name: tauri-windows-updater-dist
           path: client/updater-dist/
 

@@ -141,7 +141,7 @@ function Find-PsqlPath {
 function Install-PostgreSqlWithWinget {
   $winget = Get-Command winget.exe -ErrorAction SilentlyContinue
   if (-not $winget) {
-    throw "PostgreSQL is not installed and Windows Package Manager was not found. Install PostgreSQL 18 first, then rerun this manager."
+    throw "PostgreSQL is not installed and Windows Package Manager was not found. Install PostgreSQL 16 first, then rerun this manager."
   }
 
   if (Test-PlaceholderSecret $postgresPasswordText.Text) {
@@ -149,9 +149,9 @@ function Install-PostgreSqlWithWinget {
     Add-Log "Generated PostgreSQL admin password for the new PostgreSQL install."
   }
 
-  Add-Log "Installing PostgreSQL 18. This may take several minutes."
+  Add-Log "Installing PostgreSQL 16. This may take several minutes."
   $override = "--mode unattended --unattendedmodeui minimal --superpassword `"$($postgresPasswordText.Text)`" --serverport 5432"
-  $output = & $winget.Source install -e --id PostgreSQL.PostgreSQL.18 --silent --accept-package-agreements --accept-source-agreements --override $override 2>&1
+  $output = & $winget.Source install -e --id PostgreSQL.PostgreSQL.16 --silent --accept-package-agreements --accept-source-agreements --override $override 2>&1
   foreach ($line in $output) {
     if ($null -ne $line) {
       Add-Log "$line"
@@ -187,7 +187,7 @@ function Ensure-PostgreSqlAvailableForServer {
   }
 
   $choice = [System.Windows.Forms.MessageBox]::Show(
-    "PostgreSQL was not found. Install PostgreSQL 18 now?",
+    "PostgreSQL was not found. Install PostgreSQL 16 now?",
     "Install PostgreSQL",
     "YesNo",
     "Question"
@@ -1001,7 +1001,7 @@ $checkButton.Add_Click({
       $psqlPath = $psqlPathText.Text.Trim()
       if (-not $psqlPath -or -not (Test-Path $psqlPath)) {
         if (Get-Command winget.exe -ErrorAction SilentlyContinue) {
-          Add-Log "PostgreSQL was not found. Install will offer to install PostgreSQL 18."
+          Add-Log "PostgreSQL was not found. Install will offer to install PostgreSQL 16."
         } else {
           throw "PostgreSQL psql.exe was not found. Install PostgreSQL or correct the psql.exe path."
         }

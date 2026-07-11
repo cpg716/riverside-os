@@ -5,32 +5,30 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: lint-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   client-lint:
     name: Client (React) Lint
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: client
     steps:
-      - uses: actions/checkout@v5
-
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
-          node-version: "20"
+          node-version: "24"
           cache: npm
           cache-dependency-path: client/package-lock.json
 
-      - name: Cache client node_modules
-        id: cache-client-node-modules
-        uses: actions/cache@v4
-        with:
-          path: client/node_modules
-          key: lint-client-npm-${{ hashFiles('client/package-lock.json') }}
-          restore-keys: lint-client-npm-
-
       - name: Install dependencies
-        if: steps.cache-client-node-modules.outputs.cache-hit != 'true'
         run: npm ci --legacy-peer-deps
 
       - name: Regenerate help artifacts
@@ -48,19 +46,18 @@ jobs:
   server-lint:
     name: Server (Rust) Clippy
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: server
     steps:
-      - uses: actions/checkout@v5
-
-      - uses: dtolnay/rust-toolchain@master
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
         with:
-          toolchain: "1.88"
+          toolchain: "1.91"
           components: clippy, rustfmt
 
-      - uses: Swatinem/rust-cache@v2
-
+      - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
       - name: Check Formatting
         run: cargo fmt --check
 
@@ -72,24 +69,23 @@ jobs:
   tauri-lint:
     name: Tauri (Rust) Clippy
     runs-on: ubuntu-latest
+    timeout-minutes: 35
     defaults:
       run:
         working-directory: client/src-tauri
     steps:
-      - uses: actions/checkout@v5
-
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
       - name: Install Linux dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
 
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
         with:
-          toolchain: "1.88"
+          toolchain: "1.91"
           components: clippy, rustfmt
 
-      - uses: Swatinem/rust-cache@v2
-
+      - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
       - name: Check Formatting
         run: cargo fmt --check
 

@@ -311,7 +311,7 @@ From the repo root, after `docker compose up -d`, client `npm install`, and once
 npm run dev
 ```
 
-Runs **`npm run dev:server`** ([**`scripts/dev-server.sh`**](scripts/dev-server.sh) — prepends **Rust 1.88** `bin` to **`PATH`** when needed), **`cd client && npm run dev`**, and the Counterpoint bridge in parallel (requires [concurrently](https://www.npmjs.com/package/concurrently) from the root `package.json`). Stop with one Ctrl+C. Ensure Postgres is up first (**`npm run docker:db`**) so the API can connect.
+Runs **`npm run dev:server`** ([**`scripts/dev-server.sh`**](scripts/dev-server.sh) — prepends **Rust 1.91** `bin` to **`PATH`** when needed), **`cd client && npm run dev`**, and the Counterpoint bridge in parallel (requires [concurrently](https://www.npmjs.com/package/concurrently) from the root `package.json`). Stop with one Ctrl+C. Ensure Postgres is up first (**`npm run docker:db`**) so the API can connect.
 
 When `ROSIE_PROVIDER=local_llm` or `auto` and the approved local ROSIE assets are present, `npm run dev` can auto-start the local Gemma Host runtime and export **`RIVERSIDE_LLAMA_UPSTREAM=http://127.0.0.1:8080`** for the API process. The local Host defaults to **`--reasoning off`**, and ROSIE requests also disable model thinking so Gemma 4 E4B returns usable **`message.content`** instead of spending the response budget in reasoning output. If you use `ROSIE_PROVIDER=remote_lmstudio`, `openai`, or `gemini`, dev startup skips bundled `llama-server` autostart; use the server-governed ROSIE route and set **`VITE_ROSIE_LLM_DIRECT=0`** for desktop testing. To keep local provider startup text-only for a session, set **`RIVERSIDE_DEV_AUTOSTART_ROSIE_HOST=0`**.
 
@@ -423,13 +423,15 @@ See [`docs/SCHEMA_CONTRACT_AND_MIGRATIONS.md`](docs/SCHEMA_CONTRACT_AND_MIGRATIO
 
 ## Build / quality checks
 
-The **Cargo Workspace** uses a root-level **`rust-toolchain.toml`** (**Rust 1.88**). The toolchain file also enforces **`clippy`** and **`rustfmt`** components. If **Homebrew** installs **`cargo`/`rustc` 1.86** and they appear **before** **`~/.cargo/bin`** on **`PATH`**, plain **`cargo`** may ignore the toolchain file and fail. Prefer **`npm run check:server`** (runs **`scripts/cargo-server.sh`**, same PATH fix as **`dev-server.sh`**), or put **`~/.cargo/bin`** first, or run **`rustup run 1.88 cargo …`** explicitly.
+Local JavaScript tooling and GitHub Actions use **Node.js 24**. `fnm`, `nvm`, and compatible version managers can read the pinned version from `.node-version` or `.nvmrc` before running `npm ci`.
+
+The **Cargo Workspace** uses a root-level **`rust-toolchain.toml`** (**Rust 1.91**). The toolchain file also enforces **`clippy`** and **`rustfmt`** components. If **Homebrew** installs **`cargo`/`rustc` 1.86** and they appear **before** **`~/.cargo/bin`** on **`PATH`**, plain **`cargo`** may ignore the toolchain file and fail. Prefer **`npm run check:server`** (runs **`scripts/cargo-server.sh`**, same PATH fix as **`dev-server.sh`**), or put **`~/.cargo/bin`** first, or run **`rustup run 1.91 cargo …`** explicitly.
 
 To **avoid that class of issues entirely**, uninstall Homebrew’s compiler and rely on **rustup** only: **`brew uninstall rust`** (and **`brew uninstall rustup`** only if you installed the **`rustup`** formula). Then ensure **`which -a rustc`** lists **`~/.cargo/bin/rustc`** first and remove any **`PATH`** entries pointing at **`/opt/homebrew/opt/rust`** (or Intel **`/usr/local/opt/rust`**) from **`~/.zshrc`** / **`~/.zprofile`**. This does **not** remove toolchains managed by **`rustup`** from **`~/.rustup`**. All workspace `rust-toolchain.toml` files include the required components for CI/CD consistency.
 
 ```bash
-npm run check:server          # cargo check with Rust 1.88 on PATH (from repo root)
-rustup run 1.88 cargo test --workspace -- --test-threads=1
+npm run check:server          # cargo check with Rust 1.91 on PATH (from repo root)
+rustup run 1.91 cargo test --workspace -- --test-threads=1
 cd client && npm run build    # tsc --noEmit + vite build
 ```
 

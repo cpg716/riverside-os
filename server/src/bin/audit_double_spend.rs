@@ -43,13 +43,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .await;
 
-        if res.is_ok() {
+        if let Ok(redemption) = res {
             // Simulate processing time inside the lock
             tokio::time::sleep(Duration::from_millis(500)).await;
 
             // In checkout, we also update the balance
             sqlx::query("UPDATE gift_cards SET current_balance = $1 WHERE id = $2")
-                .bind(res.unwrap().new_balance)
+                .bind(redemption.new_balance)
                 .bind(card_id)
                 .execute(&mut *tx)
                 .await
@@ -76,9 +76,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .await;
 
-        if res.is_ok() {
+        if let Ok(redemption) = res {
             sqlx::query("UPDATE gift_cards SET current_balance = $1 WHERE id = $2")
-                .bind(res.unwrap().new_balance)
+                .bind(redemption.new_balance)
                 .bind(card_id)
                 .execute(&mut *tx)
                 .await

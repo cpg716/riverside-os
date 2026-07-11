@@ -4,7 +4,7 @@ version = "0.90.0"
 description = "Riverside POS (Tauri shell)"
 authors = ["Riverside OS"]
 edition = "2021"
-rust-version = "1.88"
+rust-version = "1.91"
 
 [lib]
 name = "app_lib"

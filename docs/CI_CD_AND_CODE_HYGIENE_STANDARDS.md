@@ -94,7 +94,7 @@ gh run list --status failure --limit 100 --json databaseId --jq '.[].databaseId'
 
 ## Server-Side Hygiene (Rust)
 
-1. **Toolchain Pinning:** The project is strictly pinned to **Rust 1.88**. Ensure your `rust-toolchain.toml` includes both `clippy` and `rustfmt`.
+1. **Toolchain Pinning:** The project is strictly pinned to **Rust 1.91**. Ensure your `rust-toolchain.toml` includes both `clippy` and `rustfmt`.
 2. **Clippy Compliance:** Code must pass `cargo clippy --workspace --all-targets -- -D warnings` without warnings.
 3. **Deterministic Formatting:** Always run `cargo fmt --all` before committing (`cargo fmt --all --check` is run in CI).
 4. **Decimal for Currency:** Never use `f32`/`f64` for money. Use `rust_decimal::Decimal`.

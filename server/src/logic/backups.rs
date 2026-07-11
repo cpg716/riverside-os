@@ -964,7 +964,7 @@ fn cloud_operator(settings: &BackupSettings) -> Result<Operator> {
             if !settings.cloud_endpoint.trim().is_empty() {
                 builder = builder.endpoint(settings.cloud_endpoint.trim());
             }
-            Ok(Operator::new(builder)?.finish())
+            Ok(Operator::new(builder)?)
         }
         "dropbox" => {
             let mut builder = Dropbox::default().root(settings.cloud_root.trim());
@@ -977,7 +977,7 @@ fn cloud_operator(settings: &BackupSettings) -> Result<Operator> {
                 builder = builder.client_secret(&required_env("BACKUP_CLOUD_CLIENT_SECRET")?);
             }
             require_cloud_oauth_material("Dropbox")?;
-            Ok(Operator::new(builder)?.finish())
+            Ok(Operator::new(builder)?)
         }
         "google_drive" | "gdrive" => {
             let mut builder = Gdrive::default().root(settings.cloud_root.trim());
@@ -990,7 +990,7 @@ fn cloud_operator(settings: &BackupSettings) -> Result<Operator> {
                 builder = builder.client_secret(&required_env("BACKUP_CLOUD_CLIENT_SECRET")?);
             }
             require_cloud_oauth_material("Google Drive")?;
-            Ok(Operator::new(builder)?.finish())
+            Ok(Operator::new(builder)?)
         }
         "onedrive" | "one_drive" => {
             let mut builder = Onedrive::default().root(settings.cloud_root.trim());
@@ -1005,7 +1005,7 @@ fn cloud_operator(settings: &BackupSettings) -> Result<Operator> {
                 }
             }
             require_cloud_oauth_material("OneDrive")?;
-            Ok(Operator::new(builder)?.finish())
+            Ok(Operator::new(builder)?)
         }
         other => Err(anyhow::anyhow!(
             "Unsupported cloud backup provider: {other}"

@@ -30,6 +30,11 @@ if ([string]::IsNullOrWhiteSpace($ScriptRoot)) {
 $packageManifestPath = Join-Path $ScriptRoot "deployment-package.manifest.json"
 $packageManifest = $null
 if (Test-Path $packageManifestPath) {
+  $packageVerifier = Join-Path $ScriptRoot "verify-deployment-package.ps1"
+  if (-not (Test-Path $packageVerifier)) {
+    throw "Packaged install is missing verify-deployment-package.ps1."
+  }
+  & $packageVerifier -PackageRoot $ScriptRoot
   try {
     $packageManifest = Get-Content $packageManifestPath -Raw | ConvertFrom-Json
   } catch {}
@@ -104,7 +109,7 @@ function Install-PostgreSqlWithWinget([string]$AdminPassword) {
   $winget = Get-Command winget.exe -ErrorAction SilentlyContinue
   if (-not $winget) {
     throw ("PostgreSQL is not installed and Windows Package Manager (winget) was not found. " +
-      "Install PostgreSQL 18 manually from https://www.postgresql.org/download/windows/ " +
+      "Install PostgreSQL 16 manually from https://www.postgresql.org/download/windows/ " +
       "then rerun install-server.ps1.")
   }
 
@@ -115,15 +120,15 @@ function Install-PostgreSqlWithWinget([string]$AdminPassword) {
     $AdminPassword = -join (1..24 | ForEach-Object { $chars[$rng.Next(0, $chars.Length)] })
   }
 
-  Write-Host "PostgreSQL 18 not found. Installing via winget (this may take several minutes)..." -ForegroundColor Yellow
+  Write-Host "PostgreSQL 16 not found. Installing via winget (this may take several minutes)..." -ForegroundColor Yellow
   $override = "--mode unattended --unattendedmodeui minimal --superpassword `"$AdminPassword`" --serverport 5432"
-  $output = & $winget.Source install -e --id PostgreSQL.PostgreSQL.18 --silent `
+  $output = & $winget.Source install -e --id PostgreSQL.PostgreSQL.16 --silent `
     --accept-package-agreements --accept-source-agreements --override $override 2>&1
   foreach ($line in $output) {
     if ($null -ne $line) { Write-Host $line }
   }
   if ($LASTEXITCODE -ne 0) {
-    throw "PostgreSQL 18 winget install failed with exit code $LASTEXITCODE."
+    throw "PostgreSQL 16 winget install failed with exit code $LASTEXITCODE."
   }
 
   # Refresh PATH so psql.exe is found in this session
@@ -148,6 +153,31 @@ function Resolve-PsqlPath($dbConfig) {
   $found = Find-PsqlPath
   if ($found) { return $found }
   throw "psql.exe was not found. Install PostgreSQL first, or set server.database.psqlPath in the config."
+}
+
+function New-PreMigrationBackup([string]$PsqlPath, $DbConfig, [string]$BackupDir) {
+  $pgDump = Join-Path (Split-Path $PsqlPath -Parent) "pg_dump.exe"
+  if (-not (Test-Path $pgDump)) {
+    throw "pg_dump.exe was not found beside psql.exe; refusing to migrate without a verified backup."
+  }
+
+  $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+  $backupPath = Join-Path $BackupDir "pre-install-migration-$stamp.dump"
+  $env:PGPASSWORD = $DbConfig.appPassword
+  try {
+    & $pgDump -h $DbConfig.host -p $DbConfig.port -U $DbConfig.appUser -d $DbConfig.databaseName -w -Fc -f $backupPath
+    if ($LASTEXITCODE -ne 0) {
+      throw "pg_dump failed with exit code $LASTEXITCODE."
+    }
+  } finally {
+    Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue
+  }
+
+  $backupFile = Get-Item $backupPath -ErrorAction Stop
+  if ($backupFile.Length -lt 1024) {
+    throw "Pre-migration backup was unexpectedly small: $backupPath"
+  }
+  Write-Host "Pre-migration database backup created: $backupPath" -ForegroundColor Green
 }
 
 function Get-PgDataDir([string]$ServiceName) {
@@ -252,7 +282,7 @@ function Ensure-PostgresServiceRunning {
 
     if ($SkipPostgresInstall) {
       throw ("PostgreSQL is not reachable at $dbHost`:$dbPort and no PostgreSQL Windows service was found. " +
-        "Install PostgreSQL 18 first, then rerun install-server.ps1.")
+        "Install PostgreSQL 16 first, then rerun install-server.ps1.")
     }
 
     if (-not (Find-PsqlPath)) {
@@ -723,20 +753,12 @@ function Wait-RiversideApiReady([string]$BaseUrl, [int]$Port) {
     return
   }
 
-  if (-not $script:postgresReachable) {
-    Write-Warning "Riverside OS Server API is not responding at $BaseUrl. This is expected because PostgreSQL was not reachable during install and the database was not set up."
-    Write-Warning "To fix: resolve PostgreSQL (check the PostgreSQL log in its data/log directory, run initdb if the data directory is missing, or free port 5432), then rerun install-server.ps1."
-    return
-  }
-
-  Write-Warning "Riverside OS Server is running, but the database readiness check did not pass within 180 seconds."
-  Write-Warning "Last readiness error: $script:lastRiversideApiReadyError"
-  Write-Warning "Checking POS staff list once for a more specific diagnostic..."
+  Write-Host "Checking POS staff list once for a more specific diagnostic..."
   if (Test-RiversideApiEndpoint $staffUrl '^(\[|\{)') {
     Write-Host "Riverside OS POS staff check passed at $staffUrl"
     return
   }
-  Write-Warning "POS staff list did not respond yet at $staffUrl. The server process is running; open the app and use Main Hub Repair if staff sign-in is unavailable."
+  throw "Riverside OS Server did not become database-ready at $readyUrl. Last error: $script:lastRiversideApiReadyError. POS staff check also failed at $staffUrl."
 }
 
 function Resolve-LlamaPerfProfile([string]$Requested) {
@@ -1856,6 +1878,24 @@ $taskName = "Riverside OS Server"
 $httpBind = $server.httpBind
 if ([string]::IsNullOrWhiteSpace($httpBind)) { $httpBind = "0.0.0.0:3000" }
 $serverPort = [int](($httpBind -split ":")[-1])
+$rollbackDir = Join-Path $installRoot ".install-rollback"
+$hadExistingTask = $null -ne (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue)
+Remove-Item $rollbackDir -Recurse -Force -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Force -Path $rollbackDir | Out-Null
+if ($hadExistingTask) {
+  Export-ScheduledTask -TaskName $taskName | Set-Content (Join-Path $rollbackDir "server-task.xml") -Encoding Unicode
+}
+foreach ($entry in @(
+  @{ Source = $serverDir; Name = "server" },
+  @{ Source = (Join-Path $installRoot "client"); Name = "client" },
+  @{ Source = $releaseDir; Name = "release" }
+)) {
+  if (Test-Path $entry.Source) {
+    Copy-Item $entry.Source (Join-Path $rollbackDir $entry.Name) -Recurse -Force
+  }
+}
+
+try {
 Stop-RiversideServer
 Stop-PortListeners $serverPort
 
@@ -1916,18 +1956,19 @@ if ($script:postgresReachable) {
       Invoke-PsqlAdminDatabase $psql $db $databaseName "ALTER SCHEMA public OWNER TO ""$appUser""; GRANT ALL ON SCHEMA public TO ""$appUser"";"
       Ensure-OptionalReportingRole $psql $db
     } catch {
-      Write-Warning "Database creation/setup failed: $($_.Exception.Message). Continuing with server installation."
+      throw "Database creation/setup failed: $($_.Exception.Message)"
     }
   }
 
   try {
     Assert-DatabaseUtf8 $psql $db $db.databaseName
   } catch {
-    Write-Warning "Database UTF-8 check failed: $($_.Exception.Message). Continuing."
+    throw "Database UTF-8 check failed: $($_.Exception.Message)"
   }
 
   if (-not $SkipMigrations) {
     try {
+      New-PreMigrationBackup $psql $db $backupDir
       $env:PGPASSWORD = $db.appPassword
       try {
         Apply-Migrations $psql $databaseUrl (Join-Path $releaseDir "migrations")
@@ -1937,11 +1978,7 @@ if ($script:postgresReachable) {
         Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue
       }
     } catch {
-      $migrationFailure = "$($_.Exception.Message)"
-      if ($migrationFailure -match "Migration checksum drift detected") {
-        throw "Migrations/seeds failed: $migrationFailure"
-      }
-      Write-Warning "Migrations/seeds failed: $migrationFailure. Continuing with server installation."
+      throw "Migrations/seeds failed: $($_.Exception.Message)"
     }
   }
 
@@ -1966,10 +2003,10 @@ if ($script:postgresReachable) {
       Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue
     }
   } catch {
-    Write-Warning "Bootstrap admin setup failed: $($_.Exception.Message). Continuing."
+    throw "Bootstrap admin setup failed: $($_.Exception.Message)"
   }
 } else {
-  Write-Warning "PostgreSQL is not reachable. Skipping all database operations. Run install-server.ps1 again after fixing PostgreSQL."
+  throw "PostgreSQL is not reachable. No server files will be reported ready; fix PostgreSQL and rerun install-server.ps1."
 }
 
 # ROSIE AI stack - download model and set up voice tools.
@@ -2043,3 +2080,27 @@ $summary = "Riverside OS Server install complete.`n" +
 Set-Content -Path (Join-Path $installRoot "deployment-summary.txt") -Value $summary -Encoding UTF8
 Write-Host $summary
 Write-DeploymentStatus "READY" "Installation completed successfully"
+Remove-Item $rollbackDir -Recurse -Force -ErrorAction SilentlyContinue
+} catch {
+  $installFailure = $_
+  Write-DeploymentStatus "FAILED" $installFailure.Exception.Message
+  Stop-RiversideServer
+  foreach ($entry in @(
+    @{ Target = $serverDir; Name = "server" },
+    @{ Target = (Join-Path $installRoot "client"); Name = "client" },
+    @{ Target = $releaseDir; Name = "release" }
+  )) {
+    $saved = Join-Path $rollbackDir $entry.Name
+    if (Test-Path $saved) {
+      Remove-Item $entry.Target -Recurse -Force -ErrorAction SilentlyContinue
+      Copy-Item $saved $entry.Target -Recurse -Force
+    }
+  }
+  Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+  if ($hadExistingTask) {
+    $savedTaskXml = Get-Content (Join-Path $rollbackDir "server-task.xml") -Raw
+    Register-ScheduledTask -TaskName $taskName -Xml $savedTaskXml | Out-Null
+    Start-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+  }
+  throw $installFailure
+}

@@ -335,8 +335,8 @@ for (const path of [
     'CARGO_INCREMENTAL: "0"',
     'RUSTC_WRAPPER: "sccache"',
     'SCCACHE_GHA_ENABLED: "true"',
-    "mozilla-actions/sccache-action@v0.0.9",
-    "swatinem/rust-cache@v2",
+    "mozilla-actions/sccache-action@d651010b8da762cde178750d8eda7b5febfe147a # v0.0.9",
+    "Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2",
   ]) {
     assertIncludes(
       path,
