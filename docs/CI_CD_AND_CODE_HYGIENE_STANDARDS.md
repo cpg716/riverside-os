@@ -86,6 +86,27 @@ import { useMyHook } from "./context/MyContextLogic";
 
 To maintain a clean workflow history, developers and agents are encouraged to use the **GitHub CLI (`gh`)** to prune failed or redundant runs.
 
+### Dependabot queue controls
+
+Dependabot version updates are intentionally bounded so a monthly dependency refresh cannot consume the GitHub-hosted runner pool:
+
+- Each configured ecosystem/directory may keep at most **two** version-update PRs open.
+- Routine minor/patch updates are grouped into one PR, major updates into a second PR, and security updates into a separate security group.
+- The ten package locations run monthly at staggered hourly times from **02:00 through 11:00 America/New_York** instead of starting together.
+- Dependabot PRs that change only `package.json`, `package-lock.json`, or `npm-shrinkwrap.json` inside an isolated companion app skip the full Riverside server/client Playwright matrix. The required Client Lint check instead runs `npm ci` and that companion's build (or JavaScript syntax check for bridge services).
+- Human PRs, `main` pushes, release commits, and any change outside those isolated dependency manifests always run the full Lint and blocking Playwright suites.
+
+The isolated companion paths are:
+
+- `counterpoint-bridge/`
+- `deployment/counterpoint-bridge-gui/`
+- `deployment/manager-app/`
+- `deployment/server-manager-app/`
+- `ros-dev/`
+- `tools/counterpoint-bridge/`
+
+Do not add a new Dependabot package location without giving it a staggered time, a bounded PR limit, and appropriate CI scope classification.
+
 ### Pruning Failed Runs
 ```bash
 # Bulk delete all failed runs for the current repository
@@ -110,4 +131,4 @@ Before pushing any major refactor, executors should run the following locally:
 4. `cargo test --workspace -- --test-threads=1`
 5. `cd client && npm run build` (to catch type errors in production builds)
 
-**Last reviewed:** 2026-05-31
+**Last reviewed:** 2026-07-11

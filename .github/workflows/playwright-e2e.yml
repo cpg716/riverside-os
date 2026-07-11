@@ -21,8 +21,34 @@ concurrency:
   cancel-in-progress: ${{ github.event_name != 'schedule' }}
 
 jobs:
+  ci-scope:
+    name: Classify CI Scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      full_stack: ${{ steps.scope.outputs.full_stack }}
+      companion_directories: ${{ steps.scope.outputs.companion_directories }}
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: "24"
+      - name: Classify changed dependency scope
+        id: scope
+        run: |
+          node scripts/classify-ci-scope.mjs \
+            --event "${{ github.event_name }}" \
+            --actor "${{ github.actor }}" \
+            --base "${{ github.event.pull_request.base.sha }}" \
+            --head "${{ github.event.pull_request.head.sha }}" \
+            --github-output "$GITHUB_OUTPUT"
+
   build:
     name: Build Stack
+    needs: ci-scope
+    if: needs.ci-scope.outputs.full_stack == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -646,15 +672,20 @@ jobs:
   e2e-blocking-gate:
     name: Playwright Blocking Gate
     if: always() && github.event_name != 'schedule'
-    needs: [build, e2e-blocking]
+    needs: [ci-scope, build, e2e-blocking]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Require build and every blocking shard to pass
         env:
+          FULL_STACK: ${{ needs.ci-scope.outputs.full_stack }}
           BUILD_RESULT: ${{ needs.build.result }}
           BLOCKING_RESULT: ${{ needs.e2e-blocking.result }}
         run: |
+          if [[ "$FULL_STACK" == "false" ]]; then
+            echo "Full Playwright skipped for an isolated companion dependency-only PR."
+            exit 0
+          fi
           if [[ "$BUILD_RESULT" != "success" || "$BLOCKING_RESULT" != "success" ]]; then
             echo "Build result: $BUILD_RESULT"
             echo "Blocking shard aggregate result: $BLOCKING_RESULT"

@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepashangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **Dependabot CI Queue Controls**: Grouped routine, major, and security dependency updates; reduced version-update PR caps; staggered monthly ecosystem schedules; and routed isolated companion-app dependency PRs through targeted locked-install/build validation instead of the full Riverside Playwright matrix.
+
 ## [0.90.0] - 2026-06-04
 
 ### Added
