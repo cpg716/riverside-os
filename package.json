@@ -58,7 +58,7 @@
     "cross-env": "^7.0.3",
     "marked": "^18.0.4",
     "repomix": "^1.13.1",
-    "shadcn": "^4.2.0",
+    "shadcn": "^4.13.0",
     "wait-on": "^8.0.5"
   },
   "dependencies": {
