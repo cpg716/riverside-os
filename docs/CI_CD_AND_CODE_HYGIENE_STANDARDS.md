@@ -111,7 +111,7 @@ Do not add a new Dependabot package location without giving it a staggered time,
 
 Windows and macOS release workflows use separate workflow-level concurrency groups so their build work can overlap. Release publication remains protected by the shared `riverside-release-publish-<tag>` job group, preventing both platforms from changing the same GitHub release simultaneously.
 
-Rust build caches must retain their default job-specific identity. Do not assign every parallel Windows job the same `shared-key`; GitHub cache entries are immutable, so that configuration makes jobs race to save one incomplete cache.
+Rust target caches retain their default job-specific identity, and sccache uses a stable per-job `SCCACHE_GHA_CACHE_TO`/`SCCACHE_GHA_CACHE_FROM` namespace. Do not assign every parallel Windows job the same `shared-key` or sccache namespace; GitHub cache entries are immutable, so that configuration makes jobs race to save incomplete or duplicate entries.
 
 For a timing benchmark that cannot alter a release, dispatch both workflows with `publish_release=false`. The workflows still run the release gates, build signed packages, and preserve short-lived Actions artifacts, but skip tag verification and all `gh release` mutations:
 

@@ -91,6 +91,9 @@ jobs:
     name: Pre-retag release gate
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      SCCACHE_GHA_CACHE_TO: riverside-sccache-windows-pre-retag
+      SCCACHE_GHA_CACHE_FROM: riverside-sccache-windows-pre-retag
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
@@ -141,6 +144,8 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 75
     env:
+      SCCACHE_GHA_CACHE_TO: riverside-sccache-windows-register-updater
+      SCCACHE_GHA_CACHE_FROM: riverside-sccache-windows-register-updater
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
     steps:
@@ -405,6 +410,9 @@ jobs:
     needs: [validate-scripts, pre-retag-gate]
     runs-on: windows-latest
     timeout-minutes: 75
+    env:
+      SCCACHE_GHA_CACHE_TO: riverside-sccache-windows-server
+      SCCACHE_GHA_CACHE_FROM: riverside-sccache-windows-server
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
       - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
@@ -431,6 +439,8 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 75
     env:
+      SCCACHE_GHA_CACHE_TO: riverside-sccache-windows-deployment-manager
+      SCCACHE_GHA_CACHE_FROM: riverside-sccache-windows-deployment-manager
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
     steps:
@@ -561,6 +571,8 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 75
     env:
+      SCCACHE_GHA_CACHE_TO: riverside-sccache-windows-server-manager
+      SCCACHE_GHA_CACHE_FROM: riverside-sccache-windows-server-manager
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
     steps:
@@ -699,6 +711,8 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 75
     env:
+      SCCACHE_GHA_CACHE_TO: riverside-sccache-windows-counterpoint-bridge
+      SCCACHE_GHA_CACHE_FROM: riverside-sccache-windows-counterpoint-bridge
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
     steps:

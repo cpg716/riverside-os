@@ -107,6 +107,19 @@ assertNotIncludes(
   "Installing Updates...",
   "install wizard must not call fresh installs updates",
 );
+for (const namespace of [
+  "riverside-sccache-windows-register-updater",
+  "riverside-sccache-windows-server",
+  "riverside-sccache-windows-deployment-manager",
+  "riverside-sccache-windows-server-manager",
+  "riverside-sccache-windows-counterpoint-bridge",
+]) {
+  assertIncludes(
+    ".github/workflows/windows-deployment-package.yml",
+    namespace,
+    "parallel Windows release jobs must keep independent sccache namespaces",
+  );
+}
 assertNotIncludes(
   managerApp,
   "Install or update this station",
