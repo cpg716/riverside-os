@@ -171,6 +171,18 @@ jobs:
           codesign --verify --deep --strict --verbose=2 "$app"
           spctl --assess --type execute --verbose=2 "$app"
 
+      - name: Prepare signed updater candidate
+        shell: pwsh
+        run: |
+          ./scripts/prepare-tauri-updater-dist.ps1 `
+            -PackageJsonPath "./ros-dev/package.json" `
+            -TargetRoot "./target/universal-apple-darwin" `
+            -OutputDir "./ros-dev/updater-dist" `
+            -ManifestName "latest-ros-dev-center-macos.json" `
+            -BuildManifestName "ros-dev-center-updater-build-manifest.json" `
+            -BaseUrl "$env:RIVERSIDE_UPDATER_BASE_URL" `
+            -Notes "ROS Dev Center macOS update"
+
       - name: Preserve macOS build candidate
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
@@ -181,6 +193,7 @@ jobs:
             target/universal-apple-darwin/release/bundle/dmg/*.dmg
             target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz
             target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz.sig
+            ros-dev/updater-dist/*
 
       - name: Prepare release metadata
         id: meta
@@ -204,14 +217,6 @@ jobs:
         run: |
           tag="${{ steps.meta.outputs.tag }}"
           gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --title "$tag" --notes "${{ steps.meta.outputs.notes }}"
-          pwsh ./scripts/prepare-tauri-updater-dist.ps1 \
-            -PackageJsonPath "./ros-dev/package.json" \
-            -TargetRoot "./target/universal-apple-darwin" \
-            -OutputDir "./ros-dev/updater-dist" \
-            -ManifestName "latest-ros-dev-center-macos.json" \
-            -BuildManifestName "ros-dev-center-updater-build-manifest.json" \
-            -BaseUrl "$RIVERSIDE_UPDATER_BASE_URL" \
-            -Notes "ROS Dev Center macOS update"
           dmg=$(ls target/universal-apple-darwin/release/bundle/dmg/*.dmg 2>/dev/null | head -1)
           app=$(ls target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz 2>/dev/null | head -1)
           if [ -n "$dmg" ]; then

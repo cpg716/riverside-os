@@ -130,6 +130,28 @@ env -u GITHUB_TOKEN -u GH_TOKEN gh workflow run macos-ros-dev-center-release.yml
 
 Benchmark from the same commit and compare actual job start/completion times, not the queued workflow creation time.
 
+### Release-candidate promotion
+
+When the exact commit that will be tagged has successful non-publishing Windows and macOS candidate runs, create or move the release tag to that same commit and promote the candidates instead of rebuilding them:
+
+```bash
+env -u GITHUB_TOKEN -u GH_TOKEN gh workflow run promote-release-candidate.yml \
+  --ref main \
+  -f release_tag=v0.90.0 \
+  -f windows_run_id=<successful-windows-run-id> \
+  -f macos_run_id=<successful-macos-run-id>
+```
+
+Promotion fails closed unless all of these are true:
+
+- both candidate runs completed successfully through the expected release workflows;
+- both runs built the same commit targeted by the release tag;
+- every required artifact is present, unexpired, and has a GitHub SHA-256 digest;
+- all updater build manifests identify the exact candidate commit and reference files present in the downloaded artifacts;
+- the Windows deployment ZIP filename contains the exact candidate short SHA.
+
+The promotion job immediately cancels redundant Windows/macOS rebuilds triggered by the tag push for the same SHA, then the download action validates artifact digests before the serialized promotion job changes the release. Candidate artifacts expire after seven days, so build a fresh candidate rather than weakening provenance checks.
+
 ### Pruning Failed Runs
 ```bash
 # Bulk delete all failed runs for the current repository

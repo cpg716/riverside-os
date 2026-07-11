@@ -290,6 +290,10 @@ After this checklist is complete and the branch is green:
    ```
 4. **Automation takes over** — GitHub Actions `windows-deployment-package.yml` triggers on the `v*` tag push, builds the deployment ZIP plus signed Windows updater assets, and publishes to the GitHub release with `latest.json` for the Tauri updater.
 
+### Faster verified candidate path
+
+For a planned release, run the Windows and macOS release workflows with `publish_release=false` before tagging. After both succeed, move the tag to that exact commit and immediately run **Promote verified release candidates** with the two candidate run IDs. Promotion verifies the tag SHA, both workflow run SHAs, GitHub artifact digests, and updater build manifests, then cancels redundant tag-triggered rebuilds and publishes the already-signed artifacts. See `docs/CI_CD_AND_CODE_HYGIENE_STANDARDS.md` for the commands and fail-closed requirements.
+
 ### Manual Override
 
 For hotfixes or custom tags (e.g., `v0.70.3-GOLD`), use the manual workflow:

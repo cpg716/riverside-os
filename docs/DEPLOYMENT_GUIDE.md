@@ -1182,6 +1182,7 @@ Riverside OS uses GitHub Actions for continuous integration and automated depend
 | `lint.yml` | PR / push to `main` | `cargo fmt`, `cargo clippy` |
 | `security-audit.yml` | Weekly (Mon midnight) + manual | `cargo audit` (CVE scan) + `cargo outdated` (stale deps) |
 | `windows-deployment-package.yml` | Push `v*` tag or manual | Builds Windows deployment package (server, client, Deployment Manager) and publishes to GitHub release |
+| `promote-release-candidate.yml` | Manual | Verifies and publishes existing exact-SHA Windows/macOS candidate artifacts without rebuilding |
 | `dependabot-auto-merge.yml` | Dependabot PR | Auto-squash merges patch-level dependency updates |
 
 ### Releasing a New Version
@@ -1203,6 +1204,8 @@ Riverside OS uses GitHub Actions for continuous integration and automated depend
    git push origin main --tags
    ```
 4. The `windows-deployment-package` workflow triggers automatically, builds the deployment ZIP plus signed Windows updater assets, and publishes `latest.json` to the GitHub release — visible to all Tauri auto-updaters.
+
+For planned releases, the faster path is to build both platform workflows first with `publish_release=false`, tag that exact successful commit, and immediately run `promote-release-candidate.yml` with both run IDs. The promotion workflow cancels redundant tag-triggered builds and refuses candidates whose run SHA, tag SHA, artifact digests, or updater manifests disagree. The full command sequence is in `docs/CI_CD_AND_CODE_HYGIENE_STANDARDS.md`.
 
 ### Manual Release Override
 

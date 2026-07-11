@@ -366,6 +366,18 @@ for (const path of [
     );
   }
 }
+for (const copy of [
+  "verify-release-candidate-runs.mjs",
+  "verify-release-candidate-assets.mjs",
+  "riverside-release-publish-${{ inputs.release_tag }}",
+  "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8",
+]) {
+  assertIncludes(
+    ".github/workflows/promote-release-candidate.yml",
+    copy,
+    "candidate promotion must verify exact provenance and serialize release publication",
+  );
+}
 
 const mainHubInstaller = "deployment/windows/install-server.ps1";
 for (const copy of [

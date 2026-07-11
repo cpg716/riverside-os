@@ -1,0 +1,169 @@
+name: Promote verified release candidates
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Existing release tag to publish (for example v0.90.0)"
+        required: true
+        type: string
+      windows_run_id:
+        description: "Successful non-publishing Windows candidate run ID"
+        required: true
+        type: string
+      macos_run_id:
+        description: "Successful non-publishing macOS candidate run ID"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: riverside-release-publish-${{ inputs.release_tag }}
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    name: Verify and publish candidates
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+
+      - name: Verify run, tag, and artifact provenance
+        id: provenance
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          node scripts/verify-release-candidate-runs.mjs \
+            --windows-run-id "${{ inputs.windows_run_id }}" \
+            --macos-run-id "${{ inputs.macos_run_id }}" \
+            --tag "${{ inputs.release_tag }}"
+
+      - name: Cancel redundant tag-triggered rebuilds
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ steps.provenance.outputs.source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for workflow in windows-deployment-package.yml macos-ros-dev-center-release.yml; do
+            while IFS= read -r run_id; do
+              [ -z "$run_id" ] || gh api --method POST \
+                "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/cancel"
+            done < <(gh api \
+              "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow/runs?event=push&per_page=20" \
+              --jq ".workflow_runs[] | select(.head_sha == \"$SOURCE_SHA\" and (.status == \"queued\" or .status == \"in_progress\" or .status == \"waiting\" or .status == \"pending\")) | .id")
+          done
+
+      - name: Check out the candidate commit
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          ref: ${{ steps.provenance.outputs.source_sha }}
+
+      - name: Download Windows deployment package
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: riverside-windows-deployment-package
+          path: candidate/windows/deployment
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.windows_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Download Windows updater assets
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: tauri-windows-updater-dist
+          path: candidate/windows/register-updater
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.windows_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Download Windows companion candidates
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: "{deployment-manager-bundle,deployment-manager-updater-dist,server-manager-bundle,server-manager-updater-dist,counterpoint-bridge-gui-bundle,counterpoint-bridge-gui-updater-dist}"
+          path: candidate/windows/companions
+          merge-multiple: false
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.windows_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Download macOS candidate
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: ros-dev-center-macos-release-candidate
+          path: candidate/macos
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.macos_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Verify candidate file provenance
+        run: |
+          node scripts/verify-release-candidate-assets.mjs \
+            --root candidate \
+            --sha "${{ steps.provenance.outputs.source_sha }}"
+
+      - name: Publish verified candidate assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          SOURCE_SHA: ${{ steps.provenance.outputs.source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob globstar
+          tag="$RELEASE_TAG"
+          version="${tag#v}"
+          gh release view "$tag" >/dev/null 2>&1 || \
+            gh release create "$tag" --title "Riverside OS $tag" --notes "Riverside OS release $tag"
+
+          while IFS= read -r old_asset; do
+            [ -z "$old_asset" ] || gh release delete-asset "$tag" "$old_asset" --yes
+          done < <(gh release view "$tag" --json assets --jq ".assets[].name | select(startswith(\"RiversideOS-v${version}-\") and endswith(\"-Windows-Deployment.zip\"))")
+
+          mapfile -d '' assets < <(find candidate -type f ! -name '*.json' -print0)
+          mapfile -d '' manifests < <(find candidate -type f -name '*.json' -print0)
+          if [ "${#assets[@]}" -eq 0 ] || [ "${#manifests[@]}" -eq 0 ]; then
+            echo "Verified candidate assets or manifests are missing." >&2
+            exit 1
+          fi
+          gh release upload "$tag" "${assets[@]}" --clobber
+          gh release upload "$tag" "${manifests[@]}" --clobber
+
+          node scripts/verify-updater-release-assets.mjs \
+            --repo "$GITHUB_REPOSITORY" \
+            --tag "$tag" \
+            --platform windows-x86_64 \
+            --manifest latest.json \
+            --manifest latest-deployment-manager.json \
+            --manifest latest-server-manager.json \
+            --manifest latest-countersync-bridge-gui.json \
+            --build-manifest riverside-updater-build-manifest.json \
+            --build-manifest riverside-deployment-manager-updater-build-manifest.json \
+            --build-manifest ros-server-manager-updater-build-manifest.json \
+            --build-manifest counterpoint-bridge-gui-updater-build-manifest.json
+          node scripts/verify-updater-release-assets.mjs \
+            --repo "$GITHUB_REPOSITORY" \
+            --tag "$tag" \
+            --manifest latest-ros-dev-center-macos.json \
+            --build-manifest ros-dev-center-updater-build-manifest.json
+          node scripts/update-release-build-metadata.mjs \
+            --repo "$GITHUB_REPOSITORY" \
+            --tag "$tag" \
+            --sha "$SOURCE_SHA" \
+            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+
+          {
+            echo "### Promoted release candidates"
+            echo "- Tag: $tag"
+            echo "- Source SHA: $SOURCE_SHA"
+            echo "- Windows candidate run: ${{ inputs.windows_run_id }}"
+            echo "- macOS candidate run: ${{ inputs.macos_run_id }}"
+          } >> "$GITHUB_STEP_SUMMARY"
