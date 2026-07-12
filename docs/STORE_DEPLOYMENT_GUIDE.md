@@ -62,20 +62,20 @@ flowchart TB
 | **Other Windows PCs / laptops** | **PWA or optional Tauri** | Use a browser-installed PWA for Back Office/POS where hardware printing is not required; use Tauri where native printer/scanner reliability is required. |
 | **Off-site phones / laptops** | **PWA over Tailscale** | Use **Tailscale** (or equivalent private mesh) and **HTTPS** when the device is not on the same local network as the host. Do not expose plain HTTP to the public internet for staff apps ([`REMOTE_ACCESS_GUIDE.md`](../REMOTE_ACCESS_GUIDE.md)). |
 
-### 2.1 Current deployment status snapshot (2026-07-01)
+### 2.1 Current deployment status snapshot (2026-07-11)
 
 This is the current repo/deployment status to verify before a live install:
 
 | Item | Current status | Deployment impact |
 |------|----------------|-------------------|
-| Target release version | **`v0.90.0`** | Root, client/PWA bundle, server, Tauri, standalone apps, and deployment metadata must all match. Run `npm run check:version` before publishing artifacts. |
-| Latest published GitHub release | **`v0.90.0` build `6064e91c`** | Use the release workflow output for the current release; do not mix installer assets from older releases. |
+| Target release version | **`v0.95.0`** | Root, client/PWA bundle, server, Tauri, standalone apps, and deployment metadata must all match. Run `npm run check:version` before publishing artifacts. |
+| Latest published GitHub release | **`v0.95.0` build `29ea2c1d`** | Use the release workflow output for the current release; do not mix installer assets from older releases. |
 | Windows installer/updater assets | **Required for the same Riverside release** | The release must contain `latest.json`, one current Windows MSI, and the matching `.sig`; old Riverside MSI/signature assets must be removed before upload. |
-| Windows deployment package | **Required as GitHub release asset for Main Hub/full go-live updates** | `RiversideOS-v0.90.0-*-Windows-Deployment.zip` includes server, client bundle, register installer, Deployment Manager, migrations, seeds, and PowerShell scripts. |
+| Windows deployment package | **Published for Main Hub/full go-live updates** | `RiversideOS-v0.95.0-29ea2c1d-Windows-Deployment.zip` includes server, client bundle, register installer, Deployment Manager, migrations, seeds, and PowerShell scripts. |
 | Windows app updater-only release | **Available for faster Back Office/Register desktop app updates** | Workflow scope `app-updater-only` publishes the signed Tauri app updater assets without rebuilding the full deployment ZIP or unchanged companion apps. |
 | macOS ROS Dev Center | **Required as GitHub release asset** | Universal Apple Silicon / Intel DMG for Mac-based DevOps companion access and system management. |
-| Latest Playwright E2E on `main` | Passed on final `v0.90.0` release commit `6064e91c` | Local full Playwright also passed on the released commit: 373 passed, 11 skipped. |
-| Latest Lint Checks on `main` | Passed on final `v0.90.0` release commit `6064e91c` | GitHub Lint Checks passed for the released commit. |
+| Latest Playwright E2E on release commit | Passed on final `v0.95.0` release commit `29ea2c1d` | All four blocking shards and the aggregate gate passed in run `29174715888`; local full Playwright was not rerun for this version-only release transition. |
+| Latest Lint Checks on release commit | Passed on final `v0.95.0` release commit `29ea2c1d` | GitHub Lint Checks passed in run `29174715848`. |
 | Local go-live checklist | Human/hardware/accounting gates still open | Retail deployment remains **pilot/validation**, not unattended go-live. |
 
 Before installing the two Windows PCs and PWA devices for production use, publish one complete Riverside release and record its release/run URL in the deployment log. The Windows app, server API, and PWA/web app files must all report the same Riverside version.

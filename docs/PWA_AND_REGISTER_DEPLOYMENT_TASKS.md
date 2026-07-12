@@ -23,16 +23,16 @@ Near-turnkey Windows deployment package: [`WINDOWS_INSTALLER_PACKAGE.md`](WINDOW
 - [x] **Separate PWA vs register builds:** `client/.env.pwa.example`, `client/.env.register.example` (copy to `.env.pwa` / `.env.register`, gitignored). Scripts: `npm run build:pwa`, `npm run build:register`. Tauri uses `beforeBuildCommand`: `npm run build:register` in `client/src-tauri/tauri.conf.json`.
 - [x] **Version display:** Settings → **Updates** shows one Riverside version and reports **Update incomplete** if Windows app, server API, or PWA/web files do not match. Settings → General → **About this build** keeps diagnostic build/API details.
 
-### A.1 Current release artifact status (2026-06-04)
+### A.1 Current release artifact status (2026-07-11)
 
 - [x] Target Riverside version is now **`v0.95.0`** across root, client/PWA, server, Tauri, standalone apps, ROS Dev Center, and Deployment Manager metadata.
 - [x] Release workflows run `npm run check:version` so mismatched release metadata blocks packaging.
-- [ ] The v0.95.0 Windows updater candidate produces `latest.json`, the Windows MSI, `.sig`, and an updater build manifest for the same Riverside version.
-- [ ] The v0.95.0 Windows deployment candidate produces `RiversideOS-v0.95.0-*-Windows-Deployment.zip` containing the server binary, web bundle, register installer, Deployment Manager, migrations, and PowerShell scripts.
-- [ ] The v0.95.0 macOS ROS Dev Center candidate produces a universal Apple Silicon / Intel DMG for DevOps companion access.
+- [x] The v0.95.0 Windows updater candidate produced `latest.json`, the Windows MSI, `.sig`, and an updater build manifest for the same Riverside version.
+- [x] The v0.95.0 Windows deployment candidate produced `RiversideOS-v0.95.0-29ea2c1d-Windows-Deployment.zip` containing the server binary, web bundle, register installer, Deployment Manager, migrations, and PowerShell scripts.
+- [x] The v0.95.0 macOS ROS Dev Center candidate produced a universal Apple Silicon / Intel DMG for DevOps companion access.
 - [ ] Before installing Windows stations, confirm the target GitHub release does not retain older Riverside MSI/signature assets beside the current release assets.
-- [ ] Latest `main` **Lint Checks** must be green on the final `v0.95.0` candidate commit before calling the current head release-ready.
-- [ ] Latest `main` **Playwright E2E** must be green on the final `v0.95.0` candidate commit before calling the current head release-ready. Use the release-certification evidence plus a fresh CI run after commit/push.
+- [x] **Lint Checks** passed on the final `v0.95.0` candidate commit `29ea2c1d`.
+- [x] **Playwright E2E** passed all blocking shards and the aggregate gate on the final `v0.95.0` candidate commit `29ea2c1d`.
 
 ---
 

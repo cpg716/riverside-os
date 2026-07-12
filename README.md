@@ -1,6 +1,6 @@
 # Riverside OS
 
-**Riverside OS (ROS)** is a production-grade desktop ERM/POS platform for formalwear and wedding retail. Version 0.95.0 is the next release target and represents the substantial product, financial-integrity, Help, ROSIE, deployment, and release-engineering advances made throughout the v0.90.0 development cycle. The currently published release remains v0.90.0 until the exact v0.95.0 candidate is validated and promoted.
+**Riverside OS (ROS)** is a production-grade desktop ERM/POS platform for formalwear and wedding retail. Version 0.95.0 is the current published release and represents the substantial product, financial-integrity, Help, ROSIE, deployment, and release-engineering advances made throughout the v0.90.0 development cycle. The verified release build is `29ea2c1d` from 2026-07-11.
 
 Current Version: **v0.95.0** (See [CHANGELOG.md](CHANGELOG.md))
 
@@ -91,8 +91,8 @@ Riverside OS v0.80.0+ includes enterprise-grade production hardening features:
 - **Secure Headers**: Automatic security header injection
 
 **📖 Production Documentation**:
-- [v0.95.0 Release Notes](docs/releases/v0.95.0-release-notes.md) - Next-release scope and candidate requirements
-- [v0.90.0 Certification Evidence](docs/releases/v0.90.0-certification.md) - Current published-release validation and asset evidence
+- [v0.95.0 Release Notes](docs/releases/v0.95.0-release-notes.md) - Current release scope and operational requirements
+- [v0.95.0 Certification Evidence](docs/releases/v0.95.0-certification.md) - Exact-commit CI, candidate, promotion, and asset evidence
 - [Go/No-Go Checklist](docs/PRODUCTION_DEPLOYMENT_GO_NO_GO_CHECKLIST.md) - Final production deployment checklist
 - [Production Hardening Guide](docs/PRODUCTION_HARDENING_GUIDE.md) - Complete production setup
 - [Redis Integration Guide](docs/REDIS_INTEGRATION_GUIDE.md) - Caching and distributed locking
@@ -249,7 +249,7 @@ E2E_BASE_URL="http://localhost:43173" E2E_API_BASE="http://127.0.0.1:43300" npm 
 Current CI note:
 
 - The POS UI subset (`phase2-tender-ui`, `pos-golden`, `tax-exempt-and-helcim-branding`, and the UI-open path in `exchange-wizard`) is back in the release gate. The old `ROS_QUARANTINE_UNSTABLE_POS_E2E=1` quarantine has been removed after adding explicit POS readiness contracts.
-- Production hardening coverage now includes checkout tender, tax, commission, inventory, offline recovery, register close, QBO, Payments Operations, register reconciliation, high-risk API, intelligence/finance, connectivity recovery, and visual baseline contracts. The next-release scope is recorded in [`docs/releases/v0.95.0-release-notes.md`](docs/releases/v0.95.0-release-notes.md); the currently published release evidence remains in [`docs/releases/v0.90.0-certification.md`](docs/releases/v0.90.0-certification.md).
+- Production hardening coverage now includes checkout tender, tax, commission, inventory, offline recovery, register close, QBO, Payments Operations, register reconciliation, high-risk API, intelligence/finance, connectivity recovery, and visual baseline contracts. The current release scope and evidence are recorded in [`docs/releases/v0.95.0-release-notes.md`](docs/releases/v0.95.0-release-notes.md) and [`docs/releases/v0.95.0-certification.md`](docs/releases/v0.95.0-certification.md).
 - See [`docs/releases/v0.95.0-release-notes.md`](docs/releases/v0.95.0-release-notes.md), [`docs/E2E_REGRESSION_MATRIX.md`](docs/E2E_REGRESSION_MATRIX.md), [`docs/POS_E2E_TESTABILITY_FOLLOWUP.md`](docs/POS_E2E_TESTABILITY_FOLLOWUP.md), and [`docs/PRODUCTION_DEPLOYMENT_GO_NO_GO_CHECKLIST.md`](docs/PRODUCTION_DEPLOYMENT_GO_NO_GO_CHECKLIST.md).
 
 For complete pre-release validation (service boot order, lint/build gates, and E2E checklist), see **`docs/RELEASE_QA_CHECKLIST.md`**.

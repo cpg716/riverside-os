@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.95.0] - 2026-07-11
+
 - **Release Build Throughput and Promotion**: Corrected per-job Rust cache identities, upgraded sccache setup to its native Node 24 action, allowed Windows and macOS release builds to run concurrently while serializing publication, added non-publishing benchmark dispatches, and added exact-SHA candidate promotion with run, tag, artifact-digest, and updater-manifest provenance checks.
 
 ### Changed
