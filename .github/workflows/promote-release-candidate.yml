@@ -109,6 +109,25 @@ jobs:
             --root candidate \
             --sha "${{ steps.provenance.outputs.source_sha }}"
 
+      - name: Stage unique release asset names
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf release-upload
+          mkdir -p release-upload
+          while IFS= read -r -d '' file; do
+            name="$(basename "$file")"
+            destination="release-upload/$name"
+            if [ -e "$destination" ]; then
+              if ! cmp --silent "$file" "$destination"; then
+                echo "Conflicting candidate files share release asset name: $name" >&2
+                exit 1
+              fi
+              continue
+            fi
+            cp -- "$file" "$destination"
+          done < <(find candidate -type f -print0)
+
       - name: Publish verified candidate assets
         env:
           GH_TOKEN: ${{ github.token }}
@@ -128,8 +147,8 @@ jobs:
             [ -z "$old_asset" ] || gh release delete-asset "$tag" "$old_asset" --yes
           done < <(gh release view "$tag" --json assets --jq ".assets[].name | select(startswith(\"RiversideOS-v${version}-\") and endswith(\"-Windows-Deployment.zip\"))")
 
-          mapfile -d '' assets < <(find candidate -type f ! -name '*.json' -print0)
-          mapfile -d '' manifests < <(find candidate -type f -name '*.json' -print0)
+          mapfile -d '' assets < <(find release-upload -type f ! -name '*.json' -print0)
+          mapfile -d '' manifests < <(find release-upload -type f -name '*.json' -print0)
           if [ "${#assets[@]}" -eq 0 ] || [ "${#manifests[@]}" -eq 0 ]; then
             echo "Verified candidate assets or manifests are missing." >&2
             exit 1
