@@ -492,6 +492,11 @@ export default function GlobalCommandSearch({
   const listRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeSearchQueryRef = useRef("");
+  const onSearchOpenOrderRef = useRef(onSearchOpenOrder);
+
+  useEffect(() => {
+    onSearchOpenOrderRef.current = onSearchOpenOrder;
+  }, [onSearchOpenOrder]);
 
   const { backofficeHeaders } = useBackofficeAuth();
   const apiAuth = useCallback(
@@ -766,14 +771,14 @@ export default function GlobalCommandSearch({
         setBackendShortcutIds((data.shortcuts ?? []).map((shortcut) => shortcut.intent));
         setFailedSources(data.sources_failed ?? []);
 
-        if (isReceiptBarcodeQuery(q) && onSearchOpenOrder) {
+        if (isReceiptBarcodeQuery(q) && onSearchOpenOrderRef.current) {
           const needle = normalizeReceiptBarcodeQuery(q);
           const exactOrder = (data.orders ?? []).find(
             (order) => order.display_id.trim().toLowerCase() === needle,
           );
           if (exactOrder) {
             closePalette();
-            onSearchOpenOrder(exactOrder.transaction_id);
+            onSearchOpenOrderRef.current(exactOrder.transaction_id);
             return;
           }
         }
@@ -808,7 +813,7 @@ export default function GlobalCommandSearch({
         setLoading(false);
       }
     }
-  }, [apiAuth, closePalette, onSearchOpenOrder]);
+  }, [apiAuth, closePalette]);
 
   const openPalette = useCallback((seed = "") => {
     setOpen(true);
