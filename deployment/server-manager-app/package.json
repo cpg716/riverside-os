@@ -1,7 +1,7 @@
 {
   "name": "ros-server-manager",
   "private": true,
-  "version": "0.90.0",
+  "version": "0.95.0",
   "type": "module",
   "scripts": {
     "dev": "vite",

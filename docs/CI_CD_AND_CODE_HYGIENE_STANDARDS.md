@@ -119,12 +119,12 @@ For a timing benchmark that cannot alter a release, dispatch both workflows with
 env -u GITHUB_TOKEN -u GH_TOKEN gh workflow run windows-deployment-package.yml \
   --ref main \
   -f package_scope=full-deployment \
-  -f release_tag=v0.90.0 \
+  -f release_tag=v0.95.0 \
   -f publish_release=false
 
 env -u GITHUB_TOKEN -u GH_TOKEN gh workflow run macos-ros-dev-center-release.yml \
   --ref main \
-  -f release_tag=v0.90.0 \
+  -f release_tag=v0.95.0 \
   -f publish_release=false
 ```
 
@@ -137,7 +137,7 @@ When the exact commit that will be tagged has successful non-publishing Windows 
 ```bash
 env -u GITHUB_TOKEN -u GH_TOKEN gh workflow run promote-release-candidate.yml \
   --ref main \
-  -f release_tag=v0.90.0 \
+  -f release_tag=v0.95.0 \
   -f windows_run_id=<successful-windows-run-id> \
   -f macos_run_id=<successful-macos-run-id>
 ```

@@ -2841,7 +2841,7 @@ dependencies = [
 
 [[package]]
 name = "ros-server-manager"
-version = "0.90.0"
+version = "0.95.0"
 dependencies = [
  "log",
  "serde",
