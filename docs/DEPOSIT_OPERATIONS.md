@@ -104,6 +104,7 @@ Even when a Wedding order shows a deposit on ledger or a zero balance, pickup re
 - The server creates **`payment_allocation`** rows linking the payer's tender to each beneficiary member's transaction.
 - If a disbursement targets a member who does **not** yet have an open transaction, the funds are credited to the member's **open deposit account** (see below).
 - Disbursement amounts are validated: they cannot be negative, and their sum cannot exceed the amount collected.
+- The payer's own Transaction total remains lines plus shipping. Daily Sales and Customer History report wedding contributions separately so the full tender is auditable without treating member deposits as payer merchandise revenue.
 
 ---
 

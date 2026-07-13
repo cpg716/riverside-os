@@ -64,10 +64,11 @@ const PartyDetail = ({ party, parties, onBack, onUpdate, onRefresh, onPrint, onN
                 const next = {};
                 rows.forEach((row) => {
                     const paid = Number(row.paid_total ?? 0);
-                    const order = Number(row.order_total ?? 0);
+                    const transactionTotal = Number(row.transaction_total ?? 0);
                     let status = "UNPAID";
-                    if (paid > 0 && paid < order) status = "PARTIAL";
-                    if (order > 0 && paid >= order) status = "PAID";
+                    if (paid > 0 && transactionTotal <= 0) status = "DEPOSIT";
+                    if (paid > 0 && paid < transactionTotal) status = "PARTIAL";
+                    if (transactionTotal > 0 && paid >= transactionTotal) status = "PAID";
                     next[row.wedding_member_id] = status;
                 });
                 setPaymentStatusByMemberId(next);

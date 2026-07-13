@@ -106,6 +106,8 @@ interface RegisterActivityItem {
   balance_due?: string | null;
   fulfillment_type?: string | null;
   transaction_total?: string | null;
+  wedding_deposit_contributions?: string | null;
+  wedding_deposit_member_count?: number | null;
   short_id?: string | null;
   imported_at?: string | null;
   payments?: TransactionPayment[] | null;
@@ -971,6 +973,14 @@ export default function RegisterReports({
         "Deposit Paid": idx === 0 ? (a.deposits_paid || "0") : "",
         "Balance Due": idx === 0 ? (a.balance_due || "0") : "",
         "Transaction Total": idx === 0 ? (a.transaction_total || a.amount_label || "0") : "",
+        "Wedding Deposits Placed": idx === 0 ? (a.wedding_deposit_contributions || "0") : "",
+        "Wedding Members Funded": idx === 0 ? (a.wedding_deposit_member_count || 0) : "",
+        "Total Tender Collected": idx === 0
+          ? centsToFixed2(
+              parseMoneyToCents(a.transaction_total || a.amount_label || "0")
+              + parseMoneyToCents(a.wedding_deposit_contributions || "0"),
+            )
+          : "",
         "Sales Total": idx === 0 ? (a.sales_total || "0") : "",
         "Tax": idx === 0 ? (a.tax_total || "0") : "",
         "Net Total": idx === 0 ? (a.amount_label || "0") : "",
@@ -980,6 +990,7 @@ export default function RegisterReports({
 
     // Calculate totals
     const totalTransaction = selectedSummary.activities.reduce((sum, a) => sum + (parseFloat(a.transaction_total || a.amount_label || "0") || 0), 0);
+    const totalWeddingDeposits = selectedSummary.activities.reduce((sum, a) => sum + (parseFloat(a.wedding_deposit_contributions || "0") || 0), 0);
     const totalSales = selectedSummary.activities.reduce((sum, a) => sum + (parseFloat(a.sales_total || "0") || 0), 0);
     const totalTax = selectedSummary.activities.reduce((sum, a) => sum + (parseFloat(a.tax_total || "0") || 0), 0);
     const totalNet = selectedSummary.activities.reduce((sum, a) => sum + (parseFloat(a.amount_label || "0") || 0), 0);
@@ -1004,12 +1015,15 @@ export default function RegisterReports({
       "Deposit Paid": "",
       "Balance Due": "",
       "Transaction Total": totalTransaction.toFixed(2),
+      "Wedding Deposits Placed": totalWeddingDeposits.toFixed(2),
+      "Wedding Members Funded": "",
+      "Total Tender Collected": (totalTransaction + totalWeddingDeposits).toFixed(2),
       "Sales Total": totalSales.toFixed(2),
       "Tax": totalTax.toFixed(2),
       "Net Total": totalNet.toFixed(2),
     };
 
-    const headers = ["Date", "Time", "Transaction #", "Imported At", "Kind", "Order ID", "Customer Name", "Customer #", "Wedding Party", "Item", "SKU", "Qty", "Reg Price", "Sale Price", "Takeaway", "Fulfillment", "Deposit Paid", "Balance Due", "Transaction Total", "Sales Total", "Tax", "Net Total"];
+    const headers = ["Date", "Time", "Transaction #", "Imported At", "Kind", "Order ID", "Customer Name", "Customer #", "Wedding Party", "Item", "SKU", "Qty", "Reg Price", "Sale Price", "Takeaway", "Fulfillment", "Deposit Paid", "Balance Due", "Transaction Total", "Wedding Deposits Placed", "Wedding Members Funded", "Total Tender Collected", "Sales Total", "Tax", "Net Total"];
     const csv = [headers.join(","), ...rows.map(r => headers.map(h => {
       const v = r[h as keyof typeof r]?.toString() || "";
       return /[",\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
@@ -1660,7 +1674,7 @@ export default function RegisterReports({
 	                              </div>
 
 	                              <div className="flex flex-col items-end gap-0.5 pt-2 border-t border-app-border/40">
-	                                 <span className="text-xs font-bold text-app-success">Deposits Taken / Transaction Total</span>
+	                                 <span className="text-xs font-bold text-app-success">Paid on this Transaction</span>
                                  <span className="text-base font-black text-app-text tabular-nums leading-none tracking-tighter">
                                    ${row.transaction_total || "0.00"}
                                  </span>
@@ -1680,6 +1694,23 @@ export default function RegisterReports({
                                        )}
                                  </div>
                               </div>
+                              {parseMoneyToCents(row.wedding_deposit_contributions || "0") > 0 ? (
+                                <div className="flex flex-col items-end gap-0.5 border-t border-app-border/40 pt-2">
+                                  <span className="text-xs font-bold text-app-info">Wedding Deposits Placed</span>
+                                  <span className="text-base font-black text-app-text tabular-nums leading-none tracking-tighter">
+                                    {moneyFromValue(row.wedding_deposit_contributions)}
+                                  </span>
+                                  <span className="text-[11px] font-bold text-app-text-muted">
+                                    {row.wedding_deposit_member_count || 0} party member{row.wedding_deposit_member_count === 1 ? "" : "s"} funded
+                                  </span>
+                                  <span className="mt-1 text-[11px] font-black uppercase tracking-wider text-app-text-muted">
+                                    Total tender collected {moneyFromCents(
+                                      parseMoneyToCents(row.transaction_total || "0")
+                                      + parseMoneyToCents(row.wedding_deposit_contributions || "0"),
+                                    )}
+                                  </span>
+                                </div>
+                              ) : null}
                            </div>
 
                            <div className="mt-6 pt-4 border-t-2 border-app-border flex flex-col items-end">

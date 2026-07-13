@@ -661,16 +661,16 @@ const MemberDetailModal = ({ isOpen, onClose, member, onUpdate, onAdd, parties, 
                                     <div className="space-y-3">
                                         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
                                             <div className="rounded border border-blue-100 bg-blue-50 p-2">
-                                                <div className="text-[10px] font-bold uppercase text-blue-700">Orders</div>
-                                                <div className="text-lg font-black text-blue-900">{financialRow.order_count ?? 0}</div>
+                                                <div className="text-[10px] font-bold uppercase text-blue-700">Transaction Records</div>
+                                                <div className="text-lg font-black text-blue-900">{financialRow.transaction_count ?? 0}</div>
                                             </div>
                                             <div className="rounded border border-emerald-100 bg-emerald-50 p-2">
                                                 <div className="text-[10px] font-bold uppercase text-emerald-700">Payments</div>
                                                 <div className="text-lg font-black text-emerald-900">{financialRow.payment_count ?? 0}</div>
                                             </div>
                                             <div className="rounded border border-app-border bg-app-surface p-2">
-                                                <div className="text-[10px] font-bold uppercase text-app-text-muted">Order Total</div>
-                                                <div className="text-sm font-black text-app-text">{formatMoney(financialRow.order_total)}</div>
+                                                <div className="text-[10px] font-bold uppercase text-app-text-muted">Transaction Total</div>
+                                                <div className="text-sm font-black text-app-text">{formatMoney(financialRow.transaction_total)}</div>
                                             </div>
                                             <div className="rounded border border-app-border bg-app-surface p-2">
                                                 <div className="text-[10px] font-bold uppercase text-app-text-muted">Paid / Deposits</div>

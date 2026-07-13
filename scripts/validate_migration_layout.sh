@@ -128,6 +128,11 @@ expected=(
   "122_unhide_inventory_variants.sql"
   "123_staff_accounts.sql"
   "124_operational_recovery_and_telemetry.sql"
+  "125_staff_access_sessions.sql"
+  "126_register_business_day_z_reports.sql"
+  "127_counterpoint_transaction_reconciliation.sql"
+  "128_helcim_paid_parked_sale_recovery.sql"
+  "129_backfill_checkout_payment_payers.sql"
 )
 
 active=()
@@ -190,4 +195,4 @@ if rg -n "INSERT INTO (public\\.)?(staff\\b|staff_permission|store_settings|prod
 fi
 rm -f /tmp/ros_migration_seed_hits.$$
 
-echo "Migration layout OK: active baseline 001-124."
+echo "Migration layout OK: active baseline 001-129."

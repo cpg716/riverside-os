@@ -44,6 +44,11 @@ type PartyReadiness = {
         partial_ready_members: number;
         balance_blocked_members: number;
     };
+    deposit_contributions: {
+        total: string | number;
+        funded_members: number;
+        payer_count: number;
+    };
     vendor_risk: {
         ntbo_count: number;
         stale_ordered_count: number;
@@ -129,10 +134,16 @@ export default function WeddingReadinessPanel({ partyId }: { partyId: string }) 
             tone: blockedPickupCount > 0 ? 'rose' : 'emerald',
         },
         {
-            label: 'Balance due',
+            label: 'Balance holds',
             value: data.pickup.balance_blocked_members,
             helper: data.pickup.balance_blocked_members > 0 ? 'Collect balance before release.' : 'No balance holds.',
             tone: data.pickup.balance_blocked_members > 0 ? 'amber' : 'slate',
+        },
+        {
+            label: 'Wedding deposits',
+            value: formatMoney(data.deposit_contributions?.total ?? 0),
+            helper: `${data.deposit_contributions?.funded_members ?? 0} member${data.deposit_contributions?.funded_members === 1 ? '' : 's'} funded.`,
+            tone: (data.deposit_contributions?.funded_members ?? 0) > 0 ? 'emerald' : 'slate',
         },
         {
             label: 'Completed',
@@ -170,7 +181,7 @@ export default function WeddingReadinessPanel({ partyId }: { partyId: string }) 
                 ))}
             </div>
 
-            <div className="mt-5 grid gap-3 md:grid-cols-4">
+            <div className="mt-5 grid gap-3 md:grid-cols-5">
                 {pickupAnswerCards.map((card) => (
                     <QuickAnswerCard key={card.label} {...card} />
                 ))}
@@ -345,4 +356,10 @@ function formatDate(value: string) {
     const date = new Date(`${value}T12:00:00`);
     if (Number.isNaN(date.getTime())) return value;
     return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+function formatMoney(value: string | number) {
+    const amount = Number(value);
+    if (!Number.isFinite(amount)) return '$0.00';
+    return amount.toLocaleString(undefined, { style: 'currency', currency: 'USD' });
 }

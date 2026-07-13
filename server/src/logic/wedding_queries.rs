@@ -556,10 +556,39 @@ pub async fn try_load_party_ledger(
                 WHERE wm.wedding_party_id = $1
             ), 0) AS total_transaction_value,
             COALESCE((
-                SELECT SUM(pt.amount)
-                FROM payment_transactions pt
-                JOIN wedding_members wm ON wm.id = pt.wedding_member_id
-                WHERE wm.wedding_party_id = $1
+                SELECT SUM(party_payment.amount)
+                FROM (
+                    SELECT pa.amount_allocated AS amount
+                    FROM payment_allocations pa
+                    JOIN payment_transactions pt ON pt.id = pa.transaction_id
+                    JOIN transactions target ON target.id = pa.target_transaction_id
+                    JOIN wedding_members target_member ON target_member.id = target.wedding_member_id
+                    WHERE target_member.wedding_party_id = $1
+                      AND LOWER(pt.payment_method) <> 'open_deposit'
+
+                    UNION ALL
+
+                    SELECT codls.amount
+                    FROM customer_open_deposit_ledger_sources codls
+                    JOIN customer_open_deposit_ledger codl ON codl.id = codls.ledger_id
+                    JOIN wedding_members beneficiary ON beneficiary.id = codls.beneficiary_wedding_member_id
+                    WHERE beneficiary.wedding_party_id = $1
+                      AND codl.reason = 'party_split_deposit'
+
+                    UNION ALL
+
+                    SELECT pt.amount
+                    FROM payment_transactions pt
+                    JOIN wedding_members direct_member ON direct_member.id = pt.wedding_member_id
+                    WHERE direct_member.wedding_party_id = $1
+                      AND NOT EXISTS (
+                          SELECT 1 FROM payment_allocations pa WHERE pa.transaction_id = pt.id
+                      )
+                      AND NOT EXISTS (
+                          SELECT 1 FROM customer_open_deposit_ledger_sources codls
+                          WHERE codls.source_payment_transaction_id = pt.id
+                      )
+                ) party_payment
             ), 0) AS total_paid,
             COALESCE((
                 SELECT SUM(o.balance_due)
@@ -623,7 +652,10 @@ pub async fn try_load_party_ledger(
         SELECT
             NULL::uuid AS transaction_id,
             pt.id AS payment_tx_id,
-            'Group Payout'::text AS customer_name,
+            CASE
+                WHEN pa.metadata->>'kind' = 'wedding_group_disbursement' THEN 'Group Payout'
+                ELSE COALESCE(NULLIF(TRIM(COALESCE(c.first_name, '') || ' ' || COALESCE(c.last_name, '')), ''), 'Payment')
+            END AS customer_name,
             wm.id AS wedding_member_id,
             'payment'::text AS kind,
             pa.amount_allocated AS amount,
@@ -633,8 +665,8 @@ pub async fn try_load_party_ledger(
         JOIN payment_transactions pt ON pt.id = pa.transaction_id
         JOIN transactions o ON o.id = pa.target_transaction_id
         JOIN wedding_members wm ON wm.id = o.wedding_member_id
+        JOIN customers c ON c.id = wm.customer_id
         WHERE wm.wedding_party_id = $1
-          AND pa.metadata->>'kind' = 'wedding_group_disbursement'
 
         UNION ALL
 
@@ -669,8 +701,12 @@ pub async fn try_load_party_ledger(
         JOIN wedding_members wm ON wm.id = pt.wedding_member_id
         JOIN customers c ON c.id = wm.customer_id
         WHERE wm.wedding_party_id = $1
-          AND pt.id NOT IN (
-              SELECT transaction_id FROM payment_allocations WHERE metadata->>'kind' = 'wedding_group_disbursement'
+          AND NOT EXISTS (
+              SELECT 1 FROM payment_allocations pa WHERE pa.transaction_id = pt.id
+          )
+          AND NOT EXISTS (
+              SELECT 1 FROM customer_open_deposit_ledger_sources codls
+              WHERE codls.source_payment_transaction_id = pt.id
           )
         ORDER BY created_at DESC
         "#,
@@ -696,9 +732,59 @@ pub async fn try_load_party_financial_context(
             wm.id AS wedding_member_id,
             COALESCE(NULLIF(TRIM(COALESCE(c.first_name, '') || ' ' || COALESCE(c.last_name, '')), ''), 'Unknown') AS customer_name,
             COALESCE((SELECT COUNT(*) FROM transactions o WHERE o.wedding_member_id = wm.id), 0) AS transaction_count,
-            COALESCE((SELECT COUNT(*) FROM payment_transactions pt WHERE pt.wedding_member_id = wm.id), 0) AS payment_count,
+            (
+                COALESCE((
+                    SELECT COUNT(*) FROM payment_allocations pa
+                    JOIN payment_transactions pt ON pt.id = pa.transaction_id
+                    JOIN transactions target ON target.id = pa.target_transaction_id
+                    WHERE target.wedding_member_id = wm.id
+                      AND LOWER(pt.payment_method) <> 'open_deposit'
+                ), 0)
+                + COALESCE((
+                    SELECT COUNT(*) FROM customer_open_deposit_ledger_sources codls
+                    JOIN customer_open_deposit_ledger codl ON codl.id = codls.ledger_id
+                    WHERE codls.beneficiary_wedding_member_id = wm.id
+                      AND codl.reason = 'party_split_deposit'
+                ), 0)
+                + COALESCE((
+                    SELECT COUNT(*) FROM payment_transactions pt
+                    WHERE pt.wedding_member_id = wm.id
+                      AND NOT EXISTS (
+                          SELECT 1 FROM payment_allocations pa WHERE pa.transaction_id = pt.id
+                      )
+                      AND NOT EXISTS (
+                          SELECT 1 FROM customer_open_deposit_ledger_sources codls
+                          WHERE codls.source_payment_transaction_id = pt.id
+                      )
+                ), 0)
+            )::bigint AS payment_count,
             COALESCE((SELECT SUM(o.total_price) FROM transactions o WHERE o.wedding_member_id = wm.id), 0) AS transaction_total,
-            COALESCE((SELECT SUM(pt.amount) FROM payment_transactions pt WHERE pt.wedding_member_id = wm.id), 0) AS paid_total,
+            (
+                COALESCE((
+                    SELECT SUM(pa.amount_allocated) FROM payment_allocations pa
+                    JOIN payment_transactions pt ON pt.id = pa.transaction_id
+                    JOIN transactions target ON target.id = pa.target_transaction_id
+                    WHERE target.wedding_member_id = wm.id
+                      AND LOWER(pt.payment_method) <> 'open_deposit'
+                ), 0)
+                + COALESCE((
+                    SELECT SUM(codls.amount) FROM customer_open_deposit_ledger_sources codls
+                    JOIN customer_open_deposit_ledger codl ON codl.id = codls.ledger_id
+                    WHERE codls.beneficiary_wedding_member_id = wm.id
+                      AND codl.reason = 'party_split_deposit'
+                ), 0)
+                + COALESCE((
+                    SELECT SUM(pt.amount) FROM payment_transactions pt
+                    WHERE pt.wedding_member_id = wm.id
+                      AND NOT EXISTS (
+                          SELECT 1 FROM payment_allocations pa WHERE pa.transaction_id = pt.id
+                      )
+                      AND NOT EXISTS (
+                          SELECT 1 FROM customer_open_deposit_ledger_sources codls
+                          WHERE codls.source_payment_transaction_id = pt.id
+                      )
+                ), 0)
+            )::numeric AS paid_total,
             COALESCE((SELECT SUM(o.balance_due) FROM transactions o WHERE o.wedding_member_id = wm.id), 0) AS balance_due,
             wm.is_free_suit_promo
         FROM wedding_members wm

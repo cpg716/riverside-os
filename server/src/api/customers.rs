@@ -6428,6 +6428,16 @@ struct OpenDepositTimelineRow {
     wedding_party_id: Option<Uuid>,
 }
 
+#[derive(Debug, FromRow)]
+struct WeddingDepositContributionTimelineRow {
+    transaction_id: Uuid,
+    created_at: DateTime<Utc>,
+    amount: Decimal,
+    member_count: i64,
+    wedding_party_id: Uuid,
+    party_name: String,
+}
+
 fn open_deposit_timeline_summary(
     amount: Decimal,
     reason: &str,
@@ -6447,6 +6457,23 @@ fn open_deposit_timeline_summary(
         _ if amount >= Decimal::ZERO => format!("Deposit credit recorded: {amount_label}"),
         _ => format!("Deposit applied: {amount_label}"),
     }
+}
+
+fn wedding_deposit_contribution_timeline_summary(
+    amount: Decimal,
+    member_count: i64,
+    party_name: &str,
+) -> String {
+    let member_label = if member_count == 1 {
+        "1 party member".to_string()
+    } else {
+        format!("{member_count} party members")
+    };
+    format!(
+        "Wedding deposits placed: ${:.2} for {member_label} in {}",
+        amount.abs(),
+        party_name.trim()
+    )
 }
 
 #[derive(Debug, FromRow)]
@@ -6669,6 +6696,32 @@ pub(crate) async fn build_customer_timeline(
     .bind(customer_id)
     .fetch_all(pool)
     .await?;
+
+    let wedding_deposit_contributions =
+        sqlx::query_as::<_, WeddingDepositContributionTimelineRow>(&format!(
+            r#"
+            SELECT
+                l.transaction_id,
+                MIN(l.created_at) AS created_at,
+                SUM(l.amount)::numeric(14,2) AS amount,
+                COUNT(DISTINCT l.account_id)::bigint AS member_count,
+                l.wedding_party_id,
+                {SQL_PARTY_TRACKING_LABEL_WP} AS party_name
+            FROM customer_open_deposit_ledger l
+            JOIN wedding_parties wp ON wp.id = l.wedding_party_id
+            WHERE l.payer_customer_id = $1
+              AND l.reason = 'party_split_deposit'
+              AND l.amount > 0
+              AND l.transaction_id IS NOT NULL
+              AND l.wedding_party_id IS NOT NULL
+            GROUP BY l.transaction_id, l.wedding_party_id, wp.id
+            ORDER BY MIN(l.created_at) DESC
+            LIMIT 30
+            "#
+        ))
+        .bind(customer_id)
+        .fetch_all(pool)
+        .await?;
 
     let wedding_logs = sqlx::query_as::<_, WeddingLogTimelineRow>(&format!(
         r#"
@@ -6982,6 +7035,21 @@ pub(crate) async fn build_customer_timeline(
             reference_id: Some(deposit.id),
             reference_type: Some("open_deposit".to_string()),
             wedding_party_id: deposit.wedding_party_id,
+        });
+    }
+
+    for contribution in wedding_deposit_contributions {
+        events.push(CustomerTimelineEvent {
+            at: contribution.created_at,
+            kind: "payment".to_string(),
+            summary: wedding_deposit_contribution_timeline_summary(
+                contribution.amount,
+                contribution.member_count,
+                &contribution.party_name,
+            ),
+            reference_id: Some(contribution.transaction_id),
+            reference_type: Some("wedding_deposit_contribution".to_string()),
+            wedding_party_id: Some(contribution.wedding_party_id),
         });
     }
 
@@ -7475,7 +7543,7 @@ async fn post_customer_timeline_note(
 
 #[cfg(test)]
 mod customer_timeline_tests {
-    use super::open_deposit_timeline_summary;
+    use super::{open_deposit_timeline_summary, wedding_deposit_contribution_timeline_summary};
     use rust_decimal::Decimal;
 
     #[test]
@@ -7503,6 +7571,18 @@ mod customer_timeline_tests {
         assert_eq!(
             open_deposit_timeline_summary(Decimal::new(7500, 2), "transaction_void_reversal", None),
             "Wedding deposit restored: $75.00"
+        );
+    }
+
+    #[test]
+    fn wedding_deposit_contribution_names_party_and_member_count() {
+        assert_eq!(
+            wedding_deposit_contribution_timeline_summary(
+                Decimal::new(112000, 2),
+                7,
+                "RACZYK-092526"
+            ),
+            "Wedding deposits placed: $1120.00 for 7 party members in RACZYK-092526"
         );
     }
 }

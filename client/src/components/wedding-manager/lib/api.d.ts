@@ -115,6 +115,11 @@ export interface WmReadinessSummary {
     partial_ready_members: number;
     balance_blocked_members: number;
   };
+  deposit_contributions: {
+    total: string | number;
+    funded_members: number;
+    payer_count: number;
+  };
   vendor_risk: {
     ntbo_count: number;
     stale_ordered_count: number;

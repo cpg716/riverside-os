@@ -1254,6 +1254,8 @@ export async function openProfessionalDailySalesPrint(opts: {
     wedding_party_name?: string | null;
     sales_total?: string | null;
     transaction_total?: string | null;
+    wedding_deposit_contributions?: string | null;
+    wedding_deposit_member_count?: number | null;
     deposits_paid?: string | null;
     balance_due?: string | null;
     short_id?: string | null;
@@ -1365,6 +1367,8 @@ export async function openProfessionalDailySalesPrint(opts: {
             <div class="money-sub">Subtotal Before Tax: ${row.subtotal_before_tax ? `$${row.subtotal_before_tax}` : "—"}</div>
             ${row.tax_total ? `<div class="money-sub">Tax: ${formatReportMoney(row.tax_total)}</div>` : ""}
             <div class="money-sub">Transaction Total: ${row.transaction_total ? `$${row.transaction_total}` : "—"}</div>
+            ${row.wedding_deposit_contributions ? `<div class="money-good">Wedding Deposits Placed: ${formatReportMoney(row.wedding_deposit_contributions)} for ${row.wedding_deposit_member_count ?? 0} member${row.wedding_deposit_member_count === 1 ? "" : "s"}</div>` : ""}
+            ${row.wedding_deposit_contributions ? `<div class="money-sub">Total Tender Collected: ${formatReportMoney(centsToFixed2(parseMoneyToCents(row.transaction_total ?? "0") + parseMoneyToCents(row.wedding_deposit_contributions)))}</div>` : ""}
             ${paymentRows}
             ${row.deposits_paid ? `<div class="money-good">Paid: $${row.deposits_paid}</div>` : ""}
             ${row.balance_due && parseFloat(row.balance_due) > 0 ? `<div class="money-due">Balance: $${row.balance_due}</div>` : ""}
@@ -1522,6 +1526,12 @@ export async function openProfessionalDailySalesPrint(opts: {
             row.subtotal_before_tax ? `Subtotal Before Tax: ${formatReportMoney(row.subtotal_before_tax)}` : "",
             row.tax_total ? `Tax: ${formatReportMoney(row.tax_total)}` : "",
             row.transaction_total ? `Transaction Total: ${formatReportMoney(row.transaction_total)}` : "",
+            row.wedding_deposit_contributions
+              ? `Wedding Deposits Placed: ${formatReportMoney(row.wedding_deposit_contributions)} for ${row.wedding_deposit_member_count ?? 0} members`
+              : "",
+            row.wedding_deposit_contributions
+              ? `Total Tender Collected: ${formatReportMoney(centsToFixed2(parseMoneyToCents(row.transaction_total ?? "0") + parseMoneyToCents(row.wedding_deposit_contributions)))}`
+              : "",
             row.deposits_paid ? `Paid: ${formatReportMoney(row.deposits_paid)}` : "",
             row.balance_due && Number.parseFloat(row.balance_due) > 0
               ? `Balance: ${formatReportMoney(row.balance_due)}`

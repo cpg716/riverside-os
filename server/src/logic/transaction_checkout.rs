@@ -4441,14 +4441,14 @@ async fn execute_checkout_internal(
                     payment_provider, provider_payment_id, provider_status,
                     provider_terminal_id, provider_transaction_id, provider_auth_code,
                     provider_card_type, merchant_fee, net_amount, card_brand, card_last4,
-                    check_number, created_at, occurred_at
+                    check_number, created_at, occurred_at, payer_id
                 )
                 VALUES (
                     $1, $2, $3, $4, $5,
                     COALESCE($6::date, (CURRENT_TIMESTAMP AT TIME ZONE reporting.effective_store_timezone())::date),
                     $7, $8, $9, $10,
                     $11, $12, $13, $14, $15, $16, $17, $18, $19,
-                    COALESCE($20, CURRENT_TIMESTAMP), COALESCE($20, CURRENT_TIMESTAMP)
+                    COALESCE($20, CURRENT_TIMESTAMP), COALESCE($20, CURRENT_TIMESTAMP), $21
                 )
                 RETURNING id
                 "#,
@@ -4473,6 +4473,7 @@ async fn execute_checkout_internal(
             .bind(&split.card_last4)
             .bind(&split.check_number)
             .bind(recovery.as_ref().map(|context| context.approved_at))
+            .bind(payload.customer_id)
             .fetch_one(&mut *tx)
             .await?;
 
@@ -7644,6 +7645,68 @@ mod tests {
         }));
         assert!(source_rows.iter().any(|(member_id, method, amount, _, _)| {
             *member_id == second_member_id && method == "card" && *amount == Decimal::new(10000, 2)
+        }));
+
+        let source_payers: Vec<Option<Uuid>> = sqlx::query_scalar(
+            r#"
+            SELECT DISTINCT pt.payer_id
+            FROM payment_transactions pt
+            WHERE pt.id IN (
+                SELECT codls.source_payment_transaction_id
+                FROM customer_open_deposit_ledger_sources codls
+                JOIN customer_open_deposit_ledger codl ON codl.id = codls.ledger_id
+                WHERE codl.transaction_id = $1
+            )
+            "#,
+        )
+        .bind(group_pay_transaction_id)
+        .fetch_all(&pool)
+        .await
+        .expect("fetch group-pay source payer links");
+        assert_eq!(source_payers, vec![Some(payer_customer_id)]);
+
+        let party_financial_context =
+            crate::logic::wedding_queries::try_load_party_financial_context(&pool, party_id)
+                .await
+                .expect("load party financial context")
+                .expect("party financial context exists");
+        assert_eq!(
+            party_financial_context.summary.total_paid,
+            Decimal::new(20000, 2)
+        );
+        assert!(party_financial_context.members.iter().any(|member| {
+            member.wedding_member_id == first_member_id
+                && member.paid_total == Decimal::new(7500, 2)
+                && member.payment_count == 1
+        }));
+        assert!(party_financial_context.members.iter().any(|member| {
+            member.wedding_member_id == second_member_id
+                && member.paid_total == Decimal::new(12500, 2)
+                && member.payment_count == 2
+        }));
+
+        let party_readiness =
+            crate::logic::wedding_health::calculate_wedding_readiness(&pool, party_id)
+                .await
+                .expect("load party readiness with deposit contributions");
+        assert_eq!(
+            party_readiness.summary.deposit_contributions.total,
+            Decimal::new(20000, 2)
+        );
+        assert_eq!(
+            party_readiness.summary.deposit_contributions.funded_members,
+            2
+        );
+
+        let payer_timeline =
+            crate::api::customers::build_customer_timeline(&pool, payer_customer_id)
+                .await
+                .expect("build group-pay payer timeline");
+        assert!(payer_timeline.iter().any(|event| {
+            event.reference_type.as_deref() == Some("wedding_deposit_contribution")
+                && event.summary.contains("Wedding deposits placed: $200.00")
+                && event.summary.contains("2 party members")
+                && event.wedding_party_id == Some(party_id)
         }));
 
         let disbursement_allocation_count: i64 = sqlx::query_scalar(

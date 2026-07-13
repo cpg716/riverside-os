@@ -129,4 +129,5 @@ pub const EMBEDDED_MIGRATIONS: &[(&str, &str)] = &[
     ("126_register_business_day_z_reports.sql", include_str!("../../migrations/126_register_business_day_z_reports.sql")),
     ("127_counterpoint_transaction_reconciliation.sql", include_str!("../../migrations/127_counterpoint_transaction_reconciliation.sql")),
     ("128_helcim_paid_parked_sale_recovery.sql", include_str!("../../migrations/128_helcim_paid_parked_sale_recovery.sql")),
+    ("129_backfill_checkout_payment_payers.sql", include_str!("../../migrations/129_backfill_checkout_payment_payers.sql")),
 ];

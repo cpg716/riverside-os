@@ -5,6 +5,7 @@ use chrono_tz::Tz;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
+use std::collections::HashMap;
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -144,6 +145,10 @@ pub struct RegisterActivityItem {
     pub fulfillment_type: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub transaction_total: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wedding_deposit_contributions: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wedding_deposit_member_count: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub short_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1038,6 +1043,35 @@ pub async fn fetch_register_day_summary(
         .fetch_all(pool)
         .await?;
 
+    let sale_transaction_ids = sales
+        .iter()
+        .map(|sale| sale.transaction_id)
+        .collect::<Vec<_>>();
+    let wedding_contribution_rows: Vec<(Uuid, Decimal, i64)> = if sale_transaction_ids.is_empty() {
+        Vec::new()
+    } else {
+        sqlx::query_as(
+            r#"
+            SELECT
+                codl.transaction_id,
+                SUM(codls.amount)::numeric(14,2) AS contribution_total,
+                COUNT(DISTINCT codls.beneficiary_wedding_member_id)::bigint AS member_count
+            FROM customer_open_deposit_ledger codl
+            JOIN customer_open_deposit_ledger_sources codls ON codls.ledger_id = codl.id
+            WHERE codl.transaction_id = ANY($1)
+              AND codl.reason = 'party_split_deposit'
+            GROUP BY codl.transaction_id
+            "#,
+        )
+        .bind(&sale_transaction_ids)
+        .fetch_all(pool)
+        .await?
+    };
+    let wedding_contributions = wedding_contribution_rows
+        .into_iter()
+        .map(|(transaction_id, total, member_count)| (transaction_id, (total, member_count)))
+        .collect::<HashMap<_, _>>();
+
     let pickups_today_sql = format!(
         r#"
         SELECT
@@ -1218,6 +1252,7 @@ pub async fn fetch_register_day_summary(
     }
 
     for s in sales {
+        let wedding_contribution = wedding_contributions.get(&s.transaction_id);
         let is_rms_payment_activity = s.has_rms_charge_payment_line;
         let is_pickup_activity =
             matches!(basis, ReportBasis::Completed) && !s.is_takeaway && !is_rms_payment_activity;
@@ -1347,6 +1382,10 @@ pub async fn fetch_register_day_summary(
                 s.fulfillment_type
             },
             transaction_total: s.amount_paid_in_window.map(money_label),
+            wedding_deposit_contributions: wedding_contribution
+                .map(|(total, _)| money_label(*total)),
+            wedding_deposit_member_count: wedding_contribution
+                .map(|(_, member_count)| *member_count),
             short_id: s.short_id,
             imported_at: if is_counterpoint_import {
                 Some(s.created_at)
@@ -1413,6 +1452,8 @@ pub async fn fetch_register_day_summary(
             balance_due: None,
             fulfillment_type: Some("payment".to_string()),
             transaction_total: Some(money_label(p.amount)),
+            wedding_deposit_contributions: None,
+            wedding_deposit_member_count: None,
             short_id: p.target_display_id,
             imported_at: None,
         });
@@ -1477,6 +1518,8 @@ pub async fn fetch_register_day_summary(
                 balance_due: Some(money_label(p.balance_due.max(Decimal::ZERO))),
                 fulfillment_type: Some("pickup".to_string()),
                 transaction_total: None,
+                wedding_deposit_contributions: None,
+                wedding_deposit_member_count: None,
                 short_id: p.short_id,
                 imported_at: None,
             }

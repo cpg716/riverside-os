@@ -82,6 +82,13 @@ pub struct WeddingPickupReadiness {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct WeddingDepositContributions {
+    pub total: Decimal,
+    pub funded_members: i64,
+    pub payer_count: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct WeddingVendorRisk {
     pub ntbo_count: i64,
     pub stale_ordered_count: i64,
@@ -114,6 +121,7 @@ pub struct WeddingReadinessSummary {
     pub lifecycle: WeddingLifecycleCounts,
     pub member_counts: WeddingMemberCounts,
     pub pickup: WeddingPickupReadiness,
+    pub deposit_contributions: WeddingDepositContributions,
     pub vendor_risk: WeddingVendorRisk,
     pub blockers: Vec<WeddingReadinessBlocker>,
     pub next_safe_action: String,
@@ -299,6 +307,27 @@ pub async fn calculate_wedding_readiness(
     .bind(wedding_id)
     .fetch_one(pool)
     .await?;
+
+    let deposit_contributions = sqlx::query_as::<_, (Decimal, i64, i64)>(
+        r#"
+        SELECT
+            COALESCE(SUM(amount), 0)::numeric(14,2) AS total,
+            COUNT(DISTINCT account_id)::bigint AS funded_members,
+            COUNT(DISTINCT payer_customer_id)::bigint AS payer_count
+        FROM customer_open_deposit_ledger
+        WHERE wedding_party_id = $1
+          AND reason = 'party_split_deposit'
+          AND amount > 0
+        "#,
+    )
+    .bind(wedding_id)
+    .fetch_one(pool)
+    .await?;
+    let deposit_contributions = WeddingDepositContributions {
+        total: deposit_contributions.0,
+        funded_members: deposit_contributions.1,
+        payer_count: deposit_contributions.2,
+    };
 
     let lifecycle_row = sqlx::query(
         r#"
@@ -539,6 +568,7 @@ pub async fn calculate_wedding_readiness(
             lifecycle,
             member_counts,
             pickup,
+            deposit_contributions,
             vendor_risk,
             blockers,
             next_safe_action,

@@ -76,6 +76,8 @@ const OrderReviewTab = ({ members, partyId, toggleStatus, onMemberClick, payment
                             const paymentBadgeClass =
                                 paymentStatus === 'PAID'
                                     ? 'bg-emerald-100 text-emerald-700 border-emerald-200'
+                                    : paymentStatus === 'DEPOSIT'
+                                        ? 'bg-blue-100 text-blue-700 border-blue-200'
                                     : paymentStatus === 'PARTIAL'
                                         ? 'bg-amber-100 text-amber-700 border-amber-200'
                                         : 'bg-rose-100 text-rose-700 border-rose-200';

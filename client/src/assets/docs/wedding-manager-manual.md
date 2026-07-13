@@ -78,6 +78,8 @@ ROSIE readiness takeaways summarize visible risks. They do not collect payment, 
 
 Wedding deposits and payments must remain attached to their audited payment and allocation records. A payment placed for another party member appears on that member's Customer account and can be applied from the Register payment screen when eligible.
 
+The party Readiness panel shows **Wedding deposits** as the total contributed through Split deposit and the number of members funded. Member rows show **Deposit** when funds are held before that member has a Transaction Record. The payer's Customer History records the group contribution, while Daily Sales keeps the payer's own Transaction total separate from **Wedding Deposits Placed** and **Total Tender Collected**. This separation is intentional: the member funds remain deposit liabilities and are not added to the payer's merchandise sale.
+
 Before promising a balance or refund:
 
 1. Open the member's Customer and linked Transaction Records.

@@ -118,6 +118,16 @@ type TransactionListResponse = {
 };
 
 type WeddingPartyFinancialContext = {
+  summary: {
+    total_paid: string;
+  };
+  members: Array<{
+    wedding_member_id: string;
+    transaction_count: number;
+    payment_count: number;
+    transaction_total: string;
+    paid_total: string;
+  }>;
   lines: Array<{
     payment_tx_id?: string | null;
     wedding_member_id: string;
@@ -995,6 +1005,13 @@ test.describe("Orders custom vs special contract", () => {
         line.amount === "50.00",
     );
     expect(groupPayLine?.wedding_member_id).toBe(attachedMember.id);
+    expect(financialContext.summary.total_paid).toBe("50.00");
+    const beneficiaryFinancial = financialContext.members.find(
+      (member) => member.wedding_member_id === attachedMember.id,
+    );
+    expect(beneficiaryFinancial?.transaction_count).toBe(1);
+    expect(beneficiaryFinancial?.payment_count).toBe(1);
+    expect(beneficiaryFinancial?.paid_total).toBe("50.00");
   });
 
   test("special orders keep deposit balance and pickup status distinct", async ({
