@@ -302,12 +302,19 @@ export function BackofficeAuthProvider({
       clearStaffCredentials();
       return;
     }
-    const remainingMs = expiresAt - Date.now();
-    if (remainingMs <= 0) {
-      clearStaffCredentials();
-      return;
-    }
-    const timer = window.setTimeout(clearStaffCredentials, remainingMs);
+    let timer = 0;
+    const scheduleExpiryCheck = () => {
+      const remainingMs = expiresAt - Date.now();
+      if (remainingMs <= 0) {
+        clearStaffCredentials();
+        return;
+      }
+      timer = window.setTimeout(
+        scheduleExpiryCheck,
+        Math.min(remainingMs, 2_147_000_000),
+      );
+    };
+    scheduleExpiryCheck();
     return () => window.clearTimeout(timer);
   }, [clearStaffCredentials, staffSessionExpiresAt]);
 
