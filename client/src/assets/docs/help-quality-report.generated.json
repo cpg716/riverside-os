@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-13T14:35:59.335Z",
+  "generated_at": "2026-07-13T15:05:46.945Z",
   "standard_version": "help-manual-standard-v3",
   "published_manual_count": 73,
   "draft_manual_count": 0,
@@ -407,7 +407,7 @@
     },
     {
       "id": "settings-counterpoint-sync-settings-panel",
-      "title": "Counterpoint Import and Sign-Off",
+      "title": "Counterpoint Transition and Legacy Repair",
       "source_path": "client/src/assets/docs/settings-counterpoint-sync-settings-panel-manual.md",
       "dedicated_unique_local": 1,
       "unique_local": 3,
@@ -4505,7 +4505,7 @@
     },
     {
       "id": "settings-counterpoint-sync-settings-panel",
-      "title": "Counterpoint Import and Sign-Off",
+      "title": "Counterpoint Transition and Legacy Repair",
       "status": "approved",
       "source_path": "client/src/assets/docs/settings-counterpoint-sync-settings-panel-manual.md",
       "screenshots": {
@@ -4563,7 +4563,7 @@
           "present": true
         }
       ],
-      "numbered_steps": 9,
+      "numbered_steps": 15,
       "placeholder_hits": [],
       "errors": [],
       "warnings": [

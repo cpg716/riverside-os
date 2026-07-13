@@ -304,6 +304,13 @@ export const HELP_SCREENSHOT_SPECS = [
     output: "client/src/assets/images/help/settings-counterpoint-sync-settings-panel/main.png",
   },
   {
+    id: "settings-counterpoint-legacy-order-repair",
+    kind: "settings-panel",
+    sectionButton: /^counterpoint$/i,
+    tabButton: /^legacy order repair$/i,
+    output: "client/src/assets/images/help/settings-counterpoint-sync-settings-panel/legacy-order-repair.png",
+  },
+  {
     id: "settings-ros-dev-center",
     kind: "settings-panel",
     sectionButton: /^ros dev center$/i,

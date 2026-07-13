@@ -6548,6 +6548,7 @@ pub(crate) async fn build_customer_timeline(
                 AND (crp.unlinked_at IS NULL OR crp.parent_customer_id = $1)
             )
         )
+          AND COALESCE(o.metadata->>'counterpoint_reconciliation_status', '') <> 'superseded'
           AND NOT (
               COALESCE(o.total_price, 0) = 0
               AND COALESCE(o.amount_paid, 0) = 0
@@ -6578,6 +6579,7 @@ pub(crate) async fn build_customer_timeline(
             SELECT p.id, p.created_at, p.payment_method, p.amount
             FROM payment_transactions p
             WHERE p.payer_id = $1
+              AND COALESCE(p.metadata->>'counterpoint_reconciliation_action', '') <> 'superseded_duplicate'
 
             UNION
 
@@ -6590,6 +6592,7 @@ pub(crate) async fn build_customer_timeline(
             INNER JOIN payment_allocations pa ON pa.target_transaction_id = target.id
             INNER JOIN payment_transactions p ON p.id = pa.transaction_id
             WHERE target.customer_id = $1
+              AND COALESCE(p.metadata->>'counterpoint_reconciliation_action', '') <> 'superseded_duplicate'
 
             UNION
 
@@ -6597,6 +6600,7 @@ pub(crate) async fn build_customer_timeline(
             FROM customer_relationship_periods crp
             INNER JOIN payment_transactions p ON p.payer_id = crp.child_customer_id
             WHERE crp.parent_customer_id = $1
+              AND COALESCE(p.metadata->>'counterpoint_reconciliation_action', '') <> 'superseded_duplicate'
               AND p.created_at >= crp.linked_at
               AND (crp.unlinked_at IS NULL OR p.created_at <= crp.unlinked_at)
               AND (crp.unlinked_at IS NULL OR crp.parent_customer_id = $1)
@@ -6607,6 +6611,7 @@ pub(crate) async fn build_customer_timeline(
             FROM customer_relationship_periods crp
             INNER JOIN payment_transactions p ON p.payer_id = crp.parent_customer_id
             WHERE crp.child_customer_id = $1
+              AND COALESCE(p.metadata->>'counterpoint_reconciliation_action', '') <> 'superseded_duplicate'
               AND p.created_at >= crp.linked_at
               AND (crp.unlinked_at IS NULL OR p.created_at <= crp.unlinked_at)
               AND (crp.unlinked_at IS NULL OR crp.parent_customer_id = $1)
@@ -6847,6 +6852,7 @@ pub(crate) async fn build_customer_timeline(
                   AND (crp.unlinked_at IS NULL OR crp.parent_customer_id = $1)
             )
         )
+          AND COALESCE(o.metadata->>'counterpoint_reconciliation_status', '') <> 'superseded'
           AND (
               COALESCE(NULLIF(TRIM(o.fulfillment_method::text), ''), 'pickup') <> 'pickup'
               OR EXISTS (

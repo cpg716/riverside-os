@@ -157,7 +157,8 @@ pub async fn query_customer_transaction_history(
     qb.push_bind(customer_id);
     qb.push(
         r#")
-        )) "#,
+        ))
+        AND COALESCE(o.metadata->>'counterpoint_reconciliation_status', '') <> 'superseded' "#,
     );
     match q.record_scope {
         CustomerHistoryRecordScope::Transactions => {

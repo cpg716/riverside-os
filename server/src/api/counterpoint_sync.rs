@@ -11,6 +11,9 @@ use uuid::Uuid;
 
 use crate::api::AppState;
 use crate::auth::permissions::SETTINGS_ADMIN;
+use crate::logic::counterpoint_reconciliation::{
+    apply_counterpoint_transaction_reconciliation, preview_counterpoint_transaction_reconciliation,
+};
 use crate::logic::counterpoint_staging;
 use crate::logic::counterpoint_sync::{
     self, build_counterpoint_import_command_center,
@@ -1704,6 +1707,52 @@ async fn settings_transaction_reconciliation(
     Ok(Json(json!(snapshot)))
 }
 
+async fn settings_transaction_reconciliation_preview(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
+        .await
+        .map_err(map_perm)?;
+    let preview = preview_counterpoint_transaction_reconciliation(&state.db)
+        .await
+        .map_err(cp_err)?;
+    Ok(Json(json!(preview)))
+}
+
+#[derive(Deserialize)]
+struct CounterpointTransactionReconciliationApplyBody {
+    confirmation_phrase: String,
+    reason: String,
+}
+
+async fn settings_transaction_reconciliation_apply(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<CounterpointTransactionReconciliationApplyBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let staff = middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
+        .await
+        .map_err(map_perm)?;
+    let result = apply_counterpoint_transaction_reconciliation(
+        &state.db,
+        staff.id,
+        &body.confirmation_phrase,
+        &body.reason,
+    )
+    .await
+    .map_err(cp_err)?;
+    tracing::warn!(
+        staff_id = %staff.id,
+        reconciled_orders = result.reconciled_orders,
+        superseded_ticket_transactions = result.superseded_ticket_transactions,
+        moved_payments = result.moved_payments,
+        superseded_duplicate_payments = result.superseded_duplicate_payments,
+        "legacy Counterpoint transaction reconciliation applied"
+    );
+    Ok(Json(json!(result)))
+}
+
 async fn settings_open_docs_verification(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1861,6 +1910,14 @@ pub fn settings_router() -> Router<AppState> {
         .route(
             "/transaction-reconciliation",
             get(settings_transaction_reconciliation),
+        )
+        .route(
+            "/transaction-reconciliation/repair-preview",
+            get(settings_transaction_reconciliation_preview),
+        )
+        .route(
+            "/transaction-reconciliation/repair",
+            post(settings_transaction_reconciliation_apply),
         )
         .route(
             "/open-docs-verification",

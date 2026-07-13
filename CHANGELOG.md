@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Added an auditable Manager-only legacy Counterpoint order reconciliation workflow that scans all stored imported accounts, repairs only exact open-order/ticket/payment matches, moves legitimate later payments to the original order, supersedes duplicate imported artifacts, and leaves ambiguous cases unchanged for review without rerunning Counterpoint imports.
+
 ### Fixed
 - **Single-Day Z-Report Boundaries**: Register close now resolves the oldest unclosed store-local business date, filters tenders, payments, adjustments, inventory activity, QBO staging, and daily financial reporting to that date, and requires missed dates to close one at a time instead of combining them under the morning the close was performed. Historical catch-up reports explicitly state when no separate drawer count existed rather than inventing a daily over/short amount.
 - **Line Tax Controls and Non-Taxable Service Charges**: Register sale lines now cycle between Standard, Clothing, and No Tax with immediate per-line recalculation, server validation, audit metadata, and persisted sale-detail classification. Cart creation, price edits, discounts, totals, and checkout payloads also preserve zero state/local tax for alteration labor and the `SHIPPING` SKU; the server independently rejects taxed shipping lines and persists both service types with zero tax, while Ship current sale remains a separate non-taxable charge.

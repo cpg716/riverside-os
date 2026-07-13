@@ -498,10 +498,10 @@ export const HELP_MANUALS: HelpManual[] = [
   },
   {
     id: "settings-counterpoint-sync-settings-panel",
-    title: "Counterpoint Import and Sign-Off",
-    summary: "Connect the Counterpoint Bridge to Main Hub ROS, import data, resolve exceptions, review duplicates, and confirm go-live proof.",
+    title: "Counterpoint Transition and Legacy Repair",
+    summary: "Review Counterpoint transition proof, customer duplicates, and safely reconcile legacy order payments already stored in ROS.",
     markdown: manual_60_raw,
-    tags: ["settings-counterpoint-sync-settings-panel","counterpoint","bridge","import","signoff"],
+    tags: ["settings-counterpoint-sync-settings-panel","counterpoint","bridge","import","signoff","reconciliation","legacy-order-repair"],
   },
   {
     id: "settings-helcim-settings-panel",

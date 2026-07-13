@@ -409,6 +409,14 @@ If `ISSUE_DAT` is also absent, `NOW()` is used as the issue baseline.
 
 **Historical sales posture:** Closed ticket rows are imported for customer history, item history, and reporting comparison. They are not active fulfillment obligations. ROS links historical lines to exact variants when the payload has enough SKU/cell detail; unresolved historical lines use the historical Counterpoint fallback item instead of blocking the import. Open documents remain strict because they are current obligations.
 
+### Post-cutover legacy order reconciliation
+
+After Counterpoint imports have ended, **Settings → Counterpoint → Legacy Order Repair** reviews the Counterpoint open-document and ticket records already stored in ROS. It does not contact the Bridge or request another import.
+
+The automatic repair set is intentionally strict: the customer, order total, complete line signature, original same-time ticket, and unique payment set must agree, and the retained payments must equal the order total to the cent. The repair moves legitimate later payment allocations to the original open-document transaction, marks duplicate imported payment/ticket artifacts as superseded, recalculates the original paid amount and balance, and records an append-only audit snapshot in `counterpoint_transaction_reconciliation`.
+
+Any record with multiple possible orders, mismatched lines, non-success payments, indistinguishable later payments, or a remaining total difference is report-only and requires Manager review. Do not merge ambiguous records by customer name, item description, or amount alone.
+
 **Tax and discount import:** Auto Config now selects known Counterpoint header and line tax columns when those columns are visible in the live schema, and maps known regular-price / discount columns so ROS stores the effective discounted unit price instead of the regular price. If Counterpoint exposes only a header tax total, ROS allocates that tax across imported lines. If Counterpoint exposes no tax columns for a historical ticket, the imported line tax remains `0` and existing historical rows must be reimported or backfilled from Counterpoint before they become source-authoritative for tax history.
 
 **Provenance:** Imported Counterpoint Transaction Records have `is_counterpoint_import = true`. This flag ensures:

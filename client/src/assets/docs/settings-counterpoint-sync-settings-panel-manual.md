@@ -1,15 +1,15 @@
 ---
 id: settings-counterpoint-sync-settings-panel
-title: "Counterpoint Import and Sign-Off"
+title: "Counterpoint Transition and Legacy Repair"
 order: 1087
-summary: "Connect the Counterpoint Bridge to Main Hub ROS, import data, resolve exceptions, review duplicates, and confirm go-live proof."
+summary: "Review Counterpoint transition proof, customer duplicates, and safely reconcile legacy order payments already stored in ROS."
 source: client/src/components/settings/CounterpointSyncSettingsPanel.tsx
-last_scanned: 2026-06-22
-tags: settings-counterpoint-sync-settings-panel, counterpoint, bridge, import, signoff
+last_scanned: 2026-07-13
+tags: settings-counterpoint-sync-settings-panel, counterpoint, bridge, import, signoff, reconciliation, legacy-order-repair
 status: approved
 ---
 
-# Counterpoint Import and Sign-Off
+# Counterpoint Transition and Legacy Repair
 
 ## Screenshots
 
@@ -26,6 +26,25 @@ Counterpoint Settings is the one-time ROS Import Command Center. For go-live, th
 Use this panel to verify facts before cutover. Bridge row counts mean data was sent. ROS landed counts mean ROS wrote and linked rows for proof.
 
 After the import is signed off, Counterpoint does not create recurring stale-sync alerts. Any follow-up work belongs in the import proof, exception review, or duplicate-customer review surfaces before go-live.
+
+ROS does not need another Counterpoint import to correct legacy order/payment history. Use **Legacy Order Repair** for historical records already stored in ROS.
+
+## Legacy Order Repair
+
+Use **Settings → Counterpoint → Legacy Order Repair** when an imported Counterpoint order appears more than once, a later payment is attached to a separate historical transaction, or the original order still shows a balance that Counterpoint documents as paid.
+
+1. Select **Legacy Order Repair**.
+2. Choose **Refresh Review**.
+3. Review the **Ready** and **Manager review** counts.
+4. Confirm each ready row shows the expected current and repaired paid/balance amounts.
+5. Select **Repair Exact Matches** and enter the displayed confirmation phrase.
+6. Reopen the customer’s Orders and History areas and confirm that the original order now carries the payments and correct balance.
+
+The review uses only data already stored in ROS. It does not connect to Counterpoint, start the Bridge, or run an import.
+
+An exact match requires the same customer, order total, merchandise lines, an original same-time Counterpoint ticket, and a unique set of payments that exactly equals the order total. ROS moves legitimate later payments onto the original order and supersedes duplicate imported payment/ticket shells. Before changing anything, ROS stores an audit snapshot and records the approving staff member.
+
+Rows marked **Manager review** are not changed. Common reasons include multiple possible orders, mismatched merchandise, indistinguishable later payments, or payment totals that do not exactly equal the order total. Do not force a repair from the database; investigate the receipt and ROS transaction records first.
 
 ## Go-live workflow
 
