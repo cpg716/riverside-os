@@ -178,12 +178,13 @@ interface RegisterSessionRow {
 }
 
 interface ZReportSnapshot {
+  business_date?: string;
   session_id?: string;
   opening_float?: string;
   net_cash_adjustments?: string;
   expected_cash?: string;
-  actual_cash?: string;
-  discrepancy?: string;
+  actual_cash?: string | null;
+  discrepancy?: string | null;
   cash_deposit_date?: string | null;
   cash_deposit_amount?: string | null;
   closing_notes?: string | null;
@@ -541,6 +542,9 @@ async function openZReportFromSession(
   const cashTender = snapshot?.tenders?.find(
     (tender) => tender.payment_method.toLowerCase() === "cash",
   );
+  const actualCash = snapshot?.actual_cash ?? session.actual_cash;
+  const discrepancy = snapshot?.discrepancy ?? session.discrepancy;
+  const cashDepositAmount = snapshot?.cash_deposit_amount ?? session.cash_deposit_amount;
   return openProfessionalZReportPrint({
     title: "Z-Report",
     sessionId: snapshot?.session_id ?? session.id,
@@ -552,12 +556,11 @@ async function openZReportFromSession(
     cashSalesCents: parseMoneyToCents(cashTender?.total_amount ?? "0"),
     netAdjustmentsCents: parseMoneyToCents(snapshot?.net_cash_adjustments ?? "0"),
     expectedCents: parseMoneyToCents(snapshot?.expected_cash ?? session.expected_cash ?? "0"),
-    actualCents: parseMoneyToCents(snapshot?.actual_cash ?? session.actual_cash ?? "0"),
-    discrepancyCents: parseMoneyToCents(snapshot?.discrepancy ?? session.discrepancy ?? "0"),
+    actualCents: actualCash == null ? null : parseMoneyToCents(actualCash),
+    discrepancyCents: discrepancy == null ? null : parseMoneyToCents(discrepancy),
+    businessDate: snapshot?.business_date ?? session.business_date,
     cashDepositDate: snapshot?.cash_deposit_date ?? session.cash_deposit_date ?? null,
-    cashDepositAmountCents: parseMoneyToCents(
-      snapshot?.cash_deposit_amount ?? session.cash_deposit_amount ?? "0",
-    ),
+    cashDepositAmountCents: cashDepositAmount == null ? undefined : parseMoneyToCents(cashDepositAmount),
     closingNotes: snapshot?.closing_notes ?? session.closing_notes ?? null,
     closingComments: snapshot?.closing_comments ?? session.closing_comments ?? null,
     tenders: snapshot?.tenders ?? [],
@@ -1953,13 +1956,14 @@ export default function RegisterReports({
                         <p className="text-xs font-bold text-app-text-muted">
                           Register #{session.register_lane} · Session #{session.register_ordinal}
                         </p>
+                        <p className="font-black text-app-accent">Z-Report {session.business_date}</p>
                         <p className="font-black text-app-text">{session.cashier_name}</p>
                         <p className="text-sm text-app-text-muted">
                           Opened {new Date(session.opened_at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}
                         </p>
                       </div>
                       <div className="text-right">
-                        <p className="text-xs text-app-text-muted">Closed</p>
+                        <p className="text-xs text-app-text-muted">Closed at</p>
                         <p className="font-bold text-app-text">
                           {session.closed_at
                             ? new Date(session.closed_at).toLocaleString(undefined, {

@@ -450,6 +450,14 @@ pub async fn download_and_run_server_installer(
 
     #[cfg(windows)]
     {
+        let target_build_short = build_sha
+            .as_deref()
+            .and_then(normalized_build_short)
+            .ok_or_else(|| {
+                "Exact build SHA is required for a Main Hub update. Refresh the update check before trying again."
+                    .to_string()
+            })?;
+
         // 1. Fetch release assets from GitHub API to find the deployment zip
         let tag_name = format!("v{}", version);
         let url = format!(
@@ -481,9 +489,8 @@ pub async fn download_and_run_server_installer(
             .await
             .map_err(|e| format!("Failed to parse GitHub release JSON: {e}"))?;
 
-        let target_build_short = build_sha.as_deref().and_then(normalized_build_short);
         let asset =
-            select_deployment_asset(release.assets, &tag_name, target_build_short.as_deref())?;
+            select_deployment_asset(release.assets, &tag_name, Some(target_build_short.as_str()))?;
         let asset_name = asset.name.clone();
 
         let download_url = asset.browser_download_url;
@@ -503,6 +510,13 @@ pub async fn download_and_run_server_installer(
             .send()
             .await
             .map_err(|e| format!("Failed to start download of deployment package: {e}"))?;
+        if !response.status().is_success() {
+            return Err(format!(
+                "Deployment package download failed with HTTP status {} for {}.",
+                response.status(),
+                asset_name
+            ));
+        }
 
         let mut file = std::fs::File::create(&zip_path)
             .map_err(|e| format!("Failed to create destination zip file: {e}"))?;
@@ -606,8 +620,11 @@ pub async fn download_and_run_server_installer(
             }
         }
 
-        let verified_build =
-            verify_deployment_package_build(&script_dir, &extraction_dir, build_sha.as_deref())?;
+        let verified_build = verify_deployment_package_build(
+            &script_dir,
+            &extraction_dir,
+            Some(target_build_short.as_str()),
+        )?;
 
         let runner_script_path = temp_dir.join("update-runner.ps1");
         let runner_log_path = temp_dir.join("main-hub-update-transcript.txt");
@@ -664,19 +681,11 @@ $installRoot = '{install_root}'
 $configPath = '{config_path}'
 $serverBin = "$installRoot\server\riverside-server.exe"
 $backupBin = "$installRoot\server\riverside-server.exe.bak"
+$taskName = '{task_name}'
+$serverPort = {server_port}
 
-# 1. Stop all backend services and sidecar processes
-Write-Host 'Stopping backend services and sidecar processes (llama-server, whisper-sidecar)...'
-Get-Process -Name 'llama-server' -ErrorAction SilentlyContinue | ForEach-Object {{ $_.Kill() }}
-Get-Process -Name 'whisper-sidecar' -ErrorAction SilentlyContinue | ForEach-Object {{ $_.Kill() }}
-Get-Process -Name 'riverside-server' -ErrorAction SilentlyContinue | ForEach-Object {{ $_.Kill() }}
-
-# 2. Self-Repair: explicitly wipe old python/venv directories to eliminate rot
-Write-Host 'Wiping legacy environment directories (venv, python)...'
-Remove-Item -Path 'C:\ProgramData\riverside-os\venv' -Recurse -Force -ErrorAction SilentlyContinue
-Remove-Item -Path 'C:\ProgramData\riverside-os\python' -Recurse -Force -ErrorAction SilentlyContinue
-
-# Create a backup of the current binary if it exists
+# Keep the current server running until install-server.ps1 verifies the
+# pre-migration database backup and begins its guarded replacement window.
 if (Test-Path -Path $serverBin) {{
     Write-Host 'Creating backup of existing server binary...'
     Copy-Item -Path $serverBin -Destination $backupBin -Force -ErrorAction SilentlyContinue
@@ -706,7 +715,6 @@ try {{
     }}
 
     Write-Host 'Step 5: Restarting Riverside OS Server...'
-    $taskName = '{task_name}'
     $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
     if ($task) {{
         Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
@@ -720,12 +728,11 @@ try {{
     }}
 
     Write-Host 'Step 6: Waiting for server to become ready...'
-    $serverPort = {server_port}
     $ready = $false
     for ($i = 0; $i -lt 30; $i++) {{
         Start-Sleep -Seconds 2
         try {{
-            $resp = Invoke-WebRequest -Uri "http://127.0.0.1:$serverPort{health_ep}" -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
+            $resp = Invoke-WebRequest -Uri "http://127.0.0.1:$serverPort{ready_ep}" -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
             if ($resp.StatusCode -eq 200) {{ $ready = $true; break }}
         }} catch {{ }}
         Write-Host ('  Waiting... (' + ($i * 2).ToString() + 's)')
@@ -744,11 +751,53 @@ try {{
         $transcriptStarted = $false
     }}
 }} catch {{
-    Write-Error ('Update failed: ' + $_.Exception.Message)
-    if (Test-Path -Path $backupBin) {{
-        Write-Host 'Rolling back to previous server version...'
-        Copy-Item -Path $backupBin -Destination $serverBin -Force -ErrorAction SilentlyContinue
-        Write-Host 'Rollback complete.'
+    Write-Host ('Update failed: ' + $_.Exception.Message) -ForegroundColor Red
+    $serverStillHealthy = $false
+    try {{
+        $existingResponse = Invoke-WebRequest -Uri "http://127.0.0.1:$serverPort{ready_ep}" -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
+        $serverStillHealthy = $existingResponse.StatusCode -eq 200
+    }} catch {{ }}
+    if ($serverStillHealthy) {{
+        Write-Host 'The existing Riverside server is still healthy; no restart or rollback was needed.'
+    }} else {{
+        Write-Host 'Attempting emergency restart of the previous Riverside server...'
+        try {{
+            Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+            Get-Process -Name 'riverside-server' -ErrorAction SilentlyContinue |
+                ForEach-Object {{ Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }}
+            Start-Sleep -Seconds 2
+            if (Test-Path -Path $backupBin) {{
+                Write-Host 'Rolling back to previous server binary...'
+                Copy-Item -Path $backupBin -Destination $serverBin -Force -ErrorAction Stop
+                Write-Host 'Binary rollback complete.'
+            }}
+            if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {{
+                Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
+                Write-Host ('  Scheduled task ' + $taskName + ' restarted after update failure.')
+                $recoveryReady = $false
+                for ($i = 0; $i -lt 15; $i++) {{
+                    Start-Sleep -Seconds 2
+                    try {{
+                        $recoveryResponse = Invoke-WebRequest -Uri "http://127.0.0.1:$serverPort{ready_ep}" -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
+                        if ($recoveryResponse.StatusCode -eq 200) {{
+                            $recoveryReady = $true
+                            break
+                        }}
+                    }} catch {{ }}
+                }}
+                if ($recoveryReady) {{
+                    Write-Host '  Previous Riverside server is healthy after emergency restart.' -ForegroundColor Green
+                }} else {{
+                    $taskInfo = Get-ScheduledTaskInfo -TaskName $taskName -ErrorAction SilentlyContinue
+                    $lastTaskResult = if ($taskInfo) {{ $taskInfo.LastTaskResult }} else {{ 'unavailable' }}
+                    Write-Warning ('  Emergency restart did not restore server health. Scheduled task result: ' + $lastTaskResult)
+                }}
+            }} else {{
+                Write-Warning ('  Scheduled task ' + $taskName + ' is missing; use Deployment Manager Repair Server.')
+            }}
+        }} catch {{
+            Write-Warning ('Emergency server restart failed: ' + $_.Exception.Message)
+        }}
     }}
     Write-Host 'Please check server logs for details.'
     Write-Host ('Update transcript: ' + $transcriptPath)
@@ -768,7 +817,7 @@ Read-Host 'Press Enter to close this window'
             config_file = contract::DEPLOY_CONFIG_FILE,
             task_name = contract::SERVER_TASK_NAME,
             server_port = contract::DEFAULT_SERVER_PORT,
-            health_ep = contract::HEALTH_ENDPOINT,
+            ready_ep = contract::READY_ENDPOINT,
         );
 
         std::fs::write(&runner_script_path, runner_content)

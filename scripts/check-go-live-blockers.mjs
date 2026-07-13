@@ -932,14 +932,14 @@ function checkDesktopAndPwaUpdateWiring() {
       updater.includes("./install-register.ps1 -ConfigPath") &&
       updater.includes("-StationMode mainhub") &&
       updater.includes("Start-Transcript") &&
-      updater.includes("health_ep = contract::HEALTH_ENDPOINT") &&
+      updater.includes("ready_ep = contract::READY_ENDPOINT") &&
       updater.includes("select_deployment_asset") &&
       updater.includes("is_main_hub_update_asset") &&
       updater.includes("build_ids_match") &&
       updater.includes("verify_deployment_package_build") &&
       updater.includes("sourceGitSha") &&
       updater.includes("Deployment package build mismatch"),
-    "Main Hub in-app updater runs server, bootstrap, local desktop app, transcript, and health-check steps",
+    "Main Hub in-app updater runs server, bootstrap, local desktop app, transcript, and database-readiness steps",
     updaterFile,
     "Main Hub updates must cover server/API, migrations, bootstrap admin, local desktop app config, readiness proof, and exact build selection.",
   );
@@ -948,6 +948,8 @@ function checkDesktopAndPwaUpdateWiring() {
   const updatePanelContent = read(updatePanel);
   assert(
     updatePanelContent.includes("serverUpdateCheck?.latest_build_sha") &&
+      updatePanelContent.includes("!serverUpdateCheck.latest_build_sha") &&
+      updatePanelContent.includes("Riverside will not start an unverifiable Main Hub update") &&
       updatePanelContent.includes("Extracting and verifying package build") &&
       updatePanelContent.includes("Update runner launched"),
     "Main Hub update panel passes latest build SHA and labels runner launch accurately",

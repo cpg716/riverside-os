@@ -105,7 +105,7 @@ if ($db.appUser -match '^(Admin|Administrator)$') { $db.appUser = "riverside_app
 if ([string]::IsNullOrWhiteSpace($db.adminUser)) { $db.adminUser = "postgres" }
 if ([string]::IsNullOrWhiteSpace($db.appUser)) { $db.appUser = "riverside_app" }
 $psql = Resolve-PsqlPath $db
-$databaseUrl = "postgresql://$($db.appUser):$($db.appPassword)@$($db.host):$($db.port)/$($db.databaseName)"
+$databaseUrl = "postgresql://$($db.appUser)@$($db.host):$($db.port)/$($db.databaseName)"
 $bootstrapPinHash = '$argon2id$v=19$m=19456,t=2,p=1$KWJoKjtQYNuPjRIyKL2M9g$FBpoET53ejevTU5LrsLTzQMrgXpV5NavqruJmerdPsc'
 
 $env:PGPASSWORD = $db.appPassword

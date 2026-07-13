@@ -76,17 +76,14 @@ function New-PreUpdateBackup([string]$ConfigPath) {
   New-Item -ItemType Directory -Force -Path $backupDir | Out-Null
 
   $pgDump = Find-PostgresTool "pg_dump.exe"
+  $pgRestore = Find-PostgresTool "pg_restore.exe"
   $hostName = Get-SafeConfigValue $db "host" "127.0.0.1"
   $port = Get-SafeConfigValue $db "port" "5432"
   $databaseName = Get-SafeConfigValue $db "databaseName" "riverside_os"
   $user = Get-SafeConfigValue $db "adminUser" "postgres"
   $password = Get-SafeConfigValue $db "adminPassword" ""
   if ([string]::IsNullOrWhiteSpace($password)) {
-    $user = Get-SafeConfigValue $db "appUser" "riverside_app"
-    $password = Get-SafeConfigValue $db "appPassword" ""
-  }
-  if ([string]::IsNullOrWhiteSpace($password)) {
-    throw "No PostgreSQL password was available in deployment config; cannot create pre-update backup."
+    throw "PostgreSQL administrator password is missing from deployment config; refusing to use the limited Riverside app account for a full pre-update backup."
   }
 
   $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
@@ -97,13 +94,21 @@ function New-PreUpdateBackup([string]$ConfigPath) {
     if ($LASTEXITCODE -ne 0) {
       throw "pg_dump failed with exit code $LASTEXITCODE."
     }
+
+    $backupFile = Get-Item $backupPath -ErrorAction Stop
+    if ($backupFile.Length -lt 1024) {
+      throw "Pre-update backup was too small: $backupPath"
+    }
+
+    $archiveListing = @(& $pgRestore --list $backupPath)
+    if ($LASTEXITCODE -ne 0 -or $archiveListing.Count -eq 0) {
+      throw "Pre-update backup archive verification failed: $backupPath"
+    }
+  } catch {
+    Remove-Item $backupPath -Force -ErrorAction SilentlyContinue
+    throw
   } finally {
     Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue
-  }
-
-  $backupFile = Get-Item $backupPath
-  if ($backupFile.Length -lt 1024) {
-    throw "Pre-update backup was too small: $backupPath"
   }
   return $backupPath
 }

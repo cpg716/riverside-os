@@ -229,10 +229,15 @@ On the Main Hub station, **Settings → Updates → Server update** shows a live
 
 1. Downloads the Windows deployment ZIP for the version/build reported by the update check.
 2. Extracts it to a temporary directory and verifies `deployment-package.manifest.json` against the target build SHA before launching any elevated script.
-3. Runs `install-server.ps1`, `repair-bootstrap-admin.ps1`, and `install-register.ps1` elevated via UAC in a PowerShell window.
-4. **Automatically restarts the `Riverside OS Server` scheduled task** after install.
-5. Polls `GET /api/health` every 2 seconds (up to 60 s) and confirms the server is responding before printing "Update Complete".
-6. The operator relaunches Riverside on all stations when prompted.
+3. Uses the configured PostgreSQL administrator to create and verify a pre-migration database backup while the current Main Hub server is still running. If this backup fails, the update stops before replacing files or stopping Riverside.
+4. Runs `install-server.ps1`, `repair-bootstrap-admin.ps1`, and `install-register.ps1` elevated via UAC in a PowerShell window.
+5. **Automatically restarts the `Riverside OS Server` scheduled task** after install. If a later install step fails, rollback independently restores the prior files/task, synchronizes the restored server environment with any completed database credential change, and attempts to restart the previous server.
+6. Polls `GET /api/health` every 2 seconds (up to 60 s) and confirms the server is responding before printing "Update Complete".
+7. The operator relaunches Riverside on all stations when prompted.
+
+The updater requires an exact build SHA from the server update check before it downloads an asset. Missing provenance or a non-successful GitHub asset response stops before extraction, elevation, or any Main Hub change.
+
+The in-app, packaged, pushed-LAN, and fleet update paths all enforce the same backup rule: a complete database dump requires the configured PostgreSQL administrator. They do not fall back to the limited `riverside_app` account. Each custom-format dump must also pass `pg_restore --list` archive verification; an incomplete or unreadable dump is deleted instead of being retained as a usable backup.
 
 ### Satellite Station Version Gate
 
@@ -271,7 +276,9 @@ The verifier fails the release if any manifest is missing `+build` metadata, mis
 If an in-app update fails or a station cannot launch after an update, use this sequence. Do not skip directly to database reset unless ownership explicitly approves data loss.
 
 1. **Main Hub first:** On the Main Hub, open the Deployment Manager as Administrator and run **Audit**.
-2. **Repair server path:** If the API is down, use ROS Server Manager or Deployment Manager to restart/repair the `"Riverside OS Server"` scheduled task, then confirm `GET /api/health` returns 200. ROS Server Manager falls back to `C:\RiversideOS\server\.env` for installed Main Hub database diagnostics when the package config JSON is not present beside the manager executable.
+2. **Repair server path:** If the API is down, use ROS Server Manager or Deployment Manager to restart/repair the `"Riverside OS Server"` scheduled task, then confirm `GET /api/ready` returns 200 so both the process and PostgreSQL connection are proven. ROS Server Manager falls back to `C:\RiversideOS\server\.env` for installed Main Hub database diagnostics when the package config JSON is not present beside the manager executable.
+   - Immediate Administrator PowerShell recovery: `Start-ScheduledTask -TaskName "Riverside OS Server"`, then open `http://127.0.0.1:3000/api/ready`.
+   - A pre-migration `pg_dump` failure does not justify a database reset. Correct the reported PostgreSQL access/backup problem and rerun the fixed package only after the existing server is healthy.
 3. **Repair release files:** If the server binary, web bundle, migrations, or ROSIE assets are missing, rerun the latest deployment package Main Hub install/update path.
 4. **Repair migrations only:** If the app opens but reports missing tables/columns, run **Apply Migrations** from the same release package.
 5. **Repair ROSIE only:** If AI/help features fail but the POS/server are healthy, run **Install/Repair ROSIE AI Stack** from the deployment tools.

@@ -61,17 +61,21 @@ $deploymentStatusPath = "C:\ProgramData\RiversideOS\deployment.status"
 $deploymentLogPath = "C:\ProgramData\RiversideOS\deployment-manager.log"
 
 function Write-DeploymentStatus([string]$Status, [string]$Message = "") {
-  $statusDir = Split-Path $deploymentStatusPath -Parent
-  if (-not (Test-Path $statusDir)) {
-    New-Item -ItemType Directory -Path $statusDir -Force | Out-Null
+  try {
+    $statusDir = Split-Path $deploymentStatusPath -Parent
+    if (-not (Test-Path $statusDir)) {
+      New-Item -ItemType Directory -Path $statusDir -Force | Out-Null
+    }
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    $statusJson = @{
+      status = $Status
+      timestamp = $timestamp
+      message = $Message
+    } | ConvertTo-Json
+    Set-Content -Path $deploymentStatusPath -Value $statusJson -Encoding UTF8
+  } catch {
+    Write-Warning "Could not write deployment status '$Status': $($_.Exception.Message)"
   }
-  $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-  $statusJson = @{
-    status = $Status
-    timestamp = $timestamp
-    message = $Message
-  } | ConvertTo-Json
-  Set-Content -Path $deploymentStatusPath -Value $statusJson -Encoding UTF8
 }
 
 function Get-DeploymentStatus {
@@ -160,22 +164,39 @@ function New-PreMigrationBackup([string]$PsqlPath, $DbConfig, [string]$BackupDir
   if (-not (Test-Path $pgDump)) {
     throw "pg_dump.exe was not found beside psql.exe; refusing to migrate without a verified backup."
   }
+  $pgRestore = Join-Path (Split-Path $PsqlPath -Parent) "pg_restore.exe"
+  if (-not (Test-Path $pgRestore)) {
+    throw "pg_restore.exe was not found beside psql.exe; refusing to migrate without archive verification."
+  }
+
+  $backupUser = "$($DbConfig.adminUser)".Trim()
+  if ([string]::IsNullOrWhiteSpace($backupUser)) {
+    throw "PostgreSQL admin user is required for the verified pre-migration backup."
+  }
 
   $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
   $backupPath = Join-Path $BackupDir "pre-install-migration-$stamp.dump"
-  $env:PGPASSWORD = $DbConfig.appPassword
+  $env:PGPASSWORD = $DbConfig.adminPassword
   try {
-    & $pgDump -h $DbConfig.host -p $DbConfig.port -U $DbConfig.appUser -d $DbConfig.databaseName -w -Fc -f $backupPath
+    & $pgDump -h $DbConfig.host -p $DbConfig.port -U $backupUser -d $DbConfig.databaseName -w -Fc -f $backupPath
     if ($LASTEXITCODE -ne 0) {
       throw "pg_dump failed with exit code $LASTEXITCODE."
     }
+
+    $backupFile = Get-Item $backupPath -ErrorAction Stop
+    if ($backupFile.Length -lt 1024) {
+      throw "Pre-migration backup was unexpectedly small: $backupPath"
+    }
+
+    $archiveListing = @(& $pgRestore --list $backupPath)
+    if ($LASTEXITCODE -ne 0 -or $archiveListing.Count -eq 0) {
+      throw "Pre-migration backup archive verification failed: $backupPath"
+    }
+  } catch {
+    Remove-Item $backupPath -Force -ErrorAction SilentlyContinue
+    throw
   } finally {
     Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue
-  }
-
-  $backupFile = Get-Item $backupPath -ErrorAction Stop
-  if ($backupFile.Length -lt 1024) {
-    throw "Pre-migration backup was unexpectedly small: $backupPath"
   }
   Write-Host "Pre-migration database backup created: $backupPath" -ForegroundColor Green
 }
@@ -1286,6 +1307,27 @@ function Write-ServerEnv($Path, $Config, $DatabaseUrl, $FrontendDist, $RosieMode
   Set-Content -Path $Path -Value $lines -Encoding UTF8
 }
 
+function Set-ServerDatabaseUrl([string]$Path, [string]$DatabaseUrl) {
+  if (-not (Test-Path $Path)) {
+    throw "Cannot repair DATABASE_URL because the restored server environment file is missing: $Path"
+  }
+
+  $lines = @(Get-Content $Path)
+  $replaced = $false
+  for ($i = 0; $i -lt $lines.Count; $i++) {
+    if ($lines[$i] -match '^DATABASE_URL=') {
+      $lines[$i] = "DATABASE_URL=$DatabaseUrl"
+      $replaced = $true
+    }
+  }
+  if (-not $replaced) {
+    $lines = @("DATABASE_URL=$DatabaseUrl") + $lines
+  }
+
+  $utf8WithoutBom = New-Object System.Text.UTF8Encoding($false)
+  [System.IO.File]::WriteAllLines($Path, [string[]]$lines, $utf8WithoutBom)
+}
+
 # ---------------------------------------------------------------------------
 # ROSIE AI Stack Setup
 # Downloads the pinned Gemma GGUF, SenseVoice STT model, and Kokoro TTS model.
@@ -1880,6 +1922,7 @@ if ([string]::IsNullOrWhiteSpace($httpBind)) { $httpBind = "0.0.0.0:3000" }
 $serverPort = [int](($httpBind -split ":")[-1])
 $rollbackDir = Join-Path $installRoot ".install-rollback"
 $hadExistingTask = $null -ne (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue)
+$hadExistingServerInstall = $hadExistingTask -or (Test-Path (Join-Path $serverDir "riverside-server.exe"))
 Remove-Item $rollbackDir -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $rollbackDir | Out-Null
 if ($hadExistingTask) {
@@ -1893,6 +1936,21 @@ foreach ($entry in @(
   if (Test-Path $entry.Source) {
     Copy-Item $entry.Source (Join-Path $rollbackDir $entry.Name) -Recurse -Force
   }
+}
+
+$preMigrationBackupCreated = $false
+$databaseRoleCredentialsUpdated = $false
+$databaseUrlUser = [System.Uri]::EscapeDataString("$($db.appUser)")
+$databaseUrlPassword = [System.Uri]::EscapeDataString("$($db.appPassword)")
+$databaseUrlName = [System.Uri]::EscapeDataString("$($db.databaseName)")
+$databaseUrl = "postgresql://${databaseUrlUser}:${databaseUrlPassword}@$($db.host):$($db.port)/${databaseUrlName}"
+if ($hadExistingServerInstall -and -not $SkipMigrations) {
+  $preflightPsql = Resolve-PsqlPath $db
+  if (-not (Test-PostgresReachable $db.host $db.port)) {
+    throw "PostgreSQL is not reachable for the required pre-update backup. The running Riverside server has not been stopped or replaced."
+  }
+  New-PreMigrationBackup $preflightPsql $db $backupDir
+  $preMigrationBackupCreated = $true
 }
 
 try {
@@ -1926,8 +1984,6 @@ if ($script:configModifiedAfterPostgresInstall) {
   $psql = Resolve-PsqlPath $db
 }
 
-$databaseUrl = "postgresql://$($db.appUser):$($db.appPassword)@$($db.host):$($db.port)/$($db.databaseName)"
-
 # Test if PostgreSQL is actually reachable before attempting DB operations
 $script:postgresReachable = Test-PostgresReachable $db.host $db.port
 if ($script:postgresReachable) {
@@ -1942,6 +1998,7 @@ if ($script:postgresReachable) {
         "ELSE ALTER ROLE ""$appUser"" LOGIN PASSWORD '$appPassword'; " +
         "END IF; END `$`$;"
       Invoke-PsqlAdmin $psql $db $roleSql
+      $databaseRoleCredentialsUpdated = $true
       $env:PGPASSWORD = $db.adminPassword
       try {
         $exists = & $psql "postgresql://$($db.adminUser)@$($db.host):$($db.port)/postgres" -w -tAc "SELECT 1 FROM pg_database WHERE datname = '$databaseName';"
@@ -1968,7 +2025,10 @@ if ($script:postgresReachable) {
 
   if (-not $SkipMigrations) {
     try {
-      New-PreMigrationBackup $psql $db $backupDir
+      if (-not $preMigrationBackupCreated) {
+        New-PreMigrationBackup $psql $db $backupDir
+        $preMigrationBackupCreated = $true
+      }
       $env:PGPASSWORD = $db.appPassword
       try {
         Apply-Migrations $psql $databaseUrl (Join-Path $releaseDir "migrations")
@@ -2084,23 +2144,45 @@ Remove-Item $rollbackDir -Recurse -Force -ErrorAction SilentlyContinue
 } catch {
   $installFailure = $_
   Write-DeploymentStatus "FAILED" $installFailure.Exception.Message
-  Stop-RiversideServer
-  foreach ($entry in @(
-    @{ Target = $serverDir; Name = "server" },
-    @{ Target = (Join-Path $installRoot "client"); Name = "client" },
-    @{ Target = $releaseDir; Name = "release" }
-  )) {
-    $saved = Join-Path $rollbackDir $entry.Name
-    if (Test-Path $saved) {
-      Remove-Item $entry.Target -Recurse -Force -ErrorAction SilentlyContinue
-      Copy-Item $saved $entry.Target -Recurse -Force
+  try {
+    Stop-RiversideServer
+    foreach ($entry in @(
+      @{ Target = $serverDir; Name = "server" },
+      @{ Target = (Join-Path $installRoot "client"); Name = "client" },
+      @{ Target = $releaseDir; Name = "release" }
+    )) {
+      $saved = Join-Path $rollbackDir $entry.Name
+      if (Test-Path $saved) {
+        Remove-Item $entry.Target -Recurse -Force -ErrorAction SilentlyContinue
+        Copy-Item $saved $entry.Target -Recurse -Force
+      }
     }
+    if ($databaseRoleCredentialsUpdated) {
+      $restoredEnvPath = Join-Path $serverDir ".env"
+      Set-ServerDatabaseUrl $restoredEnvPath $databaseUrl
+      Write-Host "Restored server DATABASE_URL synchronized with the PostgreSQL app role." -ForegroundColor Yellow
+    }
+  } catch {
+    Write-Warning "Rollback file restoration failed: $($_.Exception.Message)"
   }
-  Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+
+  try {
+    Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+    if ($hadExistingTask) {
+      $savedTaskXml = Get-Content (Join-Path $rollbackDir "server-task.xml") -Raw
+      Register-ScheduledTask -TaskName $taskName -Xml $savedTaskXml | Out-Null
+    }
+  } catch {
+    Write-Warning "Rollback scheduled-task restoration failed: $($_.Exception.Message)"
+  }
+
   if ($hadExistingTask) {
-    $savedTaskXml = Get-Content (Join-Path $rollbackDir "server-task.xml") -Raw
-    Register-ScheduledTask -TaskName $taskName -Xml $savedTaskXml | Out-Null
-    Start-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+    try {
+      Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
+      Write-Host "Previous Riverside OS Server task restarted after the failed update." -ForegroundColor Yellow
+    } catch {
+      Write-Warning "Could not restart the previous Riverside OS Server task after rollback: $($_.Exception.Message)"
+    }
   }
   throw $installFailure
 }

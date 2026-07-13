@@ -26,12 +26,14 @@ Use this workflow to close the live till group, reconcile tender totals, and pro
 ## Till Group Closing
 Riverside OS uses a **lane-aggregated model**. Opening **Register #1 (Main)** automatically opens satellite lanes (iPad and Back Office). 
 - To close the entire group, you **MUST** use the **Close Register** action on **Register #1**.
-- Closing Register #1 will automatically reconcile and close all satellite lanes in a single audit transaction.
+- Closing Register #1 reconciles all satellite lanes for one store-local business date. If activity exists on more than one unclosed date, ROS closes the oldest date first and requires each later date to be closed separately. The final date closes the till group.
 
 ## The Reconciliation Flow
 1. **Cash**: Count bills and coins by denomination, or enter one drawer total.
 2. **Checks**: Confirm every check number and amount.
 3. **Z-Report**: Review totals, confirm the Daily Cash Deposit date and amount, add required notes, then tap **Close & Print Z-Report**.
+
+The Z-Report page shows the exact **business date** being closed. Closing on the following morning does not rename the report. When multiple dates are waiting, repeat the flow in the order shown; ROS never combines two days. If no separate drawer count was captured for a missed historical day, the report says so instead of inventing an over/short amount.
 
 If a card terminal outcome blocks close, use **Review** in the closing workflow or **POS → Payments** to record the outcome before continuing.
 
@@ -56,7 +58,7 @@ Upon closing, a professional, full-page **Z-Audit Report** is generated.
 
 ## Recovery and escalation
 
-Register close is final for the till group. If cash, card, gift card, pickup completion, checkout recovery, or RMS/R2S totals do not match expected evidence, stop before closing and review the daily sales and terminal reports. A manager should decide whether the variance is explained, needs a note, or should block close until support/accounting reviews it.
+The final pending business-day close is final for the till group. If cash, card, gift card, pickup completion, checkout recovery, or RMS/R2S totals do not match expected evidence, stop before closing and review the daily sales and terminal reports. A manager should decide whether the variance is explained, needs a note, or should block close until support/accounting reviews it.
 
 
 ## Tips

@@ -66,7 +66,7 @@ You can now generate a professional, full-page **Daily Sales Report** that inclu
 
 To review the report first, tap **View**. In the desktop app, the preview opens inside ROS instead of a browser tab. To print, tap **Print** from the report screen or from the in-app preview. Daily Sales prints through the configured Reports printer so the activity cards, customer context, pickup rows, line items, and totals stay on office paper instead of the receipt printer.
 
-Z-Reports also use the same contract in the desktop app. **Open Report** opens the Z-report inside ROS for review, with each sale row labeled by its `TXN-` transaction number. The Z-report quick-look boxes include daily business counts and amounts such as New Vendor Invoices from Back Office receiving, New Orders, Orders Picked Up, Credit Card Total, RMS Payments, RMS Charge, appointments, alterations, new wedding parties, shipping, and discounts. **Close & Print Z-Report** and preview **Print** send the report to the configured Reports printer. If a report prints as raw text instead of the formatted layout, check that the workstation is using the current build and rerun the report print.
+Z-Reports also use the same contract in the desktop app. Each row and printed report shows its store-local **business date**, which may differ from the morning it was closed. **Open Report** opens the Z-report inside ROS for review, with each sale row labeled by its `TXN-` transaction number. ROS never combines multiple business dates; missed days appear as separate reports and must be closed oldest first. The Z-report quick-look boxes include daily business counts and amounts such as New Vendor Invoices from Back Office receiving, New Orders, Orders Picked Up, Credit Card Total, RMS Payments, RMS Charge, appointments, alterations, new wedding parties, shipping, and discounts. **Close & Print Z-Report** and preview **Print** send the report to the configured Reports printer. If a report prints as raw text instead of the formatted layout, check that the workstation is using the current build and rerun the report print.
 
 ## Performance Metrics
 The summary cards at the top of the screen provide instant visibility into:
@@ -87,4 +87,4 @@ If a drawer group is already marked **Closing now**, avoid starting a second clo
 ## Tips
 - **Decoupled Printing**: Receipts print on receipt paper; Reports print on office paper. Ensure your **Report Printer** is set in **Settings -> Printers & Scanners**.
 - **Shared till group**: Reporting on Register #1 includes data aggregated from all satellite lanes (iPad and Back Office).
-- **One close per drawer**: Satellite lanes stay visible for coordination, but the final Z-close still happens once from Register #1 for the whole till group.
+- **One report per business date**: Satellite lanes stay visible for coordination. Register #1 closes each waiting date separately, and the final date closes the whole till group.

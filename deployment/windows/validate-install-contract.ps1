@@ -166,6 +166,21 @@ if ((Test-Path $serverHealthRs) -and ($installerSrc -match '/api/health')) {
     Write-Host "  [SKIP] HEALTH_ENDPOINT — health.rs not found at expected path" -ForegroundColor Yellow
 }
 
+# ---- 8. Database readiness endpoint ----
+$rustReady = Extract-RustConst $rustSrc "READY_ENDPOINT"
+if ((Test-Path $serverHealthRs) -and ($installerSrc -match '/api/ready')) {
+    $apiModRs = Join-Path $RepoRoot "server\src\api\mod.rs"
+    $apiModSrc = if (Test-Path $apiModRs) { Get-Content $apiModRs -Raw } else { "" }
+    if ($apiModSrc -match '\.route\("/api/ready",\s*get\(health::ready\)\)') {
+        $serverReadyPath = "/api/ready"
+    } else {
+        $serverReadyPath = "(route not confirmed in server API router)"
+    }
+    Assert-Contract "READY_ENDPOINT (vs server/src/api/mod.rs)" $rustReady $serverReadyPath
+} else {
+    Write-Host "  [SKIP] READY_ENDPOINT — health.rs not found at expected path" -ForegroundColor Yellow
+}
+
 # ---- Summary ----
 Write-Host ""
 Write-Host "========================================================"

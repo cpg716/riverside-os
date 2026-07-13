@@ -39,11 +39,14 @@
 
 1. Finish or park sales per policy — no abandoned tenders.
 2. Run **close / Z** on **Register #1** when your store uses a **till group** (satellite **#2+** lanes do not have their own Z-close in POS — one **Z** closes every lane in the shift).
+   - The close screen shows the exact **Z-Report business date**. If more than one date is waiting, close the oldest date first, then repeat the close flow for the next date. Never combine two business dates into one Z-report.
+   - Closing the next morning still produces the report for the prior business date. The date the button is pressed does not rename the report.
 3. **Cash:** count bills and coins by denomination, or enter one drawer total.
 4. **Checks:** confirm each check number and dollar amount before moving to final review.
 5. **Card review:** if a Helcim terminal outcome blocks close, use **Review** inside the close flow, or go to **POS → Payments**, verify the terminal result, choose the outcome, and record it. Staff do not need Back Office Payments access for this daily close step.
 6. **Professional Z-Report**: the closing report routes to your assigned **Report Station** (Full-Page/Audit), includes the QBO journal-entry preview, and lists non-sale inventory moves for the business date such as Receiving, RTV, Damaged, Physical Count, and Adjustments.
 7. **Close register** only on the final **Close & Print Z-Report** page. **Cancel** on any earlier page exits the workflow without closing the drawer.
+8. If missed days are being caught up, finish every date shown by the system in order. Historical days without their own drawer count are labeled as not separately counted; ROS does not invent an over/short amount.
 
 ---
 

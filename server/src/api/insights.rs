@@ -1537,28 +1537,82 @@ async fn register_session_history(
     let lim = q.limit.clamp(1, 500);
     let rows = sqlx::query_as::<_, RegisterSessionHistoryRow>(
         r#"
+        WITH report_rows AS (
+            SELECT
+                z.id,
+                rs.register_lane,
+                rs.session_ordinal AS register_ordinal,
+                rs.opened_at,
+                z.closed_at,
+                z.business_date,
+                s.full_name AS cashier_name,
+                z.opening_float,
+                z.expected_cash,
+                z.actual_cash,
+                z.discrepancy,
+                z.cash_deposit_date,
+                z.cash_deposit_amount,
+                z.closing_notes,
+                z.closing_comments,
+                z.z_report_json,
+                z.till_close_group_id
+            FROM register_business_day_z_reports z
+            INNER JOIN register_sessions rs ON rs.id = z.primary_register_session_id
+            INNER JOIN staff s ON s.id = COALESCE(z.closed_by, rs.opened_by)
+            WHERE z.business_date >= ($1 AT TIME ZONE reporting.effective_store_timezone())::date
+              AND z.business_date < ($2 AT TIME ZONE reporting.effective_store_timezone())::date
+
+            UNION ALL
+
+            SELECT
+                rs.id,
+                rs.register_lane,
+                rs.session_ordinal AS register_ordinal,
+                rs.opened_at,
+                rs.closed_at,
+                (rs.closed_at AT TIME ZONE reporting.effective_store_timezone())::date,
+                s.full_name,
+                rs.opening_float,
+                rs.expected_cash,
+                rs.actual_cash,
+                rs.discrepancy,
+                rs.cash_deposit_date,
+                rs.cash_deposit_amount,
+                rs.closing_notes,
+                rs.closing_comments,
+                rs.z_report_json,
+                rs.till_close_group_id
+            FROM register_sessions rs
+            INNER JOIN staff s ON s.id = rs.opened_by
+            WHERE rs.closed_at IS NOT NULL
+              AND rs.register_lane = 1
+              AND rs.closed_at >= $1
+              AND rs.closed_at < $2
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM register_business_day_z_reports z
+                  WHERE z.till_close_group_id = rs.till_close_group_id
+              )
+        )
         SELECT
-            rs.id,
-            rs.register_lane,
-            rs.session_ordinal AS register_ordinal,
-            rs.opened_at,
-            rs.closed_at,
-            (rs.closed_at AT TIME ZONE reporting.effective_store_timezone())::date AS business_date,
+            r.id,
+            r.register_lane,
+            r.register_ordinal,
+            r.opened_at,
+            r.closed_at,
+            r.business_date,
             qbo.sync_date AS qbo_sync_date,
             qbo.status AS qbo_status,
             qbo.journal_entry_id AS qbo_journal_entry_id,
             qbo.error_message AS qbo_error_message,
             qbo.updated_at AS qbo_updated_at,
-            s.full_name AS cashier_name,
-            rs.opening_float,
-            rs.expected_cash,
-            rs.actual_cash,
-            rs.discrepancy,
-            rs.cash_deposit_date,
-            rs.cash_deposit_amount,
-            rs.closing_notes,
-            rs.closing_comments,
-            rs.z_report_json,
+            r.cashier_name,
+            r.opening_float,
+            r.expected_cash,
+            r.actual_cash,
+            r.discrepancy,
+            r.cash_deposit_date,
+            r.cash_deposit_amount,
             (
                 SELECT COALESCE(SUM(line_sales.sales_subtotal), 0)::numeric(14,2)
                 FROM transactions o
@@ -1581,24 +1635,23 @@ async fn register_session_history(
                     INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
                     INNER JOIN register_sessions rs_group ON rs_group.id = pt.session_id
                     WHERE pa.target_transaction_id = o.id
-                      AND rs_group.till_close_group_id = rs.till_close_group_id
+                      AND rs_group.till_close_group_id = r.till_close_group_id
+                      AND (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date = r.business_date
                       AND pa.amount_allocated > 0
                 )
-            ) AS total_sales
-        FROM register_sessions rs
-        JOIN staff s ON s.id = rs.opened_by
+            ) AS total_sales,
+            r.closing_notes,
+            r.closing_comments,
+            r.z_report_json
+        FROM report_rows r
         LEFT JOIN LATERAL (
             SELECT q.sync_date, q.status, q.journal_entry_id, q.error_message, q.updated_at
             FROM qbo_sync_logs q
-            WHERE q.sync_date = (rs.closed_at AT TIME ZONE reporting.effective_store_timezone())::date
+            WHERE q.sync_date = r.business_date
             ORDER BY q.updated_at DESC, q.created_at DESC
             LIMIT 1
         ) qbo ON TRUE
-        WHERE rs.closed_at IS NOT NULL
-          AND rs.register_lane = 1
-          AND rs.closed_at >= $1
-          AND rs.closed_at < $2
-        ORDER BY rs.closed_at DESC
+        ORDER BY r.business_date DESC, r.closed_at DESC
         LIMIT $3
         "#,
     )

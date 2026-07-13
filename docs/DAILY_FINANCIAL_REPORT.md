@@ -80,7 +80,7 @@ After the register Z-close:
 1. ROS saves the EOD snapshot
 2. ROS ensures the pending QBO journal for the business date
 3. **ROS checks daily report config** — if enabled + auto-send + recipients configured:
-   - Generates the report for today's business date
+   - Generates the report for the exact business date closed by the Z-report, even when staff closes it the following morning
    - Renders HTML email
    - Stores the report in `daily_financial_reports`
    - Emails to all configured recipients

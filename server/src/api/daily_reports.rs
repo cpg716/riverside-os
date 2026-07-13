@@ -484,7 +484,7 @@ async fn get_store_name(state: &AppState) -> String {
 
 // ── Auto-send after close (called from register close logic) ─────────────────
 
-pub async fn auto_send_daily_report(pool: &PgPool) {
+pub async fn auto_send_daily_report(pool: &PgPool, business_date: chrono::NaiveDate) {
     let config = match daily_report::load_config(pool).await {
         Ok(c) => c,
         Err(e) => {
@@ -497,25 +497,7 @@ pub async fn auto_send_daily_report(pool: &PgPool) {
         return;
     }
 
-    // Determine today's business date
-    let tz: String = match sqlx::query_scalar("SELECT reporting.effective_store_timezone()")
-        .fetch_one(pool)
-        .await
-    {
-        Ok(t) => t,
-        Err(e) => {
-            tracing::error!(error = %e, "Failed to get timezone for auto daily report");
-            return;
-        }
-    };
-    let today = chrono::Utc::now()
-        .with_timezone(
-            &tz.parse::<chrono_tz::Tz>()
-                .unwrap_or(chrono_tz::America::New_York),
-        )
-        .date_naive();
-
-    // Check if already sent today (non-test)
+    // Check if this business date was already sent (non-test).
     let already_sent: bool = sqlx::query_scalar(
         r#"
         SELECT EXISTS (
@@ -524,13 +506,13 @@ pub async fn auto_send_daily_report(pool: &PgPool) {
         )
         "#,
     )
-    .bind(today)
+    .bind(business_date)
     .fetch_one(pool)
     .await
     .unwrap_or(true);
 
     if already_sent {
-        tracing::info!("Daily report already sent for {today}; skipping auto-send.");
+        tracing::info!("Daily report already sent for {business_date}; skipping auto-send.");
         return;
     }
 
@@ -543,7 +525,7 @@ pub async fn auto_send_daily_report(pool: &PgPool) {
     .flatten()
     .unwrap_or_else(|| "Riverside".to_string());
 
-    let report = match daily_report::generate_report(pool, today).await {
+    let report = match daily_report::generate_report(pool, business_date).await {
         Ok(r) => r,
         Err(e) => {
             tracing::error!(error = %e, "Failed to generate daily report for auto-send");
@@ -563,7 +545,7 @@ pub async fn auto_send_daily_report(pool: &PgPool) {
 
     let subject = config
         .subject_template
-        .replace("{date}", &today.to_string());
+        .replace("{date}", &business_date.to_string());
 
     let mut successful_recipients: Vec<String> = vec![];
     let mut errors: Vec<String> = vec![];
@@ -588,12 +570,12 @@ pub async fn auto_send_daily_report(pool: &PgPool) {
 
     if errors.is_empty() {
         tracing::info!(
-            "Daily financial report auto-sent for {today} to {:?}",
+            "Daily financial report auto-sent for {business_date} to {:?}",
             config.recipient_emails
         );
     } else {
         tracing::warn!(
-            "Daily financial report auto-send partial failure for {today}: {error_msg:?}"
+            "Daily financial report auto-send partial failure for {business_date}: {error_msg:?}"
         );
     }
 }

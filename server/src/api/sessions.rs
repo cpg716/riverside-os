@@ -323,12 +323,18 @@ pub struct ReconciliationResponse {
     /// Unique session ID for the reconciliation report.
     pub session_id: Uuid,
     pub qbo_activity_date: NaiveDate,
+    /// Store-local business dates that still require individual Z-close.
+    pub pending_business_dates: Vec<NaiveDate>,
+    /// True only when the current drawer count belongs to exactly this one business day.
+    pub cash_count_is_single_day: bool,
     pub qbo_journal: Option<crate::logic::qbo_journal::JournalProposal>,
     pub qbo_journal_error: Option<String>,
     pub opening_float: Decimal,
     pub net_cash_adjustments: Decimal,
     pub total_rounding_adjustments: Decimal,
     pub expected_cash: Decimal,
+    /// Expected cash currently in the physical drawer across every unclosed business date.
+    pub physical_expected_cash: Decimal,
     /// All lanes in the till shift (Z) or single lane (X).
     pub tenders: Vec<TenderTotal>,
     /// Per-lane tender breakdown (Z: each open lane; X: one row).
@@ -445,7 +451,10 @@ pub struct BeginReconcileRequest {
 #[derive(Debug, Serialize)]
 pub struct CloseSessionResponse {
     pub status: &'static str,
-    pub discrepancy: Decimal,
+    pub business_date: NaiveDate,
+    pub next_business_date: Option<NaiveDate>,
+    pub discrepancy: Option<Decimal>,
+    pub till_group_closed: bool,
 }
 
 #[derive(Debug, FromRow)]
@@ -1336,55 +1345,91 @@ async fn build_reconciliation(
 ) -> Result<ReconciliationResponse, SessionError> {
     let z_group = report_type == "z_report";
 
-    let (drawer_session_id, payment_session_ids, response_session_id) = if z_group {
-        let meta: Option<(Uuid, i16)> = sqlx::query_as(
-            r#"
+    let (drawer_session_id, payment_session_ids, response_session_id, till_close_group_id) =
+        if z_group {
+            let meta: Option<(Uuid, i16)> = sqlx::query_as(
+                r#"
             SELECT till_close_group_id, register_lane
             FROM register_sessions
             WHERE id = $1 AND is_open = true
             "#,
-        )
-        .bind(session_id)
-        .fetch_optional(db)
-        .await?;
+            )
+            .bind(session_id)
+            .fetch_optional(db)
+            .await?;
 
-        let Some((till_gid, _lane)) = meta else {
-            return Err(SessionError::SessionNotFound);
-        };
+            let Some((till_gid, _lane)) = meta else {
+                return Err(SessionError::SessionNotFound);
+            };
 
-        let group_rows: Vec<(Uuid, i16)> = sqlx::query_as(
-            r#"
+            let group_rows: Vec<(Uuid, i16)> = sqlx::query_as(
+                r#"
             SELECT id, register_lane
             FROM register_sessions
             WHERE till_close_group_id = $1 AND is_open = true
             ORDER BY register_lane ASC
             "#,
-        )
-        .bind(till_gid)
-        .fetch_all(db)
-        .await?;
+            )
+            .bind(till_gid)
+            .fetch_all(db)
+            .await?;
 
-        let primary_id = group_rows.iter().find(|(_, l)| *l == 1).map(|(id, _)| *id);
-        let Some(primary_id) = primary_id else {
-            return Err(SessionError::InvalidPayload(
-                "till shift has no Register lane 1 session; open Register #1 first".to_string(),
-            ));
-        };
+            let primary_id = group_rows.iter().find(|(_, l)| *l == 1).map(|(id, _)| *id);
+            let Some(primary_id) = primary_id else {
+                return Err(SessionError::InvalidPayload(
+                    "till shift has no Register lane 1 session; open Register #1 first".to_string(),
+                ));
+            };
 
-        let ids: Vec<Uuid> = group_rows.into_iter().map(|(id, _)| id).collect();
-        (primary_id, ids, primary_id)
-    } else {
-        let ok: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM register_sessions WHERE id = $1 AND is_open = true)",
+            let ids: Vec<Uuid> = group_rows.into_iter().map(|(id, _)| id).collect();
+            (primary_id, ids, primary_id, till_gid)
+        } else {
+            let till_gid: Option<Uuid> = sqlx::query_scalar(
+            "SELECT till_close_group_id FROM register_sessions WHERE id = $1 AND is_open = true",
         )
         .bind(session_id)
-        .fetch_one(db)
+        .fetch_optional(db)
         .await?;
-        if !ok {
-            return Err(SessionError::SessionNotFound);
-        }
-        (session_id, vec![session_id], session_id)
-    };
+            let Some(till_gid) = till_gid else {
+                return Err(SessionError::SessionNotFound);
+            };
+            (session_id, vec![session_id], session_id, till_gid)
+        };
+
+    let mut pending_business_dates: Vec<NaiveDate> = sqlx::query_scalar(
+        r#"
+        SELECT DISTINCT
+            (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date
+        FROM payment_transactions pt
+        WHERE pt.session_id = ANY($1)
+          AND NOT EXISTS (
+              SELECT 1
+              FROM register_business_day_z_reports z
+              WHERE z.till_close_group_id = $2
+                AND z.business_date =
+                    (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date
+          )
+        ORDER BY 1
+        "#,
+    )
+    .bind(&payment_session_ids)
+    .bind(till_close_group_id)
+    .fetch_all(db)
+    .await?;
+    if pending_business_dates.is_empty() {
+        pending_business_dates.push(
+            crate::logic::register_day_activity::store_local_date_for_utc(db, Utc::now()).await?,
+        );
+    }
+    let qbo_activity_date = pending_business_dates[0];
+    let prior_business_day_closes: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM register_business_day_z_reports WHERE till_close_group_id = $1",
+    )
+    .bind(till_close_group_id)
+    .fetch_one(db)
+    .await?;
+    let cash_count_is_single_day =
+        pending_business_dates.len() == 1 && prior_business_day_closes == 0;
 
     let opening_float: Option<Decimal> = sqlx::query_scalar(
         r#"
@@ -1399,6 +1444,32 @@ async fn build_reconciliation(
 
     let opening_float = opening_float.ok_or(SessionError::SessionNotFound)?;
 
+    let (all_cash_sales, all_paid_in, all_paid_out): (Decimal, Decimal, Decimal) = sqlx::query_as(
+        r#"
+            SELECT
+                COALESCE((
+                    SELECT SUM(amount)
+                    FROM payment_transactions
+                    WHERE session_id = ANY($1) AND payment_method = 'cash'
+                ), 0)::numeric,
+                COALESCE((
+                    SELECT SUM(amount)
+                    FROM register_cash_adjustments
+                    WHERE session_id = $2 AND direction = 'paid_in'
+                ), 0)::numeric,
+                COALESCE((
+                    SELECT SUM(amount)
+                    FROM register_cash_adjustments
+                    WHERE session_id = $2 AND direction = 'paid_out'
+                ), 0)::numeric
+            "#,
+    )
+    .bind(&payment_session_ids)
+    .bind(drawer_session_id)
+    .fetch_one(db)
+    .await?;
+    let physical_expected_cash = opening_float + all_cash_sales + all_paid_in - all_paid_out;
+
     let (paid_in, paid_out): (Decimal, Decimal) = sqlx::query_as(
         r#"
         SELECT
@@ -1406,9 +1477,11 @@ async fn build_reconciliation(
             COALESCE(SUM(amount) FILTER (WHERE direction = 'paid_out'), 0)::numeric
         FROM register_cash_adjustments
         WHERE session_id = $1
+          AND (created_at AT TIME ZONE reporting.effective_store_timezone())::date = $2
         "#,
     )
     .bind(drawer_session_id)
+    .bind(qbo_activity_date)
     .fetch_one(db)
     .await?;
 
@@ -1422,11 +1495,13 @@ async fn build_reconciliation(
             COUNT(*)::bigint AS tx_count
         FROM payment_transactions
         WHERE session_id = ANY($1)
+          AND (created_at AT TIME ZONE reporting.effective_store_timezone())::date = $2
         GROUP BY payment_method
         ORDER BY payment_method
         "#,
     )
     .bind(&payment_session_ids)
+    .bind(qbo_activity_date)
     .fetch_all(db)
     .await?;
 
@@ -1440,11 +1515,13 @@ async fn build_reconciliation(
         FROM payment_transactions pt
         INNER JOIN register_sessions rs ON rs.id = pt.session_id
         WHERE pt.session_id = ANY($1)
+          AND (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date = $2
         GROUP BY rs.register_lane, pt.payment_method
         ORDER BY rs.register_lane, pt.payment_method
         "#,
     )
     .bind(&payment_session_ids)
+    .bind(qbo_activity_date)
     .fetch_all(db)
     .await?;
 
@@ -1454,10 +1531,13 @@ async fn build_reconciliation(
         r#"
         SELECT COALESCE(SUM(amount), 0)
         FROM payment_transactions
-        WHERE session_id = ANY($1) AND payment_method = 'cash'
+        WHERE session_id = ANY($1)
+          AND payment_method = 'cash'
+          AND (created_at AT TIME ZONE reporting.effective_store_timezone())::date = $2
         "#,
     )
     .bind(&payment_session_ids)
+    .bind(qbo_activity_date)
     .fetch_one(db)
     .await?;
 
@@ -1475,11 +1555,13 @@ async fn build_reconciliation(
         SELECT id, direction, amount, category, reason, created_at
         FROM register_cash_adjustments
         WHERE session_id = $1
+          AND (created_at AT TIME ZONE reporting.effective_store_timezone())::date = $2
         ORDER BY created_at DESC
         LIMIT 100
         "#,
     )
     .bind(drawer_session_id)
+    .bind(qbo_activity_date)
     .fetch_all(db)
     .await?;
 
@@ -1494,11 +1576,13 @@ async fn build_reconciliation(
         FROM register_drawer_open_events e
         INNER JOIN staff s ON s.id = e.staff_id
         WHERE e.session_id = $1
+          AND (e.created_at AT TIME ZONE reporting.effective_store_timezone())::date = $2
         ORDER BY e.created_at DESC
         LIMIT 100
         "#,
     )
     .bind(drawer_session_id)
+    .bind(qbo_activity_date)
     .fetch_all(db)
     .await?;
 
@@ -1520,6 +1604,7 @@ async fn build_reconciliation(
         INNER JOIN payment_allocations pa ON pa.transaction_id = pt.id
         INNER JOIN transaction_lines oi ON oi.transaction_id = pa.target_transaction_id
         WHERE pt.session_id = ANY($1)
+          AND (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date = $2
           AND oi.size_specs ? 'price_override_reason'
         GROUP BY 1
         ORDER BY line_count DESC
@@ -1527,6 +1612,7 @@ async fn build_reconciliation(
         "#,
     )
     .bind(&payment_session_ids)
+    .bind(qbo_activity_date)
     .fetch_all(db)
     .await?;
 
@@ -1628,6 +1714,7 @@ async fn build_reconciliation(
                             INNER JOIN payment_transactions pt_part ON pt_part.id = pa_part.transaction_id
                             WHERE pa_part.target_transaction_id = pa.target_transaction_id
                               AND pt_part.session_id = ANY($1)
+                              AND (pt_part.created_at AT TIME ZONE reporting.effective_store_timezone())::date = $2
                             GROUP BY pt_part.payment_method
                         ) payment_parts
                     ),
@@ -1637,6 +1724,7 @@ async fn build_reconciliation(
             INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
             INNER JOIN register_sessions rs ON rs.id = pt.session_id
             WHERE pt.session_id = ANY($1)
+              AND (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date = $2
             GROUP BY pa.target_transaction_id
         ) pay_tx
         INNER JOIN transactions o ON o.id = pay_tx.ledger_transaction_id
@@ -1655,6 +1743,7 @@ async fn build_reconciliation(
         "#,
     )
     .bind(&payment_session_ids)
+    .bind(qbo_activity_date)
     .fetch_all(db)
     .await?;
 
@@ -1691,19 +1780,21 @@ async fn build_reconciliation(
             FROM transactions t
             INNER JOIN payment_allocations pa ON pa.target_transaction_id = t.id
             INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
-            WHERE pt.session_id = ANY($1) AND pt.payment_method = 'cash' AND t.rounding_adjustment IS NOT NULL
+            WHERE pt.session_id = ANY($1)
+              AND pt.payment_method = 'cash'
+              AND t.rounding_adjustment IS NOT NULL
+              AND (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date = $2
         ) agg
         "#,
     )
     .bind(&payment_session_ids)
+    .bind(qbo_activity_date)
     .fetch_one(db)
     .await?;
 
     let expected_cash = opening_float + total_cash_sales + net_cash_adjustments;
     let unresolved_helcim_attempts =
         unresolved_helcim_attempts_for_sessions(db, &payment_session_ids).await?;
-    let qbo_activity_date =
-        crate::logic::register_day_activity::store_local_date_for_utc(db, Utc::now()).await?;
     let inventory_activity: Vec<InventoryActivityLine> = sqlx::query_as(
         r#"
         SELECT
@@ -1760,12 +1851,15 @@ async fn build_reconciliation(
         report_type,
         session_id: response_session_id,
         qbo_activity_date,
+        pending_business_dates,
+        cash_count_is_single_day,
         qbo_journal,
         qbo_journal_error,
         opening_float,
         net_cash_adjustments,
         total_rounding_adjustments,
         expected_cash,
+        physical_expected_cash,
         tenders,
         tenders_by_lane,
         cash_adjustments,
@@ -2220,9 +2314,46 @@ async fn close_session(
 
     let recon = build_reconciliation(&state.db, session_id, "z_report").await?;
     let primary_id = recon.session_id;
-    let expected_cash = recon.expected_cash;
-    let discrepancy = payload.actual_cash - expected_cash;
-    let abs_disc = discrepancy.abs();
+    let business_date = recon.qbo_activity_date;
+    let next_business_date = recon.pending_business_dates.get(1).copied();
+    let prior_business_day_closes: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM register_business_day_z_reports WHERE till_close_group_id = $1",
+    )
+    .bind(till_gid)
+    .fetch_one(&mut *tx)
+    .await?;
+    let cash_count_is_single_day =
+        recon.pending_business_dates.len() == 1 && prior_business_day_closes == 0;
+
+    let (all_cash_sales, all_paid_in, all_paid_out): (Decimal, Decimal, Decimal) = sqlx::query_as(
+        r#"
+            SELECT
+                COALESCE((
+                    SELECT SUM(pt.amount)
+                    FROM payment_transactions pt
+                    WHERE pt.session_id = ANY($1) AND pt.payment_method = 'cash'
+                ), 0)::numeric,
+                COALESCE((
+                    SELECT SUM(rca.amount)
+                    FROM register_cash_adjustments rca
+                    WHERE rca.session_id = $2 AND rca.direction = 'paid_in'
+                ), 0)::numeric,
+                COALESCE((
+                    SELECT SUM(rca.amount)
+                    FROM register_cash_adjustments rca
+                    WHERE rca.session_id = $2 AND rca.direction = 'paid_out'
+                ), 0)::numeric
+            "#,
+    )
+    .bind(&group_ids)
+    .bind(primary_id)
+    .fetch_one(&mut *tx)
+    .await?;
+    let physical_expected_cash = recon.opening_float + all_cash_sales + all_paid_in - all_paid_out;
+    let physical_discrepancy = payload.actual_cash - physical_expected_cash;
+    let report_actual_cash = cash_count_is_single_day.then_some(payload.actual_cash);
+    let report_discrepancy = cash_count_is_single_day.then_some(physical_discrepancy);
+    let abs_disc = physical_discrepancy.abs();
     let default_cash_deposit_amount = {
         let counted_less_float = payload.actual_cash - recon.opening_float;
         if counted_less_float < dec!(0.00) {
@@ -2239,7 +2370,7 @@ async fn close_session(
             "cash deposit amount cannot be negative".to_string(),
         ));
     }
-    let cash_deposit_date = payload.cash_deposit_date.unwrap_or(recon.qbo_activity_date);
+    let cash_deposit_date = payload.cash_deposit_date.unwrap_or(business_date);
 
     let notes_trimmed = payload
         .closing_notes
@@ -2262,19 +2393,32 @@ async fn close_session(
         serde_json::to_value(&recon.qbo_journal).unwrap_or(serde_json::Value::Null);
     let inventory_activity_val =
         serde_json::to_value(&recon.inventory_activity).unwrap_or(serde_json::Value::Null);
+    let store_local_today =
+        crate::logic::register_day_activity::store_local_date_for_utc(&state.db, Utc::now())
+            .await?;
+    let is_late_close = business_date < store_local_today;
+    let report_cash_deposit_date = cash_count_is_single_day.then_some(cash_deposit_date);
+    let report_cash_deposit_amount = cash_count_is_single_day.then_some(cash_deposit_amount);
 
     let z_snapshot = json!({
         "report_type": "z_report",
+        "business_date": business_date,
         "session_id": primary_id,
         "till_close_group_id": till_gid,
-        "closed_session_ids": group_ids,
+        "till_session_ids": group_ids,
         "opening_float": recon.opening_float,
         "net_cash_adjustments": recon.net_cash_adjustments,
-        "expected_cash": expected_cash,
-        "actual_cash": payload.actual_cash,
-        "discrepancy": discrepancy,
-        "cash_deposit_date": cash_deposit_date,
-        "cash_deposit_amount": cash_deposit_amount,
+        "total_rounding_adjustments": recon.total_rounding_adjustments,
+        "expected_cash": recon.expected_cash,
+        "actual_cash": report_actual_cash,
+        "discrepancy": report_discrepancy,
+        "cash_deposit_date": report_cash_deposit_date,
+        "cash_deposit_amount": report_cash_deposit_amount,
+        "cash_reconciliation_status": if cash_count_is_single_day { "counted" } else { "not_captured_separately" },
+        "physical_group_expected_cash": physical_expected_cash,
+        "physical_group_actual_cash": payload.actual_cash,
+        "physical_group_discrepancy": physical_discrepancy,
+        "is_late_close": is_late_close,
         "tenders": recon.tenders,
         "tenders_by_lane": tenders_by_lane_val,
         "transactions": transactions_val,
@@ -2289,6 +2433,123 @@ async fn close_session(
         "closing_comments": payload.closing_comments.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()),
         "closed_at": Utc::now(),
     });
+
+    sqlx::query(
+        r#"
+        INSERT INTO register_business_day_z_reports (
+            till_close_group_id,
+            primary_register_session_id,
+            business_date,
+            closed_by,
+            opening_float,
+            expected_cash,
+            actual_cash,
+            discrepancy,
+            cash_deposit_date,
+            cash_deposit_amount,
+            closing_notes,
+            closing_comments,
+            is_late_close,
+            z_report_json
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+        "#,
+    )
+    .bind(till_gid)
+    .bind(primary_id)
+    .bind(business_date)
+    .bind(close_actor_id)
+    .bind(recon.opening_float)
+    .bind(recon.expected_cash)
+    .bind(report_actual_cash)
+    .bind(report_discrepancy)
+    .bind(report_cash_deposit_date)
+    .bind(report_cash_deposit_amount)
+    .bind(notes_trimmed)
+    .bind(payload.closing_comments.as_ref().map(|s| s.trim()))
+    .bind(is_late_close)
+    .bind(&z_snapshot)
+    .execute(&mut *tx)
+    .await?;
+
+    if next_business_date.is_some() {
+        sqlx::query(
+            r#"
+            UPDATE register_sessions
+            SET lifecycle_status = 'open'
+            WHERE till_close_group_id = $1 AND is_open = true
+            "#,
+        )
+        .bind(till_gid)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await.map_err(SessionError::Database)?;
+
+        let _ = log_staff_access(
+            &state.db,
+            close_actor_id,
+            "register_business_day_close",
+            json!({
+                "session_id": primary_id,
+                "till_close_group_id": till_gid,
+                "business_date": business_date,
+                "next_business_date": next_business_date,
+                "cash_reconciliation_status": "not_captured_separately",
+            }),
+        )
+        .await;
+
+        let snapshot_pool = state.db.clone();
+        let snapshot_till = till_gid;
+        let snapshot_primary = primary_id;
+        tokio::spawn(async move {
+            match crate::logic::register_day_activity::fetch_register_day_summary(
+                &snapshot_pool,
+                None,
+                Some(business_date),
+                Some(business_date),
+                None,
+                crate::logic::report_basis::ReportBasis::Booked,
+            )
+            .await
+            {
+                Ok(mut summary) => {
+                    summary.from_eod_snapshot = false;
+                    if let Err(error) = crate::logic::register_day_activity::save_eod_snapshot(
+                        &snapshot_pool,
+                        business_date,
+                        snapshot_till,
+                        snapshot_primary,
+                        &summary,
+                    )
+                    .await
+                    {
+                        tracing::error!(%error, %business_date, "register business-day snapshot save failed");
+                    }
+                }
+                Err(error) => {
+                    tracing::error!(%error, %business_date, "register business-day snapshot build failed");
+                }
+            }
+            if let Err(error) = crate::logic::qbo_journal::ensure_pending_daily_journal(
+                &snapshot_pool,
+                business_date,
+            )
+            .await
+            {
+                tracing::error!(%error, %business_date, "QBO pending journal after business-day close failed");
+            }
+            crate::api::daily_reports::auto_send_daily_report(&snapshot_pool, business_date).await;
+        });
+
+        return Ok(Json(CloseSessionResponse {
+            status: "business_day_closed",
+            business_date,
+            next_business_date,
+            discrepancy: report_discrepancy,
+            till_group_closed: false,
+        }));
+    }
 
     let purged_parked_sales = crate::logic::pos_parked_sales::purge_open_parked_for_sessions_in_tx(
         &mut tx,
@@ -2333,9 +2594,9 @@ async fn close_session(
         WHERE till_close_group_id = $9 AND is_open = true
         "#,
     )
-    .bind(expected_cash)
+    .bind(physical_expected_cash)
     .bind(payload.actual_cash)
-    .bind(discrepancy)
+    .bind(physical_discrepancy)
     .bind(notes_trimmed)
     .bind(payload.closing_comments.as_ref().map(|s| s.trim()))
     .bind(&z_snapshot)
@@ -2366,24 +2627,9 @@ async fn close_session(
     let snapshot_http = state.http_client.clone();
     let snapshot_till = till_gid;
     let snapshot_primary = primary_id;
+    let snapshot_business_date = business_date;
     tokio::spawn(async move {
-        let closed = Utc::now();
-        let local_date = match crate::logic::register_day_activity::store_local_date_for_utc(
-            &snapshot_pool,
-            closed,
-        )
-        .await
-        {
-            Ok(d) => d,
-            Err(e) => {
-                tracing::error!(error = %e, "register EOD snapshot: store_local_date");
-                let _ = crate::logic::notifications::broadcast_system_alert(
-                    &snapshot_pool,
-                    &format!("Register Z-close failed to resolve business date: {e}. Daily snapshot and QBO journal may be delayed."),
-                ).await;
-                return;
-            }
-        };
+        let local_date = snapshot_business_date;
         if let Err(e) = crate::logic::weather::capture_store_daily_weather(
             &snapshot_http,
             &snapshot_pool,
@@ -2458,7 +2704,7 @@ async fn close_session(
         }
 
         // Auto-send daily financial report after close (if configured)
-        crate::api::daily_reports::auto_send_daily_report(&snapshot_pool).await;
+        crate::api::daily_reports::auto_send_daily_report(&snapshot_pool, local_date).await;
     });
 
     let _ = log_staff_access(
@@ -2469,18 +2715,19 @@ async fn close_session(
             "session_id": primary_id,
             "till_close_group_id": till_gid,
             "closed_session_ids": group_ids,
-            "discrepancy_amount": discrepancy,
+            "business_date": business_date,
+            "discrepancy_amount": physical_discrepancy,
             "actual_cash": payload.actual_cash,
-            "expected_cash": expected_cash,
+            "expected_cash": physical_expected_cash,
             "purged_parked_sales": purged_parked_sales,
         }),
     )
     .await;
 
-    if discrepancy != Decimal::ZERO {
+    if physical_discrepancy != Decimal::ZERO {
         let pool = state.db.clone();
         let sid = primary_id;
-        let disc_str = discrepancy.normalize().to_string();
+        let disc_str = physical_discrepancy.normalize().to_string();
         tokio::spawn(async move {
             if let Err(e) =
                 crate::logic::notifications::emit_register_cash_discrepancy(&pool, sid, &disc_str)
@@ -2493,6 +2740,9 @@ async fn close_session(
 
     Ok(Json(CloseSessionResponse {
         status: "closed",
-        discrepancy,
+        business_date,
+        next_business_date: None,
+        discrepancy: report_discrepancy,
+        till_group_closed: true,
     }))
 }

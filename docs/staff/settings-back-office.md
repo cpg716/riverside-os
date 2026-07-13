@@ -241,6 +241,10 @@ Short version: **Settings** → **Bug reports** (**`settings.admin`** only). Sub
 3. Windows desktop apps (Back Office, Register) update via the same Updates tab.
 4. PWA clients (iPads, phones) auto-update on next page load — no manual action needed.
 
+The Main Hub updater must verify its pre-migration backup before it stops the current server or replaces installed files. If the update reports a backup failure, do not reset or restore the database. Confirm the existing server is healthy, correct the backup error, and rerun only with a fixed package. If an older package left the API offline, use ROS Server Manager or Administrator PowerShell (`Start-ScheduledTask -TaskName "Riverside OS Server"`) on the Main Hub, then confirm `http://127.0.0.1:3000/api/ready` so the database connection is also proven.
+
+The Main Hub update button remains disabled when the update check does not provide an exact build identifier. Refresh the update check; do not bypass the hold or use a deployment ZIP from another build.
+
 > **Tailscale / Remote connection:** if working off-site, the server connection must be set to the Tailscale address before using this panel. See [remote-access-tailscale.md](remote-access-tailscale.md).
 
 ### Current operator-visible fallback states

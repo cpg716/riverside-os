@@ -44,7 +44,7 @@ if (-not $psql) {
   $psql = $psql.Source
 }
 
-$databaseUrl = "postgresql://$($db.appUser):$($db.appPassword)@$($db.host):$($db.port)/$($db.databaseName)"
+$databaseUrl = "postgresql://$($db.appUser)@$($db.host):$($db.port)/$($db.databaseName)"
 
 $env:PGPASSWORD = $db.appPassword
 try {

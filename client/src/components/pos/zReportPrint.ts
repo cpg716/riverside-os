@@ -514,8 +514,9 @@ export async function openProfessionalZReportPrint(opts: {
   netAdjustmentsCents: number;
   roundingAdjustmentsCents?: number;
   expectedCents: number;
-  actualCents: number;
-  discrepancyCents: number;
+  actualCents: number | null;
+  discrepancyCents: number | null;
+  businessDate?: string | null;
   cashDepositDate?: string | null;
   cashDepositAmountCents?: number;
   closingNotes?: string | null;
@@ -789,20 +790,21 @@ export async function openProfessionalZReportPrint(opts: {
     : "";
 
   const dc = opts.discrepancyCents;
-  const statusLabel = dc === 0 ? "BALANCED" : dc < 0 ? "SHORTFALL" : "OVERAGE";
-  const statusColor = dc === 0 ? "#059669" : "#dc2626";
+  const statusLabel = dc == null ? "HISTORICAL COUNT NOT CAPTURED" : dc === 0 ? "BALANCED" : dc < 0 ? "SHORTFALL" : "OVERAGE";
+  const statusColor = dc == null ? "#b45309" : dc === 0 ? "#059669" : "#dc2626";
   const closingNotes = opts.closingNotes?.trim();
   const closingComments = opts.closingComments?.trim();
   const cashDepositDate = opts.cashDepositDate?.trim()
     ? new Date(`${opts.cashDepositDate}T00:00:00`).toLocaleDateString()
     : "Not recorded";
-  const cashDepositAmountCents = opts.cashDepositAmountCents ?? Math.max(0, opts.actualCents - opts.openingCents);
+  const cashDepositAmountCents = opts.cashDepositAmountCents ?? (opts.actualCents == null ? null : Math.max(0, opts.actualCents - opts.openingCents));
   const generatedAt = new Date().toLocaleString();
   const subtotalBeforeTaxCents = auditSubtotalBeforeTaxCents(transactions);
   const zReportTextLines = [
     "RIVERSIDE MEN'S SHOP",
     "Z-Report Reconciliation Audit",
     `Generated: ${generatedAt}`,
+    `Business Date: ${opts.businessDate ?? opts.qboActivityDate ?? "Not recorded"}`,
     `Report ID: ${opts.sessionId}`,
     `Register Group: ${ord ? `Register Group${ord}` : "Register Group"}`,
     `Shift Staff Member: ${opts.cashierLabel || "System Admin"}`,
@@ -865,11 +867,11 @@ export async function openProfessionalZReportPrint(opts: {
       : "",
     `Drawer Adjustments: ${formatReportMoney(opts.netAdjustmentsCents)}`,
     `Expected Cash: ${formatReportMoney(opts.expectedCents)}`,
-    `Actual Counted: ${formatReportMoney(opts.actualCents)}`,
-    `Daily Cash Deposit: ${formatReportMoney(cashDepositAmountCents)}`,
+    `Actual Counted: ${opts.actualCents == null ? "Not captured separately" : formatReportMoney(opts.actualCents)}`,
+    `Daily Cash Deposit: ${cashDepositAmountCents == null ? "Not captured separately" : formatReportMoney(cashDepositAmountCents)}`,
     `Deposit Date: ${cashDepositDate}`,
     `Status: ${statusLabel}`,
-    `Over/Short: ${formatReportMoney(dc)}`,
+    `Over/Short: ${dc == null ? "Not available" : formatReportMoney(dc)}`,
     "",
     ...(opts.overrideSummary.length > 0
       ? [
@@ -1031,6 +1033,7 @@ export async function openProfessionalZReportPrint(opts: {
       <h1>RIVERSIDE MEN'S SHOP</h1>
       <p style="font-weight: 700; color: #64748b; margin-top: 4px;">Z-Report Reconciliation Audit</p>
       <p class="muted" style="font-size: 10px; margin-top: 2px;">Generated: ${generatedAt}</p>
+      <p style="font-size: 12px; font-weight: 800; margin-top: 4px;">Business Date: ${escapeReportHtml(opts.businessDate ?? opts.qboActivityDate ?? "Not recorded")}</p>
     </div>
     <div style="text-align: right;">
       <p class="stat-label">Report ID</p>
@@ -1088,12 +1091,12 @@ export async function openProfessionalZReportPrint(opts: {
         </div>
         <div style="display: flex; justify-content: space-between; background: #f8fafc; border-radius: 7px; margin-top: 3px; padding: 7px;">
           <span style="font-weight: 800; text-transform: uppercase;">Actual Counted</span>
-          <span class="mono" style="font-weight: 800; font-size: 12px; color: #0f172a;">${formatReportMoney(opts.actualCents)}</span>
+          <span class="mono" style="font-weight: 800; font-size: 12px; color: #0f172a;">${opts.actualCents == null ? "Not captured separately" : formatReportMoney(opts.actualCents)}</span>
         </div>
         <div style="border: 1px solid #e2e8f0; border-radius: 7px; margin-top: 7px; padding: 7px;">
           <div style="display: flex; justify-content: space-between;">
             <span style="font-weight: 800; text-transform: uppercase;">Daily Cash Deposit</span>
-            <span class="mono" style="font-weight: 800; font-size: 12px;">${formatReportMoney(cashDepositAmountCents)}</span>
+            <span class="mono" style="font-weight: 800; font-size: 12px;">${cashDepositAmountCents == null ? "Not captured separately" : formatReportMoney(cashDepositAmountCents)}</span>
           </div>
           <div style="display: flex; justify-content: space-between; margin-top: 3px;">
             <span class="muted">Deposit Date</span>
@@ -1105,7 +1108,7 @@ export async function openProfessionalZReportPrint(opts: {
       <div class="discrepancy-box">
         <div>
           <p style="font-size: 10px; font-weight: 800; color: ${statusColor}; letter-spacing: 0.1em; margin-bottom: 2px;">STATUS: ${statusLabel}</p>
-          <p style="font-size: 14px; font-weight: 800; color: ${statusColor}; margin: 0;">${formatReportMoney(Math.abs(dc))}</p>
+          <p style="font-size: 14px; font-weight: 800; color: ${statusColor}; margin: 0;">${dc == null ? "No separate drawer count" : formatReportMoney(Math.abs(dc))}</p>
         </div>
       </div>
     </div>

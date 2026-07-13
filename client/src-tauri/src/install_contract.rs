@@ -52,6 +52,10 @@ pub mod contract {
     /// server/src/api/health.rs: `GET /api/health`
     pub const HEALTH_ENDPOINT: &str = "/api/health";
 
+    /// Readiness path used after install/restart to verify PostgreSQL connectivity.
+    /// server/src/api/mod.rs: `GET /api/ready`
+    pub const READY_ENDPOINT: &str = "/api/ready";
+
     /// Top-level key in the deployment config JSON that holds server settings.
     pub const CONFIG_SERVER_KEY: &str = "server";
 

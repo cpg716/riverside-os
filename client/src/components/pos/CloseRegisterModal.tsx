@@ -49,12 +49,15 @@ interface Reconciliation {
   report_type?: string;
   session_id: string;
   qbo_activity_date?: string;
+  pending_business_dates?: string[];
+  cash_count_is_single_day?: boolean;
   qbo_journal?: QboJournalProposal | null;
   qbo_journal_error?: string | null;
   opening_float: string;
   net_cash_adjustments?: string;
   total_rounding_adjustments?: string;
   expected_cash: string;
+  physical_expected_cash?: string;
   tenders: TenderTotal[];
   tenders_by_lane?: TendersByLaneRow[];
   cash_adjustments?: CashAdjustmentLine[];
@@ -63,6 +66,14 @@ interface Reconciliation {
   transactions: TransactionLine[];
   inventory_activity?: InventoryActivityLine[];
   unresolved_helcim_attempts?: HelcimCloseReviewAttempt[];
+}
+
+interface CloseSessionResult {
+  status: "closed" | "business_day_closed";
+  business_date: string;
+  next_business_date?: string | null;
+  discrepancy?: string | null;
+  till_group_closed: boolean;
 }
 
 interface QboJournalProposal {
@@ -696,6 +707,7 @@ export default function CloseRegisterModal({
     if (!currentRecon) return false;
     const currentExpectedCents = parseMoneyToCents(currentRecon.expected_cash);
     const currentActualCents = parseMoneyToCents(actualCash);
+    const cashCountIsSingleDay = currentRecon.cash_count_is_single_day ?? true;
     const currentOpeningCents = parseMoneyToCents(currentRecon.opening_float);
     const currentNetAdjCents = parseMoneyToCents(currentRecon.net_cash_adjustments ?? "0");
     const currentRoundingCents = parseMoneyToCents(currentRecon.total_rounding_adjustments ?? "0");
@@ -716,10 +728,11 @@ export default function CloseRegisterModal({
       netAdjustmentsCents: currentNetAdjCents,
       roundingAdjustmentsCents: currentRoundingCents,
       expectedCents: currentExpectedCents,
-      actualCents: currentActualCents,
-      discrepancyCents: currentActualCents - currentExpectedCents,
-      cashDepositDate: cashDepositDate.trim() || null,
-      cashDepositAmountCents: parseMoneyToCents(cashDepositAmount),
+      actualCents: cashCountIsSingleDay ? currentActualCents : null,
+      discrepancyCents: cashCountIsSingleDay ? currentActualCents - currentExpectedCents : null,
+      businessDate: currentRecon.qbo_activity_date ?? null,
+      cashDepositDate: cashCountIsSingleDay ? cashDepositDate.trim() || null : null,
+      cashDepositAmountCents: cashCountIsSingleDay ? parseMoneyToCents(cashDepositAmount) : undefined,
       closingNotes: closingNotesForReport || null,
       closingComments: closingComments.trim() || null,
       tenders: currentRecon.tenders,
@@ -804,9 +817,22 @@ export default function CloseRegisterModal({
           "Failed to close session";
         throw new Error(mapCloseSessionError(errorMessage));
       }
+      const result = (await res.json()) as CloseSessionResult;
       const opened = await openCurrentZReportPrint(recon);
       if (!opened) {
         toast("Z-report could not open. Check the Reports printer setup.", "error");
+      }
+      if (!result.till_group_closed) {
+        const nextRecon = await refreshReconciliation();
+        setRecon(nextRecon);
+        setStep("count");
+        setCheckReview({});
+        setLoading(false);
+        toast(
+          `${result.business_date} is closed separately. ${result.next_business_date ?? "The next business day"} must be closed next.`,
+          "success",
+        );
+        return;
       }
       onCloseComplete();
     } catch (err: unknown) {
@@ -1224,8 +1250,10 @@ export default function CloseRegisterModal({
   }
 
   const expectedCents = parseMoneyToCents(recon.expected_cash);
+  const physicalExpectedCents = parseMoneyToCents(recon.physical_expected_cash ?? recon.expected_cash);
   const actualCents = parseMoneyToCents(actualCash);
-  const discrepancyCents = actualCents - expectedCents;
+  const discrepancyCents = actualCents - physicalExpectedCents;
+  const cashCountIsSingleDay = recon.cash_count_is_single_day ?? true;
   const isOff = discrepancyCents !== 0;
   const openingCents = parseMoneyToCents(recon.opening_float);
   const netAdjCents = parseMoneyToCents(recon.net_cash_adjustments ?? "0");
@@ -1488,6 +1516,25 @@ export default function CloseRegisterModal({
 
         <div className="ui-modal-body flex-1 overflow-y-auto space-y-6">
           {renderWorkflowSummary("report")}
+          {recon?.qbo_activity_date ? (
+            <div className="rounded-2xl border border-app-warning/30 bg-app-warning/10 px-4 py-3 text-sm text-app-text">
+              <p className="text-[10px] font-black uppercase tracking-widest text-app-warning">
+                Z-Report business date
+              </p>
+              <p className="mt-1 text-lg font-black tabular-nums">
+                {recon.qbo_activity_date}
+              </p>
+              {(recon.pending_business_dates?.length ?? 0) > 1 ? (
+                <p className="mt-1 font-semibold leading-relaxed text-app-text-muted">
+                  {recon.pending_business_dates!.length} business days are waiting to close. This report contains only {recon.qbo_activity_date}; after it closes, {recon.pending_business_dates![1]} must be closed separately.
+                </p>
+              ) : (
+                <p className="mt-1 font-semibold text-app-text-muted">
+                  Only activity from this store-local business date is included.
+                </p>
+              )}
+            </div>
+          ) : null}
           <div
             className={`rounded-2xl border px-4 py-3 ${
               closeReady
@@ -1547,9 +1594,12 @@ export default function CloseRegisterModal({
               <div className="flex justify-between text-app-text-muted font-medium"><span>Cash Sales (Gross):</span><span className="font-mono text-app-success">+ ${centsToFixed2(cashSalesCents)}</span></div>
               <div className="flex justify-between text-app-text-muted font-medium"><span>Cash Rounding:</span><span className="font-mono text-app-warning">{roundingCents < 0 ? "-" : "+"}${centsToFixed2(Math.abs(roundingCents))}</span></div>
               <div className="flex justify-between text-app-text-muted font-medium"><span>Net adjustments:</span><span className="font-mono text-app-warning">{netAdjCents < 0 ? "-" : "+"}${centsToFixed2(Math.abs(netAdjCents))}</span></div>
-              <div className="flex justify-between pt-3 border-t border-app-border font-black text-app-text uppercase text-xs"><span>Expected Cash:</span><span className="font-mono">${centsToFixed2(expectedCents)}</span></div>
+              <div className="flex justify-between pt-3 border-t border-app-border font-black text-app-text uppercase text-xs"><span>{cashCountIsSingleDay ? "Expected Cash:" : `Expected Cash for ${recon.qbo_activity_date}:`}</span><span className="font-mono">${centsToFixed2(expectedCents)}</span></div>
+              {!cashCountIsSingleDay ? (
+                <div className="flex justify-between text-app-warning font-black text-xs"><span>Current drawer expected across missed days:</span><span className="font-mono">${centsToFixed2(physicalExpectedCents)}</span></div>
+              ) : null}
               <div className="flex justify-between pt-1 font-black text-app-accent text-lg"><span>Actual Counted:</span><span className="font-mono">${centsToFixed2(actualCents)}</span></div>
-              <div className="flex justify-between pt-2 text-app-text font-bold"><span>Daily Cash Deposit:</span><span className="font-mono">${centsToFixed2(cashDepositCents)}</span></div>
+              <div className="flex justify-between pt-2 text-app-text font-bold"><span>{cashCountIsSingleDay ? "Daily Cash Deposit:" : "Current combined cash deposit:"}</span><span className="font-mono">${centsToFixed2(cashDepositCents)}</span></div>
             </div>
             <div className="mt-4 rounded-2xl border border-app-border bg-app-surface/70 p-3">
               <div className="grid gap-3 sm:grid-cols-[1fr_1fr]">
@@ -1577,7 +1627,9 @@ export default function CloseRegisterModal({
                 </label>
               </div>
               <p className="mt-2 text-[11px] font-semibold text-app-text-muted">
-                Default is actual counted cash minus opening float. Adjust only when retaining a different start bank.
+                {cashCountIsSingleDay
+                  ? "Default is actual counted cash minus opening float. Adjust only when retaining a different start bank."
+                  : "This is the current physical drawer deposit across the missed dates. It is retained for the final till-group audit and is not assigned to this historical day."}
               </p>
             </div>
             <div className="mt-4 rounded-2xl border border-app-border bg-app-surface/70 p-3">
@@ -1756,7 +1808,11 @@ export default function CloseRegisterModal({
       <ConfirmationModal
         isOpen={showFinalConfirm}
         title="Close and print?"
-        message="This closes the till group, creates the Z-Report, and sends it to the configured Reports printer."
+        message={
+          (recon?.pending_business_dates?.length ?? 0) > 1
+            ? `This closes only ${recon?.qbo_activity_date}. ${recon?.pending_business_dates?.[1]} will remain waiting for its own separate Z-Report.`
+            : `This closes the till group and creates the Z-Report for ${recon?.qbo_activity_date ?? "the business day"}.`
+        }
         confirmLabel="Close & Print"
         variant="danger"
         onConfirm={() => void handleFinalClose()}

@@ -102,6 +102,7 @@ The same Deployment Manager handles later maintenance:
 
 - **Server Manager status**: shows whether the `Riverside OS Server` scheduled task exists/runs, whether `/api/version` is reachable, the installed server version, the package version, and the next action.
 - **Server update**: copies the new server and web files for the same Riverside release, applies pending migrations, refreshes the firewall/task setup, and restarts Riverside.
+- **Pre-update safety**: existing Main Hub installs, pushed-LAN updates, and fleet updates create and verify the database backup with the configured PostgreSQL administrator before the running server is stopped or installed files are replaced. They never fall back to the limited Riverside app account for a full dump. Every custom-format backup must pass `pg_restore --list`; incomplete or unreadable dumps are removed. A backup failure leaves the current server untouched. Failures after shutdown independently restore prior files and the scheduled task, keep the restored server environment synchronized with any completed database app-role credential change, then attempt to restart the previous server.
 - **Workstation update**: rewrites station settings and installs the included Riverside desktop app package for the same Riverside release.
 - **Server repair**: reruns the server setup in an idempotent way to restore service, firewall, env, and migration state.
 - **Workstation repair**: rewrites station settings without reinstalling the app.
@@ -128,6 +129,8 @@ If Riverside Settings cannot open because the API is down, manage the server fro
 4. Use **Refresh Server Status**.
 5. If the package version is newer than the installed server version, run **Update This Main Hub**.
 6. If the server task is missing or the API is unreachable, run **Repair Server** or use **Start Server** / **Restart Server**.
+
+For immediate recovery after a failed update, open Administrator PowerShell on the Main Hub and run `Start-ScheduledTask -TaskName "Riverside OS Server"`, then confirm `http://127.0.0.1:3000/api/ready` responds so PostgreSQL connectivity is included. Do not reset or restore the database solely because the installer backup step failed.
 
 Hotfix/support actions included in v0.90.0 packages:
 

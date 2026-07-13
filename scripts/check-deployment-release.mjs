@@ -84,7 +84,7 @@ function renderMainHubUpdateRunner(source) {
     config_file: "riverside-deployment.config.json",
     task_name: "Riverside OS Server",
     server_port: "3000",
-    health_ep: "/api/health",
+    ready_ep: "/api/ready",
   };
 
   let rendered = match[1];
@@ -139,6 +139,31 @@ for (const copy of [
   "disabled={role === 'main-hub'}",
 ]) {
   assertIncludes(managerApp, copy, "install execution step must be role-specific and visible");
+}
+for (const lanUpdateScript of [
+  "deployment/windows/Apply-RiversideLanFleetUpdate.ps1",
+  "scripts/push-main-hub.ps1",
+]) {
+  assertIncludes(
+    lanUpdateScript,
+    "refusing to use the limited Riverside app account for a full pre-update backup",
+    "every Main Hub LAN update path must require PostgreSQL administrator access for a complete backup",
+  );
+  assertNotIncludes(
+    lanUpdateScript,
+    '$user = Get-SafeConfigValue $db "appUser" "riverside_app"',
+    "Main Hub LAN backup paths must never fall back to the limited Riverside app account",
+  );
+  assertIncludes(
+    lanUpdateScript,
+    "Remove-Item $backupPath -Force -ErrorAction SilentlyContinue",
+    "failed Main Hub LAN backups must remove incomplete dump files",
+  );
+  assertIncludes(
+    lanUpdateScript,
+    "$pgRestore --list $backupPath",
+    "Main Hub LAN backups must prove the custom-format archive can be read before update downtime",
+  );
 }
 assertNotIncludes(
   managerApp,
@@ -393,6 +418,7 @@ for (const copy of [
 }
 
 const mainHubInstaller = "deployment/windows/install-server.ps1";
+const mainHubInstallerSource = read(mainHubInstaller);
 for (const copy of [
   "function Ensure-RiversideMeilisearchHost",
   "Riverside OS Meilisearch",
@@ -407,6 +433,47 @@ for (const copy of [
     mainHubInstaller,
     copy,
     "Main Hub installer must install and start local Meilisearch before the API relies on it",
+  );
+}
+for (const copy of [
+  '$env:PGPASSWORD = $DbConfig.adminPassword',
+  '-U $backupUser -d $DbConfig.databaseName',
+  '[System.Uri]::EscapeDataString("$($db.appPassword)")',
+  'New-PreMigrationBackup $preflightPsql $db $backupDir',
+  '$pgRestore --list $backupPath',
+  'Pre-migration backup archive verification failed',
+  "Could not write deployment status '$Status'",
+  'The running Riverside server has not been stopped or replaced.',
+  'Previous Riverside OS Server task restarted after the failed update.',
+  'Set-ServerDatabaseUrl $restoredEnvPath $databaseUrl',
+  'Restored server DATABASE_URL synchronized with the PostgreSQL app role.',
+]) {
+  assertIncludes(
+    mainHubInstaller,
+    copy,
+    "Main Hub updates must verify an admin-readable backup before downtime and recover the prior task after failure",
+  );
+}
+for (const passwordSafeScript of [
+  "deployment/windows/repair-bootstrap-admin.ps1",
+  "deployment/windows/Import-IntegrationCredentials.ps1",
+]) {
+  assertNotIncludes(
+    passwordSafeScript,
+    ':$($db.appPassword)@',
+    "PowerShell PostgreSQL clients must pass special-character passwords through PGPASSWORD instead of embedding them in a URI",
+  );
+}
+const preflightBackupIndex = mainHubInstallerSource.indexOf(
+  "New-PreMigrationBackup $preflightPsql $db $backupDir",
+);
+const destructiveStopIndex = mainHubInstallerSource.indexOf(
+  "Stop-RiversideServer",
+  preflightBackupIndex,
+);
+if (!(preflightBackupIndex >= 0 && destructiveStopIndex > preflightBackupIndex)) {
+  fail(
+    `${mainHubInstaller}: pre-update backup must complete before the first destructive server stop`,
   );
 }
 for (const copy of [
@@ -460,6 +527,11 @@ assertNotIncludes(
   'Write-Error "Update failed: $_"',
   "generated update-runner.ps1 error output must remain PowerShell 5.1 parse-safe",
 );
+assertNotIncludes(
+  mainHubUpdater,
+  "Write-Error ('Update failed: '",
+  "generated update runner recovery must not be interrupted by ErrorActionPreference Stop",
+);
 assertAsciiOnly(
   `${mainHubUpdater}:generated-update-runner.ps1`,
   renderedMainHubUpdateRunner,
@@ -471,11 +543,48 @@ for (const copy of [
   "Windows-Deployment",
   "Failed to stage deployment config",
   "$configPath = $installRootConfig",
+  "Exact build SHA is required for a Main Hub update.",
+  "Deployment package download failed with HTTP status",
 ]) {
   assertIncludes(
     mainHubUpdater,
     copy,
     "Main Hub updater must stage an existing deployment config before launching the elevated update runner",
+  );
+}
+for (const copy of [
+  "Keep the current server running until install-server.ps1 verifies",
+  "Attempting emergency restart of the previous Riverside server",
+  "Start-ScheduledTask -TaskName $taskName -ErrorAction Stop",
+  "Previous Riverside server is healthy after emergency restart.",
+  "Emergency restart did not restore server health. Scheduled task result:",
+  "ready_ep = contract::READY_ENDPOINT",
+]) {
+  assertIncludes(
+    mainHubUpdater,
+    copy,
+    "Main Hub elevated runner must preserve service until backup preflight and restart it after failure",
+  );
+}
+if (!renderedMainHubUpdateRunner.includes("/api/ready")) {
+  fail(
+    `${mainHubUpdater}: generated update runner must verify database readiness through /api/ready`,
+  );
+}
+if (renderedMainHubUpdateRunner.includes("/api/health")) {
+  fail(
+    `${mainHubUpdater}: generated update runner must not treat process-only /api/health as install or recovery readiness`,
+  );
+}
+const runnerInstallIndex = renderedMainHubUpdateRunner.indexOf(
+  "Write-Host 'Step 1: Running install-server.ps1...'",
+);
+const runnerFirstServerKillIndex = renderedMainHubUpdateRunner.indexOf(
+  "Get-Process -Name 'riverside-server'",
+);
+if (!(runnerInstallIndex >= 0 && runnerFirstServerKillIndex > runnerInstallIndex)) {
+  fail(
+    `${mainHubUpdater}: generated update runner must not kill riverside-server before install-server.ps1 completes backup preflight`,
   );
 }
 for (const copy of [

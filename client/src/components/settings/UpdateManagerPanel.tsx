@@ -631,6 +631,11 @@ export default function UpdateManagerPanel() {
                   {serverUpdateCheck.safe_window_hint}
                 </div>
               )}
+              {serverUpdateCheck.update_available && !serverUpdateCheck.latest_build_sha && (
+                <div className="mt-2 text-red-700">
+                  Exact build information is unavailable. Refresh the update check; Riverside will not start an unverifiable Main Hub update.
+                </div>
+              )}
             </div>
           )}
 
@@ -684,7 +689,11 @@ export default function UpdateManagerPanel() {
 
               <button
                 type="button"
-                disabled={serverUpdateBusy || !serverUpdateCheck?.update_available}
+                disabled={
+                  serverUpdateBusy ||
+                  !serverUpdateCheck?.update_available ||
+                  !serverUpdateCheck.latest_build_sha
+                }
                 onClick={() => void handleRunServerInstaller()}
                 className="ui-btn-primary w-full h-11 text-xs font-black disabled:opacity-50 flex items-center justify-center gap-2"
               >
