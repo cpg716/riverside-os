@@ -4,6 +4,7 @@ import {
   ensurePosSaleCashierSignedIn,
 } from "./helpers/openPosRegister";
 import { createVendor } from "./helpers/inventoryReceiving";
+import { signInToBackOffice } from "./helpers/backofficeSignIn";
 
 function apiBase(): string {
   const raw =
@@ -95,29 +96,7 @@ async function primeBackofficeSession(
   request: APIRequestContext,
 ): Promise<string> {
   const staffId = await verifyAdminStaffId(request);
-  const code = e2eAdminCode();
-  await page.addInitScript(
-    ({
-      seededCode,
-      seededStaffId,
-    }: {
-      seededCode: string;
-      seededStaffId: string;
-    }) => {
-      window.sessionStorage.setItem(
-        "ros.backoffice.session.v1",
-        JSON.stringify({
-          staffCode: seededCode,
-          staffPin: seededCode,
-        }),
-      );
-      window.localStorage.setItem("ros_last_staff_id", seededStaffId);
-    },
-    {
-      seededCode: code,
-      seededStaffId: staffId,
-    },
-  );
+  await signInToBackOffice(page, { persistSession: true });
   return staffId;
 }
 
