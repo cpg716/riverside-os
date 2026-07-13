@@ -5,12 +5,17 @@ param(
   [switch]$SkipMigrations,
   [switch]$SkipFirewall,
   [switch]$SkipRosieSetup,
+  [switch]$PreserveExistingRosie,
   [switch]$NoStart,
   [switch]$SkipPostgresInstall
 )
 
 $ErrorActionPreference = "Stop"
 $script:lastNativeCommandOutput = ""
+
+if ($SkipRosieSetup -and $PreserveExistingRosie) {
+  throw "-SkipRosieSetup and -PreserveExistingRosie cannot be used together."
+}
 
 # Enable TLS 1.2 and TLS 1.3 for secure downloads (safely fallback if TLS 1.3 enum is missing)
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -1256,7 +1261,54 @@ function Resolve-ServerEnvironmentMode($Config) {
   return $mode
 }
 
-function Write-ServerEnv($Path, $Config, $DatabaseUrl, $FrontendDist, $RosieModelPath) {
+function Get-PreservedRosieEnvironment([string]$Path) {
+  $preserved = @{}
+  if (-not (Test-Path $Path)) {
+    return $preserved
+  }
+
+  foreach ($line in @(Get-Content $Path)) {
+    if ($line -match '^(RIVERSIDE_(?:LLAMA|ROSIE|SHERPA)_[A-Z0-9_]+)=(.*)$') {
+      $preserved[$Matches[1]] = $Matches[2]
+    }
+  }
+  return $preserved
+}
+
+function Resolve-InstalledRosieModelPath([string]$InstallRoot, [string]$PackageRoot, $PreservedRosieEnvironment) {
+  if ($PreservedRosieEnvironment.ContainsKey("RIVERSIDE_LLAMA_MODEL_PATH")) {
+    $configuredPath = "$($PreservedRosieEnvironment["RIVERSIDE_LLAMA_MODEL_PATH"])".Trim()
+    if ($configuredPath -and (Test-Path $configuredPath)) {
+      return $configuredPath
+    }
+  }
+
+  $modelDirectory = Join-Path $InstallRoot "rosie\models\gemma-4-e4b"
+  $modelFilename = "google_gemma-4-E4B-it-Q4_K_M.gguf"
+  $pinPath = Join-Path $PackageRoot "rosie\MODEL_PIN.json"
+  if (Test-Path $pinPath) {
+    try {
+      $pin = Get-Content -Raw $pinPath | ConvertFrom-Json
+      if ($pin.filename) { $modelFilename = "$($pin.filename)" }
+    } catch {}
+  }
+
+  $pinnedModelPath = Join-Path $modelDirectory $modelFilename
+  if (Test-Path $pinnedModelPath) {
+    return $pinnedModelPath
+  }
+
+  $installedModels = @(Get-ChildItem -Path $modelDirectory -Filter "*.gguf" -File -ErrorAction SilentlyContinue)
+  if ($installedModels.Count -eq 1) {
+    return $installedModels[0].FullName
+  }
+  if ($installedModels.Count -gt 1) {
+    Write-Warning "Multiple installed ROSIE models were found and the existing environment does not identify one. ROSIE files and scheduled tasks will remain untouched."
+  }
+  return $null
+}
+
+function Write-ServerEnv($Path, $Config, $DatabaseUrl, $FrontendDist, $RosieModelPath, $PreservedRosieEnvironment = $null) {
   $server = $Config.server
   $configuredLlamaProfile = ""
   if ($server.environment) {
@@ -1286,7 +1338,11 @@ function Write-ServerEnv($Path, $Config, $DatabaseUrl, $FrontendDist, $RosieMode
 
   # ROSIE local LLM - write model path so the Axum proxy can derive RIVERSIDE_LLAMA_UPSTREAM
   # at startup. Port stays at the default 8080 unless overridden in config.server.environment.
-  if ($RosieModelPath) {
+  if ($PreservedRosieEnvironment -and $PreservedRosieEnvironment.Count -gt 0) {
+    foreach ($key in @($PreservedRosieEnvironment.Keys | Sort-Object)) {
+      $lines += "$key=$($PreservedRosieEnvironment[$key])"
+    }
+  } elseif ($RosieModelPath) {
     $lines += "RIVERSIDE_LLAMA_MODEL_PATH=$RosieModelPath"
     $lines += "RIVERSIDE_LLAMA_PORT=8080"
     $lines += "RIVERSIDE_LLAMA_HOST=127.0.0.1"
@@ -1298,7 +1354,8 @@ function Write-ServerEnv($Path, $Config, $DatabaseUrl, $FrontendDist, $RosieMode
 
   if ($server.environment) {
     foreach ($prop in $server.environment.PSObject.Properties) {
-      if ($null -ne $prop.Value -and "$($prop.Value)" -ne "") {
+      $isPreservedRosieSetting = $PreservedRosieEnvironment -and $PreservedRosieEnvironment.ContainsKey($prop.Name)
+      if (-not $isPreservedRosieSetting -and $null -ne $prop.Value -and "$($prop.Value)" -ne "") {
         $lines += "$($prop.Name)=$($prop.Value)"
       }
     }
@@ -2069,10 +2126,32 @@ if ($script:postgresReachable) {
   throw "PostgreSQL is not reachable. No server files will be reported ready; fix PostgreSQL and rerun install-server.ps1."
 }
 
-# ROSIE AI stack - download model and set up voice tools.
+# ROSIE AI stack - download model and set up voice tools for full installs, or
+# preserve the existing ROSIE environment and scheduled task for updates.
 # Runs before the .env is written so the model path can be included.
+$envPath = Join-Path $serverDir ".env"
 $rosieModelPath = $null
-if (-not $SkipRosieSetup) {
+$preservedRosieEnvironment = $null
+if ($PreserveExistingRosie) {
+  $preservedRosieEnvironment = Get-PreservedRosieEnvironment $envPath
+  $rosieModelPath = Resolve-InstalledRosieModelPath $installRoot $ScriptRoot $preservedRosieEnvironment
+  if ($rosieModelPath) {
+    $preservedRosieEnvironment["RIVERSIDE_LLAMA_MODEL_PATH"] = $rosieModelPath
+    if (-not $preservedRosieEnvironment.ContainsKey("RIVERSIDE_LLAMA_HOST")) {
+      $preservedRosieEnvironment["RIVERSIDE_LLAMA_HOST"] = "127.0.0.1"
+    }
+    if (-not $preservedRosieEnvironment.ContainsKey("RIVERSIDE_LLAMA_PORT")) {
+      $preservedRosieEnvironment["RIVERSIDE_LLAMA_PORT"] = "8080"
+    }
+    if (-not $preservedRosieEnvironment.ContainsKey("RIVERSIDE_LLAMA_UPSTREAM")) {
+      $preservedRosieEnvironment["RIVERSIDE_LLAMA_UPSTREAM"] = "http://127.0.0.1:8080"
+    }
+  }
+  Write-Host "ROSIE update preservation enabled. Existing ROSIE files, environment, processes, and scheduled task will not be changed."
+  if ($preservedRosieEnvironment.Count -eq 0) {
+    Write-Warning "No existing ROSIE environment settings were found at $envPath. The Main Hub update will continue without downloading or replacing ROSIE assets."
+  }
+} elseif (-not $SkipRosieSetup) {
   Write-Host "`n--- ROSIE AI Stack Setup ---"
   $rosieModelPath = Install-RosieStack $ScriptRoot
   if ($rosieModelPath) {
@@ -2092,8 +2171,7 @@ if ($script:meilisearchConfigModified) {
   Write-Host "Saved Meilisearch runtime settings to $ConfigPath." -ForegroundColor Green
 }
 
-$envPath = Join-Path $serverDir ".env"
-Write-ServerEnv $envPath $config $databaseUrl $clientDist $rosieModelPath
+Write-ServerEnv $envPath $config $databaseUrl $clientDist $rosieModelPath $preservedRosieEnvironment
 Set-MachineEnvironmentFromServerConfig $config
 Ensure-CloudflaredRosIngress $config $serverPort
 
@@ -2122,7 +2200,11 @@ if ($server.environment) {
   if ($envPort -and ($envPort -match '^\d+$')) { $llamaPort = [int]$envPort }
   if ($envPerfProfile) { $llamaPerfProfile = $envPerfProfile }
 }
-Ensure-RiversideLlamaHost $ScriptRoot $installRoot $rosieModelPath $llamaHost $llamaPort $llamaPerfProfile
+if ($PreserveExistingRosie) {
+  Write-Host "ROSIE scheduled task preserved without restart or re-registration."
+} else {
+  Ensure-RiversideLlamaHost $ScriptRoot $installRoot $rosieModelPath $llamaHost $llamaPort $llamaPerfProfile
+}
 
 if (-not $NoStart) {
   Start-ScheduledTask -TaskName $taskName

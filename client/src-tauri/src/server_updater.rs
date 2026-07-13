@@ -693,7 +693,7 @@ if (Test-Path -Path $serverBin) {{
 
 try {{
     Write-Host 'Step 1: Running install-server.ps1...'
-    ./install-server.ps1 -ConfigPath $configPath
+    ./install-server.ps1 -ConfigPath $configPath -PreserveExistingRosie
     $installRootConfig = Join-Path $installRoot '{config_file}'
     if (Test-Path -Path $installRootConfig) {{
         $configPath = $installRootConfig

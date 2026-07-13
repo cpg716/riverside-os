@@ -928,6 +928,7 @@ function checkDesktopAndPwaUpdateWiring() {
   const updater = read(updaterFile);
   assert(
     updater.includes("./install-server.ps1 -ConfigPath") &&
+      updater.includes("-PreserveExistingRosie") &&
       updater.includes("./repair-bootstrap-admin.ps1 -ConfigPath") &&
       updater.includes("./install-register.ps1 -ConfigPath") &&
       updater.includes("-StationMode mainhub") &&
@@ -939,7 +940,7 @@ function checkDesktopAndPwaUpdateWiring() {
       updater.includes("verify_deployment_package_build") &&
       updater.includes("sourceGitSha") &&
       updater.includes("Deployment package build mismatch"),
-    "Main Hub in-app updater runs server, bootstrap, local desktop app, transcript, and database-readiness steps",
+    "Main Hub in-app updater runs server, bootstrap, local desktop app, transcript, ROSIE-preservation, and database-readiness steps",
     updaterFile,
     "Main Hub updates must cover server/API, migrations, bootstrap admin, local desktop app config, readiness proof, and exact build selection.",
   );

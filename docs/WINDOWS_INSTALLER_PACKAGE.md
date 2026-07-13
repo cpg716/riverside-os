@@ -189,6 +189,8 @@ If Riverside starts but a screen reports a missing database table, use **Apply-R
 
 During Main Hub install/update, the workstation installer writes the Main Hub desktop API target as `http://127.0.0.1:3000` even when an older `station-config.json` exists. It still preserves unrelated local station settings such as printers.
 
+Main Hub **updates** use `install-server.ps1 -PreserveExistingRosie`. This updates the server, web client, and migrations without downloading, deleting, or replacing installed ROSIE LLM/STT/TTS assets and without stopping or re-registering the `Riverside OS LLM Host` scheduled task. A fresh Main Hub **install** still runs the complete ROSIE setup. If ROSIE itself needs repair, use `Install-RosieAiStack.cmd` as a separate intentional maintenance action.
+
 The Main Hub desktop app also has a local recovery path: if it opens on the Main Hub, is pointed at `localhost` / `127.0.0.1`, and the roster check cannot reach the API, it asks Windows to start the installed `Riverside OS Server` scheduled task and then retries the roster check. If the task is missing, run **Repair** from the Deployment Manager instead of manually creating a different task name.
 
 For same-LAN UI-only hotfixes, use `npm run push:main-hub:fast` from the repo root. That path builds only the web bundle on the Main Hub and atomically replaces `C:\RiversideOS\client\dist`; it does not replace `server\riverside-server.exe`, run migrations, rebuild Tauri installers, or restart the scheduled task. Use `npm run push:main-hub:fast -- -Mode Full` only when intentionally testing a full local source build. Use the signed GitHub updater assets for Register #1 and Back Office Tauri app binary updates.

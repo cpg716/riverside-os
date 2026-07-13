@@ -447,11 +447,27 @@ for (const copy of [
   'Previous Riverside OS Server task restarted after the failed update.',
   'Set-ServerDatabaseUrl $restoredEnvPath $databaseUrl',
   'Restored server DATABASE_URL synchronized with the PostgreSQL app role.',
+  '[switch]$PreserveExistingRosie',
+  'Get-PreservedRosieEnvironment $envPath',
+  'Resolve-InstalledRosieModelPath $installRoot $ScriptRoot $preservedRosieEnvironment',
+  'ROSIE scheduled task preserved without restart or re-registration.',
 ]) {
   assertIncludes(
     mainHubInstaller,
     copy,
     "Main Hub updates must verify an admin-readable backup before downtime and recover the prior task after failure",
+  );
+}
+for (const [path, marker] of [
+  ["deployment/windows/Start-RiversideDeployment.ps1", 'if ($Action -eq "Update") { @("-PreserveExistingRosie") }'],
+  ["deployment/windows/Build-And-Apply-MainHubFastUpdate.ps1", '"-PreserveExistingRosie"'],
+  ["deployment/windows/Apply-RiversideLanFleetUpdate.ps1", '"-PreserveExistingRosie"'],
+  ["scripts/push-main-hub.ps1", '"-PreserveExistingRosie"'],
+]) {
+  assertIncludes(
+    path,
+    marker,
+    "Main Hub update entry points must preserve the installed ROSIE stack",
   );
 }
 for (const passwordSafeScript of [
@@ -569,6 +585,11 @@ for (const copy of [
 if (!renderedMainHubUpdateRunner.includes("/api/ready")) {
   fail(
     `${mainHubUpdater}: generated update runner must verify database readiness through /api/ready`,
+  );
+}
+if (!renderedMainHubUpdateRunner.includes("-PreserveExistingRosie")) {
+  fail(
+    `${mainHubUpdater}: generated update runner must preserve installed ROSIE assets and scheduled tasks`,
   );
 }
 if (renderedMainHubUpdateRunner.includes("/api/health")) {

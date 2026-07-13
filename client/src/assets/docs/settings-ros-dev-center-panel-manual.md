@@ -67,6 +67,7 @@ Share the report ID, route, correlation ID, degraded feed name, and visible erro
 - A degraded diagnostics feed does not mean every support feed is unavailable.
 - Protected actions are audit-sensitive and should not be run casually.
 - Staff-facing workflows should be rechecked after support says a fix is ready.
+- A normal Main Hub update preserves installed ROSIE models and speech files. If Riverside OS updates successfully but ROSIE is unhealthy, use the separate ROSIE repair workflow instead of repeatedly running the Main Hub update.
 
 ## What happens next
 

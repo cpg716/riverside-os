@@ -292,7 +292,7 @@ Before go-live, run one complete update rehearsal on real hardware:
 
 1. Install the previous signed release on the Main Hub, one Windows Register, one Back Office workstation, and one PWA/iPad station.
 2. Publish or select a newer signed release.
-3. On the Main Hub, run **Settings → Updates → Main Hub update** and verify server restart, migrations, ROSIE files, `/api/health`, and app relaunch.
+3. On the Main Hub, run **Settings → Updates → Main Hub update** and verify server restart, migrations, existing ROSIE service health, `/api/ready`, and app relaunch. Main Hub updates preserve the installed ROSIE models, speech files, environment settings, and LLM scheduled task; they do not download or replace those large assets.
 4. On Windows Register and Back Office stations, verify the version gate blocks sign-in until the station updates.
 5. Install the station update through the in-app updater and confirm the app relaunches into the correct station role.
 6. On PWA/iPad, hard reload and confirm the version gate clears.
@@ -364,7 +364,7 @@ async fn run_inline_powershell(app: AppHandle, script_content: String) -> Result
 Logs are emitted asynchronously from Rust back to the Vite console using the `deployment-log` event emitter, allowing operators to monitor script output in real time.
 
 ### GitHub Actions CI/CD Pipeline
-The deployment manager packaging is automated by **Windows deployment package** (`.github/workflows/windows-deployment-package.yml`). It builds the full Windows deployment ZIP: server binary, client bundle, register installer, Deployment Manager installer bundle, ROS Server Manager installer bundle, Counterpoint Bridge GUI, and bundled ROSIE voice models. Signed updater manifests/installers are uploaded as release assets beside the ZIP.
+The deployment manager packaging is automated by **Windows deployment package** (`.github/workflows/windows-deployment-package.yml`). It builds the Windows deployment ZIP with the server binary, client bundle, register installer, Deployment Manager installer bundle, ROS Server Manager installer bundle, Counterpoint Bridge GUI, and ROSIE installer/runtime support. Main Hub update packages intentionally omit already-installed large ROSIE speech models. Signed updater manifests/installers are uploaded as release assets beside the ZIP.
 
 Both pipelines use **`swatinem/rust-cache`** for Rust dependency reuse and **`sccache`** for Rust/Tauri compiler output reuse across repeated release builds. The Windows workspace builds these Rust/Tauri targets as separate workflow jobs so unchanged companion apps can be skipped by the faster app-updater-only release path:
 1.  `client/src-tauri` (Tauri Client Desktop application)
