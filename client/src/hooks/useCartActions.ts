@@ -15,6 +15,11 @@ import { type Customer } from "../components/pos/CustomerSelector";
 import { type WeddingMember } from "../components/pos/WeddingLookupDrawer";
 import { centsToFixed2, parseMoneyToCents } from "../lib/money";
 import { calculateNysErieTaxStringsForUnit } from "../lib/tax";
+import {
+  calculateCartLineTaxStrings,
+  isLockedNonTaxableLine,
+  isNonTaxableServiceLine,
+} from "../lib/cartTax";
 import { playPosScanSuccess } from "../lib/posAudio";
 import { isCustomOrderSku } from "../lib/customOrders";
 
@@ -50,7 +55,7 @@ function isAutomaticPricingEligible(
   staffAccountPaymentSku?: string | null,
   giftCardLoadSku?: string | null,
 ): boolean {
-  if (line.line_type === "alteration_service") return false;
+  if (isLockedNonTaxableLine(line)) return false;
   if (line.gift_card_load_code) return false;
   if (rmsPaymentSku && line.sku === rmsPaymentSku) return false;
   if (staffAccountPaymentSku && line.sku === staffAccountPaymentSku) return false;
@@ -416,6 +421,12 @@ export function useCartActions({
         }
       }
 
+      if (isNonTaxableServiceLine(newLine)) {
+        newLine.tax_category = "service";
+        newLine.state_tax = "0.00";
+        newLine.local_tax = "0.00";
+      }
+
       setSelectedLineKey(newLine.cart_row_id);
       return [...prev, newLine];
     });
@@ -675,12 +686,19 @@ export function useCartActions({
     setLines((prev) =>
       prev.map((line) => {
         if (line.cart_row_id !== rowId) return line;
-        if (line.transaction_line_id || line.return_tender_original_transaction_id) return line;
+        if (
+          line.transaction_line_id ||
+          line.return_tender_original_transaction_id ||
+          isLockedNonTaxableLine(line)
+        ) return line;
 
-        const current = line.tax_category === "clothing" || line.tax_category === "footwear"
-          ? line.tax_category
-          : "other";
-        const next = current === "other" ? "clothing" : "other";
+        const current =
+          line.tax_category === "clothing" || line.tax_category === "footwear"
+            ? "clothing"
+            : line.tax_category === "service"
+              ? "service"
+              : "other";
+        const next = current === "other" ? "clothing" : current === "clothing" ? "service" : "other";
         const unitCents = parseMoneyToCents(line.standard_retail_price);
         const { stateTax, localTax } = calculateNysErieTaxStringsForUnit(next, unitCents);
 
@@ -753,7 +771,7 @@ export function useCartActions({
             (staffAccountPaymentMeta && l.sku === staffAccountPaymentMeta.sku);
           const { stateTax, localTax } = isInternalPaymentLine
             ? { stateTax: "0.00", localTax: "0.00" }
-            : calculateNysErieTaxStringsForUnit(l.tax_category || "other", amt);
+            : calculateCartLineTaxStrings(l, amt);
 
           return {
             ...l,
@@ -802,7 +820,7 @@ export function useCartActions({
 
       const baseCents = parseMoneyToCents(line.original_unit_price || line.standard_retail_price);
       const nextCents = Math.round(baseCents * (1 - pct / 100));
-      const { stateTax, localTax } = calculateNysErieTaxStringsForUnit(line.tax_category || "other", nextCents);
+      const { stateTax, localTax } = calculateCartLineTaxStrings(line, nextCents);
 
       setLines(prev => prev.map(l => {
         if (l.cart_row_id !== selectedLineKey) return l;
@@ -859,7 +877,7 @@ export function useCartActions({
     const baseCents = parseMoneyToCents(line.original_unit_price || line.standard_retail_price);
     const nextCents = Math.round(baseCents * (1 - pct / 100));
 
-    const { stateTax, localTax } = calculateNysErieTaxStringsForUnit(line.tax_category || "other", nextCents);
+    const { stateTax, localTax } = calculateCartLineTaxStrings(line, nextCents);
 
     setLines(prev => prev.map(l => {
       if (l.cart_row_id !== selectedLineKey) return l;

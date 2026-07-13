@@ -1,6 +1,7 @@
 import { expect, test, type APIRequestContext } from "@playwright/test";
 import { centsToFixed2, parseMoneyToCents } from "../src/lib/money";
 import { calculateNysErieTaxStringsForUnit, type TaxCategory } from "../src/lib/tax";
+import { calculateCartLineTaxStrings } from "../src/lib/cartTax";
 import {
   apiBase,
   ensureSessionAuth,
@@ -44,6 +45,9 @@ type TransactionDetailResponse = {
     is_fulfilled?: boolean;
     quantity: number;
     quantity_returned: number;
+    state_tax?: string;
+    local_tax?: string;
+    tax_category?: string;
   }>;
 };
 
@@ -413,6 +417,7 @@ async function checkoutTaxProduct(
     isTaxExempt?: boolean;
     taxExemptReason?: string;
     discountEventId?: string;
+    taxCategoryOverride?: "clothing" | "footwear" | "service" | "other";
     belowCostApproval?: {
       approved_by_staff_id: string;
       reason?: string;
@@ -456,6 +461,7 @@ async function checkoutTaxProduct(
           original_unit_price: options.originalUnitPrice,
           price_override_reason: options.priceOverrideReason,
           discount_event_id: options.discountEventId,
+          tax_category_override: options.taxCategoryOverride,
         },
       ],
       payment_splits: [
@@ -514,6 +520,67 @@ async function fetchNysTaxAudit(
 }
 
 test.describe("tax audit contract", () => {
+  test("cart preserves zero tax for shipping SKU and alteration labor", () => {
+    expect(
+      calculateCartLineTaxStrings(
+        { sku: " shipping ", tax_category: "other" },
+        parseMoneyToCents("25.00"),
+      ),
+    ).toEqual({ stateTax: "0.00", localTax: "0.00" });
+    expect(
+      calculateCartLineTaxStrings(
+        {
+          sku: "ALTERATION-SERVICE",
+          line_type: "alteration_service",
+          tax_category: "other",
+        },
+        parseMoneyToCents("25.00"),
+      ),
+    ).toEqual({ stateTax: "0.00", localTax: "0.00" });
+  });
+
+  test("line No Tax override survives checkout and sale persistence", async ({ request }) => {
+    test.setTimeout(90_000);
+    const { sessionId, sessionToken } = await ensureSessionAuth(request);
+    const operatorStaffId = await verifyStaffId(request);
+    const product = await createTaxProduct(request, operatorStaffId, {
+      unitPrice: "25.00",
+      isClothingFootwear: false,
+      label: "line-no-tax",
+    });
+    const checkoutRes = await checkoutTaxProduct(request, {
+      product,
+      sessionId,
+      sessionToken,
+      operatorStaffId,
+      unitPrice: "25.00",
+      stateTax: "0.00",
+      localTax: "0.00",
+      taxCategoryOverride: "service",
+    });
+    const checkoutText = await checkoutRes.text();
+    expect(checkoutRes.status(), checkoutText.slice(0, 1000)).toBe(200);
+    const checkout = JSON.parse(checkoutText) as CheckoutResponse;
+
+    const detailRes = await request.get(
+      `${apiBase()}/api/transactions/${checkout.transaction_id}?register_session_id=${encodeURIComponent(sessionId)}`,
+      {
+        headers: {
+          ...staffHeaders(),
+          "x-riverside-pos-session-id": sessionId,
+          "x-riverside-pos-session-token": sessionToken,
+          "x-riverside-station-key": "station-e2e",
+        },
+        failOnStatusCode: false,
+      },
+    );
+    expect(detailRes.status()).toBe(200);
+    const detail = (await detailRes.json()) as TransactionDetailResponse;
+    expect(parseMoneyToCents(detail.items[0]?.state_tax ?? "")).toBe(0);
+    expect(parseMoneyToCents(detail.items[0]?.local_tax ?? "")).toBe(0);
+    expect(detail.items[0]?.tax_category).toBe("service");
+  });
+
   test("category inheritance and parent-product override drive server tax rules", async ({
     request,
   }) => {

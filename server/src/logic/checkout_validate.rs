@@ -48,6 +48,11 @@ pub fn money_close_decimal(a: Decimal, b: Decimal) -> bool {
     (a - b).abs() <= CHECKOUT_MONEY_TOLERANCE
 }
 
+#[inline]
+pub fn is_shipping_charge_sku(sku: &str) -> bool {
+    sku.trim().eq_ignore_ascii_case("SHIPPING")
+}
+
 /// Returns the sum of (unit_price + state_tax + local_tax) * qty for all lines.
 pub async fn validate_checkout_lines_and_sum(
     pool: &sqlx::PgPool,
@@ -63,6 +68,7 @@ pub async fn validate_checkout_lines_and_sum(
         let is_rms_payment = resolved.pos_line_kind.as_deref() == Some("rms_charge_payment");
         let is_pos_gc_load = resolved.pos_line_kind.as_deref() == Some("pos_gift_card_load");
         let is_alteration_service = resolved.pos_line_kind.as_deref() == Some("alteration_service");
+        let is_shipping_charge = is_shipping_charge_sku(&resolved.sku);
         let tax_category = line.tax_category_override.unwrap_or(resolved.tax_category);
 
         if is_rms_payment {
@@ -106,6 +112,12 @@ pub async fn validate_checkout_lines_and_sum(
             if !line.state_tax.is_zero() || !line.local_tax.is_zero() {
                 return Err(CheckoutValidateError::Invalid(
                     "ALTERATION SERVICE lines must have zero tax".to_string(),
+                ));
+            }
+        } else if is_shipping_charge {
+            if !line.state_tax.is_zero() || !line.local_tax.is_zero() {
+                return Err(CheckoutValidateError::Invalid(
+                    "SHIPPING lines must have zero tax".to_string(),
                 ));
             }
         } else if !line.has_price_override {
@@ -199,7 +211,8 @@ pub async fn validate_checkout_lines_and_sum(
             }
         }
 
-        let non_taxable_internal = is_rms_payment || is_pos_gc_load || is_alteration_service;
+        let non_taxable_internal =
+            is_rms_payment || is_pos_gc_load || is_alteration_service || is_shipping_charge;
         let (server_state_tax, server_local_tax) = if is_tax_exempt || non_taxable_internal {
             (Decimal::ZERO, Decimal::ZERO)
         } else {
@@ -224,5 +237,12 @@ mod tests {
         assert!(tax_cents_match(dec!(4.75), dec!(4.75)));
         assert!(!tax_cents_match(dec!(4.74), dec!(4.75)));
         assert!(!tax_cents_match(dec!(4.76), dec!(4.75)));
+    }
+
+    #[test]
+    fn shipping_sku_detection_is_trimmed_and_case_insensitive() {
+        assert!(is_shipping_charge_sku("SHIPPING"));
+        assert!(is_shipping_charge_sku(" shipping "));
+        assert!(!is_shipping_charge_sku("SHIPPING-BOX"));
     }
 }

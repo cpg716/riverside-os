@@ -51,6 +51,8 @@ Use this workspace when you need to:
 6. For a standalone alteration pickup, use **Pick Up & Print** on a **Ready** alteration card.
 7. For an alteration linked to an order, mark the alteration **Ready**, then complete the customer order pickup from the Register. The Register includes ready linked alteration pickups with the order.
 
+Alteration labor added through the alteration intake workflow is non-taxable. Changing its charge or applying a discount in the Register must not add state or local tax.
+
 ## What to watch for
 
 - **Notifications**: Marking a job **Ready** may trigger an automated SMS/Email to the customer (depending on store settings).

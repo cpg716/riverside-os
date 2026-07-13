@@ -53,6 +53,7 @@ Shipping **requires** a linked customer profile. Use the **Customer Selector** t
 - **Current-sale shipping**: Shipping ordinary in-stock merchandise does not require converting the line to a Special/Custom/Wedding fulfillment order.
 - **Existing-order shipping fee**: A shipping-only Register transaction can collect delivery money for one or more existing Transaction Records. The fee posts as shipping income, ROS links the charge to each selected Transaction Record, and then releases those linked records through the Register shipping workflow.
 - **Immediate Payment**: Shipping fees are treated as customer-charged shipping income. They must be paid in full at the time of sale (along with any takeaway items) before the register will allow the transaction to be finalized.
+- **Tax treatment**: Shipping is non-taxable whether it is added through **Ship current sale** or by entering the `SHIPPING` SKU. Any tax shown in the cart must come only from other taxable merchandise lines.
 - **Reporting**: Shipped transactions remain in **Open** status until the shipment workflow records the carrier handoff/recognition event.
 
 ## 2. Managing Shipments (Back Office)

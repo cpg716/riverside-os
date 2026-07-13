@@ -77,6 +77,14 @@ When the drawer is active, you often land on **Dashboard**. Here you can see shi
 5. If the system asks you to choose a size or variation, pick the correct line and confirm.
 6. Repeat for each item. The cart lists each line with quantity and price.
 
+Each ordinary sale line has a tax badge. Tap it to cycle that one line through **Standard**, **Clothing**, and **No Tax**:
+
+- **Standard** applies the full standard state and local sales tax.
+- **Clothing** applies Riverside's clothing/footwear threshold rules to that line.
+- **No Tax** applies zero state and local tax to that line. Use it only when the charge is actually non-taxable.
+
+The selected category recalculates immediately and remains attached to that line through checkout and the completed Transaction Record. Shipping and alteration-service lines are already locked to their required non-taxable treatment.
+
 ![Cart with items added](../images/help/pos/cart-with-lines.png)
 
 **Tips**

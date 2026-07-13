@@ -3,6 +3,7 @@ import { type CartLineItem, type FulfillmentKind, type PosStaffRow } from "../ty
 import { centsToFixed2, parseMoneyToCents } from "../../../lib/money";
 import StaffMiniSelector from "../../ui/StaffMiniSelector";
 import { isCustomOrderSku } from "../../../lib/customOrders";
+import { isLockedNonTaxableLine } from "../../../lib/cartTax";
 
 interface CartItemRowProps {
   line: CartLineItem;
@@ -101,10 +102,16 @@ export function CartItemRow({
   const isReturnTenderLine = Boolean(line.return_tender_original_transaction_id);
   const isLockedAmountLine = isPickupLine || isReturnTenderLine;
   const taxCategoryLabel =
-    line.tax_category === "clothing" || line.tax_category === "footwear"
-      ? line.tax_category
-      : "standard";
-  const canToggleTaxCategory = !isAlterationLine && !isRmsPaymentLine && !isStaffAccountPayment && !isLockedAmountLine;
+    line.tax_category === "service"
+      ? "No Tax"
+      : line.tax_category === "clothing" || line.tax_category === "footwear"
+        ? "Clothing"
+        : "Standard";
+  const canToggleTaxCategory =
+    !isLockedNonTaxableLine(line) &&
+    !isRmsPaymentLine &&
+    !isStaffAccountPayment &&
+    !isLockedAmountLine;
 
   return (
     <div
@@ -183,12 +190,14 @@ export function CartItemRow({
                   toggleLineTaxCategory(line.cart_row_id);
                 }}
                 className={`rounded px-1.5 py-0.5 text-[9px] font-black uppercase tracking-widest ring-1 transition-all hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 ${
-                  taxCategoryLabel === "standard"
+                  taxCategoryLabel === "Standard"
                     ? "bg-app-warning/10 text-app-warning ring-app-warning/20 focus-visible:ring-app-warning/25"
-                    : "bg-app-success/12 text-app-success ring-app-success/20 focus-visible:ring-app-success/25"
+                    : taxCategoryLabel === "No Tax"
+                      ? "bg-app-info/12 text-app-info ring-app-info/20 focus-visible:ring-app-info/25"
+                      : "bg-app-success/12 text-app-success ring-app-success/20 focus-visible:ring-app-success/25"
                 }`}
                 aria-label={`Change tax category from ${taxCategoryLabel}`}
-                title="Toggle sale-only tax category"
+                title="Change this line between Standard, Clothing, and No Tax"
               >
                 {taxCategoryLabel}
               </button>

@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Line Tax Controls and Non-Taxable Service Charges**: Register sale lines now cycle between Standard, Clothing, and No Tax with immediate per-line recalculation, server validation, audit metadata, and persisted sale-detail classification. Cart creation, price edits, discounts, totals, and checkout payloads also preserve zero state/local tax for alteration labor and the `SHIPPING` SKU; the server independently rejects taxed shipping lines and persists both service types with zero tax, while Ship current sale remains a separate non-taxable charge.
 - **Staff Session Isolation and Connection Security**: Replaced retained raw-PIN Back Office authentication with hashed, opaque, expiring sessions bound to both station and tab/window identity; added independent revocation, PIN/deactivation invalidation, expiry enforcement, active-session Station Fleet tracking, a dedicated PIN-attempt rate limit, and a Tauri content security policy.
 - **Register Session Audit Attribution**: Z-close reconciliation no longer depends on a retained four-digit credential, and Register close/handoff actions resolve the actual authenticated Staff session for audit attribution.
 - **Hot-Path Connection Efficiency**: Throttled Register and Staff session activity writes to once per minute, warmed the PostgreSQL pool with bounded acquisition/lifetime settings, and configured shared outbound HTTP connection pooling, timeouts, and TCP keepalive.

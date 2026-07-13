@@ -14,6 +14,7 @@ import {
   type OrderPaymentCartLine
 } from "../components/pos/types";
 import { parseMoneyToCents, centsToFixed2 } from "../lib/money";
+import { isNonTaxableServiceLine } from "../lib/cartTax";
 import { newCheckoutClientId, normalizeGiftCardSubType } from "../lib/posUtils";
 import {
   clearBlockedCheckoutRecovery,
@@ -155,8 +156,8 @@ export function optionalCentsField(cents: number | undefined): string | undefine
 
 export function checkoutTaxCategoryOverride(
   category?: CartLineItem["tax_category"],
-): "clothing" | "footwear" | "other" | undefined {
-  return category === "clothing" || category === "footwear" || category === "other"
+): "clothing" | "footwear" | "service" | "other" | undefined {
+  return category === "clothing" || category === "footwear" || category === "service" || category === "other"
     ? category
     : undefined;
 }
@@ -449,8 +450,9 @@ export function useCartCheckout({
       const payloadSaleLines = checkoutLines.filter((line) => !line.transaction_line_id);
       const payloadLineTotalCents = payloadSaleLines.reduce((sum, line) => {
         const quantity = Math.max(0, line.quantity);
-        const stateTaxCents = ledgerSignals.isTaxExempt ? 0 : parseMoneyToCents(line.state_tax);
-        const localTaxCents = ledgerSignals.isTaxExempt ? 0 : parseMoneyToCents(line.local_tax);
+        const forceNonTaxable = ledgerSignals.isTaxExempt || isNonTaxableServiceLine(line);
+        const stateTaxCents = forceNonTaxable ? 0 : parseMoneyToCents(line.state_tax);
+        const localTaxCents = forceNonTaxable ? 0 : parseMoneyToCents(line.local_tax);
         return (
           sum +
           (parseMoneyToCents(line.standard_retail_price) + stateTaxCents + localTaxCents) * quantity
@@ -550,6 +552,7 @@ export function useCartCheckout({
             const origCents = l.original_unit_price != null ? parseMoneyToCents(l.original_unit_price) : unitCents;
             const fulfillment = pickupConfirmed ? "takeaway" : (l.fulfillment ?? "takeaway");
             const appliesOrderOptions = fulfillment !== "takeaway";
+            const forceNonTaxable = ledgerSignals.isTaxExempt || isNonTaxableServiceLine(l);
             const taxCategoryOverride = checkoutTaxCategoryOverride(l.tax_category);
             return {
               client_line_id: l.cart_row_id,
@@ -563,8 +566,8 @@ export function useCartCheckout({
               original_unit_price: origCents !== unitCents ? centsToFixed2(origCents) : undefined,
               price_override_reason: l.price_override_reason,
               unit_cost: centsToFixed2(parseMoneyToCents(l.unit_cost)),
-              state_tax: centsToFixed2(ledgerSignals.isTaxExempt ? 0 : parseMoneyToCents(l.state_tax)),
-              local_tax: centsToFixed2(ledgerSignals.isTaxExempt ? 0 : parseMoneyToCents(l.local_tax)),
+              state_tax: centsToFixed2(forceNonTaxable ? 0 : parseMoneyToCents(l.state_tax)),
+              local_tax: centsToFixed2(forceNonTaxable ? 0 : parseMoneyToCents(l.local_tax)),
               tax_category_override: taxCategoryOverride,
               salesperson_id: isEmployeeSale ? null : l.salesperson_id?.trim() || null,
               custom_item_type: l.custom_item_type,

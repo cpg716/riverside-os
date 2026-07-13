@@ -41,6 +41,7 @@ import {
   centsToFixed2,
   parseMoneyToCents,
 } from "../../lib/money";
+import { isNonTaxableServiceLine } from "../../lib/cartTax";
 import {
   getPosRegisterAuth,
   hydratePosRegisterAuthIfNeeded,
@@ -208,8 +209,9 @@ function calculateStandaloneLineTotals(lines: CartLineItem[]): CartTotals {
     (acc, line) => {
       const quantity = line.quantity;
       const priceCents = parseMoneyToCents(line.standard_retail_price);
-      const stateTaxCents = parseMoneyToCents(line.state_tax);
-      const localTaxCents = parseMoneyToCents(line.local_tax);
+      const forceNonTaxable = isNonTaxableServiceLine(line);
+      const stateTaxCents = forceNonTaxable ? 0 : parseMoneyToCents(line.state_tax);
+      const localTaxCents = forceNonTaxable ? 0 : parseMoneyToCents(line.local_tax);
       acc.subtotalCents += priceCents * quantity;
       acc.stateTaxCents += stateTaxCents * quantity;
       acc.localTaxCents += localTaxCents * quantity;
@@ -1029,7 +1031,7 @@ export default function Cart({
       unit_cost: "0.00",
       state_tax: "0.00",
       local_tax: "0.00",
-      tax_category: "other",
+      tax_category: "service",
       quantity: 1,
       fulfillment: "takeaway",
       cart_row_id: rowId,
@@ -1335,8 +1337,9 @@ export default function Cart({
         }
 
         const pC = parseMoneyToCents(l.standard_retail_price);
-        const stC = parseMoneyToCents(l.state_tax);
-        const ltC = parseMoneyToCents(l.local_tax);
+        const forceNonTaxable = isNonTaxableServiceLine(l);
+        const stC = forceNonTaxable ? 0 : parseMoneyToCents(l.state_tax);
+        const ltC = forceNonTaxable ? 0 : parseMoneyToCents(l.local_tax);
         const qty = l.quantity;
 
         acc.subtotalCents += pC * qty;

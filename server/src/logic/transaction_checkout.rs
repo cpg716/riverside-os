@@ -3571,11 +3571,14 @@ pub async fn execute_checkout(
                 resolve_checkout_tax_category_tx(&mut tx, item.variant_id).await?;
             let logic_tax_cat = match item.tax_category_override {
                 Some(
-                    category @ (TaxCategory::Clothing | TaxCategory::Footwear | TaxCategory::Other),
+                    category @ (TaxCategory::Clothing
+                    | TaxCategory::Footwear
+                    | TaxCategory::Service
+                    | TaxCategory::Other),
                 ) => category,
-                Some(TaxCategory::Accessory | TaxCategory::Service) => {
+                Some(TaxCategory::Accessory) => {
                     return Err(CheckoutError::InvalidPayload(
-                        "tax_category_override may only be clothing, footwear, or other"
+                        "tax_category_override may only be clothing, footwear, service, or other"
                             .to_string(),
                     ));
                 }
@@ -3583,6 +3586,10 @@ pub async fn execute_checkout(
             };
 
             let pos_kind = fetch_variant_pos_line_kind(&mut *tx, item.variant_id).await?;
+            let is_shipping_charge = resolved_variants
+                .get(&item.variant_id)
+                .map(|resolved| checkout_validate::is_shipping_charge_sku(&resolved.sku))
+                .unwrap_or(false);
             // Internal POS-only service/payment lines must remain non-taxable.
             let (state_tax, local_tax) = if matches!(
                 pos_kind.as_deref(),
@@ -3590,7 +3597,8 @@ pub async fn execute_checkout(
                     | Some("pos_gift_card_load")
                     | Some("staff_account_payment")
                     | Some("alteration_service")
-            ) {
+            ) || is_shipping_charge
+            {
                 (Decimal::ZERO, Decimal::ZERO)
             } else if payload.is_tax_exempt {
                 let original_state_tax = crate::logic::tax::nys_state_tax_usd(
