@@ -67,11 +67,25 @@ Creating a manual deposit or accepting a variance is an audited manager/bookkeep
 4. Replay only the stored failed update after its configuration or data problem is corrected.
 5. Confirm the replay attached existing provider evidence rather than creating a second charge.
 
+## Recover an approved card sale from a retained cart
+
+Use this only when **Health → Helcim Terminal Review** shows an approved charge and an **Exact retained cart found** card.
+
+1. Confirm the customer, parked-sale label, amount, Register number, provider transaction, and approval time all describe the same sale.
+2. Select **Recover Paid Sale**. This action requires payment-resolution access and Manager Access.
+3. Enter a specific recovery note explaining why Helcim approved the card but the ROS checkout did not finish.
+4. Type **RECOVER PAID SALE** in the second confirmation.
+5. Wait for the recovered Transaction number. Do not run the card again.
+6. Open the recovered Transaction and confirm its lines, customer, payment, balance, order status, and Helcim reference.
+
+ROS refuses recovery when the retained cart is missing or ambiguous, the cart total differs from the approval, the register sessions differ, the provider transaction is already linked, or the cart needs a specialized Wedding or Alterations workflow. A successful recovery creates the sale through normal checkout logic and records the manager, original operator, original approval time, parked cart, payment allocation, and Helcim match in one audited database transaction.
+
 ## What to watch for
 
 - Webhook received, checkout attached, and provider reference saved are different states.
 - A normal decline or cancellation is not an approved payment.
 - Never retry blindly after a terminal approval that Riverside has not attached.
+- Never use paid-sale recovery to force a near match. The exact retained-cart banner must be present.
 - Standalone processor refunds do not automatically create a sales return or rewrite merchandise history.
 - Do not resolve a reconciliation warning merely to make the dashboard green.
 

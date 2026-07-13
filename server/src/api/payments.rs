@@ -358,6 +358,10 @@ pub fn router() -> Router<AppState> {
             post(create_helcim_terminal_recovery_action),
         )
         .route(
+            "/providers/helcim/terminal/recover-paid-parked-sale",
+            post(recover_paid_parked_sale),
+        )
+        .route(
             "/providers/helcim/terminal/card-terminals",
             get(list_helcim_card_terminals),
         )
@@ -1267,6 +1271,10 @@ pub struct HelcimTerminalReviewAttemptRow {
     pub completed_at: Option<DateTime<Utc>>,
     pub label: String,
     pub detail: String,
+    pub parked_sale_id: Option<Uuid>,
+    pub parked_sale_label: Option<String>,
+    pub parked_customer_name: Option<String>,
+    pub parked_sale_match_count: i64,
     pub recovery_actions: Vec<HelcimTerminalRecoveryActionRow>,
 }
 
@@ -1311,6 +1319,21 @@ pub struct HelcimTerminalRecoveryActionRequest {
 #[derive(Debug, Serialize)]
 pub struct HelcimTerminalRecoveryActionResponse {
     pub action: HelcimTerminalRecoveryActionRow,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RecoverPaidParkedSaleRequest {
+    pub parked_sale_id: Uuid,
+    pub payment_provider_attempt_id: Uuid,
+    pub confirmation: String,
+    pub note: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RecoverPaidParkedSaleResponse {
+    pub transaction_id: Uuid,
+    pub transaction_display_id: String,
+    pub status: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -3658,9 +3681,41 @@ async fn get_helcim_events_health(
             ppa.error_message,
             ppa.created_at,
             ppa.updated_at,
-            ppa.completed_at
+            ppa.completed_at,
+            parked.id AS parked_sale_id,
+            parked.label AS parked_sale_label,
+            parked.customer_name AS parked_customer_name,
+            COALESCE(parked.match_count, 0)::bigint AS parked_sale_match_count
         FROM payment_provider_attempts ppa
         LEFT JOIN register_sessions rs ON rs.id = ppa.register_session_id
+        LEFT JOIN LATERAL (
+            SELECT candidate.*, COUNT(*) OVER ()::bigint AS match_count
+            FROM (
+                SELECT
+                    sale.id,
+                    sale.label,
+                    CONCAT_WS(' ', customer.first_name, customer.last_name) AS customer_name,
+                    ABS(EXTRACT(EPOCH FROM (sale.created_at - COALESCE(ppa.completed_at, ppa.updated_at)))) AS time_distance
+                FROM pos_parked_sale sale
+                LEFT JOIN customers customer ON customer.id = sale.customer_id
+                WHERE sale.register_session_id = ppa.register_session_id
+                  AND sale.status IN ('parked', 'deleted')
+                  AND sale.created_at BETWEEN ppa.created_at - interval '5 minutes'
+                                          AND COALESCE(ppa.completed_at, ppa.updated_at) + interval '30 minutes'
+                  AND (
+                    SELECT ROUND(COALESCE(SUM(
+                        COALESCE((line->>'quantity')::numeric, 0) * (
+                            COALESCE((line->>'standard_retail_price')::numeric, 0)
+                            + COALESCE((line->>'state_tax')::numeric, 0)
+                            + COALESCE((line->>'local_tax')::numeric, 0)
+                        )
+                    ), 0), 2)
+                    FROM jsonb_array_elements(COALESCE(sale.payload_json->'lines', '[]'::jsonb)) line
+                  ) = ROUND(ppa.amount_cents::numeric / 100, 2)
+            ) candidate
+            ORDER BY candidate.time_distance ASC
+            LIMIT 1
+        ) parked ON TRUE
         WHERE ppa.provider = 'helcim'
           AND ppa.status IN ('approved', 'captured')
           AND COALESCE(ppa.completed_at, ppa.updated_at) >= now() - interval '7 days'
@@ -3843,6 +3898,10 @@ async fn get_helcim_events_health(
                 completed_at: attempt.get("completed_at"),
                 label,
                 detail,
+                parked_sale_id: attempt.get("parked_sale_id"),
+                parked_sale_label: attempt.get("parked_sale_label"),
+                parked_customer_name: attempt.get("parked_customer_name"),
+                parked_sale_match_count: attempt.get("parked_sale_match_count"),
                 recovery_actions: recovery_actions
                     .remove(&("payment_provider_attempt".to_string(), id))
                     .unwrap_or_default(),
@@ -3968,6 +4027,53 @@ async fn create_helcim_terminal_recovery_action(
 
     Ok(Json(HelcimTerminalRecoveryActionResponse {
         action: helcim_terminal_recovery_action_from_row(&row),
+    }))
+}
+
+async fn recover_paid_parked_sale(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<RecoverPaidParkedSaleRequest>,
+) -> Result<Json<RecoverPaidParkedSaleResponse>, PaymentError> {
+    let staff = require_payment_permission_any(
+        &state,
+        &headers,
+        PAYMENTS_RECONCILE_RESOLVE,
+        &[PAYMENTS_RECONCILE],
+    )
+    .await?;
+
+    let outcome = crate::logic::helcim_parked_recovery::recover_paid_parked_sale(
+        &state.db,
+        &state.http_client,
+        state.global_employee_markup,
+        crate::logic::helcim_parked_recovery::RecoverPaidParkedSaleRequest {
+            parked_sale_id: payload.parked_sale_id,
+            payment_provider_attempt_id: payload.payment_provider_attempt_id,
+            authorized_by_staff_id: staff.id,
+            confirmation: payload.confirmation,
+            note: payload.note,
+        },
+    )
+    .await
+    .map_err(|error| PaymentError::InvalidPayload(error.to_string()))?;
+
+    let (transaction_id, transaction_display_id, status) = match outcome {
+        crate::logic::transaction_checkout::CheckoutDone::Completed {
+            transaction_id,
+            display_id,
+            ..
+        } => (transaction_id, display_id, "recovered"),
+        crate::logic::transaction_checkout::CheckoutDone::Idempotent {
+            transaction_id,
+            display_id,
+        } => (transaction_id, display_id, "already_recovered"),
+    };
+
+    Ok(Json(RecoverPaidParkedSaleResponse {
+        transaction_id,
+        transaction_display_id,
+        status: status.to_string(),
     }))
 }
 

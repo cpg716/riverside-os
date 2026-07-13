@@ -1,4 +1,4 @@
-use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
+use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeZone, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -935,13 +935,23 @@ fn timestamp_from_value(value: &Value) -> Option<DateTime<Utc>> {
         .or_else(|| {
             NaiveDateTime::parse_from_str(&raw, "%Y-%m-%d %H:%M:%S")
                 .ok()
-                .map(|value| value.and_utc())
+                .and_then(|value| {
+                    chrono_tz::America::Edmonton
+                        .from_local_datetime(&value)
+                        .single()
+                        .map(|value| value.with_timezone(&Utc))
+                })
         })
         .or_else(|| {
             NaiveDate::parse_from_str(&raw, "%Y-%m-%d")
                 .ok()
                 .and_then(|value| value.and_hms_opt(0, 0, 0))
-                .map(|value| value.and_utc())
+                .and_then(|value| {
+                    chrono_tz::America::Edmonton
+                        .from_local_datetime(&value)
+                        .single()
+                        .map(|value| value.with_timezone(&Utc))
+                })
         })
 }
 
@@ -2113,6 +2123,14 @@ mod tests {
             invoice_number_from_payload(&payload).as_deref(),
             Some("ROS-abc")
         );
+    }
+
+    #[test]
+    fn timezone_free_helcim_timestamp_uses_mountain_time() {
+        let parsed = timestamp_from_value(&json!("2026-07-11 10:48:28"))
+            .expect("Helcim timestamp should parse");
+
+        assert_eq!(parsed.to_rfc3339(), "2026-07-11T16:48:28+00:00");
     }
 
     #[test]

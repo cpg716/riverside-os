@@ -1,6 +1,6 @@
 //! POS checkout: split resolution, validation, and transactional persistence.
 
-use chrono::{NaiveDate, NaiveDateTime, Utc};
+use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
@@ -55,6 +55,15 @@ pub enum CheckoutError {
     InvalidPayload(String),
     #[error(transparent)]
     Database(#[from] sqlx::Error),
+}
+
+#[derive(Debug, Clone)]
+pub struct CheckoutRecoveryContext {
+    pub parked_sale_id: Uuid,
+    pub payment_provider_attempt_id: Uuid,
+    pub authorized_by_staff_id: Uuid,
+    pub approved_at: DateTime<Utc>,
+    pub note: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1966,7 +1975,27 @@ pub async fn execute_checkout(
     pool: &PgPool,
     http: &reqwest::Client,
     global_employee_markup: Decimal,
+    payload: CheckoutRequest,
+) -> Result<CheckoutDone, CheckoutError> {
+    execute_checkout_internal(pool, http, global_employee_markup, payload, None).await
+}
+
+pub async fn execute_recovery_checkout(
+    pool: &PgPool,
+    http: &reqwest::Client,
+    global_employee_markup: Decimal,
+    payload: CheckoutRequest,
+    recovery: CheckoutRecoveryContext,
+) -> Result<CheckoutDone, CheckoutError> {
+    execute_checkout_internal(pool, http, global_employee_markup, payload, Some(recovery)).await
+}
+
+async fn execute_checkout_internal(
+    pool: &PgPool,
+    http: &reqwest::Client,
+    global_employee_markup: Decimal,
     mut payload: CheckoutRequest,
+    recovery: Option<CheckoutRecoveryContext>,
 ) -> Result<CheckoutDone, CheckoutError> {
     let checkout_started = Instant::now();
     let has_wedding_disbursements = payload
@@ -2339,8 +2368,12 @@ pub async fn execute_checkout(
         None
     };
 
+    let discount_authority_staff_id = recovery
+        .as_ref()
+        .map(|context| context.authorized_by_staff_id)
+        .unwrap_or(payload.operator_staff_id);
     let max_disc_pct =
-        pricing_limits::max_discount_percent_for_staff(pool, payload.operator_staff_id).await?;
+        pricing_limits::max_discount_percent_for_staff(pool, discount_authority_staff_id).await?;
 
     for item in &payload.items {
         let reason = item
@@ -3045,12 +3078,15 @@ pub async fn execute_checkout(
         SELECT id
         FROM register_sessions
         WHERE id = $1
-          AND is_open = true
-          AND lifecycle_status = 'open'
+          AND (
+            (is_open = true AND lifecycle_status = 'open')
+            OR $2::boolean = true
+          )
         FOR UPDATE
         "#,
     )
     .bind(payload.session_id)
+    .bind(recovery.is_some())
     .fetch_optional(&mut *tx)
     .await?;
 
@@ -4394,13 +4430,14 @@ pub async fn execute_checkout(
                     payment_provider, provider_payment_id, provider_status,
                     provider_terminal_id, provider_transaction_id, provider_auth_code,
                     provider_card_type, merchant_fee, net_amount, card_brand, card_last4,
-                    check_number
+                    check_number, created_at, occurred_at
                 )
                 VALUES (
                     $1, $2, $3, $4, $5,
                     COALESCE($6::date, (CURRENT_TIMESTAMP AT TIME ZONE reporting.effective_store_timezone())::date),
                     $7, $8, $9, $10,
-                    $11, $12, $13, $14, $15, $16, $17, $18, $19
+                    $11, $12, $13, $14, $15, $16, $17, $18, $19,
+                    COALESCE($20, CURRENT_TIMESTAMP), COALESCE($20, CURRENT_TIMESTAMP)
                 )
                 RETURNING id
                 "#,
@@ -4424,8 +4461,41 @@ pub async fn execute_checkout(
             .bind(&split.card_brand)
             .bind(&split.card_last4)
             .bind(&split.check_number)
+            .bind(recovery.as_ref().map(|context| context.approved_at))
             .fetch_one(&mut *tx)
             .await?;
+
+            if recovery.is_some() && split.payment_provider.as_deref() == Some("helcim") {
+                let provider_transaction_id =
+                    split.provider_transaction_id.as_deref().ok_or_else(|| {
+                        CheckoutError::InvalidPayload(
+                            "Recovered Helcim payment is missing its provider transaction ID"
+                                .to_string(),
+                        )
+                    })?;
+                let linked = sqlx::query(
+                    r#"
+                    UPDATE payment_provider_batch_transactions
+                    SET payment_transaction_id = $1,
+                        match_status = 'matched',
+                        match_type = 'recovered_parked_sale',
+                        updated_at = now()
+                    WHERE provider = 'helcim'
+                      AND provider_transaction_id = $2
+                      AND payment_transaction_id IS NULL
+                    "#,
+                )
+                .bind(payment_tx_id)
+                .bind(provider_transaction_id)
+                .execute(&mut *tx)
+                .await?
+                .rows_affected();
+                if linked != 1 {
+                    return Err(CheckoutError::InvalidPayload(
+                        "Helcim processor payment is missing or already linked".to_string(),
+                    ));
+                }
+            }
 
             if pos_rms_charge::is_rms_method(method) {
                 let rms_record_id = pos_rms_charge::insert_rms_record(
@@ -4844,6 +4914,73 @@ pub async fn execute_checkout(
     transaction_recalc::recalc_transaction_totals(&mut tx, transaction_id)
         .await
         .map_err(CheckoutError::Database)?;
+
+    if let Some(context) = recovery.as_ref() {
+        let parked_updated = sqlx::query(
+            r#"
+            UPDATE pos_parked_sale
+            SET status = 'recalled',
+                recalled_at = COALESCE(recalled_at, now()),
+                recalled_by_staff_id = $2,
+                updated_at = now()
+            WHERE id = $1
+              AND register_session_id = $3
+              AND status IN ('parked', 'deleted')
+            "#,
+        )
+        .bind(context.parked_sale_id)
+        .bind(context.authorized_by_staff_id)
+        .bind(payload.session_id)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        if parked_updated != 1 {
+            return Err(CheckoutError::InvalidPayload(
+                "Parked sale is no longer available for recovery".to_string(),
+            ));
+        }
+
+        let recovery_metadata = json!({
+            "transaction_id": transaction_id,
+            "transaction_display_id": transaction_display_id,
+            "payment_provider_attempt_id": context.payment_provider_attempt_id,
+            "approved_at": context.approved_at,
+            "original_operator_staff_id": payload.operator_staff_id,
+            "authorized_by_staff_id": context.authorized_by_staff_id,
+            "note": context.note,
+        });
+        sqlx::query(
+            r#"
+            INSERT INTO pos_parked_sale_audit (
+                register_session_id, parked_sale_id, action, actor_staff_id, metadata
+            )
+            VALUES ($1, $2, 'recover_to_transaction', $3, $4)
+            "#,
+        )
+        .bind(payload.session_id)
+        .bind(context.parked_sale_id)
+        .bind(context.authorized_by_staff_id)
+        .bind(&recovery_metadata)
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query(
+            r#"
+            INSERT INTO helcim_terminal_recovery_actions (
+                source_kind, source_id, action, note, actor_staff_id, metadata
+            )
+            VALUES (
+                'payment_provider_attempt', $1, 'recovered_transaction', $2, $3, $4
+            )
+            "#,
+        )
+        .bind(context.payment_provider_attempt_id)
+        .bind(&context.note)
+        .bind(context.authorized_by_staff_id)
+        .bind(recovery_metadata)
+        .execute(&mut *tx)
+        .await?;
+    }
 
     let operator_staff_id = payload.operator_staff_id;
     let customer_id = payload.customer_id;

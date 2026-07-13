@@ -24,6 +24,7 @@ pub mod email;
 pub mod fal_sidecar;
 pub mod gift_card_ops;
 pub mod helcim;
+pub mod helcim_parked_recovery;
 pub mod help_corpus;
 pub mod help_manual_policy;
 pub mod importer;

@@ -260,6 +260,8 @@ Webhook receipt alone does not record a payment in ROS. Payments Health does not
 
 Unlinked Helcim approvals are reported during register close and in Payments Health so staff can repair the link or add a review note. They do not block closing the register or printing the final Z-Report.
 
+When Payments Health finds one exact retained parked cart for an unlinked approval, a manager with payment-resolution access can use **Recover Paid Sale**. Verify the customer, amount, Register number, provider transaction, and time; enter the required recovery reason; then type **RECOVER PAID SALE**. ROS creates the missing Transaction Record through the normal checkout ledger, links the existing Helcim approval without charging the card again, restores the original approval time, and records both the original operator and recovery manager. If ROS reports no match, multiple matches, an amount difference, or a specialized Wedding/Alterations cart, stop and investigate rather than forcing recovery.
+
 If the webhook signing secret is missing or wrong, ROS rejects the delivery before it enters Payments Health. Ask an admin to check server logs and Settings → Helcim before assuming Helcim did not send anything.
 
 ## Register terminal routing

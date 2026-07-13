@@ -4,6 +4,7 @@ import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { useToast } from "../ui/ToastProviderLogic";
 import DetailDrawer from "../layout/DetailDrawer";
 import ConfirmationModal from "../ui/ConfirmationModal";
+import PromptModal from "../ui/PromptModal";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -209,6 +210,10 @@ type HelcimTerminalReviewAttempt = {
   completed_at: string | null;
   label: string;
   detail: string;
+  parked_sale_id: string | null;
+  parked_sale_label: string | null;
+  parked_customer_name: string | null;
+  parked_sale_match_count: number;
   recovery_actions: HelcimTerminalRecoveryAction[];
 };
 
@@ -1308,6 +1313,32 @@ export default function PaymentsWorkspace({
     [refresh, sendJson, toast],
   );
 
+  const recoverPaidParkedSale = useCallback(
+    async (attempt: HelcimTerminalReviewAttempt, note: string, confirmation: string) => {
+      try {
+        if (!attempt.parked_sale_id) {
+          throw new Error("No retained parked sale is available for this approval.");
+        }
+        const response = await sendJson<{ transaction_display_id: string }>(
+          "/api/payments/providers/helcim/terminal/recover-paid-parked-sale",
+          "POST",
+          {
+            parked_sale_id: attempt.parked_sale_id,
+            payment_provider_attempt_id: attempt.id,
+            confirmation,
+            note,
+          },
+        );
+        toast(`${response.transaction_display_id} recovered and linked to Helcim.`, "success");
+        await refresh();
+      } catch (error) {
+        toast(error instanceof Error ? error.message : "Paid sale recovery failed.", "error");
+        throw error;
+      }
+    },
+    [refresh, sendJson, toast],
+  );
+
   const replayFailedHelcimEvent = useCallback((eventId: string) => {
     if (!canSync) {
       toast("Webhook replay requires payment sync access.", "error");
@@ -1568,6 +1599,7 @@ export default function PaymentsWorkspace({
                 onSyncFees={() => void runSync("fees")}
                 onPingDevice={(code) => void pingDevice(code)}
                 onRecordRecoveryAction={recordHelcimRecoveryAction}
+                onRecoverPaidParkedSale={recoverPaidParkedSale}
                 onReplayFailedEvent={replayFailedHelcimEvent}
               />
             )}
@@ -2314,6 +2346,7 @@ function HealthPanel({
   onSyncFees,
   onPingDevice,
   onRecordRecoveryAction,
+  onRecoverPaidParkedSale,
   onReplayFailedEvent,
 }: {
   surface?: "backoffice" | "pos";
@@ -2341,10 +2374,18 @@ function HealthPanel({
     action: HelcimTerminalRecoveryActionName,
     note: string,
   ) => Promise<void>;
+  onRecoverPaidParkedSale: (
+    attempt: HelcimTerminalReviewAttempt,
+    note: string,
+    confirmation: string,
+  ) => Promise<void>;
 }) {
   const posSurface = surface === "pos";
   const terminalReviewAttempts = health?.terminal_review_attempts ?? [];
   const terminalReviewEvents = health?.terminal_review_events ?? [];
+  const [recoveryNoteAttempt, setRecoveryNoteAttempt] = useState<HelcimTerminalReviewAttempt | null>(null);
+  const [recoveryConfirmAttempt, setRecoveryConfirmAttempt] = useState<HelcimTerminalReviewAttempt | null>(null);
+  const [recoveryNote, setRecoveryNote] = useState("");
   const unlinkedApprovalCount = terminalReviewAttempts.length + terminalReviewEvents.length;
   const paymentAlertCount =
     (posSurface || !lastError ? 0 : 1) +
@@ -2516,6 +2557,25 @@ function HealthPanel({
                         <StatusPill value={attempt.status} />
                       </div>
                       <p className="mt-3 text-sm font-semibold text-app-text-muted">{attempt.detail}</p>
+                      {attempt.parked_sale_id && attempt.parked_sale_match_count === 1 ? (
+                        <div className="mt-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3">
+                          <div className="text-sm font-black text-app-text">Exact retained cart found</div>
+                          <div className="mt-1 text-xs font-semibold text-app-text-muted">
+                            {attempt.parked_customer_name || "Linked customer"} · {attempt.parked_sale_label || "Parked sale"} · {money(attempt.amount)}
+                          </div>
+                          {canRecoveryResolve ? (
+                            <button
+                              type="button"
+                              className="mt-3 rounded-lg bg-app-accent px-3 py-2 text-sm font-black text-white"
+                              onClick={() => setRecoveryNoteAttempt(attempt)}
+                            >
+                              Recover Paid Sale
+                            </button>
+                          ) : null}
+                        </div>
+                      ) : attempt.parked_sale_match_count > 1 ? (
+                        <div className="mt-3 text-xs font-bold text-amber-800">More than one retained cart matches. Manual review is required.</div>
+                      ) : null}
                       <div className="mt-3 grid gap-2 text-xs font-semibold text-app-text-muted sm:grid-cols-2">
                         <span>Terminal {attempt.terminal_id ?? attempt.device_id ?? "Not ready"}</span>
                         <span>Provider transaction {attempt.provider_transaction_id ?? "Not attached"}</span>
@@ -2679,6 +2739,35 @@ function HealthPanel({
         </button>
       </div>
       ) : null}
+      <PromptModal
+        isOpen={recoveryNoteAttempt !== null}
+        onClose={() => setRecoveryNoteAttempt(null)}
+        onSubmit={(value) => {
+          const trimmed = value.trim();
+          if (trimmed.length < 10) return false;
+          setRecoveryNote(trimmed);
+          setRecoveryConfirmAttempt(recoveryNoteAttempt);
+          return true;
+        }}
+        title="Paid Sale Recovery Note"
+        message="Explain why this approved Helcim payment must be converted from the retained parked cart. At least 10 characters are required."
+        placeholder="Required recovery reason"
+        confirmLabel="Continue"
+      />
+      <PromptModal
+        isOpen={recoveryConfirmAttempt !== null}
+        onClose={() => setRecoveryConfirmAttempt(null)}
+        onSubmit={async (value) => {
+          if (value.trim() !== "RECOVER PAID SALE" || !recoveryConfirmAttempt) return false;
+          await onRecoverPaidParkedSale(recoveryConfirmAttempt, recoveryNote, value.trim());
+          setRecoveryNote("");
+          return true;
+        }}
+        title="Confirm Financial Recovery"
+        message="This creates the missing ROS transaction from the exact retained cart and links the existing approved Helcim charge. It does not charge the card again. Type RECOVER PAID SALE to continue."
+        placeholder="RECOVER PAID SALE"
+        confirmLabel="Recover and Link"
+      />
     </div>
   );
 }
