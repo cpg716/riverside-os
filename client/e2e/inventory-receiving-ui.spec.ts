@@ -168,7 +168,9 @@ test.describe("Inventory receiving operator verification", () => {
 
     await expect(page.getByText(quickSku)).toBeVisible({ timeout: 20_000 });
     await page.locator("#drawer-root").getByRole("button", { name: /^add line$/i }).click();
-    await expect(page.locator("#drawer-root").getByText(quickSku)).toBeVisible({ timeout: 20_000 });
+    await expect(
+      page.locator("#drawer-root").getByText(quickSku, { exact: true }),
+    ).toBeVisible({ timeout: 20_000 });
   });
 
   test("standard PO can be submitted, staged without stock mutation, and then received", async ({
