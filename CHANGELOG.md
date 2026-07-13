@@ -27,7 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - **PostgreSQL 16 Operations Guidance**: Updated replication and WAL paths to the deployed PostgreSQL 16 baseline and replaced obsolete `recovery.conf` instructions with `standby.signal` guidance.
-- **v0.95.0 Release Evidence**: Updated README, release notes, and certification to the verified `86724e73` rebuild, exact-SHA CI, candidate-build and promotion runs, updater-manifest verification, and deployment ZIP name.
+- **v0.95.0 Release Evidence**: Updated README, release notes, and certification to corrected build `c362e634`, exact-SHA CI, final Windows/macOS candidate and promotion runs, fresh updater-manifest verification, the replacement deployment ZIP, and the remaining physical Main Hub verification hold.
 
 ## [0.95.0] - 2026-07-11
 
