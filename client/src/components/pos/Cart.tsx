@@ -67,6 +67,7 @@ import PosAlterationIntakeModal from "./PosAlterationIntakeModal";
 import ManagerApprovalModal from "./ManagerApprovalModal";
 import PromptModal from "../ui/PromptModal";
 import PosSuitSwapWizard from "./PosSuitSwapWizard";
+import { hasApprovedProviderPayment } from "./paymentLineGuards";
 
 export type { CheckoutPayload } from "./types";
 
@@ -435,6 +436,10 @@ export default function Cart({
   const [posShipping, setPosShipping] = useState<PosShippingSelection | null>(null);
   const [checkoutAppliedPayments, setCheckoutAppliedPayments] = useState<AppliedPaymentLine[]>([]);
   const [checkoutDepositLedger, setCheckoutDepositLedger] = useState("");
+  const approvedProviderPaymentInCheckout = useMemo(
+    () => hasApprovedProviderPayment(checkoutAppliedPayments),
+    [checkoutAppliedPayments],
+  );
   const [saleDateTimeLocal, setSaleDateTimeLocal] = useState<string | null>(null);
   const [pickupConfirmed, setPickupConfirmed] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
@@ -2946,6 +2951,10 @@ export default function Cart({
                 type="button"
                 disabled={lines.length === 0}
                 onClick={() => {
+                   if (approvedProviderPaymentInCheckout) {
+                     toast("This sale has an approved card payment. Record the sale before parking it.", "error");
+                     return;
+                   }
                    const label = selectedCustomer ? `Sale for ${selectedCustomer.first_name} ${selectedCustomer.last_name}` : "Untitled Sale";
                    setParkSaleDraftLabel(label);
                    setParkSalePromptOpen(true);
@@ -2960,7 +2969,13 @@ export default function Cart({
               <button
                 type="button"
                 disabled={lines.length === 0 && !selectedCustomer}
-                onClick={() => setShowClearConfirm(true)}
+                onClick={() => {
+                  if (approvedProviderPaymentInCheckout) {
+                    toast("This sale has an approved card payment. Record the sale instead of clearing it.", "error");
+                    return;
+                  }
+                  setShowClearConfirm(true);
+                }}
                 className="ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border border-app-danger/60 bg-app-danger/10 px-2 text-center text-app-danger shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-danger hover:text-white disabled:cursor-not-allowed disabled:border-app-border disabled:bg-app-surface-3 disabled:text-app-text-muted disabled:opacity-80 disabled:shadow-none disabled:hover:bg-app-surface-3 disabled:hover:text-app-text-muted dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px]"
               >
                 <RotateCcw size={20} />
@@ -4491,6 +4506,11 @@ export default function Cart({
         isOpen={showClearConfirm}
         onClose={() => setShowClearConfirm(false)}
         onConfirm={() => {
+          if (approvedProviderPaymentInCheckout) {
+            setShowClearConfirm(false);
+            toast("This sale has an approved card payment and cannot be cleared.", "error");
+            return;
+          }
           clearCartAndAlterations();
           setShowClearConfirm(false);
           toast("Cart cleared", "info");

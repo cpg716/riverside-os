@@ -1339,6 +1339,37 @@ export default function PaymentsWorkspace({
     [refresh, sendJson, toast],
   );
 
+  const recoverPaidOrderPayment = useCallback(
+    async (
+      attempt: HelcimTerminalReviewAttempt,
+      targetTransactionDisplayId: string,
+      note: string,
+      confirmation: string,
+    ) => {
+      try {
+        const response = await sendJson<{ target_transaction_display_id: string }>(
+          "/api/payments/providers/helcim/terminal/recover-paid-order-payment",
+          "POST",
+          {
+            target_transaction_display_id: targetTransactionDisplayId,
+            payment_provider_attempt_id: attempt.id,
+            confirmation,
+            note,
+          },
+        );
+        toast(
+          `Payment recovered and linked to ${response.target_transaction_display_id}.`,
+          "success",
+        );
+        await refresh();
+      } catch (error) {
+        toast(error instanceof Error ? error.message : "Order payment recovery failed.", "error");
+        throw error;
+      }
+    },
+    [refresh, sendJson, toast],
+  );
+
   const replayFailedHelcimEvent = useCallback((eventId: string) => {
     if (!canSync) {
       toast("Webhook replay requires payment sync access.", "error");
@@ -1600,6 +1631,7 @@ export default function PaymentsWorkspace({
                 onPingDevice={(code) => void pingDevice(code)}
                 onRecordRecoveryAction={recordHelcimRecoveryAction}
                 onRecoverPaidParkedSale={recoverPaidParkedSale}
+                onRecoverPaidOrderPayment={recoverPaidOrderPayment}
                 onReplayFailedEvent={replayFailedHelcimEvent}
               />
             )}
@@ -2347,6 +2379,7 @@ function HealthPanel({
   onPingDevice,
   onRecordRecoveryAction,
   onRecoverPaidParkedSale,
+  onRecoverPaidOrderPayment,
   onReplayFailedEvent,
 }: {
   surface?: "backoffice" | "pos";
@@ -2379,6 +2412,12 @@ function HealthPanel({
     note: string,
     confirmation: string,
   ) => Promise<void>;
+  onRecoverPaidOrderPayment: (
+    attempt: HelcimTerminalReviewAttempt,
+    targetTransactionDisplayId: string,
+    note: string,
+    confirmation: string,
+  ) => Promise<void>;
 }) {
   const posSurface = surface === "pos";
   const terminalReviewAttempts = health?.terminal_review_attempts ?? [];
@@ -2386,6 +2425,11 @@ function HealthPanel({
   const [recoveryNoteAttempt, setRecoveryNoteAttempt] = useState<HelcimTerminalReviewAttempt | null>(null);
   const [recoveryConfirmAttempt, setRecoveryConfirmAttempt] = useState<HelcimTerminalReviewAttempt | null>(null);
   const [recoveryNote, setRecoveryNote] = useState("");
+  const [orderRecoveryAttempt, setOrderRecoveryAttempt] = useState<HelcimTerminalReviewAttempt | null>(null);
+  const [orderRecoveryNoteAttempt, setOrderRecoveryNoteAttempt] = useState<HelcimTerminalReviewAttempt | null>(null);
+  const [orderRecoveryConfirmAttempt, setOrderRecoveryConfirmAttempt] = useState<HelcimTerminalReviewAttempt | null>(null);
+  const [orderRecoveryTarget, setOrderRecoveryTarget] = useState("");
+  const [orderRecoveryNote, setOrderRecoveryNote] = useState("");
   const unlinkedApprovalCount = terminalReviewAttempts.length + terminalReviewEvents.length;
   const paymentAlertCount =
     (posSurface || !lastError ? 0 : 1) +
@@ -2575,6 +2619,20 @@ function HealthPanel({
                         </div>
                       ) : attempt.parked_sale_match_count > 1 ? (
                         <div className="mt-3 text-xs font-bold text-amber-800">More than one retained cart matches. Manual review is required.</div>
+                      ) : canRecoveryResolve ? (
+                        <div className="mt-3 rounded-lg border border-app-border bg-app-surface p-3">
+                          <div className="text-sm font-black text-app-text">Payment for an existing order?</div>
+                          <div className="mt-1 text-xs font-semibold text-app-text-muted">
+                            Use only when the terminal receipt and customer account confirm the exact target Transaction Record.
+                          </div>
+                          <button
+                            type="button"
+                            className="mt-3 rounded-lg border border-app-accent px-3 py-2 text-sm font-black text-app-accent"
+                            onClick={() => setOrderRecoveryAttempt(attempt)}
+                          >
+                            Recover Order Payment
+                          </button>
+                        </div>
                       ) : null}
                       <div className="mt-3 grid gap-2 text-xs font-semibold text-app-text-muted sm:grid-cols-2">
                         <span>Terminal {attempt.terminal_id ?? attempt.device_id ?? "Not ready"}</span>
@@ -2766,6 +2824,61 @@ function HealthPanel({
         title="Confirm Financial Recovery"
         message="This creates the missing ROS transaction from the exact retained cart and links the existing approved Helcim charge. It does not charge the card again. Type RECOVER PAID SALE to continue."
         placeholder="RECOVER PAID SALE"
+        confirmLabel="Recover and Link"
+      />
+      <PromptModal
+        isOpen={orderRecoveryAttempt !== null}
+        onClose={() => setOrderRecoveryAttempt(null)}
+        onSubmit={(value) => {
+          const target = value.trim().toUpperCase();
+          if (!/^TXN-\d+$/.test(target) || !orderRecoveryAttempt) return false;
+          setOrderRecoveryTarget(target);
+          setOrderRecoveryNoteAttempt(orderRecoveryAttempt);
+          return true;
+        }}
+        title="Target Transaction Record"
+        message="Enter the exact open Transaction Record that should receive this approved Helcim payment. Confirm the terminal receipt, amount, and customer first."
+        placeholder="TXN-######"
+        confirmLabel="Continue"
+      />
+      <PromptModal
+        isOpen={orderRecoveryNoteAttempt !== null}
+        onClose={() => setOrderRecoveryNoteAttempt(null)}
+        onSubmit={(value) => {
+          const trimmed = value.trim();
+          if (trimmed.length < 10 || !orderRecoveryNoteAttempt) return false;
+          setOrderRecoveryNote(trimmed);
+          setOrderRecoveryConfirmAttempt(orderRecoveryNoteAttempt);
+          return true;
+        }}
+        title="Order Payment Recovery Note"
+        message={`Explain why this approved Helcim payment belongs on ${orderRecoveryTarget}. At least 10 characters are required.`}
+        placeholder="Required recovery reason"
+        confirmLabel="Continue"
+      />
+      <PromptModal
+        isOpen={orderRecoveryConfirmAttempt !== null}
+        onClose={() => setOrderRecoveryConfirmAttempt(null)}
+        onSubmit={async (value) => {
+          if (
+            value.trim() !== "RECOVER ORDER PAYMENT" ||
+            !orderRecoveryConfirmAttempt
+          ) {
+            return false;
+          }
+          await onRecoverPaidOrderPayment(
+            orderRecoveryConfirmAttempt,
+            orderRecoveryTarget,
+            orderRecoveryNote,
+            value.trim(),
+          );
+          setOrderRecoveryTarget("");
+          setOrderRecoveryNote("");
+          return true;
+        }}
+        title="Confirm Order Payment Recovery"
+        message={`This links the existing approved Helcim charge to ${orderRecoveryTarget}, recalculates its balance, and records an audit entry. It does not charge the card again. Type RECOVER ORDER PAYMENT to continue.`}
+        placeholder="RECOVER ORDER PAYMENT"
         confirmLabel="Recover and Link"
       />
     </div>

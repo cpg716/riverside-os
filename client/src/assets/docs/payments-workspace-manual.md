@@ -80,11 +80,25 @@ Use this only when **Health → Helcim Terminal Review** shows an approved charg
 
 ROS refuses recovery when the retained cart is missing or ambiguous, the cart total differs from the approval, the register sessions differ, the provider transaction is already linked, or the cart needs a specialized Wedding or Alterations workflow. A successful recovery creates the sale through normal checkout logic and records the manager, original operator, original approval time, parked cart, payment allocation, and Helcim match in one audited database transaction.
 
+## Recover an approved card payment onto an existing order
+
+Use this only when the customer has an open Transaction Record, Helcim approved the payment, and no retained-cart match exists.
+
+1. Compare the terminal receipt, customer, amount, approval time, and provider transaction in **Health → Helcim Terminal Review**.
+2. Select **Recover Order Payment** on the exact approved terminal attempt.
+3. Enter the open target Transaction Record, such as `TXN-624363`.
+4. Enter a specific recovery note explaining why the approved payment was not recorded.
+5. Type **RECOVER ORDER PAYMENT** to authorize the financial recovery.
+6. Reopen the customer and target Transaction Record. Confirm the payment, remaining balance, customer history, and Helcim match.
+
+ROS refuses recovery when the target is missing, closed, belongs to no customer, has no order lines, has no balance, cannot accept the full approved amount, or the Helcim processor transaction is missing, mismatched, or already linked. The action uses the existing approval and never charges the card again.
+
 ## What to watch for
 
 - Webhook received, checkout attached, and provider reference saved are different states.
 - A normal decline or cancellation is not an approved payment.
 - Never retry blindly after a terminal approval that Riverside has not attached.
+- Approved provider payments cannot be removed, parked, or cleared from the active sale. Record the sale or use the audited recovery/refund workflow.
 - Never use paid-sale recovery to force a near match. The exact retained-cart banner must be present.
 - Standalone processor refunds do not automatically create a sales return or rewrite merchandise history.
 - Do not resolve a reconciliation warning merely to make the dashboard green.

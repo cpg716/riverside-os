@@ -58,8 +58,19 @@ pub enum CheckoutError {
 }
 
 #[derive(Debug, Clone)]
+pub enum CheckoutRecoverySource {
+    ParkedSale {
+        parked_sale_id: Uuid,
+    },
+    ExistingOrderPayment {
+        target_transaction_id: Uuid,
+        target_display_id: String,
+    },
+}
+
+#[derive(Debug, Clone)]
 pub struct CheckoutRecoveryContext {
-    pub parked_sale_id: Uuid,
+    pub source: CheckoutRecoverySource,
     pub payment_provider_attempt_id: Uuid,
     pub authorized_by_staff_id: Uuid,
     pub approved_at: DateTime<Utc>,
@@ -4466,6 +4477,13 @@ async fn execute_checkout_internal(
             .await?;
 
             if recovery.is_some() && split.payment_provider.as_deref() == Some("helcim") {
+                let recovery_match_type = match recovery.as_ref().map(|context| &context.source) {
+                    Some(CheckoutRecoverySource::ParkedSale { .. }) => "recovered_parked_sale",
+                    Some(CheckoutRecoverySource::ExistingOrderPayment { .. }) => {
+                        "recovered_order_payment"
+                    }
+                    None => unreachable!("recovery context is required"),
+                };
                 let provider_transaction_id =
                     split.provider_transaction_id.as_deref().ok_or_else(|| {
                         CheckoutError::InvalidPayload(
@@ -4478,7 +4496,7 @@ async fn execute_checkout_internal(
                     UPDATE payment_provider_batch_transactions
                     SET payment_transaction_id = $1,
                         match_status = 'matched',
-                        match_type = 'recovered_parked_sale',
+                        match_type = $3,
                         updated_at = now()
                     WHERE provider = 'helcim'
                       AND provider_transaction_id = $2
@@ -4487,6 +4505,7 @@ async fn execute_checkout_internal(
                 )
                 .bind(payment_tx_id)
                 .bind(provider_transaction_id)
+                .bind(recovery_match_type)
                 .execute(&mut *tx)
                 .await?
                 .rows_affected();
@@ -4916,31 +4935,7 @@ async fn execute_checkout_internal(
         .map_err(CheckoutError::Database)?;
 
     if let Some(context) = recovery.as_ref() {
-        let parked_updated = sqlx::query(
-            r#"
-            UPDATE pos_parked_sale
-            SET status = 'recalled',
-                recalled_at = COALESCE(recalled_at, now()),
-                recalled_by_staff_id = $2,
-                updated_at = now()
-            WHERE id = $1
-              AND register_session_id = $3
-              AND status IN ('parked', 'deleted')
-            "#,
-        )
-        .bind(context.parked_sale_id)
-        .bind(context.authorized_by_staff_id)
-        .bind(payload.session_id)
-        .execute(&mut *tx)
-        .await?
-        .rows_affected();
-        if parked_updated != 1 {
-            return Err(CheckoutError::InvalidPayload(
-                "Parked sale is no longer available for recovery".to_string(),
-            ));
-        }
-
-        let recovery_metadata = json!({
+        let mut recovery_metadata = json!({
             "transaction_id": transaction_id,
             "transaction_display_id": transaction_display_id,
             "payment_provider_attempt_id": context.payment_provider_attempt_id,
@@ -4949,20 +4944,75 @@ async fn execute_checkout_internal(
             "authorized_by_staff_id": context.authorized_by_staff_id,
             "note": context.note,
         });
-        sqlx::query(
-            r#"
-            INSERT INTO pos_parked_sale_audit (
-                register_session_id, parked_sale_id, action, actor_staff_id, metadata
-            )
-            VALUES ($1, $2, 'recover_to_transaction', $3, $4)
-            "#,
-        )
-        .bind(payload.session_id)
-        .bind(context.parked_sale_id)
-        .bind(context.authorized_by_staff_id)
-        .bind(&recovery_metadata)
-        .execute(&mut *tx)
-        .await?;
+        match &context.source {
+            CheckoutRecoverySource::ParkedSale { parked_sale_id } => {
+                let parked_updated = sqlx::query(
+                    r#"
+                    UPDATE pos_parked_sale
+                    SET status = 'recalled',
+                        recalled_at = COALESCE(recalled_at, now()),
+                        recalled_by_staff_id = $2,
+                        updated_at = now()
+                    WHERE id = $1
+                      AND register_session_id = $3
+                      AND status IN ('parked', 'deleted')
+                    "#,
+                )
+                .bind(parked_sale_id)
+                .bind(context.authorized_by_staff_id)
+                .bind(payload.session_id)
+                .execute(&mut *tx)
+                .await?
+                .rows_affected();
+                if parked_updated != 1 {
+                    return Err(CheckoutError::InvalidPayload(
+                        "Parked sale is no longer available for recovery".to_string(),
+                    ));
+                }
+
+                recovery_metadata["recovery_kind"] = json!("parked_sale");
+                recovery_metadata["parked_sale_id"] = json!(parked_sale_id);
+                sqlx::query(
+                    r#"
+                    INSERT INTO pos_parked_sale_audit (
+                        register_session_id, parked_sale_id, action, actor_staff_id, metadata
+                    )
+                    VALUES ($1, $2, 'recover_to_transaction', $3, $4)
+                    "#,
+                )
+                .bind(payload.session_id)
+                .bind(parked_sale_id)
+                .bind(context.authorized_by_staff_id)
+                .bind(&recovery_metadata)
+                .execute(&mut *tx)
+                .await?;
+            }
+            CheckoutRecoverySource::ExistingOrderPayment {
+                target_transaction_id,
+                target_display_id,
+            } => {
+                recovery_metadata["recovery_kind"] = json!("existing_order_payment");
+                recovery_metadata["target_transaction_id"] = json!(target_transaction_id);
+                recovery_metadata["target_display_id"] = json!(target_display_id);
+                sqlx::query(
+                    r#"
+                    INSERT INTO transaction_activity_log (
+                        transaction_id, customer_id, event_kind, summary, metadata
+                    )
+                    VALUES ($1, $2, 'payment_recovered', $3, $4)
+                    "#,
+                )
+                .bind(target_transaction_id)
+                .bind(payload.customer_id)
+                .bind(format!(
+                    "Recovered approved Helcim payment of ${:.2}",
+                    payload.amount_paid
+                ))
+                .bind(&recovery_metadata)
+                .execute(&mut *tx)
+                .await?;
+            }
+        }
 
         sqlx::query(
             r#"

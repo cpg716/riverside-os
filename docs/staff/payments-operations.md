@@ -89,6 +89,8 @@ Before pilot, rehearse these scenarios with the real terminal path the store wil
 
 Pilot rule: if the terminal and ROS disagree, stop the sale flow and get manager review. Do not create a second card attempt until the first attempt is checked from the Payment Status panel or Payments Health.
 
+Approved card payments are locked into the active sale: staff cannot remove the payment, park the sale, or clear the sale after approval. If an approved Helcim charge is missing from an existing customer order, a payment-resolution manager must open **Payments → Health**, select **Recover Order Payment**, enter the exact `TXN-######` target, document the reason, and complete the typed confirmation. ROS validates the live order balance and processor evidence, then records the payment, allocation, updated balance, Helcim match, and audit history together without charging the card again.
+
 ## Batches
 
 Use **Batches** to review Helcim processor batches.

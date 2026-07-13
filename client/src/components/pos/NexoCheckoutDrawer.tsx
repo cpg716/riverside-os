@@ -33,6 +33,7 @@ import {
   openDepositApplicationCents,
   type HeldOpenDeposit,
 } from "./openDeposit";
+import { isApprovedProviderPayment } from "./paymentLineGuards";
 
 // Cash rounding is configured in Settings → Register (Terminal Overrides).
 // Value is fetched from /api/settings/pos-station-config/public on drawer open.
@@ -2019,6 +2020,22 @@ export default function NexoCheckoutDrawer({
         toast("Use Helcim card reader, terminal refund, Card Not Present, or saved card.", "error");
         return;
       }
+      if (
+        helcimAttempt &&
+        (helcimAttempt.status === "approved" || helcimAttempt.status === "captured") &&
+        !hasAppliedHelcimAttempt(applied, helcimAttempt)
+      ) {
+        addApprovedHelcimAttempt(
+          helcimAttempt,
+          pendingHelcimTenderRef.current.method,
+          pendingHelcimTenderRef.current.label,
+        );
+        toast(
+          "The approved Helcim payment was restored. Record it before starting another card request.",
+          "error",
+        );
+        return;
+      }
       if (helcimAttempt?.status === "pending") {
         toast("A card outcome is still waiting.", "error");
         return;
@@ -2349,9 +2366,16 @@ export default function NexoCheckoutDrawer({
     setDonationNote("");
     setCheckNumber("");
     setRmsReferenceNumber("");
-  }, [giftCardCode, donationNote, checkNumber, remainingCents, cashRounding.rounded, tab, offlineCardApprovalCode, offlineCardLast4, offlineCardReason, providerSettings, providerSettingsLoading, helcimAttempt?.status, helcimAttemptOutcomeUnverified, clearHelcimAttemptState, registerLaneUnavailable, registerTerminalRoute, selectedTerminalKey, selectedTerminalConfigured, selectedTerminalInUseBy, selectedTerminalInUseByOtherRegister, selectedTerminalNeedsOverride, terminalOverrideConfirmed, registerLane, registerSessionId, refundOriginalTransactionId, refundOriginalCardPresentConfirmed, cardRefundRoute, baseUrl, backofficeHeaders, customerId, customerCode, toast, setApplied, rmsSelectedAccount, rmsPrograms, rmsSelectedProgramCode, rmsReferenceNumber, rmsSummary, rmsResolve, rmsPaymentCollectionMode, chargeSavedHelcimCard, loadProviderSettings, processHelcimApiRefund, startHostedManualCardPayment, storeCreditBalanceCents, storeCreditError, storeCreditLoading, staffAccount]);
+  }, [giftCardCode, donationNote, checkNumber, remainingCents, cashRounding.rounded, tab, offlineCardApprovalCode, offlineCardLast4, offlineCardReason, providerSettings, providerSettingsLoading, helcimAttempt, helcimAttemptOutcomeUnverified, clearHelcimAttemptState, registerLaneUnavailable, registerTerminalRoute, selectedTerminalKey, selectedTerminalConfigured, selectedTerminalInUseBy, selectedTerminalInUseByOtherRegister, selectedTerminalNeedsOverride, terminalOverrideConfirmed, registerLane, registerSessionId, refundOriginalTransactionId, refundOriginalCardPresentConfirmed, cardRefundRoute, baseUrl, backofficeHeaders, customerId, customerCode, toast, applied, setApplied, addApprovedHelcimAttempt, rmsSelectedAccount, rmsPrograms, rmsSelectedProgramCode, rmsReferenceNumber, rmsSummary, rmsResolve, rmsPaymentCollectionMode, chargeSavedHelcimCard, loadProviderSettings, processHelcimApiRefund, startHostedManualCardPayment, storeCreditBalanceCents, storeCreditError, storeCreditLoading, staffAccount]);
 
   const removePaymentLine = async (line: AppliedPaymentLine) => {
+    if (isApprovedProviderPayment(line)) {
+      toast(
+        "Approved provider payments cannot be removed. Record the sale, or use Payments Health for an audited recovery or refund.",
+        "error",
+      );
+      return;
+    }
     setApplied((prev) => prev.filter((row) => row.id !== line.id));
   };
 

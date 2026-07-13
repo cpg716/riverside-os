@@ -9,14 +9,24 @@ use uuid::Uuid;
 use crate::logic::tax::TaxCategory;
 use crate::logic::transaction_checkout::{
     execute_recovery_checkout, BelowCostApproval, CheckoutDone, CheckoutError, CheckoutItem,
-    CheckoutPaymentSplit, CheckoutRecoveryContext, CheckoutRequest,
+    CheckoutOrderPayment, CheckoutPaymentSplit, CheckoutRecoveryContext, CheckoutRecoverySource,
+    CheckoutRequest,
 };
 use crate::models::{DbFulfillmentType, DbOrderItemLifecycleStatus};
 
 const CONFIRMATION_TEXT: &str = "RECOVER PAID SALE";
+const ORDER_PAYMENT_CONFIRMATION_TEXT: &str = "RECOVER ORDER PAYMENT";
 
 pub struct RecoverPaidParkedSaleRequest {
     pub parked_sale_id: Uuid,
+    pub payment_provider_attempt_id: Uuid,
+    pub authorized_by_staff_id: Uuid,
+    pub confirmation: String,
+    pub note: String,
+}
+
+pub struct RecoverPaidOrderPaymentRequest {
+    pub target_transaction_display_id: String,
     pub payment_provider_attempt_id: Uuid,
     pub authorized_by_staff_id: Uuid,
     pub confirmation: String,
@@ -350,7 +360,228 @@ pub async fn recover_paid_parked_sale(
         global_employee_markup,
         checkout,
         CheckoutRecoveryContext {
-            parked_sale_id: request.parked_sale_id,
+            source: CheckoutRecoverySource::ParkedSale {
+                parked_sale_id: request.parked_sale_id,
+            },
+            payment_provider_attempt_id: request.payment_provider_attempt_id,
+            authorized_by_staff_id: request.authorized_by_staff_id,
+            approved_at,
+            note: note.to_string(),
+        },
+    )
+    .await
+}
+
+pub async fn recover_paid_order_payment(
+    pool: &PgPool,
+    http: &reqwest::Client,
+    global_employee_markup: Decimal,
+    request: RecoverPaidOrderPaymentRequest,
+) -> Result<CheckoutDone, CheckoutError> {
+    if request.confirmation.trim() != ORDER_PAYMENT_CONFIRMATION_TEXT {
+        return Err(invalid(format!(
+            "Type {ORDER_PAYMENT_CONFIRMATION_TEXT} to confirm this financial recovery"
+        )));
+    }
+    let note = request.note.trim();
+    if note.chars().count() < 10 || note.chars().count() > 500 {
+        return Err(invalid(
+            "Recovery note must be between 10 and 500 characters",
+        ));
+    }
+    let target_display_id = request
+        .target_transaction_display_id
+        .trim()
+        .to_ascii_uppercase();
+    if !target_display_id.starts_with("TXN-") {
+        return Err(invalid("Enter the target Transaction Record as TXN-######"));
+    }
+
+    let manager_ok =
+        crate::logic::pricing_limits::is_admin_or_manager(pool, request.authorized_by_staff_id)
+            .await?;
+    if !manager_ok {
+        return Err(invalid("Order payment recovery requires Manager Access"));
+    }
+
+    let attempt = sqlx::query(
+        r#"
+        SELECT ppa.status, ppa.amount_cents, ppa.register_session_id, ppa.staff_id,
+               ppa.terminal_id, ppa.provider_payment_id, ppa.provider_transaction_id,
+               ppa.completed_at, ppa.created_at, staff.full_name
+        FROM payment_provider_attempts ppa
+        LEFT JOIN staff ON staff.id = ppa.staff_id
+        WHERE ppa.id = $1 AND ppa.provider = 'helcim'
+        "#,
+    )
+    .bind(request.payment_provider_attempt_id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| invalid("Helcim approval was not found"))?;
+    let status = attempt.get::<String, _>("status");
+    if !matches!(status.as_str(), "approved" | "captured") {
+        return Err(invalid("Helcim payment is not approved"));
+    }
+    let session_id = attempt
+        .get::<Option<Uuid>, _>("register_session_id")
+        .ok_or_else(|| invalid("Helcim approval has no register session"))?;
+    let operator_staff_id = attempt
+        .get::<Option<Uuid>, _>("staff_id")
+        .ok_or_else(|| invalid("Helcim approval has no staff attribution"))?;
+    let provider_transaction_id = attempt
+        .get::<Option<String>, _>("provider_transaction_id")
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| invalid("Helcim approval has no provider transaction ID"))?;
+    let approved_at = attempt
+        .get::<Option<DateTime<Utc>>, _>("completed_at")
+        .unwrap_or_else(|| attempt.get::<DateTime<Utc>, _>("created_at"));
+    let approved_amount = Decimal::new(attempt.get::<i64, _>("amount_cents"), 2);
+    if approved_amount <= Decimal::ZERO {
+        return Err(invalid(
+            "Helcim order payment recovery requires a positive amount",
+        ));
+    }
+
+    let target = sqlx::query(
+        r#"
+        SELECT t.id, t.customer_id, t.display_id, t.balance_due, t.status::text,
+               COUNT(tl.id)::bigint AS line_count
+        FROM transactions t
+        LEFT JOIN transaction_lines tl ON tl.transaction_id = t.id
+        WHERE UPPER(t.display_id) = $1
+        GROUP BY t.id, t.customer_id, t.display_id, t.balance_due, t.status
+        "#,
+    )
+    .bind(&target_display_id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| invalid("Target Transaction Record was not found"))?;
+    let target_transaction_id = target.get::<Uuid, _>("id");
+    let customer_id = target
+        .get::<Option<Uuid>, _>("customer_id")
+        .ok_or_else(|| invalid("Target Transaction Record has no linked customer"))?;
+    let live_display_id = target.get::<String, _>("display_id");
+    let balance_before = target.get::<Decimal, _>("balance_due").round_dp(2);
+    let target_status = target.get::<String, _>("status");
+    let line_count = target.get::<i64, _>("line_count");
+    if !matches!(target_status.as_str(), "open" | "pending_measurement") {
+        return Err(invalid("Target Transaction Record is not open"));
+    }
+    if line_count <= 0 {
+        return Err(invalid("Target Transaction Record has no order lines"));
+    }
+    if balance_before <= Decimal::ZERO {
+        return Err(invalid("Target Transaction Record has no balance due"));
+    }
+    if approved_amount > balance_before + Decimal::new(2, 2) {
+        return Err(invalid(format!(
+            "Helcim approval ${approved_amount:.2} exceeds the current balance of ${balance_before:.2}"
+        )));
+    }
+
+    let batch = sqlx::query(
+        r#"
+        SELECT gross_amount, payment_transaction_id
+        FROM payment_provider_batch_transactions
+        WHERE provider = 'helcim' AND provider_transaction_id = $1
+        "#,
+    )
+    .bind(&provider_transaction_id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| invalid("Helcim processor transaction has not been synchronized"))?;
+    if batch
+        .get::<Option<Uuid>, _>("payment_transaction_id")
+        .is_some()
+    {
+        return Err(invalid("Helcim processor transaction is already linked"));
+    }
+    let processor_amount = batch
+        .get::<Option<Decimal>, _>("gross_amount")
+        .ok_or_else(|| invalid("Helcim processor transaction has no amount"))?;
+    if processor_amount.abs().round_dp(2) != approved_amount.round_dp(2) {
+        return Err(invalid(
+            "Helcim synchronized amount does not match the approval",
+        ));
+    }
+
+    let projected_balance_after = (balance_before - approved_amount)
+        .round_dp(2)
+        .max(Decimal::ZERO);
+    let booked_at_local = approved_at
+        .with_timezone(&chrono_tz::America::New_York)
+        .format("%Y-%m-%dT%H:%M:%S")
+        .to_string();
+    let payment_metadata = json!({
+        "payment_provider": "helcim",
+        "payment_provider_attempt_id": request.payment_provider_attempt_id,
+        "provider_status": status,
+        "provider_payment_id": attempt.get::<Option<String>, _>("provider_payment_id"),
+        "provider_transaction_id": provider_transaction_id,
+        "provider_terminal_id": attempt.get::<Option<String>, _>("terminal_id"),
+        "recovered_order_payment_target_id": target_transaction_id,
+        "recovered_order_payment_target_display_id": live_display_id,
+        "recovery_authorized_by_staff_id": request.authorized_by_staff_id,
+    });
+
+    let checkout = CheckoutRequest {
+        session_id,
+        operator_staff_id,
+        primary_salesperson_id: None,
+        customer_id: Some(customer_id),
+        wedding_member_id: None,
+        payment_method: "card_terminal".to_string(),
+        total_price: Decimal::ZERO,
+        amount_paid: approved_amount,
+        items: Vec::new(),
+        alteration_intakes: Vec::new(),
+        actor_name: attempt.get::<Option<String>, _>("full_name"),
+        payment_splits: Some(vec![CheckoutPaymentSplit {
+            payment_method: "card_terminal".to_string(),
+            amount: approved_amount,
+            sub_type: None,
+            applied_deposit_amount: None,
+            gift_card_code: None,
+            check_number: None,
+            metadata: Some(payment_metadata),
+        }]),
+        wedding_disbursements: None,
+        order_payments: vec![CheckoutOrderPayment {
+            client_line_id: format!("helcim-recovery-{}", request.payment_provider_attempt_id),
+            target_transaction_id,
+            target_display_id: live_display_id.clone(),
+            customer_id,
+            amount: approved_amount,
+            balance_before,
+            projected_balance_after,
+        }],
+        below_cost_approval: None,
+        checkout_client_id: Some(request.payment_provider_attempt_id),
+        booked_at_local: Some(booked_at_local),
+        shipping_rate_quote_id: None,
+        shipping_links: Vec::new(),
+        fulfillment_mode: None,
+        ship_to: None,
+        target_transaction_id: None,
+        is_rush: false,
+        need_by_date: None,
+        is_tax_exempt: false,
+        tax_exempt_reason: None,
+        rounding_adjustment: None,
+        final_cash_due: None,
+        is_processing: false,
+    };
+
+    execute_recovery_checkout(
+        pool,
+        http,
+        global_employee_markup,
+        checkout,
+        CheckoutRecoveryContext {
+            source: CheckoutRecoverySource::ExistingOrderPayment {
+                target_transaction_id,
+                target_display_id: live_display_id,
+            },
             payment_provider_attempt_id: request.payment_provider_attempt_id,
             authorized_by_staff_id: request.authorized_by_staff_id,
             approved_at,
