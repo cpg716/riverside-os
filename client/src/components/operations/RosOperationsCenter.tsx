@@ -192,6 +192,8 @@ interface StationRow {
   online: boolean;
   monitor_offline: boolean;
   actionable: boolean;
+  active_staff_sessions: number;
+  active_staff_names: string;
 }
 
 interface AlertEventRow {
@@ -1860,6 +1862,7 @@ export default function RosOperationsCenter({
                     <th className="px-4 py-3">Station</th>
                     <th className="px-4 py-3">Version</th>
                     <th className="px-4 py-3">Network / IP</th>
+                    <th className="px-4 py-3">Staff Access</th>
                     <th className="px-4 py-3">Last Seen</th>
                     <th className="px-4 py-3">Status</th>
                   </tr>
@@ -1870,6 +1873,11 @@ export default function RosOperationsCenter({
                       <td className="px-4 py-3 font-bold">{s.station_label}</td>
                       <td className="px-4 py-3 font-mono text-xs">{s.app_version}</td>
                       <td className="px-4 py-3 text-xs text-app-text-muted">{s.tailscale_node || s.lan_ip || "-"}</td>
+                      <td className="px-4 py-3 text-xs text-app-text-muted">
+                        {s.active_staff_sessions > 0
+                          ? `${s.active_staff_names} (${s.active_staff_sessions})`
+                          : "No active session"}
+                      </td>
                       <td className="px-4 py-3 text-xs text-app-text-muted">{fmtTs(s.last_seen_at)}</td>
                       <td className="px-4 py-3">
                         <span className={`rounded-full px-2 py-0.5 text-[9px] font-black uppercase ${

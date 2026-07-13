@@ -3012,11 +3012,9 @@ async fn patch_transaction(
             }
         }
 
-        tx.commit().await?;
-
         if status != DbOrderStatus::Cancelled {
-            log_order_activity(
-                &state.db,
+            insert_transaction_activity_log_tx(
+                &mut tx,
                 transaction_id,
                 customer_id,
                 "status_change",
@@ -3025,6 +3023,7 @@ async fn patch_transaction(
             )
             .await?;
         }
+        tx.commit().await?;
     } else {
         middleware::require_staff_with_permission(&state, &headers, ORDERS_VIEW)
             .await
@@ -4141,6 +4140,32 @@ async fn mark_transaction_ship(
             .fetch_one(&mut *tx)
             .await?;
 
+    let customer_id: Option<Uuid> =
+        sqlx::query_scalar("SELECT customer_id FROM transactions WHERE id = $1")
+            .bind(transaction_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .flatten();
+    let who = body.actor.unwrap_or_else(|| "Register".to_string());
+    insert_transaction_activity_log_tx(
+        &mut tx,
+        transaction_id,
+        customer_id,
+        "shipping",
+        &format!("Shipping release completed in Register by {}", who.trim()),
+        json!({
+            "shipped_item_count": shipped_ids.len(),
+            "requested_shipped_item_count": body.shipped_item_ids.len(),
+            "shipment_id": body.shipment_id,
+            "tracking_number": body.tracking_number.as_deref().map(str::trim).filter(|v| !v.is_empty()),
+            "readiness_override": body.override_readiness,
+            "override_reason": if body.override_readiness { Some(override_reason) } else { None::<&str> },
+            "inventory_shortage_warning": has_inventory_shortage,
+            "inventory_shortage_lines": inventory_shortage_details,
+        }),
+    )
+    .await?;
+
     tx.commit().await?;
 
     spawn_meilisearch_transaction_upsert(&state, transaction_id);
@@ -4160,32 +4185,6 @@ async fn mark_transaction_ship(
             }
         });
     }
-
-    let customer_id: Option<Uuid> =
-        sqlx::query_scalar("SELECT customer_id FROM transactions WHERE id = $1")
-            .bind(transaction_id)
-            .fetch_optional(&state.db)
-            .await?
-            .flatten();
-    let who = body.actor.unwrap_or_else(|| "Register".to_string());
-    log_order_activity(
-        &state.db,
-        transaction_id,
-        customer_id,
-        "shipping",
-        &format!("Shipping release completed in Register by {}", who.trim()),
-        json!({
-            "shipped_item_count": shipped_ids.len(),
-            "requested_shipped_item_count": body.shipped_item_ids.len(),
-            "shipment_id": body.shipment_id,
-            "tracking_number": body.tracking_number.as_deref().map(str::trim).filter(|v| !v.is_empty()),
-            "readiness_override": body.override_readiness,
-            "override_reason": if body.override_readiness { Some(override_reason) } else { None::<&str> },
-            "inventory_shortage_warning": has_inventory_shortage,
-            "inventory_shortage_lines": inventory_shortage_details,
-        }),
-    )
-    .await?;
 
     if let Some(alert_msg) = inventory_shortage_alert {
         if let Err(e) =
@@ -5428,10 +5427,8 @@ async fn process_refund(
                 .execute(&mut *tx)
                 .await?;
 
-                tx.commit().await?;
-
-                log_order_activity(
-                    &state.db,
+                insert_transaction_activity_log_tx(
+                    &mut tx,
                     transaction_id,
                     refund.customer_id,
                     "refund_processed",
@@ -5450,6 +5447,19 @@ async fn process_refund(
                     }),
                 )
                 .await?;
+                tx.commit().await?;
+
+                if let Err(error) = log_customer_milestone_note(
+                    &state.db,
+                    transaction_id,
+                    refund.customer_id,
+                    "refund_processed",
+                    refund_summary,
+                )
+                .await
+                {
+                    tracing::warn!(error = %error, transaction_id = %transaction_id, "refund customer timeline note failed after refund committed");
+                }
 
                 return Ok(Json(json!({
                     "status": "success",
@@ -6055,23 +6065,17 @@ async fn process_refund(
             .map_err(TransactionError::Database)?;
     }
 
-    tx.commit().await?;
-
-    tracing::info!(
-        transaction_id = %transaction_id,
-        "Refund recorded; verify QBO journal maps negative retail payment lines"
+    let refund_summary = format!(
+        "Refunded ${} in Register via {}",
+        exact_refund_amount,
+        body.payment_method.trim()
     );
-
-    log_order_activity(
-        &state.db,
+    insert_transaction_activity_log_tx(
+        &mut tx,
         transaction_id,
         refund.customer_id,
         "refund_processed",
-        &format!(
-            "Refunded ${} in Register via {}",
-            exact_refund_amount,
-            body.payment_method.trim()
-        ),
+        &refund_summary,
         json!({
             "amount": exact_refund_amount,
             "payment_method": body.payment_method,
@@ -6080,6 +6084,25 @@ async fn process_refund(
         }),
     )
     .await?;
+
+    tx.commit().await?;
+
+    tracing::info!(
+        transaction_id = %transaction_id,
+        "Refund recorded; verify QBO journal maps negative retail payment lines"
+    );
+
+    if let Err(error) = log_customer_milestone_note(
+        &state.db,
+        transaction_id,
+        refund.customer_id,
+        "refund_processed",
+        &refund_summary,
+    )
+    .await
+    {
+        tracing::warn!(error = %error, transaction_id = %transaction_id, "refund customer timeline note failed after refund committed");
+    }
 
     Ok(Json(json!({ "status": "ok" })))
 }
@@ -6276,16 +6299,8 @@ async fn process_exchange_settlement(
             .await
             .map_err(TransactionError::Database)?;
 
-        tx.commit().await?;
-
-        tracing::info!(
-            original_transaction_id = %transaction_id,
-            replacement_transaction_id = %body.replacement_transaction_id,
-            "Exchange settlement recorded with return lines and no paid credit"
-        );
-
-        log_order_activity(
-            &state.db,
+        insert_transaction_activity_log_tx(
+            &mut tx,
             transaction_id,
             original_customer_id,
             "exchange_settled",
@@ -6301,8 +6316,8 @@ async fn process_exchange_settlement(
         )
         .await?;
 
-        log_order_activity(
-            &state.db,
+        insert_transaction_activity_log_tx(
+            &mut tx,
             body.replacement_transaction_id,
             replacement_customer_id.or(original_customer_id),
             "exchange_settled",
@@ -6317,6 +6332,14 @@ async fn process_exchange_settlement(
             }),
         )
         .await?;
+
+        tx.commit().await?;
+
+        tracing::info!(
+            original_transaction_id = %transaction_id,
+            replacement_transaction_id = %body.replacement_transaction_id,
+            "Exchange settlement recorded with return lines and no paid credit"
+        );
 
         return Ok(Json(json!({
             "status": "ok",
@@ -6631,18 +6654,8 @@ async fn process_exchange_settlement(
             .map_err(TransactionError::Database)?;
     }
 
-    tx.commit().await?;
-
-    tracing::info!(
-        original_transaction_id = %transaction_id,
-        replacement_transaction_id = %body.replacement_transaction_id,
-        exchange_credit_amount = %body.exchange_credit_amount,
-        refund_remainder_amount = %refund_remainder_amount,
-        "Exchange settlement recorded for QBO staging"
-    );
-
-    log_order_activity(
-        &state.db,
+    insert_transaction_activity_log_tx(
+        &mut tx,
         transaction_id,
         refund.customer_id,
         "exchange_settled",
@@ -6660,8 +6673,8 @@ async fn process_exchange_settlement(
     )
     .await?;
 
-    log_order_activity(
-        &state.db,
+    insert_transaction_activity_log_tx(
+        &mut tx,
         body.replacement_transaction_id,
         replacement_customer_id.or(original_customer_id),
         "exchange_settled",
@@ -6678,6 +6691,16 @@ async fn process_exchange_settlement(
         }),
     )
     .await?;
+
+    tx.commit().await?;
+
+    tracing::info!(
+        original_transaction_id = %transaction_id,
+        replacement_transaction_id = %body.replacement_transaction_id,
+        exchange_credit_amount = %body.exchange_credit_amount,
+        refund_remainder_amount = %refund_remainder_amount,
+        "Exchange settlement recorded for QBO staging"
+    );
 
     Ok(Json(json!({
         "status": "ok",
@@ -7835,32 +7858,16 @@ async fn insert_transaction_activity_log_tx(
     Ok(())
 }
 
-async fn log_order_activity(
+async fn log_customer_milestone_note(
     db: &sqlx::PgPool,
     transaction_id: Uuid,
     customer_id: Option<Uuid>,
     event_kind: &str,
     summary: &str,
-    metadata: serde_json::Value,
 ) -> Result<(), TransactionError> {
-    sqlx::query(
-        r#"
-        INSERT INTO transaction_activity_log (transaction_id, customer_id, event_kind, summary, metadata)
-        VALUES ($1, $2, $3, $4, $5)
-        "#,
-    )
-    .bind(transaction_id)
-    .bind(customer_id)
-    .bind(event_kind)
-    .bind(summary)
-    .bind(metadata)
-    .execute(db)
-    .await?;
-
     // Only emit customer-timeline notes for meaningful business milestones.
     // Internal events (item_added, item_updated, etc.) are logged but not surfaced to customers.
-    let is_customer_milestone = matches!(event_kind, "checkout" | "pickup" | "refund_processed");
-    if is_customer_milestone {
+    if matches!(event_kind, "checkout" | "pickup" | "refund_processed") {
         if let Some(cid) = customer_id {
             sqlx::query(
                 r#"
@@ -7986,16 +7993,14 @@ async fn post_transaction_exchange_link(
         .execute(&mut *tx)
         .await?;
 
-    tx.commit().await?;
-
     let customer_id: Option<Uuid> =
         sqlx::query_scalar("SELECT customer_id FROM transactions WHERE id = $1")
             .bind(transaction_id)
-            .fetch_optional(&state.db)
+            .fetch_optional(&mut *tx)
             .await?
             .flatten();
-    log_order_activity(
-        &state.db,
+    insert_transaction_activity_log_tx(
+        &mut tx,
         transaction_id,
         customer_id,
         "exchange_linked",
@@ -8006,6 +8011,7 @@ async fn post_transaction_exchange_link(
         }),
     )
     .await?;
+    tx.commit().await?;
 
     let detail = load_transaction_detail(&state.db, transaction_id).await?;
     Ok(Json(detail))
@@ -8110,10 +8116,8 @@ async fn patch_transaction_financial_date(
     .await?
     .rows_affected();
 
-    tx.commit().await?;
-
-    log_order_activity(
-        &state.db,
+    insert_transaction_activity_log_tx(
+        &mut tx,
         transaction_id,
         customer_id,
         "financial_date_corrected",
@@ -8127,6 +8131,7 @@ async fn patch_transaction_financial_date(
         }),
     )
     .await?;
+    tx.commit().await?;
     let _ = log_staff_access(
         &state.db,
         staff.id,
@@ -8224,15 +8229,14 @@ async fn add_transaction_line(
     transaction_recalc::recalc_transaction_totals(&mut tx, transaction_id)
         .await
         .map_err(TransactionError::Database)?;
-    tx.commit().await?;
     let customer_id: Option<Uuid> =
         sqlx::query_scalar("SELECT customer_id FROM transactions WHERE id = $1")
             .bind(transaction_id)
-            .fetch_optional(&state.db)
+            .fetch_optional(&mut *tx)
             .await?
             .flatten();
-    log_order_activity(
-        &state.db,
+    insert_transaction_activity_log_tx(
+        &mut tx,
         transaction_id,
         customer_id,
         "item_added",
@@ -8240,6 +8244,7 @@ async fn add_transaction_line(
         json!({ "product_id": body.product_id, "variant_id": body.variant_id, "quantity": body.quantity }),
     )
     .await?;
+    tx.commit().await?;
     let detail = load_transaction_detail(&state.db, transaction_id).await?;
     Ok(Json(detail))
 }
@@ -8439,15 +8444,14 @@ async fn update_transaction_line(
     transaction_recalc::recalc_transaction_totals(&mut tx, transaction_id)
         .await
         .map_err(TransactionError::Database)?;
-    tx.commit().await?;
     let customer_id: Option<Uuid> =
         sqlx::query_scalar("SELECT customer_id FROM transactions WHERE id = $1")
             .bind(transaction_id)
-            .fetch_optional(&state.db)
+            .fetch_optional(&mut *tx)
             .await?
             .flatten();
-    log_order_activity(
-        &state.db,
+    insert_transaction_activity_log_tx(
+        &mut tx,
         transaction_id,
         customer_id,
         "item_updated",
@@ -8463,6 +8467,7 @@ async fn update_transaction_line(
         }),
     )
     .await?;
+    tx.commit().await?;
     let detail = load_transaction_detail(&state.db, transaction_id).await?;
     Ok(Json(detail))
 }

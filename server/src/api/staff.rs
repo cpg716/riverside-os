@@ -23,6 +23,7 @@ use crate::auth::permissions::{
 };
 use crate::auth::pins::{self, hash_pin, is_valid_staff_credential, log_staff_access};
 use crate::auth::staff_avatar;
+use crate::auth::staff_session;
 use crate::logic::{
     notifications, pricing_limits, register_staff_metrics, staff_accounts, staff_avatar_processor,
     staff_schedule, tasks,
@@ -299,6 +300,10 @@ pub fn router() -> Router<AppState> {
         .route("/store-sop", get(get_store_sop_read))
         .route("/list-for-pos", get(list_for_pos))
         .route("/verify-cashier-code", post(verify_cashier_code))
+        .route(
+            "/session",
+            post(create_staff_access_session).delete(revoke_staff_access_session),
+        )
         .route("/effective-permissions", get(effective_permissions_self))
         .route("/verify-pin", post(legacy_verify_pin))
         .route("/avatar/{id}", get(get_staff_avatar))
@@ -370,6 +375,152 @@ pub fn router() -> Router<AppState> {
             get(list_commission_combos).post(upsert_commission_combo),
         )
         .route("/commissions/combos/{id}", delete(delete_commission_combo))
+}
+
+#[derive(Debug, Deserialize)]
+struct CreateStaffAccessSessionBody {
+    staff_id: Uuid,
+    pin: String,
+    station_key: String,
+    connection_key: String,
+    runtime_surface: String,
+    #[serde(default)]
+    user_agent: Option<String>,
+    #[serde(default)]
+    api_base: Option<String>,
+}
+
+async fn create_staff_access_session(
+    State(state): State<AppState>,
+    Json(body): Json<CreateStaffAccessSessionBody>,
+) -> Result<Json<serde_json::Value>, StaffApiError> {
+    let station_key = body.station_key.trim();
+    let connection_key = body.connection_key.trim();
+    let runtime_surface = body.runtime_surface.trim();
+    if !(8..=128).contains(&station_key.len()) {
+        return Err(StaffApiError::InvalidPayload(
+            "valid station identity is required".to_string(),
+        ));
+    }
+    if !(8..=128).contains(&connection_key.len()) {
+        return Err(StaffApiError::InvalidPayload(
+            "valid connection identity is required".to_string(),
+        ));
+    }
+    if !matches!(
+        runtime_surface,
+        "tauri_desktop" | "pwa_standalone" | "browser_tab"
+    ) {
+        return Err(StaffApiError::InvalidPayload(
+            "invalid runtime surface".to_string(),
+        ));
+    }
+    let user_agent = body
+        .user_agent
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if user_agent.is_some_and(|value| value.len() > 512) {
+        return Err(StaffApiError::InvalidPayload(
+            "user agent exceeds maximum length".to_string(),
+        ));
+    }
+    let api_base = body
+        .api_base
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if api_base.is_some_and(|value| value.len() > 512) {
+        return Err(StaffApiError::InvalidPayload(
+            "API base exceeds maximum length".to_string(),
+        ));
+    }
+
+    let staff = pins::authenticate_staff_by_id(&state.db, body.staff_id, Some(body.pin.trim()))
+        .await
+        .map_err(|_| StaffApiError::InvalidCode)?;
+    let issued = staff_session::issue_staff_session(
+        &state.db,
+        staff.id,
+        station_key,
+        connection_key,
+        runtime_surface,
+        user_agent,
+        api_base,
+    )
+    .await?;
+    let eff = permissions::effective_permissions_for_staff(&state.db, staff.id, staff.role).await?;
+    let list: Vec<&str> = ALL_PERMISSION_KEYS
+        .iter()
+        .copied()
+        .filter(|key| staff_has_permission(&eff, key))
+        .collect();
+    let employee_customer_id: Option<Uuid> =
+        sqlx::query_scalar("SELECT employee_customer_id FROM staff WHERE id = $1")
+            .bind(staff.id)
+            .fetch_one(&state.db)
+            .await?;
+
+    log_staff_access(
+        &state.db,
+        staff.id,
+        "staff_session_started",
+        json!({
+            "station_key": station_key,
+            "connection_key": connection_key,
+            "runtime_surface": runtime_surface,
+            "expires_at": issued.expires_at,
+        }),
+    )
+    .await?;
+
+    Ok(Json(json!({
+        "staff_id": staff.id,
+        "full_name": staff.full_name,
+        "avatar_key": staff.avatar_key,
+        "avatar_photo_url": staff.avatar_photo_url,
+        "role": staff.role,
+        "permissions": list,
+        "employee_customer_id": employee_customer_id,
+        "session_token": issued.token,
+        "session_expires_at": issued.expires_at,
+    })))
+}
+
+async fn revoke_staff_access_session(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<StatusCode, StaffApiError> {
+    let staff = require_authenticated_staff_headers(&state, &headers)
+        .await
+        .map_err(|_| StaffApiError::Forbidden)?;
+    let token = headers
+        .get(staff_session::HEADER_STAFF_SESSION)
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or(StaffApiError::Forbidden)?;
+    let station_key = headers
+        .get(staff_session::HEADER_STATION_KEY)
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or(StaffApiError::Forbidden)?;
+    let connection_key = headers
+        .get(staff_session::HEADER_CONNECTION_KEY)
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or(StaffApiError::Forbidden)?;
+    staff_session::revoke_staff_session(&state.db, token, station_key, connection_key).await?;
+    log_staff_access(
+        &state.db,
+        staff.id,
+        "staff_session_ended",
+        json!({ "station_key": station_key, "connection_key": connection_key }),
+    )
+    .await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// Markdown SOP/playbook for all authenticated staff (Back Office headers). Edited via `PUT /api/settings/staff-sop` (settings.admin).
@@ -785,12 +936,20 @@ async fn self_set_pin(
     let hashed = hash_pin(pin_t)
         .map_err(|_| StaffApiError::InvalidPayload("PIN hashing failed".to_string()))?;
 
+    let mut tx = state.db.begin().await?;
     sqlx::query("UPDATE staff SET pin_hash = $1, cashier_code = $2 WHERE id = $3")
         .bind(hashed)
         .bind(pin_t)
         .bind(staff.id)
-        .execute(&state.db)
+        .execute(&mut *tx)
         .await?;
+    sqlx::query(
+        "UPDATE staff_access_sessions SET revoked_at = now() WHERE staff_id = $1 AND revoked_at IS NULL",
+    )
+    .bind(staff.id)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
 
     let _ = log_staff_access(
         &state.db,
@@ -1702,6 +1861,15 @@ async fn admin_patch_staff(
         }
     }
 
+    if !next_is_active {
+        sqlx::query(
+            "UPDATE staff_access_sessions SET revoked_at = now() WHERE staff_id = $1 AND revoked_at IS NULL",
+        )
+        .bind(staff_id)
+        .execute(&mut *tx)
+        .await?;
+    }
+
     tx.commit().await?;
 
     spawn_meilisearch_staff_upsert(&state, staff_id);
@@ -1772,16 +1940,24 @@ async fn admin_set_pin(
     let hashed = hash_pin(pin_t)
         .map_err(|_| StaffApiError::InvalidPayload("PIN hashing failed".to_string()))?;
 
+    let mut tx = state.db.begin().await?;
     let n = sqlx::query("UPDATE staff SET pin_hash = $1, cashier_code = $2 WHERE id = $3")
         .bind(&hashed)
         .bind(pin_t)
         .bind(staff_id)
-        .execute(&state.db)
+        .execute(&mut *tx)
         .await?
         .rows_affected();
     if n == 0 {
         return Err(StaffApiError::InvalidPayload("staff not found".to_string()));
     }
+    sqlx::query(
+        "UPDATE staff_access_sessions SET revoked_at = now() WHERE staff_id = $1 AND revoked_at IS NULL",
+    )
+    .bind(staff_id)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
 
     let _ = log_staff_access(
         &state.db,

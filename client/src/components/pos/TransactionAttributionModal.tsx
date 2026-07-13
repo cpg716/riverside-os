@@ -48,7 +48,7 @@ export default function TransactionAttributionModal({
   onClose,
   onSaved,
 }: Props) {
-  const { backofficeHeaders, staffId, staffPin, hasPermission } = useBackofficeAuth();
+  const { backofficeHeaders, staffId, hasPermission } = useBackofficeAuth();
 
   const hasAccess = hasPermission("orders.edit_attribution") && hasPermission("manager.approval");
 
@@ -119,10 +119,10 @@ export default function TransactionAttributionModal({
   const save = async () => {
     if (!detail) return;
 
-    // If user has global access, use their session PIN. Otherwise require manual manager approval.
-    const pin = (hasAccess ? staffPin : managerPin).trim();
+    // Audit-sensitive corrections always require a fresh Access PIN confirmation.
+    const pin = managerPin.trim();
     if (pin.length !== 4) {
-      setErr(hasAccess ? "Auth session expired. Please re-sign in." : "4-digit Manager PIN is required for approval.");
+      setErr("4-digit Access PIN is required for approval.");
       return;
     }
     const approvalStaffId = hasAccess ? staffId : managerStaffId;
@@ -286,16 +286,18 @@ export default function TransactionAttributionModal({
 
               {/* Right Column: Authorization Gate or Final Actions */}
               <div className={`flex flex-col justify-center gap-8 border-t-4 border-app-border p-4 sm:p-8 lg:border-t-0 ${hasAccess ? 'w-full lg:w-[300px] bg-app-surface/40' : 'w-full lg:w-[400px] bg-app-surface-2/40'}`}>
-                {!hasAccess ? (
-                  <>
-                    <div className="text-center space-y-2">
-                      <h3 className="text-sm font-black uppercase tracking-[0.3em] text-app-text italic">Manager Approval</h3>
-                      <p className="text-[11px] font-medium text-app-text-muted leading-relaxed">
-                        Changes to commission attribution require a staff approver and Access PIN for audit compliance.
-                      </p>
-                    </div>
+                <>
+                  <div className="text-center space-y-2">
+                    <h3 className="text-sm font-black uppercase tracking-[0.3em] text-app-text italic">
+                      {hasAccess ? "Confirm Your Identity" : "Manager Approval"}
+                    </h3>
+                    <p className="text-[11px] font-medium text-app-text-muted leading-relaxed">
+                      Commission attribution corrections require a fresh Access PIN for the audit record.
+                    </p>
+                  </div>
 
-                    <div className="space-y-6">
+                  <div className="space-y-6">
+                    {!hasAccess ? (
                       <div className="space-y-2 text-center">
                         <label className="text-[9px] font-black uppercase tracking-[0.2em] text-app-text-muted block">Staff Approver</label>
                         <select
@@ -312,30 +314,23 @@ export default function TransactionAttributionModal({
                           ))}
                         </select>
                       </div>
-
-                      <div className="space-y-4">
-                        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-app-text-muted text-center italic">Authorization PIN</p>
-                        <PinDots length={managerPin.length} className="py-2" />
-                        <NumericPinKeypad
-                          value={managerPin}
-                          onChange={(v) => { setErr(null); setManagerPin(v); }}
-                          onEnter={() => void save()}
-                          disabled={saving}
-                        />
+                    ) : (
+                      <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-3xl bg-emerald-500/10 text-emerald-500 shadow-glow-emerald-sm">
+                        <ShieldCheck size={32} />
                       </div>
+                    )}
+                    <div className="space-y-4">
+                      <p className="text-[9px] font-black uppercase tracking-[0.2em] text-app-text-muted text-center italic">Authorization PIN</p>
+                      <PinDots length={managerPin.length} className="py-2" />
+                      <NumericPinKeypad
+                        value={managerPin}
+                        onChange={(v) => { setErr(null); setManagerPin(v); }}
+                        onEnter={() => void save()}
+                        disabled={saving}
+                      />
                     </div>
-                  </>
-                ) : (
-                  <div className="text-center space-y-4">
-                    <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-3xl bg-emerald-500/10 text-emerald-500 shadow-glow-emerald-sm">
-                      <ShieldCheck size={32} />
-                    </div>
-                    <h3 className="text-sm font-black uppercase tracking-[0.3em] text-app-text italic">Admin Override</h3>
-                    <p className="text-[10px] font-bold text-app-text-muted leading-relaxed uppercase tracking-widest px-4">
-                      Your identity is authorized to correct attribution directly.
-                    </p>
                   </div>
-                )}
+                </>
 
                 {err ? (
                   <div className="rounded-2xl border-4 border-red-500/20 bg-red-500/5 p-4 text-center text-[11px] font-black uppercase tracking-widest text-red-500 italic animate-in fade-in zoom-in-95">
@@ -346,7 +341,7 @@ export default function TransactionAttributionModal({
                 <div className="flex flex-col gap-3">
                   <button
                     type="button"
-                    disabled={saving || !detail || (!hasAccess && managerPin.length !== 4)}
+                    disabled={saving || !detail || managerPin.length !== 4}
                     onClick={() => void save()}
                     className="ui-btn-primary h-16 w-full text-xs font-black uppercase tracking-widest rounded-2xl shadow-xl shadow-app-accent/20 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50"
                   >

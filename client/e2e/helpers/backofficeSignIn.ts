@@ -1,11 +1,14 @@
 import { expect, type Page } from "@playwright/test";
 
-const SESSION_KEY = "ros.backoffice.session.v1";
+const SESSION_KEYS = ["ros.backoffice.session.v1", "ros.backoffice.session.v2"];
 
 async function clearBackofficeSessionStorage(page: Page): Promise<void> {
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      await page.evaluate((key) => sessionStorage.removeItem(key), SESSION_KEY);
+      await page.evaluate(
+        (keys) => keys.forEach((key) => sessionStorage.removeItem(key)),
+        SESSION_KEYS,
+      );
       return;
     } catch (error) {
       if (
@@ -294,43 +297,6 @@ export async function signInToBackOffice(
     : null;
 
   await page.goto("/", { waitUntil: "domcontentloaded" });
-  if (options?.persistSession) {
-    const effectivePermAfterRestore = page
-      .waitForResponse(
-        (r) =>
-          r.url().includes("/api/staff/effective-permissions") &&
-          r.request().method() === "GET" &&
-          r.status() === 200,
-        { timeout: 25_000 },
-      )
-      .catch(() => null);
-    const sessionBootstrapAfterRestore = page
-      .waitForResponse(
-        (r) =>
-          r.url().includes("/api/sessions/current") &&
-          r.request().method() === "GET" &&
-          (r.status() === 200 || r.status() === 409),
-        { timeout: 25_000 },
-      )
-      .catch(() => null);
-    await page.evaluate(
-      ({ key, staffCode }) => {
-        sessionStorage.setItem(
-          key,
-          JSON.stringify({ staffCode, staffPin: staffCode }),
-        );
-      },
-      { key: SESSION_KEY, staffCode: code },
-    );
-    await page.reload({ waitUntil: "domcontentloaded" });
-    await effectivePermAfterRestore;
-    await sessionBootstrapAfterRestore;
-    await waitForBackofficeShellReady(
-      page,
-      "Back Office shell never stabilized after session restore",
-    );
-    return;
-  }
   await clearBackofficeSessionStorage(page);
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(page.getByText(/loading riverside/i)).not.toBeVisible({
@@ -384,4 +350,20 @@ export async function signInToBackOffice(
     page,
     "Back Office shell never finished bootstrap after sign-in",
   );
+
+  if (options?.persistSession) {
+    const effectivePermAfterRestore = page.waitForResponse(
+      (r) =>
+        r.url().includes("/api/staff/effective-permissions") &&
+        r.request().method() === "GET" &&
+        r.status() === 200,
+      { timeout: 25_000 },
+    );
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await effectivePermAfterRestore;
+    await waitForBackofficeShellReady(
+      page,
+      "Back Office shell never stabilized after opaque-session restore",
+    );
+  }
 }

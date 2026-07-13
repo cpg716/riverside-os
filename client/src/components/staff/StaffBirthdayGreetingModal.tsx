@@ -15,19 +15,30 @@ type BirthdayGreetingResponse = {
 };
 
 export default function StaffBirthdayGreetingModal() {
-  const { backofficeHeaders, permissionsLoaded, staffCode, staffPin, staffId } =
-    useBackofficeAuth();
+  const {
+    backofficeHeaders,
+    permissionsLoaded,
+    staffCode,
+    staffPin,
+    staffSessionToken,
+    staffId,
+  } = useBackofficeAuth();
   const notificationCenter = useNotificationCenterOptional();
   const [greeting, setGreeting] = useState<BirthdayGreetingResponse | null>(null);
   const [checkingKey, setCheckingKey] = useState("");
   const [saving, setSaving] = useState(false);
 
   const sessionKey = useMemo(() => {
-    if (!permissionsLoaded || !staffCode.trim() || !staffPin.trim() || !staffId.trim()) {
+    if (
+      !permissionsLoaded ||
+      !staffCode.trim() ||
+      (!staffSessionToken.trim() && !staffPin.trim()) ||
+      !staffId.trim()
+    ) {
       return "";
     }
     return `${staffId}:${staffCode.trim()}`;
-  }, [permissionsLoaded, staffCode, staffId, staffPin]);
+  }, [permissionsLoaded, staffCode, staffId, staffPin, staffSessionToken]);
 
   useEffect(() => {
     if (!sessionKey || checkingKey === sessionKey) return;

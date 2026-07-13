@@ -16,6 +16,7 @@ use crate::api::AppState;
 use crate::auth::permissions::{self, staff_has_permission, NOTIFICATIONS_VIEW};
 use crate::auth::pins::AuthenticatedStaff;
 use crate::auth::pos_session;
+use crate::auth::staff_session;
 use crate::models::DbStaffRole;
 
 fn staff_headers(
@@ -44,13 +45,19 @@ fn staff_headers(
     Ok((code, pin))
 }
 
-fn has_staff_code(headers: &HeaderMap) -> bool {
-    headers
-        .get("x-riverside-staff-code")
+fn has_staff_auth(headers: &HeaderMap) -> bool {
+    let has_session = headers
+        .get(staff_session::HEADER_STAFF_SESSION)
         .and_then(|v| v.to_str().ok())
         .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .is_some()
+        .is_some_and(|value| !value.is_empty());
+    has_session
+        || headers
+            .get("x-riverside-staff-code")
+            .and_then(|v| v.to_str().ok())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .is_some()
 }
 
 /// Active staff (POS PIN rules). Does not check permissions.
@@ -58,6 +65,56 @@ pub async fn require_authenticated_staff_headers(
     state: &AppState,
     headers: &HeaderMap,
 ) -> Result<AuthenticatedStaff, (StatusCode, axum::Json<serde_json::Value>)> {
+    if let Some(token) = headers
+        .get(staff_session::HEADER_STAFF_SESSION)
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        let station_key = headers
+            .get(staff_session::HEADER_STATION_KEY)
+            .and_then(|value| value.to_str().ok())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                (
+                    StatusCode::UNAUTHORIZED,
+                    axum::Json(json!({ "error": "staff session requires station identity" })),
+                )
+            })?;
+        let connection_key = headers
+            .get(staff_session::HEADER_CONNECTION_KEY)
+            .and_then(|value| value.to_str().ok())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                (
+                    StatusCode::UNAUTHORIZED,
+                    axum::Json(json!({ "error": "staff session requires connection identity" })),
+                )
+            })?;
+        return staff_session::authenticate_staff_session(
+            &state.db,
+            token,
+            station_key,
+            connection_key,
+        )
+        .await
+        .map_err(|error| {
+            tracing::error!(%error, "staff session verification failed");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                axum::Json(json!({ "error": "staff session verification failed" })),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::UNAUTHORIZED,
+                axum::Json(json!({ "error": "staff session is invalid or expired" })),
+            )
+        });
+    }
+
     let (code, pin) = staff_headers(headers)?;
     crate::auth::pins::authenticate_pos_staff(&state.db, &code, pin.as_deref())
         .await
@@ -122,7 +179,7 @@ pub async fn require_staff_or_pos_register_session(
     state: &AppState,
     headers: &HeaderMap,
 ) -> Result<StaffOrPosSession, (StatusCode, axum::Json<serde_json::Value>)> {
-    let staff_attempt = if has_staff_code(headers) {
+    let staff_attempt = if has_staff_auth(headers) {
         match require_authenticated_staff_headers(state, headers).await {
             Ok(staff) => return Ok(StaffOrPosSession::Staff(staff)),
             Err(err) => Some(err),
@@ -166,7 +223,7 @@ pub async fn require_pos_session_secret_or_permission(
     session_id: Uuid,
     permission: &str,
 ) -> Result<(), (StatusCode, axum::Json<serde_json::Value>)> {
-    let permission_attempt = if has_staff_code(headers) {
+    let permission_attempt = if has_staff_auth(headers) {
         match require_staff_with_permission(state, headers, permission).await {
             Ok(_) => return Ok(()),
             Err(err) => Some(err),
@@ -210,7 +267,7 @@ pub async fn require_staff_perm_or_pos_session(
     headers: &HeaderMap,
     permission: &str,
 ) -> Result<StaffOrPosSession, (StatusCode, axum::Json<serde_json::Value>)> {
-    let permission_attempt = if has_staff_code(headers) {
+    let permission_attempt = if has_staff_auth(headers) {
         match require_staff_with_permission(state, headers, permission).await {
             Ok(staff) => return Ok(StaffOrPosSession::Staff(staff)),
             Err(err) => Some(err),

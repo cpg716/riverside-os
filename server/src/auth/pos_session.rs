@@ -1,6 +1,7 @@
 //! Opaque `register_sessions.pos_api_token` validation for POS-scoped HTTP calls.
 
 use axum::http::HeaderMap;
+use chrono::{DateTime, Duration, Utc};
 use uuid::Uuid;
 
 pub const HEADER_POS_SESSION_ID: &str = "x-riverside-pos-session-id";
@@ -36,41 +37,41 @@ pub async fn verify_pos_session_token(
     token: &str,
     station_key: &str,
 ) -> Result<bool, sqlx::Error> {
-    let ok: bool = sqlx::query_scalar(
+    let last_used_at: Option<DateTime<Utc>> = sqlx::query_scalar(
         r#"
-        SELECT EXISTS(
-            SELECT 1 FROM register_sessions
-            JOIN register_session_station_tokens station_token
-              ON station_token.register_session_id = register_sessions.id
-            WHERE register_sessions.id = $1
-              AND register_sessions.is_open = true
-              AND station_token.pos_api_token = $2
-              AND station_token.station_key = $3
-        )
+        SELECT station_token.last_used_at
+        FROM register_sessions
+        JOIN register_session_station_tokens station_token
+          ON station_token.register_session_id = register_sessions.id
+        WHERE register_sessions.id = $1
+          AND register_sessions.is_open = true
+          AND station_token.pos_api_token = $2
+          AND station_token.station_key = $3
         "#,
     )
     .bind(session_id)
     .bind(token)
     .bind(station_key)
-    .fetch_one(pool)
+    .fetch_optional(pool)
     .await?;
-    if ok {
-        let _ = sqlx::query(
+    if last_used_at.is_some_and(|last_used| last_used < Utc::now() - Duration::seconds(60)) {
+        sqlx::query(
             r#"
             UPDATE register_session_station_tokens
             SET last_used_at = now()
             WHERE register_session_id = $1
               AND pos_api_token = $2
               AND station_key = $3
+              AND last_used_at < now() - interval '60 seconds'
             "#,
         )
         .bind(session_id)
         .bind(token)
         .bind(station_key)
         .execute(pool)
-        .await;
+        .await?;
     }
-    Ok(ok)
+    Ok(last_used_at.is_some())
 }
 
 pub fn new_pos_api_token() -> String {

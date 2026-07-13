@@ -14,6 +14,7 @@ use tokio::sync::RwLock;
 
 const DEFAULT_GLOBAL_RATE_LIMIT: u32 = 1000; // requests per minute per IP
 const DEFAULT_AUTHENTICATED_RATE_LIMIT: u32 = 5000; // requests per minute per app-authenticated IP
+const DEFAULT_STAFF_SIGN_IN_RATE_LIMIT: u32 = 20; // PIN attempts per minute per IP
 const WINDOW: Duration = Duration::from_secs(60);
 
 #[derive(Debug)]
@@ -29,6 +30,8 @@ pub struct RateLimitState {
     ip_buckets: HashMap<String, RateLimitBucket>,
     // Higher per-IP bucket for ROS app requests that carry staff or POS session credentials.
     authenticated_buckets: HashMap<String, RateLimitBucket>,
+    // Separate low-volume bucket for Staff Access PIN verification.
+    staff_sign_in_buckets: HashMap<String, RateLimitBucket>,
 }
 
 impl RateLimitState {
@@ -36,6 +39,7 @@ impl RateLimitState {
         Self {
             ip_buckets: HashMap::new(),
             authenticated_buckets: HashMap::new(),
+            staff_sign_in_buckets: HashMap::new(),
         }
     }
 
@@ -96,6 +100,9 @@ impl RateLimitState {
             RateLimitScope::RosAppAuthenticated => {
                 Self::check_limit(&mut self.authenticated_buckets, ip_key, limit, now)
             }
+            RateLimitScope::StaffSignIn => {
+                Self::check_limit(&mut self.staff_sign_in_buckets, ip_key, limit, now)
+            }
         }
     }
 }
@@ -110,6 +117,7 @@ enum RateLimitCheck {
 enum RateLimitScope {
     Anonymous,
     RosAppAuthenticated,
+    StaffSignIn,
 }
 
 impl RateLimitScope {
@@ -117,6 +125,7 @@ impl RateLimitScope {
         match self {
             Self::Anonymous => "anonymous",
             Self::RosAppAuthenticated => "ros-app-authenticated",
+            Self::StaffSignIn => "staff-sign-in",
         }
     }
 }
@@ -164,7 +173,9 @@ pub async fn rate_limit_handler(
 
     let mut state = rate_limit.write().await;
 
-    let scope = if has_ros_app_auth_headers(&request) {
+    let scope = if is_staff_sign_in_request(&request) {
+        RateLimitScope::StaffSignIn
+    } else if has_ros_app_auth_headers(&request) {
         RateLimitScope::RosAppAuthenticated
     } else {
         RateLimitScope::Anonymous
@@ -179,6 +190,12 @@ pub async fn rate_limit_handler(
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(DEFAULT_AUTHENTICATED_RATE_LIMIT)
+        }
+        RateLimitScope::StaffSignIn => {
+            std::env::var("RIVERSIDE_STAFF_SIGN_IN_RATE_LIMIT_PER_MINUTE")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(DEFAULT_STAFF_SIGN_IN_RATE_LIMIT)
         }
     };
 
@@ -224,7 +241,14 @@ fn has_ros_app_auth_headers(request: &Request) -> bool {
     let has_pos_credentials = header_has_value(headers, "x-riverside-pos-session-id")
         && header_has_value(headers, "x-riverside-pos-session-token")
         && header_has_value(headers, "x-riverside-station-key");
-    has_staff_credentials || has_pos_credentials
+    let has_staff_session = header_has_value(headers, "x-riverside-staff-session")
+        && header_has_value(headers, "x-riverside-station-key")
+        && header_has_value(headers, "x-riverside-connection-key");
+    has_staff_credentials || has_staff_session || has_pos_credentials
+}
+
+fn is_staff_sign_in_request(request: &Request) -> bool {
+    request.method() == axum::http::Method::POST && request.uri().path() == "/api/staff/session"
 }
 
 fn header_has_value(headers: &axum::http::HeaderMap, name: &'static str) -> bool {
@@ -282,23 +306,25 @@ fn is_authenticated_counterpoint_bridge_request(request: &Request) -> bool {
 }
 
 fn extract_client_ip(request: &Request) -> String {
-    // Check for X-Forwarded-For header (reverse proxy)
-    if let Some(forwarded) = request.headers().get("x-forwarded-for") {
-        if let Ok(forwarded_str) = forwarded.to_str() {
-            if let Some(first_ip) = forwarded_str.split(',').next() {
-                let ip = first_ip.trim();
-                if !ip.is_empty() {
-                    return ip.to_string();
+    // Forwarded headers are client-controlled unless a trusted reverse proxy overwrites them.
+    if trust_proxy_headers() {
+        if let Some(forwarded) = request.headers().get("x-forwarded-for") {
+            if let Ok(forwarded_str) = forwarded.to_str() {
+                if let Some(first_ip) = forwarded_str.split(',').next() {
+                    let ip = first_ip.trim();
+                    if !ip.is_empty() {
+                        return ip.to_string();
+                    }
                 }
             }
         }
-    }
 
-    if let Some(real_ip) = request.headers().get("x-real-ip") {
-        if let Ok(real_ip_str) = real_ip.to_str() {
-            let ip = real_ip_str.trim();
-            if !ip.is_empty() {
-                return ip.to_string();
+        if let Some(real_ip) = request.headers().get("x-real-ip") {
+            if let Ok(real_ip_str) = real_ip.to_str() {
+                let ip = real_ip_str.trim();
+                if !ip.is_empty() {
+                    return ip.to_string();
+                }
             }
         }
     }
@@ -313,6 +339,17 @@ fn extract_client_ip(request: &Request) -> String {
         .get::<SocketAddr>()
         .map(|addr| addr.ip().to_string())
         .unwrap_or_else(|| "unknown".to_string())
+}
+
+fn trust_proxy_headers() -> bool {
+    std::env::var("RIVERSIDE_TRUST_PROXY_HEADERS")
+        .ok()
+        .is_some_and(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
 }
 
 // JWT-based user rate limiting can be added here in the future by extracting
@@ -384,6 +421,34 @@ mod tests {
                 ("x-riverside-pos-session-token", "token"),
                 ("x-riverside-station-key", "station")
             ]
+        )));
+        assert!(!has_ros_app_auth_headers(&request_with_headers(
+            "/api/transactions",
+            &[("x-riverside-staff-session", "opaque")]
+        )));
+        assert!(has_ros_app_auth_headers(&request_with_headers(
+            "/api/transactions",
+            &[
+                ("x-riverside-staff-session", "opaque"),
+                ("x-riverside-station-key", "station"),
+                ("x-riverside-connection-key", "connection")
+            ]
+        )));
+    }
+
+    #[test]
+    fn staff_sign_in_scope_matches_only_session_creation_posts() {
+        let post = Request::builder()
+            .method(axum::http::Method::POST)
+            .uri("/api/staff/session")
+            .body(Body::empty())
+            .expect("test request");
+        assert!(is_staff_sign_in_request(&post));
+        assert!(!is_staff_sign_in_request(&request_for(
+            "/api/staff/session"
+        )));
+        assert!(!is_staff_sign_in_request(&request_for(
+            "/api/staff/effective-permissions"
         )));
     }
 

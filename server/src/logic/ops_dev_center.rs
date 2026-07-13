@@ -83,6 +83,8 @@ pub struct StationRow {
     pub monitor_offline: bool,
     pub station_lifecycle: String,
     pub actionable: bool,
+    pub active_staff_sessions: i64,
+    pub active_staff_names: String,
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
@@ -1677,7 +1679,7 @@ pub async fn list_stations(pool: &PgPool) -> Result<Vec<StationRow>, sqlx::Error
             WHERE last_seen_at >= $3
         )
         SELECT
-            station_key,
+            station_rows.station_key,
             station_label,
             app_version,
             git_sha,
@@ -1695,8 +1697,21 @@ pub async fn list_stations(pool: &PgPool) -> Result<Vec<StationRow>, sqlx::Error
                 WHEN monitor_offline AND last_seen_at >= $2 THEN 'recently_offline'
                 ELSE 'stale'
             END AS station_lifecycle,
-            (monitor_offline AND last_seen_at >= $2) AS actionable
+            (monitor_offline AND last_seen_at >= $2) AS actionable,
+            COALESCE(active_staff.session_count, 0)::bigint AS active_staff_sessions,
+            COALESCE(active_staff.staff_names, '') AS active_staff_names
         FROM station_rows
+        LEFT JOIN LATERAL (
+            SELECT
+                COUNT(*)::bigint AS session_count,
+                STRING_AGG(DISTINCT staff.full_name, ', ' ORDER BY staff.full_name) AS staff_names
+            FROM staff_access_sessions
+            INNER JOIN staff ON staff.id = staff_access_sessions.staff_id
+            WHERE staff_access_sessions.station_key = station_rows.station_key
+              AND staff_access_sessions.revoked_at IS NULL
+              AND staff_access_sessions.expires_at > now()
+              AND staff.is_active = TRUE
+        ) active_staff ON TRUE
         ORDER BY (last_seen_at >= $1) DESC, (last_seen_at >= $2) DESC, last_seen_at DESC
         "#,
     )

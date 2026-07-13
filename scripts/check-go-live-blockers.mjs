@@ -1069,6 +1069,63 @@ function checkStaffCustomerSaveContracts() {
   );
 }
 
+function checkSessionAndConnectionIntegrity() {
+  const migrationFile = "migrations/125_staff_access_sessions.sql";
+  const migration = read(migrationFile);
+  assert(
+    migration.includes("token_hash text NOT NULL UNIQUE") &&
+      migration.includes("connection_key text NOT NULL") &&
+      migration.includes("idx_staff_access_sessions_one_connection"),
+    "Staff Access sessions remain hash-only and connection-bound",
+    migrationFile,
+    "Do not regress to persisted raw PINs/tokens or allow multiple active identities on one connection.",
+  );
+
+  const persistenceFile = "client/src/lib/backofficeSessionPersistence.ts";
+  const persistence = read(persistenceFile);
+  const signInGate = read("client/src/components/layout/BackofficeSignInGate.tsx");
+  assert(
+    persistence.includes('const KEY = "ros.backoffice.session.v2"') &&
+      !persistence.includes("staffPin:") &&
+      signInGate.includes("setStaffCredentials(authenticatedStaffId"),
+    "Back Office persistence does not store an Access PIN",
+    persistenceFile,
+    "The UI must persist only the opaque Staff Access token and expiry.",
+  );
+
+  const cspFile = "client/src-tauri/tauri.conf.json";
+  const csp = readJson(cspFile)?.app?.security?.csp;
+  assert(
+    typeof csp === "string" && csp.includes("object-src 'none'") && csp.includes("script-src 'self'"),
+    "Tauri WebView content security policy is enabled",
+    cspFile,
+    "A null CSP exposes the privileged desktop WebView to unnecessary remote-content risk.",
+  );
+
+  const rateLimitFile = "server/src/middleware/rate_limit.rs";
+  const rateLimit = read(rateLimitFile);
+  assert(
+    rateLimit.includes("DEFAULT_STAFF_SIGN_IN_RATE_LIMIT") &&
+      rateLimit.includes("x-riverside-connection-key") &&
+      rateLimit.includes("RIVERSIDE_TRUST_PROXY_HEADERS"),
+    "Staff sign-in has a separate limit and forwarded IPs are opt-in",
+    rateLimitFile,
+    "PIN brute-force limits must not trust client-spoofable forwarded headers by default.",
+  );
+
+  const closeModalFile = "client/src/components/pos/CloseRegisterModal.tsx";
+  const closeModal = read(closeModalFile);
+  const sessionsApi = read("server/src/api/sessions.rs");
+  assert(
+    !closeModal.includes("reconcileCashierCode") &&
+      sessionsApi.includes("middleware::require_pos_session_secret_or_permission") &&
+      sessionsApi.includes("try_authenticated_staff_headers"),
+    "Register reconciliation uses scoped sessions instead of a retained Access PIN",
+    closeModalFile,
+    "Z-close must remain available through the authenticated Staff/Register session and attribute the actual staff actor.",
+  );
+}
+
 checkCurrentReleaseNotes();
 checkTauriOpenerAcl();
 checkBrowserPrintHelper();
@@ -1096,6 +1153,7 @@ checkDeploymentManagerPersistentLogs();
 checkDeploymentManagerActionWiring();
 checkReleaseWorkflowPreBuildGates();
 checkDesktopAndPwaUpdateWiring();
+checkSessionAndConnectionIntegrity();
 checkStaffCustomerSaveContracts();
 checkFinancialInvariantGate();
 

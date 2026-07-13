@@ -14,24 +14,40 @@ export function parseStaffRole(raw: unknown): StaffRole | null {
 export function initialStaffCredentials(initialCode: string | null): {
   staffCode: string;
   staffPin: string;
+  staffSessionToken: string;
+  staffSessionExpiresAt: string;
 } {
   const reg = initialCode?.trim() ?? "";
   const p = readPersistedBackofficeSession();
-  if (reg) {
-    if (p && p.staffCode === reg) {
-      return { staffCode: reg, staffPin: p.staffPin };
-    }
-    return { staffCode: reg, staffPin: "" };
-  }
   if (p) {
-    return { staffCode: p.staffCode, staffPin: p.staffPin };
+    return {
+      staffCode: p.staffCode,
+      staffPin: "",
+      staffSessionToken: p.sessionToken,
+      staffSessionExpiresAt: p.sessionExpiresAt,
+    };
   }
-  return { staffCode: "", staffPin: "" };
+  if (reg) {
+    return {
+      staffCode: reg,
+      staffPin: "",
+      staffSessionToken: "",
+      staffSessionExpiresAt: "",
+    };
+  }
+  return {
+    staffCode: "",
+    staffPin: "",
+    staffSessionToken: "",
+    staffSessionExpiresAt: "",
+  };
 }
 
 export type BackofficeAuthContextValue = {
   staffCode: string;
   staffPin: string;
+  staffSessionToken: string;
+  staffSessionExpiresAt: string;
   /** Internal staff UUID from `effective-permissions`. */
   staffId: string;
   /** Display name from the server (`full_name`) after a successful `effective-permissions` response; empty when unknown. */
@@ -45,7 +61,12 @@ export type BackofficeAuthContextValue = {
   /** Linked CRM customer for employee-cost POS pricing (`staff.employee_customer_id`). */
   employeeCustomerId: string | null;
   permissions: string[];
-  setStaffCredentials: (code: string, pin: string) => void;
+  setStaffCredentials: (
+    code: string,
+    pin: string,
+    sessionToken: string,
+    sessionExpiresAt: string,
+  ) => void;
   clearStaffCredentials: () => void;
   /** Apply a permissions list from a successful sign-in or server response (avoids a blank flash if the follow-up refresh fails transiently). */
   adoptPermissionsFromServer: (

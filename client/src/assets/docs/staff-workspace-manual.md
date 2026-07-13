@@ -52,6 +52,8 @@ Riverside OS uses a 4-digit **Access PIN** for all secure actions (signing into 
 > [!IMPORTANT]
 > To maintain security, never share PINs. If a staff member forgets their code, an Admin must set a new one here.
 
+After a successful sign-in, Riverside replaces the PIN with a secure session for that one browser tab, installed PWA, or desktop app window. The PIN is not kept for later requests. Use **Change staff member** or **Sign out** when leaving a station; this immediately revokes that connection without signing the staff member out of another station. Changing a staff member's PIN or deactivating their profile revokes all of their active connections.
+
 ## Roles & Permissions
 
 While **Roles** (Admin, Manager, Salesperson) provide a baseline set of permissions, you can toggle individual keys for specific needs:
@@ -71,6 +73,7 @@ Open task lists, team task lists, history, and individual task sheets can be pri
 - **PIN Security**: PINs are 4 digits. Avoid using simple sequences (1234, 1111).
 - **Role Sync**: Changing a staff member's Role will reset their permissions and default discount cap to the role's baseline. Make one-off permission changes after saving the new Role.
 - **Employment Dates**: Staff members with a future 'Start Date' or a past 'End Date' will not be able to sign in to the register.
+- **Shared devices**: Do not leave a signed-in tab unattended. Each tab/window is tracked separately in Station Fleet and automatically requires sign-in again when its session expires.
 
 ## What happens next
 

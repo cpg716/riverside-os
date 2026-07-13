@@ -4,5 +4,6 @@ pub mod permissions;
 pub mod pins;
 pub mod pos_session;
 pub mod staff_avatar;
+pub mod staff_session;
 pub mod store_customer_jwt;
 pub mod store_customer_password;

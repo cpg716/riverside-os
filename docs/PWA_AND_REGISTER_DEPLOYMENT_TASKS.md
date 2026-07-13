@@ -44,6 +44,7 @@ Near-turnkey Windows deployment package: [`WINDOWS_INSTALLER_PACKAGE.md`](WINDOW
 - [x] **iOS Safari:** Automated coverage is limited; **manually** on a physical device: login, Helcim (if used), CSV/import upload, 30+ minute session, and “Add to Home Screen”. Watch for storage eviction if the device is low on space.
 - [x] **Responsive QA:** Playwright `client/e2e/pwa-responsive.spec.ts` (375px + 768px). Run: `E2E_BASE_URL=http://localhost:5173 npm run test:e2e -- e2e/pwa-responsive.spec.ts`.
 - [x] **API gate smoke:** `client/e2e/api-gates.spec.ts` — anonymous **401/403** on sample gated routes when **`E2E_API_BASE`** (default `http://127.0.0.1:3000`) is reachable; skips if API is down. Full Playwright/API smoke inventory: **`docs/E2E_REGRESSION_MATRIX.md`**.
+- [x] **Per-connection Staff Access:** Tauri windows, installed PWAs, and browser tabs exchange the Access PIN once for an opaque, expiring, revocable session bound to both station and connection identity. Raw PINs are not retained in web storage or sent on normal API requests.
 
 ---
 
@@ -53,6 +54,7 @@ Near-turnkey Windows deployment package: [`WINDOWS_INSTALLER_PACKAGE.md`](WINDOW
 - [x] **CORS:** `server/src/main.rs` / `launcher.rs` — when **`RIVERSIDE_CORS_ORIGINS`** is unset, `allow_origin(Any)` (dev/Tauri). Production browser hosts should set **`RIVERSIDE_STRICT_PRODUCTION=true`** so startup refuses missing CORS allowlists, missing storefront JWT secret, and invalid `FRONTEND_DIST`.
 - [x] **Server bind:** Defaults to `0.0.0.0:3000`. Override with **`RIVERSIDE_HTTP_BIND`** (e.g. `127.0.0.1:3000` behind a local reverse proxy).
 - [x] **Dedicated host smoke check:** the host panel now shows the host machine's local satellite URL plus detected LAN identity, so stores can verify a second same-network device loads the sign-in gate before opening.
+- [x] **Connection liveness:** the shared client monitor uses bounded health probes, accelerates while offline, slows while healthy, and retries on browser online/visibility events. Station heartbeats track Tauri/PWA/browser runtime surface and active Staff Access without blocking staff work.
 
 ---
 
@@ -64,6 +66,7 @@ Near-turnkey Windows deployment package: [`WINDOWS_INSTALLER_PACKAGE.md`](WINDOW
 - [x] **Auto-update (desktop):** Tauri updater is supported via `.github/workflows/windows-deployment-package.yml`. It emits `latest.json` + signed Windows updater artifacts for your hosted update endpoint while keeping the server, client files, and deployment ZIP on the same build. Installed Windows stations use **Settings → Updates → Windows app** for check/install, and the same screen verifies the loaded app files and server API are on the same Riverside release.
 - [x] **In-app server update (Main Hub):** As of v0.80.9, the Main Hub uses **Settings → Updates → Main Hub update** to download, install, restart, and verify the server in a single guided flow. The Deployment Manager is no longer required for routine updates. If the elevated Main Hub runner itself fails to parse or launch, use **Settings → Updates → Windows app → Check for update / Install update** on the Main Hub first, relaunch Riverside, then rerun **Main Hub update** so the repaired runner generator can complete the full server/API, migrations, ROSIE, and app-files update. See [`DEPLOYMENT_MANAGER.md`](DEPLOYMENT_MANAGER.md) section 8.
 - [x] **Version gate (satellite stations):** On launch, every Register and Back Office station checks `GET /api/version` before showing the sign-in PIN screen. If the server is ahead of the client, the PIN screen is replaced with a blocking **"Update Required"** prompt. Staff cannot sign in until the station is updated to match the server. Windows Tauri stations update via the Tauri updater; PWA/browser stations reload after the web bundle is refreshed.
+- [x] **Desktop CSP:** the Tauri WebView enforces a content security policy. It permits LAN/Tailscale API connections and the approved HelcimPay host while blocking unapproved scripts, plugins, and base-URL injection.
 - [x] **Kiosk-ish (optional):** Not bundled; use Windows assigned access / shell replacement, or Tauri fullscreen + `tauri-plugin-single-instance` if you add it later.
 
 ### D.1 Windows install paths

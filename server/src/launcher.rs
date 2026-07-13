@@ -267,6 +267,23 @@ fn database_pool_max_connections() -> u32 {
         .unwrap_or(20)
 }
 
+fn database_pool_min_connections(max_connections: u32) -> u32 {
+    std::env::var("RIVERSIDE_DATABASE_MIN_CONNECTIONS")
+        .ok()
+        .and_then(|value| value.parse::<u32>().ok())
+        .filter(|value| *value >= 1 && *value <= max_connections)
+        .unwrap_or(3.min(max_connections))
+}
+
+fn database_pool_acquire_timeout() -> std::time::Duration {
+    let seconds = std::env::var("RIVERSIDE_DATABASE_ACQUIRE_TIMEOUT_SECS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|value| (2..=30).contains(value))
+        .unwrap_or(10);
+    std::time::Duration::from_secs(seconds)
+}
+
 fn rosie_provider_uses_local_llama_upstream() -> bool {
     let provider = std::env::var("ROSIE_PROVIDER")
         .or_else(|_| std::env::var("ROSIE_PROVIDER_MODE"))
@@ -345,12 +362,18 @@ async fn launch_server_inner(
     let result: Result<(), Box<dyn std::error::Error>> = async {
     tracing::info!("Unified Engine: Connecting to PostgreSQL...");
     let db_max_connections = database_pool_max_connections();
+    let db_min_connections = database_pool_min_connections(db_max_connections);
     let pool = PgPoolOptions::new()
         .max_connections(db_max_connections)
+        .min_connections(db_min_connections)
+        .acquire_timeout(database_pool_acquire_timeout())
+        .idle_timeout(Some(std::time::Duration::from_secs(10 * 60)))
+        .max_lifetime(Some(std::time::Duration::from_secs(30 * 60)))
         .connect(&config.database_url)
         .await?;
     tracing::info!(
         max_connections = db_max_connections,
+        min_connections = db_min_connections,
         "Unified Engine: PostgreSQL pool configured"
     );
 
@@ -424,7 +447,11 @@ async fn launch_server_inner(
     let store_customer_jwt_secret = resolve_store_customer_jwt_secret(config.strict_production)?;
 
     let http_client = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(5))
         .timeout(std::time::Duration::from_secs(25))
+        .tcp_keepalive(std::time::Duration::from_secs(60))
+        .pool_idle_timeout(std::time::Duration::from_secs(90))
+        .pool_max_idle_per_host(8)
         .build()
         .expect("reqwest client");
 
@@ -437,6 +464,12 @@ async fn launch_server_inner(
     .await
     {
         Ok(v) => v,
+        Err(e) if config.strict_production => {
+            return Err(format!(
+                "Strict production could not load store_settings.employee_markup_percent: {e}"
+            )
+            .into());
+        }
         Err(e) => {
             tracing::warn!(error = %e, "could not load store_settings.employee_markup_percent; using 15% default");
             dec!(15.0)

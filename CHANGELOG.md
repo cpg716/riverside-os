@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Staff Session Isolation and Connection Security**: Replaced retained raw-PIN Back Office authentication with hashed, opaque, expiring sessions bound to both station and tab/window identity; added independent revocation, PIN/deactivation invalidation, expiry enforcement, active-session Station Fleet tracking, a dedicated PIN-attempt rate limit, and a Tauri content security policy.
+- **Register Session Audit Attribution**: Z-close reconciliation no longer depends on a retained four-digit credential, and Register close/handoff actions resolve the actual authenticated Staff session for audit attribution.
+- **Hot-Path Connection Efficiency**: Throttled Register and Staff session activity writes to once per minute, warmed the PostgreSQL pool with bounded acquisition/lifetime settings, and configured shared outbound HTTP connection pooling, timeouts, and TCP keepalive.
+- **Wedding Group-Pay Balance Safety**: Locked the beneficiary Transaction Record during split wedding payment allocation, ignored fully paid targets, and rejected disbursements above the live balance before consuming tender sources.
+- **Atomic Transaction Audit History**: Shipping, refund, exchange, financial-date, status, and order-line mutations now persist their required transaction activity record in the same database transaction, preventing a committed change from returning a misleading failure because its later audit write failed.
+- **Strict Employee-Pricing Startup**: Strict production startup now fails closed when the configured employee markup cannot be loaded instead of silently pricing with a 15% default.
+- **Staff-Facing Failure Visibility**: Counterpoint exception CSV exports use the native desktop save bridge and report cancellation/failure accurately; role discount-cap loads/saves and Register product searches now surface connection or save failures instead of appearing successful or empty.
+- **Sandbox Restore Proof**: The backup/restore drill now recognizes the repository's `e2e` environment as an allowed test sandbox while continuing to refuse production and unknown databases.
+
+### Changed
+- **PostgreSQL 16 Operations Guidance**: Updated replication and WAL paths to the deployed PostgreSQL 16 baseline and replaced obsolete `recovery.conf` instructions with `standby.signal` guidance.
+- **v0.95.0 Release Evidence**: Corrected README, release notes, and certification to the actual published `6fdaca58` tag, exact-SHA CI, candidate-build, promotion runs, and deployment ZIP name.
+
 ## [0.95.0] - 2026-07-11
 
 - **Release Build Throughput and Promotion**: Corrected per-job Rust cache identities, upgraded sccache setup to its native Node 24 action, allowed Windows and macOS release builds to run concurrently while serializing publication, added non-publishing benchmark dispatches, and added exact-SHA candidate promotion with run, tag, artifact-digest, and updater-manifest provenance checks.

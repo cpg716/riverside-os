@@ -1,6 +1,6 @@
 # Riverside OS
 
-**Riverside OS (ROS)** is a production-grade desktop ERM/POS platform for formalwear and wedding retail. Version 0.95.0 is the current published release and represents the substantial product, financial-integrity, Help, ROSIE, deployment, and release-engineering advances made throughout the v0.90.0 development cycle. The verified release build is `29ea2c1d` from 2026-07-11.
+**Riverside OS (ROS)** is a production-grade desktop ERM/POS platform for formalwear and wedding retail. Version 0.95.0 is the current published release and represents the substantial product, financial-integrity, Help, ROSIE, deployment, and release-engineering advances made throughout the v0.90.0 development cycle. The verified release build is `6fdaca58` from 2026-07-12.
 
 Current Version: **v0.95.0** (See [CHANGELOG.md](CHANGELOG.md))
 
@@ -192,6 +192,11 @@ Environment variables:
 | `OTEL_*` / `RIVERSIDE_OTEL_ENABLED` | _(unset)_ | Optional **OTLP** distributed traces — [`docs/OBSERVABILITY_TRACING_AND_OPENTELEMETRY.md`](docs/OBSERVABILITY_TRACING_AND_OPENTELEMETRY.md), [`server/.env.example`](server/.env.example) |
 | `RIVERSIDE_MAX_BODY_BYTES` | _(unset)_ | Optional cap override for large **`POST /api/products/import`** bodies (`DEVELOPER.md`, **`docs/CATALOG_IMPORT.md`**) |
 | `RIVERSIDE_DATABASE_MAX_CONNECTIONS` | `20` | Optional PostgreSQL pool cap for API + background jobs. Values outside `5..=100` fall back to `20`. |
+| `RIVERSIDE_DATABASE_MIN_CONNECTIONS` | `min(3, max)` | Optional warm PostgreSQL pool floor. Values above the configured maximum are clamped. |
+| `RIVERSIDE_DATABASE_ACQUIRE_TIMEOUT_SECS` | `10` | Optional bounded wait for a database connection; accepted range 2–30 seconds. |
+| `RIVERSIDE_STAFF_SESSION_HOURS` | `16` | Opaque Staff Access lifetime; accepted range 1–24 hours. |
+| `RIVERSIDE_STAFF_SIGN_IN_RATE_LIMIT_PER_MINUTE` | `20` | Per-IP Access PIN attempt ceiling; valid Staff/Register sessions use the separate authenticated app budget. |
+| `RIVERSIDE_TRUST_PROXY_HEADERS` | `false` | Trust `X-Forwarded-For`/`X-Real-IP` for client rate-limit identity only behind a controlled proxy that overwrites them. |
 | `RIVERSIDE_VISUAL_CROSSING_API_KEY` | _(unset)_ | Optional deployment fallback for the Weather Settings API key — see **`docs/WEATHER_VISUAL_CROSSING.md`** |
 | `RIVERSIDE_VISUAL_CROSSING_ENABLED` | _(unset)_ | Optional; force live weather on/off — see **`docs/WEATHER_VISUAL_CROSSING.md`** |
 | `RIVERSIDE_MEILISEARCH_URL` | _(unset)_ | Optional deployment fallback; routine Meilisearch host setup belongs in Backoffice Settings. Enables fuzzy catalog/CRM/inventory/transaction search with SQL hydration + fallback — **`docs/SEARCH_AND_PAGINATION.md`** |

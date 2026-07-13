@@ -1,5 +1,9 @@
 import { readPersistedBackofficeSession } from "./backofficeSessionPersistence";
-import { getStableStationKey, stationKeyHeader } from "./stationIdentity";
+import {
+  getConnectionKey,
+  getStableStationKey,
+  stationKeyHeader,
+} from "./stationIdentity";
 
 /**
  * Opaque register-session token from `POST /api/sessions/open` (or re-issue).
@@ -84,9 +88,8 @@ export function sessionPollAuthHeaders(): Record<string, string> {
   const bo = readPersistedBackofficeSession();
   if (bo?.staffCode) {
     out["x-riverside-staff-code"] = bo.staffCode;
-    if (bo.staffPin.trim()) {
-      out["x-riverside-staff-pin"] = bo.staffPin.trim();
-    }
+    out["x-riverside-staff-session"] = bo.sessionToken;
+    out["x-riverside-connection-key"] = getConnectionKey();
   }
   Object.assign(out, stationKeyHeader());
   return out;
@@ -98,6 +101,7 @@ export function hasRegisterSessionPollCredentials(
 ): boolean {
   return Boolean(
     (h["x-riverside-staff-code"] ?? "").trim() ||
+    (h["x-riverside-staff-session"] ?? "").trim() ||
     ((h["x-riverside-pos-session-id"] ?? "").trim() &&
       (h["x-riverside-station-key"] ?? "").trim()),
   );
@@ -105,6 +109,9 @@ export function hasRegisterSessionPollCredentials(
 
 export function hasStaffOrPosAuthHeaders(h: Record<string, string>): boolean {
   return Boolean(
+    ((h["x-riverside-staff-session"] ?? "").trim() &&
+      (h["x-riverside-station-key"] ?? "").trim() &&
+      (h["x-riverside-connection-key"] ?? "").trim()) ||
     ((h["x-riverside-staff-code"] ?? "").trim() &&
       (h["x-riverside-staff-pin"] ?? "").trim()) ||
     ((h["x-riverside-pos-session-id"] ?? "").trim() &&
@@ -116,6 +123,7 @@ export function hasStaffOrPosAuthHeaders(h: Record<string, string>): boolean {
 /** Header names (case-insensitive) that must never be persisted (offline queue / IndexedDB). */
 const NON_PERSISTABLE_HEADER_NAMES = new Set([
   "x-riverside-staff-pin",
+  "x-riverside-staff-session",
   "x-riverside-pos-session-token",
   "authorization",
   "cookie",

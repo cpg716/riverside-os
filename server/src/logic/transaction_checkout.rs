@@ -728,6 +728,20 @@ fn validate_order_payment_against_target(
     Ok(())
 }
 
+fn validate_wedding_disbursement_against_balance(
+    amount: Decimal,
+    live_balance_due: Decimal,
+) -> Result<(), CheckoutError> {
+    let amount = amount.round_dp(2);
+    let live_balance_due = live_balance_due.round_dp(2);
+    if amount > live_balance_due + Decimal::new(2, 2) {
+        return Err(CheckoutError::InvalidPayload(format!(
+            "party disbursement amount ${amount:.2} exceeds the member's current balance due of ${live_balance_due:.2}"
+        )));
+    }
+    Ok(())
+}
+
 fn build_payment_allocation_plan(
     payment_splits: &[ResolvedPaymentSplit],
     current_transaction_id: Uuid,
@@ -4591,22 +4605,25 @@ pub async fn execute_checkout(
                         continue;
                     }
 
-                    let bene_order: Option<(Uuid, Option<Uuid>)> = sqlx::query_as(
+                    let bene_order: Option<(Uuid, Option<Uuid>, Decimal)> = sqlx::query_as(
                         r#"
-                        SELECT o.id, wm.wedding_party_id
+                        SELECT o.id, wm.wedding_party_id, o.balance_due
                         FROM transactions o
                         JOIN wedding_members wm ON wm.id = o.wedding_member_id
                         WHERE wm.id = $1
                           AND o.status IN ('open', 'pending_measurement')
+                          AND o.balance_due > 0
                         ORDER BY o.booked_at DESC
                         LIMIT 1
+                        FOR UPDATE OF o
                         "#,
                     )
                     .bind(d.wedding_member_id)
                     .fetch_optional(&mut *tx)
                     .await?;
 
-                    if let Some((bene_transaction_id, party_id)) = bene_order {
+                    if let Some((bene_transaction_id, party_id, live_balance_due)) = bene_order {
+                        validate_wedding_disbursement_against_balance(d.amount, live_balance_due)?;
                         for (source_payment_tx_id, amount) in take_disbursement_sources(d.amount)? {
                             sqlx::query(
                                 r#"
@@ -5127,9 +5144,10 @@ mod tests {
         parse_combo_reward_amount, resolve_payment_splits, validate_checkout_alteration_intakes,
         validate_checkout_item_quantity, validate_open_deposit_scope,
         validate_order_payment_against_target, validate_order_payment_shape,
-        CheckoutAlterationIntake, CheckoutDone, CheckoutItem, CheckoutOrderPayment,
-        CheckoutPaymentSplit, CheckoutRequest, ExistingOrderPaymentTarget, ResolvedOrderPayment,
-        ResolvedPaymentSplit, WeddingDisbursement,
+        validate_wedding_disbursement_against_balance, CheckoutAlterationIntake, CheckoutDone,
+        CheckoutItem, CheckoutOrderPayment, CheckoutPaymentSplit, CheckoutRequest,
+        ExistingOrderPaymentTarget, ResolvedOrderPayment, ResolvedPaymentSplit,
+        WeddingDisbursement,
     };
     use crate::logic::customer_open_deposit;
     use crate::logic::customers::{insert_customer, CustomerCreatedSource, InsertCustomerParams};
@@ -5813,6 +5831,24 @@ mod tests {
         target.display_id = payload[0].target_display_id.clone();
         let err = validate_order_payment_against_target(&payload[0], &target).unwrap_err();
         assert!(err.to_string().contains("different customer"));
+    }
+
+    #[test]
+    fn transaction_checkout_wedding_disbursement_rejects_live_balance_overpayment() {
+        let err = validate_wedding_disbursement_against_balance(
+            Decimal::new(10003, 2),
+            Decimal::new(10000, 2),
+        )
+        .unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("exceeds the member's current balance due"));
+
+        validate_wedding_disbursement_against_balance(
+            Decimal::new(10000, 2),
+            Decimal::new(10000, 2),
+        )
+        .expect("paying the exact live balance should remain valid");
     }
 
     #[test]

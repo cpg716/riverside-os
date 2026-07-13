@@ -46,6 +46,8 @@ If you are already logged in but a different staff member needs to ring a sale, 
 
 Staff Access records who operated the register. It is separate from **Salesperson** attribution for commissions. Only active staff with the **Salesperson** role appear in Salesperson attribution lists. Before completing payment, every merchandise, alteration, special-order, custom-order, and wedding-order sale line must have a default Salesperson or a line-level Salesperson. Choose **Staff Admin** only when the sale should not commission to an individual salesperson; it is a protected no-commission system account. Gift-card-load-only and RMS Charge payment-only flows do not use salesperson attribution.
 
+Correcting Salesperson attribution after the sale always requires a fresh Access PIN, even when the signed-in Admin already has permission. Riverside does not reuse or retain the sign-in PIN for this audit-sensitive correction.
+
 ---
 
 ## Open the register workspace
@@ -81,6 +83,7 @@ When the drawer is active, you often land on **Dashboard**. Here you can see shi
 
 - Attach a customer or wedding party when your store requires it for the sale.
 - If scanner input lands in the wrong field after switching tabs or returning to the register, use **Focus /** next to the product search field, or press **/** on a keyboard station, and scan again.
+- If the Register says **Product search failed**, verify the Main Hub connection and retry. This message means Riverside could not complete the search; it is different from **SKU NOT FOUND**.
 - Use on-screen actions for discounts or notes only when your manager has shown you how.
 
 ## What to watch for

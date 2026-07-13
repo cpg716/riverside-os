@@ -1,6 +1,7 @@
 import { getBaseUrl } from "../../lib/apiConfig";
 import { useEffect, useState } from "react";
 import { readPersistedBackofficeSession } from "../../lib/backofficeSessionPersistence";
+import { getConnectionKey, stationKeyHeader } from "../../lib/stationIdentity";
 import {
   getPodiumOAuthRedirectUri,
   PODIUM_OAUTH_REDIRECT_STORAGE_KEY,
@@ -83,10 +84,10 @@ export default function PodiumOAuthCallback() {
         const headers: Record<string, string> = {
           "Content-Type": "application/json",
           "x-riverside-staff-code": session.staffCode,
+          "x-riverside-staff-session": session.sessionToken,
+          "x-riverside-connection-key": getConnectionKey(),
+          ...stationKeyHeader(),
         };
-        if (session.staffPin) {
-          headers["x-riverside-staff-pin"] = session.staffPin;
-        }
 
         const res = await fetch(`${apiBase}/api/settings/podium-oauth/exchange`, {
           method: "POST",

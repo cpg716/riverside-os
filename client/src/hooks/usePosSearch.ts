@@ -199,6 +199,8 @@ export function usePosSearch({
       return finalResults;
     } catch (e) {
       console.error("POS Search Error", e);
+      setSearchResults([]);
+      toast("Product search failed. Check the Main Hub connection and try again.", "error");
       return [];
     }
   }, [baseUrl, apiAuth, rmsPaymentMeta, setRmsPaymentMeta, toast]);

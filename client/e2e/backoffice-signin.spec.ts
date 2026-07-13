@@ -113,6 +113,21 @@ test.describe("Back Office sign-in gate", () => {
       .toBeTruthy();
   });
 
+  test("opaque Staff Access survives reload without retaining the PIN", async ({ page }) => {
+    test.setTimeout(90_000);
+    const accessPin = e2eBackofficeStaffCode();
+    await signInToBackOffice(page, { persistSession: true });
+    const persisted = await page.evaluate(() => {
+      const raw = sessionStorage.getItem("ros.backoffice.session.v2");
+      return raw ? (JSON.parse(raw) as Record<string, unknown>) : null;
+    });
+    expect(persisted).toBeTruthy();
+    expect(persisted?.staffCode).not.toBe(accessPin);
+    expect(persisted?.staffPin).toBeUndefined();
+    expect(String(persisted?.sessionToken ?? "").length).toBeGreaterThan(32);
+    expect(Date.parse(String(persisted?.sessionExpiresAt ?? ""))).toBeGreaterThan(Date.now());
+  });
+
   test("wrong code shows an error", async ({ page }) => {
     await clearBackofficeSession(page);
     await expect(

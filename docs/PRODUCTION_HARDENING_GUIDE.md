@@ -131,6 +131,10 @@ tokio::spawn(async move {
 # Maximum database connections (default: 20)
 RIVERSIDE_DATABASE_MAX_CONNECTIONS=30
 
+# Keep a small pool warm and fail boundedly during saturation
+RIVERSIDE_DATABASE_MIN_CONNECTIONS=3
+RIVERSIDE_DATABASE_ACQUIRE_TIMEOUT_SECS=10
+
 # Alert threshold (fixed at 80%)
 ```
 

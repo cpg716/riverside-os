@@ -21,9 +21,7 @@ import {
   parseStaffRole,
   type StaffRole,
 } from "./BackofficeAuthContextLogic";
-import { getStableStationKey } from "../lib/stationIdentity";
-
-const baseUrl = getBaseUrl();
+import { getConnectionKey, getStableStationKey } from "../lib/stationIdentity";
 
 function stationRuntimeMeta() {
   const tauri = isTauri();
@@ -56,6 +54,14 @@ export function BackofficeAuthProvider({
     const init = initialStaffCredentials(initialCode);
     return init.staffPin;
   });
+  const [staffSessionToken, setStaffSessionToken] = useState(() => {
+    const init = initialStaffCredentials(initialCode);
+    return init.staffSessionToken;
+  });
+  const [staffSessionExpiresAt, setStaffSessionExpiresAt] = useState(() => {
+    const init = initialStaffCredentials(initialCode);
+    return init.staffSessionExpiresAt;
+  });
   const [permissions, setPermissions] = useState<string[]>([]);
   const [permissionsLoaded, setPermissionsLoaded] = useState(false);
   const [staffDisplayName, setStaffDisplayName] = useState("");
@@ -72,12 +78,17 @@ export function BackofficeAuthProvider({
   useEffect(() => {
     const t = initialCode?.trim();
     if (!t) return;
-    setStaffCode(t);
     const p = readPersistedBackofficeSession();
-    if (p?.staffCode === t) {
-      setStaffPin(p.staffPin);
-    } else {
+    if (p) {
+      setStaffCode(p.staffCode);
       setStaffPin("");
+      setStaffSessionToken(p.sessionToken);
+      setStaffSessionExpiresAt(p.sessionExpiresAt);
+    } else {
+      setStaffCode(t);
+      setStaffPin("");
+      setStaffSessionToken("");
+      setStaffSessionExpiresAt("");
     }
   }, [initialCode]);
 
@@ -85,10 +96,16 @@ export function BackofficeAuthProvider({
     const h: Record<string, string> = {};
     if (staffCode.trim()) {
       h["x-riverside-staff-code"] = staffCode.trim();
-      if (staffPin.trim()) h["x-riverside-staff-pin"] = staffPin.trim();
+      if (staffSessionToken.trim()) {
+        h["x-riverside-staff-session"] = staffSessionToken.trim();
+        h["x-riverside-station-key"] = getStableStationKey();
+        h["x-riverside-connection-key"] = getConnectionKey();
+      } else if (staffPin.trim()) {
+        h["x-riverside-staff-pin"] = staffPin.trim();
+      }
     }
     return h;
-  }, [staffCode, staffPin]);
+  }, [staffCode, staffPin, staffSessionToken]);
 
   const refreshPermissions = useCallback(async () => {
     if (!staffCode.trim()) {
@@ -103,7 +120,7 @@ export function BackofficeAuthProvider({
       return;
     }
     try {
-      const res = await fetch(`${baseUrl}/api/staff/effective-permissions`, {
+      const res = await fetch(`${getBaseUrl()}/api/staff/effective-permissions`, {
         headers: backofficeHeaders(),
       });
       if (!res.ok) {
@@ -160,14 +177,14 @@ export function BackofficeAuthProvider({
   useEffect(() => {
     setPermissionsLoaded(false);
     void refreshPermissions();
-  }, [staffCode, staffPin, refreshPermissions]);
+  }, [staffCode, staffPin, staffSessionToken, refreshPermissions]);
 
   useEffect(() => {
-    if (!staffCode.trim() || !staffPin.trim()) return;
+    if (!staffCode.trim() || (!staffSessionToken.trim() && !staffPin.trim())) return;
 
     const sendHeartbeat = async () => {
       try {
-        await fetch(`${baseUrl}/api/ops/stations/heartbeat`, {
+        await fetch(`${getBaseUrl()}/api/ops/stations/heartbeat`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -196,16 +213,33 @@ export function BackofficeAuthProvider({
     const timer = window.setInterval(() => {
       void sendHeartbeat();
     }, 60_000);
-    return () => window.clearInterval(timer);
-  }, [backofficeHeaders, staffCode, staffPin]);
+    const sendAfterReconnect = () => void sendHeartbeat();
+    const sendWhenVisible = () => {
+      if (document.visibilityState === "visible") void sendHeartbeat();
+    };
+    window.addEventListener("online", sendAfterReconnect);
+    document.addEventListener("visibilitychange", sendWhenVisible);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("online", sendAfterReconnect);
+      document.removeEventListener("visibilitychange", sendWhenVisible);
+    };
+  }, [backofficeHeaders, staffCode, staffPin, staffSessionToken]);
 
-  const setStaffCredentials = useCallback((code: string, pin: string) => {
-    const c = code.trim();
-    const p = pin.trim();
-    setStaffCode(c);
-    setStaffPin(p);
-    writePersistedBackofficeSession(c, p);
-  }, []);
+  const setStaffCredentials = useCallback(
+    (code: string, pin: string, sessionToken: string, sessionExpiresAt: string) => {
+      const c = code.trim();
+      const p = pin.trim();
+      const token = sessionToken.trim();
+      const expiresAt = sessionExpiresAt.trim();
+      setStaffCode(c);
+      setStaffPin(p);
+      setStaffSessionToken(token);
+      setStaffSessionExpiresAt(expiresAt);
+      writePersistedBackofficeSession(c, token, expiresAt);
+    },
+    [],
+  );
 
   const adoptPermissionsFromServer = useCallback(
     (
@@ -239,8 +273,18 @@ export function BackofficeAuthProvider({
   );
 
   const clearStaffCredentials = useCallback(() => {
+    const sessionHeaders = backofficeHeaders();
+    if (staffSessionToken.trim()) {
+      void fetch(`${getBaseUrl()}/api/staff/session`, {
+        method: "DELETE",
+        headers: sessionHeaders,
+        keepalive: true,
+      }).catch(() => undefined);
+    }
     setStaffCode("");
     setStaffPin("");
+    setStaffSessionToken("");
+    setStaffSessionExpiresAt("");
     setPermissions([]);
     setStaffDisplayName("");
     setStaffAvatarKey("ros_default");
@@ -249,7 +293,23 @@ export function BackofficeAuthProvider({
     setStaffRole(null);
     setEmployeeCustomerId(null);
     clearPersistedBackofficeSession();
-  }, []);
+  }, [backofficeHeaders, staffSessionToken]);
+
+  useEffect(() => {
+    if (!staffSessionExpiresAt) return;
+    const expiresAt = Date.parse(staffSessionExpiresAt);
+    if (!Number.isFinite(expiresAt)) {
+      clearStaffCredentials();
+      return;
+    }
+    const remainingMs = expiresAt - Date.now();
+    if (remainingMs <= 0) {
+      clearStaffCredentials();
+      return;
+    }
+    const timer = window.setTimeout(clearStaffCredentials, remainingMs);
+    return () => window.clearTimeout(timer);
+  }, [clearStaffCredentials, staffSessionExpiresAt]);
 
   const hasPermission = useCallback(
     (key: string) => permissions.includes(key),
@@ -260,6 +320,8 @@ export function BackofficeAuthProvider({
     () => ({
       staffCode,
       staffPin,
+      staffSessionToken,
+      staffSessionExpiresAt,
       staffId,
       staffDisplayName,
       staffAvatarKey,
@@ -278,6 +340,8 @@ export function BackofficeAuthProvider({
     [
       staffCode,
       staffPin,
+      staffSessionToken,
+      staffSessionExpiresAt,
       staffId,
       staffDisplayName,
       staffAvatarKey,

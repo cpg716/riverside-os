@@ -320,7 +320,7 @@ export default function CloseRegisterModal({
   onCancel,
 }: CloseRegisterModalProps) {
   const { toast } = useToast();
-  const { backofficeHeaders, staffCode, clearStaffCredentials } = useBackofficeAuth();
+  const { backofficeHeaders } = useBackofficeAuth();
   const baseUrl = getBaseUrl();
   useShellBackdropLayer(true);
 
@@ -350,11 +350,6 @@ export default function CloseRegisterModal({
       return null;
     }
   }, [backofficeHeaders, baseUrl]);
-
-  const reconcileCashierCode = useMemo(() => {
-    const c = staffCode.trim();
-    return /^\d{4}$/.test(c) ? c : null;
-  }, [staffCode]);
 
   const [step, setStep] = useState<"count" | "checks" | "report">("count");
   const [actualCash, setActualCash] = useState("");
@@ -407,7 +402,6 @@ export default function CloseRegisterModal({
 
   useEffect(() => {
     if (registerLane != null && registerLane !== 1) return;
-    if (!reconcileCashierCode) return;
     void (async () => {
       try {
         const summary = await getCheckoutQueueSummary();
@@ -416,12 +410,12 @@ export default function CloseRegisterModal({
         const res = await fetch(`${baseUrl}/api/sessions/${sessionId}/begin-reconcile`, {
           method: "POST",
           headers: jsonAuthHeaders(),
-          body: JSON.stringify({ active: true, cashier_code: reconcileCashierCode }),
+          body: JSON.stringify({ active: true }),
         });
         if (res.ok) onReconcilingBegunRef.current?.();
       } catch { /* optional */ }
     })();
-  }, [sessionId, baseUrl, jsonAuthHeaders, reconcileCashierCode, registerLane]);
+  }, [sessionId, baseUrl, jsonAuthHeaders, registerLane]);
 
   const refreshReconciliation = useCallback(async () => {
     const res = await fetch(`${baseUrl}/api/sessions/${sessionId}/reconciliation`, {
@@ -438,7 +432,6 @@ export default function CloseRegisterModal({
 
   useEffect(() => {
     if (registerLane != null && registerLane !== 1) return;
-    if (!reconcileCashierCode) return;
     let cancelled = false;
     setReconError(null);
     refreshReconciliation()
@@ -452,7 +445,7 @@ export default function CloseRegisterModal({
         }
       });
     return () => { cancelled = true; };
-  }, [refreshReconciliation, registerLane, reconcileCashierCode]);
+  }, [refreshReconciliation, registerLane]);
 
   const refreshOfflineQueueSummary = useCallback(async () => {
     const summary = await getCheckoutQueueSummary();
@@ -497,11 +490,11 @@ export default function CloseRegisterModal({
     const summary = await refreshOfflineQueueSummary();
     if (summary.totalCount === 0) return false;
     try {
-      if ((registerLane == null || registerLane === 1) && reconcileCashierCode) {
+      if (registerLane == null || registerLane === 1) {
         await fetch(`${baseUrl}/api/sessions/${sessionId}/begin-reconcile`, {
           method: "POST",
           headers: jsonAuthHeaders(),
-          body: JSON.stringify({ active: false, cashier_code: reconcileCashierCode }),
+          body: JSON.stringify({ active: false }),
         });
       }
     } catch { /* optional recovery; the close remains blocked either way */ }
@@ -511,7 +504,7 @@ export default function CloseRegisterModal({
         : `${summary.pendingCount} completed checkout${summary.pendingCount === 1 ? "" : "s"} still need to sync before Z-close.`;
     toast(message, "error");
     return true;
-  }, [baseUrl, jsonAuthHeaders, reconcileCashierCode, refreshOfflineQueueSummary, registerLane, sessionId, toast]);
+  }, [baseUrl, jsonAuthHeaders, refreshOfflineQueueSummary, registerLane, sessionId, toast]);
 
   const unresolvedHelcimAttempts = useMemo(
     () => recon?.unresolved_helcim_attempts ?? [],
@@ -665,22 +658,16 @@ export default function CloseRegisterModal({
 
   const internalCancel = async () => {
     try {
-      if ((registerLane == null || registerLane === 1) && reconcileCashierCode) {
+      if (registerLane == null || registerLane === 1) {
         await fetch(`${baseUrl}/api/sessions/${sessionId}/begin-reconcile`, {
           method: "POST",
           headers: jsonAuthHeaders(),
-          body: JSON.stringify({ active: false, cashier_code: reconcileCashierCode }),
+          body: JSON.stringify({ active: false }),
         });
       }
     } catch { /* ignore */ }
     onCancel();
   };
-
-  const requireStaffReauth = useCallback(() => {
-    clearStaffCredentials();
-    onCancel();
-    toast("Staff Access is required before Z-close. Sign in again with your Access PIN.", "error");
-  }, [clearStaffCredentials, onCancel, toast]);
 
   const { dialogRef, titleId } = useDialogAccessibility(true, {
     onEscape: () => {
@@ -791,10 +778,6 @@ export default function CloseRegisterModal({
 
   const handleFinalClose = async () => {
     setShowFinalConfirm(false);
-    if (!reconcileCashierCode) {
-      requireStaffReauth();
-      return;
-    }
     if (await blockForOfflineQueue()) return;
     if (!cashDepositDate.trim()) {
       toast("Enter the Daily Cash Deposit date before closing.", "error");
@@ -995,45 +978,6 @@ export default function CloseRegisterModal({
           <div className="ui-modal-footer">
             <button type="button" onClick={() => void internalCancel()} className="ui-btn-primary w-full py-3">
               OK
-            </button>
-          </div>
-        </div>
-      </div>,
-      root
-    );
-  }
-
-  if (!reconcileCashierCode) {
-    return createPortal(
-      <div className="ui-overlay-backdrop !z-[200]">
-        <div
-          className="absolute inset-0 bg-black/50"
-          aria-hidden="true"
-        />
-        <div
-          ref={dialogRef}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby={titleId}
-          tabIndex={-1}
-          className="ui-modal relative w-full max-w-none rounded-t-3xl animate-workspace-snap outline-none sm:max-w-md sm:rounded-3xl"
-        >
-          <div className="ui-modal-header">
-            <h2 id={titleId} className="text-lg font-black text-app-text">
-              Staff Access required
-            </h2>
-          </div>
-          <div className="ui-modal-body space-y-3 text-sm text-app-text-muted">
-            <p>
-              Z-close needs the authenticated staff member who is physically completing the drawer count. Sign in again with your Access PIN before reconciling this till shift.
-            </p>
-          </div>
-          <div className="ui-modal-footer flex gap-3">
-            <button type="button" onClick={onCancel} className="ui-btn-secondary flex-1 py-3">
-              Cancel
-            </button>
-            <button type="button" onClick={requireStaffReauth} className="ui-btn-primary flex-1 py-3">
-              Change Staff Member
             </button>
           </div>
         </div>

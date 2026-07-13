@@ -35,7 +35,7 @@ This guide provides comprehensive instructions for deploying Riverside OS in pro
 - **Network**: 10Gbps
 
 #### Software Dependencies
-- **PostgreSQL**: 14+ with WAL archiving
+- **PostgreSQL**: 16 with WAL archiving (matches the Windows installer and Docker runtime)
 - **Redis**: 7+ (Cluster for HA)
 - **Docker**: 20.10+ (optional)
 - **Kubernetes**: 1.24+ (optional)
@@ -69,6 +69,11 @@ Create `.env` file:
 # =============================================================================
 DATABASE_URL=postgres://riverside:secure_password@db-primary:5432/riverside_os
 RIVERSIDE_DATABASE_MAX_CONNECTIONS=30
+RIVERSIDE_DATABASE_MIN_CONNECTIONS=3
+RIVERSIDE_DATABASE_ACQUIRE_TIMEOUT_SECS=10
+RIVERSIDE_STAFF_SESSION_HOURS=16
+# Only behind a controlled reverse proxy that overwrites forwarded IP headers:
+RIVERSIDE_TRUST_PROXY_HEADERS=false
 
 # =============================================================================
 # Redis Configuration
@@ -136,7 +141,7 @@ OTEL_SERVICE_NAME=riverside-os
 
 #### Primary Server Configuration
 
-Edit `/etc/postgresql/14/main/postgresql.conf`:
+Edit `/etc/postgresql/16/main/postgresql.conf`:
 
 ```conf
 # Connection Settings
@@ -207,7 +212,7 @@ sudo chown postgres:postgres /var/lib/postgresql/wal_archive
 sudo chmod 750 /var/lib/postgresql/wal_archive
 
 # Test archive command
-sudo -u postgres bash -c 'cp /var/lib/postgresql/14/main/pg_wal/000000010000000000000001 /var/lib/postgresql/wal_archive/000000010000000000000001'
+sudo -u postgres bash -c 'cp /var/lib/postgresql/16/main/pg_wal/000000010000000000000001 /var/lib/postgresql/wal_archive/000000010000000000000001'
 ```
 
 #### Database Initialization
@@ -239,10 +244,10 @@ EOF
 ```bash
 # On standby server
 sudo systemctl stop postgresql
-sudo -u postgres rm -rf /var/lib/postgresql/14/main/*
+sudo -u postgres rm -rf /var/lib/postgresql/16/main/*
 
 # Base backup from primary
-sudo -u postgres pg_basebackup -h db-primary -D /var/lib/postgresql/14/main -U replicator -v -P -W
+sudo -u postgres pg_basebackup -h db-primary -D /var/lib/postgresql/16/main -U replicator -v -P -W
 ```
 
 Edit standby `postgresql.conf`:
@@ -255,12 +260,14 @@ wal_receiver_status_interval = 10s
 hot_standby_feedback = on
 ```
 
-Create standby `recovery.conf`:
+Set the primary connection in the standby `postgresql.conf` and create the PostgreSQL 16 standby signal file:
 
 ```conf
-standby_mode = 'on'
 primary_conninfo = 'host=db-primary port=5432 user=replicator password=replicator_password'
-trigger_file = '/tmp/postgresql.trigger'
+```
+
+```bash
+sudo -u postgres touch /var/lib/postgresql/16/main/standby.signal
 ```
 
 ---

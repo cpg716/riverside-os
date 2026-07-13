@@ -440,8 +440,6 @@ pub struct BeginReconcileRequest {
     /// Set to `true` when staff enters the blind-count / Z flow (optional audit step).
     #[serde(default)]
     pub active: bool,
-    /// Cashier code of the staff member initiating reconciliation.
-    pub cashier_code: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -777,19 +775,7 @@ async fn try_authenticated_staff_headers(
     state: &AppState,
     headers: &HeaderMap,
 ) -> Option<AuthenticatedStaff> {
-    let code = headers
-        .get("x-riverside-staff-code")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("")
-        .trim();
-    if code.is_empty() {
-        return None;
-    }
-    let pin = headers
-        .get("x-riverside-staff-pin")
-        .and_then(|v| v.to_str().ok())
-        .map(str::trim);
-    pins::authenticate_pos_staff(&state.db, code, pin)
+    middleware::require_authenticated_staff_headers(state, headers)
         .await
         .ok()
 }
@@ -1992,12 +1978,6 @@ async fn begin_reconcile(
         .await?;
         return Ok(Json(json!({ "status": "open" })));
     }
-
-    // Require a valid cashier code to prevent unauthenticated session state changes.
-    let code = body.cashier_code.trim();
-    pins::authenticate_pos_staff(&state.db, code, None)
-        .await
-        .map_err(|_| SessionError::InvalidCashier(code.to_string()))?;
 
     let res = sqlx::query(
         r#"

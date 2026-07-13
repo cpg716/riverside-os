@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Prove that the local sandbox PostgreSQL database can be dumped and restored.
-# This script refuses any database whose store_settings.environment_mode is production.
+# This script accepts only known local/test modes and refuses production.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -29,9 +29,9 @@ fi
 SOURCE_MODE="$("${PSQL[@]}" -d "$SOURCE_DB" -tAc \
   "SELECT COALESCE(environment_mode, '') FROM store_settings WHERE id = 1;" | tr -d '[:space:]')"
 case "$SOURCE_MODE" in
-  development|test|sandbox) ;;
+  development|test|e2e|sandbox) ;;
   *)
-    echo "Refusing restore drill: source database mode is '${SOURCE_MODE:-unknown}', not development/test/sandbox." >&2
+    echo "Refusing restore drill: source database mode is '${SOURCE_MODE:-unknown}', not development/test/e2e/sandbox." >&2
     exit 1
     ;;
 esac
@@ -60,8 +60,8 @@ if [[ "$RESTORED_MODE" != "$SOURCE_MODE" ]]; then
   echo "Restore validation failed: environment mode changed from '$SOURCE_MODE' to '$RESTORED_MODE'." >&2
   exit 1
 fi
-if [[ "$LATEST_MIGRATION" != 124_* ]]; then
-  echo "Restore validation failed: expected migration 124, found '${LATEST_MIGRATION:-none}'." >&2
+if [[ "$LATEST_MIGRATION" != 125_* ]]; then
+  echo "Restore validation failed: expected migration 125, found '${LATEST_MIGRATION:-none}'." >&2
   exit 1
 fi
 

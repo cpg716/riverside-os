@@ -104,6 +104,7 @@ import WeddingManagerAuthBridge from "./components/wedding-manager/WeddingManage
 import { ShoppingCart, ArrowRight } from "lucide-react";
 import { useToast } from "./components/ui/ToastProviderLogic";
 import { readPersistedBackofficeSession } from "./lib/backofficeSessionPersistence";
+import { getConnectionKey } from "./lib/stationIdentity";
 import {
   clearPosRegisterAuth,
   hydratePosRegisterAuthIfNeeded,
@@ -430,19 +431,15 @@ function App() {
       if (bo?.staffCode.trim()) {
         authHeaders["x-riverside-staff-code"] = bo.staffCode.trim();
       }
-      if (bo?.staffPin.trim()) {
-        authHeaders["x-riverside-staff-pin"] = bo.staffPin.trim();
+      if (bo?.sessionToken.trim()) {
+        authHeaders["x-riverside-staff-session"] = bo.sessionToken.trim();
+        authHeaders["x-riverside-connection-key"] = getConnectionKey();
       }
-      const openerPin =
-        bo?.staffCode.trim() === p.cashierCode.trim() && bo.staffPin.trim()
-          ? bo.staffPin
-          : p.cashierCode;
       void hydratePosRegisterAuthIfNeeded({
         baseUrl,
         sessionId: p.sessionId,
         authHeaders,
         openerCashierCode: p.cashierCode,
-        openerPin,
       });
     }
 

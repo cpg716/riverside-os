@@ -15,6 +15,7 @@ import NumericPinKeypad, { PinDots } from "../ui/NumericPinKeypad";
 import StaffMiniSelector from "../ui/StaffMiniSelector";
 import RiversideLogo from "../../assets/images/riverside_logo.jpg";
 import { DEFAULT_BASE_URL } from "../../lib/apiConfig";
+import { getConnectionKey, getStableStationKey } from "../../lib/stationIdentity";
 
 interface InstalledServerStartStatus {
   started: boolean;
@@ -356,13 +357,29 @@ export default function BackofficeSignInGate({
     setBusy(true);
     setError(null);
     try {
+      const tauri = isTauri();
+      const standalonePwa =
+        !tauri &&
+        (window.matchMedia?.("(display-mode: standalone)").matches ||
+          (navigator as Navigator & { standalone?: boolean }).standalone === true);
       const res = await fetchWithTimeout(
-        `${serverUrl}/api/staff/effective-permissions`,
+        `${serverUrl}/api/staff/session`,
         {
-          headers: {
-            "x-riverside-staff-code": code,
-            "x-riverside-staff-pin": code,
-          },
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            staff_id: selectedStaffId,
+            pin: code,
+            station_key: getStableStationKey(),
+            connection_key: getConnectionKey(),
+            runtime_surface: tauri
+              ? "tauri_desktop"
+              : standalonePwa
+                ? "pwa_standalone"
+                : "browser_tab",
+            user_agent: navigator.userAgent.slice(0, 512),
+            api_base: serverUrl.slice(0, 512),
+          }),
         },
       );
       if (!res.ok) {
@@ -377,9 +394,12 @@ export default function BackofficeSignInGate({
         avatar_key?: string;
         avatar_photo_url?: string | null;
         role?: string;
+        session_token?: string;
+        session_expires_at?: string;
       };
 
-      if (selectedStaffId && data.id && selectedStaffId !== data.id) {
+      const authenticatedStaffId = data.id || data.staff_id || "";
+      if (selectedStaffId && authenticatedStaffId !== selectedStaffId) {
         throw new Error("PIN belongs to another staff member.");
       }
 
@@ -387,7 +407,12 @@ export default function BackofficeSignInGate({
       if (list.length === 0) {
         throw new Error("No permissions for this account.");
       }
-      setStaffCredentials(code, code);
+      const sessionToken = data.session_token?.trim() ?? "";
+      const sessionExpiresAt = data.session_expires_at?.trim() ?? "";
+      if (!sessionToken || !sessionExpiresAt) {
+        throw new Error("The server did not create a Staff Access session.");
+      }
+      setStaffCredentials(authenticatedStaffId, "", sessionToken, sessionExpiresAt);
       const display =
         typeof data.full_name === "string" ? data.full_name.trim() : "";
       const avatar =
@@ -400,10 +425,17 @@ export default function BackofficeSignInGate({
         data.role === "sales_support"
           ? (data.role as StaffRole)
           : null;
-      adoptPermissionsFromServer(list, display, avatar || null, avatarPhoto, roleParsed, data.id || data.staff_id);
+      adoptPermissionsFromServer(
+        list,
+        display,
+        avatar || null,
+        avatarPhoto,
+        roleParsed,
+        authenticatedStaffId,
+      );
 
-      if (data.id) {
-        handleStaffChange(data.id);
+      if (authenticatedStaffId) {
+        handleStaffChange(authenticatedStaffId);
       }
 
       setCredential("");

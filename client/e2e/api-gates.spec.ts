@@ -474,6 +474,72 @@ test.describe("API auth gates", () => {
     expect(j.permissions!.length).toBeGreaterThan(0);
   });
 
+  test("Staff Access session is opaque, connection-bound, usable, and revocable", async ({
+    request,
+  }) => {
+    const code = process.env.E2E_BO_STAFF_CODE?.trim() || "1234";
+    const legacy = await request.get(`${apiBase()}/api/staff/effective-permissions`, {
+      headers: {
+        "x-riverside-staff-code": code,
+        "x-riverside-staff-pin": code,
+      },
+      failOnStatusCode: false,
+    });
+    requireOrSkip(legacy.ok(), `No valid seeded staff for code ${code}`);
+    const staff = (await legacy.json()) as { staff_id?: string };
+    expect(staff.staff_id).toBeTruthy();
+
+    const stationKey = "station-e2e-staff-session";
+    const connectionKey = "connection-e2e-staff-session";
+    const created = await request.post(`${apiBase()}/api/staff/session`, {
+      data: {
+        staff_id: staff.staff_id,
+        pin: code,
+        station_key: stationKey,
+        connection_key: connectionKey,
+        runtime_surface: "browser_tab",
+      },
+      failOnStatusCode: false,
+    });
+    const createdBody = await created.text();
+    expect(created.status(), createdBody).toBe(200);
+    const issued = JSON.parse(createdBody) as { session_token?: string };
+    expect(issued.session_token).toBeTruthy();
+    expect(issued.session_token).not.toBe(code);
+
+    const headers = {
+      "x-riverside-staff-code": code,
+      "x-riverside-staff-session": issued.session_token!,
+      "x-riverside-station-key": stationKey,
+      "x-riverside-connection-key": connectionKey,
+    };
+    const accepted = await request.get(
+      `${apiBase()}/api/staff/effective-permissions`,
+      { headers, failOnStatusCode: false },
+    );
+    expect(accepted.status()).toBe(200);
+
+    const copied = await request.get(
+      `${apiBase()}/api/staff/effective-permissions`,
+      {
+        headers: { ...headers, "x-riverside-connection-key": "connection-e2e-other" },
+        failOnStatusCode: false,
+      },
+    );
+    expect([401, 403]).toContain(copied.status());
+
+    const revoked = await request.delete(`${apiBase()}/api/staff/session`, {
+      headers,
+      failOnStatusCode: false,
+    });
+    expect(revoked.status()).toBe(204);
+    const afterRevoke = await request.get(
+      `${apiBase()}/api/staff/effective-permissions`,
+      { headers, failOnStatusCode: false },
+    );
+    expect([401, 403]).toContain(afterRevoke.status());
+  });
+
   test("GET /api/sessions/list-open with staff headers returns 200 array (till / attach)", async ({
     request,
   }) => {

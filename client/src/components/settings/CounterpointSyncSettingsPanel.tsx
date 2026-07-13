@@ -10,6 +10,7 @@ import { useToast } from "../ui/ToastProviderLogic";
 import PromptModal from "../ui/PromptModal";
 import DuplicateReviewQueueSection from "../customers/DuplicateReviewQueueSection";
 import type { Customer } from "../pos/CustomerSelector";
+import { downloadTextFile } from "../../lib/desktopFileBridge";
 
 /* ── Types & Interfaces ── */
 
@@ -603,7 +604,7 @@ export default function CounterpointSyncSettingsPanel({
     }
   }, [baseUrl, fetchCommandCenter, fetchImportExceptions, headers, toast]);
 
-  const exportImportExceptionsCsv = useCallback(() => {
+  const exportImportExceptionsCsv = useCallback(async () => {
     if (typeof window === "undefined") return;
     const actionableRows = importExceptions.filter((row) => row.status === "open" && !isGeneratedSkuException(row));
     const generatedRows = importExceptions.filter(isGeneratedSkuException);
@@ -614,16 +615,20 @@ export default function CounterpointSyncSettingsPanel({
     }
     const exportingGeneratedSkus = actionableRows.length === 0 && generatedRows.length > 0;
     const csv = exportingGeneratedSkus ? generatedSkuCsvRows(rows) : exceptionCsvRows(rows);
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `${exportingGeneratedSkus ? "counterpoint-generated-skus" : "counterpoint-landing-issues"}-${commandCenter?.latest_import_run?.id ?? "latest"}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    window.URL.revokeObjectURL(url);
-    toast(`Exported ${rows.length} Counterpoint ${exportingGeneratedSkus ? "generated SKU" : "landing issue"} row(s).`, "success");
+    const filename = `${exportingGeneratedSkus ? "counterpoint-generated-skus" : "counterpoint-landing-issues"}-${commandCenter?.latest_import_run?.id ?? "latest"}.csv`;
+    try {
+      const saved = await downloadTextFile(
+        filename,
+        csv,
+        "text/csv;charset=utf-8",
+        [{ name: "CSV", extensions: ["csv"] }],
+      );
+      if (saved) {
+        toast(`Exported ${rows.length} Counterpoint ${exportingGeneratedSkus ? "generated SKU" : "landing issue"} row(s).`, "success");
+      }
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Could not export Counterpoint review rows.", "error");
+    }
   }, [commandCenter?.latest_import_run?.id, importExceptions, toast]);
 
   const runBaselineReset = async (confirmationPhrase: string): Promise<boolean> => {
@@ -1333,7 +1338,7 @@ export default function CounterpointSyncSettingsPanel({
             </div>
             <button
               type="button"
-              onClick={exportImportExceptionsCsv}
+              onClick={() => void exportImportExceptionsCsv()}
               className="ui-btn-secondary px-3 py-2 text-[10px] font-bold"
             >
               Export full list

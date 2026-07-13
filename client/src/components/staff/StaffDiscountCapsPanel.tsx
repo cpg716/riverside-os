@@ -45,6 +45,8 @@ export default function StaffDiscountCapsPanel() {
         d[r.role] = String(r.max_discount_percent);
       }
       setDraft(d);
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Could not load discount caps", "error");
     } finally {
       setLoading(false);
     }
@@ -55,27 +57,32 @@ export default function StaffDiscountCapsPanel() {
   }, [load]);
 
   const save = async () => {
-    const limits = rows.map((r) => {
-      const raw = (draft[r.role] ?? "").trim();
-      const n = Number.parseFloat(raw);
-      if (!Number.isFinite(n) || n < 0 || n > 100) {
-        toast(`Invalid percent for ${r.role}`, "error");
-        throw new Error("invalid");
+    try {
+      const limits: Array<{ role: StaffRole; max_discount_percent: string }> = [];
+      for (const r of rows) {
+        const raw = (draft[r.role] ?? "").trim();
+        const n = Number.parseFloat(raw);
+        if (!Number.isFinite(n) || n < 0 || n > 100) {
+          toast(`Invalid percent for ${r.role}`, "error");
+          return;
+        }
+        limits.push({ role: r.role, max_discount_percent: n.toFixed(2) });
       }
-      return { role: r.role, max_discount_percent: n.toFixed(2) };
-    });
-    const res = await fetch(`${baseUrl}/api/staff/admin/pricing-limits`, {
-      method: "PATCH",
-      headers: jsonHeaders(backofficeHeaders),
-      body: JSON.stringify({ limits }),
-    });
-    if (!res.ok) {
-      const b = (await res.json().catch(() => ({}))) as { error?: string };
-      toast(b.error ?? "Save failed", "error");
-      return;
+      const res = await fetch(`${baseUrl}/api/staff/admin/pricing-limits`, {
+        method: "PATCH",
+        headers: jsonHeaders(backofficeHeaders),
+        body: JSON.stringify({ limits }),
+      });
+      if (!res.ok) {
+        const b = (await res.json().catch(() => ({}))) as { error?: string };
+        toast(b.error ?? "Save failed", "error");
+        return;
+      }
+      toast("Discount caps updated", "success");
+      void load();
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Save failed", "error");
     }
-    toast("Discount caps updated", "success");
-    void load();
   };
 
   if (!canManage) {
@@ -126,7 +133,7 @@ export default function StaffDiscountCapsPanel() {
       <button
         type="button"
         disabled={loading}
-        onClick={() => void save().catch(() => {})}
+        onClick={() => void save()}
         className="ui-btn-primary w-full py-2 text-xs font-black uppercase tracking-widest"
       >
         Save caps

@@ -71,6 +71,8 @@ type StationRow = {
   monitor_offline: boolean;
   station_lifecycle: "online" | "recently_offline" | "stale" | string;
   actionable: boolean;
+  active_staff_sessions: number;
+  active_staff_names: string;
 };
 
 type AlertEventRow = {
@@ -990,6 +992,7 @@ export default function RosSupportCenterPanel({
                     <th className="px-4 py-3">Station</th>
                     <th className="px-4 py-3">Version</th>
                     <th className="px-4 py-3">Network / IP</th>
+                    <th className="px-4 py-3">Staff Access</th>
                     <th className="px-4 py-3">Last Seen</th>
                     <th className="px-4 py-3">Status</th>
                   </tr>
@@ -1009,6 +1012,11 @@ export default function RosSupportCenterPanel({
                         {s.tailscale_node || s.lan_ip || "-"}
                       </td>
                       <td className="px-4 py-3 text-xs text-app-text-muted">
+                        {s.active_staff_sessions > 0
+                          ? `${s.active_staff_names} (${s.active_staff_sessions})`
+                          : "No active session"}
+                      </td>
+                      <td className="px-4 py-3 text-xs text-app-text-muted">
                         {fmtTs(s.last_seen_at)}
                       </td>
                       <td className="px-4 py-3">
@@ -1024,7 +1032,7 @@ export default function RosSupportCenterPanel({
                   ))}
                   {!displayedStations.length && (
                     <tr>
-                      <td colSpan={5} className="py-8 text-center text-sm text-app-text-muted">
+                      <td colSpan={6} className="py-8 text-center text-sm text-app-text-muted">
                         No active station heartbeat data in the current view.
                       </td>
                     </tr>

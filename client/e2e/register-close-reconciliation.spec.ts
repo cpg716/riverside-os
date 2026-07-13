@@ -243,7 +243,6 @@ async function beginReconcile(
     },
     data: {
       active: true,
-      cashier_code: e2eAdminCode(),
     },
     failOnStatusCode: false,
   });

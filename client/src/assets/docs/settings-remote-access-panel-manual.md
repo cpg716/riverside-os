@@ -72,6 +72,8 @@ The restart action stops the Windows task named **Riverside OS Server**, closes 
 - Do not use this panel to enter Helcim API keys, terminal device codes, webhook signing secrets, or other provider secrets.
 - Host mode is for the **dedicated Windows host machine**, not for the main register by default and not as a public-web shortcut.
 - If you disconnect Tailscale during a remote session, connected off-site devices will lose access.
+- Tailscale changes only the private network route; Riverside still requires a separate, expiring Staff Access session for every PWA tab or desktop app window.
+- A brief LAN/Tailscale interruption does not erase the signed-in identity. Riverside reconnects using the saved server address, then resumes health and station heartbeats when the route returns.
 
 ## Related workflows
 
