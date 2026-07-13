@@ -13,7 +13,8 @@ param(
   [string]$PackageFlavor = "Windows-Deployment",
   [switch]$AllowMissingRegisterBundle,
   [switch]$AllowMissingManagerBinary,
-  [switch]$AllowMissingServerManagerBinary
+  [switch]$AllowMissingServerManagerBinary,
+  [switch]$SkipRosieVoiceModels
 )
 
 $ErrorActionPreference = "Stop"
@@ -191,7 +192,6 @@ function Add-RosieVoiceModels([string]$PackageRoot) {
     -Revision "20dc3ebe15651c2e26d7e07b04fcd84a39c3b920" `
     -TargetSubdir "rosie\stt\sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17" `
     -Files @("model.int8.onnx", "tokens.txt")
-
   Add-RosieHfFiles `
     -PackageRoot $PackageRoot `
     -Repo "csukuangfj/kokoro-multi-lang-v1_0" `
@@ -448,7 +448,11 @@ if (Test-Path $llamaSourceExe) {
   Write-Warning "client/src-tauri/binaries/llama-server-x86_64-pc-windows-msvc.exe not found; Install-RosieAiStack.ps1 will download the pinned llama.cpp runtime during online install."
 }
 Add-RosieSherpaBinaries $packageRoot
-Add-RosieVoiceModels $packageRoot
+if ($SkipRosieVoiceModels) {
+  Write-Host "Skipping bundled ROSIE voice models; existing installs retain their verified models and fresh installs use the pinned ROSIE installer."
+} else {
+  Add-RosieVoiceModels $packageRoot
+}
 Add-MeilisearchBinary $packageRoot
 
 Copy-Item "$PSScriptRoot\start-riverside-llama.ps1" $packageRoot -Force

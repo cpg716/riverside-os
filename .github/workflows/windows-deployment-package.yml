@@ -939,7 +939,8 @@ jobs:
             -ManagerBinaryPath ".\target\release\riverside-deployment-manager.exe" `
             -ServerManagerBinaryPath ".\target\release\ros-server-manager.exe" `
             -AllowMissingManagerBinary `
-            -AllowMissingServerManagerBinary
+            -AllowMissingServerManagerBinary `
+            -SkipRosieVoiceModels
           $mainHubZipPattern = "RiversideOS-v$version-*-MainHub-Update.zip"
           $mainHubZipFiles = @(Get-ChildItem -Path "dist/deployment" -Filter $mainHubZipPattern -ErrorAction SilentlyContinue)
           if ($mainHubZipFiles.Count -ne 1) {
@@ -1116,7 +1117,8 @@ jobs:
             -ManagerBinaryPath ".\target\release\riverside-deployment-manager.exe" `
             -ServerManagerBinaryPath ".\target\release\ros-server-manager.exe" `
             -ManagerBundlePath ".\target\release\deployment-manager-bundle" `
-            -ServerManagerBundlePath ".\target\release\server-manager-bundle"
+            -ServerManagerBundlePath ".\target\release\server-manager-bundle" `
+            -SkipRosieVoiceModels
           $deploymentZipPattern = "RiversideOS-v$version-*-Windows-Deployment.zip"
           $deploymentZipFiles = @(Get-ChildItem -Path "dist/deployment" -Filter $deploymentZipPattern -ErrorAction SilentlyContinue)
           if ($deploymentZipFiles.Count -ne 1) {
