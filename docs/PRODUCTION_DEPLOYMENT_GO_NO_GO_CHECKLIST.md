@@ -2,16 +2,16 @@
 
 Target: Hybrid Tauri Host retail deployment.
 
-### Current Deployment Status (2026-07-11)
+### Current Deployment Status (2026-07-13)
 
 - [x] Target source release version is **`v0.95.0`** across root, client, server, Tauri, standalone apps, ROS Dev Center, and Windows deployment metadata.
 - [x] Source-side QBO fallback mapping has been removed; exportable financial activity must resolve to an explicit Chart of Accounts mapping before posting.
 - [x] Source-side local review evidence is recorded in [`docs/reviews/legacy/2026-06/PRE_GO_LIVE_LOCAL_REVIEW_2026_06_05.md`](reviews/legacy/2026-06/PRE_GO_LIVE_LOCAL_REVIEW_2026_06_05.md).
 - [x] v0.95.0 release notes and certification evidence are recorded in [`docs/releases/v0.95.0-release-notes.md`](releases/v0.95.0-release-notes.md) and [`docs/releases/v0.95.0-certification.md`](releases/v0.95.0-certification.md).
-- [x] GitHub release **`v0.95.0`** is published as Latest from build `29ea2c1d`.
+- [x] GitHub release **`v0.95.0`** is published as Latest from build `c3826bf6`.
 - [x] Verified candidate promotion published fresh v0.95.0 Windows updater, Windows deployment package, Counterpoint Bridge GUI, Server Manager, Deployment Manager, and macOS ROS Dev Center assets.
 - [x] Local Lint/Clippy/Cargo checks pass for the v0.95.0 release source tree.
-- [x] GitHub Actions passed on release commit `29ea2c1d`: Lint Checks, all blocking Playwright shards, and the aggregate Playwright gate.
+- [x] GitHub Actions passed on release commit `c3826bf6`: Lint Checks, all blocking Playwright shards, and the aggregate Playwright gate.
 - [x] Financial, register, Counterpoint, Help/ROSIE, backup/restore, and reporting launch-critical local suites passed on 2026-06-05.
 - [ ] Production station deployment log is complete for Main Hub, Register #1 Windows Tauri, Register #2 iPad PWA, and other Windows laptop PWA / optional Tauri clients.
 
@@ -32,7 +32,7 @@ v0.95.0 preserves the v0.85.x GO LIVE readiness baseline, incorporates the exten
 
 - [x] `v0.95.0` GitHub release exists and is marked Latest.
 - [x] `v0.95.0` Windows updater assets exist: `latest.json`, `riverside-updater-build-manifest.json`, MSI, and `.sig`.
-- [x] `v0.95.0` Windows deployment package exists: `RiversideOS-v0.95.0-29ea2c1d-Windows-Deployment.zip`.
+- [x] `v0.95.0` Windows deployment package exists: `RiversideOS-v0.95.0-c3826bf6-Windows-Deployment.zip`.
 - [x] `v0.95.0` standalone app assets exist for Deployment Manager, Server Manager, Counterpoint Bridge GUI, and ROS Dev Center.
 - [ ] Physical station smoke is complete for Main Hub, Register #1 Windows Tauri, Register #2 iPad PWA, and other Windows laptop PWA devices.
 - [ ] Real external credential workflows have been tested where required for go-live: QBO sandbox/production, Helcim, Podium, Shippo, and Counterpoint SQL.
@@ -41,7 +41,7 @@ v0.95.0 preserves the v0.85.x GO LIVE readiness baseline, incorporates the exten
 
 - [x] v0.95.0 source and publication validation is recorded in [`docs/releases/v0.95.0-certification.md`](releases/v0.95.0-certification.md).
 - [x] v0.95.0 local validation passed before tagging: whitespace, version parity, client lint/typecheck, locked Rust checks, deployment release gates, go-live blockers, and Help impact.
-- [x] Exact-commit GitHub Lint and blocking Playwright checks pass on final release commit `29ea2c1d`.
+- [x] Exact-commit GitHub Lint and blocking Playwright checks pass on final release commit `c3826bf6`.
 - [ ] `scripts/production_audit_probes.sql` runs read-only against the release database and all P0/P1 probes are explained or zero-row.
 
 ## In-App Update System (v0.80.9+)
