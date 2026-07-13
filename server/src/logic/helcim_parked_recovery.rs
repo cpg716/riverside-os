@@ -1,7 +1,7 @@
 //! Guarded recovery of a retained parked cart after Helcim approved the card.
 
 use chrono::{DateTime, Utc};
-use rust_decimal::Decimal;
+use rust_decimal::{prelude::ToPrimitive, Decimal};
 use serde_json::{json, Value};
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
@@ -28,6 +28,22 @@ pub struct RecoverPaidParkedSaleRequest {
 pub struct RecoverPaidOrderPaymentRequest {
     pub target_transaction_display_id: String,
     pub payment_provider_attempt_id: Uuid,
+    pub authorized_by_staff_id: Uuid,
+    pub confirmation: String,
+    pub note: String,
+}
+
+pub struct RecoverPaidParkedSaleFromEventRequest {
+    pub parked_sale_id: Uuid,
+    pub helcim_event_id: Uuid,
+    pub authorized_by_staff_id: Uuid,
+    pub confirmation: String,
+    pub note: String,
+}
+
+pub struct RecoverPaidOrderPaymentFromEventRequest {
+    pub target_transaction_display_id: String,
+    pub helcim_event_id: Uuid,
     pub authorized_by_staff_id: Uuid,
     pub confirmation: String,
     pub note: String,
@@ -79,6 +95,168 @@ fn optional_string(line: &Value, key: &str) -> Option<String> {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string)
+}
+
+async fn reconstruct_attempt_from_approved_event(
+    pool: &PgPool,
+    event_id: Uuid,
+    register_session_id: Uuid,
+    staff_id: Uuid,
+) -> Result<Uuid, CheckoutError> {
+    let mut tx = pool.begin().await?;
+    let event = sqlx::query(
+        r#"
+        SELECT e.provider_transaction_id,
+               e.payment_provider_attempt_id,
+               e.payment_transaction_id AS event_payment_transaction_id,
+               recovery_attempt.idempotency_key AS linked_attempt_idempotency_key,
+               LOWER(COALESCE(
+                   NULLIF(e.payload_json->>'_ros_provider_status', ''),
+                   NULLIF(e.payload_json->>'status', ''),
+                   NULLIF(e.payload_json->'data'->>'status', '')
+               )) AS provider_status,
+               COALESCE(b.currency, 'usd') AS currency,
+               b.gross_amount,
+               COALESCE(b.occurred_at, e.received_at) AS approved_at,
+               b.payment_transaction_id
+        FROM helcim_event_log e
+        LEFT JOIN payment_provider_attempts recovery_attempt
+          ON recovery_attempt.id = e.payment_provider_attempt_id
+        LEFT JOIN payment_provider_batch_transactions b
+          ON b.provider = 'helcim'
+         AND b.provider_transaction_id = e.provider_transaction_id
+        WHERE e.id = $1
+          AND e.provider = 'helcim'
+          AND e.event_type = 'cardTransaction'
+          AND e.processing_status = 'processed'
+        FOR UPDATE OF e
+        "#,
+    )
+    .bind(event_id)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or_else(|| invalid("Helcim approval event was not found"))?;
+
+    let provider_status = event
+        .get::<Option<String>, _>("provider_status")
+        .unwrap_or_default();
+    if !matches!(
+        provider_status.as_str(),
+        "approved" | "approval" | "captured" | "capture"
+    ) {
+        return Err(invalid("Helcim event is not an approved payment"));
+    }
+    if event
+        .get::<Option<Uuid>, _>("event_payment_transaction_id")
+        .is_some()
+    {
+        return Err(invalid("Helcim event is already linked to a payment"));
+    }
+    let idempotency_key = format!("helcim-event-recovery-{event_id}");
+    let linked_attempt_id = event.get::<Option<Uuid>, _>("payment_provider_attempt_id");
+    let linked_attempt_idempotency_key =
+        event.get::<Option<String>, _>("linked_attempt_idempotency_key");
+    if linked_attempt_id.is_some()
+        && linked_attempt_idempotency_key.as_deref() != Some(idempotency_key.as_str())
+    {
+        return Err(invalid(
+            "Helcim event is already linked to a payment attempt",
+        ));
+    }
+    let provider_transaction_id = event
+        .get::<Option<String>, _>("provider_transaction_id")
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| invalid("Helcim event has no provider transaction ID"))?;
+    if event
+        .get::<Option<Uuid>, _>("payment_transaction_id")
+        .is_some()
+    {
+        return Err(invalid("Helcim processor transaction is already linked"));
+    }
+    let approved_amount = event
+        .get::<Option<Decimal>, _>("gross_amount")
+        .ok_or_else(|| invalid("Helcim processor transaction has no amount"))?
+        .abs()
+        .round_dp(2);
+    if approved_amount <= Decimal::ZERO {
+        return Err(invalid("Helcim approval amount must be positive"));
+    }
+    let amount_cents = (approved_amount * Decimal::from(100))
+        .to_i64()
+        .ok_or_else(|| invalid("Helcim approval amount is invalid"))?;
+    let currency = event
+        .get::<String, _>("currency")
+        .trim()
+        .to_ascii_lowercase();
+    let approved_at = event.get::<DateTime<Utc>, _>("approved_at");
+    let attempt_id = Uuid::new_v4();
+    sqlx::query(
+        r#"
+        INSERT INTO payment_provider_attempts (
+            id, provider, status, amount_cents, currency, register_session_id, staff_id,
+            idempotency_key, provider_payment_id, provider_transaction_id,
+            raw_audit_reference, created_at, updated_at, completed_at
+        )
+        VALUES (
+            $1, 'helcim', 'approved', $2, $3, $4, $5,
+            $6, $7, $7, $8, $9, now(), $9
+        )
+        ON CONFLICT (provider, idempotency_key) DO NOTHING
+        "#,
+    )
+    .bind(attempt_id)
+    .bind(amount_cents)
+    .bind(&currency)
+    .bind(register_session_id)
+    .bind(staff_id)
+    .bind(&idempotency_key)
+    .bind(&provider_transaction_id)
+    .bind(format!("helcim:event-recovery:{event_id}"))
+    .bind(approved_at)
+    .execute(&mut *tx)
+    .await?;
+
+    let attempt = sqlx::query(
+        r#"
+        SELECT id, status, amount_cents, register_session_id, staff_id, provider_transaction_id
+        FROM payment_provider_attempts
+        WHERE provider = 'helcim' AND idempotency_key = $1
+        "#,
+    )
+    .bind(&idempotency_key)
+    .fetch_one(&mut *tx)
+    .await?;
+    if attempt.get::<String, _>("status") != "approved"
+        || attempt.get::<i64, _>("amount_cents") != amount_cents
+        || attempt.get::<Option<Uuid>, _>("register_session_id") != Some(register_session_id)
+        || attempt.get::<Option<Uuid>, _>("staff_id") != Some(staff_id)
+        || attempt
+            .get::<Option<String>, _>("provider_transaction_id")
+            .as_deref()
+            != Some(provider_transaction_id.as_str())
+    {
+        return Err(invalid(
+            "Existing Helcim event recovery attempt does not match this payment",
+        ));
+    }
+    let attempt_id = attempt.get::<Uuid, _>("id");
+
+    sqlx::query(
+        r#"
+        UPDATE helcim_event_log
+        SET payment_provider_attempt_id = $2,
+            match_type = 'recovery_attempt'
+        WHERE id = $1
+          AND payment_transaction_id IS NULL
+        "#,
+    )
+    .bind(event_id)
+    .bind(attempt_id)
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+    Ok(attempt_id)
 }
 
 fn retained_checkout_item(line: &Value) -> Result<CheckoutItem, CheckoutError> {
@@ -586,6 +764,116 @@ pub async fn recover_paid_order_payment(
             authorized_by_staff_id: request.authorized_by_staff_id,
             approved_at,
             note: note.to_string(),
+        },
+    )
+    .await
+}
+
+pub async fn recover_paid_parked_sale_from_event(
+    pool: &PgPool,
+    http: &reqwest::Client,
+    global_employee_markup: Decimal,
+    request: RecoverPaidParkedSaleFromEventRequest,
+) -> Result<CheckoutDone, CheckoutError> {
+    let manager_ok =
+        crate::logic::pricing_limits::is_admin_or_manager(pool, request.authorized_by_staff_id)
+            .await?;
+    if !manager_ok {
+        return Err(invalid("Paid sale recovery requires Manager Access"));
+    }
+
+    let parked = sqlx::query(
+        r#"
+        SELECT register_session_id, parked_by_staff_id, status::text
+        FROM pos_parked_sale
+        WHERE id = $1
+        "#,
+    )
+    .bind(request.parked_sale_id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| invalid("Retained parked sale was not found"))?;
+    let parked_status = parked.get::<String, _>("status");
+    if !matches!(parked_status.as_str(), "parked" | "deleted") {
+        return Err(invalid(
+            "Retained parked sale is not available for recovery",
+        ));
+    }
+    let register_session_id = parked.get::<Uuid, _>("register_session_id");
+    let operator_staff_id = parked.get::<Uuid, _>("parked_by_staff_id");
+    let attempt_id = reconstruct_attempt_from_approved_event(
+        pool,
+        request.helcim_event_id,
+        register_session_id,
+        operator_staff_id,
+    )
+    .await?;
+
+    recover_paid_parked_sale(
+        pool,
+        http,
+        global_employee_markup,
+        RecoverPaidParkedSaleRequest {
+            parked_sale_id: request.parked_sale_id,
+            payment_provider_attempt_id: attempt_id,
+            authorized_by_staff_id: request.authorized_by_staff_id,
+            confirmation: request.confirmation,
+            note: request.note,
+        },
+    )
+    .await
+}
+
+pub async fn recover_paid_order_payment_from_event(
+    pool: &PgPool,
+    http: &reqwest::Client,
+    global_employee_markup: Decimal,
+    request: RecoverPaidOrderPaymentFromEventRequest,
+) -> Result<CheckoutDone, CheckoutError> {
+    let manager_ok =
+        crate::logic::pricing_limits::is_admin_or_manager(pool, request.authorized_by_staff_id)
+            .await?;
+    if !manager_ok {
+        return Err(invalid("Order payment recovery requires Manager Access"));
+    }
+
+    let target_display_id = request
+        .target_transaction_display_id
+        .trim()
+        .to_ascii_uppercase();
+    let target = sqlx::query(
+        r#"
+        SELECT register_session_id, operator_id
+        FROM transactions
+        WHERE UPPER(display_id) = $1
+        "#,
+    )
+    .bind(&target_display_id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| invalid("Target Transaction Record was not found"))?;
+    let register_session_id = target
+        .get::<Option<Uuid>, _>("register_session_id")
+        .ok_or_else(|| invalid("Target Transaction Record has no register session"))?;
+    let operator_staff_id = target.get::<Uuid, _>("operator_id");
+    let attempt_id = reconstruct_attempt_from_approved_event(
+        pool,
+        request.helcim_event_id,
+        register_session_id,
+        operator_staff_id,
+    )
+    .await?;
+
+    recover_paid_order_payment(
+        pool,
+        http,
+        global_employee_markup,
+        RecoverPaidOrderPaymentRequest {
+            target_transaction_display_id: target_display_id,
+            payment_provider_attempt_id: attempt_id,
+            authorized_by_staff_id: request.authorized_by_staff_id,
+            confirmation: request.confirmation,
+            note: request.note,
         },
     )
     .await

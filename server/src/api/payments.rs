@@ -366,6 +366,14 @@ pub fn router() -> Router<AppState> {
             post(recover_paid_order_payment),
         )
         .route(
+            "/providers/helcim/terminal/recover-paid-parked-sale-from-event",
+            post(recover_paid_parked_sale_from_event),
+        )
+        .route(
+            "/providers/helcim/terminal/recover-paid-order-payment-from-event",
+            post(recover_paid_order_payment_from_event),
+        )
+        .route(
             "/providers/helcim/terminal/card-terminals",
             get(list_helcim_card_terminals),
         )
@@ -1344,6 +1352,22 @@ pub struct RecoverPaidParkedSaleResponse {
 pub struct RecoverPaidOrderPaymentRequest {
     pub target_transaction_display_id: String,
     pub payment_provider_attempt_id: Uuid,
+    pub confirmation: String,
+    pub note: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RecoverPaidParkedSaleFromEventRequest {
+    pub parked_sale_id: Uuid,
+    pub helcim_event_id: Uuid,
+    pub confirmation: String,
+    pub note: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RecoverPaidOrderPaymentFromEventRequest {
+    pub target_transaction_display_id: String,
+    pub helcim_event_id: Uuid,
     pub confirmation: String,
     pub note: String,
 }
@@ -4121,6 +4145,105 @@ async fn recover_paid_order_payment(
         crate::logic::helcim_parked_recovery::RecoverPaidOrderPaymentRequest {
             target_transaction_display_id: target_transaction_display_id.clone(),
             payment_provider_attempt_id: payload.payment_provider_attempt_id,
+            authorized_by_staff_id: staff.id,
+            confirmation: payload.confirmation,
+            note: payload.note,
+        },
+    )
+    .await
+    .map_err(|error| PaymentError::InvalidPayload(error.to_string()))?;
+
+    let (recovery_transaction_id, recovery_transaction_display_id, status) = match outcome {
+        crate::logic::transaction_checkout::CheckoutDone::Completed {
+            transaction_id,
+            display_id,
+            ..
+        } => (transaction_id, display_id, "recovered"),
+        crate::logic::transaction_checkout::CheckoutDone::Idempotent {
+            transaction_id,
+            display_id,
+        } => (transaction_id, display_id, "already_recovered"),
+    };
+
+    Ok(Json(RecoverPaidOrderPaymentResponse {
+        recovery_transaction_id,
+        recovery_transaction_display_id,
+        target_transaction_display_id,
+        status: status.to_string(),
+    }))
+}
+
+async fn recover_paid_parked_sale_from_event(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<RecoverPaidParkedSaleFromEventRequest>,
+) -> Result<Json<RecoverPaidParkedSaleResponse>, PaymentError> {
+    let staff = require_payment_permission_any(
+        &state,
+        &headers,
+        PAYMENTS_RECONCILE_RESOLVE,
+        &[PAYMENTS_RECONCILE],
+    )
+    .await?;
+
+    let outcome = crate::logic::helcim_parked_recovery::recover_paid_parked_sale_from_event(
+        &state.db,
+        &state.http_client,
+        state.global_employee_markup,
+        crate::logic::helcim_parked_recovery::RecoverPaidParkedSaleFromEventRequest {
+            parked_sale_id: payload.parked_sale_id,
+            helcim_event_id: payload.helcim_event_id,
+            authorized_by_staff_id: staff.id,
+            confirmation: payload.confirmation,
+            note: payload.note,
+        },
+    )
+    .await
+    .map_err(|error| PaymentError::InvalidPayload(error.to_string()))?;
+
+    let (transaction_id, transaction_display_id, status) = match outcome {
+        crate::logic::transaction_checkout::CheckoutDone::Completed {
+            transaction_id,
+            display_id,
+            ..
+        } => (transaction_id, display_id, "recovered"),
+        crate::logic::transaction_checkout::CheckoutDone::Idempotent {
+            transaction_id,
+            display_id,
+        } => (transaction_id, display_id, "already_recovered"),
+    };
+
+    Ok(Json(RecoverPaidParkedSaleResponse {
+        transaction_id,
+        transaction_display_id,
+        status: status.to_string(),
+    }))
+}
+
+async fn recover_paid_order_payment_from_event(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<RecoverPaidOrderPaymentFromEventRequest>,
+) -> Result<Json<RecoverPaidOrderPaymentResponse>, PaymentError> {
+    let staff = require_payment_permission_any(
+        &state,
+        &headers,
+        PAYMENTS_RECONCILE_RESOLVE,
+        &[PAYMENTS_RECONCILE],
+    )
+    .await?;
+    let target_transaction_display_id = payload
+        .target_transaction_display_id
+        .trim()
+        .to_ascii_uppercase();
+
+    let outcome = crate::logic::helcim_parked_recovery::recover_paid_order_payment_from_event(
+        &state.db,
+        &state.http_client,
+        state.global_employee_markup,
+        crate::logic::helcim_parked_recovery::RecoverPaidOrderPaymentFromEventRequest {
+            target_transaction_display_id: target_transaction_display_id.clone(),
+            helcim_event_id: payload.helcim_event_id,
             authorized_by_staff_id: staff.id,
             confirmation: payload.confirmation,
             note: payload.note,
