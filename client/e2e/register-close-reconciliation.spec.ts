@@ -141,6 +141,9 @@ type RegisterSessionHistoryRow = {
   id: string;
   register_lane: number;
   total_sales: string;
+  z_report_json?: {
+    session_id?: string;
+  } | null;
 };
 
 let serverReachable = false;
@@ -958,15 +961,21 @@ test.describe("Register close / reconciliation", () => {
     });
     expect(historyRes.status()).toBe(200);
     const history = (await historyRes.json()) as RegisterSessionHistoryRow[];
-    const primaryHistory = history.find((row) => row.id === primary?.session_id);
+    const primaryHistory = history.find(
+      (row) => row.z_report_json?.session_id === primary?.session_id,
+    );
     expect(primaryHistory).toBeTruthy();
     expect(primaryHistory?.register_lane).toBe(1);
     const expectedNetSales = detail.items
       .reduce((sum, item) => sum + Number(item.unit_price) * item.quantity, 0)
       .toFixed(2);
     expect(primaryHistory?.total_sales).toBe(expectedNetSales);
-    expect(history.some((row) => row.id === satellite?.session_id)).toBeFalsy();
-    expect(history.some((row) => row.id === tertiary?.session_id)).toBeFalsy();
+    expect(
+      history.some((row) => row.z_report_json?.session_id === satellite?.session_id),
+    ).toBeFalsy();
+    expect(
+      history.some((row) => row.z_report_json?.session_id === tertiary?.session_id),
+    ).toBeFalsy();
   });
 
   test("open session coordination exposes pending close state for the full till group", async ({
