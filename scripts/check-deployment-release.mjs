@@ -365,6 +365,20 @@ for (const copy of [
     "Windows release workflow must expose a verified app-updater-only path that skips the full deployment ZIP when requested",
   );
 }
+for (const copy of [
+  "name: In-app Main Hub update",
+  "windows-deployment-package.yml",
+  "package_scope=main-hub-update",
+  "source_ref",
+  "actions: write",
+  "gh run watch",
+]) {
+  assertIncludes(
+    ".github/workflows/in-app-main-hub-update.yml",
+    copy,
+    "the dedicated in-app update workflow must dispatch and wait for the verified Main Hub/server package path",
+  );
+}
 for (const path of [
   ".github/workflows/windows-deployment-package.yml",
   ".github/workflows/macos-ros-dev-center-release.yml",

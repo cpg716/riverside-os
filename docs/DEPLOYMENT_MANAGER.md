@@ -366,6 +366,8 @@ Logs are emitted asynchronously from Rust back to the Vite console using the `de
 ### GitHub Actions CI/CD Pipeline
 The deployment manager packaging is automated by **Windows deployment package** (`.github/workflows/windows-deployment-package.yml`). It builds the Windows deployment ZIP with the server binary, client bundle, register installer, Deployment Manager installer bundle, ROS Server Manager installer bundle, Counterpoint Bridge GUI, and ROSIE installer/runtime support. Main Hub update packages intentionally omit already-installed large ROSIE speech models. Signed updater manifests/installers are uploaded as release assets beside the ZIP.
 
+For a routine in-app Main Hub update, use **In-app Main Hub update** (`.github/workflows/in-app-main-hub-update.yml`). This dispatches the verified `main-hub-update` scope and waits for completion. The resulting package includes the Rust server, client/PWA files, migrations, Register/Tauri updater assets, and the Main Hub update ZIP; it does not rebuild unrelated companion applications. Use the full Windows workflow for complete release packaging or companion-app refreshes.
+
 Both pipelines use **`swatinem/rust-cache`** for Rust dependency reuse and **`sccache`** for Rust/Tauri compiler output reuse across repeated release builds. The Windows workspace builds these Rust/Tauri targets as separate workflow jobs so unchanged companion apps can be skipped by the faster app-updater-only release path:
 1.  `client/src-tauri` (Tauri Client Desktop application)
 2.  `server` (Axum Backend server executable)

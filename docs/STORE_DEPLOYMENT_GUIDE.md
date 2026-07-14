@@ -73,6 +73,7 @@ This is the current repo/deployment status to verify before a live install:
 | Windows installer/updater assets | **Required for the same Riverside release** | The release must contain `latest.json`, one current Windows MSI, and the matching `.sig`; old Riverside MSI/signature assets must be removed before upload. |
 | Windows deployment package | **Published for Main Hub/full go-live updates** | `RiversideOS-v0.95.0-29ea2c1d-Windows-Deployment.zip` includes server, client bundle, register installer, Deployment Manager, migrations, seeds, and PowerShell scripts. |
 | Windows app updater-only release | **Available for faster Back Office/Register desktop app updates** | Workflow scope `app-updater-only` publishes the signed Tauri app updater assets without rebuilding the full deployment ZIP or unchanged companion apps. |
+| In-app Main Hub update workflow | **Available for routine Main Hub/server updates** | Run **In-app Main Hub update** with a branch/tag `source_ref` and existing `release_tag`; it dispatches the verified `main-hub-update` path, which packages the Rust server, client/PWA bundle, Register/Tauri updater, migrations, and Main Hub update ZIP without rebuilding unrelated companion apps. |
 | macOS ROS Dev Center | **Required as GitHub release asset** | Universal Apple Silicon / Intel DMG for Mac-based DevOps companion access and system management. |
 | Latest Playwright E2E on release commit | Passed on final `v0.95.0` release commit `29ea2c1d` | All four blocking shards and the aggregate gate passed in run `29174715888`; local full Playwright was not rerun for this version-only release transition. |
 | Latest Lint Checks on release commit | Passed on final `v0.95.0` release commit `29ea2c1d` | GitHub Lint Checks passed in run `29174715848`. |
@@ -169,8 +170,9 @@ Installer signing and CI notes: [`docs/PWA_AND_REGISTER_DEPLOYMENT_TASKS.md`](PW
 
 Use one of these paths:
 
-1. **Current release path:** run **Windows deployment package** (`.github/workflows/windows-deployment-package.yml`) for the target version. It publishes the full deployment ZIP plus the signed Windows updater manifests/artifacts to the matching GitHub release.
-2. **Local build path:** on a Windows build machine with Rust/Node prerequisites, build from `client/` with `npm ci` then `npm run tauri:build`.
+1. **Routine Main Hub update path:** run **In-app Main Hub update** (`.github/workflows/in-app-main-hub-update.yml`) with `source_ref=main` (or a release tag) and the existing release tag. It dispatches and waits for the verified `main-hub-update` package path, publishing the server/client bundle, migrations, Register/Tauri updater assets, and Main Hub update ZIP.
+2. **Current full release path:** run **Windows deployment package** (`.github/workflows/windows-deployment-package.yml`) for the target version. It publishes the full deployment ZIP plus the signed Windows updater manifests/artifacts to the matching GitHub release.
+3. **Local build path:** on a Windows build machine with Rust/Node prerequisites, build from `client/` with `npm ci` then `npm run tauri:build`.
 
 Record the installer version, GitHub run URL or release URL, and target API base in the deployment log. Do not reuse an older installer just because it is present on the release; confirm **Settings → Updates** shows one expected **Riverside version**.
 

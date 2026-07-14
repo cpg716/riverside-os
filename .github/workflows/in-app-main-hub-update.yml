@@ -1,0 +1,80 @@
+name: In-app Main Hub update
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: "Branch or tag to package"
+        required: true
+        default: "main"
+        type: string
+      release_tag:
+        description: "Existing GitHub release tag; blank uses the source version"
+        required: false
+        default: ""
+        type: string
+      release_notes:
+        description: "Release notes shown in the update prompt"
+        required: false
+        default: "Riverside OS Main Hub in-app update"
+        type: string
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch-verified-main-hub-update:
+    name: Dispatch verified Main Hub update package
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Dispatch Windows Main Hub update workflow
+        id: dispatch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_REF: ${{ inputs.source_ref }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          RELEASE_NOTES: ${{ inputs.release_notes }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          source_sha="$(gh api "repos/$REPOSITORY/commits/$SOURCE_REF" --jq '.sha')"
+
+          gh workflow run windows-deployment-package.yml \
+            --repo "$REPOSITORY" \
+            --ref "$SOURCE_REF" \
+            --field package_scope=main-hub-update \
+            --field release_tag="$RELEASE_TAG" \
+            --field release_notes="$RELEASE_NOTES" \
+            --field publish_release=true
+
+          for _ in $(seq 1 30); do
+            run_id="$(gh run list \
+              --repo "$REPOSITORY" \
+              --workflow windows-deployment-package.yml \
+              --event workflow_dispatch \
+              --limit 20 \
+              --json databaseId,createdAt,headSha \
+              --jq ".[] | select(.headSha == \"$source_sha\" and .createdAt >= \"$started_at\") | .databaseId" \
+              | head -1)"
+            if [ -n "$run_id" ]; then
+              echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+              echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+              echo "https://github.com/$REPOSITORY/actions/runs/$run_id" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            sleep 10
+          done
+
+          echo "The dispatched Windows Main Hub update run was not found." >&2
+          exit 1
+
+      - name: Wait for verified Main Hub update workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_ID: ${{ steps.dispatch.outputs.run_id }}
+        run: gh run watch "$RUN_ID" --repo "$REPOSITORY" --exit-status
