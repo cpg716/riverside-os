@@ -1,6 +1,6 @@
 # Riverside OS
 
-**Riverside OS (ROS)** is a production-grade desktop ERM/POS platform for formalwear and wedding retail. Version 0.95.0 is the current published release and represents the substantial product, financial-integrity, Help, ROSIE, deployment, and release-engineering advances made throughout the v0.90.0 development cycle. The verified release build is `c3826bf6` from 2026-07-13 UTC; physical Windows Main Hub update verification remains pending.
+**Riverside OS (ROS)** is a production-grade desktop ERM/POS platform for formalwear and wedding retail. Version 0.95.0 is the current published release and represents the substantial product, financial-integrity, Help, ROSIE, deployment, and release-engineering advances made throughout the v0.90.0 development cycle. The verified release build is `6d91610a` from 2026-07-13 UTC; physical Windows Main Hub update verification remains pending.
 
 Current Version: **v0.95.0** (See [CHANGELOG.md](CHANGELOG.md))
 
