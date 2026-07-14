@@ -1473,6 +1473,14 @@ export default function NexoCheckoutDrawer({
         }
         const attempt = (await res.json()) as HelcimAttempt;
         applyHelcimAttemptUpdate(attempt);
+        if (attempt.status === "pending") {
+          toast(
+            isHostedManualHelcimAttempt(attempt)
+              ? "Helcim is still processing Card Not Present. Keep the handoff open or try again in a moment."
+              : "Helcim is still waiting for the card outcome. Check the terminal, then clear or retry if needed.",
+            "info",
+          );
+        }
       } catch (error) {
         const message =
           error instanceof Error ? error.message : "Could not check card status.";
@@ -1492,7 +1500,7 @@ export default function NexoCheckoutDrawer({
   );
 
   useEffect(() => {
-    if (!isOpen || !manualCardHandoffUrl || !helcimAttempt?.id) return;
+    if (!isOpen || !helcimAttempt?.id) return;
     const attemptId = helcimAttempt.id;
     const handleHostedCardMessage = (event: MessageEvent) => {
       const data = event.data as
@@ -3002,7 +3010,16 @@ export default function NexoCheckoutDrawer({
                 </button>
                 <button
                   type="button"
-                  onClick={() => void openManualCardHandoffUrl(manualCardHandoffUrl)}
+                  onClick={() => {
+                    void openManualCardHandoffUrl(manualCardHandoffUrl).catch((error) => {
+                      toast(
+                        error instanceof Error
+                          ? error.message
+                          : "Could not open the Card Not Present handoff in Chrome.",
+                        "error",
+                      );
+                    });
+                  }}
                   className="min-h-10 rounded-xl border border-white/15 bg-white/10 px-3 text-[10px] font-black uppercase tracking-widest text-white"
                 >
                   Open in Chrome

@@ -98,11 +98,25 @@ function loadHelcimPayScript(): Promise<void> {
 }
 
 function parseHelcimPayEventMessage(message: unknown): { data?: unknown; hash?: string } {
-  if (typeof message === "string") {
-    return JSON.parse(message) as { data?: unknown; hash?: string };
+  let parsed = message;
+  if (typeof parsed === "string") {
+    parsed = JSON.parse(parsed) as unknown;
   }
-  if (message && typeof message === "object") {
-    return message as { data?: unknown; hash?: string };
+
+  if (!parsed || typeof parsed !== "object") return {};
+
+  const envelope = parsed as Record<string, unknown>;
+  const directData = envelope.data;
+  const directHash = envelope.hash;
+  if (directData && typeof directHash === "string" && directHash.trim()) {
+    return { data: directData, hash: directHash.trim() };
+  }
+
+  // HelcimPay.js currently emits eventMessage as a JSON response envelope:
+  // { status: 200, data: { data: <transaction>, hash: <sha256> } }.
+  // Older responses used the inner { data, hash } object directly.
+  if (directData && typeof directData === "object") {
+    return parseHelcimPayEventMessage(directData);
   }
   return {};
 }
@@ -136,6 +150,7 @@ export default function HelcimManualCardHandoff() {
   const [state, setState] = useState<HandoffState>("idle");
   const [message, setMessage] = useState("Ready to open secure Card Not Present entry in Helcim.");
   const [approvedAttempt, setApprovedAttempt] = useState<ApprovedHelcimAttempt | null>(null);
+  const [showDomainDiagnostic, setShowDomainDiagnostic] = useState(false);
 
   const confirmApprovedPayment = useCallback(
     async (payload: { data: unknown; hash: string }) => {
@@ -200,6 +215,7 @@ export default function HelcimManualCardHandoff() {
   useEffect(() => {
     if (!attemptId || !checkoutToken || !eventName) {
       setState("error");
+      setShowDomainDiagnostic(false);
       setMessage("Card Not Present link is missing payment details. Start Card Not Present again from the register.");
       return;
     }
@@ -207,6 +223,7 @@ export default function HelcimManualCardHandoff() {
     const runtimeBlocker = helcimPayRuntimeBlocker();
     if (runtimeBlocker) {
       setState("error");
+      setShowDomainDiagnostic(false);
       setMessage(runtimeBlocker);
       return;
     }
@@ -234,6 +251,7 @@ export default function HelcimManualCardHandoff() {
       if (data.eventStatus === "ABORTED") {
         iframeLaunchedRef.current = false;
         setState("error");
+        setShowDomainDiagnostic(false);
         setMessage("Card declined. Return to the register and retry when ready.");
         postHandoffOutcome(attemptId, "failed");
         return;
@@ -241,6 +259,7 @@ export default function HelcimManualCardHandoff() {
       if (data.eventStatus === "HIDE") {
         iframeLaunchedRef.current = false;
         setState("canceled");
+        setShowDomainDiagnostic(false);
         setMessage("Card entry canceled. Return to the register or retry.");
         postHandoffOutcome(attemptId, "canceled");
         return;
@@ -248,6 +267,7 @@ export default function HelcimManualCardHandoff() {
       if (data.eventStatus !== "SUCCESS") {
         iframeLaunchedRef.current = false;
         setState("error");
+        setShowDomainDiagnostic(false);
         setMessage("Helcim did not approve this payment.");
         postHandoffOutcome(attemptId, "failed");
         return;
@@ -263,6 +283,7 @@ export default function HelcimManualCardHandoff() {
         void confirmApprovedPayment(pendingApprovalRef.current);
       } catch (error) {
         setState("error");
+        setShowDomainDiagnostic(false);
         setMessage(
           error instanceof Error
             ? `${error.message} Keep this page open and use Recover payment in ROS.`
@@ -285,12 +306,14 @@ export default function HelcimManualCardHandoff() {
     if (state === "approved" || iframeLaunchedRef.current) return;
     if (!attemptId || !checkoutToken || !eventName) {
       setState("error");
+      setShowDomainDiagnostic(false);
       setMessage("Card Not Present link is missing payment details. Start Card Not Present again from the register.");
       return;
     }
     const runtimeBlocker = helcimPayRuntimeBlocker();
     if (runtimeBlocker) {
       setState("error");
+      setShowDomainDiagnostic(false);
       setMessage(runtimeBlocker);
       return;
     }
@@ -298,6 +321,7 @@ export default function HelcimManualCardHandoff() {
     helcimSuccessSeenRef.current = false;
     pendingApprovalRef.current = null;
     setState("loading");
+    setShowDomainDiagnostic(false);
     setMessage("Opening secure Card Not Present entry...");
     logHelcimDiagnostic("Starting HelcimPay.js card entry", {
       attemptId,
@@ -352,6 +376,7 @@ export default function HelcimManualCardHandoff() {
           error,
         });
         setState("error");
+        setShowDomainDiagnostic(true);
         setMessage(error instanceof Error ? error.message : HELCIM_DOMAIN_ERROR_MESSAGE);
       });
   }, [attemptId, checkoutToken, eventName, state]);
@@ -391,7 +416,7 @@ export default function HelcimManualCardHandoff() {
             Helcim may ask for billing ZIP and street address for card verification.
           </p>
         ) : null}
-        {state === "error" ? (
+        {state === "error" && showDomainDiagnostic ? (
           <p className="mt-4 text-xs font-semibold leading-relaxed text-app-text-muted">
             {HELCIM_DOMAIN_ERROR_MESSAGE}
           </p>
@@ -467,6 +492,19 @@ export default function HelcimManualCardHandoff() {
           >
             Return to ROS
           </button>
+          {(state === "idle" || state === "ready") && (
+            <button
+              type="button"
+              className="ui-btn-secondary px-5 py-2"
+              onClick={() => {
+                setState("canceled");
+                setMessage("Card entry canceled. Return to the register or retry.");
+                postHandoffOutcome(attemptId, "canceled");
+              }}
+            >
+              Cancel Card Entry
+            </button>
+          )}
         </div>
       </section>
     </main>
