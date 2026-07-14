@@ -1629,19 +1629,12 @@ export default function NexoCheckoutDrawer({
       void releasePendingTerminalAttempt();
       return;
     }
-    const label = helcimAttempt.selected_terminal_key
-      ? terminalLabel(helcimAttempt.selected_terminal_key)
-      : selectedTerminalKey
-        ? terminalLabel(selectedTerminalKey)
-        : "the terminal";
-    toast(`Cancel on ${label}, then tap Check. Riverside will release the terminal when Helcim reports the cancel.`, "info");
+    void releasePendingTerminalAttempt();
   }, [
     helcimAttempt,
     providerSettings?.helcim.simulator_enabled,
     releasePendingTerminalAttempt,
-    selectedTerminalKey,
     simulateHelcimAttempt,
-    toast,
   ]);
 
   const chargeSavedHelcimCard = useCallback(
@@ -2549,7 +2542,7 @@ export default function NexoCheckoutDrawer({
                   onClick={handlePendingTerminalCancel}
                   className="min-h-9 max-w-32 rounded-lg border border-app-danger/25 bg-app-danger/10 px-3 text-[10px] font-black uppercase tracking-widest text-app-danger disabled:opacity-50"
                 >
-                  {isHostedManualHelcimAttempt(helcimAttempt) ? "Cancel manual card" : "Cancel on terminal"}
+                  {isHostedManualHelcimAttempt(helcimAttempt) ? "Cancel manual card" : "I canceled on terminal — clear ROS"}
                 </button>
               </div>
             )}
@@ -2930,7 +2923,7 @@ export default function NexoCheckoutDrawer({
                     disabled={helcimAttemptLoading}
                     className="min-h-10 rounded-xl border border-app-danger/30 bg-app-danger/10 px-3 text-[10px] font-black uppercase tracking-widest text-app-danger disabled:opacity-50"
                   >
-                    {isHostedManualHelcimAttempt(helcimAttempt) ? "Cancel manual card" : "Cancel on terminal"}
+                    {isHostedManualHelcimAttempt(helcimAttempt) ? "Cancel manual card" : "I canceled on terminal — clear ROS"}
                   </button>
                 ) : null}
                 {pendingHelcimAttemptNeedsAttention ||

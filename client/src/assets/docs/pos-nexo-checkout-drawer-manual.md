@@ -57,6 +57,8 @@ Register #1 defaults to Terminal 1, Register #2 defaults to Terminal 2, and Regi
 
 If a card attempt is canceled and retried, use the current checkout status before sending another request. A message that a Helcim attempt does not belong to the register session means the pending terminal attempt no longer matches the active checkout attempt. Cancel the stale attempt, confirm the till is still open, then send a fresh card request.
 
+If the physical terminal was canceled but ROS still says **Waiting for Card**, select **I canceled on terminal — clear ROS**. This releases only the pending attempt with no provider transaction; an approved/provider-referenced payment remains protected for recovery.
+
 If the terminal approves but the drawer still shows the card attempt as pending or declined, use **Recover payment** before running the card again or changing tender. ROS sends a unique invoice reference with each terminal request and can recover the approved Helcim transaction by that reference and amount when the terminal response is delayed. If the card was truly declined, use **Retry card** to clear the declined attempt and send a new ROS-tracked request to the terminal.
 
 ## Keypad and amount controls

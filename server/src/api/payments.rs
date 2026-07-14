@@ -9003,9 +9003,9 @@ async fn release_helcim_terminal_attempt(
             "Only pending Helcim attempts can be released.".to_string(),
         ));
     }
-    if helcim_attempt_has_provider_settlement_reference(&attempt) {
+    if attempt.provider_transaction_id.is_some() {
         return Err(PaymentError::Conflict(
-            "Helcim returned a provider reference for this attempt. Use Check Terminal before releasing it locally.".to_string(),
+            "Helcim returned a provider transaction for this attempt. Use Check Terminal before releasing it locally.".to_string(),
         ));
     }
 
@@ -9025,7 +9025,7 @@ async fn release_helcim_terminal_attempt(
             error_message = CASE
                 WHEN raw_audit_reference = 'helcim-pay-js'
                     THEN 'HelcimPay.js card entry was canceled before approval.'
-                ELSE 'Released locally after the terminal returned to ready; Helcim did not provide a payment reference to poll.'
+                ELSE 'Staff cleared the terminal attempt after canceling on the physical terminal; no provider transaction was recorded.'
             END,
             provider_client_secret = NULL,
             completed_at = now()
@@ -9033,10 +9033,6 @@ async fn release_helcim_terminal_attempt(
           AND provider = 'helcim'
           AND status = 'pending'
           AND provider_transaction_id IS NULL
-          AND (
-              provider_payment_id IS NULL
-              OR raw_audit_reference = 'helcim-pay-js'
-          )
         "#,
     )
     .bind(attempt_id)
