@@ -32,10 +32,14 @@ fn normalize_migration_crlf(sql_content: &str) -> String {
 
 fn migration_sha256_variants(sql_content: &str) -> Vec<String> {
     let mut variants = Vec::new();
+    let lf = normalize_migration_lf(sql_content);
+    let crlf = normalize_migration_crlf(sql_content);
     for content in [
         sql_content.to_string(),
-        normalize_migration_lf(sql_content),
-        normalize_migration_crlf(sql_content),
+        lf.clone(),
+        crlf.clone(),
+        format!("{lf}\n"),
+        format!("{crlf}\r\n"),
     ] {
         let sha = migration_sha256(&content);
         if !variants.contains(&sha) {
@@ -164,7 +168,7 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), anyhow::Error> {
                     migration = file_name,
                     stored_sha,
                     current_sha,
-                    "Unified Engine: Migration checksum differs only by line endings; accepting legacy ledger checksum"
+                    "Unified Engine: Migration checksum differs only by line formatting; accepting legacy ledger checksum"
                 );
             }
             Some(_) => {}
@@ -516,13 +520,15 @@ mod tests {
     }
 
     #[test]
-    fn migration_sha256_variants_accept_line_ending_only_changes() {
+    fn migration_sha256_variants_accept_formatting_only_line_changes() {
         let lf = "SELECT 1;\nSELECT 2;\n";
         let crlf = "SELECT 1;\r\nSELECT 2;\r\n";
         let variants = migration_sha256_variants(lf);
 
         assert!(variants.contains(&migration_sha256(lf)));
         assert!(variants.contains(&migration_sha256(crlf)));
+        assert!(variants.contains(&migration_sha256(&format!("{lf}\n"))));
+        assert!(variants.contains(&migration_sha256(&format!("{crlf}\r\n"))));
         assert!(!variants.contains(&migration_sha256("SELECT 3;\n")));
     }
 }

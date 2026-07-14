@@ -2157,6 +2157,7 @@ async fn create_appointment(
         None
     };
 
+    let mut tx = state.db.begin().await?;
     let id: Uuid = sqlx::query_scalar(
         r#"
         INSERT INTO wedding_appointments (
@@ -2178,7 +2179,7 @@ async fn create_appointment(
     .bind(&status)
     .bind(&resolved_salesperson)
     .bind(body.salesperson_staff_id)
-    .fetch_one(&state.db)
+    .fetch_one(&mut *tx)
     .await?;
 
     if let Some((actor_id, reason, message)) = override_actor {
@@ -2197,9 +2198,11 @@ async fn create_appointment(
         .bind(reason)
         .bind(message)
         .bind(actor_id)
-        .execute(&state.db)
+        .execute(&mut *tx)
         .await?;
     }
+
+    tx.commit().await?;
 
     let appt: AppointmentRow = sqlx::query_as(
         r#"
@@ -2349,19 +2352,15 @@ async fn update_appointment(
         }
     }
 
+    let mut tx = state.db.begin().await?;
     if has_updates {
         qb.push(" WHERE id = ").push_bind(appointment_id);
-        let result = qb.build().execute(&state.db).await?;
+        let result = qb.build().execute(&mut *tx).await?;
         if result.rows_affected() == 0 {
             return Err(WeddingError::BadRequest(
                 "Appointment not found".to_string(),
             ));
         }
-        state
-            .wedding_events
-            .appointments_updated(wedding_client_sender(&headers).as_deref());
-
-        spawn_meilisearch_appointment_upsert(&state, appointment_id);
     }
 
     if let Some((actor_id, reason, message)) = override_actor {
@@ -2380,8 +2379,17 @@ async fn update_appointment(
         .bind(reason)
         .bind(message)
         .bind(actor_id)
-        .execute(&state.db)
+        .execute(&mut *tx)
         .await?;
+    }
+
+    tx.commit().await?;
+
+    if has_updates {
+        state
+            .wedding_events
+            .appointments_updated(wedding_client_sender(&headers).as_deref());
+        spawn_meilisearch_appointment_upsert(&state, appointment_id);
     }
 
     let appt: AppointmentRow = sqlx::query_as(

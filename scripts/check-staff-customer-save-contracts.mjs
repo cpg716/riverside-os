@@ -31,6 +31,9 @@ const staffDrawerFile = "client/src/components/staff/StaffEditDrawer.tsx";
 const staffApiFile = "server/src/api/staff.rs";
 const customerHubFile = "client/src/components/customers/CustomerRelationshipHubDrawer.tsx";
 const customerApiFile = "server/src/api/customers.rs";
+const customerMergeFile = "server/src/logic/customer_merge.rs";
+const customerWorkspaceFile = "client/src/components/customers/CustomersWorkspace.tsx";
+const customerSelectorFile = "client/src/components/pos/CustomerSelector.tsx";
 const storefrontFile = "client/src/components/storefront/PublicStorefront.tsx";
 const goLiveFile = "scripts/check-go-live-blockers.mjs";
 
@@ -38,6 +41,9 @@ const staffDrawer = read(staffDrawerFile);
 const staffApi = read(staffApiFile);
 const customerHub = read(customerHubFile);
 const customerApi = read(customerApiFile);
+const customerMerge = read(customerMergeFile);
+const customerWorkspace = read(customerWorkspaceFile);
+const customerSelector = read(customerSelectorFile);
 const storefront = read(storefrontFile);
 const goLive = read(goLiveFile);
 
@@ -114,6 +120,36 @@ assert(
   "Customer profile PATCH remains sparse server-side",
   customerApiFile,
   "The server must only update customer fields present in the request.",
+);
+
+assert(
+  customerMerge.includes("struct MergeRiskRow") &&
+    customerMerge.includes("pub blocking_reasons: Vec<String>") &&
+    (customerMerge.match(/query_as::<_, MergeRiskRow>\(MERGE_RISK_SQL\)/g) ?? []).length >= 2 &&
+    customerMerge.includes("if !blocking_reasons.is_empty()"),
+  "Customer merges re-check linked-record blockers inside the write transaction",
+  customerMergeFile,
+  "Dry-run warnings are not enough; the server must fail closed if linked data could be lost before deleting a duplicate customer.",
+);
+
+assert(
+  customerWorkspace.includes("mergePreview.blocking_reasons.length > 0") &&
+    customerWorkspace.includes("Merge blocked to protect linked records") &&
+    customerWorkspace.includes('body.error || "Merge failed. Review both customers and try again."'),
+  "Customer merge UI disables unsafe merges and shows the server recovery reason",
+  customerWorkspaceFile,
+  "Staff must see why a merge is blocked and how to choose the safe master record.",
+);
+
+assert(
+  customerSelector.includes("const searchRequestIdRef = useRef(0)") &&
+    customerSelector.includes("const controller = new AbortController()") &&
+    customerSelector.includes("signal: controller.signal") &&
+    customerSelector.includes("controller.abort()") &&
+    customerSelector.includes("searchRequestIdRef.current !== requestId"),
+  "Register customer lookup ignores stale search responses",
+  customerSelectorFile,
+  "A slow older response must not replace the newest query and let staff select the wrong customer.",
 );
 
 const storefrontSaveStart = storefront.indexOf('fetch(apiUrl(API_BASE, "/api/store/account/me"), {');

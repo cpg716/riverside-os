@@ -399,6 +399,7 @@ export default function CustomersWorkspace({
     alteration_orders: number;
     loyalty_points_on_slave: number;
     store_credit_balance_on_slave: string | null;
+    blocking_reasons: string[];
   } | null>(null);
   const [mergePreviewLoading, setMergePreviewLoading] = useState(false);
 
@@ -746,6 +747,7 @@ export default function CustomersWorkspace({
             alteration_orders: number;
             loyalty_points_on_slave: number;
             store_credit_balance_on_slave: string | null;
+            blocking_reasons: string[];
           };
           error?: string;
         };
@@ -767,7 +769,12 @@ export default function CustomersWorkspace({
   }, [mergeOpen, mergeMasterId, selected, rows, apiAuth]);
 
   const executeMerge = async () => {
-    if (selected.size !== 2 || !mergeMasterId) return;
+    if (
+      selected.size !== 2 ||
+      !mergeMasterId ||
+      !mergePreview ||
+      mergePreview.blocking_reasons.length > 0
+    ) return;
     const two = rows.filter((r) => selected.has(r.id));
     const slave = two.find((r) => r.id !== mergeMasterId)?.id;
     if (!slave) return;
@@ -789,8 +796,11 @@ export default function CustomersWorkspace({
         }),
       });
       if (!res.ok) {
-        await res.json().catch(() => ({}));
-        toast("Merge failed. Review both customers and try again.", "error");
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        toast(
+          body.error || "Merge failed. Review both customers and try again.",
+          "error",
+        );
         return;
       }
       toast("Customers merged", "success");
@@ -1800,6 +1810,17 @@ export default function CustomersWorkspace({
                       {mergePreview.store_credit_balance_on_slave ?? "—"}
                     </li>
                   </ul>
+                  {mergePreview.blocking_reasons.length > 0 ? (
+                    <div className="mt-3 rounded-lg border border-app-danger/30 bg-app-danger/10 p-3 text-app-danger">
+                      <p className="font-black uppercase tracking-widest">
+                        Merge blocked to protect linked records
+                      </p>
+                      <p className="mt-1 text-app-text">
+                        Keep the customer with these records as the master, or
+                        resolve the links before merging: {mergePreview.blocking_reasons.join(", ")}.
+                      </p>
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
               {selectedRows.slice(0, 2).map((r) => (
@@ -1836,7 +1857,13 @@ export default function CustomersWorkspace({
               </button>
               <button
                 type="button"
-                disabled={mergeBusy || !mergeMasterId}
+                disabled={
+                  mergeBusy ||
+                  !mergeMasterId ||
+                  mergePreviewLoading ||
+                  !mergePreview ||
+                  mergePreview.blocking_reasons.length > 0
+                }
                 onClick={() => void executeMerge()}
                 className="min-h-11 rounded-xl border-b-8 border-app-success bg-app-success px-4 py-2 text-sm font-black uppercase tracking-wide text-white shadow-lg transition-all hover:brightness-110 active:translate-y-0.5 active:border-b-4 disabled:opacity-50"
               >

@@ -240,8 +240,8 @@ assertIncludes(
 );
 assertIncludes(
   "server/src/db_migrations.rs",
-  "Migration checksum differs only by line endings",
-  "server startup migration verifier must log line-ending-only checksum compatibility",
+  "Migration checksum differs only by line formatting",
+  "server startup migration verifier must log formatting-only checksum compatibility",
 );
 for (const migrationScript of [
   "deployment/windows/install-server.ps1",

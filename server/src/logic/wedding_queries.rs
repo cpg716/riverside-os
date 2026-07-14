@@ -804,10 +804,10 @@ pub async fn try_load_party_financial_context(
     let econ = sqlx::query_as::<_, (Decimal, Decimal, Decimal, Decimal, i32, i32)>(
         r#"
         SELECT
-            total_profit,
-            total_cost,
-            total_revenue,
-            margin_percent,
+            COALESCE(total_profit, 0::numeric) AS total_profit,
+            COALESCE(total_cost, 0::numeric) AS total_cost,
+            COALESCE(total_revenue, 0::numeric) AS total_revenue,
+            COALESCE(margin_percent, 0::numeric) AS margin_percent,
             free_suits_marked::int AS free_suits_marked,
             -- Qualification Count: Number of members in this party who have an order with a suit fulfillment
             -- used as a proxy for the "5 suits" buy-in.

@@ -1129,6 +1129,58 @@ function checkSessionAndConnectionIntegrity() {
   );
 }
 
+function checkWeddingAppointmentOverrideAtomicity() {
+  const file = "server/src/api/weddings.rs";
+  const content = read(file);
+  const createStart = content.indexOf("async fn create_appointment(");
+  const updateStart = content.indexOf("async fn update_appointment(", createStart);
+  const deleteStart = content.indexOf("async fn delete_appointment(", updateStart);
+  const createBody =
+    createStart >= 0 && updateStart > createStart
+      ? content.slice(createStart, updateStart)
+      : "";
+  const updateBody =
+    updateStart >= 0 && deleteStart > updateStart
+      ? content.slice(updateStart, deleteStart)
+      : "";
+
+  assert(
+    createBody.includes("let mut tx = state.db.begin().await?") &&
+      createBody.includes("appointment_schedule_override_audit") &&
+      createBody.includes(".fetch_one(&mut *tx)") &&
+      createBody.includes(".execute(&mut *tx)") &&
+      createBody.includes("tx.commit().await?"),
+    "Wedding appointment creation keeps schedule overrides in the same transaction",
+    file,
+    "A conflict override must not save an appointment without its required Manager audit row.",
+  );
+
+  assert(
+    updateBody.includes("let mut tx = state.db.begin().await?") &&
+      updateBody.includes("appointment_schedule_override_audit") &&
+      updateBody.includes("qb.build().execute(&mut *tx)") &&
+      updateBody.includes(".execute(&mut *tx)") &&
+      updateBody.includes("tx.commit().await?"),
+    "Wedding appointment updates keep schedule overrides in the same transaction",
+    file,
+    "A conflict override audit failure must roll back the appointment edit instead of returning a false partial failure.",
+  );
+}
+
+function checkWeddingFinancialContextNullSafety() {
+  const file = "server/src/logic/wedding_queries.rs";
+  const content = read(file);
+  assert(
+    content.includes("COALESCE(total_profit, 0::numeric) AS total_profit") &&
+      content.includes("COALESCE(total_cost, 0::numeric) AS total_cost") &&
+      content.includes("COALESCE(total_revenue, 0::numeric) AS total_revenue") &&
+      content.includes("COALESCE(margin_percent, 0::numeric) AS margin_percent"),
+    "Wedding financial context treats empty economics as zero",
+    file,
+    "A party with held deposits but no merchandise Transaction Record must still load its financial and readiness context.",
+  );
+}
+
 checkCurrentReleaseNotes();
 checkTauriOpenerAcl();
 checkBrowserPrintHelper();
@@ -1157,6 +1209,8 @@ checkDeploymentManagerActionWiring();
 checkReleaseWorkflowPreBuildGates();
 checkDesktopAndPwaUpdateWiring();
 checkSessionAndConnectionIntegrity();
+checkWeddingAppointmentOverrideAtomicity();
+checkWeddingFinancialContextNullSafety();
 checkStaffCustomerSaveContracts();
 checkFinancialInvariantGate();
 

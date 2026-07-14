@@ -18,6 +18,7 @@
 - Run **`npm install`** from the repo root.
 - Run **`cd client && npm install`**.
 - Keep **`server/.env`** present for local parity (copy from **`server/.env.example`**). For local Docker Postgres, **`DATABASE_URL`** must use **`localhost:5433`**.
+- Keep DB-backed tests isolated from the application connection: set both **`TEST_DATABASE_URL`** and **`DATABASE_URL`** to **`postgresql://postgres:password@localhost:5433/riverside_os`** for the test process, apply every active migration through the current ceiling (**129**), and verify the Docker migration ledger before running Rust integration tests.
 - If you expect automatic local Metabase sign-in, configure the local **Metabase Admin/Staff** shared-auth values in **Settings → Integrations → Insights**. **`RIVERSIDE_METABASE_ADMIN_*`** and **`RIVERSIDE_METABASE_STAFF_*`** in **`server/.env`** are fallback/bootstrap only.
 - Expected local services and ports:
   - Postgres **5433**

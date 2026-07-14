@@ -443,7 +443,7 @@ cd client && npm run build    # tsc --noEmit + vite build
 > [!IMPORTANT]
 > **Sequential Test Run Invariant**: Integration tests write to shared PostgreSQL tables (e.g. `staff`, `product_variants`). Running cargo tests in parallel (the default) will trigger transaction deadlocks and unique constraint errors. Always append `-- --test-threads=1` to sequentialize execution.
 >
-> **Test Environment & Secrets**: Integration tests source configuration using dotenv. If running outside the local dev-server shell, ensure `server/.env` exists or the `DATABASE_URL` environment variable is explicitly exported.
+> **Test Database Isolation**: DB-backed integration tests must use the dedicated Docker PostgreSQL service at `postgresql://postgres:password@localhost:5433/riverside_os`, never the application database. Export both `TEST_DATABASE_URL` and `DATABASE_URL` to that test URL while running the suite because a few older tests still read `DATABASE_URL`. Before testing, apply the complete active migration baseline (currently `001-129`) with `DATABASE_URL="$TEST_DATABASE_URL" ./scripts/apply-migrations-psql.sh`, then verify it with `RIVERSIDE_DB_NAME=riverside_os ./scripts/migration-status-docker.sh`.
 
 E2E / visual QA (Playwright):
 

@@ -25,6 +25,99 @@ pub struct MergePreview {
     pub alteration_orders: i64,
     pub loyalty_points_on_slave: i32,
     pub store_credit_balance_on_slave: Option<String>,
+    pub blocking_reasons: Vec<String>,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct MergeRiskRow {
+    measurement_history: bool,
+    alteration_history: bool,
+    group_memberships: bool,
+    open_deposit: bool,
+    financial_history: bool,
+    account_access: bool,
+    relationship_history: bool,
+    operational_history: bool,
+    duplicate_wedding_membership: bool,
+}
+
+const MERGE_RISK_SQL: &str = r#"
+    SELECT
+        (
+            EXISTS(SELECT 1 FROM customer_measurements WHERE customer_id = $1)
+            OR EXISTS(SELECT 1 FROM measurements WHERE customer_id = $1)
+        ) AS measurement_history,
+        EXISTS(SELECT 1 FROM alteration_orders WHERE customer_id = $1) AS alteration_history,
+        EXISTS(SELECT 1 FROM customer_group_members WHERE customer_id = $1) AS group_memberships,
+        EXISTS(SELECT 1 FROM customer_open_deposit_accounts WHERE customer_id = $1) AS open_deposit,
+        (
+            EXISTS(SELECT 1 FROM customer_corecredit_accounts WHERE customer_id = $1)
+            OR EXISTS(SELECT 1 FROM loyalty_point_ledger WHERE customer_id = $1)
+            OR EXISTS(SELECT 1 FROM loyalty_reward_issuances WHERE customer_id = $1)
+            OR EXISTS(SELECT 1 FROM payment_transactions WHERE payer_id = $1)
+            OR EXISTS(SELECT 1 FROM customer_open_deposit_ledger WHERE payer_customer_id = $1)
+        ) AS financial_history,
+        (
+            EXISTS(SELECT 1 FROM customer_online_credential WHERE customer_id = $1)
+            OR EXISTS(SELECT 1 FROM staff WHERE employee_customer_id = $1)
+        ) AS account_access,
+        (
+            EXISTS(SELECT 1 FROM customer_relationship_periods WHERE child_customer_id = $1 OR parent_customer_id = $1)
+            OR EXISTS(SELECT 1 FROM customers WHERE couple_primary_id = $1)
+        ) AS relationship_history,
+        (
+            EXISTS(SELECT 1 FROM fulfillment_orders WHERE customer_id = $1)
+            OR EXISTS(SELECT 1 FROM order_activity_log WHERE customer_id = $1)
+            OR EXISTS(SELECT 1 FROM order_refund_queue WHERE customer_id = $1)
+            OR EXISTS(SELECT 1 FROM orders WHERE customer_id = $1)
+            OR EXISTS(SELECT 1 FROM podium_conversation WHERE customer_id = $1)
+            OR EXISTS(SELECT 1 FROM pos_parked_sale WHERE customer_id = $1)
+            OR EXISTS(SELECT 1 FROM pos_rms_charge_record WHERE customer_id = $1)
+            OR EXISTS(SELECT 1 FROM shipment WHERE customer_id = $1)
+            OR EXISTS(SELECT 1 FROM task_assignment WHERE customer_id = $1)
+            OR EXISTS(SELECT 1 FROM task_instance WHERE customer_id = $1)
+            OR EXISTS(SELECT 1 FROM store_checkout_session WHERE customer_id = $1 OR account_conversion_customer_id = $1)
+        ) AS operational_history,
+        EXISTS(
+            SELECT 1
+            FROM wedding_members slave_member
+            JOIN wedding_members master_member
+              ON master_member.wedding_party_id = slave_member.wedding_party_id
+            WHERE slave_member.customer_id = $1
+              AND master_member.customer_id = $2
+        ) AS duplicate_wedding_membership
+"#;
+
+fn merge_risk_reasons(risk: MergeRiskRow) -> Vec<String> {
+    let mut reasons = Vec::new();
+    if risk.measurement_history {
+        reasons.push("measurement history".to_string());
+    }
+    if risk.alteration_history {
+        reasons.push("alteration history".to_string());
+    }
+    if risk.group_memberships {
+        reasons.push("customer group memberships".to_string());
+    }
+    if risk.open_deposit {
+        reasons.push("open deposit funds".to_string());
+    }
+    if risk.financial_history {
+        reasons.push("financial or loyalty history".to_string());
+    }
+    if risk.account_access {
+        reasons.push("online or staff account access".to_string());
+    }
+    if risk.relationship_history {
+        reasons.push("linked customer relationships".to_string());
+    }
+    if risk.operational_history {
+        reasons.push("operational order, shipment, task, or communication history".to_string());
+    }
+    if risk.duplicate_wedding_membership {
+        reasons.push("both customers are members of the same wedding party".to_string());
+    }
+    reasons
 }
 
 /// Read-only counts for CRM merge confirmation (no mutations).
@@ -105,6 +198,14 @@ pub async fn merge_preview(
             .await?
             .map(|d: Decimal| d.to_string());
 
+    let blocking_reasons = merge_risk_reasons(
+        sqlx::query_as::<_, MergeRiskRow>(MERGE_RISK_SQL)
+            .bind(slave)
+            .bind(master)
+            .fetch_one(pool)
+            .await?,
+    );
+
     Ok(MergePreview {
         orders,
         wedding_members,
@@ -115,6 +216,7 @@ pub async fn merge_preview(
         alteration_orders,
         loyalty_points_on_slave,
         store_credit_balance_on_slave,
+        blocking_reasons,
     })
 }
 
@@ -144,6 +246,20 @@ pub async fn merge_customers(
         return Err(CustomerMergeError::BadRequest(
             "one or both customers not found".to_string(),
         ));
+    }
+
+    let blocking_reasons = merge_risk_reasons(
+        sqlx::query_as::<_, MergeRiskRow>(MERGE_RISK_SQL)
+            .bind(slave)
+            .bind(master)
+            .fetch_one(&mut *tx)
+            .await?,
+    );
+    if !blocking_reasons.is_empty() {
+        return Err(CustomerMergeError::BadRequest(format!(
+            "Merge blocked to protect linked data: {}. Keep the customer with these records as the master, or resolve the links before merging.",
+            blocking_reasons.join(", ")
+        )));
     }
 
     let slave_pts: i32 = sqlx::query_scalar("SELECT loyalty_points FROM customers WHERE id = $1")
@@ -280,4 +396,28 @@ async fn repoint_customer_fk(
         .execute(&mut **tx)
         .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn merge_risk_query_matches_current_schema() {
+        let Ok(database_url) = std::env::var("DATABASE_URL") else {
+            return;
+        };
+        let pool = PgPool::connect(&database_url)
+            .await
+            .expect("connect test database");
+
+        let risk = sqlx::query_as::<_, MergeRiskRow>(MERGE_RISK_SQL)
+            .bind(Uuid::nil())
+            .bind(Uuid::nil())
+            .fetch_one(&pool)
+            .await
+            .expect("customer merge risk query matches the current schema");
+
+        assert!(merge_risk_reasons(risk).is_empty());
+    }
 }

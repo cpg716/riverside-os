@@ -693,7 +693,7 @@ mod tests {
     use sqlx::postgres::PgPoolOptions;
 
     async fn test_pool() -> PgPool {
-        let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
+        let database_url = std::env::var("TEST_DATABASE_URL").unwrap_or_else(|_| {
             "postgresql://postgres:password@localhost:5433/riverside_os".to_string()
         });
         PgPoolOptions::new()

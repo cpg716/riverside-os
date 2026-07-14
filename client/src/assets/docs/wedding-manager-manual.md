@@ -59,8 +59,9 @@ Do not mark a member ready merely to clear the board. Readiness must agree with 
 1. Open **Appointments** inside Wedding Manager for party-linked visits.
 2. Choose weekly or monthly view.
 3. Select the correct member, appointment type, date, time, and assigned staff member.
-4. Save and confirm the appointment appears on the expected date.
-5. Mark attendance from the normal appointment workflow after the visit occurs.
+4. If Riverside finds a schedule conflict, use the approved Manager Access override and enter the operational reason. The appointment and its override record save together.
+5. Save and confirm the appointment appears on the expected date.
+6. Mark attendance from the normal appointment workflow after the visit occurs.
 
 Use the main **Appointments** workspace for store appointments that are not tied to a wedding party.
 

@@ -96,6 +96,7 @@ export default function CustomerSelector({
   const [activeResultIndex, setActiveResultIndex] = useState(-1);
   const searchContainerRef = useRef<HTMLDivElement | null>(null);
   const resultsPanelRef = useRef<HTMLDivElement | null>(null);
+  const searchRequestIdRef = useRef(0);
 
   const baseUrl = getBaseUrl();
   const trimmedQuery = query.trim();
@@ -161,15 +162,19 @@ export default function CustomerSelector({
   };
 
   useEffect(() => {
+    const requestId = ++searchRequestIdRef.current;
+    setLoadingMore(false);
     if (query.trim().length < 2) {
       setResults([]);
       setHasMore(false);
+      setSearchBusy(false);
       setSearchLookupFailed(false);
       setPartyFilterMode(false);
       setActiveResultIndex(-1);
       return;
     }
 
+    const controller = new AbortController();
     const delayDebounce = setTimeout(async () => {
       setSearchBusy(true);
       setSearchLookupFailed(false);
@@ -183,8 +188,9 @@ export default function CustomerSelector({
                 offset: "0",
               }).toString()}`
             : `${baseUrl}/api/customers/search?${new URLSearchParams({ q: trimmed, limit: String(CUSTOMER_SELECTOR_PAGE), offset: "0" }).toString()}`,
-          { headers: { ...apiAuth() } },
+          { headers: { ...apiAuth() }, signal: controller.signal },
         );
+        if (searchRequestIdRef.current !== requestId) return;
         if (res.ok) {
           const data = (await res.json()) as Customer[] | Array<Customer & { wedding_party_name?: string | null; wedding_party_id?: string | null }>;
           const mapped = partyFilterMode
@@ -214,21 +220,28 @@ export default function CustomerSelector({
           setSearchLookupFailed(true);
         }
       } catch {
+        if (controller.signal.aborted) return;
         setResults([]);
         setHasMore(false);
         setSearchLookupFailed(true);
       } finally {
-        setSearchBusy(false);
+        if (searchRequestIdRef.current === requestId) {
+          setSearchBusy(false);
+        }
       }
     }, 300);
 
-    return () => clearTimeout(delayDebounce);
+    return () => {
+      clearTimeout(delayDebounce);
+      controller.abort();
+    };
   }, [query, baseUrl, partyFilterMode, apiAuth]);
 
   const loadMoreResults = useCallback(async () => {
     if (!hasMore || loadingMore || searchBusy) return;
     const trimmed = query.trim();
     if (trimmed.length < 2) return;
+    const requestId = searchRequestIdRef.current;
     setLoadingMore(true);
     try {
       const res = await fetch(
@@ -268,6 +281,7 @@ export default function CustomerSelector({
             wedding_party_id: r.wedding_party_id ?? null,
           }))
         : (data as Customer[]);
+      if (searchRequestIdRef.current !== requestId) return;
       setResults((prev) => [...prev, ...mapped]);
       setHasMore(mapped.length === CUSTOMER_SELECTOR_PAGE);
     } catch {

@@ -1,5 +1,7 @@
 # Schema Contract and Migrations
 
+Applied migration SQL is immutable. Migration checksum verification accepts LF/CRLF differences and the historical single-extra-final-newline variant because those do not change executable SQL. Any other checksum difference remains blocking and requires a new numbered migration; never overwrite the stored ledger checksum merely to silence drift.
+
 Riverside OS is pre-launch, so the database has been reset from a long historical migration stream into a clean schema-contract baseline.
 
 The current system is contract-driven:

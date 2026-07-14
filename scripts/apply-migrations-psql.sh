@@ -33,6 +33,10 @@ file_sha256() {
   shasum -a 256 "$1" | awk '{print $1}'
 }
 
+file_sha256_with_extra_newline() {
+  { cat "$1"; printf '\n'; } | shasum -a 256 | awk '{print $1}'
+}
+
 repair_public_serial_sequences() {
   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
 DO $$
@@ -94,6 +98,8 @@ for f in $(ls "$ROOT"/migrations/[0-9][0-9]*_*.sql 2>/dev/null | sort -V); do
       # Backfill checksum for legacy rows that were applied before checksums existed.
       psql "$DATABASE_URL" -tAc "UPDATE ros_schema_migrations SET file_sha256 = '$current_sha' WHERE version = '$base' AND (file_sha256 IS NULL OR btrim(file_sha256) = '');" >/dev/null
       echo "Skip (ledger, checksum recorded): $base"
+    elif [ "$stored_sha" = "$(file_sha256_with_extra_newline "$f")" ]; then
+      echo "Skip (ledger, formatting-only checksum variant): $base"
     elif [ "$stored_sha" != "$current_sha" ]; then
       echo "⚠ DRIFT: $base has changed since it was applied! (stored=$stored_sha current=$current_sha)"
       echo "  → This file was modified after being applied. You may need a new migration to reconcile."

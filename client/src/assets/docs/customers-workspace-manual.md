@@ -70,6 +70,7 @@ The relationship hub supports customer review. The RMS workspace supports financ
 4. Open the customer row to review the relationship hub.
 5. Use the relationship hub tabs for profile, orders, messages, measurements, weddings, and shipments.
 6. Use **Duplicate Review** when Riverside flags likely duplicate customer records.
+   Choose the record with the most complete measurements, alterations, balances, relationships, and operational history as the master. Riverside blocks the merge when deleting the other record could remove or detach linked history; follow the reason shown before trying again.
 7. Return to the main workspace if you need a different customer.
 8. Move to `RMS Charge` only when the question is about RMS financing accounts or RMS support follow-up.
 
@@ -84,6 +85,7 @@ The relationship hub supports customer review. The RMS workspace supports financ
 
 - Start with the active Riverside customer profile, not a name-only match.
 - Use phone, customer code, and wedding context to confirm the right record before taking action.
+- A blocked merge is a data-protection stop, not a failed search. Keep the record named by the linked-history warning as the master, or resolve the listed link in its normal workspace before merging.
 - When adding a customer, keep the required identity/contact fields complete before moving to optional preferences.
 - If the issue is financing-specific, do not try to solve it from the relationship hub alone. Open `RMS Charge`.
 - A `Profile incomplete` chip on the browse row means the record is missing either phone or email, even if the rest of the account looks active.
