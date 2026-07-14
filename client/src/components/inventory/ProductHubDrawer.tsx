@@ -25,6 +25,7 @@ import { getAppIcon } from "../../lib/icons";
 import { getInventoryTagPrintConfig, openInventoryTagsWindow } from "./labelPrint";
 import RosieIcon from "../common/RosieIcon";
 import { isCustomOrderSku } from "../../lib/customOrders";
+import { sortVariantsByVariation } from "../../lib/variantSort";
 
 const VENDOR_ICON = getAppIcon("vendor");
 
@@ -1016,10 +1017,20 @@ export default function ProductHubDrawer({
   );
 
   const totalStock = hub?.stats?.total_units_on_hand ?? 0;
+  const orderedVariants = useMemo(
+    () => hub
+      ? sortVariantsByVariation(hub.variants, [
+          hub.product.matrix_row_axis_key,
+          hub.product.matrix_col_axis_key,
+          ...(hub.product.variation_axes ?? []),
+        ])
+      : [],
+    [hub],
+  );
   const isNonStockSaleProduct = Boolean(
     hub &&
       (isInternalPosCategory(hub.product.category_name) ||
-        (hub.variants.length > 0 && hub.variants.every((variant) => isCustomOrderSku(variant.sku)))),
+        (orderedVariants.length > 0 && orderedVariants.every((variant) => isCustomOrderSku(variant.sku)))),
   );
   const confidenceLabel = catalogAnalysis
     ? `${Math.round((catalogAnalysis.confidence_score ?? 0) * 100)}% confidence`
@@ -1044,7 +1055,7 @@ export default function ProductHubDrawer({
       .slice(0, 6) ?? [];
 
   const hubVariants: HubVariant[] =
-    hub?.variants?.map((v) => ({
+    orderedVariants.map((v) => ({
       id: v.id,
       sku: v.sku,
       variation_values: v.variation_values,
@@ -1060,7 +1071,7 @@ export default function ProductHubDrawer({
       web_published: Boolean(v.web_published),
       web_price_override: v.web_price_override ?? null,
       web_gallery_order: v.web_gallery_order ?? 0,
-    })) ?? [];
+    }));
 
   const inventoryEvents = timeline
     .filter((event) => event.kind.startsWith("inventory_"))
@@ -1766,7 +1777,7 @@ export default function ProductHubDrawer({
                       </tr>
                     </thead>
                     <tbody>
-                      {hub.variants.map((variant) => (
+                      {orderedVariants.map((variant) => (
                         <tr
                           key={variant.id}
                           className="border-b border-app-border/60 bg-app-surface-2/30 last:border-b-0"
@@ -2436,8 +2447,6 @@ export default function ProductHubDrawer({
                 `${printItems.length} updated price tag${printItems.length === 1 ? "" : "s"} ${printResult.message}`,
                 "success",
               );
-              void loadHub();
-              onHubMutated?.();
             } catch (error) {
               toast(error instanceof Error ? error.message : "Price tags could not be printed. Please try again.", "error");
             } finally {

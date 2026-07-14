@@ -10,7 +10,7 @@
 
 ## How to use these tabs
 
-Use **Gift Cards** for card lookup, donated/giveaway issuance, promo gift card issuance, and voids. Use **Loyalty** for points economics. Cashiers redeem gift cards in POS, but Riverside now checks the real card type during checkout so purchased, loyalty, donated, and promo cards follow the right accounting path.
+Use **Gift Cards** for card lookup, donated/giveaway issuance, promo gift card issuance, and voids. Use **Loyalty** for points economics. Cashiers redeem gift cards in POS, where Riverside verifies the card, shows the pre-sale balance, and records the real Regular, Loyalty, Donated, or Promo classification for accounting.
 
 Purchased gift cards are sold or reloaded from **Register** only. Do not issue customer-paid gift card value from Back Office.
 
@@ -91,7 +91,7 @@ Gift card codes are normalized to uppercase for scanner workflows. Reusing a dep
 
 ## POS coordination
 
-If POS says a gift card type does not match, check the card record in Back Office first. Purchased cards should be sold/reloaded from **Register** and redeemed as **Paid**. Loyalty reward cards should be redeemed as **Loyalty**. Donated cards should be redeemed as **Donated**. Promo gift cards should be redeemed as **Promo**.
+If POS cannot verify a gift card, check the card record in Back Office first. Regular cards are purchased/reloaded from **Register**. Loyalty, Donated, and Promo cards keep their own classification, expiration, reporting, and accounting evidence when redeemed.
 
 Expired purchased-card balances post to gift card breakage during QBO proposal generation. Loyalty, donated, and promo cards expire after one year but do not create purchased-card breakage because they are not customer-paid liabilities.
 
@@ -124,4 +124,4 @@ Expired purchased-card balances post to gift card breakage during QBO proposal g
 - [pos-loyalty.md](pos-loyalty.md)
 - [../STAFF_PERMISSIONS.md](../STAFF_PERMISSIONS.md)
 
-**Last reviewed:** 2026-04-04
+**Last reviewed:** 2026-07-14

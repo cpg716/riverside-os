@@ -84,7 +84,7 @@ interface LoyaltyLedgerEntry {
 const LOYALTY_SEARCH_LIMIT = 50;
 
 const KIND_LABELS: Record<string, string> = {
-  purchased: "Purchased",
+  purchased: "Regular",
   loyalty_reward: "Loyalty",
   donated_giveaway: "Donated",
   promo_gift_card: "Promo",
@@ -476,7 +476,7 @@ export default function RegisterLookupHub({
               </div>
             )}
             <p className="mt-2 text-[10px] leading-snug text-app-text-muted">
-              Purchased cards are not tied to a customer. Loyalty, donated, and promo cards show the CRM
+              Regular cards are not tied to a customer. Loyalty, donated, and promo cards show the CRM
               contact they are tracked to. Scan any code above for balance and full historical
               events (loads, checkouts, refills).
             </p>

@@ -42,6 +42,7 @@ Use this workspace when you need to:
 
 1. Open the **Variations** tab inside Product Hub.
 2. Switch between grid and list view depending on whether matrix layout or row-level detail is easier for the task.
+   - Riverside groups like variation axes and sorts common apparel sizes in working order (for example XS, S, M, L, XL), with numeric values sorted naturally.
 3. If you only need some variations, select those rows first.
 4. Use `Print selected tags` when you have an active selection, or `Print all tags` when you want the full variation set.
 5. Use `Product UPC` for the manufacturer barcode that should scan at POS or receiving.
@@ -61,7 +62,7 @@ Use this workspace when you need to:
 
 - Riverside sends the approved tag batch directly to the configured tag station. Desktop/Main Hub dispatch reports the printer error if direct printing fails.
 - Variations are marked as shelf-labeled only after the tag station confirms the direct print job. Preview is not used as proof that tags printed.
-- You remain in Product Hub so you can keep reviewing stock, pricing, or the next variation subset.
+- You remain at the same variation position in Product Hub after printing so you can continue with the next size or variation without returning to the top.
 
 ## Related workflows
 

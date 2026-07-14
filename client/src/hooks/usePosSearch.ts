@@ -50,6 +50,43 @@ export function usePosSearch({
       return [];
     }
 
+    const feeShortcut = q.toUpperCase();
+    if (feeShortcut === "ALTERATION" || feeShortcut === "ALTERATIONS") {
+      const results: SearchResult[] = [{
+        product_id: "b7c0a006-0006-4006-8006-000000000006",
+        variant_id: "b7c0a007-0007-4007-8007-000000000007",
+        sku: "ROS-ALTERATION-FEE",
+        name: "ALTERATIONS FEE — ENTER AMOUNT",
+        standard_retail_price: 0,
+        unit_cost: 0,
+        state_tax: 0,
+        local_tax: 0,
+        tax_category: "service",
+        stock_on_hand: 0,
+        vendor_sku: "",
+      }];
+      setSearchResults(results);
+      return results;
+    }
+
+    if (feeShortcut === "SHIPPING") {
+      const results: SearchResult[] = [{
+        product_id: "pos-shipping-fee",
+        variant_id: "pos-shipping-fee",
+        sku: "ROS-SHIPPING-FEE",
+        name: "SHIPPING FEE — ENTER AMOUNT",
+        standard_retail_price: 0,
+        unit_cost: 0,
+        state_tax: 0,
+        local_tax: 0,
+        tax_category: "service",
+        stock_on_hand: 0,
+        vendor_sku: "",
+      }];
+      setSearchResults(results);
+      return results;
+    }
+
     if (q.toLowerCase() === "payment") {
       try {
         let meta = rmsPaymentMeta;

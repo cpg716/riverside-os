@@ -373,6 +373,13 @@ fn metadata_optional_text(metadata: &Value, key: &str) -> Option<String> {
         .map(str::to_string)
 }
 
+fn is_fee_only_shipping_quote(metadata: &Value) -> bool {
+    metadata
+        .get("fee_only")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+}
+
 fn helcim_attempt_comparison_cents(split_amount_cents: i64, is_refund_attempt: bool) -> i64 {
     if is_refund_attempt {
         split_amount_cents.abs()
@@ -2828,29 +2835,10 @@ async fn execute_checkout_internal(
 
     let shipping_quote_id = payload.shipping_rate_quote_id;
     let requested_ship = payload.fulfillment_mode == Some(DbOrderFulfillmentMethod::Ship);
-    if requested_ship && shipping_quote_id.is_none() {
-        return Err(CheckoutError::InvalidPayload(
-            "Ship current sale requires the Register Shipping action so rates, address, and shipment tracking are recorded."
-                .to_string(),
-        ));
-    }
-    if payload.fulfillment_mode == Some(DbOrderFulfillmentMethod::Pickup)
-        && shipping_quote_id.is_some()
-    {
-        return Err(CheckoutError::InvalidPayload(
-            "Shipping quote was attached but fulfillment mode is pickup; clear shipping or choose Ship Current Sale."
-                .to_string(),
-        ));
-    }
-    if shipping_quote_id.is_some() && payload.ship_to.is_none() {
-        tracing::debug!(
-            "checkout shipping uses ship_to from rate quote metadata; payload ship_to was empty"
-        );
-    }
-    let shipping_peek_amt: Option<Decimal> = if let Some(qid) = shipping_quote_id {
-        let row: Option<Decimal> = sqlx::query_scalar(
+    let shipping_peek: Option<(Decimal, serde_json::Value)> = if let Some(qid) = shipping_quote_id {
+        let row: Option<(Decimal, serde_json::Value)> = sqlx::query_as(
             r#"
-            SELECT amount_usd FROM store_shipping_rate_quote
+            SELECT amount_usd, metadata FROM store_shipping_rate_quote
             WHERE id = $1 AND expires_at > NOW()
             "#,
         )
@@ -2865,7 +2853,43 @@ async fn execute_checkout_internal(
     } else {
         None
     };
+    let shipping_fee_only = shipping_peek
+        .as_ref()
+        .is_some_and(|(_, metadata)| is_fee_only_shipping_quote(metadata));
+    let shipping_peek_amt = shipping_peek.as_ref().map(|(amount, _)| *amount);
 
+    if requested_ship && shipping_quote_id.is_none() {
+        return Err(CheckoutError::InvalidPayload(
+            "Ship current sale requires the Register Shipping action so rates, address, and shipment tracking are recorded."
+                .to_string(),
+        ));
+    }
+    if requested_ship && shipping_fee_only {
+        return Err(CheckoutError::InvalidPayload(
+            "A shipping fee does not create a shipment. Clear it and use Ship Current Sale for delivery."
+                .to_string(),
+        ));
+    }
+    if shipping_fee_only && !payload.shipping_links.is_empty() {
+        return Err(CheckoutError::InvalidPayload(
+            "A shipping fee cannot be linked to delivery records. Use the Shipping workflow instead."
+                .to_string(),
+        ));
+    }
+    if payload.fulfillment_mode == Some(DbOrderFulfillmentMethod::Pickup)
+        && shipping_quote_id.is_some()
+        && !shipping_fee_only
+    {
+        return Err(CheckoutError::InvalidPayload(
+            "Shipping quote was attached but fulfillment mode is pickup; clear shipping or choose Ship Current Sale."
+                .to_string(),
+        ));
+    }
+    if shipping_quote_id.is_some() && !shipping_fee_only && payload.ship_to.is_none() {
+        tracing::debug!(
+            "checkout shipping uses ship_to from rate quote metadata; payload ship_to was empty"
+        );
+    }
     if let Some(sa) = shipping_peek_amt {
         sum_expected += sa;
     }
@@ -3025,7 +3049,7 @@ async fn execute_checkout_internal(
         Decimal::ZERO
     };
 
-    let ship_order = shipping_quote_id.is_some();
+    let ship_order = shipping_quote_id.is_some() && !shipping_fee_only;
 
     let order_status = if is_fully_paid && all_takeaway && !ship_order {
         DbOrderStatus::Fulfilled
@@ -3248,15 +3272,19 @@ async fn execute_checkout_internal(
                 "shipping quote amount mismatch — refresh rates".to_string(),
             ));
         }
-        let st = meta.get("ship_to").cloned().ok_or_else(|| {
-            CheckoutError::InvalidPayload("shipping quote missing address snapshot".to_string())
-        })?;
-        (
-            DbOrderFulfillmentMethod::Ship,
-            Some(Json(st)),
-            Some(amt),
-            shippo_rate_object_id,
-        )
+        if shipping_fee_only {
+            (DbOrderFulfillmentMethod::Pickup, None, Some(amt), None)
+        } else {
+            let st = meta.get("ship_to").cloned().ok_or_else(|| {
+                CheckoutError::InvalidPayload("shipping quote missing address snapshot".to_string())
+            })?;
+            (
+                DbOrderFulfillmentMethod::Ship,
+                Some(Json(st)),
+                Some(amt),
+                shippo_rate_object_id,
+            )
+        }
     } else {
         (DbOrderFulfillmentMethod::Pickup, None, None, None)
     };
@@ -5337,13 +5365,13 @@ mod tests {
     use super::{
         build_payment_allocation_plan, checkout_total_matches, evaluate_combo_incentives,
         execute_checkout, fetch_variant_pos_line_kind, helcim_attempt_comparison_cents,
-        parse_combo_reward_amount, resolve_payment_splits, validate_checkout_alteration_intakes,
-        validate_checkout_item_quantity, validate_open_deposit_scope,
-        validate_order_payment_against_target, validate_order_payment_shape,
-        validate_wedding_disbursement_against_balance, CheckoutAlterationIntake, CheckoutDone,
-        CheckoutItem, CheckoutOrderPayment, CheckoutPaymentSplit, CheckoutRequest,
-        ExistingOrderPaymentTarget, ResolvedOrderPayment, ResolvedPaymentSplit,
-        WeddingDisbursement,
+        is_fee_only_shipping_quote, parse_combo_reward_amount, resolve_payment_splits,
+        validate_checkout_alteration_intakes, validate_checkout_item_quantity,
+        validate_open_deposit_scope, validate_order_payment_against_target,
+        validate_order_payment_shape, validate_wedding_disbursement_against_balance,
+        CheckoutAlterationIntake, CheckoutDone, CheckoutItem, CheckoutOrderPayment,
+        CheckoutPaymentSplit, CheckoutRequest, ExistingOrderPaymentTarget, ResolvedOrderPayment,
+        ResolvedPaymentSplit, WeddingDisbursement,
     };
     use crate::logic::customer_open_deposit;
     use crate::logic::customers::{insert_customer, CustomerCreatedSource, InsertCustomerParams};
@@ -5472,6 +5500,13 @@ mod tests {
         assert!(checkout_total_matches(dec!(108.75), dec!(108.75)));
         assert!(!checkout_total_matches(dec!(108.74), dec!(108.75)));
         assert!(!checkout_total_matches(dec!(108.76), dec!(108.75)));
+    }
+
+    #[test]
+    fn shipping_fee_quote_requires_explicit_fee_only_marker() {
+        assert!(is_fee_only_shipping_quote(&json!({ "fee_only": true })));
+        assert!(!is_fee_only_shipping_quote(&json!({ "fee_only": false })));
+        assert!(!is_fee_only_shipping_quote(&json!({ "manual": true })));
     }
 
     #[test]

@@ -33,15 +33,11 @@ Back Office is for lookup, void review, donated/giveaway issuance, and promo gif
 ### Redeem toward checkout
 
 1. On **tender** screen, choose **gift card**.
-2. Choose the card type that matches the real card:
-   - **Paid**
-   - **Loyalty**
-   - **Donated**
-   - **Promo**
-3. Scan or type the code.
-4. Apply the amount and complete the rest of the sale if needed.
+2. Scan or type the code.
+3. Wait for Riverside to show the verified **Regular**, **Loyalty**, **Donated**, or **Promo** type, expiration, and **Balance before this transaction**.
+4. Enter an amount no greater than that verified balance, select **Apply payment**, and complete the rest of the sale if needed.
 
-If the selected type does not match the real card, Riverside blocks the payment and tells you which type to use.
+Riverside does not allow a gift-card payment line until the active card and its balance have been checked. Checkout checks the balance again while saving the sale, so two registers cannot spend the same balance at the same time.
 After the sale, the receipt summary shows the gift card type and masked card code in the tender summary.
 
 ### Balance inquiry (no sale)
@@ -68,7 +64,7 @@ After the sale, the receipt summary shows the gift card type and masked card cod
 |--------|-------------------|---------------|
 | Not found | Retype; trim spaces | BO lookup |
 | Insufficient balance | Split tender | Customer uses second payment |
-| “This card must be used as …” | Pick the matching gift card type | Ask a manager if the card looks wrong |
+| Card cannot be verified | Check Card Inventory for status, balance, and expiration | Ask a manager if the card record looks wrong |
 | Already voided | Stop sale | Manager |
 | System double-charged | **Orders** → find duplicate tender | Refund process |
 
@@ -84,4 +80,4 @@ After the sale, the receipt summary shows the gift card type and masked card cod
 - [gift-cards-loyalty-back-office.md](gift-cards-loyalty-back-office.md)
 - [pos-register-cart.md](pos-register-cart.md)
 
-**Last reviewed:** 2026-04-04
+**Last reviewed:** 2026-07-14

@@ -529,7 +529,9 @@ export function useCartCheckout({
           options?.need_by_date ??
           (checkoutLines.find((l) => l.need_by_date)?.need_by_date || null),
         fulfillment_mode:
-          posShipping ? "ship" : (options?.fulfillment_mode ?? "pickup"),
+          posShipping
+            ? (posShipping.fee_only ? "pickup" : "ship")
+            : (options?.fulfillment_mode ?? "pickup"),
         ship_to: posShipping?.to_address ?? options?.ship_to ?? null,
         actor_name: op.fullName.trim() || cashierName?.trim() || null,
         payment_splits,

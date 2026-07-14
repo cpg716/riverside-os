@@ -133,6 +133,7 @@ expected=(
   "127_counterpoint_transaction_reconciliation.sql"
   "128_helcim_paid_parked_sale_recovery.sql"
   "129_backfill_checkout_payment_payers.sql"
+  "130_archive_duplicate_shipping_alteration_fee_products.sql"
 )
 
 active=()
@@ -195,4 +196,4 @@ if rg -n "INSERT INTO (public\\.)?(staff\\b|staff_permission|store_settings|prod
 fi
 rm -f /tmp/ros_migration_seed_hits.$$
 
-echo "Migration layout OK: active baseline 001-129."
+echo "Migration layout OK: active baseline 001-130."

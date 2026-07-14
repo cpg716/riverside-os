@@ -326,7 +326,9 @@ export interface PosShippingSelection {
   amount_cents: number;
   /** e.g. "USPS — Priority Mail" */
   label: string;
-  to_address: PosShipToForm;
+  to_address: PosShipToForm | null;
+  /** A non-taxable fee only; it does not create a shipment or require an address. */
+  fee_only?: boolean;
   linked_order_ids?: string[];
 }
 

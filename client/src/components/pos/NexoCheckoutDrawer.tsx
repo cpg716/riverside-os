@@ -71,6 +71,40 @@ interface PaymentProviderSettings {
   };
 }
 
+interface GiftCardBalancePreview {
+  code: string;
+  card_kind: "purchased" | "loyalty_reward" | "donated_giveaway" | "promo_gift_card";
+  card_status: string;
+  current_balance: string | number;
+  expires_at: string | null;
+}
+
+function giftCardKindLabel(kind: GiftCardBalancePreview["card_kind"]): string {
+  switch (kind) {
+    case "purchased":
+      return "Regular";
+    case "loyalty_reward":
+      return "Loyalty";
+    case "donated_giveaway":
+      return "Donated";
+    case "promo_gift_card":
+      return "Promo";
+  }
+}
+
+function giftCardKindSubType(kind: GiftCardBalancePreview["card_kind"]): AppliedPaymentLine["sub_type"] {
+  switch (kind) {
+    case "purchased":
+      return "paid_liability";
+    case "loyalty_reward":
+      return "loyalty_giveaway";
+    case "donated_giveaway":
+      return "donated_giveaway";
+    case "promo_gift_card":
+      return "promo_gift_card";
+  }
+}
+
 interface HelcimAttempt {
   id: string;
   status: "pending" | "approved" | "captured" | "canceled" | "failed" | "expired";
@@ -574,6 +608,9 @@ export default function NexoCheckoutDrawer({
   const [tab, setTab] = useState<NexoTenderTab>("card_terminal");
   const [keypad, setKeypad] = useState("");
   const [giftCardCode, setGiftCardCode] = useState("");
+  const [giftCardPreview, setGiftCardPreview] = useState<GiftCardBalancePreview | null>(null);
+  const [giftCardPreviewLoading, setGiftCardPreviewLoading] = useState(false);
+  const [giftCardPreviewError, setGiftCardPreviewError] = useState<string | null>(null);
   const [donationNote, setDonationNote] = useState("");
   const giftCardInputRef = useRef<HTMLInputElement | null>(null);
   const completeButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -641,6 +678,73 @@ export default function NexoCheckoutDrawer({
       });
   }, [isOpen, baseUrl]);
   // ─────────────────────────────────────────────────────────────────────────
+
+  const fetchGiftCardPreview = useCallback(async (
+    rawCode: string,
+    signal?: AbortSignal,
+  ): Promise<GiftCardBalancePreview> => {
+    const code = rawCode.trim().toUpperCase();
+    const response = await fetch(
+      `${baseUrl}/api/gift-cards/code/${encodeURIComponent(code)}`,
+      {
+        headers: mergedPosStaffHeaders(backofficeHeaders),
+        signal,
+      },
+    );
+    const body = (await response.json().catch(() => ({}))) as
+      | GiftCardBalancePreview
+      | { error?: string };
+    if (!response.ok || !("card_kind" in body)) {
+      throw new Error(
+        "error" in body && body.error
+          ? body.error
+          : "Gift card is not active, has expired, or could not be found.",
+      );
+    }
+    return body;
+  }, [backofficeHeaders, baseUrl]);
+
+  useEffect(() => {
+    if (!isOpen || tab !== "gift_card") {
+      setGiftCardPreview(null);
+      setGiftCardPreviewError(null);
+      setGiftCardPreviewLoading(false);
+      return;
+    }
+    const code = giftCardCode.trim().toUpperCase();
+    if (code.length < 4) {
+      setGiftCardPreview(null);
+      setGiftCardPreviewError(null);
+      setGiftCardPreviewLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    setGiftCardPreview(null);
+    setGiftCardPreviewLoading(true);
+    setGiftCardPreviewError(null);
+    const timer = window.setTimeout(() => {
+      void fetchGiftCardPreview(code, controller.signal)
+        .then((preview) => {
+          setGiftCardPreview(preview);
+        })
+        .catch((error) => {
+          if (controller.signal.aborted) return;
+          setGiftCardPreview(null);
+          setGiftCardPreviewError(
+            error instanceof Error ? error.message : "Gift card balance unavailable.",
+          );
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setGiftCardPreviewLoading(false);
+        });
+    }, 250);
+
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [fetchGiftCardPreview, giftCardCode, isOpen, tab]);
 
   useEffect(() => {
     if (!isOpen || tab !== "gift_card") return;
@@ -930,6 +1034,9 @@ export default function NexoCheckoutDrawer({
       setKeypad("");
       setTab(amountDueCents < 0 ? (returnOnlyRefundMode || !hasOriginalHelcimRefundReference ? "cash" : "card_credit") : rmsPaymentCollectionMode ? "cash" : "card_terminal");
       setGiftCardCode("");
+      setGiftCardPreview(null);
+      setGiftCardPreviewError(null);
+      setGiftCardPreviewLoading(false);
       setCheckNumber("");
       setRefundOriginalTransactionId(
         originalHelcimRefundReference,
@@ -1906,6 +2013,38 @@ export default function NexoCheckoutDrawer({
 
     if (amtCents === 0) return;
 
+    let verifiedGiftCard: GiftCardBalancePreview | null = null;
+    if (tab === "gift_card") {
+      const code = giftCardCode.trim().toUpperCase();
+      if (code.length < 4) {
+        toast("Scan or enter a gift card before applying payment.", "error");
+        return;
+      }
+      if (amtCents < 0) {
+        toast("Gift cards cannot be used for a refund from this payment screen.", "error");
+        return;
+      }
+      setGiftCardPreviewLoading(true);
+      setGiftCardPreviewError(null);
+      try {
+        verifiedGiftCard = await fetchGiftCardPreview(code);
+        setGiftCardPreview(verifiedGiftCard);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Gift card balance unavailable.";
+        setGiftCardPreview(null);
+        setGiftCardPreviewError(message);
+        toast(message, "error");
+        return;
+      } finally {
+        setGiftCardPreviewLoading(false);
+      }
+      const availableCents = parseMoneyToCents(verifiedGiftCard.current_balance);
+      if (amtCents > availableCents) {
+        toast(`Gift card balance before this sale is only $${centsToFixed2(availableCents)}.`, "error");
+        return;
+      }
+    }
+
     if (tab === "store_credit" && amtCents > 0) {
       if (!customerId) {
         toast("Attach a customer before redeeming Store Credit.", "error");
@@ -2246,16 +2385,25 @@ export default function NexoCheckoutDrawer({
       {
         id: newId(),
         method: meta.method,
-        gift_card_code: tab === "gift_card" ? giftCardCode.trim() : undefined,
+        sub_type: verifiedGiftCard ? giftCardKindSubType(verifiedGiftCard.card_kind) : undefined,
+        gift_card_code: verifiedGiftCard ? verifiedGiftCard.code.trim().toUpperCase() : undefined,
         amountCents: amtCents,
         label:
-          tab === "gift_card"
-            ? "Gift Card"
+          verifiedGiftCard
+            ? `${giftCardKindLabel(verifiedGiftCard.card_kind)} Gift Card`
             : tab === "rms_charge"
               ? `RMS Charge Sale${rmsPrograms.find((program) => program.program_code === rmsSelectedProgramCode)?.program_label ? ` • ${rmsPrograms.find((program) => program.program_code === rmsSelectedProgramCode)?.program_label}` : ""}`
               : meta.label,
         metadata:
-          tab === "cash" && cashChangeDueCents > 0
+          verifiedGiftCard
+            ? {
+                gift_card_card_kind: verifiedGiftCard.card_kind,
+                gift_card_balance_before: centsToFixed2(
+                  parseMoneyToCents(verifiedGiftCard.current_balance),
+                ),
+                gift_card_expires_at: verifiedGiftCard.expires_at,
+              }
+            : tab === "cash" && cashChangeDueCents > 0
             ? {
                 cash_tendered_cents: absKey,
                 change_due_cents: cashChangeDueCents,
@@ -2356,10 +2504,12 @@ export default function NexoCheckoutDrawer({
     ]);
     setKeypad("");
     setGiftCardCode("");
+    setGiftCardPreview(null);
+    setGiftCardPreviewError(null);
     setDonationNote("");
     setCheckNumber("");
     setRmsReferenceNumber("");
-  }, [giftCardCode, donationNote, checkNumber, remainingCents, cashRounding.rounded, tab, offlineCardApprovalCode, offlineCardLast4, offlineCardReason, providerSettings, providerSettingsLoading, helcimAttempt, helcimAttemptOutcomeUnverified, clearHelcimAttemptState, registerLaneUnavailable, registerTerminalRoute, selectedTerminalKey, selectedTerminalConfigured, selectedTerminalInUseBy, selectedTerminalInUseByOtherRegister, selectedTerminalNeedsOverride, terminalOverrideConfirmed, registerLane, registerSessionId, refundOriginalTransactionId, refundOriginalCardPresentConfirmed, cardRefundRoute, baseUrl, backofficeHeaders, customerId, customerCode, toast, applied, setApplied, addApprovedHelcimAttempt, rmsSelectedAccount, rmsPrograms, rmsSelectedProgramCode, rmsReferenceNumber, rmsSummary, rmsResolve, rmsPaymentCollectionMode, chargeSavedHelcimCard, loadProviderSettings, processHelcimApiRefund, startHostedManualCardPayment, storeCreditBalanceCents, storeCreditError, storeCreditLoading, staffAccount]);
+  }, [giftCardCode, donationNote, checkNumber, remainingCents, cashRounding.rounded, tab, offlineCardApprovalCode, offlineCardLast4, offlineCardReason, providerSettings, providerSettingsLoading, helcimAttempt, helcimAttemptOutcomeUnverified, clearHelcimAttemptState, registerLaneUnavailable, registerTerminalRoute, selectedTerminalKey, selectedTerminalConfigured, selectedTerminalInUseBy, selectedTerminalInUseByOtherRegister, selectedTerminalNeedsOverride, terminalOverrideConfirmed, registerLane, registerSessionId, refundOriginalTransactionId, refundOriginalCardPresentConfirmed, cardRefundRoute, baseUrl, backofficeHeaders, customerId, customerCode, toast, applied, setApplied, addApprovedHelcimAttempt, rmsSelectedAccount, rmsPrograms, rmsSelectedProgramCode, rmsReferenceNumber, rmsSummary, rmsResolve, rmsPaymentCollectionMode, chargeSavedHelcimCard, fetchGiftCardPreview, loadProviderSettings, processHelcimApiRefund, startHostedManualCardPayment, storeCreditBalanceCents, storeCreditError, storeCreditLoading, staffAccount]);
 
   const removePaymentLine = async (line: AppliedPaymentLine) => {
     if (isApprovedProviderPayment(line)) {
@@ -3133,8 +3283,8 @@ export default function NexoCheckoutDrawer({
                         Helcim Card Not Present
                       </span>
                       <p className="mt-1">
-                        Opens secure Helcim card entry. Keep checkout open; ROS attaches approved
-                        payments automatically.
+                        Opens secure Helcim card entry. Keep checkout open, review the approval,
+                        and select Add Payment to Sale before recording the sale.
                       </p>
                       <p className="mt-2 text-[11px] font-bold text-app-text-muted">
                         Helcim may ask for name, card, CVV, expiration, ZIP, and billing address.
@@ -3342,7 +3492,14 @@ export default function NexoCheckoutDrawer({
                         type="button"
                         disabled={
                           keypadCents <= 0 ||
-                          (tab === "gift_card" && giftCardCode.length < 4) ||
+                          (tab === "gift_card" &&
+                            (giftCardCode.trim().length < 4 ||
+                              remainingCents <= 0 ||
+                              giftCardPreviewLoading ||
+                              giftCardPreviewError !== null ||
+                              giftCardPreview === null ||
+                              Math.min(keypadCents, Math.abs(remainingCents)) >
+                                parseMoneyToCents(giftCardPreview?.current_balance ?? "0"))) ||
                           (tab === "donation" && donationNote.trim().length < 3) ||
                           (tab === "rms_charge" &&
                             (!customerId ||
@@ -3758,6 +3915,32 @@ export default function NexoCheckoutDrawer({
                             className="ui-input h-14 w-full rounded-xl border border-app-border bg-app-bg pl-12 pr-4 text-lg font-black uppercase tracking-widest focus:border-app-accent"
                           />
                         </div>
+                        {giftCardPreviewLoading ? (
+                          <p className="rounded-xl border border-app-info/20 bg-app-info/10 px-3 py-2 text-[11px] font-semibold text-app-text-muted">
+                            Checking gift card balance…
+                          </p>
+                        ) : giftCardPreviewError ? (
+                          <p className="rounded-xl border border-red-300/40 bg-red-500/10 px-3 py-2 text-[11px] font-semibold text-red-700">
+                            {giftCardPreviewError}
+                          </p>
+                        ) : giftCardPreview ? (
+                          <div className="rounded-xl border border-emerald-300/40 bg-emerald-500/10 px-3 py-2">
+                            <div className="flex items-center justify-between gap-3">
+                              <span className="text-[10px] font-black uppercase tracking-widest text-emerald-700">
+                                {giftCardKindLabel(giftCardPreview.card_kind)} Gift Card
+                              </span>
+                              <span className="text-sm font-black tabular-nums text-emerald-800">
+                                ${centsToFixed2(parseMoneyToCents(giftCardPreview.current_balance))}
+                              </span>
+                            </div>
+                            <p className="mt-1 text-[10px] font-semibold text-emerald-800">
+                              Balance before this transaction
+                              {giftCardPreview.expires_at
+                                ? ` • Expires ${new Date(giftCardPreview.expires_at).toLocaleDateString()}`
+                                : ""}
+                            </p>
+                          </div>
+                        ) : null}
                         <p className="rounded-xl border border-app-info/20 bg-app-info/10 px-3 py-2 text-[11px] font-semibold leading-snug text-app-text-muted">
                           Redeems available gift-card balance against this sale. Loyalty rewards must first be issued to a loyalty gift card before they can be used here.
                         </p>

@@ -562,6 +562,7 @@ export default function Cart({
   const [staffAccountPaymentOpen, setStaffAccountPaymentOpen] = useState(false);
   const [parkSalePromptOpen, setParkSalePromptOpen] = useState(false);
   const [parkSaleDraftLabel, setParkSaleDraftLabel] = useState("");
+  const [feePromptKind, setFeePromptKind] = useState<"alterations" | "shipping" | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const requestProductSearchFocus = useCallback(() => {
     window.requestAnimationFrame(() => {
@@ -620,6 +621,82 @@ export default function Cart({
     baseUrl,
     apiAuth,
   });
+
+  const addFeeShortcut = useCallback(async (rawAmount: string) => {
+    const amountCents = parseMoneyToCents(rawAmount);
+    if (amountCents <= 0) {
+      toast("Enter an amount greater than $0.00.", "error");
+      return false;
+    }
+
+    if (feePromptKind === "alterations") {
+      setLines((prev) => [
+        ...prev,
+        {
+          product_id: ALTERATION_SERVICE_PRODUCT_ID,
+          variant_id: ALTERATION_SERVICE_VARIANT_ID,
+          sku: ALTERATION_SERVICE_SKU,
+          name: "ALTERATIONS FEE",
+          variation_label: "Standalone fee",
+          standard_retail_price: centsToFixed2(amountCents),
+          unit_cost: "0.00",
+          state_tax: "0.00",
+          local_tax: "0.00",
+          tax_category: "service",
+          quantity: 1,
+          fulfillment: "takeaway",
+          cart_row_id: newCartRowId(),
+          line_type: "merchandise",
+          price_override_reason: "alteration_service",
+          original_unit_price: "0.00",
+          custom_item_type: "alteration_service",
+        },
+      ]);
+      setFeePromptKind(null);
+      toast("Non-taxable alterations fee added.", "success");
+      return true;
+    }
+
+    if (feePromptKind === "shipping") {
+      try {
+        const response = await fetch(`${baseUrl}/api/pos/shipping/manual-quote`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...apiAuth() },
+          body: JSON.stringify({
+            amount_usd: centsToFixed2(amountCents),
+            label: "Shipping",
+            fee_only: true,
+          }),
+        });
+        const body = (await response.json().catch(() => ({}))) as {
+          error?: string;
+          rate_quote_id?: string;
+          amount_usd?: string | number;
+          carrier?: string;
+          service_name?: string;
+        };
+        if (!response.ok || !body.rate_quote_id) {
+          toast(body.error ?? "Could not add the shipping fee.", "error");
+          return false;
+        }
+        setPosShipping({
+          rate_quote_id: body.rate_quote_id,
+          amount_cents: parseMoneyToCents(body.amount_usd ?? centsToFixed2(amountCents)),
+          label: body.service_name || "Shipping",
+          to_address: null,
+          fee_only: true,
+        });
+        setFeePromptKind(null);
+        toast("Non-taxable shipping fee added.", "success");
+        return true;
+      } catch {
+        toast("Main Hub connection failed while adding the shipping fee.", "error");
+        return false;
+      }
+    }
+
+    return false;
+  }, [apiAuth, baseUrl, feePromptKind, setLines, toast]);
 
   const [pendingReturnLineDrafts, setPendingReturnLineDrafts] = useState<
     Record<string, ExchangeReturnHandoffLine[]>
@@ -2384,6 +2461,12 @@ export default function Cart({
 
   // --- Search Coordination ---
   const onSearchResultClick = (item: SearchResult) => {
+    if (item.sku === "ROS-ALTERATION-FEE" || item.sku === "ROS-SHIPPING-FEE") {
+      setSearch("");
+      setSearchResults([]);
+      setFeePromptKind(item.sku === "ROS-ALTERATION-FEE" ? "alterations" : "shipping");
+      return;
+    }
     handleSearchResultClick(item, searchResults, search, setActiveVariationSelection);
   };
 
@@ -2397,6 +2480,7 @@ export default function Cart({
       customerProfileHubOpen ||
       cashAdjustOpen ||
       giftCardLoadOpen ||
+      feePromptKind !== null ||
       activeVariationSelection !== null ||
       showClearConfirm ||
       showWalkinConfirm ||
@@ -2407,7 +2491,7 @@ export default function Cart({
     [
       checkoutOperator, checkoutDrawerOpen, exchangeWizardOpen,
       weddingDrawerOpen, measDrawerOpen, customerProfileHubOpen, cashAdjustOpen,
-      giftCardLoadOpen, activeVariationSelection, showClearConfirm, showWalkinConfirm,
+      giftCardLoadOpen, feePromptKind, activeVariationSelection, showClearConfirm, showWalkinConfirm,
       showVoidAllConfirm, discountPrompt, intelligenceVariantId, lastTransactionId,
     ],
   );
@@ -4519,6 +4603,21 @@ export default function Cart({
         message="Are you sure you want to completely clear this transaction? All items and customer data will be removed."
         confirmLabel="Yes, Clear Sale"
         variant="danger"
+      />
+
+      <PromptModal
+        isOpen={feePromptKind !== null}
+        onClose={() => setFeePromptKind(null)}
+        onSubmit={addFeeShortcut}
+        title={feePromptKind === "shipping" ? "Add Shipping Fee" : "Add Alterations Fee"}
+        message={
+          feePromptKind === "shipping"
+            ? "Enter the shipping fee. This fee is non-taxable and does not create a shipment. Use Ship Current Sale when an address, carrier, and tracking workflow are needed."
+            : "Enter the standalone alterations fee. This line is non-taxable and does not create an alterations work order."
+        }
+        placeholder="0.00"
+        type="numeric"
+        confirmLabel="Add Fee"
       />
 
       <PromptModal

@@ -24,6 +24,7 @@ import {
   openInventoryTagsWindow,
   type InventoryTagPrintResult,
 } from "./labelPrint";
+import { compareVariationText } from "../../lib/variantSort";
 
 export interface HubVariant {
   id: string;
@@ -94,10 +95,6 @@ function strVal(v: unknown): string | null {
   if (typeof v === "string") return v;
   if (typeof v === "number") return String(v);
   return null;
-}
-
-function naturalSort(a: string, b: string): number {
-  return a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
 }
 
 function fallbackRowLabel(variant: HubVariant): string {
@@ -319,7 +316,7 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
         set.add(fallbackRowLabel(v));
       }
     }
-    const arr = [...set].sort(naturalSort);
+    const arr = [...set].sort(compareVariationText);
     // If no row keys detected but we have variants, it means they might have a different key structure
     return arr.length > 0 ? arr : ["Standard"];
   }, [displayVariants, hasUsableMatrix, rowAxis]);
@@ -331,7 +328,7 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
       const c = strVal(v.variation_values[actualColAxis]);
       if (c) set.add(c);
     }
-    const arr = [...set].sort(naturalSort);
+    const arr = [...set].sort(compareVariationText);
     return arr.length > 0 ? arr : ["Default"];
   }, [displayVariants, hasUsableMatrix, actualColAxis]);
 
@@ -527,12 +524,11 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
         );
         if (!res.ok) throw new Error("Tag print status update failed");
         toast(`${successLabel} ${printResult.message}`, "success");
-        onVariantUpdated();
       } catch {
         toast("Tags opened for printing, but Riverside could not mark them as printed.", "error");
       }
     },
-    [apiAuth, baseUrl, onVariantUpdated, productName, toast],
+    [apiAuth, baseUrl, productName, toast],
   );
 
   const handleBulkLabels = useCallback(() => {
@@ -1280,7 +1276,6 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
                 `${reprintPrompt.stockOnHand} updated price tag${reprintPrompt.stockOnHand === 1 ? "" : "s"} ${printResult.message}`,
                 "success",
               );
-              onVariantUpdated();
             } catch (error) {
               toast(error instanceof Error ? error.message : "Price tags could not be printed. Please try again.", "error");
             } finally {

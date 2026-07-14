@@ -533,10 +533,13 @@ pub struct PosShippingRatesBody {
 
 #[derive(Debug, Deserialize)]
 pub struct PosManualShippingQuoteBody {
-    pub to_address: shippo::ShippingAddressInput,
+    #[serde(default)]
+    pub to_address: Option<shippo::ShippingAddressInput>,
     pub amount_usd: Decimal,
     #[serde(default)]
     pub label: Option<String>,
+    #[serde(default)]
+    pub fee_only: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -593,7 +596,16 @@ async fn post_pos_manual_shipping_quote(
             )
         })?;
 
-    body.to_address.validate()?;
+    if !body.fee_only {
+        body.to_address
+            .as_ref()
+            .ok_or_else(|| {
+                PosShippingError::BadRequest(
+                    "shipping address is required for a shipment".to_string(),
+                )
+            })?
+            .validate()?;
+    }
     let amount = body.amount_usd.round_dp(2);
     if amount <= Decimal::ZERO {
         return Err(PosShippingError::BadRequest(
@@ -610,12 +622,21 @@ async fn post_pos_manual_shipping_quote(
         .chars()
         .take(80)
         .collect::<String>();
-    let ship_to = serde_json::to_value(&body.to_address).unwrap_or_else(|_| json!({}));
-    let metadata = json!({
-        "manual": true,
-        "source": "register_shipping_charge",
-        "ship_to": ship_to
-    });
+    let metadata = if body.fee_only {
+        json!({
+            "manual": true,
+            "fee_only": true,
+            "source": "register_shipping_fee"
+        })
+    } else {
+        let ship_to = serde_json::to_value(body.to_address.as_ref()).unwrap_or_else(|_| json!({}));
+        json!({
+            "manual": true,
+            "fee_only": false,
+            "source": "register_shipping_charge",
+            "ship_to": ship_to
+        })
+    };
     let quote_id: Uuid = sqlx::query_scalar(
         r#"
         INSERT INTO store_shipping_rate_quote (

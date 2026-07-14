@@ -28,6 +28,8 @@ Use this modal to capture the destination address and apply a shipping quote to 
 
 Open this modal when the customer wants delivery instead of leaving with the product today. Use Orders or the Shipments Hub when you are shipping an already-open order.
 
+If staff only need to collect a shipping fee and no shipment will be created, type **SHIPPING** in Register search instead. That shortcut adds a non-taxable fee without asking for an address or creating shipment/tracking work.
+
 ## Features
 - **Address Integration**: Pulls the primary address directly from the linked customer profile.
 - **Current-sale shipping**: The sale is marked for shipping and a shipment record is created at checkout.
@@ -50,6 +52,7 @@ Use shipping only when the customer expects shipment or when an order requires a
 - Shipping requires a usable address before a rate or manual charge can be attached.
 - Applying shipping does not sell the item twice and does not require converting the line into a Special Order.
 - Manual shipping charges post as customer-charged shipping, not merchandise.
+- The Register **SHIPPING** fee shortcut is also customer-charged shipping, but it does not create a shipment. Do not use it when delivery details or tracking are required.
 - Linked existing orders stay financially separate; the shipping transaction records the delivery fee and the original Transaction Records remain the merchandise source.
 - Use the full shipping guide if the task moves beyond quoting into shipment follow-up.
 

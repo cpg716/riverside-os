@@ -51,10 +51,10 @@ interface GiftCardEventRow {
 }
 
 const KIND_LABELS: Record<string, string> = {
-  purchased: "Purchased",
-  loyalty_reward: "Loyalty reward",
-  donated_giveaway: "Donated / giveaway",
-  promo_gift_card: "Promo gift card",
+  purchased: "Regular",
+  loyalty_reward: "Loyalty",
+  donated_giveaway: "Donated",
+  promo_gift_card: "Promo",
 };
 
 const EVENT_LABELS: Record<string, string> = {
@@ -565,10 +565,10 @@ export default function GiftCardsWorkspace({ activeSection }: { activeSection: s
             <div className="mt-4 flex flex-wrap gap-2">
               <select value={filterKind} onChange={e => setFilterKind(e.target.value)} className="ui-input text-xs px-2 py-1.5">
                 <option value="">All kinds</option>
-                <option value="purchased">Purchased</option>
-                <option value="loyalty_reward">Loyalty reward</option>
-                <option value="donated_giveaway">Donated / giveaway</option>
-                <option value="promo_gift_card">Promo gift card</option>
+                <option value="purchased">Regular</option>
+                <option value="loyalty_reward">Loyalty</option>
+                <option value="donated_giveaway">Donated</option>
+                <option value="promo_gift_card">Promo</option>
               </select>
               <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className="ui-input text-xs px-2 py-1.5">
                 <option value="">All statuses</option>
@@ -631,7 +631,7 @@ export default function GiftCardsWorkspace({ activeSection }: { activeSection: s
           <div className="flex flex-col items-center py-16 gap-4">
             <CreditCard className="h-10 w-10 text-app-text-muted" />
             <p className="text-sm text-app-text-muted">No gift cards found.</p>
-            <p className="text-xs text-app-text-muted">Purchased gift cards are sold from Register. Use Issue Donated or Issue Promo for approved giveaway cards.</p>
+            <p className="text-xs text-app-text-muted">Regular gift cards are purchased in Register. Use Issue Donated or Issue Promo for approved giveaway cards.</p>
           </div>
         ) : (
           <div className={isSmallScreen ? "space-y-3" : "overflow-x-auto"}>
