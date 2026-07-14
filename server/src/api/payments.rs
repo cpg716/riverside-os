@@ -6412,6 +6412,44 @@ async fn load_helcim_transaction_rows(
         ) issues ON true
         WHERE btx.provider = 'helcim'
           AND pt.id IS NULL
+
+        UNION ALL
+
+        SELECT
+            NULL::uuid AS payment_transaction_id,
+            ppa.provider_transaction_id,
+            ppa.provider_payment_id,
+            'card_manual'::text AS payment_method,
+            NULL::uuid AS transaction_id,
+            NULL::text AS transaction_display_id,
+            NULL::text AS customer_name,
+            'Purchase'::text AS transaction_type,
+            (ppa.amount_cents::numeric / 100) AS amount,
+            ppa.created_at AS payment_date,
+            ppa.status AS payment_status,
+            ppa.status AS provider_status,
+            jsonb_build_object(
+                'helcim_attempt_id', ppa.id,
+                'unlinked_provider_attempt', true
+            ) AS metadata,
+            'unlinked'::text AS match_status,
+            NULL::numeric AS fee_amount,
+            NULL::numeric AS net_amount,
+            NULL::uuid AS batch_id,
+            NULL::text AS provider_batch_id,
+            NULL::text AS batch_status,
+            1::bigint AS issue_count
+        FROM payment_provider_attempts ppa
+        WHERE ppa.provider = 'helcim'
+          AND ppa.raw_audit_reference = 'helcim-pay-js'
+          AND ppa.status IN ('approved', 'captured')
+          AND ppa.provider_transaction_id IS NOT NULL
+          AND NOT EXISTS (
+              SELECT 1
+              FROM payment_transactions pt
+              WHERE pt.payment_provider = 'helcim'
+                AND pt.provider_transaction_id = ppa.provider_transaction_id
+          )
         )
         SELECT
             payment_transaction_id,

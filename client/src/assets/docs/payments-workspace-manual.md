@@ -63,9 +63,10 @@ Creating a manual deposit or accepting a variance is an audited manager/bookkeep
 
 1. Open **Transactions** to locate the processor event or Riverside payment.
 2. Follow the Transaction number to the financial record when one is linked.
-3. Open **Health** for terminal, webhook, sync, provider-reference, and failed-update evidence.
-4. Replay only the stored failed update after its configuration or data problem is corrected.
-5. Confirm the replay attached existing provider evidence rather than creating a second charge.
+3. An approved **Card Not Present** payment that lost its checkout attachment appears as **Unlinked** / **Missing ROS TXN**. Do not charge the card again; finish the retained checkout or use the audited recovery workflow in **Health → Helcim Terminal Review**.
+4. Open **Health** for terminal, webhook, sync, provider-reference, and failed-update evidence.
+5. Replay only the stored failed update after its configuration or data problem is corrected.
+6. Confirm the replay attached existing provider evidence rather than creating a second charge.
 
 ## Recover an approved card sale from a retained cart
 

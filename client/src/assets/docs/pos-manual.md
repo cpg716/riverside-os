@@ -77,6 +77,11 @@ When the drawer is active, you often land on **Dashboard**. Here you can see shi
 5. If the system asks you to choose a size or variation, pick the correct line and confirm.
 6. Repeat for each item. The cart lists each line with quantity and price.
 
+For a standalone service fee, type **ALTERATIONS** or **SHIPPING** and select the fee shortcut:
+
+- **ALTERATIONS** adds a non-tracked, non-taxable Alterations Fee after staff enter the amount. Use the full Alterations workflow when a work order, garment, due date, or fitting must be tracked.
+- **SHIPPING** adds a non-taxable shipping fee without creating a shipment. Use **Ship current sale** when an address, carrier/service, shipment record, or tracking workflow is required.
+
 Each ordinary sale line has a tax badge. Tap it to cycle that one line through **Standard**, **Clothing**, and **No Tax**:
 
 - **Standard** applies the full standard state and local sales tax.
@@ -133,10 +138,11 @@ Inventory and bookkeeping follow server rules for takeaway, order, and wedding l
 1. When the cart is correct, select **Proceed to Payment**.
 2. If you are not using a saved customer, confirm **walk-in** when asked.
 3. The **Payment ledger** side panel opens. Enter amounts on the keypad, then **Apply payment** for each tender (card, cash, gift card, etc.) the way you were trained.
-   - **Card Not Present** opens secure HelcimPay.js card entry for keyed payments. Riverside OS validates the Helcim response and does not store card numbers or CVV. Keep the checkout drawer open; approved payments attach back to the payment ledger automatically. Complete the sale only after the approved payment appears in the ledger. If Helcim approves but ROS cannot attach the response immediately, keep the secure page open and select **Retry Approval**; this retries the attachment without charging the card again. If the customer cancels or the card is declined, use the ledger retry controls before starting another card attempt. Helcim may ask for billing ZIP and street address for card verification.
+   - **Card Not Present** opens secure HelcimPay.js card entry for keyed payments. Riverside OS validates the Helcim response and does not store card numbers or CVV. After approval, review the approval screen and select **Add Payment to Sale**; complete the sale only after the approved payment appears in the ledger. If ROS cannot attach the response immediately, keep the secure page open and select **Retry Approval**; this retries the attachment without charging the card again. If the customer cancels or the card is declined, use the ledger retry controls before starting another card attempt. Helcim may ask for billing ZIP and street address for card verification.
    - **Manual Card** records a card approval without a live Helcim connection. Enter only the approval/reference, last four digits, and reason. Never enter full card numbers or CVV in ROS.
    - **Cash** accepts the amount handed to you and shows the change due before checkout. When change is given, the customer receipt prints both **Cash Tendered** and **Change**.
    - **Physical Checks**: When a customer pays by check, select the **CHECK** tab and enter the **Check #** in the input field before pressing **Apply Payment**.
+   - **Gift Card**: Scan or enter the card and wait for the verified type, expiration, and **Balance before this transaction**. The Apply button stays unavailable until Riverside confirms the card, and the payment cannot exceed the displayed balance.
    - **Staff Account** charges an employee purchase to the linked staff receivable account. The sale still calculates tax from the item tax category. Use **Staff Pay** from the Register action ribbon only when the employee is paying down an existing Staff Account balance.
 4. On **Order / Layaway / Wedding** sales, any money paid before pickup is treated as a deposit even if you only use **Apply payment**. Use **Apply deposit** when you want the ledger to set a specific deposit target first. **Split deposit (wedding party)** opens wedding lookup in group-pay mode so you can select members and enter the deposit amount for each one, even when a member has no open balance yet. When you later select a member who has money held this way, a **Wedding deposit available** popup shows the balance and most recent payer. Open **Pay** and select **Apply $X** on the wedding-deposit card to add it to this member's sale. **Takeaway** items (walk out today) must be covered with regular tenders first. Clear new party disbursements or existing-order payment rows before applying the member's held deposit.
    - After Split deposit completion, Daily Sales shows the amount applied to the payer's own Transaction separately from **Wedding Deposits Placed** and **Total Tender Collected**. The payer's Customer History also records how much was placed for the party members.

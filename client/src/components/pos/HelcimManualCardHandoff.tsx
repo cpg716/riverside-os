@@ -20,6 +20,15 @@ interface HelcimPayMessage {
   eventMessage?: unknown;
 }
 
+interface ApprovedHelcimAttempt {
+  amount_cents?: number;
+  provider_transaction_id?: string | null;
+  provider_auth_code?: string | null;
+  provider_card_type?: string | null;
+  card_brand?: string | null;
+  card_last4?: string | null;
+}
+
 const HELCIM_DOMAIN_ERROR_MESSAGE =
   "Helcim secure card entry could not open. Confirm ros.riversidemens.com is added to the Helcim API Access Configuration for this API token.";
 const HELCIM_IFRAME_DIAGNOSTIC_MS = 6000;
@@ -126,6 +135,7 @@ export default function HelcimManualCardHandoff() {
   const eventName = checkoutToken ? `helcim-pay-js-${checkoutToken}` : "";
   const [state, setState] = useState<HandoffState>("idle");
   const [message, setMessage] = useState("Ready to open secure Card Not Present entry in Helcim.");
+  const [approvedAttempt, setApprovedAttempt] = useState<ApprovedHelcimAttempt | null>(null);
 
   const confirmApprovedPayment = useCallback(
     async (payload: { data: unknown; hash: string }) => {
@@ -147,7 +157,7 @@ export default function HelcimManualCardHandoff() {
             }),
           },
         );
-        const body = (await res.json().catch(() => ({}))) as {
+        const body = (await res.json().catch(() => ({}))) as ApprovedHelcimAttempt & {
           error?: string;
           status?: string;
           error_message?: string | null;
@@ -158,9 +168,9 @@ export default function HelcimManualCardHandoff() {
         }
         if (body.status === "approved" || body.status === "captured") {
           pendingApprovalRef.current = null;
+          setApprovedAttempt(body);
           setState("approved");
-          setMessage("Approved and attached. Return to the register to complete the sale.");
-          postHandoffOutcome(attemptId, "approved");
+          setMessage("Helcim approved this payment. Review the details, then add it to the sale.");
           return;
         }
         pendingApprovalRef.current = null;
@@ -355,6 +365,12 @@ export default function HelcimManualCardHandoff() {
           ? "text-app-warning"
           : "text-app-text";
 
+  const addPaymentToSale = useCallback(() => {
+    if (state !== "approved") return;
+    setMessage("Sending the approved payment to the register...");
+    postHandoffOutcome(attemptId, "approved");
+  }, [attemptId, state]);
+
   return (
     <main className="flex min-h-screen items-center justify-center bg-app-bg px-6 py-10 text-app-text">
       <section className="ui-card w-full max-w-xl p-8 text-center">
@@ -368,7 +384,7 @@ export default function HelcimManualCardHandoff() {
           {message}
         </p>
         <p className="mt-4 text-sm leading-relaxed text-app-text-muted">
-          Keep checkout open. ROS attaches approved Helcim payments automatically.
+          Keep checkout open. After Helcim approves, review the approval details and select Add Payment to Sale.
         </p>
         {state === "idle" || state === "loading" || state === "ready" ? (
           <p className="mt-3 text-xs font-semibold leading-relaxed text-app-text-muted">
@@ -379,6 +395,44 @@ export default function HelcimManualCardHandoff() {
           <p className="mt-4 text-xs font-semibold leading-relaxed text-app-text-muted">
             {HELCIM_DOMAIN_ERROR_MESSAGE}
           </p>
+        ) : null}
+        {state === "approved" && approvedAttempt ? (
+          <div className="mt-6 rounded-2xl border border-app-success/30 bg-app-success/10 p-5 text-left">
+            <p className="text-xs font-black uppercase tracking-widest text-app-success">
+              Helcim approval received
+            </p>
+            <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
+              <div>
+                <dt className="text-xs font-bold uppercase tracking-wide text-app-text-muted">Amount</dt>
+                <dd className="font-black text-app-text">
+                  ${((approvedAttempt.amount_cents ?? 0) / 100).toFixed(2)}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs font-bold uppercase tracking-wide text-app-text-muted">Card</dt>
+                <dd className="font-black text-app-text">
+                  {[approvedAttempt.card_brand ?? approvedAttempt.provider_card_type ?? "Card", approvedAttempt.card_last4 ? `ending ${approvedAttempt.card_last4}` : ""]
+                    .filter(Boolean)
+                    .join(" ")}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs font-bold uppercase tracking-wide text-app-text-muted">Approval</dt>
+                <dd className="font-black text-app-text">{approvedAttempt.provider_auth_code ?? "Received"}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-bold uppercase tracking-wide text-app-text-muted">Helcim reference</dt>
+                <dd className="break-all font-black text-app-text">{approvedAttempt.provider_transaction_id ?? "Received"}</dd>
+              </div>
+            </dl>
+            <button
+              type="button"
+              className="ui-btn-primary mt-5 w-full px-5 py-3"
+              onClick={addPaymentToSale}
+            >
+              Add Payment to Sale
+            </button>
+          </div>
         ) : null}
         <div className="mt-6 flex flex-col justify-center gap-3 sm:flex-row">
           <button

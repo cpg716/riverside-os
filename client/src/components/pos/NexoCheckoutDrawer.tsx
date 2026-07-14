@@ -2845,7 +2845,7 @@ export default function NexoCheckoutDrawer({
                   Enter phone-order card in Helcim
                 </h3>
                 <p className="mt-1 text-xs font-semibold leading-snug text-zinc-300">
-                  Use the secure Helcim card-entry page below. Keep this checkout drawer open so ROS can attach the approved payment automatically.
+                  Use the secure Helcim card-entry page below, review the approval screen, and select Add Payment to Sale before recording the sale.
                 </p>
               </div>
               <div className="flex shrink-0 flex-wrap gap-2">
