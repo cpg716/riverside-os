@@ -8565,13 +8565,10 @@ async fn initialize_helcim_pay(
     // for POS customers yet, so omit it to avoid Helcim rejecting ROS-* / C-*
     // customer numbers during hosted manual card entry.
     let customer_code = None;
-    // Keep a deterministic, ROS-owned reference on the Helcim transaction so
-    // an approved CNP payment can be recovered if the browser handoff or Main
-    // Hub connection is interrupted before public-confirm completes.
-    let invoice_number = payload
-        .invoice_number
-        .and_then(non_empty_string)
-        .or_else(|| Some(helcim_manual_invoice_number(attempt_id)));
+    // Do not synthesize an invoice number for hosted CNP. Helcim validates
+    // invoiceNumber against its own invoice format and rejects ROS-owned UUID
+    // references before opening the card-entry page. Recovery is server-side.
+    let invoice_number = payload.invoice_number.and_then(non_empty_string);
     let request = helcim::HelcimPayInitializeRequest {
         payment_type: "purchase".to_string(),
         amount: cents_to_decimal_string(payload.amount_cents),
@@ -8757,7 +8754,10 @@ async fn confirm_helcim_pay_attempt(
 
     let returned_amount = value_decimal_string(&payload.data, "amount")
         .ok_or_else(|| PaymentError::InvalidPayload("Helcim amount is missing".to_string()))?;
-    if returned_amount != cents_to_decimal_string(amount_cents) {
+    let returned_amount_cents = Decimal::from_str_exact(&returned_amount)
+        .ok()
+        .and_then(|value| decimal_to_cents(value));
+    if returned_amount_cents != Some(amount_cents) {
         return Err(PaymentError::InvalidPayload(
             "Helcim amount does not match the approved payment".to_string(),
         ));
@@ -9530,6 +9530,10 @@ async fn recover_helcim_attempt_by_invoice(
     attempt: &HelcimAttemptRow,
     config: &helcim::HelcimConfig,
 ) -> Result<Option<HelcimAttemptRow>, PaymentError> {
+    if is_hosted_manual_helcim_attempt(attempt) {
+        return recover_hosted_manual_helcim_attempt(state, attempt, config).await;
+    }
+
     let invoice_number = helcim_manual_invoice_number(attempt.id);
     let date_from = (attempt.created_at - ChronoDuration::days(1)).date_naive();
     let date_to = (Utc::now() + ChronoDuration::days(1)).date_naive();
@@ -9657,6 +9661,131 @@ async fn recover_helcim_attempt_by_invoice(
     .bind(provider_transaction_id)
     .bind(raw_audit_reference)
     .bind(attempt.status == "failed")
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+
+    if result.rows_affected() == 0 {
+        let _ = tx.rollback().await;
+        return Ok(None);
+    }
+    tx.commit()
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+
+    load_helcim_attempt_row(state, attempt.id).await.map(Some)
+}
+
+async fn recover_hosted_manual_helcim_attempt(
+    state: &AppState,
+    attempt: &HelcimAttemptRow,
+    config: &helcim::HelcimConfig,
+) -> Result<Option<HelcimAttemptRow>, PaymentError> {
+    let date_from = (attempt.created_at - ChronoDuration::days(1)).date_naive();
+    let date_to = (Utc::now() + ChronoDuration::days(1)).date_naive();
+    let rows = match helcim::list_card_transactions(
+        &state.http_client,
+        config,
+        &helcim::HelcimCardTransactionsQuery {
+            date_from: Some(date_from),
+            date_to: Some(date_to),
+            card_batch_id: None,
+            limit: Some(100),
+            page: None,
+        },
+    )
+    .await
+    {
+        Ok(rows) => rows,
+        Err(error) => {
+            tracing::warn!(
+                target = "helcim",
+                attempt_id = %attempt.id,
+                error = %error,
+                "could not recover hosted Helcim attempt from provider transactions"
+            );
+            return Ok(None);
+        }
+    };
+
+    let start = attempt.created_at - ChronoDuration::minutes(15);
+    let end = attempt.created_at + ChronoDuration::minutes(15);
+    let matches: Vec<_> = rows
+        .into_iter()
+        .filter(|row| {
+            let transaction_type = row
+                .transaction_type
+                .as_deref()
+                .unwrap_or_default()
+                .trim()
+                .to_ascii_lowercase();
+            let provider_status = row
+                .status
+                .as_deref()
+                .unwrap_or_default()
+                .trim()
+                .to_ascii_lowercase();
+            let Some(occurred_at) = row.occurred_at else {
+                return false;
+            };
+            transaction_type == "purchase"
+                && occurred_at >= start
+                && occurred_at <= end
+                && row.gross_amount.and_then(decimal_to_cents) == Some(attempt.amount_cents)
+                && row
+                    .currency
+                    .as_deref()
+                    .unwrap_or_default()
+                    .eq_ignore_ascii_case(&attempt.currency)
+                && final_helcim_attempt_status(&provider_status).is_some()
+                && !row.provider_transaction_id.trim().is_empty()
+        })
+        .collect();
+
+    // Never guess when two provider transactions could fit the same sale.
+    let Some(row) = (matches.len() == 1)
+        .then(|| matches.into_iter().next())
+        .flatten()
+    else {
+        return Ok(None);
+    };
+    let provider_status = row.status.unwrap_or_default().trim().to_ascii_lowercase();
+    let Some(status) = final_helcim_attempt_status(&provider_status) else {
+        return Ok(None);
+    };
+    let provider_transaction_id = row.provider_transaction_id.trim().to_string();
+
+    let mut tx = state
+        .db
+        .begin()
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    lock_register_session_open_for_payment(&mut tx, attempt.register_session_id).await?;
+    let result = sqlx::query(
+        r#"
+        UPDATE payment_provider_attempts
+        SET status = $2,
+            provider_transaction_id = $3,
+            error_code = CASE
+                WHEN $2 = 'failed' THEN 'declined'
+                WHEN $2 = 'canceled' THEN 'canceled'
+                ELSE NULL
+            END,
+            error_message = CASE
+                WHEN $2 = 'failed' THEN 'Helcim payment was declined.'
+                WHEN $2 = 'canceled' THEN 'Canceled in Helcim.'
+                ELSE NULL
+            END,
+            completed_at = now()
+        WHERE id = $1
+          AND provider = 'helcim'
+          AND status IN ('pending', 'failed')
+          AND provider_transaction_id IS NULL
+        "#,
+    )
+    .bind(attempt.id)
+    .bind(status)
+    .bind(provider_transaction_id)
     .execute(&mut *tx)
     .await
     .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;

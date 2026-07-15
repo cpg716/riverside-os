@@ -113,6 +113,17 @@ function parseHelcimPayEventMessage(message: unknown): {
   const directData = envelope.data;
   const directHash = envelope.hash;
   if (directData && typeof directHash === "string" && directHash.trim()) {
+    if (typeof directData === "string") {
+      try {
+        return {
+          data: JSON.parse(directData) as unknown,
+          hash: directHash.trim(),
+          rawData: directData.trim(),
+        };
+      } catch {
+        return {};
+      }
+    }
     return {
       data: directData,
       hash: directHash.trim(),
