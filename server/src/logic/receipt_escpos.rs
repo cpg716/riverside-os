@@ -683,6 +683,21 @@ fn receiptline_tender_lines(d: &ReceiptOrder, gift: bool) -> String {
     lines.join("\n")
 }
 
+fn receiptline_gift_card_balance_line(d: &ReceiptOrder, gift: bool) -> String {
+    if gift {
+        return String::new();
+    }
+    d.payments
+        .iter()
+        .filter_map(|payment| {
+            payment
+                .gift_card_balance_after
+                .map(|balance| format!("Gift Card Balance | {}", money(balance)))
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn receipt_status_label(d: &ReceiptOrder) -> &'static str {
     let all_takeaway = !d.items.is_empty()
         && d.items
@@ -696,11 +711,11 @@ fn receipt_status_label(d: &ReceiptOrder) -> &'static str {
 }
 
 fn default_receiptline_template() -> &'static str {
-    "{{LOGO_IMAGE}}\n{{HEADER_LINES}}\n{{RECEIPT_TITLE}}\n{{RECEIPT_ID}}\n{{RECEIPT_DATE}}\n{{CUSTOMER_LINE}}\n{{SALESPERSON_LINE}}\n{{CASHIER_LINE}}\n---\n{{ITEM_LINES}}\n{{LOYALTY_EARNED}}\n{{LOYALTY_BALANCE}}\n{{PAYMENT_BLOCK}}\n{{SUBTOTAL_LINE}}\n{{TAX_LINE}}\n{{TOTAL_SAVINGS_LINE}}\n{{TOTAL_LINE}}\n{{PAID_LINE}}\n{{BALANCE_LINE}}\n{{TENDER_LINE}}\n{{STATUS_LINE}}\n{{TAX_EXEMPT_LINE}}\n---\n{{BARCODE_IMAGE}}\n{{FOOTER_LINES}}\n{{CUT}}"
+    "{{LOGO_IMAGE}}\n{{HEADER_LINES}}\n{{RECEIPT_TITLE}}\n{{RECEIPT_ID}}\n{{RECEIPT_DATE}}\n{{CUSTOMER_LINE}}\n{{SALESPERSON_LINE}}\n{{CASHIER_LINE}}\n---\n{{ITEM_LINES}}\n{{LOYALTY_EARNED}}\n{{LOYALTY_BALANCE}}\n{{PAYMENT_BLOCK}}\n{{SUBTOTAL_LINE}}\n{{TAX_LINE}}\n{{TOTAL_SAVINGS_LINE}}\n{{TOTAL_LINE}}\n{{PAID_LINE}}\n{{BALANCE_LINE}}\n{{TENDER_LINE}}\n{{GIFT_CARD_BALANCE}}\n{{STATUS_LINE}}\n{{TAX_EXEMPT_LINE}}\n---\n{{BARCODE_IMAGE}}\n{{FOOTER_LINES}}\n{{CUT}}"
 }
 
 fn default_receiptline_pickup_template() -> &'static str {
-    "{{LOGO_IMAGE}}\n{{HEADER_LINES}}\n{{RECEIPT_TITLE}}\n{{RECEIPT_ID}}\n{{CUSTOMER_LINE}}\n{{SALESPERSON_LINE}}\n{{CASHIER_LINE}}\n---\n{{ITEM_LINES}}\n---\n{{PAYMENT_HISTORY_BLOCK}}\n{{SUBTOTAL_LINE}}\n{{TAX_LINE}}\n{{TOTAL_SAVINGS_LINE}}\n{{TOTAL_LINE}}\n{{PAID_LINE}}\n{{BALANCE_LINE}}\n{{STATUS_LINE}}\n---\n{{BARCODE_IMAGE}}\n{{FOOTER_LINES}}\n{{CUT}}"
+    "{{LOGO_IMAGE}}\n{{HEADER_LINES}}\n{{RECEIPT_TITLE}}\n{{RECEIPT_ID}}\n{{CUSTOMER_LINE}}\n{{SALESPERSON_LINE}}\n{{CASHIER_LINE}}\n---\n{{ITEM_LINES}}\n---\n{{PAYMENT_HISTORY_BLOCK}}\n{{SUBTOTAL_LINE}}\n{{TAX_LINE}}\n{{TOTAL_SAVINGS_LINE}}\n{{TOTAL_LINE}}\n{{PAID_LINE}}\n{{BALANCE_LINE}}\n{{GIFT_CARD_BALANCE}}\n{{STATUS_LINE}}\n---\n{{BARCODE_IMAGE}}\n{{FOOTER_LINES}}\n{{CUT}}"
 }
 
 fn receiptline_payment_history_block(d: &ReceiptOrder) -> String {
@@ -786,6 +801,7 @@ pub fn build_receiptline_markdown(
         String::new()
     };
     let tender_line = receiptline_tender_lines(d, gift);
+    let gift_card_balance_line = receiptline_gift_card_balance_line(d, gift);
     let status_line = if gift {
         String::new()
     } else {
@@ -893,6 +909,7 @@ pub fn build_receiptline_markdown(
         .replace("{{PAID_LINE}}", &paid_line)
         .replace("{{BALANCE_LINE}}", &balance_line)
         .replace("{{TENDER_LINE}}", &tender_line)
+        .replace("{{GIFT_CARD_BALANCE}}", &gift_card_balance_line)
         .replace("{{STATUS_LINE}}", &status_line)
         .replace("{{TAX_EXEMPT_LINE}}", &tax_exempt_line)
         .replace("{{LOYALTY_EARNED}}", &loyalty_earned_line)
@@ -1044,6 +1061,7 @@ mod tests {
             amount: Decimal::new(5000, 2),
             cash_tendered: Some(Decimal::new(10000, 2)),
             change_due: Some(Decimal::new(5000, 2)),
+            gift_card_balance_after: None,
         }];
 
         let markdown = build_receiptline_markdown(

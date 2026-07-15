@@ -298,8 +298,7 @@ AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
         r#"
         SELECT
             CASE
-                WHEN LOWER(COALESCE(payment_provider, '')) = 'helcim'
-                 AND LOWER(payment_method) IN ('card', 'card_terminal', 'card_manual', 'card_saved', 'card_credit')
+                WHEN LOWER(payment_method) IN ('card', 'card_terminal', 'card_manual', 'card_saved', 'card_credit')
                 THEN 'Credit/Debit Card'
                 WHEN LOWER(payment_method) = 'cash' THEN 'Cash'
                 WHEN LOWER(payment_method) = 'gift_card' THEN 'Gift Card'

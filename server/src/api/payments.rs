@@ -918,6 +918,8 @@ pub struct HelcimPayInitializeRequestBody {
     #[serde(default)]
     pub register_session_id: Option<Uuid>,
     #[serde(default)]
+    pub checkout_client_id: Option<Uuid>,
+    #[serde(default)]
     pub customer_code: Option<String>,
     #[serde(default)]
     pub invoice_number: Option<String>,
@@ -1509,6 +1511,7 @@ struct HelcimAttemptRow {
     pub amount_cents: i64,
     pub currency: String,
     pub register_session_id: Option<Uuid>,
+    pub checkout_client_id: Option<Uuid>,
     pub staff_id: Option<Uuid>,
     pub device_id: Option<String>,
     pub terminal_id: Option<String>,
@@ -1535,6 +1538,7 @@ pub struct HelcimAttemptResponse {
     pub amount_cents: i64,
     pub currency: String,
     pub register_session_id: Option<Uuid>,
+    pub checkout_client_id: Option<Uuid>,
     pub staff_id: Option<Uuid>,
     pub device_id: Option<String>,
     pub terminal_id: Option<String>,
@@ -1584,6 +1588,7 @@ impl HelcimAttemptResponse {
             amount_cents: row.amount_cents,
             currency: row.currency,
             register_session_id: row.register_session_id,
+            checkout_client_id: row.checkout_client_id,
             staff_id: row.staff_id,
             device_id: row.device_id,
             terminal_id: row.terminal_id,
@@ -8075,7 +8080,9 @@ async fn process_helcim_card_token_purchase(
 
     let request = helcim::HelcimCardPurchaseRequest {
         ip_address: request_ip_address(&headers),
-        ecommerce: false,
+        // Saved-card purchases are card-not-present transactions. Helcim uses
+        // this flag for its fraud analysis; terminal purchases remain false.
+        ecommerce: true,
         currency,
         amount: cents_to_decimal_string(payload.amount_cents),
         customer_code: payload.customer_code.and_then(non_empty_string),
@@ -8173,6 +8180,33 @@ async fn process_helcim_card_refund(
     if payload.amount_cents <= 0 || payload.original_transaction_id <= 0 {
         return Err(PaymentError::InvalidPayload(
             "amount_cents and original_transaction_id are required".to_string(),
+        ));
+    }
+    let original_card_type: Option<String> = sqlx::query_scalar(
+        r#"
+        SELECT provider_card_type
+        FROM payment_transactions
+        WHERE payment_provider = 'helcim'
+          AND provider_transaction_id = $1
+        ORDER BY created_at ASC
+        LIMIT 1
+        "#,
+    )
+    .bind(payload.original_transaction_id.to_string())
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    let original_card_type = original_card_type
+        .as_deref()
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    if original_card_type == "db"
+        || original_card_type.contains("debit")
+        || original_card_type.contains("interac")
+    {
+        return Err(PaymentError::InvalidPayload(
+            "This original payment is a debit card. Helcim requires the customer and original card at the terminal for a debit refund.".to_string(),
         ));
     }
     let (register_session_id, staff_id) = match auth {
@@ -8550,9 +8584,10 @@ async fn initialize_helcim_pay(
         r#"
         INSERT INTO payment_provider_attempts (
             id, provider, status, amount_cents, currency, register_session_id, staff_id,
-            idempotency_key, provider_payment_id, provider_client_secret, raw_audit_reference
+            idempotency_key, provider_payment_id, provider_client_secret, raw_audit_reference,
+            checkout_client_id
         )
-        VALUES ($1, 'helcim', 'pending', $2, $3, $4, $5, $6, $7, $8, 'helcim-pay-js')
+        VALUES ($1, 'helcim', 'pending', $2, $3, $4, $5, $6, $7, $8, 'helcim-pay-js', $9)
         "#,
     )
     .bind(attempt_id)
@@ -8563,6 +8598,7 @@ async fn initialize_helcim_pay(
     .bind(&idempotency_key)
     .bind(&initialized.checkout_token)
     .bind(&initialized.secret_token)
+    .bind(payload.checkout_client_id)
     .execute(&mut *tx)
     .await
     .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
@@ -9245,7 +9281,7 @@ async fn load_helcim_attempt_by_idempotency_key(
         SELECT id, provider, status, amount_cents, currency, register_session_id, staff_id,
                device_id, terminal_id, selected_terminal_key, terminal_route_source,
                terminal_override_staff_id, terminal_override_reason, idempotency_key, provider_payment_id,
-               provider_transaction_id, error_code, error_message, raw_audit_reference,
+               provider_transaction_id, error_code, error_message, raw_audit_reference, checkout_client_id,
                created_at, updated_at, completed_at
         FROM payment_provider_attempts
         WHERE provider = 'helcim' AND idempotency_key = $1
@@ -9625,7 +9661,7 @@ async fn load_helcim_attempt_row(
         SELECT id, provider, status, amount_cents, currency, register_session_id, staff_id,
                device_id, terminal_id, selected_terminal_key, terminal_route_source,
                terminal_override_staff_id, terminal_override_reason, idempotency_key, provider_payment_id,
-               provider_transaction_id, error_code, error_message, raw_audit_reference,
+               provider_transaction_id, error_code, error_message, raw_audit_reference, checkout_client_id,
                created_at, updated_at, completed_at
         FROM payment_provider_attempts
         WHERE id = $1 AND provider = 'helcim'
@@ -9651,6 +9687,7 @@ mod tests {
             amount_cents: 1_234,
             currency: "usd".to_string(),
             register_session_id: Some(Uuid::new_v4()),
+            checkout_client_id: None,
             staff_id: None,
             device_id: None,
             terminal_id: None,
@@ -9686,6 +9723,7 @@ mod tests {
             amount_cents: 1234,
             currency: Some("usd".to_string()),
             register_session_id: Some(Uuid::new_v4()),
+            checkout_client_id: None,
             customer_code: None,
             invoice_number: None,
             save_as_default: None,

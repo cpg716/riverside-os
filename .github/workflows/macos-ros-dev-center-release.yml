@@ -87,7 +87,7 @@ jobs:
         run: npm run check:pre-retag
 
   build-macos:
-    needs: [pre-retag-gate, require-playwright-green]
+    needs: [pre-retag-gate]
     runs-on: macos-latest
     concurrency:
       group: ${{ (github.event_name != 'workflow_dispatch' || inputs.publish_release) && format('riverside-release-publish-{0}', inputs.release_tag || github.ref_name) || format('riverside-macos-benchmark-{0}', github.run_id) }}
@@ -200,6 +200,20 @@ jobs:
             target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz.sig
             ros-dev/updater-dist/*
 
+  publish-macos:
+    name: Publish macOS candidate
+    needs: [build-macos, require-playwright-green]
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.publish_release }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download macOS candidate
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: ros-dev-center-macos-release-candidate
+          path: candidate
+
       - name: Prepare release metadata
         id: meta
         shell: bash
@@ -216,23 +230,17 @@ jobs:
           echo "notes=$notes" >> "$GITHUB_OUTPUT"
 
       - name: Upload to GitHub release
-        if: ${{ github.event_name != 'workflow_dispatch' || inputs.publish_release }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           tag="${{ steps.meta.outputs.tag }}"
           gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --title "$tag" --notes "${{ steps.meta.outputs.notes }}"
-          dmg=$(ls target/universal-apple-darwin/release/bundle/dmg/*.dmg 2>/dev/null | head -1)
-          app=$(ls target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz 2>/dev/null | head -1)
-          if [ -n "$dmg" ]; then
-            echo "Uploading DMG: $dmg"
-            gh release upload "$tag" "$dmg" --clobber
+          mapfile -t files < <(find candidate -type f -print)
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "No macOS candidate files were downloaded."
+            exit 1
           fi
-          if [ -n "$app" ]; then
-            echo "Uploading App: $app"
-            gh release upload "$tag" "$app" --clobber
-          fi
-          gh release upload "$tag" ros-dev/updater-dist/* --clobber
+          gh release upload "$tag" "${files[@]}" --clobber
           node scripts/verify-updater-release-assets.mjs \
             --repo "$GITHUB_REPOSITORY" \
             --tag "$tag" \

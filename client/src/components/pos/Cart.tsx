@@ -1612,6 +1612,7 @@ export default function Cart({
   const {
     executeCheckout,
     checkoutBusy,
+    checkoutClientId,
     lastTransactionId: checkoutTransactionId,
     lastCashChangeDueCents,
     lastReceiptTransactionLineIds,
@@ -3861,9 +3862,11 @@ export default function Cart({
         customerId={selectedCustomer?.id}
         customerName={selectedCustomer ? `${selectedCustomer.first_name} ${selectedCustomer.last_name}` : undefined}
         customerCode={selectedCustomer?.customer_code ?? null}
+        checkoutClientId={checkoutClientId}
         customerTaxExempt={selectedCustomer?.tax_exempt ?? false}
         customerTaxExemptId={selectedCustomer?.tax_exempt_id ?? null}
         returnOnlyRefundMode={pendingReturnTender?.returnOnly ?? false}
+        deferCardRefund={Boolean(pendingReturnTender)}
         authoritativeDepositCents={0}
         existingPaidAmountCents={pickupPaidAmountCents}
         heldOpenDeposit={heldOpenDeposit}
@@ -3928,10 +3931,6 @@ export default function Cart({
                 }
                 if (cashRoundsToZero && applied.length > 0) {
                   toast("Clear payment lines when the cash refund rounds to $0.00.", "error");
-                  return;
-                }
-                if (refundTenders[0]?.method.toLowerCase().includes("card")) {
-                  toast("Card refund remainders must use the original provider refund flow.", "error");
                   return;
                 }
               } else if (refundTenders.length > 0) {
@@ -4050,13 +4049,6 @@ export default function Cart({
             }
             if (cashRoundsToZero && applied.length > 0) {
               toast("Clear payment lines when the cash refund rounds to $0.00.", "error");
-              return;
-            }
-            if (applied.some((payment) => payment.method.toLowerCase().includes("card"))) {
-              toast(
-                "Card refund tender still needs the original provider flow. Use cash, check, gift card, or store credit here.",
-                "error",
-              );
               return;
             }
             const primaryTender =

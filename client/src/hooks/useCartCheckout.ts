@@ -829,6 +829,7 @@ export function useCartCheckout({
   return {
     executeCheckout,
     checkoutBusy,
+    checkoutClientId,
     lastTransactionId,
     lastCashChangeDueCents,
     lastReceiptTransactionLineIds,

@@ -123,6 +123,7 @@ interface HelcimAttempt {
   error_message?: string | null;
   safe_message?: string | null;
   raw_audit_reference?: string | null;
+  checkout_client_id?: string | null;
   created_at: string;
   updated_at: string;
   completed_at?: string | null;
@@ -526,10 +527,12 @@ export interface NexoCheckoutDrawerProps {
   customerId?: string | null;
   customerName?: string | null;
   customerCode?: string | null;
+  checkoutClientId?: string | null;
   customerTaxExempt?: boolean;
   customerTaxExemptId?: string | null;
   originalHelcimTransactionIdForRefund?: string | number | null;
   returnOnlyRefundMode?: boolean;
+  deferCardRefund?: boolean;
   authoritativeDepositCents?: number;
   profileBlocksCheckout: boolean;
   onOpenProfileGate: () => void;
@@ -574,10 +577,12 @@ export default function NexoCheckoutDrawer({
   localTaxCents,
   customerId,
   customerCode,
+  checkoutClientId = null,
   customerTaxExempt = false,
   customerTaxExemptId = null,
   originalHelcimTransactionIdForRefund = null,
   returnOnlyRefundMode = false,
+  deferCardRefund = false,
   authoritativeDepositCents = 0,
   profileBlocksCheckout,
   onOpenProfileGate,
@@ -923,10 +928,6 @@ export default function NexoCheckoutDrawer({
 
   const cashRoundedBalanceSettled =
     cashRoundingEnabled && tab === "cash" && remainingCents !== 0 && cashRounding.rounded === 0;
-  const taxExemptNoteRequired =
-    isTaxExempt &&
-    !taxExemptReason.startsWith("Customer tax exempt") &&
-    taxExemptNote.trim().length === 0;
   const taxExemptLedgerReason = useMemo(() => {
     if (!isTaxExempt) return undefined;
     const note = taxExemptNote.trim();
@@ -1007,7 +1008,7 @@ export default function NexoCheckoutDrawer({
     (balanceSettled && takeawaySatisfied) ||
     (takeawaySatisfied && hasLaterItems && (depositDisplayCents > 0 || allowDepositOnlyComplete));
 
-  const canFinalize = balanced && operator != null && !busy && !taxExemptNoteRequired;
+  const canFinalize = balanced && operator != null && !busy;
 
   useEffect(() => {
     if (!isOpen || !canFinalize) return;
@@ -1383,10 +1384,21 @@ export default function NexoCheckoutDrawer({
   );
 
   const applyHelcimAttemptUpdate = useCallback(
-    (attempt: HelcimAttempt, options: { quietFinal?: boolean } = {}) => {
+    (
+      attempt: HelcimAttempt,
+      options: { quietFinal?: boolean; attachApproved?: boolean } = {},
+    ) => {
       setHelcimAttempt(attempt);
       setHelcimUnverifiedNotice(null);
       if (attempt.status === "approved" || attempt.status === "captured") {
+        const isHostedManual = pendingHelcimTenderRef.current.method === "card_manual";
+        if (isHostedManual && attempt.checkout_client_id && checkoutClientId && attempt.checkout_client_id !== checkoutClientId) {
+          toast("This approved Card Not Present payment belongs to a different sale. Start Card Not Present again for this sale.", "error");
+          return;
+        }
+        if (isHostedManual && !options.attachApproved) {
+          return;
+        }
         addApprovedHelcimAttempt(
           attempt,
           pendingHelcimTenderRef.current.method,
@@ -1405,7 +1417,7 @@ export default function NexoCheckoutDrawer({
         }
       }
     },
-    [addApprovedHelcimAttempt, toast],
+    [addApprovedHelcimAttempt, checkoutClientId, toast],
   );
 
   const loadHelcimCards = useCallback(async () => {
@@ -1457,7 +1469,7 @@ export default function NexoCheckoutDrawer({
   const refreshHelcimAttempt = useCallback(
     async (
       attemptId: string,
-      options: { quietStaleSession?: boolean } = {},
+      options: { quietStaleSession?: boolean; attachApproved?: boolean } = {},
     ) => {
       setHelcimAttemptLoading(true);
       try {
@@ -1472,7 +1484,7 @@ export default function NexoCheckoutDrawer({
           throw new Error(body.error ?? "Could not check card status.");
         }
         const attempt = (await res.json()) as HelcimAttempt;
-        applyHelcimAttemptUpdate(attempt);
+        applyHelcimAttemptUpdate(attempt, { attachApproved: options.attachApproved });
         if (attempt.status === "pending") {
           toast(
             isHostedManualHelcimAttempt(attempt)
@@ -1543,7 +1555,10 @@ export default function NexoCheckoutDrawer({
             // Fall through to status refresh; Helcim may have already finalized the attempt.
           }
         }
-        await refreshHelcimAttempt(attemptId, { quietStaleSession: true });
+        const attachApproved =
+          data.type === "helcim-card-not-present-approved" ||
+          (data.type === "helcim-card-not-present-outcome" && data.outcome === "approved");
+        await refreshHelcimAttempt(attemptId, { quietStaleSession: true, attachApproved });
       })();
     };
 
@@ -1840,6 +1855,7 @@ export default function NexoCheckoutDrawer({
             amount_cents: amtCents,
             currency: "usd",
             register_session_id: registerSessionId ?? undefined,
+            checkout_client_id: checkoutClientId ?? undefined,
             hide_existing_payment_details: true,
           }),
         });
@@ -1876,7 +1892,7 @@ export default function NexoCheckoutDrawer({
         setHelcimAttemptLoading(false);
       }
     },
-    [backofficeHeaders, baseUrl, registerSessionId, toast],
+    [backofficeHeaders, baseUrl, checkoutClientId, registerSessionId, toast],
   );
 
   useEffect(() => {
@@ -2190,6 +2206,25 @@ export default function NexoCheckoutDrawer({
           return;
         }
         if (cardRefundRoute === "api") {
+          if (deferCardRefund) {
+            setApplied((prev) => [
+              ...prev,
+              {
+                id: newId(),
+                method: "card_credit",
+                amountCents: amtCents,
+                label: "HELCIM REFUND",
+                metadata: {
+                  payment_provider: "helcim",
+                  tender_family: "helcim_refund",
+                  refund_original_transaction_id: originalTransactionId,
+                  refund_processing: "server_settlement",
+                },
+              },
+            ]);
+            setKeypad("");
+            return;
+          }
           await processHelcimApiRefund(amtCents, originalTransactionId);
           return;
         }
@@ -2517,7 +2552,7 @@ export default function NexoCheckoutDrawer({
     setDonationNote("");
     setCheckNumber("");
     setRmsReferenceNumber("");
-  }, [giftCardCode, donationNote, checkNumber, remainingCents, cashRounding.rounded, tab, offlineCardApprovalCode, offlineCardLast4, offlineCardReason, providerSettings, providerSettingsLoading, helcimAttempt, helcimAttemptOutcomeUnverified, clearHelcimAttemptState, registerLaneUnavailable, registerTerminalRoute, selectedTerminalKey, selectedTerminalConfigured, selectedTerminalInUseBy, selectedTerminalInUseByOtherRegister, selectedTerminalNeedsOverride, terminalOverrideConfirmed, registerLane, registerSessionId, refundOriginalTransactionId, refundOriginalCardPresentConfirmed, cardRefundRoute, baseUrl, backofficeHeaders, customerId, customerCode, toast, applied, setApplied, addApprovedHelcimAttempt, rmsSelectedAccount, rmsPrograms, rmsSelectedProgramCode, rmsReferenceNumber, rmsSummary, rmsResolve, rmsPaymentCollectionMode, chargeSavedHelcimCard, fetchGiftCardPreview, loadProviderSettings, processHelcimApiRefund, startHostedManualCardPayment, storeCreditBalanceCents, storeCreditError, storeCreditLoading, staffAccount]);
+  }, [giftCardCode, donationNote, checkNumber, remainingCents, cashRounding.rounded, tab, offlineCardApprovalCode, offlineCardLast4, offlineCardReason, providerSettings, providerSettingsLoading, helcimAttempt, helcimAttemptOutcomeUnverified, clearHelcimAttemptState, registerLaneUnavailable, registerTerminalRoute, selectedTerminalKey, selectedTerminalConfigured, selectedTerminalInUseBy, selectedTerminalInUseByOtherRegister, selectedTerminalNeedsOverride, terminalOverrideConfirmed, registerLane, registerSessionId, refundOriginalTransactionId, refundOriginalCardPresentConfirmed, cardRefundRoute, deferCardRefund, baseUrl, backofficeHeaders, customerId, customerCode, toast, applied, setApplied, addApprovedHelcimAttempt, rmsSelectedAccount, rmsPrograms, rmsSelectedProgramCode, rmsReferenceNumber, rmsSummary, rmsResolve, rmsPaymentCollectionMode, chargeSavedHelcimCard, fetchGiftCardPreview, loadProviderSettings, processHelcimApiRefund, startHostedManualCardPayment, storeCreditBalanceCents, storeCreditError, storeCreditLoading, staffAccount]);
 
   const removePaymentLine = async (line: AppliedPaymentLine) => {
     if (isApprovedProviderPayment(line)) {
@@ -2592,10 +2627,9 @@ export default function NexoCheckoutDrawer({
       if (tw > 0 && !takeawaySatisfied) return `Tenders must cover takeaway total ($${centsToFixed2(tw)})`;
       return "Balance remaining or deposit protocol required.";
     }
-    if (taxExemptNoteRequired) return "Enter the tax exempt note or reference number.";
     if (!operator) return "No staff member verified.";
     return "";
-  }, [busy, balanced, takeawaySatisfied, tw, taxExemptNoteRequired, operator]);
+  }, [busy, balanced, takeawaySatisfied, tw, operator]);
   const activeTerminalAttemptIdForRefresh =
     helcimAttempt?.id ??
     (selectedTerminalInUseByCurrentRegister ? selectedTerminalActiveAttemptId : null);
@@ -3024,13 +3058,16 @@ export default function NexoCheckoutDrawer({
                 >
                   Open in Chrome
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setManualCardHandoffUrl(null)}
-                  className="min-h-10 rounded-xl border border-white/15 bg-white px-3 text-[10px] font-black uppercase tracking-widest text-zinc-950"
-                >
-                  Hide
-                </button>
+                {!helcimAttempt || !isHostedManualHelcimAttempt(helcimAttempt) ||
+                ["failed", "canceled", "expired"].includes(helcimAttempt.status) ? (
+                  <button
+                    type="button"
+                    onClick={() => setManualCardHandoffUrl(null)}
+                    className="min-h-10 rounded-xl border border-white/15 bg-white px-3 text-[10px] font-black uppercase tracking-widest text-zinc-950"
+                  >
+                    Hide
+                  </button>
+                ) : null}
               </div>
             </div>
             <div className="min-h-0 flex-1 bg-white">

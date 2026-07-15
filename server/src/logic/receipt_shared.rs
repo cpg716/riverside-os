@@ -97,6 +97,7 @@ pub struct ReceiptPayment {
     pub amount: Decimal,
     pub cash_tendered: Option<Decimal>,
     pub change_due: Option<Decimal>,
+    pub gift_card_balance_after: Option<Decimal>,
 }
 
 #[derive(Debug, Clone)]
@@ -148,9 +149,9 @@ pub fn tender_display_label(method: &str) -> String {
         .filter(|c| c.is_ascii_alphanumeric())
         .collect::<String>();
     match key.as_str() {
-        "card" | "cardterminal" | "credit" | "creditcard" | "creditcards" | "creditdebit"
-        | "debit" | "helcim" | "visa" | "mastercard" | "mc" | "amex" | "americanexpress"
-        | "discover" => "CC".to_string(),
+        "card" | "cardterminal" | "cardmanual" | "cardsaved" | "cardcredit" | "offlinecc"
+        | "credit" | "creditcard" | "creditcards" | "creditdebit" | "debit" | "helcim" | "visa"
+        | "mastercard" | "mc" | "amex" | "americanexpress" | "discover" => "CC".to_string(),
         "cash" => "Cash".to_string(),
         "rms90" | "rms90day" | "rms90days" | "rmscharge90" | "onaccountrms90" => {
             "RMS90".to_string()
@@ -168,4 +169,30 @@ pub fn payment_summary_has_receipt_detail(summary: &str) -> bool {
     !clean.is_empty()
         && clean != "—"
         && (clean.contains(" | ") || clean.contains("Card:") || clean.contains("RMS Ref"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::tender_display_label;
+
+    #[test]
+    fn card_tender_variants_use_customer_facing_label() {
+        for method in [
+            "card_terminal",
+            "card_manual",
+            "card_saved",
+            "card_credit",
+            "offline_cc",
+        ] {
+            assert_eq!(tender_display_label(method), "CC");
+        }
+    }
+
+    #[test]
+    fn non_card_tenders_keep_specific_labels() {
+        assert_eq!(tender_display_label("cash"), "Cash");
+        assert_eq!(tender_display_label("check"), "Check");
+        assert_eq!(tender_display_label("gift_card"), "Gift Card");
+        assert_eq!(tender_display_label("store_credit"), "SC");
+    }
 }

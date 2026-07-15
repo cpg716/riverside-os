@@ -147,8 +147,13 @@ pub async fn validate_checkout_lines_and_sum(
                 erie_local_tax_usd(tax_category, line.unit_price, line.unit_price)
             };
 
-            if !tax_cents_match(line.state_tax, exp_state)
-                || !tax_cents_match(line.local_tax, exp_local)
+            // A line-level tax-category selection is an explicit cashier action. The
+            // server remains authoritative and recalculates the stored tax below, so a
+            // stale client tax display must not block an otherwise valid sale when an
+            // explicit category override is present.
+            if line.tax_category_override.is_none()
+                && (!tax_cents_match(line.state_tax, exp_state)
+                    || !tax_cents_match(line.local_tax, exp_local))
             {
                 tracing::error!(
                     variant_id = %line.variant_id,
@@ -184,8 +189,9 @@ pub async fn validate_checkout_lines_and_sum(
                 erie_local_tax_usd(tax_category, line.unit_price, line.unit_price)
             };
 
-            if !tax_cents_match(line.state_tax, exp_state)
-                || !tax_cents_match(line.local_tax, exp_local)
+            if line.tax_category_override.is_none()
+                && (!tax_cents_match(line.state_tax, exp_state)
+                    || !tax_cents_match(line.local_tax, exp_local))
             {
                 tracing::error!(
                     variant_id = %line.variant_id,

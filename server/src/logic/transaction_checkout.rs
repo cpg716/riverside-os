@@ -4415,6 +4415,10 @@ async fn execute_checkout_internal(
                         "gift_card_code".to_string(),
                         Value::String(card_code.to_ascii_uppercase()),
                     );
+                    metadata_object.insert(
+                        "gift_card_balance_after".to_string(),
+                        Value::String(redemption.new_balance.to_string()),
+                    );
                     split.metadata = Value::Object(metadata_object);
 
                     sqlx::query(

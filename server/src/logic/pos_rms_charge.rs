@@ -273,6 +273,11 @@ pub fn payment_method_summary(
         if let Some(code) = masked_gift_card_code(metadata) {
             parts.push(format!("Card: {code}"));
         }
+        if let Some(balance_after) =
+            clean_text(metadata.and_then(|value| value.get("gift_card_balance_after")))
+        {
+            parts.push(format!("Balance: ${balance_after}"));
+        }
         return parts.join(" | ");
     }
     if trimmed_method.eq_ignore_ascii_case("store_credit") {
@@ -679,9 +684,13 @@ mod tests {
             None,
             Some(&json!({
                 "sub_type": "paid_liability",
-                "gift_card_code": "E2E-GC-0001"
+                "gift_card_code": "E2E-GC-0001",
+                "gift_card_balance_after": "25.00"
             })),
         );
-        assert_eq!(summary, "Gift Card | Paid | Card: ••••0001");
+        assert_eq!(
+            summary,
+            "Gift Card | Paid | Card: ••••0001 | Balance: $25.00"
+        );
     }
 }

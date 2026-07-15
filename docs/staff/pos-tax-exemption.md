@@ -10,11 +10,11 @@ Tax exemption is performed during the checkout process within the **Payment Ledg
 
 1.  **Open Checkout**: Press the large **PAY** button to open the checkout drawer.
 2.  **Toggle Exemption**: In the **Totals** section (right-hand side), locate the **TAX EXEMPT** switch.
-3.  **Provide a Reason**: When the switch is toggled ON, a required field will appear. You MUST select or type a valid reason for the exemption (e.g., "Non-profit Organization," "Out-of-State Shipment," or "Government Agency").
+3.  **Select a Reason**: When the switch is toggled ON, select the applicable reason (e.g., "Exempt Organization," "Out of State," or "Resale"). The optional note can record a tax ID, certificate, or other reference.
 4.  **Confirm**: The tax amounts will automatically drop to **$0.00**.
 
 > [!IMPORTANT]
-> The transaction cannot be completed if the tax-exempt switch is ON but no reason is provided.
+> Tax exemption does not add a separate checkout blocker. Riverside records the selected reason and optional note with the Transaction Record, removes all applicable tax, and allows the sale to complete once the normal tender and authorization requirements are satisfied.
 
 ---
 

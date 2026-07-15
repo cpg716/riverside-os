@@ -88,7 +88,7 @@ Each ordinary sale line has a tax badge. Tap it to cycle that one line through *
 - **Clothing** applies Riverside's clothing/footwear threshold rules to that line.
 - **No Tax** applies zero state and local tax to that line. Use it only when the charge is actually non-taxable.
 
-The selected category recalculates immediately and remains attached to that line through checkout and the completed Transaction Record. Shipping and alteration-service lines are already locked to their required non-taxable treatment.
+The selected category recalculates immediately and remains attached to that line through checkout and the completed Transaction Record. The server recalculates the authoritative tax from the selected category, so a stale tax display cannot block an otherwise valid sale. Shipping and alteration-service lines are already locked to their required non-taxable treatment.
 
 ![Cart with items added](../images/help/pos/cart-with-lines.png)
 

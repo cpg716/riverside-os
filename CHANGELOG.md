@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Sandbox Restore Proof**: The backup/restore drill now recognizes the repository's `e2e` environment as an allowed test sandbox while continuing to refuse production and unknown databases.
 
 ### Changed
+- **Payment, tax, and receipt follow-up**: Hardened card-not-present approval recovery and sale linking, normalized card tender reporting, added post-payment gift-card balances to receipts and Receipt Builder placement tokens, and made explicit single-line tax-status overrides server-authoritative without stale client tax mismatches blocking valid sales.
 - **PostgreSQL 16 Operations Guidance**: Updated replication and WAL paths to the deployed PostgreSQL 16 baseline and replaced obsolete `recovery.conf` instructions with `standby.signal` guidance.
 - **v0.95.0 Release Evidence**: Updated README, release notes, certification, and deployment checklist to corrected build `6d91610a`, exact-SHA CI, final Windows/macOS candidate and promotion runs, fresh updater-manifest verification, the ROSIE-preserving replacement deployment ZIP, and the remaining physical Main Hub verification hold.
 

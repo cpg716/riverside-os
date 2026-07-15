@@ -310,6 +310,7 @@ pub struct TransactionDetailedPayment {
     pub amount: Decimal,
     pub cash_tendered: Option<Decimal>,
     pub change_due: Option<Decimal>,
+    pub gift_card_balance_after: Option<Decimal>,
 }
 
 #[derive(Debug, Serialize)]
@@ -700,6 +701,7 @@ impl TransactionDetailResponse {
                     amount: p.amount,
                     cash_tendered: p.cash_tendered,
                     change_due: p.change_due,
+                    gift_card_balance_after: p.gift_card_balance_after,
                 })
                 .collect(),
         })
@@ -5222,6 +5224,7 @@ async fn process_refund(
         #[derive(sqlx::FromRow)]
         struct CardCapacityRow {
             provider_transaction_id: String,
+            provider_card_type: Option<String>,
             original_amount_cents: i64,
             already_refunded_cents: i64,
         }
@@ -5230,6 +5233,7 @@ async fn process_refund(
             r#"
             SELECT
                 pt.provider_transaction_id,
+                pt.provider_card_type,
                 ROUND(SUM(pa.amount_allocated) * 100)::bigint AS original_amount_cents,
                 COALESCE(
                     ROUND(SUM(
@@ -5252,7 +5256,7 @@ async fn process_refund(
               AND pa.amount_allocated > 0
               AND pt.payment_provider = 'helcim'
               AND pt.provider_transaction_id IS NOT NULL
-            GROUP BY pt.provider_transaction_id
+            GROUP BY pt.provider_transaction_id, pt.provider_card_type
             ORDER BY
                 (ROUND(SUM(pa.amount_allocated) * 100)::bigint
                  - COALESCE(ROUND(SUM(
@@ -5491,6 +5495,20 @@ async fn process_refund(
 
         // Use the card with the most remaining capacity.
         let best = &cards[0];
+        let original_provider_card_type = best
+            .provider_card_type
+            .as_deref()
+            .unwrap_or_default()
+            .trim()
+            .to_ascii_lowercase();
+        if original_provider_card_type == "db"
+            || original_provider_card_type.contains("debit")
+            || original_provider_card_type.contains("interac")
+        {
+            return Err(TransactionError::InvalidPayload(
+                "This original payment is a debit card. Helcim requires the customer and original card at the terminal for a debit refund; use Original Card at the register.".to_string(),
+            ));
+        }
         let per_card_remaining = best.original_amount_cents - best.already_refunded_cents;
 
         if per_card_remaining <= 0 {
@@ -7412,6 +7430,7 @@ pub(crate) async fn load_transaction_detail(
             Decimal,
             Option<Decimal>,
             Option<Decimal>,
+            Option<Decimal>,
         ),
     >(
         r#"
@@ -7430,7 +7449,13 @@ pub(crate) async fn load_transaction_detail(
                  AND COALESCE(pt.metadata->>'change_due_cents', '') ~ '^[0-9]+$'
                 THEN ROUND((pt.metadata->>'change_due_cents')::numeric / 100, 2)
                 ELSE NULL
-            END AS change_due
+            END AS change_due,
+            CASE
+                WHEN LOWER(pt.payment_method) = 'gift_card'
+                 AND COALESCE(pt.metadata->>'gift_card_balance_after', '') ~ '^[0-9]+([.][0-9]+)?$'
+                THEN (pt.metadata->>'gift_card_balance_after')::numeric(14,2)
+                ELSE NULL
+            END AS gift_card_balance_after
         FROM payment_allocations pa
         INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
         WHERE pa.target_transaction_id = $1
@@ -7445,12 +7470,15 @@ pub(crate) async fn load_transaction_detail(
     let payments = payments_db
         .into_iter()
         .map(
-            |(date, method, amount, cash_tendered, change_due)| TransactionDetailedPayment {
-                date,
-                method,
-                amount,
-                cash_tendered,
-                change_due,
+            |(date, method, amount, cash_tendered, change_due, gift_card_balance_after)| {
+                TransactionDetailedPayment {
+                    date,
+                    method,
+                    amount,
+                    cash_tendered,
+                    change_due,
+                    gift_card_balance_after,
+                }
             },
         )
         .collect::<Vec<_>>();

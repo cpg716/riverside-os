@@ -124,6 +124,22 @@ fn customer_identity_html(order: &ReceiptOrder) -> String {
         .unwrap_or_else(|| "<div>Customer: Walk-in</div>".to_string())
 }
 
+fn gift_card_balance_html(order: &ReceiptOrder) -> String {
+    order
+        .payments
+        .iter()
+        .filter_map(|payment| {
+            payment.gift_card_balance_after.map(|balance| {
+                format!(
+                    "<div><strong>Gift Card Balance</strong> ${}</div>",
+                    balance.round_dp(2)
+                )
+            })
+        })
+        .collect::<Vec<_>>()
+        .join("")
+}
+
 pub fn render_standard_receipt_html(
     order: &ReceiptOrder,
     cfg: &ReceiptConfig,
@@ -369,6 +385,11 @@ pub fn merge_receipt_studio_html(
     }
     replace_all(&mut out, "{{ROS_STATUS}}", order_status_label(order.status));
     replace_all(&mut out, "{{ROS_ITEMS_TABLE}}", &items_html);
+    replace_all(
+        &mut out,
+        "{{ROS_GIFT_CARD_BALANCE}}",
+        &gift_card_balance_html(order),
+    );
     replace_all(&mut out, "{{ROS_HEADER_LINES}}", &header_lines);
     replace_all(&mut out, "{{ROS_FOOTER_LINES}}", &footer_lines);
     out

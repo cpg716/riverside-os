@@ -55,6 +55,7 @@ const DEFAULT_RECEIPTLINE_TEMPLATE = `{{LOGO_IMAGE}}
 {{PAID_LINE}}
 {{BALANCE_LINE}}
 {{TENDER_LINE}}
+{{GIFT_CARD_BALANCE}}
 {{STATUS_LINE}}
 {{TAX_EXEMPT_LINE}}
 ---
@@ -79,6 +80,7 @@ const DEFAULT_RECEIPTLINE_PICKUP_TEMPLATE = `{{LOGO_IMAGE}}
 {{TOTAL_LINE}}
 {{PAID_LINE}}
 {{BALANCE_LINE}}
+{{GIFT_CARD_BALANCE}}
 {{STATUS_LINE}}
 ---
 {{BARCODE_IMAGE}}
@@ -340,6 +342,7 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
       .replaceAll("{{PAID_LINE}}", activeTab === "standard" ? "Paid | $90.92" : "Paid | $542.50")
       .replaceAll("{{BALANCE_LINE}}", "")
       .replaceAll("{{TENDER_LINE}}", "Tender | Cash")
+      .replaceAll("{{GIFT_CARD_BALANCE}}", "Gift Card Balance | $25.00")
       .replaceAll("{{STATUS_LINE}}", "Status | Paid")
       .replaceAll("{{TAX_EXEMPT_LINE}}", "")
       .replaceAll("{{BARCODE_IMAGE}}", cfg.show_barcode ? "{code:TXN-66736;option:code128,hri}" : "")
@@ -705,7 +708,7 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
                   Available Tokens
                 </p>
                 <p className="mt-2 font-mono text-[10px] leading-relaxed text-app-text-muted">
-                  {"{{LOGO_IMAGE}} {{STORE_NAME}} {{HEADER_LINES}} {{RECEIPT_TITLE}} {{RECEIPT_ID}} {{RECEIPT_DATE}} {{CUSTOMER_LINE}} {{SALESPERSON_LINE}} {{CASHIER_LINE}} {{ITEM_LINES}} {{LOYALTY_EARNED}} {{LOYALTY_BALANCE}} {{PAYMENT_BLOCK}} {{SUBTOTAL_LINE}} {{TAX_LINE}} {{TOTAL_SAVINGS_LINE}} {{TOTAL_LINE}} {{PAID_LINE}} {{BALANCE_LINE}} {{TENDER_LINE}} {{STATUS_LINE}} {{TAX_EXEMPT_LINE}} {{BARCODE_IMAGE}} {{FOOTER_LINES}} {{CUT}}"}
+                  {"{{LOGO_IMAGE}} {{STORE_NAME}} {{HEADER_LINES}} {{RECEIPT_TITLE}} {{RECEIPT_ID}} {{RECEIPT_DATE}} {{CUSTOMER_LINE}} {{SALESPERSON_LINE}} {{CASHIER_LINE}} {{ITEM_LINES}} {{LOYALTY_EARNED}} {{LOYALTY_BALANCE}} {{PAYMENT_BLOCK}} {{SUBTOTAL_LINE}} {{TAX_LINE}} {{TOTAL_SAVINGS_LINE}} {{TOTAL_LINE}} {{PAID_LINE}} {{BALANCE_LINE}} {{TENDER_LINE}} {{GIFT_CARD_BALANCE}} {{STATUS_LINE}} {{TAX_EXEMPT_LINE}} {{BARCODE_IMAGE}} {{FOOTER_LINES}} {{CUT}}"}
                 </p>
               </div>
             </div>
