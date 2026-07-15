@@ -243,7 +243,23 @@ jobs:
             echo "No macOS candidate files were downloaded."
             exit 1
           fi
-          gh release upload "$tag" "${files[@]}" --clobber
+          for file in "${files[@]}"; do
+            uploaded=false
+            for attempt in 1 2 3; do
+              if gh release upload "$tag" "$file" --clobber; then
+                uploaded=true
+                break
+              fi
+              if [ "$attempt" -lt 3 ]; then
+                echo "Retrying upload for $file (attempt $((attempt + 1))/3)..."
+                sleep $((attempt * 5))
+              fi
+            done
+            if [ "$uploaded" != true ]; then
+              echo "Failed to upload macOS candidate asset: $file"
+              exit 1
+            fi
+          done
           node scripts/verify-updater-release-assets.mjs \
             --repo "$GITHUB_REPOSITORY" \
             --tag "$tag" \
