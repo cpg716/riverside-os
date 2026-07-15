@@ -246,6 +246,12 @@ jobs:
         shell: pwsh
         working-directory: client
         run: |
+          # The updater build compiles the embedded riverside-server crate.
+          # Do not route that long-lived Tauri compile through the remote
+          # sccache service; a dropped cache connection makes Cargo retry the
+          # entire build and turns a normal build into a 50+ minute failure.
+          Remove-Item Env:RUSTC_WRAPPER -ErrorAction SilentlyContinue
+          $env:SCCACHE_GHA_ENABLED = "false"
           if ([string]::IsNullOrWhiteSpace($env:RIVERSIDE_UPDATER_ENDPOINT)) {
             throw "RIVERSIDE_UPDATER_ENDPOINT is required"
           }
