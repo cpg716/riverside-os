@@ -12,7 +12,7 @@ declare global {
 }
 
 type HandoffState = "idle" | "loading" | "ready" | "approved" | "canceled" | "error";
-type HandoffOutcome = "approved" | "failed" | "canceled";
+type HandoffOutcome = "approved" | "failed" | "canceled" | "unverified";
 
 interface HelcimPayMessage {
   eventName?: string;
@@ -97,7 +97,11 @@ function loadHelcimPayScript(): Promise<void> {
   });
 }
 
-function parseHelcimPayEventMessage(message: unknown): { data?: unknown; hash?: string } {
+function parseHelcimPayEventMessage(message: unknown): {
+  data?: unknown;
+  hash?: string;
+  rawData?: string;
+} {
   let parsed = message;
   if (typeof parsed === "string") {
     parsed = JSON.parse(parsed) as unknown;
@@ -109,7 +113,11 @@ function parseHelcimPayEventMessage(message: unknown): { data?: unknown; hash?: 
   const directData = envelope.data;
   const directHash = envelope.hash;
   if (directData && typeof directHash === "string" && directHash.trim()) {
-    return { data: directData, hash: directHash.trim() };
+    return {
+      data: directData,
+      hash: directHash.trim(),
+      rawData: JSON.stringify(directData),
+    };
   }
 
   // HelcimPay.js currently emits eventMessage as a JSON response envelope:
@@ -142,7 +150,7 @@ export default function HelcimManualCardHandoff() {
   const diagnosticTimerRef = useRef<number | null>(null);
   const helcimSuccessSeenRef = useRef(false);
   const confirmationInFlightRef = useRef(false);
-  const pendingApprovalRef = useRef<{ data: unknown; hash: string } | null>(null);
+  const pendingApprovalRef = useRef<{ data: unknown; hash: string; rawData?: string } | null>(null);
   const params = useMemo(() => new URLSearchParams(window.location.search), []);
   const attemptId = params.get("attempt_id")?.trim() ?? "";
   const checkoutToken = params.get("checkout_token")?.trim() ?? "";
@@ -153,7 +161,7 @@ export default function HelcimManualCardHandoff() {
   const [showDomainDiagnostic, setShowDomainDiagnostic] = useState(false);
 
   const confirmApprovedPayment = useCallback(
-    async (payload: { data: unknown; hash: string }) => {
+    async (payload: { data: unknown; hash: string; rawData?: string }) => {
       if (confirmationInFlightRef.current) return;
       confirmationInFlightRef.current = true;
       setState("loading");
@@ -169,6 +177,7 @@ export default function HelcimManualCardHandoff() {
               checkout_token: checkoutToken,
               data: payload.data,
               hash: payload.hash,
+              raw_data: payload.rawData,
             }),
           },
         );
@@ -205,6 +214,7 @@ export default function HelcimManualCardHandoff() {
             error instanceof Error ? error.message : ""
           }`.trim(),
         );
+        postHandoffOutcome(attemptId, "unverified");
       } finally {
         confirmationInFlightRef.current = false;
       }
@@ -279,7 +289,11 @@ export default function HelcimManualCardHandoff() {
         if (!payload.data || !payload.hash) {
           throw new Error("Helcim response was incomplete.");
         }
-        pendingApprovalRef.current = { data: payload.data, hash: payload.hash };
+        pendingApprovalRef.current = {
+          data: payload.data,
+          hash: payload.hash,
+          rawData: payload.rawData,
+        };
         void confirmApprovedPayment(pendingApprovalRef.current);
       } catch (error) {
         setState("error");

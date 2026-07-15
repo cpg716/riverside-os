@@ -942,6 +942,8 @@ pub struct HelcimPayConfirmRequestBody {
     pub checkout_token: String,
     pub data: Value,
     pub hash: String,
+    #[serde(default)]
+    pub raw_data: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -8719,9 +8721,13 @@ async fn confirm_helcim_pay_attempt(
         PaymentError::InvalidPayload("HelcimPay.js validation secret is missing".to_string())
     })?;
 
-    let hash_matches =
-        helcim_pay_response_hash_matches(&payload.data, &client_secret, payload.hash.trim())
-            .map_err(|_| PaymentError::InvalidPayload("invalid Helcim response".to_string()))?;
+    let hash_matches = helcim_pay_response_hash_matches(
+        &payload.data,
+        payload.raw_data.as_deref(),
+        &client_secret,
+        payload.hash.trim(),
+    )
+    .map_err(|_| PaymentError::InvalidPayload("invalid Helcim response".to_string()))?;
     if !hash_matches {
         return Err(PaymentError::InvalidPayload(
             "HelcimPay.js response hash did not validate".to_string(),
@@ -8786,9 +8792,19 @@ async fn confirm_helcim_pay_attempt(
 
 fn helcim_pay_response_hash_matches(
     data: &Value,
+    raw_data: Option<&str>,
     secret_token: &str,
     provided_hash: &str,
 ) -> Result<bool, serde_json::Error> {
+    if let Some(raw_data) = raw_data.map(str::trim).filter(|raw| !raw.is_empty()) {
+        let escaped_unicode = escape_json_non_ascii(raw_data);
+        if helcim_pay_hash(&escaped_unicode, secret_token).eq_ignore_ascii_case(provided_hash)
+            || helcim_pay_hash(raw_data, secret_token).eq_ignore_ascii_case(provided_hash)
+        {
+            return Ok(true);
+        }
+    }
+
     let canonical = serde_json::to_string(data)?;
     let escaped_unicode = escape_json_non_ascii(&canonical);
     Ok(
@@ -9818,7 +9834,8 @@ mod tests {
         let documented_hash = helcim_pay_hash(&escaped, secret);
 
         assert!(
-            helcim_pay_response_hash_matches(&data, secret, &documented_hash).expect("hash check")
+            helcim_pay_response_hash_matches(&data, None, secret, &documented_hash)
+                .expect("hash check")
         );
     }
 
@@ -9834,7 +9851,25 @@ mod tests {
         let compact_hash = helcim_pay_hash(&canonical, secret);
 
         assert!(
-            helcim_pay_response_hash_matches(&data, secret, &compact_hash).expect("hash check")
+            helcim_pay_response_hash_matches(&data, None, secret, &compact_hash)
+                .expect("hash check")
+        );
+    }
+
+    #[test]
+    fn helcim_pay_hash_uses_original_response_order_when_provided() {
+        let raw_data = r#"{"status":"approved","transactionId":"123456","amount":"12.34"}"#;
+        let data = json!({
+            "amount": "12.34",
+            "status": "approved",
+            "transactionId": "123456"
+        });
+        let secret = "helcim-secret";
+        let provider_hash = helcim_pay_hash(raw_data, secret);
+
+        assert!(
+            helcim_pay_response_hash_matches(&data, Some(raw_data), secret, &provider_hash)
+                .expect("hash check")
         );
     }
 

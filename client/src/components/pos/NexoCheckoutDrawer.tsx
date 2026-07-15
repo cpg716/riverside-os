@@ -1469,7 +1469,11 @@ export default function NexoCheckoutDrawer({
   const refreshHelcimAttempt = useCallback(
     async (
       attemptId: string,
-      options: { quietStaleSession?: boolean; attachApproved?: boolean } = {},
+      options: {
+        quietStaleSession?: boolean;
+        quietPending?: boolean;
+        attachApproved?: boolean;
+      } = {},
     ) => {
       setHelcimAttemptLoading(true);
       try {
@@ -1485,7 +1489,7 @@ export default function NexoCheckoutDrawer({
         }
         const attempt = (await res.json()) as HelcimAttempt;
         applyHelcimAttemptUpdate(attempt, { attachApproved: options.attachApproved });
-        if (attempt.status === "pending") {
+        if (attempt.status === "pending" && !options.quietPending) {
           toast(
             isHostedManualHelcimAttempt(attempt)
               ? "Helcim is still processing Card Not Present. Keep the handoff open or try again in a moment."
@@ -1519,7 +1523,7 @@ export default function NexoCheckoutDrawer({
         | {
             source?: string;
             type?: string;
-            outcome?: "approved" | "failed" | "canceled";
+            outcome?: "approved" | "failed" | "canceled" | "unverified";
             attempt_id?: string;
           }
         | undefined;
@@ -1532,6 +1536,17 @@ export default function NexoCheckoutDrawer({
       }
       setManualCardHandoffUrl(null);
       void (async () => {
+        if (
+          data.type === "helcim-card-not-present-outcome" &&
+          data.outcome === "unverified"
+        ) {
+          setHelcimUnverifiedNotice(HELCIM_UNVERIFIED_OUTCOME_MESSAGE);
+          await refreshHelcimAttempt(attemptId, {
+            quietStaleSession: true,
+            quietPending: true,
+          });
+          return;
+        }
         if (
           data.type === "helcim-card-not-present-outcome" &&
           (data.outcome === "canceled" || data.outcome === "failed")
