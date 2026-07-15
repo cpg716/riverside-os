@@ -91,7 +91,7 @@ test.describe("Phase 4 wedding readiness UI", () => {
 
     await signInToBackOffice(page);
     await openBackofficeSidebarTab(page, "weddings");
-    await page.getByRole("button", { name: /readiness/i }).click();
+    await page.getByRole("button", { name: /^open readiness$/i }).click();
 
     const dashboard = page.getByTestId("wedding-readiness-dashboard");
     await expect(dashboard).toBeVisible({ timeout: 20_000 });

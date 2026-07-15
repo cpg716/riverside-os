@@ -855,10 +855,20 @@ async fn check_db_diagnostics(pool: &sqlx::PgPool) -> Result<DatabaseDiagnostics
     let idle = pool.num_idle() as u32;
     let active = pool_size.saturating_sub(idle);
 
-    let migration_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM _sqlx_migrations")
-        .fetch_one(pool)
-        .await
-        .unwrap_or(0);
+    let migration_table_exists: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = '_sqlx_migrations')",
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap_or(false);
+    let migration_count: i64 = if migration_table_exists {
+        sqlx::query_scalar("SELECT COUNT(*) FROM _sqlx_migrations")
+            .fetch_one(pool)
+            .await
+            .unwrap_or(0)
+    } else {
+        0
+    };
 
     Ok(DatabaseDiagnostics {
         connected: true,

@@ -878,16 +878,7 @@ async fn post_prepare_record(
                     metadata_json
                 )
                 VALUES ($1, $2, $3, $4, 'open', $5, $6)
-                ON CONFLICT (
-                    COALESCE(rms_record_id::text, ''),
-                    COALESCE(account_id, ''),
-                    exception_type
-                )
-                WHERE status IN ('open', 'retry_pending', 'assigned')
-                DO UPDATE SET
-                    severity = EXCLUDED.severity,
-                    notes = COALESCE(EXCLUDED.notes, corecredit_exception_queue.notes),
-                    metadata_json = EXCLUDED.metadata_json
+                ON CONFLICT DO NOTHING
                 RETURNING id
                 "#,
             )
@@ -903,8 +894,31 @@ async fn post_prepare_record(
                 "record_kind": record_kind,
                 "external_transaction_type": external_transaction_type,
             }))
-            .fetch_one(&state.db)
+            .fetch_optional(&state.db)
             .await?;
+
+            let exception_id = match exception_row {
+                Some(row) => row.0,
+                None => {
+                    sqlx::query_scalar::<_, Uuid>(
+                        r#"
+                    SELECT id
+                    FROM corecredit_exception_queue
+                    WHERE COALESCE(rms_record_id::text, '') = COALESCE($1::text, '')
+                      AND COALESCE(account_id, '') = COALESCE($2, '')
+                      AND exception_type = $3
+                      AND status IN ('open', 'retry_pending', 'assigned')
+                    ORDER BY opened_at DESC
+                    LIMIT 1
+                    "#,
+                    )
+                    .bind(Some(body.record_id))
+                    .bind(linked_corecredit_account_id.as_deref())
+                    .bind(exception_type)
+                    .fetch_one(&state.db)
+                    .await?
+                }
+            };
 
             Ok(Json(PrepareRecordResponse {
                 record_id: body.record_id,
@@ -913,7 +927,7 @@ async fn post_prepare_record(
                     _ => "failed_exception_ready",
                 }
                 .to_string(),
-                exception_id: Some(exception_row.0),
+                exception_id: Some(exception_id),
                 reconciliation_run_id: None,
             }))
         }

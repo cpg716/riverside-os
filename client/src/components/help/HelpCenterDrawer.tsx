@@ -950,7 +950,12 @@ export default function HelpCenterDrawer({
   useEffect(() => {
     if (!manualList?.length) return;
     if (!manualList.some((m) => m.id === activeManualId)) {
-      setActiveManualId(manualList[0].id);
+      // Keep the bundled "Start Here" guide as the stable default even when
+      // an older Help API catalog has not indexed it yet. The detail request
+      // already falls back to the bundled manual in that case.
+      if (activeManualId !== HELP_MANUALS[0]?.id) {
+        setActiveManualId(manualList[0].id);
+      }
     }
   }, [manualList, activeManualId]);
 
