@@ -16,6 +16,7 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
+use base64::Engine as _;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -547,6 +548,88 @@ async fn get_receipt_preview_html(
         .header(axum::http::header::CONTENT_TYPE, "text/html; charset=utf-8")
         .body(body.into())
         .map_err(|e| SettingsError::InvalidPayload(e.to_string()))
+}
+
+#[derive(Debug, Deserialize)]
+struct TestReceiptEmailBody {
+    to_email: String,
+    subject: Option<String>,
+    html: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct TestReceiptSmsBody {
+    to_phone: String,
+    body: String,
+    png_base64: String,
+}
+
+const MAX_RECEIPT_TEST_HTML_BYTES: usize = 512 * 1024;
+const MAX_RECEIPT_TEST_PNG_BYTES: usize = 6 * 1024 * 1024;
+
+async fn post_receipt_test_email(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<TestReceiptEmailBody>,
+) -> Result<Json<Value>, SettingsError> {
+    require_settings_admin(&state, &headers).await?;
+    let to_email = body.to_email.trim();
+    if !crate::logic::podium::looks_like_email(to_email) {
+        return Err(SettingsError::InvalidPayload(
+            "Invalid test email address.".to_string(),
+        ));
+    }
+    if body.html.trim().is_empty() || body.html.len() > MAX_RECEIPT_TEST_HTML_BYTES {
+        return Err(SettingsError::InvalidPayload(
+            "Receipt email preview is empty or too large.".to_string(),
+        ));
+    }
+    let subject = body
+        .subject
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("Riverside receipt builder test");
+    email::send_email(
+        &state.db, to_email, subject, &body.html, None, None, "outbound",
+    )
+    .await
+    .map_err(|error| {
+        SettingsError::InvalidPayload(format!("Test receipt email failed: {error}"))
+    })?;
+    Ok(Json(json!({ "status": "sent" })))
+}
+
+async fn post_receipt_test_sms(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<TestReceiptSmsBody>,
+) -> Result<Json<Value>, SettingsError> {
+    require_settings_admin(&state, &headers).await?;
+    if crate::logic::podium::normalize_phone_e164(body.to_phone.trim()).is_none() {
+        return Err(SettingsError::InvalidPayload(
+            "Invalid test phone number.".to_string(),
+        ));
+    }
+    let png = base64::engine::general_purpose::STANDARD
+        .decode(body.png_base64.trim())
+        .map_err(|_| SettingsError::InvalidPayload("Invalid receipt PNG data.".to_string()))?;
+    if png.is_empty() || png.len() > MAX_RECEIPT_TEST_PNG_BYTES {
+        return Err(SettingsError::InvalidPayload(
+            "Receipt image is empty or too large for text delivery.".to_string(),
+        ));
+    }
+    crate::logic::podium::send_podium_phone_message_with_png_attachment(
+        &state.db,
+        &state.http_client,
+        &state.podium_token_cache,
+        body.to_phone.trim(),
+        body.body.trim(),
+        png,
+    )
+    .await
+    .map_err(|error| SettingsError::InvalidPayload(format!("Test receipt text failed: {error}")))?;
+    Ok(Json(json!({ "status": "sent", "mode": "mms_attachment" })))
 }
 
 async fn get_rosie_config(
@@ -3462,6 +3545,8 @@ pub fn router() -> Router<AppState> {
             "/receipt",
             get(get_receipt_config).patch(patch_receipt_config),
         )
+        .route("/receipt/test-email", post(post_receipt_test_email))
+        .route("/receipt/test-sms", post(post_receipt_test_sms))
         .route("/rosie", get(get_rosie_config).patch(patch_rosie_config))
         .route("/rosie/token-metrics", get(get_rosie_token_metrics))
         .route("/backups", get(get_backups))

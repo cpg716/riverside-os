@@ -38,7 +38,8 @@ Use this panel when changing the receipt logo, store name, header lines, footer 
 7. Review or edit the ReceiptLine template when the store needs a deeper layout change.
 8. Use the preview to review the standard receipt shape.
 9. Use **Print Test** to send the current preview to the Epson receipt printer.
-10. Click **Apply** to save the standard receipt settings.
+10. Enter a destination under **Delivery tests** and use **Send Test Email** or **Send Test Text** to send the current preview without saving first. Email uses Store Email; text sends an attached receipt image through Podium.
+11. Click **Apply** to save the standard receipt settings.
 
 ## Recovery and escalation
 
@@ -60,6 +61,7 @@ If a test print does not match the preview, check printer routing first, then re
 - Split tenders are shown as separate payment rows with short labels such as **CC**, **Cash**, **RMS90**, **RMS**, **Check**, and **SC**.
 - `{{LOYALTY_EARNED}}` and `{{LOYALTY_BALANCE}}` are populated when loyalty toggles are on and the customer has earned points.
 - The old HTML designer is not part of normal receipt setup.
+- Delivery tests use the receipt preview currently shown in the builder, so they are useful for checking the exact layout before applying changes.
 
 ## What happens next
 
@@ -69,4 +71,4 @@ New receipt settings apply to future receipt previews, printed receipts, text re
 
 - Printers & Scanners controls the workstation printer target, cash drawer test, Zebra tag station, report printer, and scanner test.
 - POS sale completion uses these receipt settings after checkout.
-- Podium receipt delivery uses the same standard receipt content when no custom HTML template exists.
+- Text receipt delivery uses Podium MMS with the receipt preview attached. Customer sale receipts continue to use the configured Store Email mailbox for email delivery.

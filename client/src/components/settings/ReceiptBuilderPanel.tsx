@@ -7,6 +7,7 @@ import {
   printReceiptBase64,
   receiptlineToEscposBase64,
 } from "../../lib/receiptPrint";
+import { receiptHtmlToPngBase64 } from "../../lib/receiptHtmlToPng";
 import { useToast } from "../ui/ToastProviderLogic";
 
 const EPSON_RECEIPT_CPL = 48;
@@ -161,6 +162,9 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
   const [settingsReady, setSettingsReady] = useState(false);
   const [busy, setBusy] = useState(false);
   const [testPrinting, setTestPrinting] = useState(false);
+  const [testDelivery, setTestDelivery] = useState<"email" | "sms" | null>(null);
+  const [testEmail, setTestEmail] = useState("");
+  const [testPhone, setTestPhone] = useState("");
   const [receiptLogoBase64, setReceiptLogoBase64] = useState("");
   const [activeTab, setActiveTab] = useState<"standard" | "pickup">("standard");
 
@@ -374,6 +378,51 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
     }
   };
 
+  const receiptEmailHtml = () =>
+    `<div style="background:#f3f4f6;padding:24px;font-family:Arial,sans-serif"><div style="width:576px;max-width:100%;margin:0 auto;background:#fff;padding:16px;color:#111">${receiptLineSvg}</div></div>`;
+
+  const sendTestReceipt = async (channel: "email" | "sms") => {
+    const destination = channel === "email" ? testEmail.trim() : testPhone.trim();
+    if (!destination) {
+      toast(`Enter a test ${channel === "email" ? "email address" : "phone number"}.`, "error");
+      return;
+    }
+    setTestDelivery(channel);
+    try {
+      const headers = {
+        "Content-Type": "application/json",
+        ...(backofficeHeaders() as Record<string, string>),
+      };
+      const payload = channel === "email"
+        ? {
+            to_email: destination,
+            subject: "Riverside receipt builder test",
+            html: receiptEmailHtml(),
+          }
+        : {
+            to_phone: destination,
+            body: `${cfg.store_name} — Receipt builder test (image attached).`,
+            png_base64: await receiptHtmlToPngBase64(
+              `<div style="width:576px;background:#fff;padding:16px;color:#111">${receiptLineSvg}</div>`,
+            ),
+          };
+      const res = await fetch(`${baseUrl}/api/settings/receipt/test-${channel}`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(payload),
+      });
+      const responseBody = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        throw new Error(responseBody.error ?? `Test ${channel} failed`);
+      }
+      toast(`Test receipt ${channel === "email" ? "email" : "text"} sent.`, "success");
+    } catch (error) {
+      toast(error instanceof Error ? error.message : `Test ${channel} failed`, "error");
+    } finally {
+      setTestDelivery(null);
+    }
+  };
+
   const receiptLineSvg = transform(getReceiptLineMarkup(), {
     cpl: EPSON_RECEIPT_CPL,
     encoding: "cp437",
@@ -455,6 +504,57 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
                 )}
                 Print Test
               </button>
+            </div>
+
+            <div className="mt-6 rounded-xl border border-app-border bg-app-surface-2 p-4">
+              <div className="mb-3">
+                <h4 className="text-[10px] font-black uppercase tracking-widest text-app-text">
+                  Delivery tests
+                </h4>
+                <p className="mt-1 text-[10px] font-semibold leading-relaxed text-app-text-muted">
+                  Sends the receipt currently shown in this builder. Email uses Store Email; text sends an attached PNG through Podium MMS.
+                </p>
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="space-y-2">
+                  <input
+                    type="email"
+                    value={testEmail}
+                    onChange={(event) => setTestEmail(event.target.value)}
+                    className="ui-input w-full text-xs"
+                    placeholder="test@example.com"
+                    aria-label="Test receipt email address"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void sendTestReceipt("email")}
+                    disabled={testDelivery !== null}
+                    className="ui-btn-secondary inline-flex h-10 w-full items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+                  >
+                    {testDelivery === "email" ? <RefreshCw className="h-3 w-3 animate-spin" /> : null}
+                    Send Test Email
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  <input
+                    type="tel"
+                    value={testPhone}
+                    onChange={(event) => setTestPhone(event.target.value)}
+                    className="ui-input w-full text-xs"
+                    placeholder="(716) 555-0199"
+                    aria-label="Test receipt phone number"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void sendTestReceipt("sms")}
+                    disabled={testDelivery !== null}
+                    className="ui-btn-secondary inline-flex h-10 w-full items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+                  >
+                    {testDelivery === "sms" ? <RefreshCw className="h-3 w-3 animate-spin" /> : null}
+                    Send Test Text
+                  </button>
+                </div>
+              </div>
             </div>
 
             <div className="space-y-6">

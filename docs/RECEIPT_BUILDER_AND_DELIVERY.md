@@ -5,6 +5,8 @@ Staff manage production receipt content in **Settings → Receipt Settings**. Th
 
 The editor exposes the full Riverside Men's Shop logo toggle, store contact fields, editable header lines, editable footer lines, section toggles, a **Print Test** action, and the underlying **ReceiptLine markdown template**. ROS merges transaction data into the template, previews it as SVG, and POS prefers that same merged ReceiptLine document when generating Epson ESC/POS for print. If the client-side ReceiptLine transform fails, POS falls back to the server-generated ESC/POS payload.
 
+The builder also exposes **Delivery tests**. A test email sends the current ReceiptLine preview through the configured Store Email mailbox. A test text rasterizes that same preview to PNG and sends it as a Podium MMS attachment. These tests use the unsaved editor state, so staff can verify a layout before applying it.
+
 Persistence lives in **`store_settings.receipt_config`** (`ReceiptConfig`), including **`receiptline_template`**. Legacy Studio fields may still exist for older saved templates, but the active Settings UI no longer exposes the HTML designer.
 
 **Thermal Preview:** `client/src/components/settings/ReceiptBuilderPanel.tsx` using **`receiptline`**. **Standard ESC/POS:** `server/src/logic/receipt_escpos.rs`, `GET /api/transactions/{transaction_id}/receipt.escpos`. **Legacy HTML fallback / email view:** `server/src/logic/receipt_studio_html.rs`. **POS UI:** `client/src/components/pos/ReceiptSummaryModal.tsx`. Hardware management is centralized in the **Printers & Scanners** hub (`client/src/components/settings/PrintersAndScannersPanel.tsx`).
