@@ -3173,7 +3173,13 @@ async fn list_helcim_reconciliation_candidate_payments(
         LEFT JOIN payment_provider_batch_transactions btx
           ON btx.provider = 'helcim'
          AND btx.payment_transaction_id = pt.id
-        WHERE pt.payment_provider = 'helcim'
+        WHERE (
+            pt.payment_provider = 'helcim'
+            OR (
+                pt.payment_provider IS NULL
+                AND pt.payment_method = 'card_manual'
+            )
+        )
           AND (NULLIF(TRIM(pt.provider_transaction_id), '') IS NULL OR pt.provider_transaction_id = $1)
           AND sign(pt.amount) = sign($2::numeric)
           AND ($3::timestamptz IS NULL OR pt.created_at BETWEEN ($3::timestamptz - interval '7 days') AND ($3::timestamptz + interval '7 days'))
@@ -3291,9 +3297,12 @@ async fn link_helcim_reconciliation_payment(
     .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?
     .ok_or_else(|| PaymentError::InvalidPayload("Riverside payment was not found.".to_string()))?;
     let payment_provider: Option<String> = payment.get("payment_provider");
-    if payment_provider.as_deref() != Some("helcim") {
+    let payment_method: String = payment.get("payment_method");
+    let is_manual_card_without_provider =
+        payment_provider.is_none() && payment_method == "card_manual";
+    if payment_provider.as_deref() != Some("helcim") && !is_manual_card_without_provider {
         return Err(PaymentError::InvalidPayload(
-            "Only Helcim payments can be linked here.".to_string(),
+            "Only an existing Helcim or Manual Card payment can be linked here.".to_string(),
         ));
     }
     let payment_amount = payment.get::<Decimal, _>("amount").round_dp(2);
@@ -3355,9 +3364,17 @@ async fn link_helcim_reconciliation_payment(
     sqlx::query(
         r#"
         UPDATE payment_transactions
-        SET provider_transaction_id = $2
+        SET payment_provider = 'helcim',
+            provider_transaction_id = $2,
+            provider_status = COALESCE(provider_status, 'approved')
         WHERE id = $1
-          AND payment_provider = 'helcim'
+          AND (
+              payment_provider = 'helcim'
+              OR (
+                  payment_provider IS NULL
+                  AND payment_method = 'card_manual'
+              )
+          )
           AND NULLIF(TRIM(provider_transaction_id), '') IS NULL
         "#,
     )
@@ -8548,9 +8565,13 @@ async fn initialize_helcim_pay(
     // for POS customers yet, so omit it to avoid Helcim rejecting ROS-* / C-*
     // customer numbers during hosted manual card entry.
     let customer_code = None;
-    // invoiceNumber links to a real Helcim invoice. Do not synthesize one for
-    // hosted Manual Card attempts; Helcim rejects invalid invoice references.
-    let invoice_number = payload.invoice_number.and_then(non_empty_string);
+    // Keep a deterministic, ROS-owned reference on the Helcim transaction so
+    // an approved CNP payment can be recovered if the browser handoff or Main
+    // Hub connection is interrupted before public-confirm completes.
+    let invoice_number = payload
+        .invoice_number
+        .and_then(non_empty_string)
+        .or_else(|| Some(helcim_manual_invoice_number(attempt_id)));
     let request = helcim::HelcimPayInitializeRequest {
         payment_type: "purchase".to_string(),
         amount: cents_to_decimal_string(payload.amount_cents),

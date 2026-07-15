@@ -1534,7 +1534,12 @@ export default function NexoCheckoutDrawer({
       ) {
         return;
       }
-      setManualCardHandoffUrl(null);
+      const approvedOutcome =
+        data.type === "helcim-card-not-present-approved" || data.outcome === "approved";
+      // Keep the hosted approval screen available until ROS has confirmed and
+      // attached the approved attempt. A transient Main Hub failure must not
+      // strand the cashier on a pending ledger with no recovery surface.
+      if (!approvedOutcome) setManualCardHandoffUrl(null);
       void (async () => {
         if (
           data.type === "helcim-card-not-present-outcome" &&
@@ -1770,7 +1775,9 @@ export default function NexoCheckoutDrawer({
       void simulateHelcimAttempt(helcimAttempt.id, "cancel");
       return;
     }
-    if (isHostedManualHelcimAttempt(helcimAttempt)) {
+    const hostedManualAttemptActive =
+      helcimAttempt.raw_audit_reference === "helcim-pay-js";
+    if (hostedManualAttemptActive) {
       void releasePendingTerminalAttempt();
       return;
     }
@@ -1910,6 +1917,8 @@ export default function NexoCheckoutDrawer({
     [backofficeHeaders, baseUrl, checkoutClientId, registerSessionId, toast],
   );
 
+  const hostedManualAttemptActive =
+    helcimAttempt?.raw_audit_reference === "helcim-pay-js";
   useEffect(() => {
     if (!isOpen || helcimAttempt?.status !== "pending") {
       return;
@@ -1918,6 +1927,22 @@ export default function NexoCheckoutDrawer({
     const controller = new AbortController();
     let stopped = false;
     let lastStreamActivityAt = Date.now();
+
+    if (hostedManualAttemptActive) {
+      const hostedPoll = setInterval(() => {
+        if (!stopped) {
+          void refreshHelcimAttempt(attemptId, {
+            quietPending: true,
+            quietStaleSession: true,
+          });
+        }
+      }, 4000);
+      return () => {
+        stopped = true;
+        controller.abort();
+        clearInterval(hostedPoll);
+      };
+    }
 
     const readAttemptStream = async () => {
       try {
@@ -1984,6 +2009,8 @@ export default function NexoCheckoutDrawer({
     baseUrl,
     helcimAttempt?.id,
     helcimAttempt?.status,
+    helcimAttempt?.raw_audit_reference,
+    hostedManualAttemptActive,
     isOpen,
     refreshHelcimAttempt,
   ]);
@@ -2651,6 +2678,9 @@ export default function NexoCheckoutDrawer({
   const pendingHelcimAttemptNeedsAttention =
     helcimAttempt?.status === "pending" && helcimAttemptNeedsAttention(helcimAttempt);
   const terminalRecoveryState = (() => {
+    if (helcimAttempt && isHostedManualHelcimAttempt(helcimAttempt)) {
+      return null;
+    }
     if (registerLaneUnavailable) {
       return {
         title: "Register is not ready for terminal payments",
@@ -2700,11 +2730,16 @@ export default function NexoCheckoutDrawer({
       : terminalRecoveryState?.tone === "warning"
         ? "border-app-warning/40 bg-app-warning/10 text-app-warning"
         : "border-app-info/30 bg-app-info/10 text-app-info";
+  const hostedManualActive =
+    helcimAttempt != null && isHostedManualHelcimAttempt(helcimAttempt);
   const terminalHeaderAction = (
     <div className="relative">
       <button
         type="button"
-        onClick={() => setTerminalPickerOpen((open) => !open)}
+        onClick={() => {
+          if (!hostedManualActive) setTerminalPickerOpen((open) => !open);
+        }}
+        disabled={hostedManualActive}
         className="flex min-h-10 max-w-[12rem] items-center gap-2 rounded-xl border border-app-border bg-app-surface px-3 text-left shadow-sm transition-colors hover:bg-app-bg"
         aria-expanded={terminalPickerOpen}
       >
@@ -2716,15 +2751,17 @@ export default function NexoCheckoutDrawer({
         />
         <span className="hidden min-w-0 sm:block">
           <span className="block max-w-36 truncate text-[11px] font-black uppercase tracking-wide text-app-text">
-            Terminal: {selectedTerminalKey ? `(${terminalNumber(selectedTerminalKey)})` : terminalStatusText}
+            {hostedManualActive
+              ? "CARD NOT PRESENT"
+              : `Terminal: ${selectedTerminalKey ? `(${terminalNumber(selectedTerminalKey)})` : terminalStatusText}`}
           </span>
           <span className="block text-[8px] font-black uppercase tracking-widest text-app-text-muted">
-            Change terminal
+            {hostedManualActive ? "Hosted secure entry" : "Change terminal"}
           </span>
         </span>
       </button>
 
-      {terminalPickerOpen && (
+      {terminalPickerOpen && !hostedManualActive && (
         <div className="absolute right-0 top-12 z-[220] w-[min(22rem,calc(100vw-2rem))] rounded-2xl border border-app-border bg-app-surface p-3 text-xs shadow-2xl">
           <div className="mb-3 flex items-start justify-between gap-3">
             <div className="min-w-0">
