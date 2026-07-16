@@ -78,30 +78,20 @@ pub async fn query_customer_transaction_history(
     let mut qb = QueryBuilder::new(
         r#"SELECT
             o.id AS transaction_id,
-            o.display_id AS transaction_display_id,
+            COALESCE(o.display_id, o.counterpoint_doc_ref, o.counterpoint_ticket_ref, o.id::text) AS transaction_display_id,
             o.booked_at,
             CASE
                 WHEN o.counterpoint_ticket_ref IS NOT NULL THEN 'fulfilled'::order_status
                 ELSE o.status
             END AS status,
             o.sale_channel,
+            o.total_price AS total_price,
             CASE
                 WHEN o.counterpoint_ticket_ref IS NOT NULL THEN COALESCE(
-                    NULLIF(o.total_price, 0),
-                    COALESCE(SUM(
-                        GREATEST(COALESCE(oi.quantity, 0), 0)::numeric
-                        * (COALESCE(oi.unit_price, 0) + COALESCE(oi.state_tax, 0) + COALESCE(oi.local_tax, 0))
-                    ), 0::numeric)
-                )
-                ELSE o.total_price
-            END AS total_price,
-            CASE
-                WHEN o.counterpoint_ticket_ref IS NOT NULL THEN COALESCE(
-                    NULLIF(o.total_price, 0),
-                    COALESCE(SUM(
-                        GREATEST(COALESCE(oi.quantity, 0), 0)::numeric
-                        * (COALESCE(oi.unit_price, 0) + COALESCE(oi.state_tax, 0) + COALESCE(oi.local_tax, 0))
-                    ), 0::numeric)
+                    NULLIF((SELECT SUM(pa.amount_allocated)
+                            FROM payment_allocations pa
+                            WHERE pa.target_transaction_id = o.id), 0),
+                    o.amount_paid
                 )
                 ELSE o.amount_paid
             END AS amount_paid,
@@ -134,7 +124,16 @@ pub async fn query_customer_transaction_history(
     );
     qb.push_bind(customer_id);
     qb.push(
-        r#" OR EXISTS (
+        r#" OR (
+            o.is_counterpoint_import
+            AND UPPER(BTRIM(o.metadata->>'counterpoint_customer_code')) = UPPER(BTRIM((
+                SELECT customer_code FROM customers WHERE id = "#,
+    );
+    qb.push_bind(customer_id);
+    qb.push(
+        r#")::text))
+        )
+        OR EXISTS (
             SELECT 1
             FROM customer_relationship_periods crp
             WHERE (

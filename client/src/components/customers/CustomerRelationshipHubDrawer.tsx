@@ -2454,7 +2454,15 @@ export function CustomerRelationshipHubDrawer({
                           {readableDateTime(ev.at)} ·{" "}
                           {customerTimelineKindLabel(ev.kind)}
                         </p>
-                        {ev.kind === "shipping" &&
+                        {ev.reference_type === "transaction" && ev.reference_id ? (
+                          <button
+                            type="button"
+                            className="mt-1 w-full text-left text-sm font-semibold text-app-accent hover:underline"
+                            onClick={() => setSelectedTransactionId(ev.reference_id!)}
+                          >
+                            {ev.summary}
+                          </button>
+                        ) : ev.kind === "shipping" &&
                         ev.reference_type === "shipment" &&
                         ev.reference_id &&
                         canShipmentsView ? (

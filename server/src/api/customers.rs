@@ -6416,6 +6416,7 @@ struct PaymentTimelineRow {
     created_at: DateTime<Utc>,
     payment_method: String,
     amount: Decimal,
+    target_transaction_id: Option<Uuid>,
 }
 
 #[derive(Debug, FromRow)]
@@ -6574,6 +6575,12 @@ pub(crate) async fn build_customer_timeline(
                   AND (crp.unlinked_at IS NULL OR o.booked_at <= crp.unlinked_at)
                 AND (crp.unlinked_at IS NULL OR crp.parent_customer_id = $1)
             )
+            OR (
+                o.is_counterpoint_import
+                AND UPPER(BTRIM(o.metadata->>'counterpoint_customer_code')) = UPPER(BTRIM((
+                    SELECT customer_code FROM customers WHERE id = $1
+                )))
+            )
         )
           AND COALESCE(o.metadata->>'counterpoint_reconciliation_status', '') <> 'superseded'
           AND NOT (
@@ -6603,7 +6610,7 @@ pub(crate) async fn build_customer_timeline(
     let payments = sqlx::query_as::<_, PaymentTimelineRow>(
         r#"
         WITH candidate_payments AS (
-            SELECT p.id, p.created_at, p.payment_method, p.amount
+            SELECT p.id, p.created_at, p.payment_method, p.amount, NULL::uuid AS target_transaction_id
             FROM payment_transactions p
             WHERE p.payer_id = $1
               AND COALESCE(p.metadata->>'counterpoint_reconciliation_action', '') <> 'superseded_duplicate'
@@ -6614,7 +6621,8 @@ pub(crate) async fn build_customer_timeline(
                 p.id,
                 p.created_at,
                 p.payment_method,
-                CASE WHEN p.payer_id = $1 THEN p.amount ELSE pa.amount_allocated END AS amount
+                CASE WHEN p.payer_id = $1 THEN p.amount ELSE pa.amount_allocated END AS amount,
+                target.id AS target_transaction_id
             FROM transactions target
             INNER JOIN payment_allocations pa ON pa.target_transaction_id = target.id
             INNER JOIN payment_transactions p ON p.id = pa.transaction_id
@@ -6623,7 +6631,7 @@ pub(crate) async fn build_customer_timeline(
 
             UNION
 
-            SELECT p.id, p.created_at, p.payment_method, p.amount
+            SELECT p.id, p.created_at, p.payment_method, p.amount, NULL::uuid AS target_transaction_id
             FROM customer_relationship_periods crp
             INNER JOIN payment_transactions p ON p.payer_id = crp.child_customer_id
             WHERE crp.parent_customer_id = $1
@@ -6634,7 +6642,7 @@ pub(crate) async fn build_customer_timeline(
 
             UNION
 
-            SELECT p.id, p.created_at, p.payment_method, p.amount
+            SELECT p.id, p.created_at, p.payment_method, p.amount, NULL::uuid AS target_transaction_id
             FROM customer_relationship_periods crp
             INNER JOIN payment_transactions p ON p.payer_id = crp.parent_customer_id
             WHERE crp.child_customer_id = $1
@@ -6645,7 +6653,8 @@ pub(crate) async fn build_customer_timeline(
 
             UNION
 
-            SELECT p.id, p.created_at, p.payment_method, pa.amount_allocated AS amount
+            SELECT p.id, p.created_at, p.payment_method, pa.amount_allocated AS amount,
+                   target.id AS target_transaction_id
             FROM customer_relationship_periods crp
             INNER JOIN transactions target ON target.customer_id = crp.child_customer_id
             INNER JOIN payment_allocations pa ON pa.target_transaction_id = target.id
@@ -6657,7 +6666,8 @@ pub(crate) async fn build_customer_timeline(
 
             UNION
 
-            SELECT p.id, p.created_at, p.payment_method, pa.amount_allocated AS amount
+            SELECT p.id, p.created_at, p.payment_method, pa.amount_allocated AS amount,
+                   target.id AS target_transaction_id
             FROM customer_relationship_periods crp
             INNER JOIN transactions target ON target.customer_id = crp.parent_customer_id
             INNER JOIN payment_allocations pa ON pa.target_transaction_id = target.id
@@ -6666,9 +6676,40 @@ pub(crate) async fn build_customer_timeline(
               AND p.created_at >= crp.linked_at
               AND (crp.unlinked_at IS NULL OR p.created_at <= crp.unlinked_at)
               AND (crp.unlinked_at IS NULL OR crp.parent_customer_id = $1)
+
+            UNION
+
+            SELECT p.id, p.created_at, p.payment_method, p.amount,
+                   target.id AS target_transaction_id
+            FROM payment_transactions p
+            INNER JOIN transactions target
+                ON p.metadata->>'checkout_transaction_id' = target.id::text
+            WHERE COALESCE(p.metadata->>'counterpoint_reconciliation_action', '') <> 'superseded_duplicate'
+              AND (
+                  target.customer_id = $1
+                  OR EXISTS (
+                      SELECT 1
+                      FROM customer_relationship_periods crp
+                      WHERE (
+                          (crp.parent_customer_id = $1 AND crp.child_customer_id = target.customer_id)
+                          OR
+                          (crp.child_customer_id = $1 AND crp.parent_customer_id = target.customer_id)
+                      )
+                        AND target.booked_at >= crp.linked_at
+                        AND (crp.unlinked_at IS NULL OR target.booked_at <= crp.unlinked_at)
+                        AND (crp.unlinked_at IS NULL OR crp.parent_customer_id = $1)
+                  )
+                  OR (
+                      target.is_counterpoint_import
+                      AND UPPER(BTRIM(target.metadata->>'counterpoint_customer_code')) = UPPER(BTRIM((
+                          SELECT customer_code FROM customers WHERE id = $1
+                      )))
+                  )
+              )
         )
-        SELECT id, created_at, payment_method, amount
+        SELECT id, created_at, payment_method, amount, MAX(target_transaction_id) AS target_transaction_id
         FROM candidate_payments
+        GROUP BY id, created_at, payment_method, amount
         ORDER BY created_at DESC
         LIMIT 28
         "#,
@@ -6902,7 +6943,13 @@ pub(crate) async fn build_customer_timeline(
                 )
                   AND o.booked_at >= crp.linked_at
                   AND (crp.unlinked_at IS NULL OR o.booked_at <= crp.unlinked_at)
-                  AND (crp.unlinked_at IS NULL OR crp.parent_customer_id = $1)
+                AND (crp.unlinked_at IS NULL OR crp.parent_customer_id = $1)
+            )
+            OR (
+                o.is_counterpoint_import
+                AND UPPER(BTRIM(o.metadata->>'counterpoint_customer_code')) = UPPER(BTRIM((
+                    SELECT customer_code FROM customers WHERE id = $1
+                )))
             )
         )
           AND COALESCE(o.metadata->>'counterpoint_reconciliation_status', '') <> 'superseded'
@@ -6913,6 +6960,15 @@ pub(crate) async fn build_customer_timeline(
                   FROM transaction_lines order_line
                   WHERE order_line.transaction_id = o.id
                     AND order_line.fulfillment::text <> 'takeaway'
+              )
+              OR EXISTS (
+                  SELECT 1
+                  FROM transaction_lines picked_up_line
+                  WHERE picked_up_line.transaction_id = o.id
+                    AND (
+                        picked_up_line.picked_up_at IS NOT NULL
+                        OR picked_up_line.fulfilled_at IS NOT NULL
+                    )
               )
           )
           AND (
@@ -7009,6 +7065,7 @@ pub(crate) async fn build_customer_timeline(
     }
 
     for p in payments {
+        let transaction_id = p.target_transaction_id;
         events.push(CustomerTimelineEvent {
             at: p.created_at,
             kind: "payment".to_string(),
@@ -7017,8 +7074,12 @@ pub(crate) async fn build_customer_timeline(
                 p.amount,
                 receipt_shared::tender_display_label(&p.payment_method)
             ),
-            reference_id: Some(p.id),
-            reference_type: Some("payment".to_string()),
+            reference_id: Some(transaction_id.unwrap_or(p.id)),
+            reference_type: Some(if transaction_id.is_some() {
+                "transaction".to_string()
+            } else {
+                "payment".to_string()
+            }),
             wedding_party_id: None,
         });
     }

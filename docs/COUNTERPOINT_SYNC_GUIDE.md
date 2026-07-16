@@ -387,7 +387,7 @@ If `ISSUE_DAT` is also absent, `NOW()` is used as the issue baseline.
 |--------------|-----|
 | Generated identity from `PS_TKT_HIST` ticket columns | `transactions.counterpoint_ticket_ref` |
 | `PS_TKT_HIST.BUS_DAT` | `transactions.booked_at` |
-| `PS_TKT_HIST.TOT` | `transactions.total_price` |
+| `PS_TKT_HIST.TOT` | Source retail/gross total used to reconcile the historical ticket |
 | `PS_TKT_HIST_PMT.AMT` + redeeming `PS_TKT_HIST_GFT.AMT` | `transactions.amount_paid` / `transactions.balance_due` when present |
 | `PS_TKT_HIST.CUST_NO` | `transactions.customer_id` (resolved via `customer_code`) |
 | `PS_TKT_HIST.USR_ID` | `transactions.processed_by_staff_id` (resolved via `counterpoint_staff_map`) |
@@ -395,11 +395,19 @@ If `ISSUE_DAT` is also absent, `NOW()` is used as the issue baseline.
 | `PS_TKT_HIST_LIN.ITEM_NO` + `LIN_SEQ_NO` | `transaction_lines.variant_id` (with `PS_TKT_HIST_CELL` the bridge builds the same matrix `counterpoint_item_key` as `IM_INV_CELL`) |
 | Visible `PS_TKT_HIST` tax total columns | `transactions.total_price` gross-up when Counterpoint separates tax from merchandise totals |
 | Visible `PS_TKT_HIST_LIN` tax columns | `transaction_lines.state_tax` / `transaction_lines.local_tax` |
+
 | Visible `PS_TKT_HIST_LIN` regular price / discount columns | Discounted `transaction_lines.unit_price` with original Counterpoint price preserved in `size_specs` |
 | `PS_TKT_HIST_PMT.PMT_TYP` | `payment_transactions.payment_method` (via `counterpoint_payment_method_map`) |
 | `PS_TKT_HIST_GFT` | Optional `payment_transactions` (`gift_card`) tender visibility only; does not decrement `gift_cards.current_balance` |
 | `PS_LOY_PTS_HIST` | Optional historical replay only; not required for current loyalty balances |
 | `PO_VEND_ITEM` | `vendor_supplier_item` (links `vendors.vendor_code` + CP `ITEM_NO` to `product_variants` when resolvable) |
+
+Imported ticket history remains customer-linked even when a legacy ticket was
+landed before its customer row was fully resolved: the ticket keeps the
+Counterpoint customer code in transaction metadata and the Customer History
+query uses that code as a controlled fallback. Historical tickets also remain
+openable as Transaction Records so staff can review payment and pickup audit
+events and reprint the receipt.
 
 **Idempotency:** If a Transaction Record with the same `counterpoint_ticket_ref` already exists, the entire ticket is **skipped** (no duplicates).
 

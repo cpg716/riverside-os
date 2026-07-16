@@ -101,6 +101,7 @@ When the client cannot send Back Office staff headers (e.g. receipt modal on the
 - **Rules**
   - Cannot return more than **sold qty minus prior returns** per line.
   - Not allowed on **cancelled** transactions.
+  - Counterpoint historical tickets use the actual imported tender total as the paid basis. When the source lines carry retail prices above that tender total, ROS allocates the paid discount across the historical lines before calculating return or exchange credit.
   - **Restock:** default **true** when line is **takeaway** and **fulfilled**; otherwise no `stock_on_hand` bump (special/wedding semantics per **`INVENTORY_GUIDE.md`**). Explicit **`restock`** overrides default.
   - **`transaction_return_lines`** is append-only audit.
   - **Totals:** `server/src/logic/transaction_recalc.rs` recomputes **`total_price`**, **`balance_due`**, and **status** using effective qty per line.
