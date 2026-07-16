@@ -889,6 +889,10 @@ pub struct HelcimCardTokenPurchaseRequestBody {
     pub customer_code: Option<String>,
     #[serde(default)]
     pub invoice_number: Option<String>,
+    #[serde(default)]
+    pub checkout_client_id: Option<Uuid>,
+    #[serde(default)]
+    pub idempotency_key: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -8045,32 +8049,88 @@ async fn process_helcim_card_token_purchase(
         .to_ascii_uppercase();
     validate_currency(&currency.to_ascii_lowercase())?;
     let config = helcim::HelcimConfig::from_env();
-    let attempt_id = Uuid::new_v4();
-    let idempotency_key = format!("helcim-token-{attempt_id}");
+    let mut attempt_id = Uuid::new_v4();
+    let idempotency_key = payload
+        .idempotency_key
+        .and_then(non_empty_string)
+        .unwrap_or_else(|| format!("helcim-token-{attempt_id}"));
     let (register_session_id, staff_id) = match auth {
         middleware::StaffOrPosSession::Staff(staff) => {
             (payload.register_session_id, Some(staff.id))
         }
         middleware::StaffOrPosSession::PosSession { session_id } => (Some(session_id), None),
     };
-    sqlx::query(
-        r#"
+    let mut attempt_exists = false;
+    if let Some(existing) = load_helcim_attempt_by_idempotency_key(
+        &state,
+        &idempotency_key,
+        register_session_id,
+        staff_id,
+    )
+    .await?
+    {
+        if existing.amount_cents != payload.amount_cents
+            || existing.checkout_client_id != payload.checkout_client_id
+        {
+            return Err(PaymentError::Conflict(
+                "Saved-card retry does not match the original sale or amount.".to_string(),
+            ));
+        }
+        if existing.status != "pending" {
+            return Ok(Json(existing));
+        }
+        attempt_id = existing.id;
+        attempt_exists = true;
+    }
+    if !attempt_exists {
+        let insert_result = sqlx::query(
+            r#"
         INSERT INTO payment_provider_attempts (
             id, provider, status, amount_cents, currency, register_session_id, staff_id,
-            idempotency_key, raw_audit_reference
+            idempotency_key, raw_audit_reference, checkout_client_id
         )
-        VALUES ($1, 'helcim', 'pending', $2, $3, $4, $5, $6, 'helcim:cardTokenPurchase')
+        VALUES ($1, 'helcim', 'pending', $2, $3, $4, $5, $6, 'helcim:cardTokenPurchase', $7)
         "#,
-    )
-    .bind(attempt_id)
-    .bind(payload.amount_cents)
-    .bind(currency.to_ascii_lowercase())
-    .bind(register_session_id)
-    .bind(staff_id)
-    .bind(&idempotency_key)
-    .execute(&state.db)
-    .await
-    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+        )
+        .bind(attempt_id)
+        .bind(payload.amount_cents)
+        .bind(currency.to_ascii_lowercase())
+        .bind(register_session_id)
+        .bind(staff_id)
+        .bind(&idempotency_key)
+        .bind(payload.checkout_client_id)
+        .execute(&state.db)
+        .await;
+        if let Err(error) = insert_result {
+            if is_provider_idempotency_violation(&error) {
+                if let Some(existing) = load_helcim_attempt_by_idempotency_key(
+                    &state,
+                    &idempotency_key,
+                    register_session_id,
+                    staff_id,
+                )
+                .await?
+                {
+                    if existing.amount_cents != payload.amount_cents
+                        || existing.checkout_client_id != payload.checkout_client_id
+                    {
+                        return Err(PaymentError::Conflict(
+                            "Saved-card retry does not match the original sale or amount."
+                                .to_string(),
+                        ));
+                    }
+                    if existing.status != "pending" {
+                        return Ok(Json(existing));
+                    }
+                    attempt_id = existing.id;
+                } else {
+                    return Err(PaymentError::InvalidPayload(error.to_string()));
+                }
+            } else {
+                return Err(PaymentError::InvalidPayload(error.to_string()));
+            }
+        }
+    }
 
     if config.simulator_enabled() {
         let transaction_id = format!("helcim-sim-{attempt_id}");
@@ -8143,6 +8203,7 @@ async fn process_helcim_card_token_purchase(
     let status = transaction.normalized_status();
     let provider_transaction_id = transaction.transaction_id_string();
     let raw_audit_reference = transaction.audit_reference();
+    let amount_mismatch = transaction.amount_cents() != Some(payload.amount_cents);
     let warning = transaction
         .warning
         .as_deref()
@@ -8159,8 +8220,16 @@ async fn process_helcim_card_token_purchase(
         SET status = $2,
             provider_payment_id = $3,
             provider_transaction_id = $3,
-            error_code = CASE WHEN $2 = 'failed' THEN 'declined' ELSE NULL END,
-            error_message = CASE WHEN $2 = 'failed' THEN COALESCE($5, 'Helcim payment was declined.') ELSE NULL END,
+            error_code = CASE
+                WHEN $6 THEN 'amount_mismatch'
+                WHEN $2 = 'failed' THEN 'declined'
+                ELSE NULL
+            END,
+            error_message = CASE
+                WHEN $6 THEN 'Helcim returned a saved-card amount different from the requested sale amount.'
+                WHEN $2 = 'failed' THEN COALESCE($5, 'Helcim payment was declined.')
+                ELSE NULL
+            END,
             raw_audit_reference = COALESCE($4, raw_audit_reference),
             completed_at = now()
         WHERE id = $1
@@ -8171,6 +8240,7 @@ async fn process_helcim_card_token_purchase(
     .bind(provider_transaction_id)
     .bind(raw_audit_reference)
     .bind(warning)
+    .bind(amount_mismatch)
     .execute(&mut *tx)
     .await
     .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;

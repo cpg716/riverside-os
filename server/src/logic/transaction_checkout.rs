@@ -1905,9 +1905,10 @@ async fn validate_helcim_payment_splits(
                 CheckoutError::InvalidPayload("Helcim card payment amount is not valid".to_string())
             })?;
 
-        let attempt: Option<(String, i64, Option<Uuid>, Option<String>)> = sqlx::query_as(
-            r#"
-            SELECT status, amount_cents, register_session_id, raw_audit_reference
+        let attempt: Option<(String, i64, Option<Uuid>, Option<String>, Option<String>)> =
+            sqlx::query_as(
+                r#"
+            SELECT status, amount_cents, register_session_id, raw_audit_reference, error_code
             FROM payment_provider_attempts
             WHERE provider = 'helcim'
               AND (
@@ -1918,17 +1919,18 @@ async fn validate_helcim_payment_splits(
             ORDER BY created_at DESC
             LIMIT 1
             "#,
-        )
-        .bind(provider_attempt_id)
-        .bind(provider_transaction_id)
-        .bind(provider_payment_id)
-        .fetch_optional(pool)
-        .await?;
+            )
+            .bind(provider_attempt_id)
+            .bind(provider_transaction_id)
+            .bind(provider_payment_id)
+            .fetch_optional(pool)
+            .await?;
         let Some((
             attempt_status,
             attempt_amount_cents,
             attempt_register_session_id,
             raw_audit_reference,
+            attempt_error_code,
         )) = attempt
         else {
             return Err(CheckoutError::InvalidPayload(
@@ -1944,6 +1946,11 @@ async fn validate_helcim_payment_splits(
         if !matches!(attempt_status.as_str(), "approved" | "captured") {
             return Err(CheckoutError::InvalidPayload(
                 "Helcim card payment must be approved before checkout can be completed".to_string(),
+            ));
+        }
+        if attempt_error_code.as_deref() == Some("amount_mismatch") {
+            return Err(CheckoutError::InvalidPayload(
+                "Helcim card payment amount does not match the provider response".to_string(),
             ));
         }
         let is_refund_attempt = split.method.trim().eq_ignore_ascii_case("card_credit")

@@ -202,6 +202,7 @@ If the signing secret is missing or wrong, ROS fails closed before storing the e
 - ROS must not store, log, display, or transmit PAN or CVV. Manual/phone-order card entry happens inside HelcimPay.js hosted card entry, not in ROS-owned fields.
 - Stored card data is limited to provider-safe token references, Helcim transaction/payment ids, statuses, amounts, terminal references, and masked/brand/last4 metadata returned safely by Helcim.
 - Saved-card payments use Helcim card tokens. Tokens are provider credentials and should not be shown in staff UI, copied into notes, or logged.
+- Saved-card purchase attempts carry the open checkout client id and a stable idempotency key. An interrupted retry reuses the existing provider attempt and Helcim idempotency key; ROS rejects a different sale or amount and does not attach a provider result with an amount mismatch to the payment ledger.
 - Webhook, storefront confirmation, settlement sync, and provider error storage redact card-sensitive fields.
 
 ## Out of scope unless explicitly adopted

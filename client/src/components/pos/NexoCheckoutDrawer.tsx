@@ -795,6 +795,7 @@ export default function NexoCheckoutDrawer({
   }, [allowStoreCredit, backofficeHeaders, baseUrl, customerId, isOpen]);
 
   const pendingHelcimCentsRef = useRef<number>(0);
+  const savedCardIdempotencyKeyRef = useRef<string | null>(null);
   const pendingHelcimTenderRef = useRef<{
     method: "card_terminal" | "card_manual" | "card_credit";
     label: string;
@@ -1048,6 +1049,7 @@ export default function NexoCheckoutDrawer({
       setOfflineCardLast4("");
       setOfflineCardReason("");
       setHelcimAttempt(null);
+      savedCardIdempotencyKeyRef.current = null;
       setHelcimUnverifiedNotice(null);
       setManualCardHandoffUrl(null);
       pendingHelcimCentsRef.current = 0;
@@ -1805,6 +1807,12 @@ export default function NexoCheckoutDrawer({
       }
       setHelcimAttemptLoading(true);
       let startAmbiguous = false;
+      const idempotencyKey =
+        savedCardIdempotencyKeyRef.current ??
+        (typeof crypto !== "undefined" && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `saved-card-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`);
+      savedCardIdempotencyKeyRef.current = idempotencyKey;
       try {
         const res = await fetch(`${baseUrl}/api/payments/providers/helcim/card-token/purchase`, {
           method: "POST",
@@ -1818,6 +1826,8 @@ export default function NexoCheckoutDrawer({
             currency: "usd",
             register_session_id: registerSessionId ?? undefined,
             customer_code: code || undefined,
+            checkout_client_id: checkoutClientId ?? undefined,
+            idempotency_key: idempotencyKey,
           }),
         });
         let body: HelcimAttempt | { error?: string } = {};
@@ -1838,7 +1848,20 @@ export default function NexoCheckoutDrawer({
         }
         setHelcimAttempt(body);
         setHelcimUnverifiedNotice(null);
+        savedCardIdempotencyKeyRef.current = null;
+        if (
+          body.checkout_client_id &&
+          checkoutClientId &&
+          body.checkout_client_id !== checkoutClientId
+        ) {
+          toast("This approved saved-card payment belongs to a different sale.", "error");
+          return;
+        }
         if (body.status === "approved" || body.status === "captured") {
+          if (body.error_code === "amount_mismatch") {
+            toast(body.safe_message ?? "Helcim returned an unexpected saved-card amount. Review Payments Health before retrying.", "error");
+            return;
+          }
           pendingHelcimCentsRef.current = amtCents;
           addApprovedHelcimAttempt(body, "card_saved", "HELCIM VAULT");
         } else {
@@ -1858,6 +1881,7 @@ export default function NexoCheckoutDrawer({
       backofficeHeaders,
       baseUrl,
       customerCode,
+      checkoutClientId,
       registerSessionId,
       selectedHelcimCardToken,
       toast,
