@@ -1032,6 +1032,9 @@ export default function NexoCheckoutDrawer({
   }, [canFinalize, isOpen]);
 
   useEffect(() => {
+    // The drawer can remain mounted while Cart advances to a new sale. Reset
+    // provider state when the checkout identity or customer changes, even if
+    // the next sale has the same total as the previous one.
     if (isOpen) {
       setKeypad("");
       setTab(amountDueCents < 0 ? (returnOnlyRefundMode || !hasOriginalHelcimRefundReference ? "cash" : "card_credit") : rmsPaymentCollectionMode ? "cash" : "card_terminal");
@@ -1067,7 +1070,18 @@ export default function NexoCheckoutDrawer({
       setSelectedTerminalKey("");
       setTerminalOverrideConfirmed(false);
     }
-  }, [amountDueCents, isOpen, originalHelcimRefundReference, rmsPaymentCollectionMode, customerTaxExempt, customerTaxExemptId, returnOnlyRefundMode, hasOriginalHelcimRefundReference]);
+  }, [
+    amountDueCents,
+    checkoutClientId,
+    customerId,
+    isOpen,
+    originalHelcimRefundReference,
+    rmsPaymentCollectionMode,
+    customerTaxExempt,
+    customerTaxExemptId,
+    returnOnlyRefundMode,
+    hasOriginalHelcimRefundReference,
+  ]);
 
   const loadProviderSettings = useCallback(async (): Promise<PaymentProviderSettings | null> => {
     setProviderSettingsLoading(true);
@@ -1402,7 +1416,12 @@ export default function NexoCheckoutDrawer({
           toast("This approved Card Not Present payment belongs to a different sale. Start Card Not Present again for this sale.", "error");
           return;
         }
-        if (isHostedManual && !options.attachApproved) {
+        // A confirmed approved status is sufficient to attach the payment. The
+        // hosted iframe message is helpful, but cannot be the only trigger:
+        // browsers can deliver the provider result after the message listener
+        // has briefly lost focus.
+        const shouldAttachApproved = options.attachApproved !== false;
+        if (isHostedManual && !shouldAttachApproved) {
           return;
         }
         const method = isHostedManual ? "card_manual" : pendingHelcimTenderRef.current.method;
@@ -3112,7 +3131,7 @@ export default function NexoCheckoutDrawer({
                   Enter phone-order card in Helcim
                 </h3>
                 <p className="mt-1 text-xs font-semibold leading-snug text-zinc-300">
-                  Use the secure Helcim card-entry page below, review the approval screen, and select Add Payment to Sale before recording the sale.
+                  Use the secure Helcim card-entry page below and review the approval. ROS will attach a confirmed approval to this sale before recording it.
                 </p>
               </div>
               <div className="flex shrink-0 flex-wrap gap-2">
@@ -3419,8 +3438,8 @@ export default function NexoCheckoutDrawer({
                         Helcim Card Not Present
                       </span>
                       <p className="mt-1">
-                        Opens secure Helcim card entry. Keep checkout open, review the approval,
-                        and select Add Payment to Sale before recording the sale.
+                        Opens secure Helcim card entry. Keep checkout open and review the approval;
+                        ROS attaches a confirmed approval to this sale before recording it.
                       </p>
                       <p className="mt-2 text-[11px] font-bold text-app-text-muted">
                         Helcim may ask for name, card, CVV, expiration, ZIP, and billing address.
