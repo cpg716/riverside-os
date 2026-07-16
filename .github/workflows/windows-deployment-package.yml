@@ -49,6 +49,8 @@ env:
   RIVERSIDE_UPDATER_BASE_URL: https://github.com/${{ github.repository }}/releases/latest/download
   RELEASE_NOTES: ${{ github.event.inputs.release_notes }}
   RELEASE_TAG_OVERRIDE: ${{ github.event.inputs.release_tag }}
+  RUSTC_WRAPPER: "sccache"
+  SCCACHE_GHA_ENABLED: "true"
   LLAMA_CPP_RELEASE: b8994
   LLAMA_CPP_WIN_CPU_ASSET: llama-b8994-bin-win-cpu-x64.zip
   LLAMA_CPP_WIN_CPU_SHA256: b9391a4c3ffceb5a8af9746aeb3b45f56fe372fdfa48c29fe98144af7c5cf6c1
@@ -170,8 +172,17 @@ jobs:
 
       - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
 
-      - uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
+      - name: Set up compiler cache
+        id: sccache
+        uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
         continue-on-error: true
+      - name: Disable unavailable compiler cache
+        if: steps.sccache.outcome != 'success'
+        shell: bash
+        run: |
+          echo "sccache setup failed; continuing without the optional compiler cache"
+          echo "RUSTC_WRAPPER=" >> "$GITHUB_ENV"
+          echo "SCCACHE_GHA_ENABLED=false" >> "$GITHUB_ENV"
       - name: Install client dependencies
         working-directory: client
         run: npm ci
@@ -436,8 +447,17 @@ jobs:
 
       - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
 
-      - uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
+      - name: Set up compiler cache
+        id: sccache
+        uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
         continue-on-error: true
+      - name: Disable unavailable compiler cache
+        if: steps.sccache.outcome != 'success'
+        shell: bash
+        run: |
+          echo "sccache setup failed; continuing without the optional compiler cache"
+          echo "RUSTC_WRAPPER=" >> "$GITHUB_ENV"
+          echo "SCCACHE_GHA_ENABLED=false" >> "$GITHUB_ENV"
       - name: Build Windows server binary
         shell: pwsh
         run: cargo build --release --manifest-path server/Cargo.toml
@@ -473,8 +493,17 @@ jobs:
 
       - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
 
-      - uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
+      - name: Set up compiler cache
+        id: sccache
+        uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
         continue-on-error: true
+      - name: Disable unavailable compiler cache
+        if: steps.sccache.outcome != 'success'
+        shell: bash
+        run: |
+          echo "sccache setup failed; continuing without the optional compiler cache"
+          echo "RUSTC_WRAPPER=" >> "$GITHUB_ENV"
+          echo "SCCACHE_GHA_ENABLED=false" >> "$GITHUB_ENV"
       - name: Install manager-app dependencies
         working-directory: deployment/manager-app
         run: npm ci
@@ -606,8 +635,17 @@ jobs:
 
       - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
 
-      - uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
+      - name: Set up compiler cache
+        id: sccache
+        uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
         continue-on-error: true
+      - name: Disable unavailable compiler cache
+        if: steps.sccache.outcome != 'success'
+        shell: bash
+        run: |
+          echo "sccache setup failed; continuing without the optional compiler cache"
+          echo "RUSTC_WRAPPER=" >> "$GITHUB_ENV"
+          echo "SCCACHE_GHA_ENABLED=false" >> "$GITHUB_ENV"
       - name: Install server-manager-app dependencies
         working-directory: deployment/server-manager-app
         run: npm ci
@@ -747,8 +785,17 @@ jobs:
 
       - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
 
-      - uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
+      - name: Set up compiler cache
+        id: sccache
+        uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
         continue-on-error: true
+      - name: Disable unavailable compiler cache
+        if: steps.sccache.outcome != 'success'
+        shell: bash
+        run: |
+          echo "sccache setup failed; continuing without the optional compiler cache"
+          echo "RUSTC_WRAPPER=" >> "$GITHUB_ENV"
+          echo "SCCACHE_GHA_ENABLED=false" >> "$GITHUB_ENV"
       - name: Install bridge-gui dependencies
         working-directory: deployment/counterpoint-bridge-gui
         run: npm ci
