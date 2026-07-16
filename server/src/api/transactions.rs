@@ -70,6 +70,7 @@ pub(crate) async fn rosie_order_summary(
         Path(transaction_id),
         Query(TransactionReadQuery {
             register_session_id,
+            exchange_return_transaction_id: None,
         }),
         headers.clone(),
     )
@@ -981,6 +982,27 @@ mod tests {
     }
 
     #[test]
+    fn counterpoint_legacy_detail_normalizer_adjusts_retail_prices_with_imported_tax_rows() {
+        let header = sample_order_header(Decimal::new(6809, 2), true);
+        let mut item = sample_item(1, 0);
+        item.unit_price = Decimal::new(7500, 2);
+        item.state_tax = Decimal::new(260, 2);
+        item.local_tax = Decimal::new(309, 2);
+        item.tax_category = "clothing".to_string();
+        let mut items = vec![item];
+
+        normalize_counterpoint_legacy_detail_items(&header, &mut items);
+
+        assert_eq!(items[0].unit_price, Decimal::new(6500, 2));
+        assert_eq!(items[0].state_tax, Decimal::ZERO);
+        assert_eq!(items[0].local_tax, Decimal::new(309, 2));
+        assert_eq!(
+            items[0].receipt_original_unit_price,
+            Some(Decimal::new(7500, 2))
+        );
+    }
+
+    #[test]
     fn receipt_builder_uses_effective_quantity_after_partial_return() {
         let detail = sample_transaction_detail(vec![sample_item(3, 1)]);
 
@@ -1734,6 +1756,43 @@ fn receipt_query_transaction_line_ids(
     }
 }
 
+fn receipt_query_exchange_return_transaction_id(
+    params: &std::collections::HashMap<String, String>,
+) -> Option<Uuid> {
+    params
+        .get("exchange_return_transaction_id")
+        .and_then(|value| Uuid::parse_str(value.trim()).ok())
+}
+
+async fn append_exchange_return_receipt_items(
+    state: &AppState,
+    headers: &HeaderMap,
+    register_session_id: Option<Uuid>,
+    source_transaction_id: Option<Uuid>,
+    receipt_order: &mut receipt_shared::ReceiptOrder,
+) -> Result<(), TransactionError> {
+    let Some(source_transaction_id) = source_transaction_id else {
+        return Ok(());
+    };
+
+    authorize_transaction_read_bo_or_register(
+        state,
+        headers,
+        source_transaction_id,
+        register_session_id,
+    )
+    .await?;
+    let source_detail = load_transaction_detail(&state.db, source_transaction_id).await?;
+    let source_receipt = source_detail.build_receipt_data(None)?;
+    receipt_order.items.extend(
+        source_receipt
+            .items
+            .into_iter()
+            .filter(|item| item.adjustment.is_some()),
+    );
+    Ok(())
+}
+
 #[derive(Debug, FromRow)]
 struct OrderHeaderRow {
     id: Uuid,
@@ -1866,11 +1925,15 @@ fn normalize_counterpoint_legacy_detail_items(
     if !header.is_counterpoint_import || header.is_tax_exempt || items.is_empty() {
         return;
     }
-    if items.iter().any(|item| {
-        !item.state_tax.is_zero()
-            || !item.local_tax.is_zero()
-            || item.receipt_original_unit_price.is_some()
-    }) {
+    // Counterpoint may provide retail unit prices together with allocated tax
+    // values. Those tax values do not prove that the unit prices are the
+    // customer-paid amounts, so normalize whenever the imported line gross
+    // exceeds the transaction total. An existing receipt original price means
+    // this detail has already been normalized.
+    if items
+        .iter()
+        .any(|item| item.receipt_original_unit_price.is_some())
+    {
         return;
     }
 
@@ -1952,6 +2015,8 @@ struct PickupGuardLine {
 pub struct TransactionReadQuery {
     #[serde(default)]
     pub register_session_id: Option<Uuid>,
+    #[serde(default)]
+    pub exchange_return_transaction_id: Option<Uuid>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -6777,7 +6842,15 @@ async fn get_transaction_receipt_escpos(
     let detail = load_transaction_detail(&state.db, transaction_id).await?;
 
     let item_ids = receipt_query_transaction_line_ids(&params);
-    let receipt_order = detail.build_receipt_data(item_ids.as_deref())?;
+    let mut receipt_order = detail.build_receipt_data(item_ids.as_deref())?;
+    append_exchange_return_receipt_items(
+        &state,
+        &headers,
+        register_session_id,
+        receipt_query_exchange_return_transaction_id(&params),
+        &mut receipt_order,
+    )
+    .await?;
 
     let receipt_cfg: crate::api::settings::ReceiptConfig =
         sqlx::query_scalar::<_, serde_json::Value>(
@@ -6852,7 +6925,15 @@ async fn get_transaction_receipt_html(
 
     let gift = receipt_query_gift_flag(&params);
     let item_ids = receipt_query_transaction_line_ids(&params);
-    let receipt_order = detail.build_receipt_data(item_ids.as_deref())?;
+    let mut receipt_order = detail.build_receipt_data(item_ids.as_deref())?;
+    append_exchange_return_receipt_items(
+        &state,
+        &headers,
+        register_session_id,
+        receipt_query_exchange_return_transaction_id(&params),
+        &mut receipt_order,
+    )
+    .await?;
 
     let receipt_cfg: crate::api::settings::ReceiptConfig =
         sqlx::query_scalar::<_, serde_json::Value>(
@@ -6984,7 +7065,15 @@ async fn post_transaction_receipt_send_email(
     } else {
         Some(body.transaction_line_ids.as_slice())
     };
-    let receipt_order = detail.build_receipt_data(item_ids)?;
+    let mut receipt_order = detail.build_receipt_data(item_ids)?;
+    append_exchange_return_receipt_items(
+        &state,
+        &headers,
+        q.register_session_id,
+        q.exchange_return_transaction_id,
+        &mut receipt_order,
+    )
+    .await?;
 
     let tpl = receipt_cfg
         .receipt_studio_exported_html
@@ -7089,7 +7178,15 @@ async fn post_transaction_receipt_send_sms(
     } else {
         Some(body.transaction_line_ids.as_slice())
     };
-    let receipt_order = detail.build_receipt_data(item_ids)?;
+    let mut receipt_order = detail.build_receipt_data(item_ids)?;
+    append_exchange_return_receipt_items(
+        &state,
+        &headers,
+        q.register_session_id,
+        q.exchange_return_transaction_id,
+        &mut receipt_order,
+    )
+    .await?;
 
     if let Some(b64_raw) = body.png_base64.as_ref() {
         let b64 = b64_raw.trim();

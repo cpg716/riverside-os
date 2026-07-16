@@ -61,7 +61,7 @@ import type { RosOpenRegisterFromWmDetail } from "../../lib/weddingPosBridge";
 import { newCartRowId, scanPayloadToResolvedItem } from "../../lib/posUtils";
 import { customOrderItemTypeForSku, isCustomOrderSku } from "../../lib/customOrders";
 import CustomItemPromptModal from "./CustomItemPromptModal";
-import OrderLoadModal, { type CustomerOrder, type OrderItem } from "./OrderLoadModal";
+import OrderLoadModal, { type CustomerOrder, type OrderItem, type PickupSelection } from "./OrderLoadModal";
 import OrderReviewModal from "./OrderReviewModal";
 import PosAlterationIntakeModal from "./PosAlterationIntakeModal";
 import ManagerApprovalModal from "./ManagerApprovalModal";
@@ -95,7 +95,7 @@ import { useCartPersistence } from "../../hooks/useCartPersistence";
 import { usePosSearch } from "../../hooks/usePosSearch";
 import { useCartActions } from "../../hooks/useCartActions";
 import { calculateNysErieTaxStringsForUnit } from "../../lib/tax";
-import { useCartCheckout } from "../../hooks/useCartCheckout";
+import { useCartCheckout, type PickupTransactionSelection } from "../../hooks/useCartCheckout";
 import { useParkedSales } from "../../hooks/useParkedSales";
 import { deleteParkedSaleOnServer } from "../../lib/posParkedSales";
 import StaffMiniSelector from "../ui/StaffMiniSelector";
@@ -454,7 +454,10 @@ export default function Cart({
   const [salePinCredential, setSalePinCredential] = useState("");
   const [salePinError, setSalePinError] = useState<string | null>(null);
   const [lastTransactionId, setLastTransactionId] = useState<string | null>(null);
+  const [lastReceiptExchangeReturnTransactionId, setLastReceiptExchangeReturnTransactionId] =
+    useState<string | null>(null);
   const [pickupTransactionId, setPickupTransactionId] = useState<string | null>(null);
+  const [pickupTransactions, setPickupTransactions] = useState<PickupTransactionSelection[]>([]);
   const [pickupPaidAmountCents, setPickupPaidAmountCents] = useState<number>(0);
   const [pickupReadyAlterations, setPickupReadyAlterations] = useState<NonNullable<HandoffOrderDetail["linked_alterations"]>>([]);
 
@@ -733,6 +736,7 @@ export default function Cart({
     setManagerOverrideApproved(false);
     setManagerOverrideReason("");
     setPickupTransactionId(null);
+    setPickupTransactions([]);
     setPickupPaidAmountCents(0);
     setPickupReadyAlterations([]);
   }, [clearCart, resetSaleDateTime]);
@@ -1616,6 +1620,8 @@ export default function Cart({
     lastTransactionId: checkoutTransactionId,
     lastCashChangeDueCents,
     lastReceiptTransactionLineIds,
+    setLastTransactionId: setCheckoutTransactionId,
+    setLastReceiptTransactionLineIds,
   } = useCartCheckout({
     sessionId,
     baseUrl,
@@ -1632,6 +1638,7 @@ export default function Cart({
     pickupAlterationIds: pickupReadyAlterations.map((alteration) => alteration.id),
     pickupConfirmed,
     pickupTransactionId,
+    pickupTransactions,
     belowCostApproval: activeBelowCostApproval
       ? {
           approvedByStaffId: activeBelowCostApproval.approvedByStaffId,
@@ -2179,6 +2186,7 @@ export default function Cart({
         setExchangeWizardInitialTransactionId(null);
         setExchangeWizardInitialReturnLineId(null);
         setPickupTransactionId(detail.transaction_id);
+        setPickupTransactions([{ transactionId: detail.transaction_id, lineIds: unfulfilled.map((item) => item.transaction_line_id) }]);
         setPickupPaidAmountCents(parseMoneyToCents(detail.amount_paid ?? "0"));
         setPickupReadyAlterations((detail.linked_alterations ?? []).filter((alteration) => alteration.status === "ready"));
         setManagerOverrideApproved(false);
@@ -3704,7 +3712,7 @@ export default function Cart({
                     return;
                   }
                   if (totals.totalCents === 0 && checkoutOperator) {
-                    await executeCheckout(
+                    const completedTransactionId = await executeCheckout(
                       [],
                       checkoutOperator,
                       {
@@ -3716,6 +3724,7 @@ export default function Cart({
                         overrideReason: managerOverrideReason || undefined,
                       },
                     );
+                    if (completedTransactionId) setCheckoutDrawerOpen(false);
                     return;
                   }
                 }
@@ -4022,6 +4031,9 @@ export default function Cart({
                   return;
                 }
                 setLastReceiptOrderPaymentLines([]);
+                setLastReceiptExchangeReturnTransactionId(pendingReturnTender.originalTransactionId);
+                setLastReceiptTransactionLineIds([]);
+                setCheckoutTransactionId(replacementTransactionId);
                 clearCartAndAlterations();
                 setCheckoutDrawerOpen(false);
                 toast(`Exchange settled for ${pendingReturnTender.receiptLabel}.`, "success");
@@ -4097,6 +4109,11 @@ export default function Cart({
                 return;
               }
               setLastReceiptOrderPaymentLines([]);
+              setLastReceiptExchangeReturnTransactionId(null);
+              setLastReceiptTransactionLineIds(
+                pendingReturnTender.returnLines.map((line) => line.transaction_line_id),
+              );
+              setCheckoutTransactionId(pendingReturnTender.originalTransactionId);
               clearCartAndAlterations();
               setCheckoutDrawerOpen(false);
               toast(`Refund completed for ${pendingReturnTender.receiptLabel}.`, "success");
@@ -4113,11 +4130,12 @@ export default function Cart({
             return;
           }
           setLastReceiptOrderPaymentLines(orderPaymentLines);
-          await executeCheckout(applied, op, ledger, {
+          const completedTransactionId = await executeCheckout(applied, op, ledger, {
             ...(checkoutOrderOptions || {}),
             overrideReadiness: managerOverrideApproved,
             overrideReason: managerOverrideReason || undefined,
           });
+          if (completedTransactionId) setCheckoutDrawerOpen(false);
         }}
         allowStoreCredit={!!selectedCustomer}
         appliedPayments={checkoutAppliedPayments}
@@ -5023,6 +5041,7 @@ export default function Cart({
             setLastTransactionId(null);
             setCheckoutOperator(null);
             setLastReceiptOrderPaymentLines([]);
+            setLastReceiptExchangeReturnTransactionId(null);
             setSelectedCustomer(null);
             onSaleCompleted?.();
           }}
@@ -5032,6 +5051,7 @@ export default function Cart({
           orderPaymentLines={lastReceiptOrderPaymentLines}
           cashChangeDueCents={lastCashChangeDueCents}
           receiptTransactionLineIds={lastReceiptTransactionLineIds}
+          exchangeReturnTransactionId={lastReceiptExchangeReturnTransactionId}
           autoPrintOnOpen
         />
       )}
@@ -5063,11 +5083,93 @@ export default function Cart({
             onAddItemToOrder={addItemToExistingOrder}
             onUpdateOrderItem={updateExistingOrderItem}
             onDeleteOrderItem={deleteExistingOrderItem}
-            onPickupToCart={async (order, items) => {
-              const ids = items
-                .map((item) => item.transaction_line_id)
-                .filter((id): id is string => Boolean(id));
-              return loadTransactionIntoRegister(order.id, true, false, ids);
+            onPickupToCart={async (selections: PickupSelection[]) => {
+              try {
+                const loaded = await Promise.all(
+                  selections.map(async ({ order, items }) => {
+                    const res = await fetch(`${baseUrl}/api/transactions/${order.id}`, {
+                      headers: apiAuth(),
+                    });
+                    if (!res.ok) throw new Error(`Could not load ${order.display_id} for pickup.`);
+                    const detail = (await res.json()) as HandoffOrderDetail;
+                    const requested = new Set(items.map((item) => item.transaction_line_id));
+                    const openItems = (detail.items ?? []).filter(
+                      (item) => requested.has(item.transaction_line_id) && !item.is_fulfilled && !item.is_internal,
+                    );
+                    if (openItems.length === 0) throw new Error(`${order.display_id} has no selected open items available for pickup.`);
+                    if (!detail.customer) throw new Error(`${order.display_id} has no customer attached.`);
+                    return { order, detail, openItems };
+                  }),
+                );
+                const firstCustomer = loaded[0]?.detail.customer;
+                if (!firstCustomer || loaded.some(({ detail }) => detail.customer?.id !== firstCustomer.id)) {
+                  toast("Pickup items must belong to the same customer.", "error");
+                  return false;
+                }
+                setSelectedCustomer({
+                  id: firstCustomer.id,
+                  customer_code: firstCustomer.customer_code ?? "",
+                  first_name: firstCustomer.first_name,
+                  last_name: firstCustomer.last_name,
+                  company_name: firstCustomer.company_name ?? null,
+                  email: firstCustomer.email ?? null,
+                  phone: firstCustomer.phone ?? null,
+                });
+                const selectionsForCheckout = loaded.map(({ detail, openItems }) => ({
+                  transactionId: detail.transaction_id,
+                  lineIds: openItems.map((item) => item.transaction_line_id),
+                }));
+                const cartLines: CartLineItem[] = loaded.flatMap(({ openItems }) =>
+                  openItems.map((item) => ({
+                    product_id: item.product_id,
+                    variant_id: item.variant_id,
+                    sku: item.sku,
+                    name: item.product_name,
+                    variation_label: item.variation_label ?? null,
+                    standard_retail_price: item.unit_price,
+                    unit_cost: item.unit_cost ?? "0.00",
+                    state_tax: item.state_tax ?? "0.00",
+                    local_tax: item.local_tax ?? "0.00",
+                    tax_category: "other",
+                    quantity: item.quantity,
+                    fulfillment: item.fulfillment as FulfillmentKind,
+                    cart_row_id: newCartRowId(),
+                    transaction_line_id: item.transaction_line_id,
+                    salesperson_id: item.salesperson_id || null,
+                    line_type: item.custom_item_type === "alteration_service" ? "alteration_service" : "merchandise",
+                    custom_item_type: item.custom_item_type || undefined,
+                    custom_order_details: item.custom_order_details ?? null,
+                    order_lifecycle_status: item.order_lifecycle_status as OrderLifecycleStatus | undefined,
+                  })),
+                );
+                const paymentLines: OrderPaymentCartLine[] = loaded
+                  .filter(({ detail }) => parseMoneyToCents(detail.balance_due ?? "0") > 0)
+                  .map(({ detail }) => ({
+                    line_type: "order_payment",
+                    cart_row_id: newCartRowId(),
+                    target_transaction_id: detail.transaction_id,
+                    target_display_id: detail.transaction_display_id ?? detail.transaction_id.slice(0, 8).toUpperCase(),
+                    customer_id: firstCustomer.id,
+                    customer_name: `${firstCustomer.first_name} ${firstCustomer.last_name}`.trim(),
+                    amount: detail.balance_due ?? "0.00",
+                    balance_before: detail.balance_due ?? "0.00",
+                    projected_balance_after: "0.00",
+                  }));
+                setPickupTransactionId(selectionsForCheckout[0]?.transactionId ?? null);
+                setPickupTransactions(selectionsForCheckout);
+                setPickupPaidAmountCents(loaded.reduce((sum, { detail }) => sum + parseMoneyToCents(detail.amount_paid ?? "0"), 0));
+                setPickupReadyAlterations(loaded.flatMap(({ detail }) => (detail.linked_alterations ?? []).filter((alteration) => alteration.status === "ready")));
+                setManagerOverrideApproved(false);
+                setManagerOverrideReason("");
+                setLines(cartLines);
+                setOrderPaymentLines(paymentLines);
+                setCheckoutDrawerOpen(true);
+                toast(`Loaded ${cartLines.length} pickup item(s) from ${selectionsForCheckout.length} order(s).`, "success");
+                return true;
+              } catch (error) {
+                toast(error instanceof Error ? error.message : "Could not load the pickup basket.", "error");
+                return false;
+              }
             }}
           />
 

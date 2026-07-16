@@ -37,13 +37,14 @@ Use this window when a customer already has open Special, Custom, or Wedding wor
 4. Use **Add to Order** when the customer is adding another item to the same original fulfillment work.
 5. Use **Save Line** only when correcting quantity or price on an unfulfilled line.
 6. Use **Add Payment** when the customer is paying an existing balance.
-7. For pickup, select the lines leaving with the customer and use **Pick Up Selected**. ROS loads those lines into the register cart so staff can add new purchases before completing pickup.
+7. For pickup, select the lines leaving with the customer and use **Pick Up Selected**. ROS adds those lines to a pickup basket; open another order and add its selected lines when the customer is taking items from multiple orders. Use **Start Pickup** when the basket contains every item leaving today.
 
 ## Important
 
 - **Add to Order** and **Save Line** update the original fulfillment work and refresh the linked Transaction Record totals.
 - Payment taken later remains a new payment movement, but it is attached to the original Transaction Record.
-- **Pick Up Selected** does not finish inside this window. It moves the selected pickup lines to the register cart, keeps their original Transaction Record links, and finishes from **Complete Pickup** so the Sale Complete receipt screen opens.
+- **Pick Up Selected** does not finish inside this window. It adds the selected pickup lines to the basket, keeps each line's original Transaction Record link, and lets staff combine one or more orders before selecting **Start Pickup**. The register finishes from **Complete Pickup** so the Sale Complete receipt screen opens.
+- The pickup basket supports one item, several items, or all open ready items from each of several orders. Payment and pickup release remain tracked against each source Transaction Record.
 - New merchandise added after loading pickup lines becomes a new sale line in the same register flow.
 - Use the balance and lifecycle note to confirm whether the order still needs payment, receiving follow-up, measurement follow-up, or pickup follow-up.
 - When the order has linked alterations marked **Ready**, loading the order for pickup shows those alteration pickups in the Register. Completing the order pickup also marks those ready alterations **Picked Up**.

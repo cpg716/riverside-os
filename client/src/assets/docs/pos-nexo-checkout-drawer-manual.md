@@ -36,7 +36,7 @@ Choose the tender type on the left, then collect the amount in the center panel.
 
 - **Card reader** sends the payment to the selected Helcim terminal.
 - **Card Not Present** is for phone orders. It opens the public HTTPS ROS handoff page; select **Open Helcim Card Entry** on that page to render the secure HelcimPay.js card form. After Helcim approves, ROS automatically attaches the validated approval amount as a **CARD NOT PRESENT** tender; verify it appears in the register ledger before recording the sale. The approval screen's **Add Payment to Sale** button remains available as an idempotent recovery action if the handoff was interrupted. Use **Cancel Card Entry** on the handoff or the drawer's cancel control before approval when the customer stops; the drawer returns to the ledger so you can retry or cancel the pending attempt.
-- If Helcim shows **Successful** but ROS cannot attach the approval immediately, keep the handoff open and select **Retry Approval** or **Recover payment** in ROS. ROS preserves the original Helcim response for verification and retries the attach without charging the card again. Do not enter a manual payment or charge the card again while ROS is recovering the approved attempt.
+- If Helcim shows **Successful** but ROS cannot attach the approval immediately, keep the handoff open and select **Retry Approval** or **Recover payment** in ROS. ROS preserves the original Helcim response for verification and retries the attach without charging the card again. ROS also retries a transient checkout-recording failure with the same idempotent checkout reference. Do not enter a manual payment or charge the card again while ROS is recovering the approved attempt.
 - Riverside does not ask staff to enter a Helcim invoice number for Card Not Present. ROS records the approved Helcim attempt returned by the secure handoff.
 - Helcim may ask for billing ZIP and street address during Card Not Present entry. Those fields are controlled by Helcim's hosted verification form, not by ROS.
 - **Card refund** appears only when ROS already has the original Helcim payment reference for the refund. Staff do not enter Helcim invoice, provider, or transaction IDs. Use **Card Not Present** refund when the original card is not present. Use **Original Card** only when the customer and original card are present at the terminal.
@@ -74,7 +74,7 @@ The amount keypad is sized for register use while keeping the payment status, sa
 
 ## Completing the sale
 
-The **Complete sale** button stays unavailable until the payment rules are satisfied. After completion, Riverside OS opens the sale complete screen with print, view, text, email, and gift receipt actions.
+The **Complete sale** button stays unavailable until the payment rules are satisfied. After completion, Riverside OS opens the sale complete screen with print, view, text, email, and gift receipt actions. Receipts for returns and exchanges include the returned item as a returned/exchanged adjustment; exchange receipts also include the replacement item.
 
 If the Main Hub connection drops before the sale completes, keep the checkout drawer open and wait for the connection banner to clear. Do not run the card again unless the drawer and Payments Health confirm that no current or unresolved card request is pending.
 

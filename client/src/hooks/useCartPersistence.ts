@@ -176,6 +176,15 @@ export function useCartPersistence({
   // Persist to disk on change
   useEffect(() => {
     if (!saleHydrated) return;
+    const hasActiveSale =
+      lines.length > 0 ||
+      disbursementMembers.length > 0 ||
+      orderPaymentLines.length > 0 ||
+      pendingAlterationIntakes.length > 0;
+    if (!hasActiveSale) {
+      void localforage.removeItem("ros_pos_active_sale");
+      return;
+    }
     const sale: PersistedSale = {
       sessionId,
       lines,

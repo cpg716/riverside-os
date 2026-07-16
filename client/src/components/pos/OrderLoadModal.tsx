@@ -61,6 +61,11 @@ export interface OrderItem {
   need_by_date?: string | null;
 }
 
+export interface PickupSelection {
+  order: CustomerOrder;
+  items: OrderItem[];
+}
+
 interface OrderLoadModalProps {
   isOpen: boolean;
   customerId: string;
@@ -85,7 +90,7 @@ interface OrderLoadModalProps {
     order: CustomerOrder,
     item: OrderItem,
   ) => Promise<boolean>;
-  onPickupToCart?: (order: CustomerOrder, items: OrderItem[]) => Promise<boolean>;
+  onPickupToCart?: (selections: PickupSelection[]) => Promise<boolean>;
 }
 
 const fulfillmentLabel = (fulfillment: string) => {
@@ -149,6 +154,7 @@ export default function OrderLoadModal({
   const [pickupSelection, setPickupSelection] = useState<
     Record<string, boolean>
   >({});
+  const [pickupBasket, setPickupBasket] = useState<PickupSelection[]>([]);
   const [lineDrafts, setLineDrafts] = useState<
     Record<
       string,
@@ -225,6 +231,9 @@ export default function OrderLoadModal({
 
   useEffect(() => {
     if (!isOpen || !customerId) return;
+    setPickupBasket([]);
+    setSelectedOrderItems([]);
+    setViewingItemsOrderId(null);
     setLoading(true);
     const params = new URLSearchParams({
       customer_id: customerId,
@@ -354,15 +363,6 @@ export default function OrderLoadModal({
     overrideReadiness: boolean,
     mode: ReleaseMode = orderReleaseMode(order),
   ) => {
-    if (mode === "pickup" && onPickupToCart) {
-      const loaded = await onPickupToCart(order, items);
-      if (loaded) {
-        setPickupConfirm(null);
-        onClose();
-      }
-      return;
-    }
-
     const ids = items
       .map((item) => item.transaction_line_id)
       .filter((id): id is string => Boolean(id));
@@ -459,6 +459,10 @@ export default function OrderLoadModal({
         setPickupConfirm({ mode, order, items: openItems, blockedItems });
         return;
       }
+      if (mode === "pickup" && onPickupToCart) {
+        addToPickupBasket(order, openItems);
+        return;
+      }
       await submitRelease(order, openItems, false, mode);
     } catch (error) {
       toast(
@@ -488,6 +492,40 @@ export default function OrderLoadModal({
     }
   };
 
+  const addToPickupBasket = (order: CustomerOrder, items: OrderItem[]) => {
+    const openItems = items.filter(
+      (item) => !item.is_fulfilled && item.transaction_line_id,
+    );
+    if (openItems.length === 0) {
+      toast("Select at least one open order line for pickup.", "error");
+      return;
+    }
+    if (openItems.some((item) => item.order_lifecycle_status !== "ready_for_pickup")) {
+      toast("Only items marked Ready for Pickup can be added to a multi-order pickup. Use the manager override on a single order for unready items.", "error");
+      return;
+    }
+    setPickupBasket((previous) => [
+      ...previous.filter((entry) => entry.order.id !== order.id),
+      { order, items: openItems },
+    ]);
+    toast(`${openItems.length} item(s) from ${order.display_id} added to pickup. Select another order or start pickup.`, "success");
+  };
+
+  const startPickupBasket = async () => {
+    if (!onPickupToCart || pickupBasket.length === 0) return;
+    setPickupBusy(true);
+    try {
+      const loaded = await onPickupToCart(pickupBasket);
+      if (loaded) {
+        setPickupBasket([]);
+        setPickupConfirm(null);
+        onClose();
+      }
+    } finally {
+      setPickupBusy(false);
+    }
+  };
+
   const releaseSelectedLines = async () => {
     if (!selectedOrder) return;
     const mode = orderReleaseMode(selectedOrder);
@@ -511,6 +549,10 @@ export default function OrderLoadModal({
         items: selected,
         blockedItems,
       });
+      return;
+    }
+    if (mode === "pickup" && onPickupToCart) {
+      addToPickupBasket(selectedOrder, selected);
       return;
     }
     await submitRelease(selectedOrder, selected, false, mode);
@@ -841,6 +883,46 @@ export default function OrderLoadModal({
               ))}
             </div>
           )}
+
+          {pickupBasket.length > 0 && onPickupToCart ? (
+            <section className="mt-5 rounded-2xl border border-app-success/30 bg-app-success/5 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-app-success">
+                    Pickup basket
+                  </p>
+                  <p className="mt-1 text-sm font-semibold text-app-text">
+                    {pickupBasket.reduce((sum, entry) => sum + entry.items.length, 0)} item(s) from {pickupBasket.length} order(s)
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void startPickupBasket()}
+                  disabled={pickupBusy}
+                  className="flex min-h-10 items-center justify-center gap-2 rounded-xl border-b-4 border-app-success bg-app-success px-3 text-[10px] font-black uppercase tracking-widest text-white shadow-lg disabled:cursor-wait disabled:opacity-50"
+                >
+                  <ShieldCheck size={14} />
+                  Start Pickup
+                </button>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {pickupBasket.map((entry) => (
+                  <button
+                    key={entry.order.id}
+                    type="button"
+                    onClick={() => setPickupBasket((previous) => previous.filter((item) => item.order.id !== entry.order.id))}
+                    className="rounded-full border border-app-success/30 bg-app-surface px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-success"
+                    title="Remove this order from the pickup basket"
+                  >
+                    {entry.order.display_id} · {entry.items.length} item(s) ×
+                  </button>
+                ))}
+              </div>
+              <p className="mt-3 text-xs font-semibold text-app-text-muted">
+                Select another order below to add more items. Payment and pickup release remain tracked per order.
+              </p>
+            </section>
+          ) : null}
 
           {selectedOrderItems.length > 0 && (
             <div className="mt-5 rounded-2xl border border-app-border bg-app-surface p-4">

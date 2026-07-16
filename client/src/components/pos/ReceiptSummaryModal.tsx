@@ -42,6 +42,8 @@ export interface ReceiptSummaryModalProps {
   orderPaymentLines?: OrderPaymentCartLine[];
   cashChangeDueCents?: number;
   receiptTransactionLineIds?: string[];
+  /** When set, append returned lines from this original transaction to an exchange receipt. */
+  exchangeReturnTransactionId?: string | null;
   /** Only the just-completed sale flow may auto-print. Historical receipt views stay manual. */
   autoPrintOnOpen?: boolean;
 }
@@ -115,6 +117,7 @@ export default function ReceiptSummaryModal({
   orderPaymentLines = [],
   cashChangeDueCents = 0,
   receiptTransactionLineIds = [],
+  exchangeReturnTransactionId = null,
   autoPrintOnOpen = false,
 }: ReceiptSummaryModalProps) {
   const { toast } = useToast();
@@ -171,6 +174,9 @@ export default function ReceiptSummaryModal({
       if (ids.length) {
         sp.set("transaction_line_ids", ids.join(","));
       }
+      if (exchangeReturnTransactionId) {
+        sp.set("exchange_return_transaction_id", exchangeReturnTransactionId);
+      }
       if (
         transactionDetail?.status === "fulfilled" ||
         ids.length > 0 ||
@@ -181,7 +187,13 @@ export default function ReceiptSummaryModal({
       const s = sp.toString();
       return s ? `?${s}` : "";
     },
-    [registerSessionId, transactionDetail?.status, receiptTransactionLineIds, orderPaymentLines],
+    [
+      registerSessionId,
+      transactionDetail?.status,
+      receiptTransactionLineIds,
+      exchangeReturnTransactionId,
+      orderPaymentLines,
+    ],
   );
 
   const shouldKickCashDrawer = useCallback(() => {

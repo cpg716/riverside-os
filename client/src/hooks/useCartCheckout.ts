@@ -39,6 +39,7 @@ interface UseCartCheckoutProps {
   pickupAlterationIds?: string[];
   pickupConfirmed: boolean;
   pickupTransactionId: string | null;
+  pickupTransactions?: PickupTransactionSelection[];
   belowCostApproval: {
     approvedByStaffId: string;
     reason?: string;
@@ -51,6 +52,11 @@ interface UseCartCheckoutProps {
   onSaleCompleted?: () => void;
   ensurePosTokenForSession: () => Promise<string | null>;
   requestPickupPaymentOverride?: (message: string) => Promise<NonNullable<PosOrderOptions["pickupPaymentOverride"]> | null>;
+}
+
+export interface PickupTransactionSelection {
+  transactionId: string;
+  lineIds: string[];
 }
 
 interface CheckoutExecutionOverrides {
@@ -182,6 +188,7 @@ export function useCartCheckout({
   pickupAlterationIds = [],
   pickupConfirmed,
   pickupTransactionId,
+  pickupTransactions = [],
   belowCostApproval,
   saleDateTimeLocal,
   totals,
@@ -280,11 +287,12 @@ export function useCartCheckout({
         message.includes("remaining open items need at least a 50% deposit");
 
       const postPickup = async (
+        transactionId: string,
         deliveredItemIds: string[],
         pickupOptions?: PosOrderOptions,
         checkoutTransactionId?: string,
       ): Promise<{ ok: true; warnings: string[] } | { ok: false; status: number; message: string }> => {
-        const pickupRes = await fetch(`${baseUrl}/api/transactions/${pickupTransactionId}/pickup`, {
+        const pickupRes = await fetch(`${baseUrl}/api/transactions/${transactionId}/pickup`, {
           method: "POST",
           headers: { ...apiAuth(), "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -322,11 +330,12 @@ export function useCartCheckout({
       };
 
       const completePickupWithOptionalPaymentOverride = async (
+        transactionId: string,
         deliveredItemIds: string[],
         pickupOptions?: PosOrderOptions,
         checkoutTransactionId?: string,
       ): Promise<{ ok: true; warnings: string[] } | { ok: false; status: number; message: string }> => {
-        const firstAttempt = await postPickup(deliveredItemIds, pickupOptions, checkoutTransactionId);
+        const firstAttempt = await postPickup(transactionId, deliveredItemIds, pickupOptions, checkoutTransactionId);
         if (
           firstAttempt.ok ||
           pickupOptions?.pickupPaymentOverride ||
@@ -339,6 +348,7 @@ export function useCartCheckout({
         const approval = await requestPickupPaymentOverride(firstAttempt.message);
         if (!approval) return firstAttempt;
         return postPickup(
+          transactionId,
           deliveredItemIds,
           {
             ...pickupOptions,
@@ -366,12 +376,14 @@ export function useCartCheckout({
           line.transaction_line_id ? [line.transaction_line_id] : [],
         );
 
-        const pickupResult = await completePickupWithOptionalPaymentOverride(deliveredItemIds, options);
-        if (!pickupResult.ok) {
-          throw new Error(pickupResult.message);
-        }
-        for (const warning of pickupResult.warnings) {
-          if (warning.trim()) toast(warning, "info");
+        for (const selection of pickupTransactions.length > 0
+          ? pickupTransactions
+          : [{ transactionId: pickupTransactionId, lineIds: deliveredItemIds }]) {
+          const pickupResult = await completePickupWithOptionalPaymentOverride(selection.transactionId, selection.lineIds, options);
+          if (!pickupResult.ok) throw new Error(pickupResult.message);
+          for (const warning of pickupResult.warnings) {
+            if (warning.trim()) toast(warning, "info");
+          }
         }
         toast("Pickup completed successfully.", "success");
         setLastReceiptTransactionLineIds(deliveredItemIds);
@@ -644,16 +656,29 @@ export function useCartCheckout({
         return null;
       }
 
-      let res: Response;
-      try {
-        res = await fetch(`${baseUrl}/api/transactions/checkout`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", ...apiAuth() },
-          body: JSON.stringify(payload),
-        });
-      } catch (error) {
+      let res: Response | null = null;
+      let checkoutNetworkError: unknown = null;
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+          res = await fetch(`${baseUrl}/api/transactions/checkout`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", ...apiAuth() },
+            body: JSON.stringify(payload),
+          });
+          if (res.ok || (res.status < 500 && res.status !== 408 && res.status !== 429)) {
+            break;
+          }
+        } catch (error) {
+          checkoutNetworkError = error;
+          res = null;
+        }
+      }
+
+      if (!res) {
         const detail =
-          error instanceof Error ? error.message : "Network failure while recording checkout.";
+          checkoutNetworkError instanceof Error
+            ? checkoutNetworkError.message
+            : "Network failure while recording checkout.";
         await recordBlockedCheckoutRecovery(payload, 0, detail, {
           recoveryKind: "online_unconfirmed",
           recoveryKey: checkoutClientId,
@@ -738,15 +763,27 @@ export function useCartCheckout({
           line.transaction_line_id ? [line.transaction_line_id] : [],
         );
         try {
-          const pickupResult = await completePickupWithOptionalPaymentOverride(
-            deliveredItemIds,
-            options,
-            data.transaction_id,
-          );
+          const pickupResults = [];
+          for (const selection of pickupTransactions.length > 0
+            ? pickupTransactions
+            : [{ transactionId: pickupTransactionId, lineIds: deliveredItemIds }]) {
+            pickupResults.push(
+              await completePickupWithOptionalPaymentOverride(
+                selection.transactionId,
+                selection.lineIds,
+                options,
+                data.transaction_id,
+              ),
+            );
+          }
+          const pickupResult = pickupResults.find((result) => !result.ok) ?? {
+            ok: true as const,
+            warnings: pickupResults
+              .filter((result): result is { ok: true; warnings: string[] } => result.ok)
+              .flatMap((result) => result.warnings),
+          };
           if (pickupResult.ok) {
-            for (const warning of pickupResult.warnings) {
-              if (warning.trim()) toast(warning, "info");
-            }
+            for (const warning of pickupResult.warnings) if (warning.trim()) toast(warning, "info");
             toast("Pickup completed successfully.", "success");
             const alterationPickupFailures: string[] = [];
             for (const alterationId of pickupAlterationIds) {
@@ -803,8 +840,10 @@ export function useCartCheckout({
       }
 
       setLastCashChangeDueCents(cashChangeDueCents(applied));
-      setLastReceiptTransactionLineIds(receiptTransactionLineIds);
-      setLastTransactionId(receiptTransactionId);
+      if (execution?.emitSaleCompleted !== false) {
+        setLastReceiptTransactionLineIds(receiptTransactionLineIds);
+        setLastTransactionId(receiptTransactionId);
+      }
       if (execution?.clearAfterCheckout !== false) {
         clearCart();
         setCheckoutClientId(newCheckoutClientId());
@@ -823,7 +862,7 @@ export function useCartCheckout({
   }, [
     sessionId, baseUrl, apiAuth, lines, selectedCustomer, activeWeddingMember,
     cashierName, primarySalespersonId, disbursementMembers, posShipping, pendingAlterationIntakes, orderPaymentLines,
-    pickupAlterationIds, pickupConfirmed, pickupTransactionId, belowCostApproval, saleDateTimeLocal, totals, toast, clearCart, onSaleCompleted, ensurePosTokenForSession, requestPickupPaymentOverride, checkoutClientId
+    pickupAlterationIds, pickupConfirmed, pickupTransactionId, pickupTransactions, belowCostApproval, saleDateTimeLocal, totals, toast, clearCart, onSaleCompleted, ensurePosTokenForSession, requestPickupPaymentOverride, checkoutClientId
   ]);
 
   return {
@@ -833,6 +872,7 @@ export function useCartCheckout({
     lastTransactionId,
     lastCashChangeDueCents,
     lastReceiptTransactionLineIds,
-    setLastTransactionId
+    setLastTransactionId,
+    setLastReceiptTransactionLineIds,
   };
 }
