@@ -180,8 +180,9 @@ export type HydratePosRegisterAuthArgs = {
 export async function hydratePosRegisterAuthIfNeeded(
   args: HydratePosRegisterAuthArgs,
 ): Promise<boolean> {
-  const sid = args.sessionId.trim();
-  if (!sid) return false;
+  try {
+    const sid = args.sessionId.trim();
+    if (!sid) return false;
 
   const existing = getPosRegisterAuth();
   if (existing?.sessionId === sid && existing?.token?.trim()) {
@@ -241,5 +242,10 @@ export async function hydratePosRegisterAuthIfNeeded(
     }
   }
 
-  return false;
+    return false;
+  } catch {
+    // Background token hydration is best-effort. The checkout path retries it
+    // with the current session credentials before making a POS request.
+    return false;
+  }
 }

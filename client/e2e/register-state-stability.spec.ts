@@ -1,6 +1,6 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
 
-const BO_SESSION_KEY = "ros.backoffice.session.v1";
+const BO_SESSION_KEY = "ros.backoffice.session.v2";
 const POS_SESSION_KEY = "ros.posRegisterAuth.v1";
 
 const adminPermissions = [
@@ -37,7 +37,11 @@ async function seedBackofficeSession(
     ({ boKey, posKey, label, posSession }) => {
       window.sessionStorage.setItem(
         boKey,
-        JSON.stringify({ staffCode: "1234", staffPin: "1234" }),
+        JSON.stringify({
+          staffCode: "staff-chris",
+          sessionToken: "e2e-backoffice-session",
+          sessionExpiresAt: "2099-01-01T00:00:00.000Z",
+        }),
       );
       if (posSession) {
         window.sessionStorage.setItem(

@@ -3285,7 +3285,7 @@ async fn link_helcim_reconciliation_payment(
 
     let payment = sqlx::query(
         r#"
-        SELECT id, amount, payment_provider, provider_transaction_id
+        SELECT id, amount, payment_method, payment_provider, provider_transaction_id
         FROM payment_transactions
         WHERE id = $1
         FOR UPDATE

@@ -52,6 +52,7 @@ export type SeedFixtureResponse = {
 type SessionListRow = {
   session_id?: string;
   id?: string;
+  register_lane?: number;
 };
 
 type SessionOpenResponse = {
@@ -180,31 +181,61 @@ export async function resetOpenRegisterSessions(request: APIRequestContext) {
   }
 
   const rows = (await listRes.json()) as SessionListRow[];
-  for (const row of rows) {
-    const sessionId = (row.session_id || row.id || "").trim();
-    if (!sessionId) continue;
-    const closeRes = await request.post(`${apiBase()}/api/sessions/${sessionId}/close`, {
-      headers: {
-        ...staffHeaders(),
-        "Content-Type": "application/json",
+  const primary = rows.find((row) => row.register_lane === 1) ?? rows[0];
+  if (!primary) return;
+  const sessionId = (primary.session_id || primary.id || "").trim();
+  if (!sessionId) return;
+
+  const tokenRes = await request.post(`${apiBase()}/api/sessions/${sessionId}/attach`, {
+    headers: {
+      ...staffHeaders(),
+      "Content-Type": "application/json",
       "x-riverside-station-key": "station-e2e",
+    },
+    failOnStatusCode: false,
+  });
+  if (tokenRes.status() !== 200) {
+    const bodyText = await tokenRes.text();
+    throw new Error(
+      `Failed to attach to open register session ${sessionId} during E2E reset (status ${tokenRes.status()}): ${bodyText || "<empty body>"}`,
+    );
+  }
+  const tokenBody = (await tokenRes.json()) as { pos_api_token?: string };
+  const token = tokenBody.pos_api_token?.trim() || "";
+  const reconRes = await request.get(`${apiBase()}/api/sessions/${sessionId}/reconciliation`, {
+    headers: {
+      "x-riverside-pos-session-id": sessionId,
+      "x-riverside-pos-session-token": token,
+      "x-riverside-station-key": "station-e2e",
+    },
+    failOnStatusCode: false,
+  });
+  if (reconRes.status() !== 200) {
+    const bodyText = await reconRes.text();
+    throw new Error(
+      `Failed to read open register session ${sessionId} during E2E reset (status ${reconRes.status()}): ${bodyText || "<empty body>"}`,
+    );
+  }
+  const reconciliation = (await reconRes.json()) as { expected_cash: string };
+  const closeRes = await request.post(`${apiBase()}/api/sessions/${sessionId}/close`, {
+      headers: {
+        "Content-Type": "application/json",
+        "x-riverside-pos-session-id": sessionId,
+        "x-riverside-pos-session-token": token,
+        "x-riverside-station-key": "station-e2e",
       },
       data: {
-        actual_cash: "0.00",
+        actual_cash: reconciliation.expected_cash,
         closing_notes: "E2E RMS permissions reset",
         closing_comments: "E2E RMS permissions reset",
       },
       failOnStatusCode: false,
     });
-    if (closeRes.status() === 409) {
-      continue;
-    }
-    if (closeRes.status() !== 200) {
-      const bodyText = await closeRes.text();
-      throw new Error(
-        `Failed to close open register session ${sessionId} during E2E reset (status ${closeRes.status()}): ${bodyText || "<empty body>"}`,
-      );
-    }
+  if (closeRes.status() !== 200) {
+    const bodyText = await closeRes.text();
+    throw new Error(
+      `Failed to close open register session ${sessionId} during E2E reset (status ${closeRes.status()}): ${bodyText || "<empty body>"}`,
+    );
   }
 }
 

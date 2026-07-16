@@ -4,7 +4,7 @@ title: "Payments Operations"
 order: 85
 summary: "Review Helcim transactions, batches, deposits, reconciliation issues, and payment health without changing processor truth."
 source: client/src/components/payments/PaymentsWorkspace.tsx
-last_scanned: 2026-07-10
+last_scanned: 2026-07-15
 tags: payments, helcim, batches, deposits, reconciliation, terminal, refunds
 status: approved
 ---
@@ -80,6 +80,16 @@ Use this only when **Health → Helcim Terminal Review** shows an approved charg
 6. Open the recovered Transaction and confirm its lines, customer, payment, balance, order status, and Helcim reference.
 
 ROS refuses recovery when the retained cart is missing or ambiguous, the cart total differs from the approval, the register sessions differ, the provider transaction is already linked, or the cart needs a specialized Wedding or Alterations workflow. A successful recovery creates the sale through normal checkout logic and records the manager, original operator, original approval time, parked cart, payment allocation, and Helcim match in one audited database transaction.
+
+## Card Not Present checkout handoff
+
+1. Select **Helcim Card Not Present** in the open Register checkout. This opens Helcim's secure hosted card-entry page; it does not use the physical terminal.
+2. Keep the checkout open while the card is entered. The hosted page returns the approval and provider transaction to the same checkout using its signed response.
+3. Review the approval details in the Riverside handoff screen and select **Add Payment to Sale**. This posts the approved amount to the checkout ledger and enables **Record Sale**.
+4. If the handoff is interrupted, use **Recover Payment** or **Check Status** from the same checkout. These actions reuse the existing Helcim approval and are safe to repeat; they do not create a second charge.
+5. If the payment was approved but cannot be attached, stop retrying the card and use **Health → Helcim Terminal Review** to recover it to the exact retained checkout or target Transaction Record.
+
+The Card Not Present flow must never be routed to a physical terminal. A successful approval is not complete in Riverside until the payment appears in the checkout ledger and the resulting Transaction Record shows the Helcim provider reference.
 
 ## Recover an approved card payment onto an existing order
 

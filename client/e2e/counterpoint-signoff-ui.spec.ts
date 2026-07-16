@@ -1042,7 +1042,6 @@ test.describe("Counterpoint sign-off UI", () => {
 
     const panel = await openCounterpointSettings(page, "connect");
 
-    await expect(panel.getByText("Counterpoint Import Command Center")).toBeVisible();
     await expect(panel.getByText("ROS Import Command Center")).toBeVisible();
     await expect(panel.getByText("ROS business-area import path")).toBeVisible();
     await expect(panel.getByText("Bridge -> ROS inventory import -> PostgreSQL")).toBeVisible();

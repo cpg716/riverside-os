@@ -197,7 +197,7 @@ async function closeRegisterGroup(
     },
     data: {
       actual_cash: recon.expected_cash,
-      closing_notes: null,
+      closing_notes: "E2E exact-cash cleanup close",
       closing_comments: null,
     },
     failOnStatusCode: false,

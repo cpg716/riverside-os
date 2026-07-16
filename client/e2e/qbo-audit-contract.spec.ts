@@ -7,6 +7,7 @@ import {
   getTransactionArtifacts,
   staffCode,
   staffHeaders,
+  resetOpenRegisterSessions,
   verifyStaffId,
 } from "./helpers/rmsCharge";
 import { createVendor } from "./helpers/inventoryReceiving";
@@ -984,6 +985,13 @@ async function fetchQboDrilldown(
 }
 
 test.describe("QBO audit contract", () => {
+  test.afterEach(async ({ request }) => {
+    await resetOpenRegisterSessions(request);
+  });
+  test.afterAll(async ({ request }) => {
+    await resetOpenRegisterSessions(request);
+  });
+
   test("processed refunds post negative tender evidence and returned-line drilldown uses effective quantity", async ({
     request,
   }) => {

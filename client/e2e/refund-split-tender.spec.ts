@@ -1,5 +1,13 @@
 import { expect, test, type APIRequestContext } from "@playwright/test";
-import { apiBase, ensureSessionAuth, staffHeaders, verifyStaffId, seedRmsFixture, type SeedFixtureResponse } from "./helpers/rmsCharge";
+import {
+  apiBase,
+  ensureSessionAuth,
+  resetOpenRegisterSessions,
+  staffHeaders,
+  verifyStaffId,
+  seedRmsFixture,
+  type SeedFixtureResponse,
+} from "./helpers/rmsCharge";
 
 function apiUrl(path: string) {
   return `${apiBase()}${path}`;
@@ -264,6 +272,13 @@ async function getTransactionDetail(request: APIRequestContext, transactionId: s
 }
 
 test.describe("refund split-tender capacity contract", () => {
+  test.afterEach(async ({ request }) => {
+    await resetOpenRegisterSessions(request);
+  });
+  test.afterAll(async ({ request }) => {
+    await resetOpenRegisterSessions(request);
+  });
+
   test("cash transaction void records audit state, restocks eligible lines, and opens refund workflow", async ({ request }) => {
     test.setTimeout(60_000);
     const { sessionId, sessionToken } = await ensureSessionAuth(request);

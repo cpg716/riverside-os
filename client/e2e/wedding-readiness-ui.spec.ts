@@ -6,7 +6,7 @@ import {
 
 test.describe("Phase 4 wedding readiness UI", () => {
   test("surfaces readiness search, priority counts, and next actions", async ({ page }) => {
-    await page.route("**/api/weddings/readiness-dashboard?**", async (route) => {
+    await page.route("**/api/weddings/readiness-dashboard**", async (route) => {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -91,7 +91,8 @@ test.describe("Phase 4 wedding readiness UI", () => {
 
     await signInToBackOffice(page);
     await openBackofficeSidebarTab(page, "weddings");
-    await page.getByRole("button", { name: /^open readiness$/i }).click();
+    await page.getByRole("button", { name: "Readiness", exact: true }).click();
+    await page.getByRole("button", { name: /open readiness/i }).first().click();
 
     const dashboard = page.getByTestId("wedding-readiness-dashboard");
     await expect(dashboard).toBeVisible({ timeout: 20_000 });
