@@ -946,7 +946,9 @@ export default function NexoCheckoutDrawer({
       ),
     [applied],
   );
-  const takeawaySatisfied = cashEquivalentPaidCents >= tw;
+  // A negative exchange balance is a refund, so it is already satisfied once
+  // the checkout has no positive amount left to collect.
+  const takeawaySatisfied = tw <= 0 || cashEquivalentPaidCents >= tw;
   const appliedOpenDepositCents = useMemo(
     () =>
       applied.reduce(

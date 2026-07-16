@@ -7343,6 +7343,9 @@ pub(crate) async fn load_transaction_detail(
                 WHERE orx.transaction_line_id = oi.id
             ), 0) AS quantity_returned,
             CASE
+                WHEN COALESCE(o.is_counterpoint_import, false)
+                     OR o.counterpoint_ticket_ref IS NOT NULL
+                THEN COALESCE(oi.unit_price, 0)
                 WHEN oi.size_specs ? 'overridden_unit_price'
                      AND NULLIF(TRIM(oi.size_specs->>'overridden_unit_price'), '') IS NOT NULL
                      AND TRIM(oi.size_specs->>'overridden_unit_price') ~ '^[0-9]+(\.[0-9]+)?$'

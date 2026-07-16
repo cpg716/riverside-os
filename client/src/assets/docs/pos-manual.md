@@ -123,6 +123,8 @@ Selecting a returned line only stages the return. The original Transaction Recor
 
 Return and exchange credits use the original selected item price and the tax paid on that item. If the Transaction Record was only partially paid, Riverside caps the credit to the paid amount available on that Transaction Record.
 
+When the replacement item costs less than the customer-paid return credit, the checkout shows a negative balance as a cash or other eligible refund. Once that refund tender is staged, record the exchange; Riverside does not require a positive amount to collect.
+
 If the original Transaction Record still has a balance due, the returned item may reduce that balance without creating cash back for the customer. Continue the exchange, add the replacement item, and finish checkout so Riverside records the return and links the replacement sale.
 
 For Special, Custom, Wedding, and shipped order lines, confirm the original Transaction Record, returned quantities, tender/refund path, and inventory handling before settlement.
