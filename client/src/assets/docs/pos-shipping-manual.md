@@ -47,7 +47,7 @@ Shipping **requires** a linked customer profile. Use the **Customer Selector** t
 4. Choose the charge source:
    - Tap **Get shipping rates** to fetch live carrier pricing (USPS, UPS, FedEx) when Shippo live rates are enabled. Demo rates are shown only when live rates are not enabled. Select the desired rate and tap **Apply shipping to sale**.
    - Enter a **Manual shipping charge** when staff already know the delivery charge or do not need a carrier rate yet, then tap **Add shipping charge**.
-5. If the charge covers existing open order work, select the matching Transaction Record(s) in **Link existing orders** before applying the charge.
+5. If the charge covers existing open order work, optionally select the matching Transaction Record(s) in **Link existing orders** before applying the charge. A standalone shipping fee does not require an existing Transaction Record.
 
 ### Fulfillment & Payment Rules
 - **Current-sale shipping**: Shipping ordinary in-stock merchandise does not require converting the line to a Special/Custom/Wedding fulfillment order.

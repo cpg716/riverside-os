@@ -38,7 +38,7 @@ If staff only need to collect a shipping fee and no shipment will be created, ty
 ## Workflow
 1. Tap **Ship current sale** in the cart.
 2. Select **Use customer address** or enter a manual destination.
-3. If the charge is for existing open order work, select the matching Transaction Record(s) in **Link existing orders**.
+3. If the charge is for existing open order work, optionally select the matching Transaction Record(s) in **Link existing orders**. A standalone shipping fee can be completed without linking an existing Transaction Record.
 4. Either tap **Get shipping rates** and pick the preferred carrier/service, or enter a **Manual shipping charge** when the customer is only paying a known delivery fee.
 5. Tap **Apply shipping** or **Add shipping charge** to add the fee to the transaction.
 

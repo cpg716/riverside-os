@@ -608,6 +608,36 @@ impl TransactionDetailResponse {
                 });
             }
         }
+        let shipping_amount = self
+            .shipping_amount_usd
+            .unwrap_or(Decimal::ZERO)
+            .round_dp(2);
+        if !payment_only
+            && transaction_line_ids.is_none()
+            && shipping_amount > Decimal::ZERO
+            && !receipt_items.iter().any(|item| {
+                item.custom_item_type.as_deref() == Some("shipping_fee")
+                    || item.sku.eq_ignore_ascii_case("ROS-SHIPPING-FEE")
+            })
+        {
+            receipt_items.push(receipt_shared::ReceiptLine {
+                product_name: "SHIPPING FEE".to_string(),
+                sku: "ROS-SHIPPING-FEE".to_string(),
+                quantity: 1,
+                unit_price: shipping_amount,
+                fulfillment: DbFulfillmentType::Takeaway,
+                salesperson_name: None,
+                variation_label: Some("Non-taxable delivery charge".to_string()),
+                original_unit_price: None,
+                discount_event_label: None,
+                gift_card_load_code: None,
+                custom_order_details: None,
+                custom_item_type: Some("shipping_fee".to_string()),
+                is_fulfilled: true,
+                adjustment: None,
+                contributes_to_totals: true,
+            });
+        }
         if receipt_items.is_empty() {
             return Err(TransactionError::InvalidPayload(
                 "No order lines matched this receipt request.".to_string(),

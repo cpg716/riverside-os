@@ -464,6 +464,7 @@ fn receiptline_item_lines(
     let labels = [
         "PAYMENT",
         "Alterations",
+        "Shipping",
         "RETURNED / REFUNDED",
         "EXCHANGED",
         "Taken Today",
@@ -599,6 +600,11 @@ fn is_alteration_service_line(it: &crate::logic::receipt_shared::ReceiptLine) ->
     it.custom_item_type.as_deref() == Some("alteration_service")
 }
 
+fn is_shipping_fee_line(it: &crate::logic::receipt_shared::ReceiptLine) -> bool {
+    it.custom_item_type.as_deref() == Some("shipping_fee")
+        || it.sku.trim().eq_ignore_ascii_case("ROS-SHIPPING-FEE")
+}
+
 fn receipt_item_section_label(
     d: &ReceiptOrder,
     it: &crate::logic::receipt_shared::ReceiptLine,
@@ -613,6 +619,9 @@ fn receipt_item_section_label(
     }
     if is_alteration_service_line(it) {
         return "Alterations";
+    }
+    if is_shipping_fee_line(it) {
+        return "Shipping";
     }
     if it.is_fulfilled {
         match d.fulfillment_method {
@@ -1013,6 +1022,7 @@ mod tests {
                 "ALT-001",
                 Some("alteration_service"),
             ),
+            receipt_line("SHIPPING FEE", "ROS-SHIPPING-FEE", Some("shipping_fee")),
         ]);
 
         let lines = receiptline_item_lines(&order, &ReceiptConfig::default(), false, false);
@@ -1021,6 +1031,8 @@ mod tests {
         assert!(lines.contains("RMS CHARGE PAYMENT"));
         assert!(lines.contains("^^^Alterations"));
         assert!(lines.contains("Alteration: Hem Pants"));
+        assert!(lines.contains("^^^Shipping"));
+        assert!(lines.contains("SHIPPING FEE"));
     }
 
     #[test]

@@ -6707,7 +6707,9 @@ pub(crate) async fn build_customer_timeline(
                   )
               )
         )
-        SELECT id, created_at, payment_method, amount, MAX(target_transaction_id) AS target_transaction_id
+        SELECT id, created_at, payment_method, amount,
+               (array_agg(target_transaction_id ORDER BY target_transaction_id DESC)
+                FILTER (WHERE target_transaction_id IS NOT NULL))[1] AS target_transaction_id
         FROM candidate_payments
         GROUP BY id, created_at, payment_method, amount
         ORDER BY created_at DESC

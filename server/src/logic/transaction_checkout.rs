@@ -2043,17 +2043,6 @@ async fn execute_checkout_internal(
             "Shipping links require a Register shipping charge.".to_string(),
         ));
     }
-    if payload.items.is_empty()
-        && payload.order_payments.is_empty()
-        && !has_wedding_disbursements
-        && has_shipping_charge
-        && payload.shipping_links.is_empty()
-    {
-        return Err(CheckoutError::InvalidPayload(
-            "Shipping-only checkout must select at least one existing Transaction Record."
-                .to_string(),
-        ));
-    }
     if payload.target_transaction_id.is_some() {
         return Err(CheckoutError::InvalidPayload(
             "target_transaction_id checkout is no longer supported; use order_payments[]"
