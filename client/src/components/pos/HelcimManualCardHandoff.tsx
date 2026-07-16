@@ -205,7 +205,12 @@ export default function HelcimManualCardHandoff() {
           pendingApprovalRef.current = null;
           setApprovedAttempt(body);
           setState("approved");
-          setMessage("Helcim approved this payment. Review the details, then add it to the sale.");
+          setMessage("Helcim approved this payment. ROS is attaching the approved amount to this sale.");
+          // The approval is already validated by public-confirm. Notify the
+          // parent immediately so the authoritative attempt amount is posted
+          // to the checkout ledger, while the visible Add Payment control
+          // remains available as an idempotent recovery action.
+          postHandoffOutcome(attemptId, "approved");
           return;
         }
         pendingApprovalRef.current = null;

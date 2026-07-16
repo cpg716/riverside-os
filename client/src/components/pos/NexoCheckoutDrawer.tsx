@@ -1325,12 +1325,16 @@ export default function NexoCheckoutDrawer({
       method: "card_terminal" | "card_manual" | "card_saved" | "card_credit" = "card_terminal",
       label = "HELCIM CARD",
     ) => {
+      const hostedManual = isHostedManualHelcimAttempt(attempt);
       const isRefundAttempt =
         method === "card_credit" ||
         attempt.raw_audit_reference?.startsWith("helcim:terminalRefund") === true;
       const amtCents =
-        pendingHelcimCentsRef.current ||
-        (isRefundAttempt ? -Math.abs(attempt.amount_cents) : attempt.amount_cents);
+        hostedManual || pendingHelcimCentsRef.current === 0
+          ? isRefundAttempt
+            ? -Math.abs(attempt.amount_cents)
+            : attempt.amount_cents
+          : pendingHelcimCentsRef.current;
       if (amtCents === 0) return false;
       if (hasAppliedHelcimAttempt(applied, attempt)) {
         setKeypad("");
@@ -1391,7 +1395,7 @@ export default function NexoCheckoutDrawer({
       setHelcimAttempt(attempt);
       setHelcimUnverifiedNotice(null);
       if (attempt.status === "approved" || attempt.status === "captured") {
-        const isHostedManual = pendingHelcimTenderRef.current.method === "card_manual";
+        const isHostedManual = isHostedManualHelcimAttempt(attempt);
         if (isHostedManual && attempt.checkout_client_id && checkoutClientId && attempt.checkout_client_id !== checkoutClientId) {
           toast("This approved Card Not Present payment belongs to a different sale. Start Card Not Present again for this sale.", "error");
           return;
@@ -1399,10 +1403,12 @@ export default function NexoCheckoutDrawer({
         if (isHostedManual && !options.attachApproved) {
           return;
         }
+        const method = isHostedManual ? "card_manual" : pendingHelcimTenderRef.current.method;
+        const label = isHostedManual ? "CARD NOT PRESENT" : pendingHelcimTenderRef.current.label;
         addApprovedHelcimAttempt(
           attempt,
-          pendingHelcimTenderRef.current.method,
-          pendingHelcimTenderRef.current.label,
+          method,
+          label,
         );
       } else if (["failed", "canceled", "expired"].includes(attempt.status)) {
         pendingHelcimCentsRef.current = 0;
