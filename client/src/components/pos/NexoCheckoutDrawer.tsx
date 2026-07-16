@@ -1740,6 +1740,22 @@ export default function NexoCheckoutDrawer({
     void loadProviderSettings();
   }, [loadProviderSettings]);
 
+  const forceExitPendingHelcimAttempt = useCallback(() => {
+    if (helcimAttempt?.status !== "pending") return;
+    setHelcimAttempt(null);
+    setManualCardHandoffUrl(null);
+    setTerminalPickerOpen(false);
+    pendingHelcimCentsRef.current = 0;
+    pendingHelcimTenderRef.current = { method: "card_terminal", label: "HELCIM CARD" };
+    setTab("cash");
+    setKeypad(remainingCents > 0 ? centsToFixed2(Math.abs(remainingCents)) : "");
+    setHelcimUnverifiedNotice(
+      "The card request was closed locally before Helcim confirmed cancellation. Do not reuse that card attempt; review Payments Health before retrying the card.",
+    );
+    void loadProviderSettings();
+    toast("Secure card entry closed. Choose another tender or review Payments Health before retrying the card.", "info");
+  }, [helcimAttempt?.status, loadProviderSettings, remainingCents, toast]);
+
   const releaseHelcimAttempt = useCallback(
     async (attemptId: string) => {
       const res = await fetch(
@@ -3161,6 +3177,25 @@ export default function NexoCheckoutDrawer({
                 >
                   Open in Chrome
                 </button>
+                {helcimAttempt?.status === "pending" && (
+                  <>
+                    <button
+                      type="button"
+                      disabled={helcimAttemptLoading}
+                      onClick={handlePendingTerminalCancel}
+                      className="min-h-10 rounded-xl border border-rose-400/30 bg-rose-400/10 px-3 text-[10px] font-black uppercase tracking-widest text-rose-200 disabled:opacity-50"
+                    >
+                      Cancel card request
+                    </button>
+                    <button
+                      type="button"
+                      onClick={forceExitPendingHelcimAttempt}
+                      className="min-h-10 rounded-xl border border-amber-300/30 bg-amber-300/10 px-3 text-[10px] font-black uppercase tracking-widest text-amber-100"
+                    >
+                      Close & use another tender
+                    </button>
+                  </>
+                )}
                 {!helcimAttempt || !isHostedManualHelcimAttempt(helcimAttempt) ||
                 ["failed", "canceled", "expired"].includes(helcimAttempt.status) ? (
                   <button
@@ -3224,14 +3259,23 @@ export default function NexoCheckoutDrawer({
                   {helcimAttemptLoading ? "Checking" : activeTerminalAttemptIdForRefresh ? "Recover payment" : "Review Terminal"}
                 </button>
                 {helcimAttempt?.status === "pending" ? (
-                  <button
-                    type="button"
-                    onClick={handlePendingTerminalCancel}
-                    disabled={helcimAttemptLoading}
-                    className="min-h-10 rounded-xl border border-app-danger/30 bg-app-danger/10 px-3 text-[10px] font-black uppercase tracking-widest text-app-danger disabled:opacity-50"
-                  >
-                    {isHostedManualHelcimAttempt(helcimAttempt) ? "Cancel manual card" : "I canceled on terminal — clear ROS"}
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      onClick={handlePendingTerminalCancel}
+                      disabled={helcimAttemptLoading}
+                      className="min-h-10 rounded-xl border border-app-danger/30 bg-app-danger/10 px-3 text-[10px] font-black uppercase tracking-widest text-app-danger disabled:opacity-50"
+                    >
+                      {isHostedManualHelcimAttempt(helcimAttempt) ? "Cancel manual card" : "I canceled on terminal — clear ROS"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={forceExitPendingHelcimAttempt}
+                      className="min-h-10 rounded-xl border border-app-warning/30 bg-app-warning/10 px-3 text-[10px] font-black uppercase tracking-widest text-app-warning"
+                    >
+                      Close & use another tender
+                    </button>
+                  </>
                 ) : null}
                 {pendingHelcimAttemptNeedsAttention ||
                 helcimUnverifiedNotice ||
@@ -4237,6 +4281,15 @@ export default function NexoCheckoutDrawer({
                                  className="min-h-9 rounded-lg border border-rose-400/25 bg-rose-400/10 px-2.5 text-[9px] font-black uppercase tracking-widest text-rose-200 transition-colors hover:bg-rose-400/15 disabled:opacity-50"
                                >
                                  Cancel CNP
+                               </button>
+                             )}
+                             {helcimAttempt.status === "pending" && (
+                               <button
+                                 type="button"
+                                 onClick={forceExitPendingHelcimAttempt}
+                                 className="min-h-9 rounded-lg border border-amber-400/25 bg-amber-400/10 px-2.5 text-[9px] font-black uppercase tracking-widest text-amber-100 transition-colors hover:bg-amber-400/15"
+                               >
+                                 Close & use another tender
                                </button>
                              )}
                              {providerSettings?.helcim.simulator_enabled &&

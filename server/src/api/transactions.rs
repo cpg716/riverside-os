@@ -322,6 +322,8 @@ pub struct TransactionDetailResponse {
     pub status: DbOrderStatus,
     pub total_price: Decimal,
     pub amount_paid: Decimal,
+    #[serde(default)]
+    pub wedding_deposit_amount: Decimal,
     pub balance_due: Decimal,
     pub is_counterpoint_import: bool,
     pub is_forfeited: bool,
@@ -687,7 +689,8 @@ impl TransactionDetailResponse {
             tax_total,
             total_price: receipt_total_price,
             total_savings,
-            amount_paid: self.amount_paid,
+            amount_paid: (self.amount_paid + self.wedding_deposit_amount).round_dp(2),
+            wedding_deposit_amount: self.wedding_deposit_amount,
             balance_due: self.balance_due,
             payment_methods_summary: self.payment_methods_summary.clone(),
             payment_applications: self
@@ -786,6 +789,7 @@ mod tests {
             status: DbOrderStatus::Open,
             total_price: Decimal::new(1000, 2),
             amount_paid: Decimal::new(1000, 2),
+            wedding_deposit_amount: Decimal::ZERO,
             balance_due: Decimal::ZERO,
             is_counterpoint_import: false,
             is_forfeited: false,
@@ -7673,6 +7677,29 @@ pub(crate) async fn load_transaction_detail(
     )
     .collect::<Vec<_>>();
 
+    let wedding_deposit_amount: Decimal = sqlx::query_scalar(
+        r#"
+        SELECT (
+            COALESCE((
+                SELECT SUM(l.amount)
+                FROM customer_open_deposit_ledger l
+                WHERE l.transaction_id = $1
+                  AND l.reason = 'party_split_deposit'
+            ), 0)
+            + COALESCE((
+                SELECT SUM(pa.amount_allocated)
+                FROM payment_allocations pa
+                INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
+                WHERE pt.metadata->>'checkout_transaction_id' = $1::text
+                  AND pa.metadata->>'kind' = 'wedding_group_disbursement'
+            ), 0)
+        )::numeric(14,2)
+        "#,
+    )
+    .bind(transaction_id)
+    .fetch_one(pool)
+    .await?;
+
     let pickup_applications = sqlx::query_as::<
         _,
         (
@@ -7945,6 +7972,7 @@ pub(crate) async fn load_transaction_detail(
         status: h.status,
         total_price: h.total_price,
         amount_paid: h.amount_paid,
+        wedding_deposit_amount,
         balance_due: h.balance_due,
         is_counterpoint_import: h.is_counterpoint_import,
         is_forfeited: h.is_forfeited,

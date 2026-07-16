@@ -180,7 +180,7 @@ The script:
 - Applies pending migrations using `psql`.
 - Extracts precompiled ROSIE binaries (llama-server, sherpa-onnx-offline, sherpa-onnx-offline-tts), copies bundled STT/TTS model files, and verifies the Gemma GGUF model hash (matching `MODEL_PIN.json`).
 - Writes `C:\RiversideOS\server\.env`.
-- Verifies or repairs the local `cloudflared` ingress so the configured tunnel hostname points to the Riverside server port. If no local config exists, the installer can create one from `RIVERSIDE_CLOUDFLARE_TUNNEL_ID` and `RIVERSIDE_CLOUDFLARE_CREDENTIALS_FILE`; otherwise it warns that tunnel credentials are still needed.
+- Verifies or repairs the local `cloudflared` ingress so the configured tunnel hostname points to the Riverside server port. A running service-managed or Cloudflare-dashboard-managed tunnel is preserved even when it has no local `config.yml`; if the service is stopped or no local tunnel route exists, the installer reports that specific condition. If a local config is missing and credentials are supplied, the installer can create one from `RIVERSIDE_CLOUDFLARE_TUNNEL_ID` and `RIVERSIDE_CLOUDFLARE_CREDENTIALS_FILE`.
 - Adds the inbound firewall rule for the configured server port.
 - Creates a startup scheduled task named `Riverside OS Server`.
 - Starts the server and checks the local app URL.

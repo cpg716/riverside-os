@@ -1071,29 +1071,29 @@ async fn load_customer_lifecycle_signals(
             ) AS wedding_active,
             COALESCE(tx.ready_for_pickup_count, 0)::bigint AS ready_for_pickup_count,
             (
-                SELECT MAX(ts)
+                SELECT MAX(ts::timestamptz)
                 FROM (
-                    SELECT MAX(booked_at) AS ts
+                    SELECT MAX(booked_at)::timestamptz AS ts
                     FROM transactions
                     WHERE customer_id = c.id
                     UNION ALL
-                    SELECT MAX(created_at)
+                    SELECT MAX(created_at)::timestamptz
                     FROM payment_transactions
                     WHERE payer_id = c.id
                     UNION ALL
-                    SELECT MAX(created_at)
+                    SELECT MAX(created_at)::timestamptz
                     FROM measurements
                     WHERE customer_id = c.id
                     UNION ALL
-                    SELECT MAX(measured_at)
+                    SELECT MAX(measured_at)::timestamptz
                     FROM customer_measurements
                     WHERE customer_id = c.id
                     UNION ALL
-                    SELECT MAX(created_at)
+                    SELECT MAX(created_at)::timestamptz
                     FROM customer_timeline_notes
                     WHERE customer_id = c.id
                     UNION ALL
-                    SELECT MAX(l.created_at)
+                    SELECT MAX(l.created_at)::timestamptz
                     FROM wedding_activity_log l
                     WHERE EXISTS (
                         SELECT 1
@@ -3891,19 +3891,19 @@ async fn browse_customers(
                         LIMIT 1
                     ) AS active_shipment_status,
                     (
-                        SELECT MAX(ts)
+                        SELECT MAX(ts::timestamptz)
                         FROM (
-                            SELECT MAX(booked_at) AS ts FROM transactions WHERE customer_id = c.id
+                            SELECT MAX(booked_at)::timestamptz AS ts FROM transactions WHERE customer_id = c.id
                             UNION ALL
-                            SELECT MAX(created_at) FROM payment_transactions WHERE payer_id = c.id
+                            SELECT MAX(created_at)::timestamptz FROM payment_transactions WHERE payer_id = c.id
                             UNION ALL
-                            SELECT MAX(created_at) FROM measurements WHERE customer_id = c.id
+                            SELECT MAX(created_at)::timestamptz FROM measurements WHERE customer_id = c.id
                             UNION ALL
-                            SELECT MAX(measured_at) FROM customer_measurements WHERE customer_id = c.id
+                            SELECT MAX(measured_at)::timestamptz FROM customer_measurements WHERE customer_id = c.id
                             UNION ALL
-                            SELECT MAX(created_at) FROM customer_timeline_notes WHERE customer_id = c.id
+                            SELECT MAX(created_at)::timestamptz FROM customer_timeline_notes WHERE customer_id = c.id
                             UNION ALL
-                            SELECT MAX(l.created_at)
+                            SELECT MAX(l.created_at)::timestamptz
                             FROM wedding_activity_log l
                             WHERE EXISTS (
                                 SELECT 1
@@ -4231,19 +4231,19 @@ async fn browse_customers(
                         LIMIT 1
                     ) AS active_shipment_status,
                     (
-                        SELECT MAX(ts)
+                        SELECT MAX(ts::timestamptz)
                         FROM (
-                            SELECT MAX(booked_at) AS ts FROM transactions WHERE customer_id = pc.id
+                            SELECT MAX(booked_at)::timestamptz AS ts FROM transactions WHERE customer_id = pc.id
                             UNION ALL
-                            SELECT MAX(created_at) FROM payment_transactions WHERE payer_id = pc.id
+                            SELECT MAX(created_at)::timestamptz FROM payment_transactions WHERE payer_id = pc.id
                             UNION ALL
-                            SELECT MAX(created_at) FROM measurements WHERE customer_id = pc.id
+                            SELECT MAX(created_at)::timestamptz FROM measurements WHERE customer_id = pc.id
                             UNION ALL
-                            SELECT MAX(measured_at) FROM customer_measurements WHERE customer_id = pc.id
+                            SELECT MAX(measured_at)::timestamptz FROM customer_measurements WHERE customer_id = pc.id
                             UNION ALL
-                            SELECT MAX(created_at) FROM customer_timeline_notes WHERE customer_id = pc.id
+                            SELECT MAX(created_at)::timestamptz FROM customer_timeline_notes WHERE customer_id = pc.id
                             UNION ALL
-                            SELECT MAX(l.created_at)
+                            SELECT MAX(l.created_at)::timestamptz
                             FROM wedding_activity_log l
                             WHERE EXISTS (
                                 SELECT 1
@@ -4411,19 +4411,19 @@ async fn browse_customers(
                         LIMIT 1
                     ) AS active_shipment_status,
                     (
-                        SELECT MAX(ts)
+                        SELECT MAX(ts::timestamptz)
                         FROM (
-                            SELECT MAX(booked_at) AS ts FROM transactions WHERE customer_id = c.id
+                            SELECT MAX(booked_at)::timestamptz AS ts FROM transactions WHERE customer_id = c.id
                             UNION ALL
-                            SELECT MAX(created_at) FROM payment_transactions WHERE payer_id = c.id
+                            SELECT MAX(created_at)::timestamptz FROM payment_transactions WHERE payer_id = c.id
                             UNION ALL
-                            SELECT MAX(created_at) FROM measurements WHERE customer_id = c.id
+                            SELECT MAX(created_at)::timestamptz FROM measurements WHERE customer_id = c.id
                             UNION ALL
-                            SELECT MAX(measured_at) FROM customer_measurements WHERE customer_id = c.id
+                            SELECT MAX(measured_at)::timestamptz FROM customer_measurements WHERE customer_id = c.id
                             UNION ALL
-                            SELECT MAX(created_at) FROM customer_timeline_notes WHERE customer_id = c.id
+                            SELECT MAX(created_at)::timestamptz FROM customer_timeline_notes WHERE customer_id = c.id
                             UNION ALL
-                            SELECT MAX(l.created_at)
+                            SELECT MAX(l.created_at)::timestamptz
                             FROM wedding_activity_log l
                             WHERE EXISTS (
                                 SELECT 1

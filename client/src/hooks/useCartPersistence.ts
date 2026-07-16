@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useState, useRef } from "react";
 import localforage from "localforage";
 import { type Customer } from "../components/pos/CustomerSelector";
 import { type WeddingMember } from "../components/pos/WeddingLookupDrawer";
@@ -75,6 +75,15 @@ export function useCartPersistence({
 }: UseCartPersistenceProps) {
   const [saleHydrated, setSaleHydrated] = useState(false);
   const prevSessionIdForHydrateRef = useRef<string | null>(null);
+  const persistenceWriteQueueRef = useRef<Promise<void>>(Promise.resolve());
+
+  const queuePersistenceWrite = useCallback((write: () => Promise<void>) => {
+    const next = persistenceWriteQueueRef.current.then(write, write);
+    persistenceWriteQueueRef.current = next.catch(() => undefined);
+    void next.catch((error) => {
+      console.error("POS sale persistence update failed", error);
+    });
+  }, []);
 
   // Block disk writes until we've read localforage
   useLayoutEffect(() => {
@@ -182,7 +191,7 @@ export function useCartPersistence({
       orderPaymentLines.length > 0 ||
       pendingAlterationIntakes.length > 0;
     if (!hasActiveSale) {
-      void localforage.removeItem("ros_pos_active_sale");
+      queuePersistenceWrite(() => localforage.removeItem("ros_pos_active_sale"));
       return;
     }
     const sale: PersistedSale = {
@@ -198,7 +207,7 @@ export function useCartPersistence({
       pendingAlterationIntakes: pendingAlterationIntakes.length > 0 ? pendingAlterationIntakes : undefined,
       orderPaymentLines: orderPaymentLines.length > 0 ? orderPaymentLines : undefined,
     };
-    void localforage.setItem("ros_pos_active_sale", sale);
+    queuePersistenceWrite(() => localforage.setItem("ros_pos_active_sale", sale).then(() => undefined));
   }, [
     saleHydrated,
     sessionId,
@@ -212,6 +221,7 @@ export function useCartPersistence({
     checkoutOperator,
     pendingAlterationIntakes,
     orderPaymentLines,
+    queuePersistenceWrite,
   ]);
 
   return { saleHydrated };

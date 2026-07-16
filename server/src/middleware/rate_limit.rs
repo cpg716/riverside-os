@@ -199,7 +199,12 @@ pub async fn rate_limit_handler(
         }
     };
 
-    let rate_limit_check = state.check_ip_limit(&client_ip, limit, scope, now);
+    let bucket_key = if scope == RateLimitScope::RosAppAuthenticated {
+        authenticated_bucket_key(&request, &client_ip)
+    } else {
+        client_ip.clone()
+    };
+    let rate_limit_check = state.check_ip_limit(&bucket_key, limit, scope, now);
 
     drop(state); // Release lock before proceeding
 
@@ -245,6 +250,27 @@ fn has_ros_app_auth_headers(request: &Request) -> bool {
         && header_has_value(headers, "x-riverside-station-key")
         && header_has_value(headers, "x-riverside-connection-key");
     has_staff_credentials || has_staff_session || has_pos_credentials
+}
+
+fn authenticated_bucket_key(request: &Request, client_ip: &str) -> String {
+    let headers = request.headers();
+    let station = headers
+        .get("x-riverside-station-key")
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let session = headers
+        .get("x-riverside-pos-session-id")
+        .or_else(|| headers.get("x-riverside-staff-session"))
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+
+    match (station, session) {
+        (Some(station), Some(session)) => format!("{client_ip}:{station}:{session}"),
+        (Some(station), None) => format!("{client_ip}:{station}"),
+        _ => client_ip.to_string(),
+    }
 }
 
 fn is_staff_sign_in_request(request: &Request) -> bool {

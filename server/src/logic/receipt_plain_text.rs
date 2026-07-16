@@ -116,6 +116,12 @@ pub fn format_pos_receipt_text_message(order: &ReceiptOrder, cfg: &ReceiptConfig
             lines.push(order.payment_methods_summary.trim().to_string());
         }
     }
+    if order.wedding_deposit_amount > Decimal::ZERO {
+        lines.push(format!(
+            "Wedding party deposits: {}",
+            order.wedding_deposit_amount
+        ));
+    }
     if !order.payment_applications.is_empty() {
         lines.push("Applied payments:".to_string());
         for app in &order.payment_applications {

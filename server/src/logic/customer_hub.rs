@@ -410,23 +410,23 @@ pub async fn fetch_hub_stats(pool: &PgPool, customer_id: Uuid) -> Result<HubStat
     let last_activity_at: Option<DateTime<Utc>> = if let Some(cid) = couple_id {
         sqlx::query_scalar(
             r#"
-            SELECT MAX(ts) FROM (
-                SELECT MAX(booked_at) AS ts FROM transactions WHERE customer_id IN (SELECT id FROM customers WHERE couple_id = $1)
+            SELECT MAX(ts::timestamptz) FROM (
+                SELECT MAX(booked_at)::timestamptz AS ts FROM transactions WHERE customer_id IN (SELECT id FROM customers WHERE couple_id = $1)
                 UNION ALL
-                SELECT MAX(created_at) FROM payment_transactions WHERE payer_id IN (SELECT id FROM customers WHERE couple_id = $1)
+                SELECT MAX(created_at)::timestamptz FROM payment_transactions WHERE payer_id IN (SELECT id FROM customers WHERE couple_id = $1)
                 UNION ALL
-                SELECT MAX(created_at) FROM measurements WHERE customer_id IN (SELECT id FROM customers WHERE couple_id = $1)
+                SELECT MAX(created_at)::timestamptz FROM measurements WHERE customer_id IN (SELECT id FROM customers WHERE couple_id = $1)
                 UNION ALL
-                SELECT MAX(measured_at) FROM customer_measurements WHERE customer_id IN (SELECT id FROM customers WHERE couple_id = $1)
+                SELECT MAX(measured_at)::timestamptz FROM customer_measurements WHERE customer_id IN (SELECT id FROM customers WHERE couple_id = $1)
                 UNION ALL
-                SELECT MAX(created_at) FROM customer_timeline_notes WHERE customer_id IN (SELECT id FROM customers WHERE couple_id = $1)
+                SELECT MAX(created_at)::timestamptz FROM customer_timeline_notes WHERE customer_id IN (SELECT id FROM customers WHERE couple_id = $1)
                 UNION ALL
-                SELECT MAX(l.created_at)
+                SELECT MAX(l.created_at)::timestamptz
                 FROM customer_open_deposit_ledger l
                 INNER JOIN customer_open_deposit_accounts a ON a.id = l.account_id
                 WHERE a.customer_id IN (SELECT id FROM customers WHERE couple_id = $1)
                 UNION ALL
-                SELECT MAX(l.created_at)
+                SELECT MAX(l.created_at)::timestamptz
                 FROM wedding_activity_log l
                 WHERE EXISTS (
                     SELECT 1 FROM wedding_members wm
@@ -446,8 +446,8 @@ pub async fn fetch_hub_stats(pool: &PgPool, customer_id: Uuid) -> Result<HubStat
     } else {
         sqlx::query_scalar(
             r#"
-            SELECT MAX(ts) FROM (
-                SELECT MAX(booked_at) AS ts
+            SELECT MAX(ts::timestamptz) FROM (
+                SELECT MAX(booked_at)::timestamptz AS ts
                 FROM transactions t
                 WHERE (
                     t.customer_id = $1
@@ -465,7 +465,7 @@ pub async fn fetch_hub_stats(pool: &PgPool, customer_id: Uuid) -> Result<HubStat
                     )
                 )
                 UNION ALL
-                SELECT MAX(created_at)
+                SELECT MAX(created_at)::timestamptz
                 FROM payment_transactions p
                 WHERE (
                     p.payer_id = $1
@@ -483,18 +483,18 @@ pub async fn fetch_hub_stats(pool: &PgPool, customer_id: Uuid) -> Result<HubStat
                     )
                 )
                 UNION ALL
-                SELECT MAX(created_at) FROM measurements WHERE customer_id = $1
+                SELECT MAX(created_at)::timestamptz FROM measurements WHERE customer_id = $1
                 UNION ALL
-                SELECT MAX(measured_at) FROM customer_measurements WHERE customer_id = $1
+                SELECT MAX(measured_at)::timestamptz FROM customer_measurements WHERE customer_id = $1
                 UNION ALL
-                SELECT MAX(created_at) FROM customer_timeline_notes WHERE customer_id = $1
+                SELECT MAX(created_at)::timestamptz FROM customer_timeline_notes WHERE customer_id = $1
                 UNION ALL
-                SELECT MAX(l.created_at)
+                SELECT MAX(l.created_at)::timestamptz
                 FROM customer_open_deposit_ledger l
                 INNER JOIN customer_open_deposit_accounts a ON a.id = l.account_id
                 WHERE a.customer_id = $1
                 UNION ALL
-                SELECT MAX(l.created_at)
+                SELECT MAX(l.created_at)::timestamptz
                 FROM wedding_activity_log l
                 WHERE EXISTS (
                     SELECT 1 FROM wedding_members wm

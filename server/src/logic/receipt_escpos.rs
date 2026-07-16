@@ -361,6 +361,12 @@ fn push_totals(out: &mut Vec<u8>, d: &ReceiptOrder) {
             push_line(out, d.payment_methods_summary.trim());
         }
     }
+    if d.wedding_deposit_amount > Decimal::ZERO {
+        push_line(
+            out,
+            &right_pair("Wedding party deposits", &money(d.wedding_deposit_amount)),
+        );
+    }
     if !d.payment_applications.is_empty() {
         push_line(out, "Applied payments:");
         for app in &d.payment_applications {
@@ -979,6 +985,7 @@ mod tests {
             total_price: Decimal::ZERO,
             total_savings: Decimal::ZERO,
             amount_paid: Decimal::ZERO,
+            wedding_deposit_amount: Decimal::ZERO,
             balance_due: Decimal::ZERO,
             payment_methods_summary: "Cash".to_string(),
             payment_applications: Vec::new(),

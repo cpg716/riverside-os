@@ -693,8 +693,15 @@ export function useCartCheckout({
       }
 
       if (!res.ok) {
+        const detail = await checkoutResponseError(res);
+        if (providerBackedPayment && res.status < 500) {
+          await recordBlockedCheckoutRecovery(payload, res.status, detail, {
+            recoveryKind: "online_unconfirmed",
+            recoveryKey: checkoutClientId,
+            authHeaders: apiAuth(),
+          });
+        }
         if (res.status >= 500) {
-          const detail = await checkoutResponseError(res);
           await recordBlockedCheckoutRecovery(payload, res.status, detail, {
             recoveryKind: "online_unconfirmed",
             recoveryKey: checkoutClientId,
@@ -707,7 +714,7 @@ export function useCartCheckout({
             `Riverside OS could not confirm whether this checkout saved. ${tenderText} Keep the cart open and retry Record Sale after checking recovery.`,
           );
         }
-        throw new Error(await checkoutResponseError(res));
+        throw new Error(detail);
       }
 
       const data = await res.json() as { transaction_id: string; warnings?: string[] };

@@ -111,6 +111,8 @@ pub struct ReceiptOrder {
     pub total_price: Decimal,
     pub total_savings: Decimal,
     pub amount_paid: Decimal,
+    /// Amount collected for wedding-party split deposits alongside this sale.
+    pub wedding_deposit_amount: Decimal,
     pub balance_due: Decimal,
     pub payment_methods_summary: String,
     pub payment_applications: Vec<ReceiptPaymentApplication>,

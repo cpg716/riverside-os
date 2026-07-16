@@ -1452,8 +1452,11 @@ pub async fn initialize_helcim_pay(
 }
 
 fn is_retryable_helcim_error(status: reqwest::StatusCode, body_hint: Option<&str>) -> bool {
+    // A 429 is a provider throttle, not a transient transport failure. Retrying
+    // immediately multiplies the pressure and commonly turns a clear provider
+    // response into a delayed 502. Let the caller surface it and retry later.
     if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
-        return true;
+        return false;
     }
     if status.is_server_error() {
         return true;

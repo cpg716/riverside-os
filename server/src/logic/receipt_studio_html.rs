@@ -109,6 +109,16 @@ fn build_payment_applications(order: &ReceiptOrder) -> String {
     format!("<div style=\"margin-top:8px;font-size:12px\"><strong>Applied payments</strong>{rows}</div>")
 }
 
+fn build_wedding_deposit_summary(order: &ReceiptOrder) -> String {
+    if order.wedding_deposit_amount <= Decimal::ZERO {
+        return String::new();
+    }
+    format!(
+        "<br><span>Wedding party deposits</span> <span>{}</span>",
+        order.wedding_deposit_amount.round_dp(2)
+    )
+}
+
 fn customer_identity_html(order: &ReceiptOrder) -> String {
     order
         .customer
@@ -176,11 +186,13 @@ pub fn render_standard_receipt_html(
   <div><span>Balance</span><strong>{}</strong></div>
   <div><span>Tender</span><strong>{}</strong></div>
   {}
+  {}
 </div>"#,
             order.total_price,
             order.amount_paid,
             order.balance_due,
             html_escape(&order.payment_methods_summary),
+            build_wedding_deposit_summary(order),
             build_payment_applications(order)
         )
     };
@@ -365,11 +377,12 @@ pub fn merge_receipt_studio_html(
             }
             lines.join("<br>")
         };
-        let payment_summary = if order.payment_applications.is_empty() {
-            tender_summary
-        } else {
-            format!("{}{}", tender_summary, build_payment_applications(order))
-        };
+        let payment_summary = format!(
+            "{}{}{}",
+            tender_summary,
+            build_wedding_deposit_summary(order),
+            build_payment_applications(order)
+        );
         replace_all(&mut out, "{{ROS_PAYMENT_SUMMARY}}", &payment_summary);
         replace_all(&mut out, "{{ROS_TOTAL}}", &order.total_price.to_string());
         replace_all(
@@ -432,6 +445,7 @@ pub fn sample_receipt_order_for_preview() -> ReceiptOrder {
         total_price: Decimal::new(19950, 2),
         total_savings: Decimal::ZERO,
         amount_paid: Decimal::new(19950, 2),
+        wedding_deposit_amount: Decimal::ZERO,
         balance_due: Decimal::ZERO,
         payment_methods_summary: "VISA ••••4242".to_string(),
         payment_applications: Vec::new(),

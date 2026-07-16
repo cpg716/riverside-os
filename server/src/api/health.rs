@@ -50,7 +50,9 @@ pub static WORKER_HEALTH: tokio::sync::OnceCell<RwLock<WorkerHealth>> =
     tokio::sync::OnceCell::const_new();
 
 const DATABASE_HEALTH_TIMEOUT: Duration = Duration::from_secs(2);
-const REDIS_HEALTH_TIMEOUT: Duration = Duration::from_secs(2);
+// Redis is an optional acceleration layer. A stalled Redis node must not make
+// a healthy Main Hub look offline to a POS workstation.
+const REDIS_HEALTH_TIMEOUT: Duration = Duration::from_millis(500);
 
 #[derive(Debug, Default)]
 pub struct WorkerHealth {

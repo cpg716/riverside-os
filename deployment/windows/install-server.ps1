@@ -932,6 +932,14 @@ function Get-CloudflaredConfigPath {
     Select-Object -First 1
 }
 
+function Get-CloudflaredWindowsService {
+  try {
+    return Get-CimInstance Win32_Service -Filter "Name='cloudflared'" -ErrorAction SilentlyContinue
+  } catch {
+    return $null
+  }
+}
+
 function Get-ConfiguredCloudflaredConfigPath($Config) {
   $configPath = Get-ServerEnvironmentValue $Config @("RIVERSIDE_CLOUDFLARE_CONFIG_PATH", "CLOUDFLARED_CONFIG_PATH")
   if (-not [string]::IsNullOrWhiteSpace($configPath) -and (Test-Path $configPath)) {
@@ -1066,9 +1074,18 @@ function Ensure-CloudflaredRosIngress($Config, [int]$ServerPort) {
     $configPath = Get-ConfiguredCloudflaredConfigPath $Config
   }
   if ([string]::IsNullOrWhiteSpace($configPath)) {
+    $cloudflaredService = Get-CloudflaredWindowsService
+    if ($cloudflaredService -and "$($cloudflaredService.State)" -eq "Running") {
+      Write-Host "Detected running cloudflared Windows service without a local config.yml; preserving the existing service/dashboard-managed tunnel for $hostname." -ForegroundColor Green
+      return
+    }
     $configPath = New-CloudflaredConfigFromServerConfig $Config $hostname $serviceUrl
     if ([string]::IsNullOrWhiteSpace($configPath)) {
-      Write-Warning "Cloudflare tunnel hostname '$hostname' is configured, but no local cloudflared config.yml was found and no tunnel credentials were supplied. Public Helcim callbacks will not work until cloudflared routes $hostname to $serviceUrl."
+      if ($cloudflaredService) {
+        Write-Warning "Cloudflare tunnel hostname '$hostname' is configured, but the cloudflared Windows service is not running and no local config.yml or tunnel credentials were found. Start or repair the existing cloudflared service before relying on public Helcim callbacks."
+      } else {
+        Write-Warning "Cloudflare tunnel hostname '$hostname' is configured, but no local cloudflared service/config.yml was found and no tunnel credentials were supplied. Public Helcim callbacks require a reachable cloudflared route to $serviceUrl."
+      }
       return
     }
   }

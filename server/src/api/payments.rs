@@ -1061,6 +1061,30 @@ pub struct HelcimSettlementSyncResponse {
     pub message: String,
 }
 
+impl Default for HelcimSettlementSyncResponse {
+    fn default() -> Self {
+        Self {
+            run_id: Uuid::nil(),
+            status: "paused".to_string(),
+            payments_scanned: 0,
+            batches_upserted: 0,
+            batch_transactions_upserted: 0,
+            reconciliation_items_opened: 0,
+            missing_batch_rows: 0,
+            unmatched_processor_rows: 0,
+            amount_mismatches: 0,
+            status_mismatches: 0,
+            fee_mismatches: 0,
+            net_mismatches: 0,
+            api_integration_active: false,
+            helcim_batches_fetched: 0,
+            helcim_batch_transactions_fetched: 0,
+            actual_deposits_upserted: 0,
+            message: "Paused during Helcim provider backoff.".to_string(),
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct HelcimOperationsDateQuery {
     #[serde(default)]
@@ -2195,6 +2219,21 @@ pub async fn run_scheduled_helcim_fee_sync(
     pool: &PgPool,
     http_client: &reqwest::Client,
 ) -> Result<HelcimFeeSyncResponse, String> {
+    if integration_sync_in_cooldown(pool, "helcim_fee_sync").await {
+        tracing::warn!(
+            target = "helcim",
+            "Helcim fee sync paused during provider backoff"
+        );
+        return Ok(HelcimFeeSyncResponse {
+            scanned: 0,
+            updated: 0,
+            fees_unavailable: 0,
+            skipped_missing_transaction_id: 0,
+            errors: 0,
+            total_fee_synced: "0.00".to_string(),
+            total_net_synced: "0.00".to_string(),
+        });
+    }
     let config = helcim::HelcimConfig::from_env();
     if !config.enabled() {
         tracing::info!("Helcim fee sync skipped; credentials are not configured yet");
@@ -2321,6 +2360,9 @@ async fn run_helcim_fee_sync(
                         error = %error,
                         "could not sync Helcim merchant fee"
                     );
+                    if error.contains("429") || error.to_ascii_lowercase().contains("rate limit") {
+                        break;
+                    }
                     continue;
                 }
             };
@@ -2548,6 +2590,13 @@ pub async fn run_scheduled_helcim_settlement_sync(
     pool: &PgPool,
     http_client: &reqwest::Client,
 ) -> Result<HelcimSettlementSyncResponse, String> {
+    if integration_sync_in_cooldown(pool, "helcim_settlement_sync").await {
+        tracing::warn!(
+            target = "helcim",
+            "Helcim settlement sync paused during provider backoff"
+        );
+        return Ok(HelcimSettlementSyncResponse::default());
+    }
     let date_from = Some((Utc::now() - ChronoDuration::days(7)).date_naive());
     match run_helcim_settlement_sync(pool, http_client, date_from, None).await {
         Ok(response) => {
@@ -2567,6 +2616,26 @@ pub async fn run_scheduled_helcim_settlement_sync(
             Err(message)
         }
     }
+}
+
+async fn integration_sync_in_cooldown(pool: &PgPool, source: &str) -> bool {
+    let state: Option<(DateTime<Utc>, Option<DateTime<Utc>>, Option<String>)> = sqlx::query_as(
+        "SELECT last_failure_at, last_success_at, detail FROM integration_alert_state WHERE source = $1",
+    )
+    .bind(source)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten();
+    let Some((failed_at, succeeded_at, detail)) = state else {
+        return false;
+    };
+    let provider_throttled = detail.as_deref().is_some_and(|value| {
+        value.contains("429") || value.to_ascii_lowercase().contains("rate limit")
+    });
+    provider_throttled
+        && succeeded_at.is_none_or(|success| failed_at > success)
+        && Utc::now() - failed_at < ChronoDuration::minutes(15)
 }
 
 async fn run_helcim_settlement_sync(
