@@ -30,8 +30,6 @@ concurrency:
 
 env:
   CARGO_INCREMENTAL: "0"
-  RUSTC_WRAPPER: "sccache"
-  SCCACHE_GHA_ENABLED: "true"
 
 jobs:
   require-playwright-green:
@@ -72,7 +70,16 @@ jobs:
           toolchain: "1.91"
           components: rustfmt
 
-      - uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
+      - name: Set up compiler cache
+        id: sccache
+        continue-on-error: true
+        uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
+      - name: Disable unavailable compiler cache
+        if: steps.sccache.outcome != 'success'
+        run: |
+          echo "sccache setup failed; continuing without the optional compiler cache"
+          echo "RUSTC_WRAPPER=" >> "$GITHUB_ENV"
+          echo "SCCACHE_GHA_ENABLED=false" >> "$GITHUB_ENV"
       - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
         with:
           shared-key: "macos-pre-retag"
@@ -122,6 +129,7 @@ jobs:
           shared-key: "macos-ros-dev"
 
       - uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
+        continue-on-error: true
       - name: Install ROS Dev Center dependencies
         working-directory: ros-dev
         run: npm ci
