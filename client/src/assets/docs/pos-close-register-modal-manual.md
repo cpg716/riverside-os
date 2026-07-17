@@ -35,6 +35,8 @@ Riverside OS uses a **lane-aggregated model**. Opening **Register #1 (Main)** au
 
 The Z-Report page shows the exact **business date** being closed. Closing on the following morning does not rename the report. When multiple dates are waiting, repeat the flow in the order shown; ROS never combines two days. If no separate drawer count was captured for a missed historical day, the report says so instead of inventing an over/short amount.
 
+Cash refunds processed before close are recorded as negative cash activity and reduce **Cash Sales (Gross)**, **Expected Cash**, and the amount available for deposit. If the physical count differs after a refund, the Z-Report must show the resulting over/short instead of remaining balanced.
+
 If a card terminal outcome blocks close, use **Review** in the closing workflow or **POS → Payments** to record the outcome before continuing.
 
 If **Checkout recovery** appears, do not close the register yet. This means Riverside OS has a checkout that needs manager review, such as an offline sale waiting to sync, an online checkout where the server result was not confirmed, or a payment that posted before pickup could be completed. Confirm the transaction, pickup, or recovery item before retrying or closing.

@@ -5,8 +5,8 @@ use rust_decimal::Decimal;
 
 use crate::api::settings::ReceiptConfig;
 use crate::logic::receipt_shared::{
-    order_status_label, payment_summary_has_receipt_detail, receipt_display_ref,
-    tender_display_label, ReceiptOrder,
+    backdated_receipt_notice, order_status_label, payment_summary_has_receipt_detail,
+    receipt_display_ref, tender_display_label, ReceiptOrder,
 };
 
 /// Gift receipt body for SMS when MMS/HTML is not used: items only, no prices or payment details.
@@ -19,6 +19,9 @@ pub fn format_pos_gift_receipt_text_message(order: &ReceiptOrder, cfg: &ReceiptC
     lines.push(cfg.store_name.trim().to_string());
     lines.push(format!("Gift receipt {order_ref}"));
     lines.push(local_time.format("%m/%d/%Y %I:%M %p").to_string());
+    if let Some(notice) = backdated_receipt_notice(order) {
+        lines.push(notice);
+    }
     lines.push(String::from("---"));
 
     if let Some(c) = &order.customer {
@@ -65,6 +68,9 @@ pub fn format_pos_receipt_text_message(order: &ReceiptOrder, cfg: &ReceiptConfig
     lines.push(cfg.store_name.trim().to_string());
     lines.push(format!("Receipt {order_ref}"));
     lines.push(local_time.format("%m/%d/%Y %I:%M %p").to_string());
+    if let Some(notice) = backdated_receipt_notice(order) {
+        lines.push(notice);
+    }
     lines.push(String::from("---"));
 
     if let Some(c) = &order.customer {

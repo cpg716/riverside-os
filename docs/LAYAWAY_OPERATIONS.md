@@ -64,4 +64,4 @@ If a customer fails to complete a layaway:
 3. Hand over items and complete transaction.
 
 ---
-*Staff Manuals: [Layaway Manual](docs/staff/layaway-manual.md) | [Order Pickup Manual](docs/staff/order-pickup-manual.md)*
+*Staff references: [Deposit Operations](DEPOSIT_OPERATIONS.md) | [Transaction Fulfillment and Pickup](TRANSACTION_FULFILLMENT_AND_PICKUP.md) | [Transactions Back Office](staff/transactions-back-office.md)*

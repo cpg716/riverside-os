@@ -158,6 +158,14 @@ pub fn render_standard_receipt_html(
     let tz: Tz = cfg.timezone.parse().unwrap_or(chrono_tz::America::New_York);
     let local_time = order.booked_at.with_timezone(&tz);
     let order_ref = receipt_display_ref(order);
+    let backdated_notice = crate::logic::receipt_shared::backdated_receipt_notice(order)
+        .map(|notice| {
+            format!(
+                "<div class=\"muted\"><strong>{}</strong></div>",
+                html_escape(&notice)
+            )
+        })
+        .unwrap_or_default();
     let customer = customer_identity_html(order);
     let header_lines = cfg
         .header_lines
@@ -228,6 +236,7 @@ pub fn render_standard_receipt_html(
       <div class="title">{title}</div>
       <div class="muted">Receipt {order_ref}</div>
       <div class="muted">{date}</div>
+      {backdated_notice}
     </div>
     <div class="rule"></div>
     <div class="muted">{customer}</div>
@@ -243,6 +252,7 @@ pub fn render_standard_receipt_html(
         store = html_escape(&cfg.store_name),
         title = if gift { "Gift receipt" } else { "Receipt" },
         date = local_time.format("%m/%d/%Y %I:%M %p"),
+        backdated_notice = backdated_notice,
         customer = customer,
     )
 }
@@ -301,6 +311,14 @@ pub fn merge_receipt_studio_html(
         .map(|l| html_escape(l))
         .collect::<Vec<_>>()
         .join("<br/>");
+    let backdated_notice = crate::logic::receipt_shared::backdated_receipt_notice(order)
+        .map(|notice| {
+            format!(
+                "<div style=\"font-weight:900;text-align:center;color:#9a3412;margin:8px 0\">{}</div>",
+                html_escape(&notice)
+            )
+        })
+        .unwrap_or_default();
     let footer_lines = cfg
         .footer_lines
         .iter()
@@ -342,6 +360,15 @@ pub fn merge_receipt_studio_html(
     );
     let title = if gift { "Gift receipt" } else { "" };
     replace_all(&mut out, "{{ROS_RECEIPT_TITLE}}", title);
+    replace_all(&mut out, "{{ROS_BACKDATED_NOTICE}}", &backdated_notice);
+    if !backdated_notice.is_empty() && !out.contains(&backdated_notice) {
+        if let Some(body_start) = out.to_ascii_lowercase().find("<body") {
+            if let Some(body_end_offset) = out[body_start..].find('>') {
+                let insert_at = body_start + body_end_offset + 1;
+                out.insert_str(insert_at, &backdated_notice);
+            }
+        }
+    }
 
     if gift {
         replace_all(
@@ -439,6 +466,7 @@ pub fn sample_receipt_order_for_preview() -> ReceiptOrder {
         transaction_id: Uuid::nil(),
         transaction_display_id: "TXN-66736".to_string(),
         booked_at: Utc::now(),
+        backdated_business_date: None,
         status: DbOrderStatus::Open,
         subtotal_price: Decimal::new(19950, 2),
         tax_total: Decimal::ZERO,

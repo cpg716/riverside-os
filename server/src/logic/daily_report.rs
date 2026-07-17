@@ -298,14 +298,14 @@ AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
         r#"
         SELECT
             CASE
-                WHEN LOWER(payment_method) IN ('card', 'card_terminal', 'card_manual', 'card_saved', 'card_credit')
+                WHEN LOWER(TRIM(payment_method)) IN ('card', 'card_terminal', 'card_manual', 'card_saved', 'card_credit')
                 THEN 'Credit/Debit Card'
-                WHEN LOWER(payment_method) = 'cash' THEN 'Cash'
-                WHEN LOWER(payment_method) = 'gift_card' THEN 'Gift Card'
-                WHEN LOWER(payment_method) = 'store_credit' THEN 'Store Credit'
-                WHEN LOWER(payment_method) = 'open_deposit' THEN 'Deposit Applied'
-                WHEN LOWER(payment_method) LIKE '%rms%' OR LOWER(COALESCE(metadata->>'tender_family', '')) = 'rms_charge' THEN 'RMS Charge'
-                ELSE INITCAP(REPLACE(payment_method, '_', ' '))
+                WHEN LOWER(TRIM(payment_method)) = 'cash' THEN 'Cash'
+                WHEN LOWER(TRIM(payment_method)) = 'gift_card' THEN 'Gift Card'
+                WHEN LOWER(TRIM(payment_method)) = 'store_credit' THEN 'Store Credit'
+                WHEN LOWER(TRIM(payment_method)) = 'open_deposit' THEN 'Deposit Applied'
+                WHEN LOWER(TRIM(payment_method)) LIKE '%rms%' OR LOWER(COALESCE(metadata->>'tender_family', '')) = 'rms_charge' THEN 'RMS Charge'
+                ELSE INITCAP(REPLACE(TRIM(payment_method), '_', ' '))
             END AS method,
             SUM(amount)::numeric(14,2) AS total,
             COUNT(*)::bigint AS count

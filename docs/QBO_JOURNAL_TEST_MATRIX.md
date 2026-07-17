@@ -34,6 +34,7 @@ QBO sales posting is **Daily Staging Journal only**. Checkout and Helcim webhook
 | Helcim merchant fees synced from API | Debit **merchant fee** expense and credit the same Helcim clearing account, leaving clearing at net |
 | Helcim reconciliation issue reviewed/resolved/marked expected | No QBO journal change by itself; reconciliation issue workflow is audit history only. Actual bank deposit matching is handled separately in Payments and still does not post to QBO. |
 | Helcim actual bank deposit manually recorded or matched to batches | No QBO journal or deposit is created. Matching records bank-cleared evidence inside ROS only and leaves clearing/deposit posting for a separate reviewed workflow. |
+| Manager-approved backdated sale | Actual tender day debits the mapped tender and credits `BACKDATED_SALE_CLEARING`; backdated business day debits the same clearing account and posts revenue or deposit liability. Both journals balance and carry linked ROS evidence. |
 
 ## Deposits
 
@@ -48,6 +49,7 @@ QBO sales posting is **Daily Staging Journal only**. Checkout and Helcim webhook
 
 - [ ] Single tender, single category, balanced journal  
 - [ ] Multi-split checkout (multiple tenders)  
+- [ ] Backdated card/cash/check sale: map `BACKDATED_SALE_CLEARING`, verify payment-day and business-day journals balance, then compare QBO sandbox entries to Z-Report and receipt evidence
 - [x] Gift card `sub_type` `paid_liability` vs `loyalty_giveaway` / `donated_giveaway` / `promo_gift_card`
 - [x] Gift card breakage sweep: Expired purchased liability cards zeroed out, event logged, debits `liability_gift_card` and credits `income_gift_card_breakage` (or `REVENUE_GIFT_CARD_BREAKAGE`)
 - [x] Gift card breakage bypass: Expired promotional/donated/loyalty cards (`is_liability = false`) are NOT swept, no breakage event generated, no QBO staging journal entry generated

@@ -119,7 +119,7 @@ When the client cannot send Back Office staff headers (e.g. receipt modal on the
 
 - **Recommended operational pattern:** return lines on the original transaction (and process refund queue as needed), then **new checkout** for the replacement merchandise; link the two transactions with **exchange-link** for reporting.
 
-- **Exchange/Return Wizard** (register): [`PosExchangeWizard`](client/src/components/pos/PosExchangeWizard.tsx) — A high-fidelity, "WowDash" themed workspace for processing post-sale adjustments at the till. 
+- **Exchange/Return Wizard** (register): [`PosExchangeWizard`](../client/src/components/pos/PosExchangeWizard.tsx) — A high-fidelity, "WowDash" themed workspace for processing post-sale adjustments at the till.
    - **Wide Workspace**: Uses a `3xl` width modal to provide a zero-scroll triage environment.
    - **Guided Phases**: Implements step-by-step navigation (Selection, Returns, Cart replacement).
    - **Customer-scoped selection**: When a customer is already loaded, the first phase lists that customer's Transaction Records instead of running a global customer-name search.

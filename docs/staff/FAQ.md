@@ -36,10 +36,10 @@ Use **SKU** first; POS Inventory needs **2+** search characters. [pos-register-c
 ## Inventory and stock
 
 **What does “reserved” mean?**  
-[GLOSSARY.md](GLOSSARY.md) → **Reserved stock**; behavior: [abstracts/special-orders-and-stock.md](abstracts/special-orders-and-stock.md)
+[GLOSSARY.md](GLOSSARY.md) → **Reserved stock**; behavior: [abstracts/transactions-and-stock.md](abstracts/transactions-and-stock.md)
 
 **Special order pickup — do we pull from the floor immediately?**  
-Not always — stock model differs from carry-out. [abstracts/special-orders-and-stock.md](abstracts/special-orders-and-stock.md)
+Not always — stock model differs from carry-out. [abstracts/transactions-and-stock.md](abstracts/transactions-and-stock.md)
 
 **Receiving and POs — where?**  
 Back Office [inventory-back-office.md](inventory-back-office.md). Quick add-from-browse at POS: [pos-inventory.md](pos-inventory.md)
@@ -49,7 +49,7 @@ Back Office [inventory-back-office.md](inventory-back-office.md). Quick add-from
 ## Orders, returns, refunds
 
 **Refund vs void — which doc?**  
-[abstracts/returns-refunds-exchanges.md](abstracts/returns-refunds-exchanges.md) → then [orders-back-office.md](orders-back-office.md)
+[abstracts/returns-refunds-exchanges.md](abstracts/returns-refunds-exchanges.md) → then [transactions-back-office.md](transactions-back-office.md)
 
 ---
 

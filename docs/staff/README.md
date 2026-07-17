@@ -50,7 +50,7 @@ Use **exact sidebar names** from the app (Back Office and POS rails). For engine
 | Pilot go/no-go criteria | [pilot-go-no-go-criteria.md](pilot-go-no-go-criteria.md) |
 | Pilot freeze rules | [pilot-freeze-rules.md](pilot-freeze-rules.md) |
 | Pilot support package | [pilot-support-package.md](pilot-support-package.md) |
-| RC/pilot release signoff | [../RC_SIGNOFF_SUMMARY.md](../RC_SIGNOFF_SUMMARY.md), [../RELEASE_OPERATIONAL_SIGNOFF.md](../RELEASE_OPERATIONAL_SIGNOFF.md), [../releases/v0.90.0-release-notes.md](../releases/v0.90.0-release-notes.md), [../releases/v0.90.0-certification.md](../releases/v0.90.0-certification.md) |
+| RC/pilot release signoff | [../RC_SIGNOFF_SUMMARY.md](../RC_SIGNOFF_SUMMARY.md), [../RELEASE_OPERATIONAL_SIGNOFF.md](../RELEASE_OPERATIONAL_SIGNOFF.md), [../releases/v0.95.0-release-notes.md](../releases/v0.95.0-release-notes.md), [../releases/v0.95.0-certification.md](../releases/v0.95.0-certification.md) |
 | Abstract: transactions & stock | [abstracts/transactions-and-stock.md](abstracts/transactions-and-stock.md) |
 | Abstract: returns / refunds | [abstracts/returns-refunds-exchanges.md](abstracts/returns-refunds-exchanges.md) |
 | Abstract: wedding group pay | [abstracts/wedding-group-pay.md](abstracts/wedding-group-pay.md) |
@@ -225,4 +225,4 @@ Source: `client/src/components/pos/PosSidebar.tsx` (`PosTabId`).
 
 ---
 
-**Last reviewed:** 2026-07-10 (current navigation and Help/ROSIE review)
+**Last reviewed:** 2026-07-17 (v0.95.0 documentation, current navigation, and Help/ROSIE review)

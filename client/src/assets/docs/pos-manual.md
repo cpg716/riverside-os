@@ -99,6 +99,10 @@ The selected category recalculates immediately and remains attached to that line
 - If the Register says **Product search failed**, verify the Main Hub connection and retry. This message means Riverside could not complete the search; it is different from **SKU NOT FOUND**.
 - Use on-screen actions for discounts or notes only when your manager has shown you how.
 
+### Backdate the current sale
+
+Use this only when the sale must be recorded under an earlier store-local date/time. Select **Store date and time**, choose the date/time, and complete the Manager Access approval prompt. The approved date applies to this sale only and resets after checkout, cart clear, or customer change. ROS records the sale business date separately from payment timing: every tender remains on the actual processing day so the Z-Report, drawer, card batches, deposits, and QBO payment evidence reconcile. The receipt is marked **BACKDATED SALE** with the business date.
+
 ## What to watch for
 
 - Confirm the correct staff identity before you start the sale.

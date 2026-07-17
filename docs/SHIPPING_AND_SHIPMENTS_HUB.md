@@ -1,6 +1,6 @@
 # Shipping, Shippo, and the unified shipments hub
 
-Status: **Canonical Shipping / Shippo / Shipments Hub reference**. Cross-cutting Podium and notification behavior starts at [CUSTOMER_MESSAGING_AND_NOTIFICATIONS.md](./CUSTOMER_MESSAGING_AND_NOTIFICATIONS.md).
+Status: **Canonical Shipping / Shippo / Shipments Hub reference**. Cross-cutting Podium and notification behavior starts at [Podium Integration](staff/Podium_Integration_Manual.md).
 
 **Audience:** Developers and operators shipping from **POS**, the **Back Office**, the **online storefront**, or **manual** CRM workflows.
 

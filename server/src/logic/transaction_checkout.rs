@@ -168,6 +168,12 @@ pub struct BelowCostApproval {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct BackdateApproval {
+    pub approved_by_staff_id: Uuid,
+    pub reason: String,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct CheckoutOrderPayment {
     pub client_line_id: String,
     pub target_transaction_id: Uuid,
@@ -215,6 +221,10 @@ pub struct CheckoutRequest {
     /// Format: `YYYY-MM-DDTHH:MM` from an HTML datetime-local input.
     #[serde(default)]
     pub booked_at_local: Option<String>,
+    /// Required when `booked_at_local` is supplied. The approval is verified
+    /// server-side and recorded with the transaction for audit/QBO review.
+    #[serde(default)]
+    pub backdate_approval: Option<BackdateApproval>,
     /// Consumed at checkout (single use); amount included in `total_price` validation.
     #[serde(default)]
     pub shipping_rate_quote_id: Option<Uuid>,
@@ -314,6 +324,45 @@ async fn resolve_checkout_booked_at(
         ));
     }
     Ok((Some(sql_value), Some(parsed.date())))
+}
+
+fn payment_effective_date(
+    method: &str,
+    provider: Option<&str>,
+    business_date: Option<NaiveDate>,
+) -> Option<NaiveDate> {
+    let _ = (method, provider, business_date);
+    // Every tender movement remains on the actual processing day. This keeps
+    // card batches, physical cash/check reconciliation, Z-Reports, and QBO
+    // payment-day evidence aligned. Only the transaction business date is
+    // backdated. NULL lets the database use the current store-local date.
+    None
+}
+
+async fn backdate_approval_was_logged(
+    pool: &PgPool,
+    approval: &BackdateApproval,
+    booked_at_local: &str,
+    session_id: Uuid,
+) -> Result<bool, CheckoutError> {
+    Ok(sqlx::query_scalar(
+        r#"
+        SELECT EXISTS (
+            SELECT 1
+            FROM staff_access_log
+            WHERE staff_id = $1
+              AND event_kind = 'pos_backdate_sale'
+              AND created_at >= CURRENT_TIMESTAMP - INTERVAL '24 hours'
+              AND metadata->>'booked_at_local' = $2
+              AND metadata->>'register_session_id' = $3::text
+        )
+        "#,
+    )
+    .bind(approval.approved_by_staff_id)
+    .bind(booked_at_local)
+    .bind(session_id)
+    .fetch_one(pool)
+    .await?)
 }
 
 #[derive(Debug)]
@@ -2658,6 +2707,49 @@ async fn execute_checkout_internal(
     let (checkout_booked_at_local, checkout_business_date) =
         resolve_checkout_booked_at(pool, payload.booked_at_local.as_deref()).await?;
 
+    if checkout_booked_at_local.is_some() && recovery.is_none() {
+        let approval = payload.backdate_approval.as_ref().ok_or_else(|| {
+            CheckoutError::InvalidPayload(
+                "Backdated sales require Manager Access approval before checkout".to_string(),
+            )
+        })?;
+        if approval.reason.trim().is_empty() {
+            return Err(CheckoutError::InvalidPayload(
+                "A reason is required for a backdated sale".to_string(),
+            ));
+        }
+        if !pricing_limits::is_admin_or_manager(pool, approval.approved_by_staff_id).await? {
+            return Err(CheckoutError::InvalidPayload(
+                "Backdated sales require an active manager approval".to_string(),
+            ));
+        }
+        if !backdate_approval_was_logged(
+            pool,
+            approval,
+            checkout_booked_at_local.as_deref().unwrap_or_default(),
+            payload.session_id,
+        )
+        .await?
+        {
+            return Err(CheckoutError::InvalidPayload(
+                "Backdate approval expired or could not be verified; approve the date again"
+                    .to_string(),
+            ));
+        }
+    }
+
+    if let Some(business_date) = checkout_business_date {
+        for split in &mut payment_splits {
+            if let Some(metadata) = split.metadata.as_object_mut() {
+                metadata.insert("register_backdated".to_string(), json!(true));
+                metadata.insert(
+                    "backdated_business_date".to_string(),
+                    json!(business_date.to_string()),
+                );
+            }
+        }
+    }
+
     let mut transaction_financing_metadata = pos_rms_charge::transaction_metadata_from_splits(
         payment_splits
             .iter()
@@ -2673,6 +2765,15 @@ async fn execute_checkout_internal(
                 "business_date".to_string(),
                 json!(business_date.to_string()),
             );
+            if let Some(approval) = payload.backdate_approval.as_ref() {
+                obj.insert(
+                    "backdate_approval".to_string(),
+                    json!({
+                        "approved_by_staff_id": approval.approved_by_staff_id,
+                        "reason": approval.reason.trim(),
+                    }),
+                );
+            }
         }
     }
     if let Some(metadata) = below_cost_approval_metadata {
@@ -4486,7 +4587,11 @@ async fn execute_checkout_internal(
             .bind(payment_tx_category)
             .bind(method)
             .bind(split.amount)
-            .bind(checkout_business_date)
+            .bind(payment_effective_date(
+                &method,
+                split.payment_provider.as_deref(),
+                checkout_business_date,
+            ))
             .bind(&split.metadata)
             .bind(&split.payment_provider)
             .bind(&split.provider_payment_id)
@@ -5115,6 +5220,24 @@ async fn execute_checkout_internal(
         json!({}),
     );
 
+    if let Some(backdated_business_date) = checkout_business_date {
+        let qbo_pool = pool.clone();
+        tokio::spawn(async move {
+            if let Err(error) = crate::logic::qbo_journal::ensure_pending_daily_journal(
+                &qbo_pool,
+                backdated_business_date,
+            )
+            .await
+            {
+                tracing::error!(
+                    %error,
+                    %backdated_business_date,
+                    "QBO backdated business-day revision staging failed after checkout"
+                );
+            }
+        });
+    }
+
     weather::schedule_transaction_weather_snapshot(http.clone(), pool.clone(), transaction_id);
 
     Ok(CheckoutDone::Completed {
@@ -5365,18 +5488,20 @@ mod tests {
     use super::{
         build_payment_allocation_plan, checkout_total_matches, evaluate_combo_incentives,
         execute_checkout, fetch_variant_pos_line_kind, helcim_attempt_comparison_cents,
-        is_fee_only_shipping_quote, parse_combo_reward_amount, resolve_payment_splits,
-        validate_checkout_alteration_intakes, validate_checkout_item_quantity,
-        validate_open_deposit_scope, validate_order_payment_against_target,
-        validate_order_payment_shape, validate_wedding_disbursement_against_balance,
-        CheckoutAlterationIntake, CheckoutDone, CheckoutItem, CheckoutOrderPayment,
-        CheckoutPaymentSplit, CheckoutRequest, ExistingOrderPaymentTarget, ResolvedOrderPayment,
-        ResolvedPaymentSplit, WeddingDisbursement,
+        is_fee_only_shipping_quote, parse_combo_reward_amount, payment_effective_date,
+        resolve_payment_splits, validate_checkout_alteration_intakes,
+        validate_checkout_item_quantity, validate_open_deposit_scope,
+        validate_order_payment_against_target, validate_order_payment_shape,
+        validate_wedding_disbursement_against_balance, CheckoutAlterationIntake, CheckoutDone,
+        CheckoutItem, CheckoutOrderPayment, CheckoutPaymentSplit, CheckoutRequest,
+        ExistingOrderPaymentTarget, ResolvedOrderPayment, ResolvedPaymentSplit,
+        WeddingDisbursement,
     };
     use crate::logic::customer_open_deposit;
     use crate::logic::customers::{insert_customer, CustomerCreatedSource, InsertCustomerParams};
     use crate::logic::qbo_journal;
     use crate::models::{DbFulfillmentType, DbOrderStatus};
+    use chrono::NaiveDate;
     use rust_decimal::Decimal;
     use rust_decimal_macros::dec;
     use serde_json::json;
@@ -5441,6 +5566,7 @@ mod tests {
             ship_to: None,
             target_transaction_id: None,
             booked_at_local: None,
+            backdate_approval: None,
             is_rush: false,
             need_by_date: None,
             is_tax_exempt: false,
@@ -5485,6 +5611,26 @@ mod tests {
             check_number: None,
             metadata: None,
         }
+    }
+
+    #[test]
+    fn backdated_card_payment_keeps_actual_provider_date() {
+        let business_date = NaiveDate::from_ymd_opt(2026, 7, 1);
+        assert_eq!(
+            payment_effective_date("card_not_present", Some("helcim"), business_date),
+            None
+        );
+        assert_eq!(
+            payment_effective_date("manual_card", None, business_date),
+            None
+        );
+    }
+
+    #[test]
+    fn backdated_internal_payment_keeps_actual_processing_date() {
+        let business_date = NaiveDate::from_ymd_opt(2026, 7, 1);
+        assert_eq!(payment_effective_date("cash", None, business_date), None);
+        assert_eq!(payment_effective_date("check", None, business_date), None);
     }
 
     #[test]
@@ -6676,6 +6822,7 @@ mod tests {
             ship_to: None,
             target_transaction_id: None,
             booked_at_local: None,
+            backdate_approval: None,
             is_rush: false,
             need_by_date: None,
             is_tax_exempt: true,
@@ -6891,6 +7038,7 @@ mod tests {
             ship_to: None,
             target_transaction_id: None,
             booked_at_local: None,
+            backdate_approval: None,
             is_rush: false,
             need_by_date: None,
             is_tax_exempt: true,
@@ -7216,6 +7364,7 @@ mod tests {
             ship_to: None,
             target_transaction_id: None,
             booked_at_local: None,
+            backdate_approval: None,
             is_rush: false,
             need_by_date: None,
             is_tax_exempt: true,
@@ -7284,6 +7433,7 @@ mod tests {
             ship_to: None,
             target_transaction_id: None,
             booked_at_local: None,
+            backdate_approval: None,
             is_rush: false,
             need_by_date: None,
             is_tax_exempt: true,
@@ -7626,6 +7776,7 @@ mod tests {
             ship_to: None,
             target_transaction_id: None,
             booked_at_local: None,
+            backdate_approval: None,
             is_rush: false,
             need_by_date: None,
             is_tax_exempt: true,
@@ -7907,6 +8058,7 @@ mod tests {
             ship_to: None,
             target_transaction_id: None,
             booked_at_local: None,
+            backdate_approval: None,
             is_rush: false,
             need_by_date: None,
             is_tax_exempt: true,

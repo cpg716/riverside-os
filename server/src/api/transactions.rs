@@ -190,7 +190,8 @@ fn spawn_meilisearch_alteration_upserts(state: &AppState, alteration_ids: Vec<Uu
 }
 
 pub use crate::logic::transaction_checkout::{
-    CheckoutItem, CheckoutPaymentSplit, CheckoutRequest, CheckoutResponse, WeddingDisbursement,
+    BackdateApproval, CheckoutItem, CheckoutPaymentSplit, CheckoutRequest, CheckoutResponse,
+    WeddingDisbursement,
 };
 pub use crate::logic::transaction_list::{
     PagedTransactionsResponse, TransactionListQuery, TransactionListResponse,
@@ -319,6 +320,8 @@ pub struct TransactionDetailResponse {
     pub transaction_id: Uuid,
     pub transaction_display_id: String,
     pub booked_at: DateTime<Utc>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backdated_business_date: Option<NaiveDate>,
     pub status: DbOrderStatus,
     pub total_price: Decimal,
     pub amount_paid: Decimal,
@@ -684,6 +687,7 @@ impl TransactionDetailResponse {
             transaction_id: self.transaction_id,
             transaction_display_id: self.transaction_display_id.clone(),
             booked_at: self.booked_at,
+            backdated_business_date: self.backdated_business_date,
             status: self.status,
             subtotal_price,
             tax_total,
@@ -786,6 +790,7 @@ mod tests {
             transaction_id: Uuid::nil(),
             transaction_display_id: "TXN-TEST".to_string(),
             booked_at: Utc::now(),
+            backdated_business_date: None,
             status: DbOrderStatus::Open,
             total_price: Decimal::new(1000, 2),
             amount_paid: Decimal::new(1000, 2),
@@ -847,6 +852,8 @@ mod tests {
             id: Uuid::nil(),
             display_id: "TXN-TEST".to_string(),
             booked_at: Utc::now(),
+            business_date: None,
+            register_backdated: false,
             status: DbOrderStatus::Open,
             total_price,
             amount_paid: total_price,
@@ -1802,6 +1809,8 @@ struct OrderHeaderRow {
     id: Uuid,
     display_id: String,
     booked_at: DateTime<Utc>,
+    business_date: Option<NaiveDate>,
+    register_backdated: bool,
     status: DbOrderStatus,
     total_price: Decimal,
     amount_paid: Decimal,
@@ -7351,6 +7360,8 @@ pub(crate) async fn load_transaction_detail(
             o.id,
             o.display_id,
             o.booked_at,
+            o.business_date,
+            COALESCE((o.metadata->>'register_backdated')::boolean, false) AS register_backdated,
             o.status,
             o.total_price,
             o.amount_paid,
@@ -7969,6 +7980,11 @@ pub(crate) async fn load_transaction_detail(
         transaction_id: h.id,
         transaction_display_id: h.display_id,
         booked_at: h.booked_at,
+        backdated_business_date: if h.register_backdated {
+            h.business_date
+        } else {
+            None
+        },
         status: h.status,
         total_price: h.total_price,
         amount_paid: h.amount_paid,

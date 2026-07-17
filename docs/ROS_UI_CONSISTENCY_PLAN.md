@@ -85,7 +85,7 @@ For **each** primary component below: (a) fix misclassified instructional copy (
 
 ### Layout / global chrome
 
-- [`Header.tsx`](../client/src/components/layout/Header.tsx), [`Sidebar.tsx`](../client/src/components/layout/Sidebar.tsx), `AppMainColumn` in `App.tsx`, global search / `GlobalSearchDrawer`, [`RegisterRequiredModal.tsx`](../client/src/components/layout/RegisterRequiredModal.tsx), [`RegisterPickModal.tsx`](../client/src/components/layout/RegisterPickModal.tsx), notification drawer shell, [`HelpCenterDrawer.tsx`](../client/src/components/help/HelpCenterDrawer.tsx).
+- [`GlobalTopBar.tsx`](../client/src/components/layout/GlobalTopBar.tsx), [`Sidebar.tsx`](../client/src/components/layout/Sidebar.tsx), `AppMainColumn` in `App.tsx`, global search / [`GlobalSearchDrawers.tsx`](../client/src/components/layout/GlobalSearchDrawers.tsx), [`RegisterRequiredModal.tsx`](../client/src/components/layout/RegisterRequiredModal.tsx), [`RegisterPickModal.tsx`](../client/src/components/layout/RegisterPickModal.tsx), notification drawer shell, [`HelpCenterDrawer.tsx`](../client/src/components/help/HelpCenterDrawer.tsx).
 
 ### Back Office (by sidebar tab)
 

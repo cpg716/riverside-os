@@ -441,6 +441,11 @@ export default function Cart({
     [checkoutAppliedPayments],
   );
   const [saleDateTimeLocal, setSaleDateTimeLocal] = useState<string | null>(null);
+  const [backdateApproval, setBackdateApproval] = useState<{
+    approvedByStaffId: string;
+    reason: string;
+  } | null>(null);
+  const [backdatePrompt, setBackdatePrompt] = useState<string | null>(null);
   const [pickupConfirmed, setPickupConfirmed] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const isEmployeeSale = selectedCustomer?.employee_discount_eligible === true;
@@ -722,6 +727,18 @@ export default function Cart({
 
   const resetSaleDateTime = useCallback(() => {
     setSaleDateTimeLocal(null);
+    setBackdateApproval(null);
+    setBackdatePrompt(null);
+  }, []);
+
+  const requestBackdatedSale = useCallback((value: string | null) => {
+    if (!value) {
+      setSaleDateTimeLocal(null);
+      setBackdateApproval(null);
+      setBackdatePrompt(null);
+      return;
+    }
+    setBackdatePrompt(value);
   }, []);
 
   const clearCartAndAlterations = useCallback(() => {
@@ -1647,6 +1664,7 @@ export default function Cart({
         }
       : null,
     saleDateTimeLocal,
+    backdateApproval,
     totals,
     toast,
     clearCart: clearCartAndAlterations,
@@ -2759,7 +2777,7 @@ export default function Cart({
               <PosRegisterLiveClock
                 timeZone={receiptTimezone}
                 overrideLocalDateTime={saleDateTimeLocal}
-                onOverrideChange={setSaleDateTimeLocal}
+                onOverrideChange={requestBackdatedSale}
               />
             </div>
           ) : null}
@@ -4900,6 +4918,51 @@ export default function Cart({
             }
             toast("Invalid Manager Access PIN.", "error");
             return false;
+          } catch {
+            toast("We couldn't verify manager approval. Please try again.", "error");
+            return false;
+          }
+        }}
+      />
+
+      <ManagerApprovalModal
+        isOpen={!!backdatePrompt}
+        onClose={() => setBackdatePrompt(null)}
+        title="Approve Backdated Sale"
+        message={
+          backdatePrompt
+            ? `This sale will post under the store date/time ${backdatePrompt.replace("T", " ")}. The sale business date will be backdated, but card/provider payment reporting will remain on the actual approval date. This applies to this sale only.`
+            : ""
+        }
+        onApprove={async (pin, managerId) => {
+          if (!backdatePrompt) return false;
+          try {
+            const res = await fetch(`${baseUrl}/api/staff/verify-pin`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", ...apiAuth() },
+              body: JSON.stringify({
+                pin,
+                staff_id: managerId,
+                authorize_action: "pos_backdate_sale",
+                authorize_metadata: {
+                  booked_at_local: backdatePrompt,
+                  register_session_id: sessionId,
+                  customer_id: selectedCustomer?.id ?? null,
+                },
+              }),
+            });
+            if (!res.ok) {
+              toast("Invalid Manager Access PIN for backdating.", "error");
+              return false;
+            }
+            setSaleDateTimeLocal(backdatePrompt);
+            setBackdateApproval({
+              approvedByStaffId: managerId,
+              reason: "Manager approved POS backdated sale",
+            });
+            setBackdatePrompt(null);
+            toast("Backdated sale approved for this transaction only.", "success");
+            return true;
           } catch {
             toast("We couldn't verify manager approval. Please try again.", "error");
             return false;

@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 - Added an auditable Manager-only legacy Counterpoint order reconciliation workflow that scans all stored imported accounts, repairs only exact open-order/ticket/payment matches, moves legitimate later payments to the original order, supersedes duplicate imported artifacts, and leaves ambiguous cases unchanged for review without rerunning Counterpoint imports.
+- Added manager-approved Register backdating that changes the transaction business date without moving actual tender-day evidence, plus explicit receipt and QBO clearing documentation.
 
 ### Fixed
 - **Integration-Test Database Isolation**: Counterpoint reconciliation tests now use the dedicated `TEST_DATABASE_URL` instead of inheriting an application `DATABASE_URL` loaded by another parallel test, and active test guidance requires the complete migration baseline through 129 before DB-backed validation.
@@ -28,11 +29,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Strict Employee-Pricing Startup**: Strict production startup now fails closed when the configured employee markup cannot be loaded instead of silently pricing with a 15% default.
 - **Staff-Facing Failure Visibility**: Counterpoint exception CSV exports use the native desktop save bridge and report cancellation/failure accurately; role discount-cap loads/saves and Register product searches now surface connection or save failures instead of appearing successful or empty.
 - **Sandbox Restore Proof**: The backup/restore drill now recognizes the repository's `e2e` environment as an allowed test sandbox while continuing to refuse production and unknown databases.
+- **Cash Refund Reconciliation**: Cash refunds are included as negative cash activity so expected drawer cash, deposit totals, and Z-Report over/short results reflect the physical drawer after a refund.
 
 ### Changed
 - **Payment, tax, and receipt follow-up**: Hardened card-not-present approval recovery and sale linking, normalized card tender reporting, added post-payment gift-card balances to receipts and Receipt Builder placement tokens, and made explicit single-line tax-status overrides server-authoritative without stale client tax mismatches blocking valid sales.
 - **PostgreSQL 16 Operations Guidance**: Updated replication and WAL paths to the deployed PostgreSQL 16 baseline and replaced obsolete `recovery.conf` instructions with `standby.signal` guidance.
-- **v0.95.0 Release Evidence**: Updated README, release notes, certification, and deployment checklist to corrected build `6d91610a`, exact-SHA CI, final Windows/macOS candidate and promotion runs, fresh updater-manifest verification, the ROSIE-preserving replacement deployment ZIP, and the remaining physical Main Hub verification hold.
+- **v0.95.0 Release Evidence**: Updated README, release notes, certification, and deployment checklist to the current published build `efe5e234`, current Windows/macOS release evidence, fresh updater-manifest verification, the ROSIE-preserving replacement deployment ZIP, and the remaining physical Main Hub verification hold.
 
 ## [0.95.0] - 2026-07-11
 

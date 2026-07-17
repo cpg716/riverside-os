@@ -1,7 +1,7 @@
 //! Shared receipt data types and helpers.
 //! Note: This module provides a unified data contract for all receipt formats.
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use rust_decimal::Decimal;
 use uuid::Uuid;
 
@@ -105,6 +105,8 @@ pub struct ReceiptOrder {
     pub transaction_id: Uuid,
     pub transaction_display_id: String,
     pub booked_at: DateTime<Utc>,
+    /// Business date selected for a manager-approved backdated sale.
+    pub backdated_business_date: Option<NaiveDate>,
     pub status: DbOrderStatus,
     pub subtotal_price: Decimal,
     pub tax_total: Decimal,
@@ -141,6 +143,12 @@ pub fn receipt_display_ref(order: &ReceiptOrder) -> String {
         .take(8)
         .collect::<String>()
         .to_uppercase()
+}
+
+pub fn backdated_receipt_notice(order: &ReceiptOrder) -> Option<String> {
+    order
+        .backdated_business_date
+        .map(|date| format!("BACKDATED SALE — BUSINESS DATE {}", date.format("%m/%d/%Y")))
 }
 
 pub fn tender_display_label(method: &str) -> String {

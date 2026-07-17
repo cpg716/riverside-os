@@ -92,7 +92,7 @@ Add to checkout:
 | OrderLoadModal.tsx | NEW - load customer's orders |
 | CustomerSelector.tsx | Walk-in to bottom |
 | orders.rs | by-customer endpoint, order-items |
-| order_checkout.rs | New payload fields |
+| transaction_checkout.rs | New payload fields |
 | order_recalc.rs | Balance recalc logic |
 | migrations/legacy_prelaunch_history/132_*.sql | card_payment_method_id column |
 

@@ -115,6 +115,6 @@ If **Earlier** is empty, that simply means there is no completed or dismissed no
 ## Related workflows
 
 - [notifications-notification-center-bell-manual.md](./notifications-notification-center-bell-manual.md)
-- [settings-staff-profile-panel-manual.md](./settings-staff-profile-panel-manual.md)
+- [Staff workspace](./staff-workspace-manual.md)
 - [operations-home.md](../../../../docs/staff/operations-home.md)
 - [pos-dashboard.md](../../../../docs/staff/pos-dashboard.md)

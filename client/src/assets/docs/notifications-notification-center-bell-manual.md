@@ -70,4 +70,4 @@ If there is nothing new, the inbox should read as **All caught up for now**. Tha
 - [operations-home.md](../../../../docs/staff/operations-home.md)
 - [pos-dashboard.md](../../../../docs/staff/pos-dashboard.md)
 - [notifications-notification-center-drawer-manual.md](./notifications-notification-center-drawer-manual.md)
-- [settings-staff-profile-panel-manual.md](./settings-staff-profile-panel-manual.md)
+- [Staff workspace](./staff-workspace-manual.md)

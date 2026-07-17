@@ -786,7 +786,7 @@ pub async fn fetch_register_day_summary(
         WHERE COALESCE(effective_date, (created_at AT TIME ZONE reporting.effective_store_timezone())::date) >= ($1 AT TIME ZONE reporting.effective_store_timezone())::date
           AND COALESCE(effective_date, (created_at AT TIME ZONE reporting.effective_store_timezone())::date) < ($2 AT TIME ZONE reporting.effective_store_timezone())::date
           AND status = 'success'
-          AND payment_method = 'cash'
+          AND LOWER(TRIM(payment_method)) = 'cash'
           AND ($3::uuid IS NULL OR session_id = $3)
         "#,
     )

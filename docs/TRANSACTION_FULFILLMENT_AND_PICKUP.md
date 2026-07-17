@@ -1,6 +1,6 @@
 # Transaction Fulfillment, Pickup, and Shipping
 
-**Status:** Canonical pickup, partial fulfillment, and shipping workflow reference. For the full transactions doc map, start at [`TRANSACTIONS.md`](TRANSACTIONS.md).
+**Status:** Canonical pickup, partial fulfillment, and shipping workflow reference. For the transaction lifecycle, start at [`TRANSACTIONS_AND_WEDDING_ORDERS.md`](TRANSACTIONS_AND_WEDDING_ORDERS.md).
 
 Operational reference for **register** flows: loading customer transactions, partial fulfillment, pickup, and shipping. Updates from v0.2.0.
 

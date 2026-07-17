@@ -125,7 +125,7 @@ The **Reports** sidebar tab ([`client/src/components/reports/ReportsWorkspace.ts
 | PUT | `/api/help/admin/manuals/{manual_id}` | **`help.manage`** — replace manual markdown / policy (**write** — outside NL read whitelist). |
 | DELETE | `/api/help/admin/manuals/{manual_id}` | **`help.manage`** |
 
-**NL reporting:** Do **not** answer “how do I void a sale?” from **`/api/insights/*`** alone; pair **help search** + [**`docs/staff/*`**](docs/staff/README.md) per [**`AI_CONTEXT_FOR_ASSISTANTS.md`**](AI_CONTEXT_FOR_ASSISTANTS.md).
+**NL reporting:** Do **not** answer “how do I void a sale?” from **`/api/insights/*`** alone; pair **help search** + [**`docs/staff/*`**](staff/README.md) per [**`AI_CONTEXT_FOR_ASSISTANTS.md`**](AI_CONTEXT_FOR_ASSISTANTS.md).
 
 ### `/api/insights/*`
 
@@ -461,7 +461,7 @@ These endpoints are built for **pivot-style** and **ops** reporting. They are th
 
 | Source | Route area | Typical permission | Useful fields / filters |
 |--------|------------|-------------------|-------------------------|
-| Transaction Record list / detail | `/api/transactions/*` | [**`orders.view`**](docs/STAFF_PERMISSIONS.md) (+ modify/refund keys for writes) | Status, **booked_at**, **fulfilled_at**, **balance_due**, customer link, lines, tenders, returns |
+| Transaction Record list / detail | `/api/transactions/*` | [**`orders.view`**](STAFF_PERMISSIONS.md) (+ modify/refund keys for writes) | Status, **booked_at**, **fulfilled_at**, **balance_due**, customer link, lines, tenders, returns |
 | **Transaction Record activity / audit** | `GET /api/transactions/{transaction_id}/audit` | **`orders.view`** + same read auth as transaction detail (BO or register session) | **`order_activity_log`**: **event_kind**, **summary**, **metadata**, **created_at** (per Transaction Record, last 100) |
 | Refund queue | `/api/transactions/*` | **`orders.refund_process`** | Open refund work |
 | Customer Transaction Record history | `/api/customers/{id}/transaction-history` | Customer + Transaction Record read paths | Transaction Records for one customer, with `record_scope=orders` for unfulfilled Special, Custom, and Wedding work |
@@ -487,7 +487,7 @@ These endpoints are built for **pivot-style** and **ops** reporting. They are th
 | Vendors | `/api/vendors/*`, `/api/vendors/{id}/hub`, `/brands` | **`catalog.view`** / procurement | Vendor codes, brand rollups. |
 | Categories | `/api/categories/*`, `/tree`, `/audit` | **`catalog.view`** | Tree, **is_clothing_footwear**, audit log. |
 | Discount events | `/api/discount-events/*` | **`catalog.view`** | Events, **active**, variant membership, **`/usage-report`** (aggregated **`discount_event_usage`** by date range). |
-| Physical inventory | `/api/inventory/physical/*` | [**`physical_inventory.view`**](INVENTORY_GUIDE.md) (+ mutate keys for writes) | Sessions list, **active**, **session by id**, **review** snapshot, counts (via detail). |
+| Physical inventory | `/api/inventory/physical/*` | [**`physical_inventory.view`**](../INVENTORY_GUIDE.md) (+ mutate keys for writes) | Sessions list, **active**, **session by id**, **review** snapshot, counts (via detail). |
 
 **NL examples:** “Low available stock by category”, “Open POs by vendor”, “Discount event usage last 90 days”, “Product timeline for SKU X”.
 
@@ -504,7 +504,7 @@ These endpoints are built for **pivot-style** and **ops** reporting. They are th
 | Core profile | `GET /api/customers/{id}`, `/profile` | Customer read | Identity, flags, marketing opt-in. |
 | Hub | `GET /api/customers/{id}/hub` | Customer read | Aggregated CRM hub payload. |
 | Timeline | `GET /api/customers/{id}/timeline` | Customer read | Activity stream (§7). |
-| Transaction Record history | `GET /api/customers/{id}/transaction-history` | Customer + [**`orders.view`**](docs/STAFF_PERMISSIONS.md) patterns | Complete Transaction Records for one person; `record_scope=orders` limits to unfulfilled Special, Custom, and Wedding work. |
+| Transaction Record history | `GET /api/customers/{id}/transaction-history` | Customer + [**`orders.view`**](STAFF_PERMISSIONS.md) patterns | Complete Transaction Records for one person; `record_scope=orders` limits to unfulfilled Special, Custom, and Wedding work. |
 | Measurements | `GET /api/customers/{id}/measurements` | Customer read | Sizing vault. |
 | Store credit | `GET /api/customers/{id}/store-credit` | **`store_credit.manage`** / read rules | Liability snapshot. |
 | Weddings link | `GET /api/customers/{id}/weddings` | **`weddings.view`** | Parties tied to customer. |
@@ -567,7 +567,7 @@ These are **event streams** and **trails**, not sales pivots. Many are **PII-sen
 
 | Source | Route | Permission | Notes |
 |--------|-------|------------|--------|
-| **Customer timeline** | `GET /api/customers/{customer_id}/timeline` | Customer read paths as implemented | **Merged** stream: milestones (e.g. checkout, fulfillment, refund per product rules), [**`customer_timeline_notes`**](docs/CUSTOMER_HUB_AND_RBAC.md), **`wedding_activity_log`** references, etc. Built in [`server/src/api/customers.rs`](../server/src/api/customers.rs) (`build_customer_timeline`). |
+| **Customer timeline** | `GET /api/customers/{customer_id}/timeline` | Customer read paths as implemented | **Merged** stream: milestones (e.g. checkout, fulfillment, refund per product rules), [**`customer_timeline_notes`**](CUSTOMER_HUB_AND_RBAC.md), **`wedding_activity_log`** references, etc. Built in [`server/src/api/customers.rs`](../server/src/api/customers.rs) (`build_customer_timeline`). |
 | **Manual timeline note** | `POST /api/customers/{customer_id}/notes` | Per route | Staff-authored notes (not automatic system log). |
 
 AGENTS.md notes **customer timeline** emits only **business** milestones for some edits — NL answers should not assume every field change appears here.

@@ -156,7 +156,7 @@ function getResolvableMappingKeys(message: string): { key: string; label: string
         results.push({ key, label: "Forfeited Deposit Income", type: "granular", source_type: "income_forfeited_deposit", source_id: "default" });
       } else if (key === "tax") {
         results.push({ key, label: "Sales Tax Payable", type: "granular", source_type: "tax", source_id: "SALES_TAX" });
-      } else if (["COGS_FREIGHT", "INV_RECEIVING_CLEARING", "INV_ASSET", "COGS_DEFAULT", "INV_SHRINKAGE", "INV_RTV_CLEARING", "EXP_SHIPPING", "EXP_MERCHANT_FEE", "CASH_ROUNDING", "RMS_CHARGE_FINANCING_CLEARING", "RMS_R2S_PAYMENT_CLEARING", "REFUND_LIABILITY_CLEARING", "REVENUE_SHIPPING", "REVENUE_GIFT_CARD_BREAKAGE"].includes(key)) {
+      } else if (["COGS_FREIGHT", "INV_RECEIVING_CLEARING", "INV_ASSET", "COGS_DEFAULT", "INV_SHRINKAGE", "INV_RTV_CLEARING", "EXP_SHIPPING", "EXP_MERCHANT_FEE", "CASH_ROUNDING", "RMS_CHARGE_FINANCING_CLEARING", "RMS_R2S_PAYMENT_CLEARING", "REFUND_LIABILITY_CLEARING", "BACKDATED_SALE_CLEARING", "REVENUE_SHIPPING", "REVENUE_GIFT_CARD_BREAKAGE"].includes(key)) {
         results.push({ key, label: `${key.replace(/_/g, " ")} Mapping`, type: "ledger" });
       }
     }

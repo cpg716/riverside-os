@@ -55,7 +55,9 @@ ROS does not post checkout-by-checkout revenue journals directly to QBO. Sales, 
 10. **Retry** — if a synced entry **failed** (network, token expiry, QBO rejection), click **Retry**. ROS re-validates balance/accounts and re-attempts the POST. No need to re-stage.
 11. **Void in QBO** — if a **synced** journal needs to be completely removed from QuickBooks (wrong date, duplicate, data correction), click **Void in QBO**. This deletes the JournalEntry in Intuit and marks the local row `voided`. You can then re-stage a corrected entry for that business date.
 
-Backdated corrections are governed. The **business date** controls the sales/reporting day and the **payment effective date** controls tender, deposit, and payment movement evidence. Do not use QBO staging to move a payment to a different day unless the payment effective date was corrected in ROS with a documented reason.
+Backdated sales are manager-approved and are governed by separate sale and tender dates. The **business date** controls the booked-sales/reporting day. Every payment movement retains its actual processing day for tender, drawer, deposit, provider-batch, and QBO payment-movement reconciliation; this applies to card, cash, check, and internal tenders. Do not use QBO staging to move a payment to a different day. Any post-sale payment-date correction requires an accounting-authorized ROS correction with a documented reason and must remain explainable against provider or drawer evidence.
+
+For a backdated checkout, map **Backdated sale clearing** to a dedicated QBO clearing account before approval. ROS posts the actual tender to the payment day and credits this clearing account; the backdated business-day journal debits the same clearing account and posts the existing revenue or deposit-liability entry. The two legs carry the transaction/payment evidence in journal detail. If the mapping is missing, staging remains unbalanced and cannot be approved. Do not map this key to revenue, a bank account, or a merchant-fee expense account.
 
 Payments → Deposits can record actual bank deposits and match them to expected Helcim batches for review. That matching is audit evidence only: it does not create a QuickBooks deposit, post a bank deposit, or change the daily journal bundle.
 
@@ -128,4 +130,4 @@ See [../DAILY_FINANCIAL_REPORT.md](../DAILY_FINANCIAL_REPORT.md) for full config
 - [../SUIT_OUTFIT_COMPONENT_SWAP_AND_QBO.md](../SUIT_OUTFIT_COMPONENT_SWAP_AND_QBO.md)
 - [../DAILY_FINANCIAL_REPORT.md](../DAILY_FINANCIAL_REPORT.md)
 
-**Last reviewed:** 2026-05-27
+**Last reviewed:** 2026-07-17

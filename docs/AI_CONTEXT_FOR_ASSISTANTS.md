@@ -50,8 +50,8 @@ This document is for **prompt authors**, **server-side system prompts**, **fine-
 ## 2. Routing cheatsheet (intent → first source)
 
 - **“I can’t see [tab]” / 403** → `permissions-and-access.md` → `STAFF_PERMISSIONS.md` → suggest **Role access** / **User overrides** in **Staff**.
-- **“How do I refund / void / exchange?”** → `abstracts/returns-refunds-exchanges.md` → `orders-back-office.md` → technical detail `TRANSACTION_RETURNS_EXCHANGES.md` (link only if needed).
-- **“Special order / reserved / available stock”** → `abstracts/special-orders-and-stock.md` → `INVENTORY_GUIDE.md` (repo root) for depth.
+- **“How do I refund / void / exchange?”** → `abstracts/returns-refunds-exchanges.md` → `transactions-back-office.md` → technical detail `TRANSACTION_RETURNS_EXCHANGES.md` (link only if needed).
+- **“Special order / reserved / available stock”** → `abstracts/transactions-and-stock.md` → `INVENTORY_GUIDE.md` (repo root) for depth.
 - **“Wedding group pay”** → `abstracts/wedding-group-pay.md` → `WEDDING_GROUP_PAY_AND_RETURNS.md`.
 - **“What reports or data can I query?”** → `AI_REPORTING_DATA_CATALOG.md` §0 inventory of GETs.
 - **“What is ROSIE / Ask ROSIE in Help?”** → **Contract bundle:** `PLAN_LOCAL_LLM_HELP.md` (architecture + tools + prompt stub), `ROSIE_OPERATING_CONTRACT.md`, this file **§13**, `AI_REPORTING_DATA_CATALOG.md` (§0 **`report_id`** allowlist + §15 time/`basis`), and `ROS_AI_HELP_CORPUS.md`; retirement vs **`/api/ai`** → `ROS_AI_INTEGRATION_PLAN.md`.
@@ -203,7 +203,7 @@ Use these as **synthetic preference pairs** (helpful vs harmful) for DPO / RLAIF
 **A — Procedure question**
 
 - **Bad:** “Open the database and run `SELECT * FROM orders` to see voids.”
-- **Good:** “Voids follow **`orders.*` RBAC** and the refund/void flows in **`docs/staff/orders-back-office.md`**. If your role shows 403, check **Staff → Role access** for **`orders.void_sale`** (or your store’s policy in **`GET /api/staff/store-sop`**).”
+- **Good:** “Voids follow **`orders.*` RBAC** and the refund/void flows in **`docs/staff/transactions-back-office.md`**. If your role shows 403, check **Staff → Role access** for **`orders.void_sale`** (or your store’s policy in **`GET /api/staff/store-sop`**).”
 
 **B — Number question without tools**
 

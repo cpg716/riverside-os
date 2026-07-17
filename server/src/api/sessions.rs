@@ -53,6 +53,31 @@ pub enum SessionError {
     Forbidden(String),
 }
 
+fn expected_cash_from_activity(
+    opening_float: Decimal,
+    cash_activity: Decimal,
+    net_cash_adjustments: Decimal,
+) -> Decimal {
+    opening_float + cash_activity + net_cash_adjustments
+}
+
+#[cfg(test)]
+mod cash_reconciliation_tests {
+    use super::expected_cash_from_activity;
+    use rust_decimal::Decimal;
+
+    #[test]
+    fn cash_refund_reduces_expected_drawer_cash() {
+        let expected = expected_cash_from_activity(
+            Decimal::new(30000, 2),
+            Decimal::new(25000, 2) - Decimal::new(1152, 2),
+            Decimal::ZERO,
+        );
+
+        assert_eq!(expected, Decimal::new(53848, 2));
+    }
+}
+
 impl IntoResponse for SessionError {
     fn into_response(self) -> Response {
         match self {
@@ -1399,15 +1424,21 @@ async fn build_reconciliation(
     let mut pending_business_dates: Vec<NaiveDate> = sqlx::query_scalar(
         r#"
         SELECT DISTINCT
-            (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date
+            COALESCE(
+                pt.effective_date,
+                (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date
+            )
         FROM payment_transactions pt
         WHERE pt.session_id = ANY($1)
           AND NOT EXISTS (
               SELECT 1
-              FROM register_business_day_z_reports z
-              WHERE z.till_close_group_id = $2
+                FROM register_business_day_z_reports z
+                WHERE z.till_close_group_id = $2
                 AND z.business_date =
-                    (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date
+                    COALESCE(
+                        pt.effective_date,
+                        (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date
+                    )
           )
         ORDER BY 1
         "#,
@@ -1450,7 +1481,7 @@ async fn build_reconciliation(
                 COALESCE((
                     SELECT SUM(amount)
                     FROM payment_transactions
-                    WHERE session_id = ANY($1) AND payment_method = 'cash'
+                    WHERE session_id = ANY($1) AND LOWER(TRIM(payment_method)) = 'cash'
                 ), 0)::numeric,
                 COALESCE((
                     SELECT SUM(amount)
@@ -1468,7 +1499,8 @@ async fn build_reconciliation(
     .bind(drawer_session_id)
     .fetch_one(db)
     .await?;
-    let physical_expected_cash = opening_float + all_cash_sales + all_paid_in - all_paid_out;
+    let physical_expected_cash =
+        expected_cash_from_activity(opening_float, all_cash_sales, all_paid_in - all_paid_out);
 
     let (paid_in, paid_out): (Decimal, Decimal) = sqlx::query_as(
         r#"
@@ -1495,7 +1527,10 @@ async fn build_reconciliation(
             COUNT(*)::bigint AS tx_count
         FROM payment_transactions
         WHERE session_id = ANY($1)
-          AND (created_at AT TIME ZONE reporting.effective_store_timezone())::date = $2
+          AND COALESCE(
+                effective_date,
+                (created_at AT TIME ZONE reporting.effective_store_timezone())::date
+              ) = $2
         GROUP BY payment_method
         ORDER BY payment_method
         "#,
@@ -1515,7 +1550,10 @@ async fn build_reconciliation(
         FROM payment_transactions pt
         INNER JOIN register_sessions rs ON rs.id = pt.session_id
         WHERE pt.session_id = ANY($1)
-          AND (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date = $2
+          AND COALESCE(
+                pt.effective_date,
+                (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date
+              ) = $2
         GROUP BY rs.register_lane, pt.payment_method
         ORDER BY rs.register_lane, pt.payment_method
         "#,
@@ -1532,8 +1570,11 @@ async fn build_reconciliation(
         SELECT COALESCE(SUM(amount), 0)
         FROM payment_transactions
         WHERE session_id = ANY($1)
-          AND payment_method = 'cash'
-          AND (created_at AT TIME ZONE reporting.effective_store_timezone())::date = $2
+          AND LOWER(TRIM(payment_method)) = 'cash'
+          AND COALESCE(
+                effective_date,
+                (created_at AT TIME ZONE reporting.effective_store_timezone())::date
+              ) = $2
         "#,
     )
     .bind(&payment_session_ids)
@@ -1724,7 +1765,10 @@ async fn build_reconciliation(
             INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
             INNER JOIN register_sessions rs ON rs.id = pt.session_id
             WHERE pt.session_id = ANY($1)
-              AND (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date = $2
+              AND COALESCE(
+                    pt.effective_date,
+                    (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date
+                  ) = $2
             GROUP BY pa.target_transaction_id
         ) pay_tx
         INNER JOIN transactions o ON o.id = pay_tx.ledger_transaction_id
@@ -1781,9 +1825,12 @@ async fn build_reconciliation(
             INNER JOIN payment_allocations pa ON pa.target_transaction_id = t.id
             INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
             WHERE pt.session_id = ANY($1)
-              AND pt.payment_method = 'cash'
+              AND LOWER(TRIM(pt.payment_method)) = 'cash'
               AND t.rounding_adjustment IS NOT NULL
-              AND (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date = $2
+              AND COALESCE(
+                    pt.effective_date,
+                    (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date
+                  ) = $2
         ) agg
         "#,
     )
@@ -1792,7 +1839,8 @@ async fn build_reconciliation(
     .fetch_one(db)
     .await?;
 
-    let expected_cash = opening_float + total_cash_sales + net_cash_adjustments;
+    let expected_cash =
+        expected_cash_from_activity(opening_float, total_cash_sales, net_cash_adjustments);
     let unresolved_helcim_attempts =
         unresolved_helcim_attempts_for_sessions(db, &payment_session_ids).await?;
     let inventory_activity: Vec<InventoryActivityLine> = sqlx::query_as(
@@ -2331,7 +2379,7 @@ async fn close_session(
                 COALESCE((
                     SELECT SUM(pt.amount)
                     FROM payment_transactions pt
-                    WHERE pt.session_id = ANY($1) AND pt.payment_method = 'cash'
+                    WHERE pt.session_id = ANY($1) AND LOWER(TRIM(pt.payment_method)) = 'cash'
                 ), 0)::numeric,
                 COALESCE((
                     SELECT SUM(rca.amount)
@@ -2349,7 +2397,11 @@ async fn close_session(
     .bind(primary_id)
     .fetch_one(&mut *tx)
     .await?;
-    let physical_expected_cash = recon.opening_float + all_cash_sales + all_paid_in - all_paid_out;
+    let physical_expected_cash = expected_cash_from_activity(
+        recon.opening_float,
+        all_cash_sales,
+        all_paid_in - all_paid_out,
+    );
     let physical_discrepancy = payload.actual_cash - physical_expected_cash;
     let report_actual_cash = cash_count_is_single_day.then_some(payload.actual_cash);
     let report_discrepancy = cash_count_is_single_day.then_some(physical_discrepancy);

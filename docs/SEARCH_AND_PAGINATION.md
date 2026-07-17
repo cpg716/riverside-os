@@ -119,7 +119,7 @@ Quick directory search (POS, header, appointments, Wedding Manager, Register Loo
 | `limit` | Default **25**, max **100** |
 | `offset` | Default **0**, max **500_000** |
 
-**Clients (non-exhaustive):** `CustomerSelector.tsx` (POS; **Load more**), `Header.tsx` (**More customers**), `RegisterLookupHub.tsx` (loyalty lookup; multi-match picker + optional **Load more**), `scheduler/AppointmentModal.tsx`, `wedding-manager/.../AppointmentModal.jsx`, `weddingApi.searchCustomers(q, opts?)`, `wedding-manager/lib/api.js` `searchCustomers(q, opts)`.
+**Clients (non-exhaustive):** `CustomerSelector.tsx` (POS; **Load more**), `GlobalSearchDrawers.tsx` (**More customers**), `RegisterLookupHub.tsx` (loyalty lookup; multi-match picker + optional **Load more**), `scheduler/AppointmentModal.tsx`, `wedding-manager/.../AppointmentModal.jsx`, `weddingApi.searchCustomers(q, opts?)`, `wedding-manager/lib/api.js` `searchCustomers(q, opts)`.
 
 ### `GET /api/customers/{id}/transaction-history`
 
@@ -139,9 +139,9 @@ Per-customer Transaction Record list (not a directory search). **`WHERE customer
 
 | Area | Server | Client |
 |------|--------|--------|
-| Control board | `server/src/api/products.rs` — `list_control_board`; optional Meili: `logic/meilisearch_search.rs` | `InventoryControlBoard.tsx`, `Cart.tsx`, `ProcurementHub.tsx`, `Header.tsx` |
+| Control board | `server/src/api/products.rs` — `list_control_board`; optional Meili: `logic/meilisearch_search.rs` | `InventoryControlBoard.tsx`, `Cart.tsx`, `ProcurementHub.tsx`, `GlobalSearchDrawers.tsx` |
 | Store PLP search | `server/src/logic/store_catalog.rs` — `list_store_products`; `server/src/api/store.rs` | `PublicStorefront.tsx` — product list **`search`** + debounce |
-| Customer browse/search | `server/src/api/customers.rs` — `browse_customers`, `search_customers` | `CustomersWorkspace.tsx`, `CustomerSelector.tsx`, `Header.tsx`, appointment modals, `weddingApi.ts`, `api.js` |
+| Customer browse/search | `server/src/api/customers.rs` — `browse_customers`, `search_customers` | `CustomersWorkspace.tsx`, `CustomerSelector.tsx`, `GlobalSearchDrawers.tsx`, appointment modals, `weddingApi.ts`, `api.js` |
 | Wedding party directory | `server/src/logic/wedding_queries.rs`, `server/src/api/weddings.rs` | Embedded Wedding Manager + APIs using party list **`search`** |
 | Orders and Transaction Records list (BO) | `server/src/logic/transaction_list.rs`, `server/src/api/transactions.rs` | `OrdersWorkspace.tsx` |
 | RMS charge list | `server/src/api/customers.rs` — RMS charge handler + optional **`q`** | `RmsChargeAdminSection.tsx` |

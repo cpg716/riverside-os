@@ -9,6 +9,12 @@ Riverside OS uses a "Fulfilled-Recognition" model for financial and tax liabilit
 | **Booked Date** (`booked_at`) | The date the transaction was first created in the POS. This is when the customer committed to the purchase and paid a deposit. |
 | **Fulfilled Date** (`fulfilled_at`) | The date the items were physically taken by or delivered to the customer. This is when revenue is recognized and legal ownership transfers. |
 
+### Manager-approved backdated sales
+
+Register backdating changes the transaction's **business/booked date** only after Manager Access approval. It does not rewrite the immutable creation time. Every payment movement keeps its actual processing date so card batches, the physical drawer, deposits, and QBO clearing evidence remain truthful. Payment `created_at`/`occurred_at` remain the audit timestamps. Receipts identify the backdated business date, and the register clears the override after the sale.
+
+QBO uses a dedicated `BACKDATED_SALE_CLEARING` account to link the actual payment-day tender entry to the backdated business-day revenue or deposit-liability entry. This keeps daily tender reconciliation and business-date reporting separate without leaving the journal out of balance.
+
 ## Why the distinction?
 
 In wedding and formalwear retail, customers often "book" a transaction months before they take it home.

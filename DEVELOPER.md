@@ -63,10 +63,10 @@ This script updates all required JSON and TOML files, as well as the `README.md`
 
 ### Same-Version Release Reruns
 
-For same-version rebuilds such as `v0.90.0`, update `docs/releases/<tag>-release-notes.md` first, commit the intended source changes, then run:
+For same-version rebuilds such as `v0.95.0`, update `docs/releases/<tag>-release-notes.md` first, commit the intended source changes, then run:
 
 ```bash
-npm run release:retag -- v0.90.0
+npm run release:retag -- v0.95.0
 ```
 
 The retag wrapper runs the pre-retag gate, moves the tag only after checks pass, pushes `main`, republishes the GitHub release body from the canonical release-notes file, and requests the release workflows from the replacement tag. After the workflows finish, verify the GitHub release target commit, Latest status, asset list, and workflow results before declaring the rerun complete.
@@ -112,7 +112,7 @@ flowchart LR
 - **Theme**: semantic colors come from CSS variables on `:root` (`--app-accent`, etc.); `tailwind.config.js` extends `theme.colors.app`.
 - **API**: `server/` — `riverside-server` library + `main` binary. Routers nested under `/api/...`.
 - **Unified Engine**: Integrated into the Tauri shell (`client/src-tauri/src/unified_server.rs`). Allows a single desktop application to act as both the client and the shop's backend server. Uses the same schema-contract baseline as the standalone server.
-- **Data**: Fresh installs are driven by the active schema-contract baseline in **`migrations/001_core_identity_staff.sql`** through **`migrations/099_transaction_line_shipping_release.sql`**. Legacy pre-launch history is archived under **`migrations/legacy_prelaunch_history/`** and is not applied by normal setup. Seed data lives in **`scripts/seeds/`** and is applied after migrations. The ledger is **`public.ros_schema_migrations`**. See **[`docs/SCHEMA_CONTRACT_AND_MIGRATIONS.md`](docs/SCHEMA_CONTRACT_AND_MIGRATIONS.md)**.
+- **Data**: Fresh installs are driven by the active schema-contract baseline in **`migrations/001_core_identity_staff.sql`** through the current append-only migration **`migrations/133_qbo_backdated_sale_clearing.sql`**. Legacy pre-launch history is archived under **`migrations/legacy_prelaunch_history/`** and is not applied by normal setup. Seed data lives in **`scripts/seeds/`** and is applied after migrations. The ledger is **`public.ros_schema_migrations`**. See **[`docs/SCHEMA_CONTRACT_AND_MIGRATIONS.md`](docs/SCHEMA_CONTRACT_AND_MIGRATIONS.md)**.
 - **Logging / traces**: `tracing` + `tracing-subscriber`; level controlled via **`RUST_LOG`**. Optional **OpenTelemetry OTLP** export and **`tower-http`** **`TraceLayer`** for HTTP request spans — **[`docs/OBSERVABILITY_TRACING_AND_OPENTELEMETRY.md`](docs/OBSERVABILITY_TRACING_AND_OPENTELEMETRY.md)**.
 - **Helcim Integration**: Card-present terminal payments, hosted HelcimPay.js manual/keyed entry, terminal refund, saved-card token, and storefront payment flows are routed through Helcim. Raw card data must stay outside Riverside servers; ROS stores only provider-safe payment metadata for reconciliation. The Helcim API token enables batch, transaction, settlement, and fee reads; Terminal 1 and Terminal 2 device codes are separate terminal-payment settings. **Payments Operations** is the daily operations surface for Helcim card activity: event durability, fee sync, batch/settlement sync, reconciliation items, issue resolution, actual bank deposit matching, and bundled payment alerts. Fee/net values are trackable, explicit-only provider fields; missing fee/net data is not treated as a financial error or inferred as `$0.00`. Expected deposits are batch-based; actual bank deposits are modeled separately and do not create QBO deposits or mutate payment/batch money fields.
 - **Timezone**: `chrono-tz`; store timezone IANA string stored in `store_settings.receipt_config.timezone` (default `America/New_York`).
@@ -148,7 +148,7 @@ flowchart LR
 | `client/src/components/weddings/`                                                                       | Wedding workspace (parties, members, pipeline, appointments).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `client/src/components/operations/`                                                                     | Operational **Operations Hub** (wedding queues, weather, **Today’s floor team** [Opt-in via schedule], **My tasks**).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `client/src-tauri/`                                                                                     | Tauri 2 config, Rust entry for desktop packaging, and `hardware.rs` containing async TCP ESC/POS thermal printer bindings.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| `migrations/`                                                                                           | Active schema-contract baseline migrations **001–081**. Pre-launch historical migrations are archived in `migrations/legacy_prelaunch_history/`.                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `migrations/`                                                                                           | Active schema-contract baseline migrations **001–133**. Pre-launch historical migrations are archived in `migrations/legacy_prelaunch_history/`.                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `counterpoint-bridge/`                                                                                  | Windows Node.js bridge: Counterpoint SQL → `POST /api/sync/counterpoint/*` (customers, inventory, catalog, gift cards, tickets, heartbeat); Dashboard on port **3002**; see [`docs/COUNTERPOINT_SYNC_GUIDE.md`](docs/COUNTERPOINT_SYNC_GUIDE.md).                                                                                                                                                                                                                                                                                                                                                                                        |
 
 ### Customers workspace (Back Office)
@@ -265,7 +265,7 @@ docker compose exec -T db psql -U postgres -d riverside_os -v ON_ERROR_STOP=1 < 
 
 ## Migration numbering safety
 
-- Active baseline files are `001` through `037`
+- Active baseline files are `001` through `133`
 - **Never edit an already-applied migration file** — the checksum system will flag it as drift (see below)
 - Always create a new append-only migration for post-launch schema changes
 - Preserve migration order across branches
@@ -443,7 +443,7 @@ cd client && npm run build    # tsc --noEmit + vite build
 > [!IMPORTANT]
 > **Sequential Test Run Invariant**: Integration tests write to shared PostgreSQL tables (e.g. `staff`, `product_variants`). Running cargo tests in parallel (the default) will trigger transaction deadlocks and unique constraint errors. Always append `-- --test-threads=1` to sequentialize execution.
 >
-> **Test Database Isolation**: DB-backed integration tests must use the dedicated Docker PostgreSQL service at `postgresql://postgres:password@localhost:5433/riverside_os`, never the application database. Export both `TEST_DATABASE_URL` and `DATABASE_URL` to that test URL while running the suite because a few older tests still read `DATABASE_URL`. Before testing, apply the complete active migration baseline (currently `001-129`) with `DATABASE_URL="$TEST_DATABASE_URL" ./scripts/apply-migrations-psql.sh`, then verify it with `RIVERSIDE_DB_NAME=riverside_os ./scripts/migration-status-docker.sh`.
+> **Test Database Isolation**: DB-backed integration tests must use the dedicated Docker PostgreSQL service at `postgresql://postgres:password@localhost:5433/riverside_os`, never the application database. Export both `TEST_DATABASE_URL` and `DATABASE_URL` to that test URL while running the suite because a few older tests still read `DATABASE_URL`. Before testing, apply the complete active migration baseline (currently `001-133`) with `DATABASE_URL="$TEST_DATABASE_URL" ./scripts/apply-migrations-psql.sh`, then verify it with `RIVERSIDE_DB_NAME=riverside_os ./scripts/migration-status-docker.sh`.
 
 E2E / visual QA (Playwright):
 
@@ -712,7 +712,7 @@ Riverside OS operates on a **Source of Truth** model for customer lifetime spend
 
 Detailed audit logs of system stabilizations:
 
-- [v0.1.8 Bugsquash Report](docs/BUGSQUASH_REPORT_V0.1.8.md) (27 TS fixes, Bundle UI implementation, SQL hardening).
+- [Retired Bugsquash document summary](docs/RETIRED_DOCUMENT_SUMMARIES.md#bugsquash-reports) (historical v0.1.x stabilization reports).
 
 ---
 

@@ -234,6 +234,11 @@ fn push_header(out: &mut Vec<u8>, d: &ReceiptOrder, cfg: &ReceiptConfig, gift: b
     }
     push_line(out, &format!("Receipt {order_ref}"));
     push_line(out, &local_time.format("%m/%d/%Y %I:%M %p").to_string());
+    if let Some(notice) = crate::logic::receipt_shared::backdated_receipt_notice(d) {
+        set_bold(out, true);
+        push_line(out, &notice);
+        set_bold(out, false);
+    }
     set_align(out, 0);
     if let Some(c) = &d.customer {
         for line in c.identity_lines() {
@@ -979,6 +984,7 @@ mod tests {
             transaction_id: Uuid::nil(),
             transaction_display_id: "TXN-TEST".to_string(),
             booked_at: Utc::now(),
+            backdated_business_date: None,
             status: DbOrderStatus::Fulfilled,
             subtotal_price: Decimal::ZERO,
             tax_total: Decimal::ZERO,

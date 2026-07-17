@@ -4,7 +4,7 @@ Riverside OS utilize a prioritized fulfillment queue to maximize staff throughpu
 
 ## Urgency Scoring Logic
 
-The fulfillment queue ([fulfillment_queue.rs](file:///server/src/logic/fulfillment_queue.rs)) categorizes open orders into four actionable buckets:
+The fulfillment queue ([fulfillment_queue.rs](../server/src/logic/fulfillment_queue.rs)) categorizes open orders into four actionable buckets:
 
 ### 1. Ready (Priority 1)
 *   **Definition**: Orders where all "Fulfillment Required" items (Special Orders, Wedding Items) are marked as fulfilled, but the order remains open.

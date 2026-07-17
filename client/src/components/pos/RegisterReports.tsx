@@ -542,7 +542,7 @@ async function openZReportFromSession(
 ): Promise<boolean> {
   const snapshot = session.z_report_json;
   const cashTender = snapshot?.tenders?.find(
-    (tender) => tender.payment_method.toLowerCase() === "cash",
+    (tender) => tender.payment_method.trim().toLowerCase() === "cash",
   );
   const actualCash = snapshot?.actual_cash ?? session.actual_cash;
   const discrepancy = snapshot?.discrepancy ?? session.discrepancy;

@@ -4,7 +4,7 @@ title: "QBO Workspace"
 order: 1082
 summary: "Review QuickBooks Online staging, balanced proposals, drilldown evidence, and liability tender treatment."
 source: client/src/components/qbo/QboWorkspace.tsx
-last_scanned: 2026-05-23
+last_scanned: 2026-07-17
 tags: qbo, quickbooks, accounting, journal, staging, finance
 status: approved
 ---

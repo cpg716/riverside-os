@@ -24,10 +24,11 @@ Use this only when a manager approves recording the sale under an earlier store 
 
 1. In **Register**, tap **Store date and time** near the salesperson selector.
 2. Pick the correct store-local date/time.
-3. Confirm the label changes to **Backdated sale** before checkout.
-4. Finish checkout normally.
+3. A Manager Access approval is required. The approving manager must select their identity and enter their Access PIN; the approval reason is recorded with the Transaction Record.
+4. Confirm the label changes to **Backdated sale** before checkout.
+5. Finish checkout normally.
 
-The backdate applies only to the current sale. ROS returns to the live store date/time after checkout, cart clear, or customer change.
+The backdate applies only to the current sale. ROS returns to the live store date/time after checkout, cart clear, or customer change. Payment movements for every tender remain on the actual processing day so the Z-Report, cash drawer, card batches, deposits, and QBO payment evidence reconcile. Only the transaction business date is backdated. The receipt identifies the backdated business date.
 
 ---
 
@@ -141,4 +142,4 @@ Call a manager for:
 - Inventory adjustment request.
 - Any error that repeats twice.
 
-**Last reviewed:** 2026-05-17
+**Last reviewed:** 2026-07-17

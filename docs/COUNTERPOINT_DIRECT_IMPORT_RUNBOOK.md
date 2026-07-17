@@ -54,7 +54,7 @@ Counterpoint SQL is the source of truth for cutover customer profiles, open orde
 The live direct repair run proved the transport and data mapping path, but it should not be treated as the final go-live baseline. The best final path is:
 
 1. Ship the direct-import fixes in the Main Hub/ROS build.
-2. Redeploy the rebuilt `v0.90.0` Main Hub.
+2. Redeploy the current `v0.95.0` Main Hub package.
 3. Reset Counterpoint import state from ROS.
 4. Run one fresh full direct import from `2018-01-01`.
 5. Review proof from that single clean run.

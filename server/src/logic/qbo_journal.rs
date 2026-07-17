@@ -31,6 +31,12 @@ fn is_staff_account_tender(payment_method: &str, tender_family: Option<&str>) ->
             .unwrap_or(false)
 }
 
+fn is_exchange_credit_tender(payment_method: &str) -> bool {
+    payment_method
+        .trim()
+        .eq_ignore_ascii_case("exchange_credit")
+}
+
 fn rms_payment_collection_flag(value: Option<bool>) -> bool {
     value.unwrap_or(false)
 }
@@ -310,6 +316,7 @@ pub async fn propose_daily_journal(
         "Store credit redemptions post as liability relief when mapped. Held wedding deposits remain in deposit liability until the linked sale is fulfilled, then release to revenue; neither is cash/card tender revenue.".to_string(),
         "Customer-charged shipping posts as fulfillment-day shipping income when `income_shipping` / default or `REVENUE_SHIPPING` is mapped.".to_string(),
         "Revenue/COGS/tax for recognized transactions use effective qty (sold minus returns). Returns booked today add contra lines; re-run past dates after returns to restate recognition-day nets.".to_string(),
+        "Manager-approved backdated payments stay on the actual tender day and are linked through BACKDATED_SALE_CLEARING to the backdated business-day revenue or deposit entry.".to_string(),
     ];
 
     #[derive(sqlx::FromRow)]
@@ -400,6 +407,7 @@ AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
         rms_charge_collection: Option<bool>,
         total: Option<Decimal>,
         total_merchant_fee: Option<Decimal>,
+        backdated_total: Option<Decimal>,
         payment_transaction_ids: Vec<Uuid>,
         source_payments: Option<Value>,
     }
@@ -409,7 +417,7 @@ AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
         SELECT
             CASE
                 WHEN LOWER(COALESCE(payment_provider, '')) = 'helcim'
-                 AND LOWER(payment_method) IN ('card', 'card_terminal', 'card_manual', 'card_saved', 'card_credit')
+                AND LOWER(TRIM(payment_method)) IN ('card', 'card_terminal', 'card_manual', 'card_saved', 'card_credit')
                 THEN 'helcim_card'
                 ELSE payment_method
             END AS payment_method,
@@ -419,6 +427,7 @@ AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
             BOOL_OR(COALESCE((metadata->>'rms_charge_collection')::boolean, FALSE)) AS rms_charge_collection,
             SUM(amount)::numeric(14, 2) AS total,
             SUM(merchant_fee)::numeric(14, 2) AS total_merchant_fee,
+            COALESCE(SUM(amount) FILTER (WHERE COALESCE((payment_transactions.metadata->>'register_backdated')::boolean, FALSE)), 0)::numeric(14, 2) AS backdated_total,
             ARRAY_AGG(id ORDER BY created_at, id) AS payment_transaction_ids,
             jsonb_agg(
                 jsonb_build_object(
@@ -435,7 +444,7 @@ AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
         FROM payment_transactions
         WHERE COALESCE(effective_date, (created_at AT TIME ZONE reporting.effective_store_timezone())::date) = $1::date
           AND (
-              LOWER(payment_method) <> 'open_deposit'
+              LOWER(TRIM(payment_method)) <> 'open_deposit'
               OR EXISTS (
                   SELECT 1
                   FROM transactions o
@@ -447,7 +456,7 @@ AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
         GROUP BY
             CASE
                 WHEN LOWER(COALESCE(payment_provider, '')) = 'helcim'
-                 AND LOWER(payment_method) IN ('card', 'card_terminal', 'card_manual', 'card_saved', 'card_credit')
+                 AND LOWER(TRIM(payment_method)) IN ('card', 'card_terminal', 'card_manual', 'card_saved', 'card_credit')
                 THEN 'helcim_card'
                 ELSE payment_method
             END,
@@ -969,6 +978,7 @@ AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
         let is_staff_account = is_staff_account_tender(sid, t.tender_family.as_deref());
         let is_rms_collection = rms_payment_collection_flag(t.rms_charge_collection);
         let is_store_credit = sid.eq_ignore_ascii_case("store_credit");
+        let is_exchange_credit = is_exchange_credit_tender(sid);
         let is_open_deposit = sid.eq_ignore_ascii_case("open_deposit");
         if gift_card_route == Some(GiftCardAccountingRoute::MissingOrUnknown) {
             warnings.push(
@@ -987,6 +997,14 @@ AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
             qbo_map_name(pool, "liability_deposit", "default").await?
         } else if is_store_credit {
             qbo_map_name(pool, "liability_store_credit", "default").await?
+        } else if is_exchange_credit {
+            qbo_map_with_default_mapping(
+                pool,
+                "liability_refund_queue",
+                "default",
+                Some("REFUND_LIABILITY_CLEARING"),
+            )
+            .await?
         } else if is_loyalty_gc {
             qbo_map_with_default_mapping(pool, "expense_loyalty", "default", None).await?
         } else if is_paid_liability_gc {
@@ -998,7 +1016,7 @@ AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
             Some(m)
         } else if is_gift_card {
             None
-        } else if is_open_deposit || is_store_credit {
+        } else if is_open_deposit || is_store_credit || is_exchange_credit {
             None
         } else if is_rms_financing {
             qbo_map_with_default_mapping(
@@ -1051,6 +1069,11 @@ AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
                 } else if is_store_credit {
                     warnings.push(
                         "Store credit redemption detected but no `liability_store_credit` / default mapping exists; liability relief omitted."
+                            .to_string(),
+                    );
+                } else if is_exchange_credit {
+                    warnings.push(
+                        "Exchange Credit redemption detected but no `liability_refund_queue` / default or REFUND_LIABILITY_CLEARING mapping exists; liability relief omitted."
                             .to_string(),
                     );
                 } else {
@@ -1161,6 +1184,134 @@ AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
                 });
             } else {
                 warnings.push(format!("Merchant fees detected for {sid} (${fees}) but no `expense_merchant_fee` mapping found. Clearing account will remain at GROSS."));
+            }
+        }
+
+        let backdated_total = t.backdated_total.unwrap_or(Decimal::ZERO).round_dp(2);
+        if !backdated_total.is_zero() {
+            if let Some((clear_id, clear_name)) =
+                ledger_mapping(pool, "BACKDATED_SALE_CLEARING").await?
+            {
+                let abs_amount = backdated_total.abs();
+                let (debit, credit) = if backdated_total > Decimal::ZERO {
+                    (Decimal::ZERO, abs_amount)
+                } else {
+                    (abs_amount, Decimal::ZERO)
+                };
+                lines.push(JournalLine {
+                    qbo_account_id: clear_id,
+                    qbo_account_name: clear_name,
+                    debit,
+                    credit,
+                    memo: format!("Backdated sale clearing — actual tender day — {sid}"),
+                    detail: vec![serde_json::json!({
+                        "kind": "backdated_sale_clearing_actual_tender_day",
+                        "payment_method": sid,
+                        "amount": backdated_total,
+                        "payment_transaction_ids": t.payment_transaction_ids,
+                    })],
+                });
+            } else {
+                warnings.push(
+                    "Backdated payments detected but `BACKDATED_SALE_CLEARING` is not mapped; clearing offset omitted and the journal cannot be approved until it is mapped.".to_string(),
+                );
+            }
+        }
+    }
+
+    #[derive(sqlx::FromRow)]
+    struct BackdatedBusinessAgg {
+        business_date: NaiveDate,
+        recognized_on_business_date: bool,
+        total: Option<Decimal>,
+    }
+
+    let backdated_business_rows: Vec<BackdatedBusinessAgg> = sqlx::query_as(&format!(
+        r#"
+        SELECT
+            COALESCE(o.business_date, (o.booked_at AT TIME ZONE reporting.effective_store_timezone())::date) AS business_date,
+            BOOL_AND(
+                ({order_recognition_ts}) IS NOT NULL
+                AND (({order_recognition_ts}) AT TIME ZONE reporting.effective_store_timezone())::date = COALESCE(o.business_date, (o.booked_at AT TIME ZONE reporting.effective_store_timezone())::date)
+            ) AS recognized_on_business_date,
+            SUM(pt.amount)::numeric(14, 2) AS total
+        FROM payment_transactions pt
+        INNER JOIN transactions o
+          ON o.id::text = NULLIF(TRIM(COALESCE(pt.metadata->>'checkout_transaction_id', '')), '')
+        WHERE COALESCE((pt.metadata->>'register_backdated')::boolean, FALSE)
+          AND COALESCE(pt.effective_date, (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date)
+              <> COALESCE(o.business_date, (o.booked_at AT TIME ZONE reporting.effective_store_timezone())::date)
+          AND o.status::text <> 'cancelled'
+        GROUP BY
+            COALESCE(o.business_date, (o.booked_at AT TIME ZONE reporting.effective_store_timezone())::date),
+            CASE WHEN ({order_recognition_ts}) IS NOT NULL
+              AND (({order_recognition_ts}) AT TIME ZONE reporting.effective_store_timezone())::date = COALESCE(o.business_date, (o.booked_at AT TIME ZONE reporting.effective_store_timezone())::date)
+              THEN true ELSE false END
+        "#
+    ))
+    .fetch_all(pool)
+    .await?;
+
+    if !backdated_business_rows.is_empty() {
+        let clearing = ledger_mapping(pool, "BACKDATED_SALE_CLEARING").await?;
+        let deposit =
+            qbo_map_with_default_mapping(pool, "liability_deposit", "default", None).await?;
+        for row in &backdated_business_rows {
+            let amount = row.total.unwrap_or(Decimal::ZERO).round_dp(2);
+            if amount.is_zero() || row.business_date != activity_date {
+                continue;
+            }
+            if let Some((clear_id, clear_name)) = clearing.clone() {
+                let abs_amount = amount.abs();
+                let (debit, credit) = if amount > Decimal::ZERO {
+                    (abs_amount, Decimal::ZERO)
+                } else {
+                    (Decimal::ZERO, abs_amount)
+                };
+                lines.push(JournalLine {
+                    qbo_account_id: clear_id,
+                    qbo_account_name: clear_name,
+                    debit,
+                    credit,
+                    memo: "Backdated sale clearing — business day".to_string(),
+                    detail: vec![serde_json::json!({
+                        "kind": "backdated_sale_clearing_business_day",
+                        "business_date": row.business_date,
+                        "recognized_on_business_date": row.recognized_on_business_date,
+                        "amount": amount,
+                    })],
+                });
+            } else {
+                warnings.push(
+                    "Backdated payments belong to this business date but `BACKDATED_SALE_CLEARING` is not mapped; map it before QBO approval.".to_string(),
+                );
+                continue;
+            }
+            if !row.recognized_on_business_date {
+                if let Some((deposit_id, deposit_name)) = deposit.clone() {
+                    let abs_amount = amount.abs();
+                    let (debit, credit) = if amount > Decimal::ZERO {
+                        (Decimal::ZERO, abs_amount)
+                    } else {
+                        (abs_amount, Decimal::ZERO)
+                    };
+                    lines.push(JournalLine {
+                        qbo_account_id: deposit_id,
+                        qbo_account_name: deposit_name,
+                        debit,
+                        credit,
+                        memo: "Backdated sale deposit liability".to_string(),
+                        detail: vec![serde_json::json!({
+                            "kind": "backdated_sale_deposit_liability",
+                            "business_date": row.business_date,
+                            "amount": amount,
+                        })],
+                    });
+                } else {
+                    warnings.push(
+                        "Backdated open-order payment requires a `liability_deposit` mapping; deposit liability omitted.".to_string(),
+                    );
+                }
             }
         }
     }
@@ -1847,6 +1998,7 @@ AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
         INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
         INNER JOIN transactions o ON o.id = pa.target_transaction_id
         WHERE COALESCE(pt.effective_date, (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date) = $1::date
+          AND NOT COALESCE((pt.metadata->>'register_backdated')::boolean, FALSE)
           AND pa.amount_allocated > 0::numeric
           AND NULLIF(TRIM(pa.metadata->>'applied_deposit_amount'), '') IS NOT NULL
           AND (({order_recognition_ts}) IS NULL OR (({order_recognition_ts}) AT TIME ZONE reporting.effective_store_timezone())::date > $1::date)
@@ -1871,6 +2023,12 @@ AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
           )
           AND (({order_recognition_ts}) IS NULL OR (({order_recognition_ts}) AT TIME ZONE reporting.effective_store_timezone())::date > $1::date)
           AND o.status::text NOT IN ('cancelled')
+          AND NOT EXISTS (
+              SELECT 1
+              FROM payment_transactions backdated_pt
+              WHERE backdated_pt.metadata->>'checkout_transaction_id' = o.id::text
+                AND COALESCE((backdated_pt.metadata->>'register_backdated')::boolean, FALSE)
+          )
           AND NOT EXISTS (
               SELECT 1
               FROM payment_allocations pa
@@ -2477,6 +2635,12 @@ mod tests {
         assert!(rms_payment_collection_flag(Some(true)));
         assert!(!rms_payment_collection_flag(Some(false)));
         assert!(!rms_payment_collection_flag(None));
+    }
+
+    #[test]
+    fn exchange_credit_is_not_a_card_tender() {
+        assert!(is_exchange_credit_tender(" exchange_credit "));
+        assert!(!is_exchange_credit_tender("card_terminal"));
     }
 
     #[test]

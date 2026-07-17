@@ -55,6 +55,45 @@ The only active migration files in `migrations/` are:
 | `035_backup_resilience_settings.sql` | Backup and resilience settings |
 | `036_financial_date_and_counterpoint_integrity.sql` | Financial date and Counterpoint integrity hardening |
 | `037_backfill_missing_columns.sql` | Backfill columns added to earlier files after they were applied (`store_media_asset.deleted_at/alt_text/usage_note`, `categories.variation_axis_presets`) |
+| `038_web_listing_and_categories.sql` | Adds web listing and category schema |
+| `039_wal_archiving_configuration.sql` | Adds PostgreSQL WAL archiving configuration |
+| `040_ops_audit_probes.sql` | Adds operations audit probe records |
+| `041_staff_avatar_photo.sql` | Adds staff avatar photo support |
+| `042_seed_admin_account.sql` | Adds the initial admin account schema/seed support |
+| `043_fal_visual_sidecar.sql` | Adds FAL visual sidecar records |
+| `044_customer_review_opt_out.sql` | Adds customer review opt-out tracking |
+| `045_qbo_webhook_events_and_hardening.sql` | Adds QBO webhook events and hardening fields |
+| `046_alteration_pickup_tracking.sql` | Adds alteration pickup tracking |
+| `047_phase4_resiliency.sql` | Adds Phase 4 resiliency controls |
+| `048_constant_contact_integration.sql` | Adds Constant Contact integration data |
+| `049_constant_contact_permissions.sql` | Adds Constant Contact permissions |
+| `050_inventory_migration_workbench.sql` | Adds inventory migration workbench records |
+| `051_receiving_freight_ledger_keys.sql` | Adds receiving freight ledger keys |
+| `052_daily_financial_reports.sql` | Adds daily financial report records |
+| `053_customer_notification_queue.sql` | Adds the customer notification queue |
+| `054_customer_opt_in_defaults.sql` | Adds customer communication opt-in defaults |
+| `055_alteration_ticket_number.sql` | Adds alteration ticket numbers |
+| `056_alteration_verify_completed_status.sql` | Adds alteration completion verification status |
+| `057_transaction_lines_alteration_ready.sql` | Adds alteration-ready state to transaction lines |
+| `058_pos_station_config.sql` | Adds POS station configuration |
+| `060_rosie_token_telemetry.sql` | Adds ROSIE token telemetry |
+| `061_ops_connectivity_logs.sql` | Adds operations connectivity logs |
+| `062_rename_qbo_inventory_adjustment_revenue.sql` | Renames the QBO inventory-adjustment revenue mapping |
+| `063_notification_search_and_fatigue.sql` | Adds notification search and fatigue controls |
+| `064_staff_schedule_admin_effective_days.sql` | Adds effective-day controls for staff schedule administration |
+| `065_procurement_imports.sql` | Adds procurement import records |
+| `066_ops_readiness_signoffs.sql` | Adds operations readiness signoffs |
+| `067_customer_notification_center.sql` | Adds customer notification center data |
+| `068_transaction_lines_discount_amount.sql` | Stores transaction-line discount amounts |
+| `069_retire_qbo_transaction_outbox.sql` | Retires the QBO transaction outbox schema |
+| `070_task_assignment_ownership.sql` | Adds task assignment ownership |
+| `071_physical_inventory_readiness_controls.sql` | Adds physical-inventory readiness controls |
+| `072_physical_inventory_scan_idempotency.sql` | Adds idempotent physical-inventory scan tracking |
+| `073_product_secondary_vendors.sql` | Adds secondary vendor relationships for products |
+| `074_discount_events_full_inventory_scope.sql` | Extends discount events to the full inventory scope |
+| `075_daily_sales_weather_reporting.sql` | Adds daily sales and weather reporting data |
+| `076_commission_combo_variant_targets.sql` | Adds commission targets for combo variants |
+| `077_register_cash_deposit.sql` | Adds register cash-deposit records |
 | `078_data_integrity_hardening.sql` | Provider ledger, QBO pending-row, and online checkout attempt integrity constraints |
 | `079_counterpoint_transition_review_packs.sql` | Historical prelaunch Counterpoint review tables; not part of the go-live import workflow |
 | `080_counterpoint_payment_method_aliases.sql` | Counterpoint tender alias seeds observed during real-data import rehearsals |
@@ -70,6 +109,47 @@ The only active migration files in `migrations/` are:
 | `090_counterpoint_import_run_kind_modes.sql` | Normalizes Counterpoint import-run kinds for direct live ingest |
 | `091_counterpoint_2024_history_floor.sql` | Sets the Counterpoint import-run history floor default to January 1, 2024 |
 | `092_counterpoint_live_tender_aliases.sql` | Adds live Riverside Counterpoint tender aliases observed in 2024+ history probes |
+| `093_counterpoint_square_tender_alias.sql` | Adds the Counterpoint Square tender alias |
+| `094_counterpoint_closed_ticket_balance_presentation.sql` | Preserves closed-ticket balance presentation for Counterpoint history |
+| `095_register_session_station_tokens.sql` | Adds station-bound register session token support |
+| `096_counterpoint_category_tax_defaults.sql` | Adds Counterpoint category tax defaults |
+| `097_manager_approval_permission.sql` | Adds manager approval permission support |
+| `098_transaction_line_booked_at.sql` | Stores transaction-line booked timestamps |
+| `099_transaction_line_shipping_release.sql` | Adds transaction-line shipping recognition release support |
+| `100_allow_wedding_import_customer_source.sql` | Allows imported wedding customer source metadata |
+| `101_register_open_lane_uniqueness_guard.sql` | Prevents duplicate open register lanes |
+| `102_counterpoint_open_doc_tax_repair.sql` | Repairs Counterpoint open-document tax data |
+| `103_counterpoint_open_doc_tax_header_repair.sql` | Repairs Counterpoint open-document tax headers |
+| `104_wedding_import_customer_identity_repair.sql` | Repairs imported wedding customer identity links |
+| `105_wedding_import_duplicate_customer_repair.sql` | Repairs duplicate imported wedding customers |
+| `106_counterpoint_variation_label_cleanup.sql` | Cleans Counterpoint variation labels |
+| `107_counterpoint_variation_all_star_cleanup.sql` | Cleans Counterpoint all-star variation labels |
+| `108_inventory_hide_stale_zero_stock.sql` | Hides stale zero-stock inventory variants |
+| `109_wedding_party_numbers.sql` | Adds wedding party number support |
+| `110_donation_tender_reporting.sql` | Adds donation tender reporting support |
+| `111_helcim_event_payment_match_backfill.sql` | Backfills Helcim event/payment matches |
+| `112_weather_vc_request_cache.sql` | Adds Visual Crossing request caching and cooldowns |
+| `113_system_staff_admin_salesperson.sql` | Adds system staff/admin salesperson support |
+| `114_counterpoint_inventory_and_return_audit_backfill.sql` | Backfills Counterpoint inventory and return audit data |
+| `115_qbo_blocking_warning_review_status.sql` | Adds QBO blocking-warning review status |
+| `116_payment_allocation_transaction_index.sql` | Adds payment-allocation transaction lookup index |
+| `117_retire_counterpoint_stale_notifications.sql` | Retires stale Counterpoint notifications |
+| `118_repair_joe_webb_failed_exchange_return.sql` | Repairs a failed exchange return record |
+| `119_backfill_open_deferred_payment_deposit_metadata.sql` | Backfills deferred-payment deposit metadata |
+| `120_resolve_browser_station_offline_alerts.sql` | Resolves stale browser-station offline alerts |
+| `121_pos_shipping_charge_links.sql` | Links POS shipping charges to source transactions |
+| `122_unhide_inventory_variants.sql` | Restores intentionally visible inventory variants |
+| `123_staff_accounts.sql` | Adds staff account support |
+| `124_operational_recovery_and_telemetry.sql` | Adds operational recovery and telemetry records |
+| `125_staff_access_sessions.sql` | Adds revocable Staff Access sessions |
+| `126_register_business_day_z_reports.sql` | Adds business-day-specific Z-Report records |
+| `127_counterpoint_transaction_reconciliation.sql` | Adds Counterpoint transaction reconciliation records |
+| `128_helcim_paid_parked_sale_recovery.sql` | Adds approved Helcim parked-sale recovery records |
+| `129_backfill_checkout_payment_payers.sql` | Backfills checkout payment payer links |
+| `130_archive_duplicate_shipping_alteration_fee_products.sql` | Archives duplicate shipping and alteration fee products |
+| `131_repair_counterpoint_historical_paid_amounts.sql` | Repairs historical Counterpoint paid amounts |
+| `132_reliability_read_path_indexes.sql` | Adds reliability indexes for payment, history, and wedding reads |
+| `133_qbo_backdated_sale_clearing.sql` | Adds QBO clearing support for manager-approved backdated sales |
 
 Historical migration files live under `migrations/legacy_prelaunch_history/`. They are not applied by the normal migration scripts.
 

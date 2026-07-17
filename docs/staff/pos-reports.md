@@ -67,9 +67,9 @@
 
 - [pos-dashboard.md](pos-dashboard.md)
 - [pos-void-transactions.md](pos-void-transactions.md)
-- [orders-back-office.md](orders-back-office.md)
+- [transactions-back-office.md](transactions-back-office.md)
 - [../REGISTER_DASHBOARD.md](../REGISTER_DASHBOARD.md)
 - [../STAFF_PERMISSIONS.md](../STAFF_PERMISSIONS.md)
 - [../TILL_GROUP_AND_REGISTER_OPEN.md](../TILL_GROUP_AND_REGISTER_OPEN.md)
 
-**Last reviewed:** 2026-05-17
+**Last reviewed:** 2026-07-17

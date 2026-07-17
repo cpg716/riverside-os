@@ -4,7 +4,7 @@ title: "Receipt Preview and Delivery"
 order: 1068
 summary: "Preview, print, text, or email the completed sale receipt."
 source: client/src/components/pos/ReceiptSummaryModal.tsx
-last_scanned: 2026-06-02
+last_scanned: 2026-07-17
 tags: pos-receipt-summary-modal, pos, receipt, printing
 status: approved
 ---
@@ -51,6 +51,8 @@ Receipt line items keep the product name as the primary line, show quantity only
 When a customer picks up an order and buys new merchandise in the same checkout, the sale complete screen prints one checkout receipt. It includes the new sale lines plus the exact picked-up items and their source Transaction number. Daily Sales lists the checkout once, while **Pickups Today** preserves the fulfillment record. Pure pickup checkouts still print the pickup receipt for the original transaction.
 
 Split tenders print as separate tender lines, such as **Cash**, **CC**, **RMS90**, **RMS**, **Check**, or **SC**, so the receipt matches the payment breakdown staff see in history and reporting.
+
+Manager-approved backdated sales are marked **BACKDATED SALE** with the backdated business date. The printed receipt timestamp remains the server checkout time; payment movement still belongs to the actual processing day.
 
 If the reports printer opens a blank page, retry from the receipt preview and report the transaction number to support. The report-printer window should contain the formatted receipt, not a white page.
 

@@ -46,6 +46,10 @@ interface UseCartCheckoutProps {
     lineSignature?: string;
   } | null;
   saleDateTimeLocal?: string | null;
+  backdateApproval: {
+    approvedByStaffId: string;
+    reason: string;
+  } | null;
   totals: CartTotals;
   toast: (msg: string, type?: "success" | "error" | "info") => void;
   clearCart: () => void;
@@ -191,6 +195,7 @@ export function useCartCheckout({
   pickupTransactions = [],
   belowCostApproval,
   saleDateTimeLocal,
+  backdateApproval,
   totals,
   toast,
   clearCart,
@@ -536,6 +541,12 @@ export function useCartCheckout({
         amount_paid: centsToFixed2(tenderPaidCents),
         checkout_client_id: checkoutClientId,
         booked_at_local: saleDateTimeLocal?.trim() || undefined,
+        backdate_approval: backdateApproval
+          ? {
+              approved_by_staff_id: backdateApproval.approvedByStaffId,
+              reason: backdateApproval.reason,
+            }
+          : undefined,
         is_rush: options?.is_rush ?? checkoutLines.some((l) => l.is_rush),
         need_by_date:
           options?.need_by_date ??
@@ -869,7 +880,7 @@ export function useCartCheckout({
   }, [
     sessionId, baseUrl, apiAuth, lines, selectedCustomer, activeWeddingMember,
     cashierName, primarySalespersonId, disbursementMembers, posShipping, pendingAlterationIntakes, orderPaymentLines,
-    pickupAlterationIds, pickupConfirmed, pickupTransactionId, pickupTransactions, belowCostApproval, saleDateTimeLocal, totals, toast, clearCart, onSaleCompleted, ensurePosTokenForSession, requestPickupPaymentOverride, checkoutClientId
+    pickupAlterationIds, pickupConfirmed, pickupTransactionId, pickupTransactions, belowCostApproval, saleDateTimeLocal, backdateApproval, totals, toast, clearCart, onSaleCompleted, ensurePosTokenForSession, requestPickupPaymentOverride, checkoutClientId
   ]);
 
   return {

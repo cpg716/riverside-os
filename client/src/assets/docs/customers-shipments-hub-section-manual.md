@@ -58,4 +58,4 @@ Use the Shipments Hub to manage packed-but-not-delivered orders, tracking number
 - International shipments require manager/admin handling until customs declarations are fully built into ROS.
 - Use the fuller shipping guide when the question is about quoting or the original POS shipping setup.
 
-_For the full guide on shipping workflows, see the [Shipping & Fulfillment Guide](pos-shipping-manual)._
+_For the full guide on shipping workflows, see the [Shipping & Fulfillment Guide](manual:pos-shipping-manual)._

@@ -264,6 +264,10 @@ export interface CheckoutPayload {
   }[];
   checkout_client_id?: string;
   booked_at_local?: string;
+  backdate_approval?: {
+    approved_by_staff_id: string;
+    reason: string;
+  };
   /** Binds server `store_shipping_rate_quote` into checkout totals. */
   shipping_rate_quote_id?: string | null;
   /** Existing Transaction Records covered by this shipping charge. */

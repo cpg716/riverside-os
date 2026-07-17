@@ -20,7 +20,7 @@ Version-controlled implementation plan for a **PostgreSQL-backed** notification 
 
 ## Current state
 
-- **Shipped:** bell + [`DetailDrawer`](../client/src/components/layout/DetailDrawer.tsx) on Back Office ([`Header.tsx`](../client/src/components/layout/Header.tsx) in `AppMainColumn`), [`PosShell.tsx`](../client/src/components/layout/PosShell.tsx), [`WeddingShell.tsx`](../client/src/components/layout/WeddingShell.tsx); provider [`NotificationCenterContext.tsx`](../client/src/context/NotificationCenterContext.tsx).
+- **Shipped:** bell + [`DetailDrawer`](../client/src/components/layout/DetailDrawer.tsx) on Back Office ([`GlobalTopBar.tsx`](../client/src/components/layout/GlobalTopBar.tsx) in the shared shell), [`PosShell.tsx`](../client/src/components/layout/PosShell.tsx), [`WeddingShell.tsx`](../client/src/components/layout/WeddingShell.tsx); provider [`NotificationCenterContext.tsx`](../client/src/context/NotificationCenterContext.tsx).
 - **Staff identity**: [`BackofficeAuthContext`](../client/src/context/BackofficeAuthContext.tsx) + headers; POS has `cashierCode` / session; [`staff`](../migrations/legacy_prelaunch_history/01_initial_schema.sql) + [`staff_role`](../migrations/legacy_prelaunch_history/17_staff_authority.sql) (`admin` | `salesperson` | `sales_support`).
 - **Audit precedent**: [`staff_access_log`](../migrations/legacy_prelaunch_history/17_staff_authority.sql) + [`log_staff_access`](../server/src/auth/pins.rs).
 - **Deep links precedent**: `ordersDeepLinkOrderId` + `setActiveTab("orders")` in `App.tsx`; `navigateWedding(partyId)` / `pendingWmPartyId`.
@@ -96,7 +96,7 @@ Logic: [`server/src/logic/notifications.rs`](../server/src/logic/notifications.r
 - **`NotificationCenterBell`** + **`NotificationCenterDrawer`** (wraps `DetailDrawer`): Inbox / History; **compact** rows (kind + title); **broadcast** tap expands full message; **bundle** tap expands item list; routable single-row tap → navigate (**`notificationDeepLink.ts`**). **Inbox** **Dismiss** → **`POST /.../archive`**. History requests **`mode=history`** and shows completed or archived rows only. **[`RegisterDashboard`](../client/src/components/pos/RegisterDashboard.tsx)** — short preview (“N items — open inbox to expand” for bundles) + clear lifecycle wording such as **Mark as read** / Complete / Dismiss.
 - **`BroadcastComposer`**: when `notifications.broadcast` (or admin).
 
-**Mount points:** [`Header.tsx`](../client/src/components/layout/Header.tsx), [`PosShell.tsx`](../client/src/components/layout/PosShell.tsx), [`WeddingShell.tsx`](../client/src/components/layout/WeddingShell.tsx).
+**Mount points:** [`GlobalTopBar.tsx`](../client/src/components/layout/GlobalTopBar.tsx), [`PosShell.tsx`](../client/src/components/layout/PosShell.tsx), [`WeddingShell.tsx`](../client/src/components/layout/WeddingShell.tsx).
 
 **Navigation contract:** `handleNotificationNavigate` in [`App.tsx`](../client/src/App.tsx) — tab switch, wedding mode, POS mode, `ordersDeepLinkOrderId`, `pendingWmPartyId`, **alterations**, **PO / procurement**, **QBO staging**, **settings** (`profile` / `general` / `backups`), **inventory list + product hub**, **`staff_tasks`** + **`instance_id`** (Staff → Tasks drawer via **`StaffTasksPanel`** props through **`AppMainColumn`** / **`StaffWorkspace`**).
 

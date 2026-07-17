@@ -176,6 +176,11 @@ const LEGACY_ROWS: { key: string; label: string; description: string }[] = [
     label: "Refund holding account",
     description: "Refund queue liability account",
   },
+  {
+    key: "BACKDATED_SALE_CLEARING",
+    label: "Backdated sale clearing",
+    description: "Links the actual payment day to the manager-approved backdated business day",
+  },
 ];
 
 export default function QuickBooksSettingsPanel({

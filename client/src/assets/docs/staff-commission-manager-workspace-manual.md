@@ -69,4 +69,4 @@ Manager review is needed before changing SPIFFs, combo incentives, payout adjust
 ## Related Workflows
 
 - [staff-commission-payouts-panel-manual.md](./staff-commission-payouts-panel-manual.md)
-- [settings-staff-profile-panel-manual.md](./settings-staff-profile-panel-manual.md)
+- [Staff workspace](./staff-workspace-manual.md)

@@ -114,7 +114,7 @@ Or pass values explicitly:
 ```powershell
 pwsh -NoProfile -File scripts/push-main-hub.ps1 `
   -MainHubHost "MAIN-HUB-NAME-OR-IP" `
-  -PackagePath "dist/deployment/RiversideOS-v0.90.0-abc12345-MainHub-Update.zip"
+  -PackagePath "dist/deployment/RiversideOS-v0.95.0-<build-sha>-MainHub-Update.zip"
 ```
 
 The package push script:

@@ -13,7 +13,7 @@ The normal entry point is **`Install-ROSDeploymentApps.cmd`**. It installs the R
 Build output:
 
 ```text
-RiversideOS-v0.90.0-Windows-Deployment/
+RiversideOS-v0.95.0-<build-sha>-Windows-Deployment/
   Start-RiversideDeployment.cmd
   Start-RiversideDeployment.ps1
   Install-ROSDeploymentApps.cmd
@@ -132,7 +132,7 @@ If Riverside Settings cannot open because the API is down, manage the server fro
 
 For immediate recovery after a failed update, open Administrator PowerShell on the Main Hub and run `Start-ScheduledTask -TaskName "Riverside OS Server"`, then confirm `http://127.0.0.1:3000/api/ready` responds so PostgreSQL connectivity is included. Do not reset or restore the database solely because the installer backup step failed.
 
-Hotfix/support actions included in v0.90.0 packages:
+Hotfix/support actions included in v0.95.0 packages:
 
 - **`Install-RosieAiStack.cmd`** copies the precompiled ROSIE AI binaries (llama-server, sherpa-onnx) and bundled STT/TTS model files, verifies the Gemma GGUF model integrity, patches the server `.env` to make the local LLM reachable, and restarts the server. Use this to restore ROSIE AI features on existing Main Hubs without a full reinstall.
 - **`Repair-RiversideCredentialsKey.cmd`** repairs the installed server credential key, writes it to both `C:\RiversideOS\server\.env` and the Windows machine environment, and restarts the `Riverside OS Server` task. Use this when Backoffice Settings says `RIVERSIDE_CREDENTIALS_KEY` must be set before integration credentials can be saved.

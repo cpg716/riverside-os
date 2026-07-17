@@ -22,7 +22,7 @@ Separately, **`Cart.tsx`** may keep an **automatic local draft** of the open sal
 
 **`client/src/components/pos/NexoCheckoutDrawer.tsx`** — Tender grid and balance summary can scroll on very short viewports; the **amount field, numeric keypad, and primary actions** stay in a **fixed strip** (no keypad scroll). **Apply payment** (primary tender) and **Apply deposit** (ledger release for special / wedding lines) are stacked; **Split deposit (wedding party)** opens **`WeddingLookupDrawer`** in group-pay mode so staff can enter the deposit amount for each selected member. Existing open balances default to that balance; members with no open balance can still receive an entered deposit amount that follows the wedding disbursement/open-deposit flow.
 
-**Checkout payload (`POST /api/transactions/checkout`, `server/src/logic/order_checkout.rs`):**
+**Checkout payload (`POST /api/transactions/checkout`, `server/src/logic/transaction_checkout.rs`):**
 
 - **`total_price`** must match **cart lines + shipping only** (±$0.02). **`wedding_disbursements`** amounts are **not** included in **`total_price`**; they are paid from the same collected **`amount_paid`** pool. **`amount_toward_order` = `amount_paid` − sum(`wedding_disbursements`)**; **`balance_due` = `total_price` − `amount_toward_order`**. Party disbursements cannot exceed **`amount_paid`**.
 - **Takeaway** (lines + tax): **cash-equivalent tenders** (everything except **`deposit_ledger`** and **`open_deposit`**) must cover the full takeaway total, and **`amount_toward_order`** must fully cover takeaway before any balance remains on special/wedding lines. Deposits are for order liability, not for walking out unpaid takeaway.
@@ -86,7 +86,7 @@ R2S is an **external** program; ROS does **not** maintain in-store AR for these 
 
 ### Checkout and server modules
 
-- **`server/src/logic/order_checkout.rs`** — validates RMS payment carts (no mixed lines, no wedding disbursements, no discount events on the payment line, **cash/check** splits only, **skip stock** for the internal SKU, **`payment_transactions`** category **`rms_account_payment`** for that order shape). Inserts **`pos_rms_charge_record`** inside the checkout transaction for both charge and payment splits as applicable.
+- **`server/src/logic/transaction_checkout.rs`** — validates RMS payment carts (no mixed lines, no wedding disbursements, no discount events on the payment line, **cash/check** splits only, **skip stock** for the internal SKU, **`payment_transactions`** category **`rms_account_payment`** for that order shape). Inserts **`pos_rms_charge_record`** inside the checkout transaction for both charge and payment splits as applicable.
 - **`server/src/logic/checkout_validate.rs`** — zero tax, qty **1**, positive **`unit_price`** for **`rms_charge_payment`** lines.
 - **`server/src/logic/pos_rms_charge.rs`** — metadata normalization, **`insert_rms_record`**, receipt wording helpers, and **`notify_sales_support_after_checkout`** for **charge** notifications after commit.
 - **`server/src/logic/pos_rms_charge.rs`** — RMS Charge metadata normalization, record insertion, receipt wording helpers, and Sales Support follow-up.

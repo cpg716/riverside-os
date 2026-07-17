@@ -1,6 +1,6 @@
 # Riverside OS
 
-**Riverside OS (ROS)** is a production-grade desktop ERM/POS platform for formalwear and wedding retail. Version 0.95.0 is the current published release and represents the substantial product, financial-integrity, Help, ROSIE, deployment, and release-engineering advances made throughout the v0.90.0 development cycle. The verified release build is `6d91610a` from 2026-07-13 UTC; physical Windows Main Hub update verification remains pending.
+**Riverside OS (ROS)** is a production-grade desktop ERM/POS platform for formalwear and wedding retail. Version 0.95.0 is the current published release and represents the substantial product, financial-integrity, Help, ROSIE, deployment, and release-engineering advances made throughout the v0.90.0 development cycle. The current published release target is `efe5e234`; physical Windows Main Hub update verification remains pending.
 
 Current Version: **v0.95.0** (See [CHANGELOG.md](CHANGELOG.md))
 
@@ -261,7 +261,7 @@ For complete pre-release validation (service boot order, lint/build gates, and E
 
 ## Schema Contract, Migrations, And Seeds
 
-Fresh installs use the schema-contract baseline in **`migrations/001_core_identity_staff.sql`** through **`migrations/099_transaction_line_shipping_release.sql`**. The legacy pre-launch migration stream is archived under **`migrations/legacy_prelaunch_history/`** and is not part of normal fresh setup.
+Fresh installs use the schema-contract baseline in **`migrations/001_core_identity_staff.sql`** through the current append-only migration **`migrations/133_qbo_backdated_sale_clearing.sql`**. The legacy pre-launch migration stream is archived under **`migrations/legacy_prelaunch_history/`** and is not part of normal fresh setup.
 
 Apply active migrations with **`./scripts/apply-migrations-docker.sh`** or **`./scripts/apply-migrations-psql.sh`**. The ledger is the table **`public.ros_schema_migrations`** and should contain the active baseline filenames after a fresh baseline build. Runtime startup verifies the ledger and refuses pending migrations unless `RIVERSIDE_APPLY_PENDING_MIGRATIONS_ON_STARTUP=true` is set intentionally for a non-production startup apply.
 

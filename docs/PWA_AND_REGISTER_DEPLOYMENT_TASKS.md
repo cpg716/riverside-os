@@ -23,16 +23,16 @@ Near-turnkey Windows deployment package: [`WINDOWS_INSTALLER_PACKAGE.md`](WINDOW
 - [x] **Separate PWA vs register builds:** `client/.env.pwa.example`, `client/.env.register.example` (copy to `.env.pwa` / `.env.register`, gitignored). Scripts: `npm run build:pwa`, `npm run build:register`. Tauri uses `beforeBuildCommand`: `npm run build:register` in `client/src-tauri/tauri.conf.json`.
 - [x] **Version display:** Settings → **Updates** shows one Riverside version and reports **Update incomplete** if Windows app, server API, or PWA/web files do not match. Settings → General → **About this build** keeps diagnostic build/API details.
 
-### A.1 Current release artifact status (2026-07-11)
+### A.1 Current release artifact status (2026-07-17)
 
 - [x] Target Riverside version is now **`v0.95.0`** across root, client/PWA, server, Tauri, standalone apps, ROS Dev Center, and Deployment Manager metadata.
 - [x] Release workflows run `npm run check:version` so mismatched release metadata blocks packaging.
 - [x] The v0.95.0 Windows updater candidate produced `latest.json`, the Windows MSI, `.sig`, and an updater build manifest for the same Riverside version.
-- [x] The v0.95.0 Windows deployment candidate produced `RiversideOS-v0.95.0-29ea2c1d-Windows-Deployment.zip` containing the server binary, web bundle, register installer, Deployment Manager, migrations, and PowerShell scripts.
+- [x] The published v0.95.0 Windows deployment package is `RiversideOS-v0.95.0-efe5e234-Windows-Deployment.zip` and contains the server binary, web bundle, register installer, Deployment Manager, migrations, and PowerShell scripts.
 - [x] The v0.95.0 macOS ROS Dev Center candidate produced a universal Apple Silicon / Intel DMG for DevOps companion access.
 - [ ] Before installing Windows stations, confirm the target GitHub release does not retain older Riverside MSI/signature assets beside the current release assets.
-- [x] **Lint Checks** passed on the final `v0.95.0` candidate commit `29ea2c1d`.
-- [x] **Playwright E2E** passed all blocking shards and the aggregate gate on the final `v0.95.0` candidate commit `29ea2c1d`.
+- [x] **Lint Checks** passed on the published `v0.95.0` release target `efe5e234`.
+- [x] **Playwright E2E** passed the blocking shards and aggregate gate for the published `v0.95.0` release target `efe5e234`.
 
 ---
 
