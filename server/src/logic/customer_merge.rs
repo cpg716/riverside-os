@@ -1,4 +1,6 @@
 //! Transactional merge of duplicate customer rows into a master record.
+//!
+//! The former duplicate row is retained as an inactive historical customer.
 
 use rust_decimal::Decimal;
 use serde::Serialize;
@@ -30,92 +32,28 @@ pub struct MergePreview {
 
 #[derive(Debug, sqlx::FromRow)]
 struct MergeRiskRow {
-    measurement_history: bool,
-    alteration_history: bool,
-    group_memberships: bool,
-    open_deposit: bool,
-    financial_history: bool,
     account_access: bool,
     relationship_history: bool,
-    operational_history: bool,
-    duplicate_wedding_membership: bool,
 }
 
 const MERGE_RISK_SQL: &str = r#"
     SELECT
         (
-            EXISTS(SELECT 1 FROM customer_measurements WHERE customer_id = $1)
-            OR EXISTS(SELECT 1 FROM measurements WHERE customer_id = $1)
-        ) AS measurement_history,
-        EXISTS(SELECT 1 FROM alteration_orders WHERE customer_id = $1) AS alteration_history,
-        EXISTS(SELECT 1 FROM customer_group_members WHERE customer_id = $1) AS group_memberships,
-        EXISTS(SELECT 1 FROM customer_open_deposit_accounts WHERE customer_id = $1) AS open_deposit,
-        (
-            EXISTS(SELECT 1 FROM customer_corecredit_accounts WHERE customer_id = $1)
-            OR EXISTS(SELECT 1 FROM loyalty_point_ledger WHERE customer_id = $1)
-            OR EXISTS(SELECT 1 FROM loyalty_reward_issuances WHERE customer_id = $1)
-            OR EXISTS(SELECT 1 FROM payment_transactions WHERE payer_id = $1)
-            OR EXISTS(SELECT 1 FROM customer_open_deposit_ledger WHERE payer_customer_id = $1)
-        ) AS financial_history,
-        (
-            EXISTS(SELECT 1 FROM customer_online_credential WHERE customer_id = $1)
-            OR EXISTS(SELECT 1 FROM staff WHERE employee_customer_id = $1)
+            EXISTS(SELECT 1 FROM staff WHERE employee_customer_id = $1)
         ) AS account_access,
         (
             EXISTS(SELECT 1 FROM customer_relationship_periods WHERE child_customer_id = $1 OR parent_customer_id = $1)
             OR EXISTS(SELECT 1 FROM customers WHERE couple_primary_id = $1)
-        ) AS relationship_history,
-        (
-            EXISTS(SELECT 1 FROM fulfillment_orders WHERE customer_id = $1)
-            OR EXISTS(SELECT 1 FROM order_activity_log WHERE customer_id = $1)
-            OR EXISTS(SELECT 1 FROM order_refund_queue WHERE customer_id = $1)
-            OR EXISTS(SELECT 1 FROM orders WHERE customer_id = $1)
-            OR EXISTS(SELECT 1 FROM podium_conversation WHERE customer_id = $1)
-            OR EXISTS(SELECT 1 FROM pos_parked_sale WHERE customer_id = $1)
-            OR EXISTS(SELECT 1 FROM pos_rms_charge_record WHERE customer_id = $1)
-            OR EXISTS(SELECT 1 FROM shipment WHERE customer_id = $1)
-            OR EXISTS(SELECT 1 FROM task_assignment WHERE customer_id = $1)
-            OR EXISTS(SELECT 1 FROM task_instance WHERE customer_id = $1)
-            OR EXISTS(SELECT 1 FROM store_checkout_session WHERE customer_id = $1 OR account_conversion_customer_id = $1)
-        ) AS operational_history,
-        EXISTS(
-            SELECT 1
-            FROM wedding_members slave_member
-            JOIN wedding_members master_member
-              ON master_member.wedding_party_id = slave_member.wedding_party_id
-            WHERE slave_member.customer_id = $1
-              AND master_member.customer_id = $2
-        ) AS duplicate_wedding_membership
+        ) AS relationship_history
 "#;
 
 fn merge_risk_reasons(risk: MergeRiskRow) -> Vec<String> {
     let mut reasons = Vec::new();
-    if risk.measurement_history {
-        reasons.push("measurement history".to_string());
-    }
-    if risk.alteration_history {
-        reasons.push("alteration history".to_string());
-    }
-    if risk.group_memberships {
-        reasons.push("customer group memberships".to_string());
-    }
-    if risk.open_deposit {
-        reasons.push("open deposit funds".to_string());
-    }
-    if risk.financial_history {
-        reasons.push("financial or loyalty history".to_string());
-    }
     if risk.account_access {
-        reasons.push("online or staff account access".to_string());
+        reasons.push("staff account identity".to_string());
     }
     if risk.relationship_history {
         reasons.push("linked customer relationships".to_string());
-    }
-    if risk.operational_history {
-        reasons.push("operational order, shipment, task, or communication history".to_string());
-    }
-    if risk.duplicate_wedding_membership {
-        reasons.push("both customers are members of the same wedding party".to_string());
     }
     reasons
 }
@@ -220,7 +158,7 @@ pub async fn merge_preview(
     })
 }
 
-/// Re-point foreign keys from `slave` to `master`, then delete `slave`.
+/// Re-point customer history from `slave` to `master`, then retain `slave` as inactive history.
 pub async fn merge_customers(
     pool: &PgPool,
     master: Uuid,
@@ -282,9 +220,23 @@ pub async fn merge_customers(
     .await?;
 
     repoint_customer_fk(&mut tx, "transactions", master, slave).await?;
+    repoint_customer_fk(&mut tx, "alteration_orders", master, slave).await?;
+    repoint_customer_fk(&mut tx, "customer_corecredit_accounts", master, slave).await?;
+    repoint_customer_fk(&mut tx, "loyalty_point_ledger", master, slave).await?;
+    repoint_customer_fk(&mut tx, "loyalty_reward_issuances", master, slave).await?;
+    repoint_customer_fk(&mut tx, "measurements", master, slave).await?;
+    repoint_customer_fk(&mut tx, "fulfillment_orders", master, slave).await?;
     repoint_customer_fk(&mut tx, "wedding_members", master, slave).await?;
     repoint_customer_fk(&mut tx, "wedding_appointments", master, slave).await?;
     repoint_customer_fk(&mut tx, "gift_cards", master, slave).await?;
+    repoint_customer_fk(&mut tx, "transaction_activity_log", master, slave).await?;
+    repoint_customer_fk(&mut tx, "transaction_refund_queue", master, slave).await?;
+    repoint_customer_fk(&mut tx, "podium_conversation", master, slave).await?;
+    repoint_customer_fk(&mut tx, "pos_parked_sale", master, slave).await?;
+    repoint_customer_fk(&mut tx, "pos_rms_charge_record", master, slave).await?;
+    repoint_customer_fk(&mut tx, "shipment", master, slave).await?;
+    repoint_customer_fk(&mut tx, "task_assignment", master, slave).await?;
+    repoint_customer_fk(&mut tx, "task_instance", master, slave).await?;
 
     sqlx::query("UPDATE customer_timeline_notes SET customer_id = $1 WHERE customer_id = $2")
         .bind(master)
@@ -292,13 +244,107 @@ pub async fn merge_customers(
         .execute(&mut *tx)
         .await?;
 
-    sqlx::query("DELETE FROM customer_measurements WHERE customer_id = $1")
+    sqlx::query(
+        r#"
+        INSERT INTO measurements (
+            customer_id, neck, sleeve, chest, waist, seat, inseam, outseam,
+            shoulder, measured_by, created_at
+        )
+        SELECT $1, neck, sleeve, chest, waist, seat, inseam, outseam,
+               shoulder, measured_by, measured_at
+        FROM customer_measurements
+        WHERE customer_id = $2
+          AND EXISTS (
+              SELECT 1 FROM customer_measurements WHERE customer_id = $1
+          )
+        "#,
+    )
+    .bind(master)
+    .bind(slave)
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query("UPDATE payment_transactions SET payer_id = $1 WHERE payer_id = $2")
+        .bind(master)
         .bind(slave)
         .execute(&mut *tx)
         .await?;
+    sqlx::query("UPDATE customer_open_deposit_ledger SET payer_customer_id = $1 WHERE payer_customer_id = $2")
+        .bind(master)
+        .bind(slave)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("UPDATE corecard_posting_event SET customer_id = $1 WHERE customer_id = $2")
+        .bind(master)
+        .bind(slave)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query(
+        "UPDATE corecredit_event_log SET related_customer_id = $1 WHERE related_customer_id = $2",
+    )
+    .bind(master)
+    .bind(slave)
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query("UPDATE rms_account_list_snapshots SET matched_customer_id = $1 WHERE matched_customer_id = $2")
+        .bind(master)
+        .bind(slave)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("UPDATE store_checkout_session SET customer_id = $1 WHERE customer_id = $2")
+        .bind(master)
+        .bind(slave)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("UPDATE store_checkout_session SET account_conversion_customer_id = $1 WHERE account_conversion_customer_id = $2")
+        .bind(master)
+        .bind(slave)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query(
+        r#"
+        UPDATE customer_measurements
+        SET customer_id = $1
+        WHERE customer_id = $2
+          AND NOT EXISTS (
+              SELECT 1 FROM customer_measurements WHERE customer_id = $1
+          )
+        "#,
+    )
+    .bind(master)
+    .bind(slave)
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query(
+        r#"
+        UPDATE customer_online_credential
+        SET customer_id = $1, updated_at = now()
+        WHERE customer_id = $2
+          AND NOT EXISTS (
+              SELECT 1 FROM customer_online_credential WHERE customer_id = $1
+          )
+        "#,
+    )
+    .bind(master)
+    .bind(slave)
+    .execute(&mut *tx)
+    .await?;
 
     merge_store_credit_accounts(&mut tx, master, slave).await?;
+    merge_open_deposit_accounts(&mut tx, master, slave).await?;
 
+    sqlx::query(
+        r#"
+        INSERT INTO customer_group_members (customer_id, group_id)
+        SELECT $1, group_id FROM customer_group_members WHERE customer_id = $2
+        ON CONFLICT (customer_id, group_id) DO NOTHING
+        "#,
+    )
+    .bind(master)
+    .bind(slave)
+    .execute(&mut *tx)
+    .await?;
     sqlx::query("DELETE FROM customer_group_members WHERE customer_id = $1")
         .bind(slave)
         .execute(&mut *tx)
@@ -316,7 +362,17 @@ pub async fn merge_customers(
     .execute(&mut *tx)
     .await?;
 
-    sqlx::query("DELETE FROM customers WHERE id = $1")
+    sqlx::query(
+        "UPDATE customer_duplicate_review_queue SET status = 'merged' WHERE status = 'pending' AND (customer_a_id = $1 OR customer_b_id = $1)",
+    )
+    .bind(slave)
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query(
+        "UPDATE customers SET is_active = FALSE, merged_into_customer_id = $1, loyalty_points = 0 WHERE id = $2",
+    )
+        .bind(master)
         .bind(slave)
         .execute(&mut *tx)
         .await?;
@@ -380,6 +436,57 @@ async fn merge_store_credit_accounts(
             .await?;
     }
 
+    Ok(())
+}
+
+async fn merge_open_deposit_accounts(
+    tx: &mut Transaction<'_, Postgres>,
+    master: Uuid,
+    slave: Uuid,
+) -> Result<(), sqlx::Error> {
+    let slave_acc: Option<(Uuid, Decimal)> = sqlx::query_as(
+        "SELECT id, balance FROM customer_open_deposit_accounts WHERE customer_id = $1 FOR UPDATE",
+    )
+    .bind(slave)
+    .fetch_optional(&mut **tx)
+    .await?;
+    let Some((slave_id, slave_balance)) = slave_acc else {
+        return Ok(());
+    };
+
+    let master_acc: Option<(Uuid, Decimal)> = sqlx::query_as(
+        "SELECT id, balance FROM customer_open_deposit_accounts WHERE customer_id = $1 FOR UPDATE",
+    )
+    .bind(master)
+    .fetch_optional(&mut **tx)
+    .await?;
+
+    if let Some((master_id, master_balance)) = master_acc {
+        sqlx::query(
+            "UPDATE customer_open_deposit_accounts SET balance = $1, updated_at = now() WHERE id = $2",
+        )
+        .bind(master_balance + slave_balance)
+        .bind(master_id)
+        .execute(&mut **tx)
+        .await?;
+        sqlx::query(
+            "UPDATE customer_open_deposit_ledger SET account_id = $1 WHERE account_id = $2",
+        )
+        .bind(master_id)
+        .bind(slave_id)
+        .execute(&mut **tx)
+        .await?;
+        sqlx::query("DELETE FROM customer_open_deposit_accounts WHERE id = $1")
+            .bind(slave_id)
+            .execute(&mut **tx)
+            .await?;
+    } else {
+        sqlx::query("UPDATE customer_open_deposit_accounts SET customer_id = $1 WHERE id = $2")
+            .bind(master)
+            .bind(slave_id)
+            .execute(&mut **tx)
+            .await?;
+    }
     Ok(())
 }
 

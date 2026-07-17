@@ -745,6 +745,7 @@ export function CustomerRelationshipHubDrawer({
   onSwitchCustomer,
   onCustomerUpdated,
   baseUrl = defaultBase,
+  onRefresh,
   panelMaxClassName = "max-w-6xl",
 }: CustomerRelationshipHubDrawerProps) {
   const { backofficeHeaders, hasPermission, permissionsLoaded } =
@@ -928,6 +929,23 @@ export function CustomerRelationshipHubDrawer({
     phone: "",
   });
   const [duplicateEnqueueBusy, setDuplicateEnqueueBusy] = useState(false);
+  const [mergeTarget, setMergeTarget] = useState<Customer | null>(null);
+  const [mergeMasterId, setMergeMasterId] = useState(customer.id);
+  const [mergePreview, setMergePreview] = useState<{
+    orders: number;
+    wedding_members: number;
+    wedding_appointments: number;
+    gift_cards: number;
+    timeline_notes: number;
+    customer_group_memberships: number;
+    alteration_orders: number;
+    loyalty_points_on_slave: number;
+    store_credit_balance_on_slave: string | null;
+    blocking_reasons: string[];
+  } | null>(null);
+  const [mergePreviewLoading, setMergePreviewLoading] = useState(false);
+  const [mergeConfirmOpen, setMergeConfirmOpen] = useState(false);
+  const [mergeBusy, setMergeBusy] = useState(false);
 
   useEffect(() => {
     if (!open) {
@@ -2121,35 +2139,86 @@ export function CustomerRelationshipHubDrawer({
     }
   };
 
+  const loadMergePreview = async (masterId: string, slaveId: string) => {
+    setMergePreviewLoading(true);
+    try {
+      const res = await fetch(`${baseUrl}/api/customers/merge`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...apiAuth() },
+        body: JSON.stringify({
+          master_customer_id: masterId,
+          slave_customer_id: slaveId,
+          dry_run: true,
+        }),
+      });
+      const body = (await res.json().catch(() => ({}))) as {
+        preview?: NonNullable<typeof mergePreview>;
+        error?: string;
+      };
+      if (!res.ok) {
+        setMergePreview(null);
+        toast(body.error || "Could not load merge preview.", "error");
+        return;
+      }
+      setMergePreview(body.preview ?? null);
+    } catch {
+      setMergePreview(null);
+      toast("Could not load merge preview.", "error");
+    } finally {
+      setMergePreviewLoading(false);
+    }
+  };
+
   const enqueueDuplicateReviewPair = async (other: Customer) => {
     if (other.id === customer.id) {
       toast("Select a different customer than this profile.", "error");
       return;
     }
     setDuplicateEnqueueBusy(true);
+    setMergeTarget(other);
+    setMergeMasterId(customer.id);
+    setMergePreview(null);
+    await loadMergePreview(customer.id, other.id);
+    setDuplicateEnqueueBusy(false);
+  };
+
+  const executeHubMerge = async () => {
+    if (!mergeTarget || !mergePreview || mergePreview.blocking_reasons.length > 0) return;
+    const slaveId = mergeMasterId === customer.id ? mergeTarget.id : customer.id;
+    setMergeBusy(true);
     try {
-      const res = await fetch(
-        `${baseUrl}/api/customers/duplicate-review-queue/enqueue`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json", ...apiAuth() },
-          body: JSON.stringify({
-            customer_a_id: customer.id,
-            customer_b_id: other.id,
-          }),
-        },
-      );
+      const res = await fetch(`${baseUrl}/api/customers/merge`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...apiAuth() },
+        body: JSON.stringify({
+          master_customer_id: mergeMasterId,
+          slave_customer_id: slaveId,
+        }),
+      });
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) {
-        await res.json().catch(() => ({}));
-        toast("Could not add possible duplicate.", "error");
+        toast(body.error || "Merge failed. Review both profiles and try again.", "error");
         return;
       }
-      toast("Possible duplicate added for review.", "success");
+      toast("Customers merged", "success");
+      setMergeConfirmOpen(false);
+      onClose();
+      onRefresh?.();
     } catch {
-      toast("Could not add possible duplicate.", "error");
+      toast("Merge network error", "error");
     } finally {
-      setDuplicateEnqueueBusy(false);
+      setMergeBusy(false);
     }
+  };
+
+  const selectHubMergeMaster = (masterId: string) => {
+    if (!mergeTarget || masterId === mergeMasterId) return;
+    setMergeMasterId(masterId);
+    setMergePreview(null);
+    void loadMergePreview(
+      masterId,
+      masterId === customer.id ? mergeTarget.id : customer.id,
+    );
   };
 
   const postNote = async () => {
@@ -4977,27 +5046,81 @@ export function CustomerRelationshipHubDrawer({
                   </section>
                 </div>
               </div>
-              {permissionsLoaded &&
-              hasPermission("customers_duplicate_review") ? (
+              {permissionsLoaded && hasPermission("customers.merge") ? (
                 <section
                   className="rounded-2xl border border-app-accent/20 bg-app-accent/10 p-4"
-                  data-testid="crm-hub-duplicate-review-enqueue"
+                  data-testid="crm-hub-customer-merge"
                 >
                   <h3 className="mb-2 text-[10px] font-black uppercase tracking-widest text-app-accent">
-                    Possible duplicates
+                    Merge duplicate customer
                   </h3>
                   <p className="mb-3 text-xs text-app-text">
-                    Search for the matching customer so a manager can review the
-                    two records before any merge.
+                    Search for the other record, review the impact, choose which
+                    profile remains, and confirm the merge here.
                   </p>
                   <div className="mt-2">
                     <CustomerSearchInput
                       onSelect={enqueueDuplicateReviewPair}
-                      placeholder="Search for twin record by name or code…"
+                      placeholder="Search for duplicate by name or code…"
                       className="w-full"
                       disabled={duplicateEnqueueBusy}
                     />
                   </div>
+                  {mergeTarget ? (
+                    <div className="mt-4 space-y-3 rounded-xl border border-app-border bg-app-surface p-3 text-xs text-app-text">
+                      <p className="font-black uppercase tracking-widest text-app-text-muted">
+                        Master profile to keep
+                      </p>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {[customer, mergeTarget].map((candidate) => (
+                          <label key={candidate.id} className="flex cursor-pointer items-start gap-2 rounded-lg border border-app-border bg-app-surface-2 p-2">
+                            <input
+                              type="radio"
+                              name="hub-merge-master"
+                              checked={mergeMasterId === candidate.id}
+                              onChange={() => selectHubMergeMaster(candidate.id)}
+                            />
+                            <span>
+                              <span className="block font-bold">
+                                {[candidate.first_name, candidate.last_name].filter(Boolean).join(" ") || candidate.customer_code}
+                              </span>
+                              <span className="font-mono text-[10px] text-app-text-muted">{candidate.customer_code}</span>
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                      {mergePreviewLoading ? (
+                        <p className="text-app-text-muted">Loading merge impact…</p>
+                      ) : mergePreview ? (
+                        <>
+                          <ul className="grid gap-1 sm:grid-cols-2">
+                            <li>Transactions: {mergePreview.orders}</li>
+                            <li>Wedding members: {mergePreview.wedding_members}</li>
+                            <li>Appointments: {mergePreview.wedding_appointments}</li>
+                            <li>Gift cards: {mergePreview.gift_cards}</li>
+                            <li>Timeline notes: {mergePreview.timeline_notes}</li>
+                            <li>Alterations: {mergePreview.alteration_orders}</li>
+                            <li>Loyalty points moved: {mergePreview.loyalty_points_on_slave}</li>
+                            <li>Store credit moved: {mergePreview.store_credit_balance_on_slave ?? "—"}</li>
+                          </ul>
+                          {mergePreview.blocking_reasons.length > 0 ? (
+                            <p className="rounded-lg border border-app-danger/30 bg-app-danger/10 p-2 text-app-danger">
+                              Merge blocked to protect linked records: {mergePreview.blocking_reasons.join(", ")}.
+                            </p>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={mergeBusy}
+                              onClick={() => setMergeConfirmOpen(true)}
+                              className="ui-btn-primary min-h-11 w-full px-4 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+                            >
+                              Merge these customers
+                            </button>
+                          )}
+                        </>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </section>
               ) : null}
               <div className="sticky bottom-0 z-20 -mx-2 rounded-2xl border border-app-border bg-app-surface/95 p-3 shadow-2xl shadow-black/10 backdrop-blur">
@@ -5037,6 +5160,18 @@ export function CustomerRelationshipHubDrawer({
         confirmLabel="Split profiles"
         variant="danger"
         loading={coupleLinkingBusy}
+      />
+      <ConfirmationModal
+        isOpen={mergeConfirmOpen}
+        onClose={() => {
+          if (!mergeBusy) setMergeConfirmOpen(false);
+        }}
+        onConfirm={() => void executeHubMerge()}
+        title="Merge these customer profiles?"
+        message="The selected master profile will remain. The other customer record will be marked inactive after linked history is moved, and will remain available for historical audit. This cannot be undone."
+        confirmLabel="Merge customers"
+        variant="danger"
+        loading={mergeBusy}
       />
       <TransactionDetailDrawer
         orderId={selectedTransactionId}

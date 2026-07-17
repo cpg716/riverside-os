@@ -1778,8 +1778,8 @@ export default function CustomersWorkspace({
             </div>
             <div className="space-y-4 p-5 text-sm text-app-text">
               <p className="text-xs text-app-text-muted">
-                The master record is kept; the other is removed after
-                re-pointing orders and wedding links. This cannot be undone.
+                The master record is kept; the other is marked inactive after
+                linked history is moved and remains available for audit. This cannot be undone.
               </p>
               {mergePreviewLoading ? (
                 <p className="text-xs text-app-text-muted">
@@ -1896,6 +1896,7 @@ export default function CustomersWorkspace({
             setPicked(nextCustomer);
           }}
           onCustomerUpdated={updateVisibleCustomerSnapshot}
+          onRefresh={() => void refresh()}
           baseUrl={baseUrl}
         />
       ) : null}

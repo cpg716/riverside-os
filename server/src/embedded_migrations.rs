@@ -134,4 +134,5 @@ pub const EMBEDDED_MIGRATIONS: &[(&str, &str)] = &[
     ("131_repair_counterpoint_historical_paid_amounts.sql", include_str!("../../migrations/131_repair_counterpoint_historical_paid_amounts.sql")),
     ("132_reliability_read_path_indexes.sql", include_str!("../../migrations/132_reliability_read_path_indexes.sql")),
     ("133_qbo_backdated_sale_clearing.sql", include_str!("../../migrations/133_qbo_backdated_sale_clearing.sql")),
+    ("134_customer_merge_history_pointer.sql", include_str!("../../migrations/134_customer_merge_history_pointer.sql")),
 ];
