@@ -960,70 +960,6 @@ mod tests {
     }
 
     #[test]
-    fn counterpoint_legacy_detail_normalizer_restores_discounted_taxable_price() {
-        let header = sample_order_header(Decimal::new(6809, 2), true);
-        let mut item = sample_item(1, 0);
-        item.unit_price = Decimal::new(7500, 2);
-        item.state_tax = Decimal::ZERO;
-        item.local_tax = Decimal::ZERO;
-        item.tax_category = "clothing".to_string();
-        let mut items = vec![item];
-
-        normalize_counterpoint_legacy_detail_items(&header, &mut items);
-
-        assert_eq!(items[0].unit_price, Decimal::new(6500, 2));
-        assert_eq!(items[0].state_tax, Decimal::ZERO);
-        assert_eq!(items[0].local_tax, Decimal::new(309, 2));
-        assert_eq!(
-            items[0].receipt_original_unit_price,
-            Some(Decimal::new(7500, 2))
-        );
-        assert_eq!(
-            items[0].discount_event_label.as_deref(),
-            Some("Counterpoint imported discount")
-        );
-    }
-
-    #[test]
-    fn counterpoint_legacy_detail_normalizer_leaves_explicit_tax_rows_unchanged() {
-        let header = sample_order_header(Decimal::new(7069, 2), true);
-        let mut item = sample_item(1, 0);
-        item.unit_price = Decimal::new(6500, 2);
-        item.state_tax = Decimal::new(260, 2);
-        item.local_tax = Decimal::new(309, 2);
-        item.tax_category = "clothing".to_string();
-        let mut items = vec![item];
-
-        normalize_counterpoint_legacy_detail_items(&header, &mut items);
-
-        assert_eq!(items[0].unit_price, Decimal::new(6500, 2));
-        assert_eq!(items[0].state_tax, Decimal::new(260, 2));
-        assert_eq!(items[0].local_tax, Decimal::new(309, 2));
-        assert_eq!(items[0].receipt_original_unit_price, None);
-    }
-
-    #[test]
-    fn counterpoint_legacy_detail_normalizer_adjusts_retail_prices_with_imported_tax_rows() {
-        let header = sample_order_header(Decimal::new(6809, 2), true);
-        let mut item = sample_item(1, 0);
-        item.unit_price = Decimal::new(7500, 2);
-        item.state_tax = Decimal::new(260, 2);
-        item.local_tax = Decimal::new(309, 2);
-        item.tax_category = "clothing".to_string();
-        let mut items = vec![item];
-
-        normalize_counterpoint_legacy_detail_items(&header, &mut items);
-
-        assert_eq!(items[0].unit_price, Decimal::new(6500, 2));
-        assert_eq!(items[0].state_tax, Decimal::ZERO);
-        assert_eq!(items[0].local_tax, Decimal::new(309, 2));
-        assert_eq!(
-            items[0].receipt_original_unit_price,
-            Some(Decimal::new(7500, 2))
-        );
-    }
-
-    #[test]
     fn receipt_builder_uses_effective_quantity_after_partial_return() {
         let detail = sample_transaction_detail(vec![sample_item(3, 1)]);
 
@@ -1905,116 +1841,6 @@ struct OrderItemRow {
     shipped_at: Option<DateTime<Utc>>,
     shipment_id: Option<Uuid>,
     fulfilled_at: Option<DateTime<Utc>>,
-}
-
-fn counterpoint_legacy_unit_components_from_gross(
-    category: TaxCategory,
-    unit_gross: Decimal,
-) -> (Decimal, Decimal, Decimal) {
-    let gross = round_money_usd(unit_gross);
-    if gross <= Decimal::ZERO {
-        return (Decimal::ZERO, Decimal::ZERO, Decimal::ZERO);
-    }
-
-    let candidates = [
-        gross,
-        round_money_usd(gross / Decimal::new(10475, 4)),
-        round_money_usd(gross / Decimal::new(10875, 4)),
-    ];
-
-    let mut best = (gross, Decimal::ZERO, Decimal::ZERO);
-    let mut best_delta = gross;
-    for net in candidates {
-        if net < Decimal::ZERO {
-            continue;
-        }
-        let state_tax = nys_state_tax_usd(category, net, net);
-        let local_tax = erie_local_tax_usd(category, net, net);
-        let reconstructed = round_money_usd(net + state_tax + local_tax);
-        let delta = (reconstructed - gross).abs();
-        if delta < best_delta {
-            best = (net, state_tax, local_tax);
-            best_delta = delta;
-        }
-    }
-
-    best
-}
-
-fn normalize_counterpoint_legacy_detail_items(
-    header: &OrderHeaderRow,
-    items: &mut [TransactionDetailItem],
-) {
-    if !header.is_counterpoint_import || header.is_tax_exempt || items.is_empty() {
-        return;
-    }
-    // Counterpoint may provide retail unit prices together with allocated tax
-    // values. Those tax values do not prove that the unit prices are the
-    // customer-paid amounts, so normalize whenever the imported line gross
-    // exceeds the transaction total. An existing receipt original price means
-    // this detail has already been normalized.
-    if items
-        .iter()
-        .any(|item| item.receipt_original_unit_price.is_some())
-    {
-        return;
-    }
-
-    let target_total = round_money_usd(header.total_price);
-    if target_total <= Decimal::ZERO {
-        return;
-    }
-
-    let current_line_total: Decimal = items
-        .iter()
-        .map(|item| {
-            Decimal::from(item.quantity) * (item.unit_price + item.state_tax + item.local_tax)
-        })
-        .sum();
-    if round_money_usd(current_line_total) <= target_total + Decimal::new(1, 2) {
-        return;
-    }
-
-    let raw_subtotal: Decimal = items
-        .iter()
-        .map(|item| Decimal::from(item.quantity) * item.unit_price)
-        .sum();
-    if raw_subtotal <= Decimal::ZERO {
-        return;
-    }
-
-    let last_positive_index = items.iter().rposition(|item| item.quantity > 0);
-    let mut allocated_gross = Decimal::ZERO;
-    for (index, item) in items.iter_mut().enumerate() {
-        let qty = Decimal::from(item.quantity);
-        if qty <= Decimal::ZERO {
-            continue;
-        }
-
-        let raw_extended = item.unit_price * qty;
-        let extended_gross = if Some(index) == last_positive_index {
-            round_money_usd(target_total - allocated_gross)
-        } else {
-            round_money_usd(target_total * raw_extended / raw_subtotal)
-        };
-        allocated_gross += extended_gross;
-
-        let unit_gross = round_money_usd(extended_gross / qty);
-        let category = TaxCategory::from_db_text(&item.tax_category).unwrap_or(TaxCategory::Other);
-        let (unit_price, state_tax, local_tax) =
-            counterpoint_legacy_unit_components_from_gross(category, unit_gross);
-
-        if item.receipt_original_unit_price.is_none()
-            && item.unit_price > unit_price + Decimal::new(1, 2)
-        {
-            item.receipt_original_unit_price = Some(item.unit_price);
-            item.discount_event_label
-                .get_or_insert_with(|| "Counterpoint imported discount".to_string());
-        }
-        item.unit_price = unit_price;
-        item.state_tax = state_tax;
-        item.local_tax = local_tax;
-    }
 }
 
 #[derive(Debug, FromRow)]
@@ -7859,8 +7685,6 @@ pub(crate) async fn load_transaction_detail(
             fulfilled_at: r.fulfilled_at,
         })
         .collect();
-    normalize_counterpoint_legacy_detail_items(&h, &mut items);
-
     let customer = match (h.customer_id, h.customer_first_name, h.customer_last_name) {
         (Some(id), Some(first_name), Some(last_name)) => Some(TransactionCustomerSummary {
             id,
