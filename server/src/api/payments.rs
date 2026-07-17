@@ -875,6 +875,8 @@ pub struct HelcimTerminalRefundRequestBody {
     pub selected_terminal_key: Option<String>,
     #[serde(default)]
     pub terminal_override_reason: Option<String>,
+    #[serde(default)]
+    pub checkout_client_id: Option<Uuid>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -7748,6 +7750,11 @@ async fn start_helcim_purchase(
             "Helcim terminal payments must be greater than zero.".to_string(),
         ));
     }
+    let checkout_client_id = payload.checkout_client_id.ok_or_else(|| {
+        PaymentError::InvalidPayload(
+            "checkout_client_id is required for Helcim terminal payments.".to_string(),
+        )
+    })?;
 
     let (register_session_id, staff_id) = match auth {
         middleware::StaffOrPosSession::Staff(staff) => {
@@ -7806,7 +7813,7 @@ async fn start_helcim_purchase(
     .bind(terminal_route.override_staff_id)
     .bind(&terminal_route.override_reason)
     .bind(&idempotency_key)
-    .bind(payload.checkout_client_id)
+    .bind(checkout_client_id)
     .execute(&mut *tx)
     .await;
 
@@ -7943,6 +7950,11 @@ async fn start_helcim_terminal_refund(
             "Helcim terminal debit refunds require the original card and customer present at the terminal.".to_string(),
         ));
     }
+    let checkout_client_id = payload.checkout_client_id.ok_or_else(|| {
+        PaymentError::InvalidPayload(
+            "checkout_client_id is required for Helcim terminal refunds.".to_string(),
+        )
+    })?;
 
     let (register_session_id, staff_id) = match auth {
         middleware::StaffOrPosSession::Staff(staff) => {
@@ -7986,9 +7998,9 @@ async fn start_helcim_terminal_refund(
             id, provider, status, amount_cents, currency, register_session_id, staff_id,
             device_id, terminal_id, selected_terminal_key, terminal_route_source,
             terminal_override_staff_id, terminal_override_reason, idempotency_key,
-            provider_transaction_id, raw_audit_reference
+            provider_transaction_id, raw_audit_reference, checkout_client_id
         )
-        VALUES ($1, 'helcim', 'pending', $2, $3, $4, $5, $6, $6, $7, $8, $9, $10, $11, NULL, $12)
+        VALUES ($1, 'helcim', 'pending', $2, $3, $4, $5, $6, $6, $7, $8, $9, $10, $11, NULL, $12, $13)
         "#,
     )
     .bind(attempt_id)
@@ -8006,6 +8018,7 @@ async fn start_helcim_terminal_refund(
         "helcim:terminalRefund:{}",
         payload.original_transaction_id
     ))
+    .bind(checkout_client_id)
     .execute(&mut *tx)
     .await;
 

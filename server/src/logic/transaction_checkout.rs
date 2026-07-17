@@ -1917,6 +1917,8 @@ fn resolve_payment_splits(
 async fn validate_helcim_payment_splits(
     pool: &PgPool,
     checkout_register_session_id: Uuid,
+    checkout_client_id: Option<Uuid>,
+    require_checkout_binding: bool,
     payment_splits: &[ResolvedPaymentSplit],
 ) -> Result<(), CheckoutError> {
     for split in payment_splits {
@@ -1954,10 +1956,17 @@ async fn validate_helcim_payment_splits(
                 CheckoutError::InvalidPayload("Helcim card payment amount is not valid".to_string())
             })?;
 
-        let attempt: Option<(String, i64, Option<Uuid>, Option<String>, Option<String>)> =
-            sqlx::query_as(
-                r#"
-            SELECT status, amount_cents, register_session_id, raw_audit_reference, error_code
+        let attempt: Option<(
+            String,
+            i64,
+            Option<Uuid>,
+            Option<Uuid>,
+            Option<String>,
+            Option<String>,
+        )> = sqlx::query_as(
+            r#"
+            SELECT status, amount_cents, register_session_id, checkout_client_id,
+                   raw_audit_reference, error_code
             FROM payment_provider_attempts
             WHERE provider = 'helcim'
               AND (
@@ -1968,16 +1977,17 @@ async fn validate_helcim_payment_splits(
             ORDER BY created_at DESC
             LIMIT 1
             "#,
-            )
-            .bind(provider_attempt_id)
-            .bind(provider_transaction_id)
-            .bind(provider_payment_id)
-            .fetch_optional(pool)
-            .await?;
+        )
+        .bind(provider_attempt_id)
+        .bind(provider_transaction_id)
+        .bind(provider_payment_id)
+        .fetch_optional(pool)
+        .await?;
         let Some((
             attempt_status,
             attempt_amount_cents,
             attempt_register_session_id,
+            attempt_checkout_client_id,
             raw_audit_reference,
             attempt_error_code,
         )) = attempt
@@ -1991,6 +2001,11 @@ async fn validate_helcim_payment_splits(
                 "Helcim card payment does not belong to this register session".to_string(),
             ));
         }
+        validate_helcim_attempt_checkout_binding(
+            require_checkout_binding,
+            checkout_client_id,
+            attempt_checkout_client_id,
+        )?;
 
         if !matches!(attempt_status.as_str(), "approved" | "captured") {
             return Err(CheckoutError::InvalidPayload(
@@ -2042,6 +2057,29 @@ async fn validate_helcim_payment_splits(
         }
     }
 
+    Ok(())
+}
+
+fn validate_helcim_attempt_checkout_binding(
+    require_checkout_binding: bool,
+    checkout_client_id: Option<Uuid>,
+    attempt_checkout_client_id: Option<Uuid>,
+) -> Result<(), CheckoutError> {
+    if !require_checkout_binding {
+        return Ok(());
+    }
+    let checkout_client_id = checkout_client_id.ok_or_else(|| {
+        CheckoutError::InvalidPayload(
+            "Helcim card payments require a checkout identity. Start a new card request from this sale."
+                .to_string(),
+        )
+    })?;
+    if attempt_checkout_client_id != Some(checkout_client_id) {
+        return Err(CheckoutError::InvalidPayload(
+            "Helcim card payment belongs to a different sale. Do not reuse it; recover or refund it from Payments Health."
+                .to_string(),
+        ));
+    }
     Ok(())
 }
 
@@ -2857,7 +2895,14 @@ async fn execute_checkout_internal(
         }
     }
 
-    validate_helcim_payment_splits(pool, payload.session_id, &payment_splits).await?;
+    validate_helcim_payment_splits(
+        pool,
+        payload.session_id,
+        payload.checkout_client_id,
+        recovery.is_none(),
+        &payment_splits,
+    )
+    .await?;
 
     if payload.is_tax_exempt
         && payload
@@ -5490,12 +5535,12 @@ mod tests {
         execute_checkout, fetch_variant_pos_line_kind, helcim_attempt_comparison_cents,
         is_fee_only_shipping_quote, parse_combo_reward_amount, payment_effective_date,
         resolve_payment_splits, validate_checkout_alteration_intakes,
-        validate_checkout_item_quantity, validate_open_deposit_scope,
-        validate_order_payment_against_target, validate_order_payment_shape,
-        validate_wedding_disbursement_against_balance, CheckoutAlterationIntake, CheckoutDone,
-        CheckoutItem, CheckoutOrderPayment, CheckoutPaymentSplit, CheckoutRequest,
-        ExistingOrderPaymentTarget, ResolvedOrderPayment, ResolvedPaymentSplit,
-        WeddingDisbursement,
+        validate_checkout_item_quantity, validate_helcim_attempt_checkout_binding,
+        validate_open_deposit_scope, validate_order_payment_against_target,
+        validate_order_payment_shape, validate_wedding_disbursement_against_balance,
+        CheckoutAlterationIntake, CheckoutDone, CheckoutItem, CheckoutOrderPayment,
+        CheckoutPaymentSplit, CheckoutRequest, ExistingOrderPaymentTarget, ResolvedOrderPayment,
+        ResolvedPaymentSplit, WeddingDisbursement,
     };
     use crate::logic::customer_open_deposit;
     use crate::logic::customers::{insert_customer, CustomerCreatedSource, InsertCustomerParams};
@@ -5822,6 +5867,25 @@ mod tests {
         assert_eq!(helcim_attempt_comparison_cents(-1000, true), 1000);
         assert_eq!(helcim_attempt_comparison_cents(1000, true), 1000);
         assert_eq!(helcim_attempt_comparison_cents(-1000, false), -1000);
+    }
+
+    #[test]
+    fn helcim_attempt_requires_the_checkout_that_started_it() {
+        let checkout_id = Uuid::new_v4();
+
+        assert!(validate_helcim_attempt_checkout_binding(
+            true,
+            Some(checkout_id),
+            Some(checkout_id),
+        )
+        .is_ok());
+        assert!(validate_helcim_attempt_checkout_binding(true, Some(checkout_id), None).is_err());
+        assert!(validate_helcim_attempt_checkout_binding(
+            true,
+            Some(checkout_id),
+            Some(Uuid::new_v4()),
+        )
+        .is_err());
     }
 
     #[test]

@@ -1343,6 +1343,18 @@ export default function NexoCheckoutDrawer({
       method: "card_terminal" | "card_manual" | "card_saved" | "card_credit" = "card_terminal",
       label = "HELCIM CARD",
     ) => {
+      if (!checkoutClientId || attempt.checkout_client_id !== checkoutClientId) {
+        setHelcimAttempt(null);
+        setHelcimUnverifiedNotice(null);
+        setManualCardHandoffUrl(null);
+        pendingHelcimCentsRef.current = 0;
+        pendingHelcimTenderRef.current = { method: "card_terminal", label: "HELCIM CARD" };
+        toast(
+          "This approved Helcim payment belongs to a different sale and was not added. Recover or refund it from Payments Health.",
+          "error",
+        );
+        return false;
+      }
       const hostedManual = isHostedManualHelcimAttempt(attempt);
       const isRefundAttempt =
         method === "card_credit" ||
@@ -1402,7 +1414,7 @@ export default function NexoCheckoutDrawer({
       pendingHelcimTenderRef.current = { method: "card_terminal", label: "HELCIM CARD" };
       return true;
     },
-    [applied, setApplied],
+    [applied, checkoutClientId, setApplied, toast],
   );
 
   const applyHelcimAttemptUpdate = useCallback(
@@ -1413,11 +1425,14 @@ export default function NexoCheckoutDrawer({
       setHelcimAttempt(attempt);
       setHelcimUnverifiedNotice(null);
       if (attempt.status === "approved" || attempt.status === "captured") {
-        const isHostedManual = isHostedManualHelcimAttempt(attempt);
-        if (isHostedManual && attempt.checkout_client_id && checkoutClientId && attempt.checkout_client_id !== checkoutClientId) {
-          toast("This approved Card Not Present payment belongs to a different sale. Start Card Not Present again for this sale.", "error");
+        if (!checkoutClientId || attempt.checkout_client_id !== checkoutClientId) {
+          setHelcimAttempt(null);
+          pendingHelcimCentsRef.current = 0;
+          pendingHelcimTenderRef.current = { method: "card_terminal", label: "HELCIM CARD" };
+          toast("This approved Helcim payment belongs to a different sale and cannot be added here.", "error");
           return;
         }
+        const isHostedManual = isHostedManualHelcimAttempt(attempt);
         // A confirmed approved status is sufficient to attach the payment. The
         // hosted iframe message is helpful, but cannot be the only trigger:
         // browsers can deliver the provider result after the message listener
@@ -2387,6 +2402,7 @@ export default function NexoCheckoutDrawer({
               customer_present_confirmed: refundOriginalCardPresentConfirmed,
               currency: "usd",
               register_session_id: registerSessionId ?? undefined,
+              checkout_client_id: checkoutClientId ?? undefined,
               selected_terminal_key: selectedTerminalKey,
               terminal_override_reason: selectedTerminalNeedsOverride
                 ? `Register #${registerLane ?? "unknown"} selected ${terminalLabel(selectedTerminalKey)}`
@@ -2444,6 +2460,7 @@ export default function NexoCheckoutDrawer({
             amount_cents: amtCents,
             currency: "usd",
             register_session_id: registerSessionId ?? undefined,
+            checkout_client_id: checkoutClientId ?? undefined,
             selected_terminal_key: selectedTerminalKey,
             terminal_override_reason: selectedTerminalNeedsOverride
               ? `Register #${registerLane ?? "unknown"} selected ${terminalLabel(selectedTerminalKey)}`
@@ -2661,7 +2678,7 @@ export default function NexoCheckoutDrawer({
     setDonationNote("");
     setCheckNumber("");
     setRmsReferenceNumber("");
-  }, [giftCardCode, donationNote, checkNumber, remainingCents, cashRounding.rounded, tab, offlineCardApprovalCode, offlineCardLast4, offlineCardReason, providerSettings, providerSettingsLoading, helcimAttempt, helcimAttemptOutcomeUnverified, clearHelcimAttemptState, registerLaneUnavailable, registerTerminalRoute, selectedTerminalKey, selectedTerminalConfigured, selectedTerminalInUseBy, selectedTerminalInUseByOtherRegister, selectedTerminalNeedsOverride, terminalOverrideConfirmed, registerLane, registerSessionId, refundOriginalTransactionId, refundOriginalCardPresentConfirmed, cardRefundRoute, deferCardRefund, baseUrl, backofficeHeaders, customerId, customerCode, toast, applied, setApplied, addApprovedHelcimAttempt, rmsSelectedAccount, rmsPrograms, rmsSelectedProgramCode, rmsReferenceNumber, rmsSummary, rmsResolve, rmsPaymentCollectionMode, chargeSavedHelcimCard, fetchGiftCardPreview, loadProviderSettings, processHelcimApiRefund, startHostedManualCardPayment, storeCreditBalanceCents, storeCreditError, storeCreditLoading, staffAccount]);
+  }, [giftCardCode, donationNote, checkNumber, remainingCents, cashRounding.rounded, tab, offlineCardApprovalCode, offlineCardLast4, offlineCardReason, providerSettings, providerSettingsLoading, helcimAttempt, helcimAttemptOutcomeUnverified, clearHelcimAttemptState, registerLaneUnavailable, registerTerminalRoute, selectedTerminalKey, selectedTerminalConfigured, selectedTerminalInUseBy, selectedTerminalInUseByOtherRegister, selectedTerminalNeedsOverride, terminalOverrideConfirmed, registerLane, registerSessionId, refundOriginalTransactionId, refundOriginalCardPresentConfirmed, cardRefundRoute, deferCardRefund, baseUrl, backofficeHeaders, customerId, customerCode, checkoutClientId, toast, applied, setApplied, addApprovedHelcimAttempt, rmsSelectedAccount, rmsPrograms, rmsSelectedProgramCode, rmsReferenceNumber, rmsSummary, rmsResolve, rmsPaymentCollectionMode, chargeSavedHelcimCard, fetchGiftCardPreview, loadProviderSettings, processHelcimApiRefund, startHostedManualCardPayment, storeCreditBalanceCents, storeCreditError, storeCreditLoading, staffAccount]);
 
   const removePaymentLine = async (line: AppliedPaymentLine) => {
     if (isApprovedProviderPayment(line)) {
