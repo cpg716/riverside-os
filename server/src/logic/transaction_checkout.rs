@@ -2060,6 +2060,83 @@ async fn validate_helcim_payment_splits(
     Ok(())
 }
 
+fn helcim_checkout_references(payment_splits: &[ResolvedPaymentSplit]) -> Vec<String> {
+    payment_splits
+        .iter()
+        .filter(|split| split.payment_provider.as_deref() == Some("helcim"))
+        .flat_map(|split| {
+            [
+                split.provider_transaction_id.clone(),
+                split.provider_payment_id.clone(),
+                metadata_optional_text(&split.metadata, "payment_provider_attempt_id"),
+            ]
+            .into_iter()
+            .flatten()
+            .filter(|value| !value.trim().is_empty())
+        })
+        .collect()
+}
+
+async fn reject_unattached_helcim_attempt(
+    pool: &PgPool,
+    register_session_id: Uuid,
+    checkout_client_id: Option<Uuid>,
+    payment_splits: &[ResolvedPaymentSplit],
+) -> Result<(), CheckoutError> {
+    let Some(checkout_client_id) = checkout_client_id else {
+        return Ok(());
+    };
+    let checkout_references = helcim_checkout_references(payment_splits);
+    let pending: Option<(i64, Option<String>)> = sqlx::query_as(
+        r#"
+        SELECT ppa.amount_cents, ppa.provider_transaction_id
+        FROM payment_provider_attempts ppa
+        WHERE ppa.provider = 'helcim'
+          AND ppa.register_session_id = $1
+          AND ppa.checkout_client_id = $2
+          AND ppa.status IN ('approved', 'captured')
+          AND NOT (
+              ppa.id::text = ANY($3::text[])
+              OR COALESCE(ppa.provider_transaction_id, '') = ANY($3::text[])
+              OR COALESCE(ppa.provider_payment_id, '') = ANY($3::text[])
+          )
+          AND NOT EXISTS (
+              SELECT 1
+              FROM payment_transactions pt
+              WHERE COALESCE(pt.payment_provider, '') = 'helcim'
+                AND (
+                    (ppa.provider_transaction_id IS NOT NULL
+                     AND pt.provider_transaction_id = ppa.provider_transaction_id)
+                    OR (ppa.provider_payment_id IS NOT NULL
+                        AND pt.provider_payment_id = ppa.provider_payment_id)
+                    OR pt.metadata->>'payment_provider_attempt_id' = ppa.id::text
+                )
+          )
+        ORDER BY ppa.created_at DESC
+        LIMIT 1
+        "#,
+    )
+    .bind(register_session_id)
+    .bind(checkout_client_id)
+    .bind(&checkout_references)
+    .fetch_optional(pool)
+    .await?;
+
+    if let Some((amount_cents, provider_transaction_id)) = pending {
+        let reference = provider_transaction_id
+            .filter(|value| !value.trim().is_empty())
+            .map(|value| format!(" (provider transaction {value})"))
+            .unwrap_or_default();
+        return Err(CheckoutError::InvalidPayload(format!(
+            "An approved Helcim payment of ${:.2}{} is still waiting to be attached to this sale. Attach it before recording the sale, or use Payments Health to recover or refund it.",
+            Decimal::new(amount_cents, 2),
+            reference
+        )));
+    }
+
+    Ok(())
+}
+
 fn validate_helcim_attempt_checkout_binding(
     require_checkout_binding: bool,
     checkout_client_id: Option<Uuid>,
@@ -2903,6 +2980,16 @@ async fn execute_checkout_internal(
         &payment_splits,
     )
     .await?;
+
+    if recovery.is_none() {
+        reject_unattached_helcim_attempt(
+            pool,
+            payload.session_id,
+            payload.checkout_client_id,
+            &payment_splits,
+        )
+        .await?;
+    }
 
     if payload.is_tax_exempt
         && payload
@@ -5533,8 +5620,8 @@ mod tests {
     use super::{
         build_payment_allocation_plan, checkout_total_matches, evaluate_combo_incentives,
         execute_checkout, fetch_variant_pos_line_kind, helcim_attempt_comparison_cents,
-        is_fee_only_shipping_quote, parse_combo_reward_amount, payment_effective_date,
-        resolve_payment_splits, validate_checkout_alteration_intakes,
+        helcim_checkout_references, is_fee_only_shipping_quote, parse_combo_reward_amount,
+        payment_effective_date, resolve_payment_splits, validate_checkout_alteration_intakes,
         validate_checkout_item_quantity, validate_helcim_attempt_checkout_binding,
         validate_open_deposit_scope, validate_order_payment_against_target,
         validate_order_payment_shape, validate_wedding_disbursement_against_balance,
@@ -5886,6 +5973,38 @@ mod tests {
             Some(Uuid::new_v4()),
         )
         .is_err());
+    }
+
+    #[test]
+    fn helcim_checkout_references_include_all_provider_identifiers() {
+        let attempt_id = Uuid::new_v4();
+        let split = ResolvedPaymentSplit {
+            method: "card_terminal".to_string(),
+            amount: dec!(652.50),
+            gift_card_code: None,
+            metadata: json!({ "payment_provider_attempt_id": attempt_id.to_string() }),
+            payment_provider: Some("helcim".to_string()),
+            provider_payment_id: Some("payment-1".to_string()),
+            provider_status: Some("approved".to_string()),
+            provider_terminal_id: Some("terminal-1".to_string()),
+            provider_transaction_id: Some("transaction-1".to_string()),
+            provider_auth_code: None,
+            provider_card_type: None,
+            check_number: None,
+            merchant_fee: Decimal::ZERO,
+            net_amount: dec!(652.50),
+            card_brand: None,
+            card_last4: None,
+        };
+
+        let references = helcim_checkout_references(&[split]);
+
+        assert!(references.iter().any(|value| value == "payment-1"));
+        assert!(references.iter().any(|value| value == "transaction-1"));
+        assert!(references
+            .iter()
+            .any(|value| value == &attempt_id.to_string()));
+        assert_eq!(references.len(), 3);
     }
 
     #[test]
