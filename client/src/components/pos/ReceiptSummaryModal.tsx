@@ -80,6 +80,7 @@ type OrderDetail = {
   status?: string;
   total_price?: string;
   amount_paid?: string;
+  balance_due?: string;
   payment_methods_summary?: string;
   customer?: OrderCustomer | null;
   items?: OrderLineRow[];
@@ -105,7 +106,7 @@ function transactionDisplayFallback(transactionId: unknown): string {
     typeof transactionId === "string" || typeof transactionId === "number"
       ? String(transactionId).trim()
       : "";
-  return normalized ? normalized.split("-")[0] : "";
+  return normalized ? normalized.slice(0, 8).toUpperCase() : "";
 }
 
 export default function ReceiptSummaryModal({
@@ -699,10 +700,34 @@ export default function ReceiptSummaryModal({
     (sum, line) => sum + parseMoneyToCents(line.amount),
     0,
   );
+  const transactionTotalCents = parseMoneyToCents(transactionDetail?.total_price ?? "0");
+  const pickupCheckout = receiptTransactionLineIds.length > 0;
+  const paymentOnlyCheckout = !pickupCheckout && transactionTotalCents === 0 && orderPaymentTotalCents > 0;
+  const currentCheckoutAmountCents = pickupCheckout || paymentOnlyCheckout
+    ? orderPaymentTotalCents
+    : parseMoneyToCents(transactionDetail?.amount_paid ?? "0");
+  const activityLabel = pickupCheckout
+    ? currentCheckoutAmountCents > 0
+      ? "Pickup and payment recorded"
+      : "Pickup completed"
+    : paymentOnlyCheckout
+      ? "Payment recorded"
+      : orderPaymentTotalCents > 0
+        ? "Sale and order payment recorded"
+        : "Sale recorded";
   const summaryTotal =
-    orderPaymentLines.length > 0
-      ? centsToFixed2(orderPaymentTotalCents)
+    pickupCheckout || paymentOnlyCheckout
+      ? centsToFixed2(currentCheckoutAmountCents)
       : transactionDetail?.total_price ?? transactionDetail?.amount_paid ?? "…";
+  const summaryPaid = pickupCheckout || paymentOnlyCheckout
+    ? centsToFixed2(currentCheckoutAmountCents)
+    : transactionDetail?.amount_paid ?? "…";
+  const summaryBalance = pickupCheckout || paymentOnlyCheckout
+    ? "0.00"
+    : transactionDetail?.balance_due ?? "…";
+  const customerName = transactionDetail?.customer
+    ? `${transactionDetail.customer.first_name} ${transactionDetail.customer.last_name}`.trim()
+    : "Walk-in customer";
 
   const runGiftPrint = () => {
     if (giftPickEmpty) {
@@ -861,10 +886,27 @@ export default function ReceiptSummaryModal({
             </div>
             <div className="min-w-0 text-left">
               <h2 className="text-xl font-black uppercase italic tracking-tighter text-app-text sm:text-2xl lg:text-3xl">
-                Sale complete
+                {pickupCheckout
+                  ? "Pickup complete"
+                  : paymentOnlyCheckout
+                    ? "Payment recorded"
+                    : "Sale complete"}
               </h2>
               <p className="text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
-                Transaction #{transactionDetail?.transaction_display_id ?? transactionDisplayFallback(transactionId)}
+                {activityLabel} · Transaction #{transactionDetail?.transaction_display_id ?? transactionDisplayFallback(transactionId)}
+              </p>
+            </div>
+          </div>
+
+          <div className="grid gap-3 rounded-2xl border border-app-border bg-app-surface-2 px-4 py-3 sm:grid-cols-2 sm:px-5">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Customer</p>
+              <p className="mt-1 truncate text-sm font-black text-app-text">{customerName}</p>
+            </div>
+            <div className="sm:text-right">
+              <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Transaction</p>
+              <p className="mt-1 truncate text-sm font-black text-app-text">
+                #{transactionDetail?.transaction_display_id ?? transactionDisplayFallback(transactionId)}
               </p>
             </div>
           </div>
@@ -943,7 +985,7 @@ export default function ReceiptSummaryModal({
             <div className="flex flex-wrap items-end justify-between gap-3 lg:gap-6">
               <div>
                 <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted lg:text-[11px]">
-                  {orderPaymentLines.length > 0 ? "Payment total" : "Sale total"}
+                  {pickupCheckout || paymentOnlyCheckout ? "Collected now" : "Sale total"}
                 </p>
                 <p className="text-2xl font-black tabular-nums tracking-tighter text-app-text sm:text-3xl lg:text-4xl">
                   ${summaryTotal}
@@ -958,6 +1000,29 @@ export default function ReceiptSummaryModal({
                 </p>
               </div>
             </div>
+            <div className="mt-3 grid grid-cols-2 gap-3 border-t border-app-border/50 pt-3">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Paid</p>
+                <p className="mt-1 text-lg font-black tabular-nums text-app-success">${summaryPaid}</p>
+              </div>
+              <div className="text-right">
+                <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Balance</p>
+                <p className="mt-1 text-lg font-black tabular-nums text-app-warning">${summaryBalance}</p>
+              </div>
+            </div>
+            {orderPaymentTotalCents > 0 && !paymentOnlyCheckout ? (
+              <div className="mt-3 rounded-xl border border-violet-500/20 bg-violet-500/10 px-3 py-2 text-left">
+                <div className="flex items-center justify-between gap-3 text-xs font-bold text-app-text">
+                  <span>Collected in this checkout</span>
+                  <span className="tabular-nums">
+                    ${centsToFixed2(parseMoneyToCents(summaryPaid) + orderPaymentTotalCents)}
+                  </span>
+                </div>
+                <p className="mt-1 text-[10px] font-semibold text-app-text-muted">
+                  Includes the payment(s) listed below for existing Transaction Records.
+                </p>
+              </div>
+            ) : null}
             {loadedGiftCards.length > 0 ? (
               <div className="mt-3 rounded-xl border border-violet-500/20 bg-violet-500/10 px-3 py-2 text-left">
                 <p className="text-[10px] font-black uppercase tracking-widest text-violet-700 dark:text-violet-300">

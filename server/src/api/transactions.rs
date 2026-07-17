@@ -682,6 +682,16 @@ impl TransactionDetailResponse {
         } else {
             self.total_price
         };
+        let receipt_amount_paid = if payment_only {
+            subtotal_price
+        } else {
+            (self.amount_paid + self.wedding_deposit_amount).round_dp(2)
+        };
+        let receipt_balance_due = if payment_only {
+            Decimal::ZERO
+        } else {
+            self.balance_due
+        };
 
         Ok(receipt_shared::ReceiptOrder {
             transaction_id: self.transaction_id,
@@ -693,9 +703,9 @@ impl TransactionDetailResponse {
             tax_total,
             total_price: receipt_total_price,
             total_savings,
-            amount_paid: (self.amount_paid + self.wedding_deposit_amount).round_dp(2),
+            amount_paid: receipt_amount_paid,
             wedding_deposit_amount: self.wedding_deposit_amount,
-            balance_due: self.balance_due,
+            balance_due: receipt_balance_due,
             payment_methods_summary: self.payment_methods_summary.clone(),
             payment_applications: self
                 .payment_applications
@@ -1121,7 +1131,7 @@ mod tests {
             remaining_balance: Decimal::ZERO,
         }];
         detail.total_price = Decimal::ZERO;
-        detail.amount_paid = Decimal::new(5000, 2);
+        detail.amount_paid = Decimal::ZERO;
         detail.balance_due = Decimal::ZERO;
 
         let receipt = detail
@@ -7570,6 +7580,7 @@ pub(crate) async fn load_transaction_detail(
     let payments_db = sqlx::query_as::<
         _,
         (
+            Uuid,
             DateTime<Utc>,
             String,
             Decimal,
@@ -7579,7 +7590,8 @@ pub(crate) async fn load_transaction_detail(
         ),
     >(
         r#"
-        SELECT DISTINCT
+        SELECT
+            pa.id,
             pt.created_at,
             pt.payment_method,
             COALESCE(pa.amount_allocated, pt.amount)::numeric(14,2) AS amount,
@@ -7615,7 +7627,15 @@ pub(crate) async fn load_transaction_detail(
     let payments = payments_db
         .into_iter()
         .map(
-            |(date, method, amount, cash_tendered, change_due, gift_card_balance_after)| {
+            |(
+                _allocation_id,
+                date,
+                method,
+                amount,
+                cash_tendered,
+                change_due,
+                gift_card_balance_after,
+            )| {
                 TransactionDetailedPayment {
                     date,
                     method,
@@ -7957,24 +7977,9 @@ pub(crate) async fn load_transaction_detail(
         (false, "escpos".to_string())
     };
     let void_record = load_void_record(pool, transaction_id).await?;
-    let has_order_fulfillment = items.iter().any(|item| {
-        matches!(
-            item.fulfillment,
-            DbFulfillmentType::SpecialOrder
-                | DbFulfillmentType::Custom
-                | DbFulfillmentType::WeddingOrder
-                | DbFulfillmentType::Layaway
-        )
-    });
     let allocated_payment_total = total_allocated_payments.unwrap_or(Decimal::ZERO);
     let explicit_deposit_total = total_applied_deposit_amount.unwrap_or(Decimal::ZERO);
-    let deposit_total = if has_order_fulfillment {
-        explicit_deposit_total
-            .max(allocated_payment_total)
-            .max(h.amount_paid)
-    } else {
-        explicit_deposit_total
-    };
+    let deposit_total = explicit_deposit_total;
 
     Ok(TransactionDetailResponse {
         transaction_id: h.id,

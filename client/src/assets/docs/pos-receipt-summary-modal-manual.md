@@ -48,6 +48,10 @@ The preview is intentionally narrow and receipt-like. It uses the same receipt c
 
 Receipt line items keep the product name as the primary line, show quantity only when more than one unit is sold, and place SKU with the price on the item detail line. Pickup receipts still use the normal **RECEIPT** heading; picked-up merchandise appears in the body under **PICKED UP** with the original order date on those lines. Items still remaining on the transaction are not printed on the pickup receipt.
 
+Receipt totals are sourced from the completed transaction ledger. Shipping and alteration charges remain visible as separate non-merchandise lines, **Paid** and **Balance** reflect the transaction’s actual stored values, and payments applied to existing Transaction Records are listed separately. A payment-only receipt uses the actual applied payment amount instead of the new transaction header amount.
+
+The Sale Complete screen identifies the customer and transaction number and labels the completed event as a sale, payment, pickup, or combined sale/payment. Pickup handoffs show the amount collected during that pickup event, not the original order total.
+
 When a customer picks up an order and buys new merchandise in the same checkout, the sale complete screen prints one checkout receipt. It includes the new sale lines plus the exact picked-up items and their source Transaction number. Daily Sales lists the checkout once, while **Pickups Today** preserves the fulfillment record. Pure pickup checkouts still print the pickup receipt for the original transaction.
 
 Split tenders print as separate tender lines, such as **Cash**, **CC**, **RMS90**, **RMS**, **Check**, or **SC**, so the receipt matches the payment breakdown staff see in history and reporting.

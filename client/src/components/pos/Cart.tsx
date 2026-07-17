@@ -2618,6 +2618,25 @@ export default function Cart({
     return tagged.map((t) => t.l);
   }, [lines]);
 
+  const alterationAmountCents = useMemo(
+    () =>
+      lines.reduce((total, line) => {
+        const isAlteration =
+          line.line_type === "alteration_service" ||
+          line.custom_item_type === "alteration_service" ||
+          line.sku === ALTERATION_SERVICE_SKU;
+        return isAlteration
+          ? total + parseMoneyToCents(line.standard_retail_price) * Math.max(line.quantity, 0)
+          : total;
+      }, 0),
+    [lines],
+  );
+  const hasCartDisplayWork =
+    sortedCartLines.length > 0 ||
+    orderPaymentLines.length > 0 ||
+    Boolean(posShipping) ||
+    pendingAlterationIntakes.length > 0;
+
   return (
     <div
       className="relative grid h-full min-h-0 w-full overflow-hidden bg-app-bg lg:[grid-template-columns:minmax(0,1fr)_clamp(300px,28vw,376px)]"
@@ -3151,7 +3170,7 @@ export default function Cart({
 
         {/* Scrollable line items — designed for 5-6 items visible */}
         <div className="min-h-0 flex-1 overflow-y-auto p-2 sm:p-3 lg:p-4">
-          {lines.length > 0 ? (
+          {sortedCartLines.length > 0 ? (
             <div className="space-y-1.5">
               <p className="px-1 pt-0.5 text-[9px] font-black uppercase tracking-[0.22em] text-app-text-muted">
                 Sale lines — tap qty or price, then use the keypad
@@ -3184,17 +3203,65 @@ export default function Cart({
                   hideLineSalesperson={isGiftCardOnlyCart || isEmployeeSale}
                 />
               ))}
+              {posShipping ? (
+                <div className="flex items-center justify-between gap-3 rounded-2xl border border-app-info/25 bg-app-info/8 p-4">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <Truck size={20} className="shrink-0 text-app-info" />
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-black uppercase text-app-text">{posShipping.label}</p>
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
+                        Non-merchandise shipping charge
+                      </p>
+                    </div>
+                  </div>
+                  <span className="shrink-0 text-xl font-black tabular-nums text-app-text">
+                    ${centsToFixed2(posShipping.amount_cents)}
+                  </span>
+                </div>
+              ) : null}
             </div>
-          ) : orderPaymentLines.length > 0 ? (
-              <div className="flex h-full flex-col items-center justify-center px-6 text-center text-app-text-muted/80">
-                <CreditCard size={64} strokeWidth={1} className="mb-4 text-violet-600" />
-                <p className="text-base font-black uppercase italic tracking-widest">
-                  Payment Only
+          ) : hasCartDisplayWork ? (
+            <div className="space-y-2 px-1">
+              {posShipping || pendingAlterationIntakes.some((intake) => !lines.some((line) => line.alteration_intake_id === intake.id)) ? (
+                <p className="pt-0.5 text-[9px] font-black uppercase tracking-[0.22em] text-app-text-muted">
+                  Cart charges
                 </p>
-                <p className="mt-2 max-w-[22rem] text-sm font-medium normal-case tracking-normal text-app-text-muted">
-                  Existing transaction payments are ready below. No new merchandise is being sold.
-                </p>
-             </div>
+              ) : null}
+              {posShipping ? (
+                <div className="flex items-center justify-between gap-3 rounded-2xl border border-app-info/25 bg-app-info/8 p-4">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <Truck size={20} className="shrink-0 text-app-info" />
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-black uppercase text-app-text">{posShipping.label}</p>
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
+                        Non-merchandise shipping charge
+                      </p>
+                    </div>
+                  </div>
+                  <span className="shrink-0 text-xl font-black tabular-nums text-app-text">
+                    ${centsToFixed2(posShipping.amount_cents)}
+                  </span>
+                </div>
+              ) : null}
+              {pendingAlterationIntakes
+                .filter((intake) => !lines.some((line) => line.alteration_intake_id === intake.id))
+                .map((intake) => (
+                  <div key={intake.id} className="flex items-center justify-between gap-3 rounded-2xl border border-app-accent/25 bg-app-accent/8 p-4">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <Scissors size={20} className="shrink-0 text-app-accent" />
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-black uppercase text-app-text">Alteration: {intake.work_requested}</p>
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
+                          Alteration service charge
+                        </p>
+                      </div>
+                    </div>
+                    <span className="shrink-0 text-xl font-black tabular-nums text-app-text">
+                      ${centsToFixed2(parseMoneyToCents(intake.charge_amount ?? "0"))}
+                    </span>
+                  </div>
+                ))}
+            </div>
           ) : (
               <div className="flex h-full flex-col items-center justify-center px-6 text-center text-app-text-muted/80">
                 <Package size={64} strokeWidth={1} className="mb-4" />
@@ -3885,6 +3952,7 @@ export default function Cart({
         stateTaxCents={totals.stateTaxCents}
         localTaxCents={totals.localTaxCents}
         shippingCents={totals.shippingCents}
+        alterationsCents={alterationAmountCents}
         weddingLinked={!!activeWeddingMember}
         customerId={selectedCustomer?.id}
         customerName={selectedCustomer ? `${selectedCustomer.first_name} ${selectedCustomer.last_name}` : undefined}

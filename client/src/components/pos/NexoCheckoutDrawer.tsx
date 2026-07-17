@@ -523,6 +523,7 @@ export interface NexoCheckoutDrawerProps {
   stateTaxCents: number;
   localTaxCents: number;
   shippingCents: number;
+  alterationsCents?: number;
   weddingLinked: boolean;
   customerId?: string | null;
   customerName?: string | null;
@@ -599,6 +600,7 @@ export default function NexoCheckoutDrawer({
   allowDepositOnlyComplete = false,
   takeawayDueCents = 0,
   shippingCents = 0,
+  alterationsCents = 0,
   hasLaterItems = false,
   onOpenSplitDeposit,
   existingPaidAmountCents = 0,
@@ -4418,12 +4420,18 @@ export default function NexoCheckoutDrawer({
                 <div className="space-y-1.5 pt-1">
                   <div className="flex justify-between text-xs">
                     <span className="text-app-text-muted">Merchandise</span>
-                    <span className="font-bold tabular-nums text-app-text opacity-70">${centsToFixed2(amountDueCents - (stateTaxCents + localTaxCents + shippingCents))}</span>
+                    <span className="font-bold tabular-nums text-app-text opacity-70">${centsToFixed2(amountDueCents - (stateTaxCents + localTaxCents + shippingCents + alterationsCents))}</span>
                   </div>
                   {shippingCents > 0 && (
                     <div className="flex justify-between text-xs">
                       <span className="text-app-text-muted">Shipping</span>
                       <span className="font-bold tabular-nums text-app-text opacity-70">${centsToFixed2(shippingCents)}</span>
+                    </div>
+                  )}
+                  {alterationsCents > 0 && (
+                    <div className="flex justify-between text-xs">
+                      <span className="text-app-text-muted">Alterations</span>
+                      <span className="font-bold tabular-nums text-app-text opacity-70">${centsToFixed2(alterationsCents)}</span>
                     </div>
                   )}
 

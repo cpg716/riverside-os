@@ -19,6 +19,8 @@ tags: pos, register, reports, audit, printing
 
 This screen provides a real-time audit of register activity, daily sales, and shared drawer coordination.
 
+The Register cart keeps non-merchandise work visible: shipping charges and alteration-service charges appear as separate charge rows, and existing order-payment rows remain visible alongside merchandise when a customer is both making a payment and purchasing items. These charges remain separate from merchandise subtotal reporting.
+
 ## What this is
 
 Use this screen to review the current register session, void a completed sale with Manager Access when store policy allows it, print the full-page daily report, and verify lane activity before final close.

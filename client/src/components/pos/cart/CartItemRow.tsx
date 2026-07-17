@@ -76,7 +76,10 @@ export function CartItemRow({
 }: CartItemRowProps) {
   const lk = cartLineKey(line);
   const isSelected = selectedLineKey === lk;
-  const isAlterationLine = line.line_type === "alteration_service";
+  const isAlterationLine =
+    line.line_type === "alteration_service" ||
+    line.custom_item_type === "alteration_service" ||
+    line.sku === "ROS-ALTERATION-FEE";
   const isRmsPaymentLine = isRmsChargePaymentLine(line);
   const isStaffAccountPayment = isStaffAccountPaymentLine(line);
   const regCents = parseMoneyToCents(
