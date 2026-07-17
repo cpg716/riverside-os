@@ -72,8 +72,13 @@ When the client cannot send Back Office staff headers (e.g. receipt modal on the
 ## POS transaction voids
 
 - **`POST /api/transactions/{id}/void`**
-  Body: `{ "register_session_id", "manager_staff_id", "manager_pin", "reason" }`
+  Body: `{ "register_session_id", "manager_staff_id", "manager_pin", "reason", "external_helcim_reference?" }`
   Requires an open register session, **`orders.refund_process`**, and Manager Access from a staff approver with **`manager.approval`**.
+
+  If a same-day Helcim card was already voided in the Helcim dashboard, supply
+  `external_helcim_reference` to reconcile the provider result locally. ROS marks
+  the linked payment canceled and records the external reference; it does not
+  call Helcim a second time and does not create a synthetic refund payment.
 
 - **Rules**
   - A void is never a delete. The original Transaction Record, payment rows, receipt references, timestamps, and audit feed remain visible.

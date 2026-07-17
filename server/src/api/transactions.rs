@@ -1994,6 +1994,8 @@ pub struct VoidTransactionRequest {
     pub manager_staff_id: Uuid,
     pub manager_pin: String,
     pub reason: String,
+    #[serde(default)]
+    pub external_helcim_reference: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -4398,6 +4400,12 @@ async fn post_transaction_void(
         "Manager Access approval permission required to void a completed transaction",
     )
     .await?;
+    let external_helcim_reference = body
+        .external_helcim_reference
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
 
     let mut tx = state.db.begin().await?;
     type VoidTransactionHeader = (
@@ -4574,6 +4582,31 @@ async fn post_transaction_void(
     let mut pop_cash_drawer = false;
 
     for payment in &linked_payments {
+        if payment.payment_provider.as_deref() == Some("helcim")
+            && external_helcim_reference.is_some()
+        {
+            sqlx::query(
+                r#"
+                UPDATE payment_transactions
+                SET status = 'canceled',
+                    amount = 0,
+                    net_amount = 0,
+                    metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb
+                WHERE id = $1
+                "#,
+            )
+            .bind(payment.id)
+            .bind(json!({
+                "voided_by_transaction_id": transaction_id,
+                "voided_at": Utc::now(),
+                "external_helcim_void": true,
+                "external_helcim_reference": external_helcim_reference,
+            }))
+            .execute(&mut *tx)
+            .await?;
+            continue;
+        }
+
         if payment.payment_method == "cash" || payment.payment_method == "check" {
             sqlx::query(
                 r#"
@@ -4948,6 +4981,7 @@ async fn post_transaction_void(
             "original_total_price": original_total,
             "original_amount_paid": amount_paid,
             "original_balance_due": balance_due,
+            "external_helcim_reference": external_helcim_reference,
         }),
     )
     .await?;
@@ -4962,6 +4996,7 @@ async fn post_transaction_void(
             "transaction_id": transaction_id,
             "void_record_id": void_record_id,
             "reason": body.reason.trim(),
+            "external_helcim_reference": external_helcim_reference,
         }),
     )
     .await;

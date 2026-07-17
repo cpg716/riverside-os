@@ -83,7 +83,7 @@ export default function PosRefundModal({
               className="ui-input mt-1 w-full text-sm"
             >
               <option value="card_present">Card refund</option>
-              <option value="card_terminal_manual">Helcim backend refund</option>
+              <option value="card_terminal_manual">Credit Card / Manual (Helcim)</option>
               <option value="cash">Cash</option>
               <option value="check">Check</option>
               <option value="store_credit">Store credit</option>
