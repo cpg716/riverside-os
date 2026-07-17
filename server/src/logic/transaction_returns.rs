@@ -106,13 +106,14 @@ pub async fn apply_transaction_returns_in_tx(
         Uuid,
         Uuid,
         Decimal,
+        Decimal,
     );
     for line in &lines {
         let row: Option<ReturnLineLockRow> = sqlx::query_as(
             r#"
                 SELECT oi.id, oi.quantity, oi.fulfillment, oi.is_fulfilled,
                        oi.unit_price, oi.state_tax, oi.local_tax, oi.product_id, oi.variant_id,
-                       oi.calculated_commission
+                       oi.calculated_commission, oi.unit_cost
                 FROM transaction_lines oi
                 WHERE oi.id = $1 AND oi.transaction_id = $2
                 FOR UPDATE
@@ -134,6 +135,7 @@ pub async fn apply_transaction_returns_in_tx(
             product_id,
             variant_id,
             line_commission,
+            unit_cost,
         )) = row
         else {
             return Err(TransactionReturnError::BadRequest(format!(
@@ -165,18 +167,25 @@ pub async fn apply_transaction_returns_in_tx(
             .unwrap_or_else(|| fulfillment == DbFulfillmentType::Takeaway && is_fulfilled);
 
         let restock_affected = if restock {
-            sqlx::query(
+            let updated_variant: Option<Uuid> = sqlx::query_scalar(
                 r#"
                 UPDATE product_variants
                 SET stock_on_hand = stock_on_hand + $1
                 WHERE id = $2
+                RETURNING id
                 "#,
             )
             .bind(line.quantity)
             .bind(variant_id)
-            .execute(&mut **tx)
-            .await?
-            .rows_affected()
+            .fetch_optional(&mut **tx)
+            .await?;
+            if updated_variant.is_none() {
+                return Err(TransactionReturnError::BadRequest(
+                    "cannot restock returned item because its inventory variant was not found"
+                        .to_string(),
+                ));
+            }
+            1
         } else {
             0
         };
@@ -202,13 +211,14 @@ pub async fn apply_transaction_returns_in_tx(
             sqlx::query(
                 r#"
                 INSERT INTO inventory_transactions (
-                    variant_id, tx_type, quantity_delta, reference_table, reference_id, notes
+                    variant_id, tx_type, quantity_delta, unit_cost, reference_table, reference_id, notes
                 )
-                VALUES ($1, 'return_in', $2, 'transaction_return_lines', $3, $4)
+                VALUES ($1, 'return_in', $2, $3, 'transaction_return_lines', $4, $5)
                 "#,
             )
             .bind(variant_id)
             .bind(line.quantity)
+            .bind(unit_cost)
             .bind(return_line_id)
             .bind(format!(
                 "Restocked return stock increment for transaction {transaction_id}"

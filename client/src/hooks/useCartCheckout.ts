@@ -475,7 +475,12 @@ export function useCartCheckout({
           (parseMoneyToCents(line.standard_retail_price) + stateTaxCents + localTaxCents) * quantity
         );
       }, 0);
-      const payloadTotalPriceCents = payloadLineTotalCents + (posShipping?.amount_cents ?? 0);
+      // Use the same override totals that drive this checkout execution. This
+      // matters for exchanges, where the cart also contains non-sale return
+      // lines but the server receives only the replacement sale lines.
+      const payloadTotalPriceCents = execution?.totalsOverride
+        ? checkoutTotals.orderTotalCents
+        : payloadLineTotalCents + (posShipping?.amount_cents ?? 0);
       const alterationLines = checkoutLines.filter((line) => line.line_type === "alteration_service");
       if (pendingAlterationIntakes.length > 0 || alterationLines.length > 0) {
         if (!selectedCustomer?.id) {

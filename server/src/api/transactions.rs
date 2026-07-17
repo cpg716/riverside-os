@@ -6320,6 +6320,46 @@ async fn process_exchange_settlement(
         ));
     }
 
+    // The replacement checkout is committed before this settlement request.
+    // If the response is lost, the register retries the same settlement. Lock
+    // the original transaction before checking the audit row so concurrent
+    // retries cannot both create return/payment ledger entries.
+    let original_exists: Option<Uuid> =
+        sqlx::query_scalar("SELECT id FROM transactions WHERE id = $1 FOR UPDATE")
+            .bind(transaction_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+    if original_exists.is_none() {
+        return Err(TransactionError::InvalidPayload(
+            "return transaction was not found".to_string(),
+        ));
+    }
+    let settled_exchange_group: Option<Uuid> = sqlx::query_scalar(
+        r#"
+        SELECT NULLIF(metadata->>'exchange_group_id', '')::uuid
+        FROM transaction_activity_log
+        WHERE transaction_id = $1
+          AND event_kind = 'exchange_settled'
+          AND metadata->>'replacement_transaction_id' = $2
+        ORDER BY created_at DESC
+        LIMIT 1
+        "#,
+    )
+    .bind(transaction_id)
+    .bind(body.replacement_transaction_id.to_string())
+    .fetch_optional(&mut *tx)
+    .await?;
+    if let Some(exchange_group_id) = settled_exchange_group {
+        tx.commit().await?;
+        return Ok(Json(json!({
+            "status": "ok",
+            "exchange_group_id": exchange_group_id,
+            "exchange_credit_amount": body.exchange_credit_amount,
+            "refund_remainder_amount": refund_remainder_amount,
+            "idempotent_replay": true,
+        })));
+    }
+
     if !body.return_lines.is_empty() {
         let return_inputs = return_line_inputs_from_body(&body.return_lines, "exchange");
         transaction_returns::apply_transaction_returns_in_tx(
@@ -7465,9 +7505,11 @@ pub(crate) async fn load_transaction_detail(
                 WHERE orx.transaction_line_id = oi.id
             ), 0) AS quantity_returned,
             CASE
-                WHEN COALESCE(o.is_counterpoint_import, false)
-                     OR o.counterpoint_ticket_ref IS NOT NULL
-                THEN COALESCE(oi.unit_price, 0)
+                -- Counterpoint imports retain the source-paid line price in
+                -- size_specs. Migration 131 adjusted the ledger unit_price
+                -- proportionally to the tendered ticket total; using that
+                -- value here loses the receipt's per-line discount and makes
+                -- returns/exchanges credit the wrong amount.
                 WHEN oi.size_specs ? 'overridden_unit_price'
                      AND NULLIF(TRIM(oi.size_specs->>'overridden_unit_price'), '') IS NOT NULL
                      AND TRIM(oi.size_specs->>'overridden_unit_price') ~ '^[0-9]+(\.[0-9]+)?$'

@@ -45,6 +45,8 @@ pub struct HelcimPurchaseRequest {
     pub transaction_amount: String,
     #[serde(rename = "invoiceNumber")]
     pub invoice_number: String,
+    #[serde(rename = "customerCode", skip_serializing_if = "Option::is_none")]
+    pub customer_code: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1026,6 +1028,63 @@ pub async fn get_customers(
     send_get_request(http, config, "customers/", query).await
 }
 
+/// Ensure a POS customer exists in Helcim before a terminal purchase starts.
+/// Terminal purchases accept only a Helcim customerCode; creating the profile
+/// first is what gives Helcim the contact name shown in its dashboard.
+pub async fn ensure_customer_profile(
+    http: &reqwest::Client,
+    config: &HelcimConfig,
+    customer_code: &str,
+    contact_name: &str,
+    phone: Option<&str>,
+) -> Result<String, String> {
+    let query = [("customerCode", customer_code.to_string())];
+    let existing = get_customers(http, config, &query).await?;
+    let has_existing = existing
+        .as_array()
+        .map(|rows| !rows.is_empty())
+        .or_else(|| {
+            existing
+                .get("customers")
+                .and_then(Value::as_array)
+                .map(|rows| !rows.is_empty())
+        })
+        .unwrap_or(false);
+    if has_existing {
+        return Ok(customer_code.to_string());
+    }
+
+    let token = config
+        .api_token()
+        .ok_or_else(|| "Helcim API token is not saved in Backoffice Settings.".to_string())?;
+    let mut body = serde_json::Map::new();
+    body.insert(
+        "customerCode".to_string(),
+        Value::String(customer_code.to_string()),
+    );
+    body.insert(
+        "contactName".to_string(),
+        Value::String(contact_name.to_string()),
+    );
+    if let Some(phone) = phone.map(str::trim).filter(|value| !value.is_empty()) {
+        body.insert("cellPhone".to_string(), Value::String(phone.to_string()));
+    }
+    let response = http
+        .post(format!("{}/customers", config.api_base_url()))
+        .header(reqwest::header::ACCEPT, "application/json")
+        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .header("api-token", token)
+        .json(&Value::Object(body))
+        .send()
+        .await
+        .map_err(|e| format!("Helcim customer request failed: {e}"))?;
+    if !response.status().is_success() {
+        let raw_text = response.text().await.unwrap_or_default();
+        return Err(format!("Helcim customer creation failed: {raw_text}"));
+    }
+    Ok(customer_code.to_string())
+}
+
 pub async fn get_customer_cards(
     http: &reqwest::Client,
     config: &HelcimConfig,
@@ -1221,11 +1280,13 @@ pub fn build_purchase_request_payload(
     amount_cents: i64,
     currency: impl Into<String>,
     invoice_number: impl Into<String>,
+    customer_code: Option<String>,
 ) -> HelcimPurchaseRequest {
     HelcimPurchaseRequest {
         currency: currency.into().to_uppercase(),
         transaction_amount: cents_to_decimal_string(amount_cents),
         invoice_number: invoice_number.into(),
+        customer_code,
     }
 }
 
@@ -1243,9 +1304,18 @@ fn terminal_purchase_request_body(request: &HelcimPurchaseRequest) -> Result<Str
     let currency = serde_json::to_string(&request.currency).map_err(|e| e.to_string())?;
     let invoice_number =
         serde_json::to_string(&request.invoice_number).map_err(|e| e.to_string())?;
+    let customer_code = request
+        .customer_code
+        .as_deref()
+        .map(serde_json::to_string)
+        .transpose()
+        .map_err(|e| e.to_string())?;
+    let customer_code_field = customer_code
+        .map(|value| format!(",\"customerCode\":{value}"))
+        .unwrap_or_default();
     Ok(format!(
-        r#"{{"currency":{currency},"transactionAmount":{},"invoiceNumber":{invoice_number}}}"#,
-        request.transaction_amount
+        r#"{{"currency":{currency},"transactionAmount":{},"invoiceNumber":{invoice_number}{customer_code_field}}}"#,
+        request.transaction_amount,
     ))
 }
 
@@ -2100,7 +2170,7 @@ mod tests {
 
     #[test]
     fn terminal_purchase_body_serializes_amount_as_json_number() {
-        let request = build_purchase_request_payload(1099, "usd", "ROS-123");
+        let request = build_purchase_request_payload(1099, "usd", "ROS-123", None);
         let body = terminal_purchase_request_body(&request).expect("purchase body");
         let value: Value = serde_json::from_str(&body).expect("valid json");
 

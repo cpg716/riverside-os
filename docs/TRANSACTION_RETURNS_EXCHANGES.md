@@ -101,8 +101,9 @@ When the client cannot send Back Office staff headers (e.g. receipt modal on the
 - **Rules**
   - Cannot return more than **sold qty minus prior returns** per line.
   - Not allowed on **cancelled** transactions.
-  - Counterpoint historical tickets use the actual imported tender total as the paid basis. When the source lines carry retail prices above that tender total, ROS allocates the paid discount across the historical lines before calculating return or exchange credit.
+  - Counterpoint historical tickets use the actual imported tender total as the paid basis. When Counterpoint supplied a discounted paid price for a line, ROS preserves that exact source line price for return/exchange credit; only legacy lines without source-paid price metadata use the historical fallback allocation.
   - **Restock:** default **true** when line is **takeaway** and **fulfilled**; otherwise no `stock_on_hand` bump (special/wedding semantics per **`INVENTORY_GUIDE.md`**). Explicit **`restock`** overrides default.
+  - A restocked return updates `product_variants.stock_on_hand` and appends a matching `inventory_transactions.return_in` row with the returned line's recorded unit cost. If the variant cannot be updated, the return rolls back instead of creating a synthetic return or inventory record.
   - **`transaction_return_lines`** is append-only audit.
   - **Totals:** `server/src/logic/transaction_recalc.rs` recomputes **`total_price`**, **`balance_due`**, and **status** using effective qty per line.
   - **Refund queue:** refundable line total (incl. line tax) is added to **`transaction_refund_queue.amount_due`**.
@@ -128,7 +129,7 @@ When the client cannot send Back Office staff headers (e.g. receipt modal on the
    - **Automated Linking**: After replacement checkout, `POST /api/transactions/{original}/exchange-settlement` links the legs for reporting.
    - **Staged returns**: Selecting return quantities in the wizard does not mutate the original Transaction Record. The selected line ids, quantities, reason, and restock choice are carried into the final refund or exchange settlement request.
    - **Credit basis**: Register return/exchange handoff uses the original selected line subtotal plus the original selected line tax split, capped by paid money on the Transaction Record. Partially paid order deposits therefore carry the paid original item value and paid tax into the cart instead of showing a `$0.00` exchange line.
-   - **Settlement**: return credits, deposits, replacement lines, and any remaining customer balance or refund must flow through checkout so the cart, payment allocations, customer history, QBO staging, and audit trail agree. Return lines are recorded only after the refund/exchange settlement succeeds; interrupted or failed flows must leave the original items visible and unreturned. If the original Transaction Record still has a balance due and the returned item creates no paid refund credit, settlement is still valid when it records return lines and links the replacement sale.
+   - **Settlement**: return credits, deposits, replacement lines, and any remaining customer balance or refund must flow through checkout so the cart, payment allocations, customer history, QBO staging, and audit trail agree. Return lines are recorded only after the refund/exchange settlement succeeds; interrupted or failed flows must leave the original items visible and unreturned. If the original Transaction Record still has a balance due and the returned item creates no paid refund credit, settlement is still valid when it records return lines and links the replacement sale. If the client loses the response after settlement commits, retrying the same settlement is idempotent and does not create duplicate return or payment ledger entries.
 
 ---
 

@@ -801,44 +801,50 @@ export default function Cart({
     if (refundAmountCents <= 0 && args.action !== "exchange") return;
 
     const receiptLabel = args.receiptLabel ?? args.originalTransactionId.slice(0, 8).toUpperCase();
-    const rowId = newCartRowId();
-    const lineLabel =
-      firstReturnLine.product_name +
-      (args.returnedLines && args.returnedLines.length > 1
-        ? ` + ${args.returnedLines.length - 1} more`
-        : "");
-
-    const returnCreditLine: CartLineItem = {
-      product_id: firstReturnLine.product_id,
-      variant_id: firstReturnLine.variant_id,
-      sku: `RETURN-${receiptLabel}`,
-      name:
-        args.action === "exchange" && refundAmountCents <= 0
-          ? `Exchange return ${receiptLabel}`
-          : args.action === "exchange"
-            ? `Exchange credit ${receiptLabel}`
-            : `Refund credit ${receiptLabel}`,
-      variation_label: lineLabel,
-      standard_retail_price: centsToFixed2(returnCredit.subtotalCents),
-      unit_cost: firstReturnLine.unit_cost ?? "0.00",
-      state_tax: centsToFixed2(returnCredit.stateTaxCents),
-      local_tax: centsToFixed2(returnCredit.localTaxCents),
-      tax_category: "other",
-      quantity: -1,
-      fulfillment: "takeaway",
-      cart_row_id: rowId,
-      price_override_reason: "pending_return_refund",
-      original_unit_price: centsToFixed2(returnCredit.subtotalCents),
-      return_tender_original_transaction_id: args.originalTransactionId,
-      return_tender_receipt_label: receiptLabel,
-      return_tender_refund_cents: returnCredit.totalCents,
-    };
+    let allocatedCreditCents = 0;
+    const returnCreditLines = returnedLines.map((returnedLine, index) => {
+      const quantity = Math.max(1, returnedLine.quantity);
+      const lineGrossCents =
+        (Math.max(0, returnedLine.unit_price_cents) +
+          Math.max(0, returnedLine.state_tax_cents ?? 0) +
+          Math.max(0, returnedLine.local_tax_cents ?? 0)) * quantity;
+      const lineCreditCents =
+        index === returnedLines.length - 1
+          ? Math.max(0, returnCredit.totalCents - allocatedCreditCents)
+          : Math.min(
+              lineGrossCents,
+              Math.floor((lineGrossCents * returnCredit.totalCents) / Math.max(1, selectedReturnGrossCents)),
+            );
+      allocatedCreditCents += lineCreditCents;
+      const lineComponents = exchangeReturnCreditComponents([returnedLine], lineCreditCents);
+      const rowId = newCartRowId();
+      return {
+        product_id: returnedLine.product_id,
+        variant_id: returnedLine.variant_id,
+        sku: `RETURN-${receiptLabel}-${returnedLine.sku || index + 1}`,
+        name: args.action === "exchange" ? "Exchange return" : "Refund return",
+        variation_label: returnedLine.variation_label ?? returnedLine.product_name,
+        standard_retail_price: centsToFixed2(lineComponents.subtotalCents / quantity),
+        unit_cost: returnedLine.unit_cost ?? "0.00",
+        state_tax: centsToFixed2(lineComponents.stateTaxCents / quantity),
+        local_tax: centsToFixed2(lineComponents.localTaxCents / quantity),
+        tax_category: "other" as const,
+        quantity: -quantity,
+        fulfillment: "takeaway" as const,
+        cart_row_id: rowId,
+        price_override_reason: "pending_return_refund",
+        original_unit_price: centsToFixed2(lineComponents.subtotalCents / quantity),
+        return_tender_original_transaction_id: args.originalTransactionId,
+        return_tender_receipt_label: receiptLabel,
+        return_tender_refund_cents: lineComponents.totalCents,
+      } satisfies CartLineItem;
+    });
 
     setLines((prev) => [
       ...prev.filter((line) => line.return_tender_original_transaction_id !== args.originalTransactionId),
-      returnCreditLine,
+      ...returnCreditLines,
     ]);
-    setSelectedLineKey(rowId);
+    setSelectedLineKey(returnCreditLines[0]?.cart_row_id ?? null);
     setCheckoutAppliedPayments([]);
     setCheckoutDepositLedger("");
     setOrderPaymentLines([]);

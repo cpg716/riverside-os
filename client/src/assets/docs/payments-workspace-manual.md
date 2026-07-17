@@ -23,6 +23,8 @@ status: approved
 
 Payments Operations is the Back Office workspace for reviewing Riverside card activity against Helcim processor facts. It covers today's activity, processor batches, actual deposits, reconciliation exceptions, transaction lookup, webhook/provider attachment, and integration health.
 
+When a POS customer is selected, Riverside now creates or reuses that customer's Helcim profile before starting a terminal purchase and sends the Helcim customer code with the payment. This is what allows Helcim's Contact Name/Cardholder Name columns to be populated consistently; older guest payments cannot be renamed retroactively by Riverside.
+
 Use the Register checkout drawer to collect payment. Use Payments Operations to review what happened and resolve evidence safely.
 
 ## Before you start

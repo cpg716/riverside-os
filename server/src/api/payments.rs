@@ -859,6 +859,12 @@ pub struct HelcimPurchaseRequestBody {
     pub terminal_override_reason: Option<String>,
     #[serde(default)]
     pub checkout_client_id: Option<Uuid>,
+    /// Helcim-native customer code, when this ROS customer is already linked
+    /// to a Helcim customer profile.
+    #[serde(default)]
+    pub customer_code: Option<String>,
+    #[serde(default)]
+    pub customer_id: Option<Uuid>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -7838,10 +7844,55 @@ async fn start_helcim_purchase(
             .map(Json);
     }
 
+    let helcim_customer_code = if let Some(customer_id) = payload.customer_id {
+        let customer: Option<(Option<String>, Option<String>, Option<String>)> =
+            sqlx::query_as("SELECT first_name, last_name, phone FROM customers WHERE id = $1")
+                .bind(customer_id)
+                .fetch_optional(&state.db)
+                .await
+                .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+        let Some((first_name, last_name, phone)) = customer else {
+            return Err(PaymentError::InvalidPayload(
+                "Selected customer was not found.".to_string(),
+            ));
+        };
+        let contact_name = format!(
+            "{} {}",
+            first_name.unwrap_or_default().trim(),
+            last_name.unwrap_or_default().trim()
+        )
+        .trim()
+        .to_string();
+        if contact_name.is_empty() {
+            return Err(PaymentError::InvalidPayload(
+                "A customer name is required before starting a Helcim payment.".to_string(),
+            ));
+        }
+        let customer_code = payload
+            .customer_code
+            .as_deref()
+            .and_then(|value| non_empty_string(value.to_string()))
+            .unwrap_or_else(|| format!("ROS-{}", customer_id.simple()));
+        Some(
+            helcim::ensure_customer_profile(
+                &state.http_client,
+                &config,
+                &customer_code,
+                &contact_name,
+                phone.as_deref(),
+            )
+            .await
+            .map_err(PaymentError::ProviderError)?,
+        )
+    } else {
+        payload.customer_code.and_then(non_empty_string)
+    };
+
     let request_payload = helcim::build_purchase_request_payload(
         payload.amount_cents,
         currency.clone(),
         format!("ROS-{}", attempt_id.simple()),
+        helcim_customer_code,
     );
     let accepted = match helcim::start_terminal_purchase(
         &state.http_client,

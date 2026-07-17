@@ -2463,6 +2463,8 @@ export default function NexoCheckoutDrawer({
             currency: "usd",
             register_session_id: registerSessionId ?? undefined,
             checkout_client_id: checkoutClientId ?? undefined,
+            customer_code: customerCode?.trim() || undefined,
+            customer_id: customerId ?? undefined,
             selected_terminal_key: selectedTerminalKey,
             terminal_override_reason: selectedTerminalNeedsOverride
               ? `Register #${registerLane ?? "unknown"} selected ${terminalLabel(selectedTerminalKey)}`

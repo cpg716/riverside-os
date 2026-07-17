@@ -125,7 +125,7 @@ Use this when a customer is exchanging or returning items tied to a completed tr
 
 Selecting a returned line only stages the return. The original Transaction Record is not changed until Riverside successfully records the refund or exchange settlement. If a tax/refund problem stops the flow, close it with the on-screen close button and the original item should remain visible as active.
 
-Return and exchange credits use the original selected item price and the tax paid on that item. If the Transaction Record was only partially paid, Riverside caps the credit to the paid amount available on that Transaction Record.
+Return and exchange credits use the original selected item price and the tax paid on that item. Each returned item remains a separate negative cart/receipt line; replacement items remain separate positive lines. If the Transaction Record was only partially paid, Riverside caps the credit to the paid amount available on that Transaction Record.
 
 When the replacement item costs less than the customer-paid return credit, the checkout shows a negative balance as a cash or other eligible refund. Once that refund tender is staged, record the exchange; Riverside does not require a positive amount to collect.
 
@@ -133,7 +133,7 @@ If the original Transaction Record still has a balance due, the returned item ma
 
 For Special, Custom, Wedding, and shipped order lines, confirm the original Transaction Record, returned quantities, tender/refund path, and inventory handling before settlement.
 
-Return and exchange receipts keep the audit trail visible. Active merchandise prints in the normal receipt sections, while returned or exchanged quantities print in separate **RETURNED / REFUNDED** or **EXCHANGED** sections with the credit amount shown clearly.
+Return and exchange receipts keep the audit trail visible. Active merchandise prints in the normal receipt sections, while every returned or exchanged item prints separately in **RETURNED / REFUNDED** or **EXCHANGED** sections with its negative credit amount shown clearly.
 
 Inventory and bookkeeping follow server rules for takeaway, order, and wedding lines; ask a lead if you are unsure.
 

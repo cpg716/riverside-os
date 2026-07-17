@@ -136,4 +136,5 @@ pub const EMBEDDED_MIGRATIONS: &[(&str, &str)] = &[
     ("133_qbo_backdated_sale_clearing.sql", include_str!("../../migrations/133_qbo_backdated_sale_clearing.sql")),
     ("134_customer_merge_history_pointer.sql", include_str!("../../migrations/134_customer_merge_history_pointer.sql")),
     ("135_reconcile_picked_up_order_status.sql", include_str!("../../migrations/135_reconcile_picked_up_order_status.sql")),
+    ("136_restore_counterpoint_line_paid_prices.sql", include_str!("../../migrations/136_restore_counterpoint_line_paid_prices.sql")),
 ];
