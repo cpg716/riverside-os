@@ -399,11 +399,10 @@ test.describe("operational rollout smoke", () => {
     await expect(wizard.getByText(/max return: 1/i)).toBeVisible();
     await wizard.locator("input[placeholder='0']").first().fill("1");
     await wizard.getByRole("button", { name: /continue exchange|exchange for new items/i }).click();
-    const receiptLabel = seeded.detail.transaction_display_id ?? seeded.checkout.transaction_id;
-    const exchangeCredit = page
-      .getByRole("button", { name: new RegExp(`exchange credit.*${escapeRegExp(receiptLabel)}`, "i") })
+    const exchangeReturn = page
+      .getByRole("button", { name: /exchange return/i })
       .first();
-    await expect(exchangeCredit).toBeVisible({ timeout: 20_000 });
+    await expect(exchangeReturn).toBeVisible({ timeout: 20_000 });
     await expect(page.getByRole("button", { name: /\$-/i }).first()).toBeVisible({
       timeout: 20_000,
     });

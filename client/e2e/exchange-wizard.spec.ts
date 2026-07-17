@@ -501,7 +501,7 @@ test.describe("POS exchange wizard", () => {
     await wizardDialog.getByRole("button", { name: /continue exchange/i }).click();
 
     await expect(wizardDialog).toBeHidden({ timeout: 15_000 });
-    await expect(page.getByText(/exchange credit/i).first()).toBeVisible({
+    await expect(page.getByText(/exchange return/i).first()).toBeVisible({
       timeout: 15_000,
     });
     await expect(page.getByText("$100.00").first()).toBeVisible();
