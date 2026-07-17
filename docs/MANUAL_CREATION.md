@@ -160,7 +160,7 @@ After adding or changing manual files:
 
 ### Optional AIDocs helper
 
-AIDocs is not required for the shipped Help Center pipeline. It remains an optional authoring helper only:
+AIDocs is not required for the shipped Help Center pipeline. It remains an optional external authoring helper only; no Claude Code installation or hosted AI service is required for Riverside Help authoring, generation, or release validation:
 
 - `docs/aidocs-config.yml`
 - `npm run help:aidocs:check`

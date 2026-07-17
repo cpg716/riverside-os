@@ -16,7 +16,7 @@ Use **exact sidebar names** from the app (Back Office and POS rails). For engine
 
 **Canonical machine list:** [`CORPUS.manifest.json`](CORPUS.manifest.json) — single source of truth for embed/index jobs (`docs/staff/**` plus cross-linked first-party docs such as **`TILL_GROUP_AND_REGISTER_OPEN`**, **`REGISTER_DASHBOARD`**, runbooks at repo root).
 
-**After you change the manifest or staff Markdown:** run **`npm run help:aidocs:check`** and **`python3 scripts/verify_ai_knowledge_drift.py`** from the repo root. If the in-app Help manuals changed, also run **`npm run generate:help`**. To refresh live Help search while the API is up, use **`npm run generate:help:refresh -- --reindex-search`** or **`bash scripts/ros-ai-reindex-local.sh`** — see **[`../ROS_AI_HELP_CORPUS.md`](../ROS_AI_HELP_CORPUS.md)**.
+**After you change the manifest or staff Markdown:** run **`python3 scripts/verify_ai_knowledge_drift.py`** from the repo root. If the in-app Help manuals changed, also run **`npm run generate:help`**. To refresh live Help search while the API is up, use **`npm run generate:help:refresh -- --reindex-search`** or **`bash scripts/ros-ai-reindex-local.sh`** — see **[`../ROS_AI_HELP_CORPUS.md`](../ROS_AI_HELP_CORPUS.md)**. The external AIDocs helper and its host-environment check are optional and are not required for Riverside Help Center validation or release signoff.
 
 **Completeness:** Every Back Office subsection in `SIDEBAR_SUB_SECTIONS` and every POS rail tab in `PosTabId` maps to exactly one staff article (or a clearly labeled subsection within it). When you add a sidebar item in code, add a row to the checklists below and extend the linked guide the same day.
 

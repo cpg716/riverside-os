@@ -55,7 +55,10 @@ By default it will:
 2. capture configured Help screenshots with Playwright
 3. run `npm run generate:help`
 
-`aidocs check` is optional and runs only with `--run-aidocs-check`.
+`aidocs check` is an optional external authoring-helper check and runs only with
+`--run-aidocs-check`. It is not a Riverside Help Center or release gate. In
+particular, a host report about missing Claude Code does not indicate a
+Riverside product, ROSIE/Gemma, or Help-manual failure.
 
 Optional reindex:
 
