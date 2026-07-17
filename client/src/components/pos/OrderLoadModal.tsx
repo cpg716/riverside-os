@@ -118,6 +118,9 @@ const orderReleaseMode = (order?: CustomerOrder | null): ReleaseMode =>
 const releaseLabel = (mode: ReleaseMode) =>
   mode === "ship" ? "Ship" : "Pick Up";
 
+const isCompletedOrderItem = (item: OrderItem) =>
+  item.is_fulfilled || item.order_lifecycle_status === "picked_up";
+
 export default function OrderLoadModal({
   isOpen,
   customerId,
@@ -194,10 +197,19 @@ export default function OrderLoadModal({
     try {
       const items = await fetchOrderItems(orderId);
       setSelectedOrderItems(items);
+      const allCompleted =
+        items.length > 0 && items.every(isCompletedOrderItem);
+      setOrders((previous) =>
+        previous.map((order) =>
+          order.id === orderId && allCompleted
+            ? { ...order, status: "fulfilled" }
+            : order,
+        ),
+      );
       setPickupSelection(
         Object.fromEntries(
           items
-            .filter((item) => !item.is_fulfilled)
+            .filter((item) => !isCompletedOrderItem(item))
             .map((item) => [item.transaction_line_id, true]),
         ),
       );
@@ -444,7 +456,7 @@ export default function OrderLoadModal({
     setPickupBusy(true);
     try {
       const loadedItems = oneItem ? [oneItem] : await fetchOrderItems(order.id);
-      const openItems = loadedItems.filter((item) => !item.is_fulfilled);
+      const openItems = loadedItems.filter((item) => !isCompletedOrderItem(item));
       if (openItems.length === 0) {
         toast(
           `No open order lines are available to ${releaseLabel(mode).toLowerCase()}.`,
@@ -494,7 +506,7 @@ export default function OrderLoadModal({
 
   const addToPickupBasket = (order: CustomerOrder, items: OrderItem[]) => {
     const openItems = items.filter(
-      (item) => !item.is_fulfilled && item.transaction_line_id,
+      (item) => !isCompletedOrderItem(item) && item.transaction_line_id,
     );
     if (openItems.length === 0) {
       toast("Select at least one open order line for pickup.", "error");
@@ -530,7 +542,7 @@ export default function OrderLoadModal({
     if (!selectedOrder) return;
     const mode = orderReleaseMode(selectedOrder);
     const selected = selectedOrderItems.filter(
-      (item) => !item.is_fulfilled && pickupSelection[item.transaction_line_id],
+      (item) => !isCompletedOrderItem(item) && pickupSelection[item.transaction_line_id],
     );
     if (selected.length === 0) {
       toast(
@@ -945,8 +957,7 @@ export default function OrderLoadModal({
                 <button
                   type="button"
                   disabled={
-                    pickupBusy ||
-                    selectedOrderItems.every((item) => item.is_fulfilled)
+                    pickupBusy || selectedOrderItems.every(isCompletedOrderItem)
                   }
                   onClick={() => void releaseSelectedLines()}
                   className="flex min-h-10 items-center justify-center gap-2 rounded-xl border-b-4 border-app-success bg-app-success px-3 text-[10px] font-black uppercase tracking-widest text-white shadow-lg transition-all hover:opacity-90 disabled:opacity-50"
@@ -965,7 +976,7 @@ export default function OrderLoadModal({
                     setPickupSelection(
                       Object.fromEntries(
                         selectedOrderItems
-                          .filter((item) => !item.is_fulfilled)
+                          .filter((item) => !isCompletedOrderItem(item))
                           .map((item) => [item.transaction_line_id, true]),
                       ),
                     )
@@ -986,7 +997,7 @@ export default function OrderLoadModal({
                   <div
                     key={item.transaction_line_id}
                     className={`flex flex-col gap-3 rounded-xl border p-3 text-xs ${
-                      item.is_fulfilled
+                      isCompletedOrderItem(item)
                         ? "border-emerald-200 bg-emerald-50/50 opacity-60"
                         : "border-app-border bg-app-surface-2/30"
                     }`}
@@ -996,7 +1007,7 @@ export default function OrderLoadModal({
                         <label className="flex items-start gap-3">
                           <input
                             type="checkbox"
-                            disabled={item.is_fulfilled}
+                            disabled={isCompletedOrderItem(item)}
                             checked={Boolean(
                               pickupSelection[item.transaction_line_id],
                             )}
@@ -1045,7 +1056,7 @@ export default function OrderLoadModal({
                         )}
                       </div>
                       <div className="flex flex-col items-end">
-                        {selectedOrder && !item.is_fulfilled ? (
+                        {selectedOrder && !isCompletedOrderItem(item) ? (
                           <button
                             type="button"
                             disabled={pickupBusy}
@@ -1062,7 +1073,7 @@ export default function OrderLoadModal({
                             {releaseLabel(orderReleaseMode(selectedOrder))} Line
                           </button>
                         ) : null}
-                        {onUpdateOrderItem && !item.is_fulfilled ? (
+                        {onUpdateOrderItem && !isCompletedOrderItem(item) ? (
                           <div className="grid w-full gap-2 sm:w-[24rem] sm:grid-cols-[4rem_minmax(0,1fr)]">
                             <input
                               aria-label={`Quantity for ${item.sku}`}
