@@ -137,6 +137,10 @@ expected=(
   "131_repair_counterpoint_historical_paid_amounts.sql"
   "132_reliability_read_path_indexes.sql"
   "133_qbo_backdated_sale_clearing.sql"
+  "134_customer_merge_history_pointer.sql"
+  "135_reconcile_picked_up_order_status.sql"
+  "136_restore_counterpoint_line_paid_prices.sql"
+  "137_payment_dashboard_read_path_indexes.sql"
 )
 
 active=()
@@ -199,4 +203,4 @@ if rg -n "INSERT INTO (public\\.)?(staff\\b|staff_permission|store_settings|prod
 fi
 rm -f /tmp/ros_migration_seed_hits.$$
 
-echo "Migration layout OK: active baseline through 133."
+echo "Migration layout OK: active baseline through 137."

@@ -114,6 +114,21 @@ async fn apply_static_cache_control(request: axum::extract::Request, next: Next)
     response
 }
 
+async fn log_http_failures(request: axum::extract::Request, next: Next) -> Response {
+    let method = request.method().clone();
+    let uri = request.uri().clone();
+    let response = next.run(request).await;
+    if response.status().is_server_error() {
+        tracing::error!(
+            method = %method,
+            uri = %uri,
+            status = %response.status(),
+            "HTTP request returned a server error"
+        );
+    }
+    response
+}
+
 fn helcim_value_looks_placeholder(value: &str) -> bool {
     value.is_empty()
         || value.contains("dummy")
@@ -983,6 +998,7 @@ async fn launch_server_inner(
         .layer(TraceLayer::new_for_http())
         .with_state(state)
         .fallback_service(serve_dir)
+        .layer(middleware::from_fn(log_http_failures))
         .layer(middleware::from_fn(apply_static_cache_control));
 
     let listener = TcpListener::bind(&config.bind_addr).await?;

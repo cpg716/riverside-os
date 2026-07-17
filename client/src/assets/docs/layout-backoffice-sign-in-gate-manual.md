@@ -50,7 +50,7 @@ Example values:
 - The last selected staff member is remembered on that device.
 - On the Main Hub, if the app is pointed at `localhost` or `127.0.0.1` and the staff roster cannot load, Riverside tries to start the installed **Riverside OS Server** Windows scheduled task and then retries the roster check.
 - If your name does not appear, the device may be pointed at the wrong host URL for its current role or location.
-- If a red **Server connection lost** banner appears after sign-in, Riverside cannot reach the Main Hub/server. Do not start new Back Office work until the banner clears; confirm the server is running or the host URL is correct, then use **Recheck**.
+- If a red **Server connection lost** banner appears after two failed health checks, Riverside cannot reach the Main Hub/server. Do not start new Back Office work until the banner clears; confirm the server is running or the host URL is correct, then use **Recheck**.
 - For lockout recovery, use the in-app **Lockout Recovery Manual** from Help.
 
 ## Recovery and escalation

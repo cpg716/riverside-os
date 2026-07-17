@@ -36,7 +36,7 @@ This is the main **Register desktop shell** used on the Windows Tauri app after 
 - Register #1 is the main cash-drawer lane. Other lanes still depend on Register #1 being open first.
 - Standalone POS workflows like `Shipping`, `Layaways`, `RMS Charge`, and `Podium Inbox` should stay top-level in the rail rather than being nested under `Customers` or `Inventory`.
 - The POS shell is separate from **Shop Host** and separate from **Remote Access**. A normal register station should not be used to start host mode unless that PC is intentionally acting as the host machine.
-- If a red **Server connection lost** banner appears, stop starting new sales, payments, receiving, or register close work until the banner clears. Use **Recheck** after the Main Hub/server is back online; already completed offline checkout recovery remains handled by the recovery queue.
+- If a red **Server connection lost** banner appears after two failed Main Hub health checks, stop starting new sales, payments, receiving, or register close work until the banner clears. Use **Recheck** after the Main Hub/server is back online; already completed offline checkout recovery remains handled by the recovery queue.
 
 ## Screenshots
 

@@ -42,7 +42,20 @@ impl CacheService {
     }
 
     pub fn from_env() -> Result<Self, RedisError> {
-        Self::new(CacheConfig::default())
+        let redis_url = std::env::var("RIVERSIDE_REDIS_URL")
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                RedisError::from((
+                    redis::ErrorKind::InvalidClientConfig,
+                    "RIVERSIDE_REDIS_URL is not configured",
+                    "optional cache disabled".to_string(),
+                ))
+            })?;
+        let mut config = CacheConfig::default();
+        config.redis_url = redis_url;
+        Self::new(config)
     }
 
     pub fn redis(&self) -> &RedisCache {

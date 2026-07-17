@@ -24,6 +24,7 @@ const ACTIVE_EVENT_KEY = "ros.serverConnection.activeEvent.v1";
 const HEALTH_INTERVAL_ONLINE_MS = 15_000;
 const HEALTH_INTERVAL_OFFLINE_MS = 5_000;
 const HEALTH_TIMEOUT_MS = 3_500;
+const REQUIRED_FAILED_PROBES = 2;
 
 function safeRoute(): string {
   if (typeof window === "undefined") return "/";
@@ -145,6 +146,7 @@ export default function ServerConnectionMonitor() {
   const [lastReason, setLastReason] = useState<string | null>(null);
   const stateRef = useRef<ServerConnectionState>("checking");
   const inFlightRef = useRef(false);
+  const failedProbeCountRef = useRef(0);
 
   const serverLabel = useMemo(() => getBaseUrlDiagnostics().resolved, []);
 
@@ -154,6 +156,7 @@ export default function ServerConnectionMonitor() {
     try {
       const result = await probeServer();
       if (result.ok) {
+        failedProbeCountRef.current = 0;
         if (stateRef.current === "offline") {
           dispatchAppToast("Main Hub server connection restored.", "success");
         }
@@ -161,6 +164,12 @@ export default function ServerConnectionMonitor() {
         setState("online");
         setLastReason(null);
         await flushQueuedServerConnectionEvents();
+        return;
+      }
+
+      failedProbeCountRef.current += 1;
+      if (failedProbeCountRef.current < REQUIRED_FAILED_PROBES) {
+        setLastReason(result.reason);
         return;
       }
 

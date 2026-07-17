@@ -556,6 +556,7 @@ AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
     #[derive(sqlx::FromRow)]
     struct ShippingIncomeAgg {
         total: Option<Decimal>,
+        prepaid_total: Option<Decimal>,
         transaction_count: i64,
     }
 
@@ -563,6 +564,24 @@ AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
         r#"
         SELECT
             COALESCE(SUM(recognized_shipping.shipping_amount_usd), 0)::numeric(14, 2) AS total,
+            COALESCE(SUM(
+                CASE
+                    WHEN EXISTS (
+                        SELECT 1
+                        FROM payment_allocations pa_shipping
+                        INNER JOIN payment_transactions pt_shipping
+                            ON pt_shipping.id = pa_shipping.transaction_id
+                        WHERE pa_shipping.target_transaction_id = recognized_shipping.id
+                          AND pa_shipping.amount_allocated > 0::numeric
+                          AND COALESCE(
+                                pt_shipping.effective_date,
+                                (pt_shipping.created_at AT TIME ZONE reporting.effective_store_timezone())::date
+                              ) < $1::date
+                    )
+                    THEN recognized_shipping.shipping_amount_usd
+                    ELSE 0::numeric
+                END
+            ), 0)::numeric(14, 2) AS prepaid_total,
             COUNT(*)::bigint AS transaction_count
         FROM (
             SELECT DISTINCT
@@ -609,6 +628,37 @@ AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
                     "amount": shipping_income_total
                 })],
             });
+
+            // Shipping on an order paid before fulfillment was already included
+            // in the earlier tender/deposit entry. On the later recognition date,
+            // release that portion from deposit liability so the shipping credit
+            // remains a balanced, real ledger move.
+            let prepaid_shipping_total = shipping_income
+                .prepaid_total
+                .unwrap_or(Decimal::ZERO)
+                .round_dp(2);
+            if prepaid_shipping_total > Decimal::ZERO {
+                if let Some((lid, lnm)) =
+                    qbo_map_with_default_mapping(pool, "liability_deposit", "default", None).await?
+                {
+                    lines.push(JournalLine {
+                        qbo_account_id: lid,
+                        qbo_account_name: lnm,
+                        debit: prepaid_shipping_total,
+                        credit: Decimal::ZERO,
+                        memo: "Shipping deposit release".to_string(),
+                        detail: vec![serde_json::json!({
+                            "kind": "shipping_deposit_release",
+                            "amount": prepaid_shipping_total,
+                            "transaction_count": shipping_income.transaction_count
+                        })],
+                    });
+                } else {
+                    warnings.push(format!(
+                        "Prepaid customer-charged shipping of ${prepaid_shipping_total} detected, but no `liability_deposit` / default mapping exists; shipping release cannot be balanced."
+                    ));
+                }
+            }
         } else {
             warnings.push(format!(
                 "Customer-charged shipping of ${shipping_income_total} detected, but no `income_shipping` / default or `REVENUE_SHIPPING` mapping exists; shipping income omitted."

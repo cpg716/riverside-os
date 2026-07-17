@@ -11,6 +11,7 @@ QBO sales posting is **Daily Staging Journal only**. Checkout and Helcim webhook
 | Pickup / in-store takeaway fulfilled on date D, no returns | Revenue/COGS/tax from effective qty = sold qty |
 | Shipped order label purchased / marked in transit / delivered on date D | Revenue/COGS/tax posts on the shipment recognition date, even when `transactions.fulfilled_at` is null |
 | Customer-charged shipping on a completed transaction | Credit mapped **Shipping income** (`income_shipping` / default, or `REVENUE_SHIPPING` fallback) on the same completed business date |
+| Customer-charged shipping paid before fulfillment | Credit mapped **Shipping income** and debit `liability_deposit` / `default` for the prepaid shipping portion on the fulfillment date |
 | Supplier inbound freight on a receiving event | Debit mapped **COGS_FREIGHT** and credit **INV_RECEIVING_CLEARING** separately; freight is not added to item cost or inventory asset value |
 | Partial return before journal re-run for D | Revenue/COGS/tax reduced proportionally vs `order_return_lines` |
 | Full return of fulfilled line | Category net for that merchandise → 0 for that line’s share |
@@ -55,6 +56,7 @@ QBO sales posting is **Daily Staging Journal only**. Checkout and Helcim webhook
 - [x] Gift card breakage bypass: Expired promotional/donated/loyalty cards (`is_liability = false`) are NOT swept, no breakage event generated, no QBO staging journal entry generated
 - [x] Financial invariant release gate: `npm run check:financial-invariants` verifies source formulas, receiving/freight/shipping labels, E2E coverage hooks, and production SQL probes before go-live/retag
 - [ ] Shipping income mapping is present before syncing a day with customer-charged shipping
+- [ ] Prepaid shipping on an order fulfilled after its tender date releases from `liability_deposit` and keeps the recognition-day journal balanced
 - [ ] Supplier freight mapping (`COGS_FREIGHT` + `INV_RECEIVING_CLEARING`) is present before syncing a day with received freight
 - [ ] Exchange pair (two transactions) does not double-count if only reporting by recognition
 - [ ] Shipped transaction has no QBO revenue before shipment recognition event

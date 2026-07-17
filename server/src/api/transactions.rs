@@ -7504,18 +7504,10 @@ pub(crate) async fn load_transaction_detail(
                 FROM transaction_return_lines orx
                 WHERE orx.transaction_line_id = oi.id
             ), 0) AS quantity_returned,
-            CASE
-                -- Counterpoint imports retain the source-paid line price in
-                -- size_specs. Migration 131 adjusted the ledger unit_price
-                -- proportionally to the tendered ticket total; using that
-                -- value here loses the receipt's per-line discount and makes
-                -- returns/exchanges credit the wrong amount.
-                WHEN oi.size_specs ? 'overridden_unit_price'
-                     AND NULLIF(TRIM(oi.size_specs->>'overridden_unit_price'), '') IS NOT NULL
-                     AND TRIM(oi.size_specs->>'overridden_unit_price') ~ '^[0-9]+(\.[0-9]+)?$'
-                THEN (TRIM(oi.size_specs->>'overridden_unit_price'))::numeric(14,2)
-                ELSE COALESCE(oi.unit_price, 0)
-            END AS unit_price,
+            -- Returns and exchanges must use the paid amount recorded on the
+            -- transaction ledger. Display/audit override metadata is not a
+            -- substitute for the authoritative transaction-line price.
+            COALESCE(oi.unit_price, 0) AS unit_price,
             COALESCE(oi.unit_cost, 0) AS unit_cost,
             COALESCE(oi.state_tax, 0) AS state_tax,
             COALESCE(oi.local_tax, 0) AS local_tax,
