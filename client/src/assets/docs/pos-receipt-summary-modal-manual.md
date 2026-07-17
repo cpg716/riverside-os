@@ -13,11 +13,11 @@ status: approved
 
 ## Screenshots
 
-![Receipt summary](../images/help/pos/receipt-summary.png)
+![Receipt summary](../images/help/pos-receipt-summary-modal/workflow-1.png)
 
-![Receipt preview](../images/help/pos/receipt-preview.png)
+![Receipt preview](../images/help/pos-receipt-summary-modal/workflow-2.png)
 
-![Printers and settings context](../images/help/settings-help-center-settings-panel/example.png)
+![Printers and settings context](../images/help/pos-receipt-summary-modal/workflow-3.png)
 
 ## What this is
 

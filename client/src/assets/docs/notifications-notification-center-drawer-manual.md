@@ -13,11 +13,11 @@ status: approved
 
 ## Screenshots
 
-![Notification drawer](../images/help/notifications-notification-center-drawer/main.png)
+![Notification drawer](../images/help/notifications-notification-center-drawer/workflow-1.png)
 
-![Operations notification queue](../images/help/operations-operational-home/customer-notifications.png)
+![Operations notification queue](../images/help/notifications-notification-center-drawer/workflow-2.png)
 
-![Orders workspace](../images/help/orders-workspace/main.png)
+![Orders workspace](../images/help/notifications-notification-center-drawer/workflow-3.png)
 
 ## What this is
 

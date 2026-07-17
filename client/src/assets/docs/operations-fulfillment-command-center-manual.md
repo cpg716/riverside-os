@@ -12,11 +12,11 @@ tags: operations, pickup-queue, orders, ready-for-pickup, rush
 
 ## Screenshots
 
-![Operational home](../images/help/operations-operational-home/main.png)
+![Operational home](../images/help/operations-fulfillment-command-center/workflow-1.png)
 
-![Operations timeline](../images/help/operations-operational-home/timeline.png)
+![Operations timeline](../images/help/operations-fulfillment-command-center/workflow-2.png)
 
-![Orders workspace](../images/help/orders-workspace/main.png)
+![Orders workspace](../images/help/operations-fulfillment-command-center/workflow-3.png)
 
 
 ## What this is

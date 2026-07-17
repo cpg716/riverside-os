@@ -10,11 +10,11 @@ tags: settings, remote, tailscale, host-mode
 
 ## Screenshots
 
-![Remote access panel](../images/help/remote-access/panel-main.png)
+![Remote access panel](../images/help/remote-access/workflow-1.png)
 
-![Help Center settings](../images/help/settings-help-center-settings-panel/example.png)
+![Help Center settings](../images/help/remote-access/workflow-2.png)
 
-![Operational home](../images/help/operations-operational-home/main.png)
+![Operational home](../images/help/remote-access/workflow-3.png)
 
 Riverside uses **Tailscale** for private remote access when a device is **not** on the same local network as the host machine.
 

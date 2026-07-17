@@ -10,11 +10,11 @@ tags: auth, recovery, sign-in, support
 
 ## Screenshots
 
-![Back Office sign-in gate](../images/help/layout-backoffice-sign-in-gate/main.png)
+![Back Office sign-in gate](../images/help/lockout/workflow-1.png)
 
-![Staff team workspace](../images/help/staff-workspace/team.png)
+![Staff team workspace](../images/help/lockout/workflow-2.png)
 
-![Remote access panel](../images/help/remote-access/panel-main.png)
+![Remote access panel](../images/help/lockout/workflow-3.png)
 
 If you or your staff are unable to sign in to the Riverside OS Back Office or POS Register, follow these steps to restore access.
 

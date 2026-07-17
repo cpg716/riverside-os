@@ -13,11 +13,11 @@ status: approved
 
 ## Screenshots
 
-![Receive Stock workflow](../images/help/inventory-receiving-bay/main.png)
+![Receive Stock workflow](../images/help/inventory-control-board/workflow-1.png)
 
-![Purchase order panel](../images/help/inventory-purchase-order-panel/main.png)
+![Purchase order panel](../images/help/inventory-control-board/workflow-2.png)
 
-![Inventory control board](../images/help/inventory-control-board/main.png)
+![Inventory control board](../images/help/inventory-control-board/workflow-3.png)
 ## What this is
 
 Inventory Control Board is the main staff surface for finding products, reviewing stock, and opening Product Hub.

@@ -13,11 +13,11 @@ status: approved
 
 ## Screenshots
 
-![Reports catalog](../images/help/reports/catalog.png)
+![Reports catalog](../images/help/reports-workspace/workflow-1.png)
 
-![Insights dashboard](../images/help/insights/metabase-main.png)
+![Insights dashboard](../images/help/reports-workspace/workflow-2.png)
 
-![Operational home](../images/help/operations-operational-home/main.png)
+![Operational home](../images/help/reports-workspace/workflow-3.png)
 
 ## What this is
 

@@ -12,11 +12,11 @@ tags: pos, gift-cards, register, staff-manual
 
 ## Screenshots
 
-![Register dashboard](../images/help/pos/register-dashboard.png)
+![Register dashboard](../images/help/pos-register-gift-card-load-modal/workflow-1.png)
 
-![Cart with lines](../images/help/pos/cart-with-lines.png)
+![Cart with lines](../images/help/pos-register-gift-card-load-modal/workflow-2.png)
 
-![Checkout drawer](../images/help/pos/nexo-checkout-drawer.png)
+![Checkout drawer](../images/help/pos-register-gift-card-load-modal/workflow-3.png)
 
 Use this register modal when a customer is buying or reloading a **purchased** gift card at the register.
 

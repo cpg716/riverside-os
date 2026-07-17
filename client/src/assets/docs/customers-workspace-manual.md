@@ -12,11 +12,11 @@ tags: customers, support, relationships, duplicate-review
 
 ## Screenshots
 
-![Customers workspace](../images/help/customers-workspace/main.png)
+![Customers workspace](../images/help/customers-workspace/workflow-1.png)
 
-![Add Customer drawer](../images/help/customers-workspace/add-customer.png)
+![Add Customer drawer](../images/help/customers-workspace/workflow-2.png)
 
-![Duplicate Review queue](../images/help/customers-workspace/duplicate-review.png)
+![Duplicate Review queue](../images/help/customers-workspace/workflow-3.png)
 ## What this is
 
 Use this workspace to:

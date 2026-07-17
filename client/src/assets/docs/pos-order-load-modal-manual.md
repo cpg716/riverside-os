@@ -12,11 +12,11 @@ tags: pos, orders, pickup, fulfillment
 
 ## Screenshots
 
-![Register dashboard](../images/help/pos/register-dashboard.png)
+![Register dashboard](../images/help/pos-order-load-modal/workflow-1.png)
 
-![Cart with lines](../images/help/pos/cart-with-lines.png)
+![Cart with lines](../images/help/pos-order-load-modal/workflow-2.png)
 
-![Checkout drawer](../images/help/pos/nexo-checkout-drawer.png)
+![Checkout drawer](../images/help/pos-order-load-modal/workflow-3.png)
 
 Use this window when a customer already has open Special, Custom, or Wedding work and staff need to review what is still unfulfilled.
 

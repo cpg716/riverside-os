@@ -10,11 +10,11 @@ tags: reports, analytics, insights, pivot, margin, rbac, search, categories
 
 ## Screenshots
 
-![Reports catalog](../images/help/reports/catalog.png)
+![Reports catalog](../images/help/reports/workflow-1.png)
 
-![Loaded Sales By Day report](../images/help/reports/sales-by-day-loaded.png)
+![Loaded Sales By Day report](../images/help/reports/workflow-2.png)
 
-![Insights dashboard context](../images/help/insights/metabase-main.png)
+![Insights dashboard context](../images/help/reports/workflow-3.png)
 
 **Back Office → Reports** shows a **catalog** of read-only reports. Each card is wired to **Riverside** APIs and **your permissions** (not Metabase’s).
 

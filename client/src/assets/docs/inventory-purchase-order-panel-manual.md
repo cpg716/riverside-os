@@ -13,11 +13,11 @@ status: approved
 
 ## Screenshots
 
-![Inventory control board](../images/help/inventory-control-board/main.png)
+![Inventory control board](../images/help/inventory-purchase-order-panel/workflow-1.png)
 
-![Receive Stock workflow](../images/help/inventory-receiving-bay/main.png)
+![Receive Stock workflow](../images/help/inventory-purchase-order-panel/workflow-2.png)
 
-![Purchase Orders and vendor paperwork](../images/help/inventory-purchase-order-panel/main.png)
+![Purchase Orders and vendor paperwork](../images/help/inventory-purchase-order-panel/workflow-3.png)
 ## What this is
 
 Purchase Orders is the inventory surface for vendor paperwork. Staff use it to create purchase orders, review paperwork, and open Receive Stock.

@@ -12,11 +12,11 @@ tags: loyalty, redemption, gift-cards, checkout
 
 ## Screenshots
 
-![Monthly loyalty eligibility](../images/help/loyalty-workspace/eligible.png)
+![Monthly loyalty eligibility](../images/help/loyalty-redeem-dialog/workflow-1.png)
 
-![Adjust loyalty points](../images/help/loyalty-workspace/adjust-points.png)
+![Adjust loyalty points](../images/help/loyalty-redeem-dialog/workflow-2.png)
 
-![Checkout drawer](../images/help/pos/nexo-checkout-drawer.png)
+![Checkout drawer](../images/help/loyalty-redeem-dialog/workflow-3.png)
 
 The **Reward Redemption Dialog** is the final step in the loyalty reward cycle. It allows staff to deduct points from a customer and issue the full reward to a loyalty gift card.
 

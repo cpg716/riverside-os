@@ -13,11 +13,11 @@ status: approved
 
 ## Screenshots
 
-![Inventory list](../images/help/inventory-bulk-bar/inventory-list.png)
+![Inventory list](../images/help/inventory-bulk-bar/workflow-1.png)
 
-![Receive Stock workflow](../images/help/inventory-bulk-bar/receiving.png)
+![Receive Stock workflow](../images/help/inventory-bulk-bar/workflow-2.png)
 
-![Purchase order panel](../images/help/inventory-bulk-bar/purchase-orders.png)
+![Purchase order panel](../images/help/inventory-bulk-bar/workflow-3.png)
 
 ## What this is
 

@@ -12,11 +12,11 @@ tags: loyalty, rewards, fulfillment, analytics
 
 ## Screenshots
 
-![Monthly loyalty eligibility](../images/help/loyalty-workspace/eligible.png)
+![Monthly loyalty eligibility](../images/help/loyalty-workspace/workflow-1.png)
 
-![Adjust loyalty points](../images/help/loyalty-workspace/adjust-points.png)
+![Adjust loyalty points](../images/help/loyalty-workspace/workflow-2.png)
 
-![Checkout drawer](../images/help/pos/nexo-checkout-drawer.png)
+![Checkout drawer](../images/help/loyalty-workspace/workflow-3.png)
 
 The Loyalty Management Hub is where store staff manage the Elite Rewards program. Use it to identify reward-eligible customers, issue reward cards, and track loyalty history.
 

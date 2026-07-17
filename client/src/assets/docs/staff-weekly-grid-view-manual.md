@@ -12,11 +12,11 @@ status: approved
 
 ## Screenshots
 
-![Staff schedule](../images/help/staff-schedule-panel/main.png)
+![Staff schedule](../images/help/staff-weekly-grid-view/workflow-1.png)
 
-![Appointments scheduler](../images/help/scheduler-workspace/main.png)
+![Appointments scheduler](../images/help/staff-weekly-grid-view/workflow-2.png)
 
-![Alterations workspace](../images/help/alterations-workspace/main.png)
+![Alterations workspace](../images/help/staff-weekly-grid-view/workflow-3.png)
 
 The Weekly Grid View is the primary interactive surface for building and printing your store's weekly agenda. It provides a high-density overview of all staff shifts, store events, and operational warnings.
 

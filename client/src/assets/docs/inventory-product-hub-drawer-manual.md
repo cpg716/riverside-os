@@ -13,11 +13,11 @@ status: approved
 
 ## Screenshots
 
-![Inventory list](../images/help/inventory-product-hub-drawer/inventory-list.png)
+![Inventory list](../images/help/inventory-product-hub-drawer/workflow-1.png)
 
-![Receive Stock context](../images/help/inventory-product-hub-drawer/receiving-context.png)
+![Receive Stock context](../images/help/inventory-product-hub-drawer/workflow-2.png)
 
-![Purchase order context](../images/help/inventory-product-hub-drawer/purchase-orders-context.png)
+![Purchase order context](../images/help/inventory-product-hub-drawer/workflow-3.png)
 
 The Product Hub is the single source of truth for a specific SKU. Use it to verify inventory levels, review variations, and print retail price tags.
 

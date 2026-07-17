@@ -40,11 +40,11 @@ If the Main Hub connection drops while opening or joining a register, keep the r
 
 ## Screenshots
 
-![Register dashboard](../images/help/pos/register-dashboard.png)
+![Register dashboard](../images/help/pos-register-overlay/workflow-1.png)
 
-![Cart with lines](../images/help/pos/cart-with-lines.png)
+![Cart with lines](../images/help/pos-register-overlay/workflow-2.png)
 
-![Checkout drawer](../images/help/pos/nexo-checkout-drawer.png)
+![Checkout drawer](../images/help/pos-register-overlay/workflow-3.png)
 
 
 ## Related workflows

@@ -1,4 +1,4 @@
-export const HELP_SCREENSHOT_SPECS = [
+const BASE_HELP_SCREENSHOT_SPECS = [
   {
     id: "getting-started-sign-in",
     kind: "sign-in-gate",
@@ -596,4 +596,85 @@ export const HELP_SCREENSHOT_SPECS = [
     subSection: "purchase_orders",
     output: "client/src/assets/images/help/inventory-product-master-form/purchase-orders-context.png",
   },
+];
+
+const DEDICATED_MANUAL_SCREENSHOT_BASE_IDS = {
+  "inventory-universal-importer": ["inventory-control-board", "inventory-receiving-bay", "inventory-purchase-orders"],
+  "inventory-variations-workspace": ["inventory-control-board", "inventory-receiving-bay", "inventory-purchase-orders"],
+  "inventory-vendor-hub": ["inventory-control-board", "inventory-purchase-orders", "inventory-receiving-bay"],
+  "inventory-workspace": ["inventory-control-board", "inventory-receiving-bay", "inventory-purchase-orders"],
+  "layout-pos-shell": ["pos-register-dashboard", "pos-cart-with-lines", "pos-checkout-drawer"],
+  "layout-pwa-update-prompt": ["operations-operational-home", "help-center-drawer-example", "settings-remote-access-panel"],
+  lockout: ["layout-backoffice-sign-in-gate", "staff-workspace-team", "settings-remote-access-panel"],
+  "loyalty-redeem-dialog": ["loyalty-workspace-eligible", "loyalty-workspace-adjust", "pos-checkout-drawer"],
+  "notifications-notification-center-bell": ["notifications-drawer", "operations-customer-notifications", "orders-workspace"],
+  "operations-fulfillment-command-center": ["operations-operational-home", "operations-timeline", "orders-workspace"],
+  "pilot-recovery-governance": ["operations-operational-home", "qbo-workspace-staging", "settings-printers-scanners"],
+  "pos-close-register-modal": ["pos-register-dashboard", "pos-cart-with-lines", "pos-checkout-drawer"],
+  "pos-custom-work": ["pos-register-dashboard", "pos-cart-with-lines", "pos-checkout-drawer"],
+  "pos-nexo-checkout-drawer": ["pos-register-dashboard", "pos-cart-with-lines", "pos-checkout-drawer"],
+  "pos-order-load-modal": ["pos-register-dashboard", "pos-cart-with-lines", "pos-checkout-drawer"],
+  "pos-procurement-hub": ["inventory-control-board", "inventory-purchase-orders", "inventory-receiving-bay"],
+  "pos-receipt-summary-modal": ["pos-receipt-summary", "pos-receipt-preview", "pos-checkout-drawer"],
+  "pos-register-dashboard": ["pos-register-dashboard", "pos-cart-with-lines", "pos-checkout-drawer"],
+  "pos-register-gift-card-load-modal": ["pos-register-dashboard", "pos-cart-with-lines", "pos-checkout-drawer"],
+  "pos-register-overlay": ["pos-register-dashboard", "pos-cart-with-lines", "pos-checkout-drawer"],
+  "pos-register-reports": ["reports-catalog", "reports-sales-by-day-loaded", "operations-operational-home"],
+  "pos-shipping-manual": ["pos-register-dashboard", "pos-cart-with-lines", "customers-shipments-orders"],
+  "pos-shipping-modal": ["pos-register-dashboard", "pos-cart-with-lines", "customers-shipments-orders"],
+  "pos-sidebar": ["pos-register-dashboard", "pos-cart-with-lines", "pos-checkout-drawer"],
+  "qbo-mapping-matrix": ["qbo-workspace-connection", "qbo-workspace-mappings", "qbo-workspace-staging"],
+  "reports-workspace": ["reports-catalog", "reports-sales-by-day-loaded", "insights-metabase"],
+  "settings-remote-access-panel": ["settings-remote-access-panel", "settings-help-center-library", "settings-rosie-panel"],
+  "staff-commission-manager-workspace": ["staff-workspace-team", "staff-workspace-commissions", "staff-schedule-panel"],
+  "staff-commission-payouts-panel": ["staff-workspace-team", "staff-workspace-commissions", "staff-schedule-panel"],
+  "staff-weekly-grid-view": ["staff-workspace-team", "staff-schedule-panel", "operations-operational-home"],
+  "alterations-workspace": ["alterations-workspace", "orders-workspace", "pos-checkout-drawer"],
+  insights: ["insights-metabase", "reports-catalog", "reports-sales-by-day-loaded"],
+  "inventory-bulk-bar": ["inventory-control-board", "inventory-receiving-bay", "inventory-purchase-orders"],
+  "inventory-control-board": ["inventory-control-board", "inventory-receiving-bay", "inventory-purchase-orders"],
+  "inventory-product-hub-drawer": ["inventory-control-board", "inventory-receiving-bay", "inventory-purchase-orders"],
+  "inventory-purchase-order-panel": ["inventory-purchase-orders", "inventory-receiving-bay", "inventory-control-board"],
+  "inventory-receiving-bay": ["inventory-receiving-bay", "inventory-purchase-orders", "inventory-control-board"],
+  "layout-backoffice-sign-in-gate": ["layout-backoffice-sign-in-gate", "getting-started-back-office", "settings-help-center-library"],
+  "notifications-notification-center-drawer": ["notifications-drawer", "operations-customer-notifications", "operations-operational-home"],
+  "orders-workspace": ["orders-workspace", "operations-operational-home", "pos-checkout-drawer"],
+  "remote-access": ["settings-remote-access-panel", "settings-help-center-library", "settings-rosie-panel"],
+  "scheduler-workspace": ["scheduler-workspace", "staff-schedule-panel", "customers-workspace"],
+  "settings-backups": ["settings-backups", "settings-help-center-library", "settings-remote-access-panel"],
+  "settings-bug-reports-settings-panel": ["settings-bug-reports", "settings-help-center-library", "settings-rosie-panel"],
+  "settings-counterpoint-sync-settings-panel": ["settings-counterpoint-sync", "settings-counterpoint-legacy-order-repair", "settings-help-center-library"],
+  "settings-helcim-settings-panel": ["settings-helcim", "settings-help-center-library", "settings-remote-access-panel"],
+  "settings-meilisearch-settings-panel": ["settings-meilisearch", "settings-help-center-library", "settings-remote-access-panel"],
+  "settings-receipt-builder-panel": ["settings-receipt-builder", "settings-printers-scanners", "settings-tag-designer"],
+  "settings-ros-dev-center-panel": ["settings-ros-dev-center", "settings-help-center-library", "settings-remote-access-panel"],
+  "settings-rosie-settings-panel": ["settings-rosie-panel", "settings-help-center-library", "settings-remote-access-panel"],
+  "staff-schedule-panel": ["staff-schedule-panel", "staff-workspace-team", "operations-operational-home"],
+  "customers-workspace": ["customers-workspace", "customers-add-customer", "customers-duplicate-review"],
+  "inventory-physical-inventory-workspace": ["inventory-control-board", "inventory-physical-workspace-physical", "inventory-receiving-bay"],
+  "inventory-product-master-form": ["inventory-product-master-list", "inventory-product-master-receiving", "inventory-product-master-purchase-orders"],
+  "loyalty-workspace": ["loyalty-workspace-eligible", "loyalty-workspace-adjust", "pos-checkout-drawer"],
+  reports: ["reports-catalog", "reports-sales-by-day-loaded", "insights-metabase"],
+  "settings-printers-and-scanners-panel": ["settings-printers-scanners", "settings-tag-designer", "settings-receipt-builder"],
+  "staff-workspace": ["staff-workspace-team", "staff-workspace-commissions", "staff-schedule-panel"],
+};
+
+const BASE_SPEC_BY_ID = new Map(BASE_HELP_SCREENSHOT_SPECS.map((spec) => [spec.id, spec]));
+const DEDICATED_MANUAL_SCREENSHOT_SPECS = Object.entries(DEDICATED_MANUAL_SCREENSHOT_BASE_IDS).flatMap(
+  ([manualId, baseIds]) =>
+    baseIds.map((baseId, index) => {
+      const base = BASE_SPEC_BY_ID.get(baseId);
+      if (!base) throw new Error(`Missing base Help screenshot spec: ${baseId}`);
+      const { id: _baseId, output: _baseOutput, ...captureState } = base;
+      return {
+        ...captureState,
+        id: `${manualId}-dedicated-${index + 1}`,
+        output: `client/src/assets/images/help/${manualId}/workflow-${index + 1}.png`,
+      };
+    }),
+);
+
+export const HELP_SCREENSHOT_SPECS = [
+  ...BASE_HELP_SCREENSHOT_SPECS,
+  ...DEDICATED_MANUAL_SCREENSHOT_SPECS,
 ];

@@ -562,6 +562,10 @@ export async function openProfessionalZReportPrint(opts: {
 	  cashCollected?: string | null;
 	  depositsCollected?: string | null;
 	  netSales?: string | null;
+	  shippingTotal?: string | null;
+	  alterationsTotal?: string | null;
+	  giftCardLoadCount?: number;
+	  giftCardLoadTotal?: string | null;
 	}): Promise<boolean> {
   const target = createPrintDocument(`${opts.title} — ${opts.sessionId}`);
 
@@ -603,6 +607,16 @@ export async function openProfessionalZReportPrint(opts: {
     (sum, transaction) => sum + parseMoneyToCents(transaction.shipping_amount ?? "0"),
     0,
   );
+	  const alterationTotalCents = transactions.reduce((sum, transaction) => {
+	    return sum + (transaction.items ?? []).reduce((itemSum, item) => {
+	      return item.line_kind === "alteration_service"
+	        ? itemSum + parseMoneyToCents(item.unit_price) * Math.max(item.quantity, 0)
+	        : itemSum;
+	    }, 0);
+	  }, 0);
+	  const reportShippingTotal = opts.shippingTotal ?? formatReportMoney(shippingTotalCents);
+	  const reportAlterationsTotal = opts.alterationsTotal ?? formatReportMoney(alterationTotalCents);
+	  const reportGiftCardLoadTotal = opts.giftCardLoadTotal ?? "0.00";
 	  const discountTotalCents = transactions.reduce((sum, transaction) => {
 	    return sum + (transaction.items ?? []).reduce((itemSum, item) => {
 	      const regularCents = parseMoneyToCents(item.original_unit_price ?? item.unit_price);
@@ -834,7 +848,9 @@ export async function openProfessionalZReportPrint(opts: {
     `Picked Up: ${moneyWithCount(pickupTotalCents, pickupTotalCount)}`,
     `Total Alterations: ${alterationCount}`,
     `New Wedding Parties: ${opts.newWeddingPartiesCount ?? 0}`,
-    `Shipping Total: ${formatReportMoney(shippingTotalCents)}`,
+    `Alterations Total: ${reportAlterationsTotal}`,
+    `Shipping Total: ${reportShippingTotal}`,
+    `Gift Card Loads: ${moneyWithCount(parseMoneyToCents(reportGiftCardLoadTotal), opts.giftCardLoadCount ?? 0)}`,
     `Discounts Total: ${moneyWithCount(discountTotalCents, discountTransactionCount)}`,
     `Subtotal Before Tax: ${formatReportMoney(opts.netSales ?? subtotalBeforeTaxCents)}`,
     `Merchandise Subtotal: ${formatReportMoney(opts.netSales ?? subtotalBeforeTaxCents)}`,
@@ -1170,7 +1186,9 @@ export async function openProfessionalZReportPrint(opts: {
 	      <div class="summary-card"><p class="stat-label">Today's Appts</p><p class="stat-value">${opts.todayAppointmentsCount ?? 0}</p></div>
 	      <div class="summary-card"><p class="stat-label">Total Alterations</p><p class="stat-value">${alterationCount}</p></div>
 	      <div class="summary-card"><p class="stat-label">New Wedding Parties</p><p class="stat-value">${opts.newWeddingPartiesCount ?? 0}</p></div>
-	      <div class="summary-card"><p class="stat-label">Shipping Total</p><p class="stat-value">${formatReportMoney(shippingTotalCents)}</p></div>
+	      <div class="summary-card"><p class="stat-label">Alterations Total</p><p class="stat-value">${formatReportMoney(reportAlterationsTotal)}</p></div>
+	      <div class="summary-card"><p class="stat-label">Shipping Total</p><p class="stat-value">${formatReportMoney(reportShippingTotal)}</p></div>
+	      <div class="summary-card"><p class="stat-label">Gift Card Loads</p><p class="stat-value">${moneyWithCount(parseMoneyToCents(reportGiftCardLoadTotal), opts.giftCardLoadCount ?? 0)}</p></div>
 	    </div>
 	  </div>
 
@@ -1228,6 +1246,10 @@ export async function openProfessionalDailySalesPrint(opts: {
     sales_subtotal_no_tax: string;
     sales_tax_total: string;
     net_sales: string;
+    shipping_total: string;
+    alterations_total: string;
+    gift_card_load_count: number;
+    gift_card_load_total: string;
     appointment_count: number;
     online_order_count: number;
     pickup_count: number;
@@ -1489,6 +1511,9 @@ export async function openProfessionalDailySalesPrint(opts: {
     `Transactions: ${summary.sales_count}`,
     `Subtotal Before Tax: ${formatReportMoney(summary.sales_subtotal_no_tax)}`,
     `Tax Collected: ${formatReportMoney(summary.sales_tax_total)}`,
+    `Shipping Total: ${formatReportMoney(summary.shipping_total)}`,
+    `Alterations Total: ${formatReportMoney(summary.alterations_total)}`,
+    `Gift Card Loads: ${moneyWithCount(parseMoneyToCents(summary.gift_card_load_total), summary.gift_card_load_count)}`,
     `Cash Collected: ${formatReportMoney(summary.cash_collected)}`,
     `Credit Card Total: ${moneyWithCount(creditCardTotalCents, creditCardPaymentCount)}`,
     `Deposits Taken: ${formatReportMoney(summary.deposits_collected)}`,
@@ -1643,6 +1668,18 @@ export async function openProfessionalDailySalesPrint(opts: {
     <div class="stat-card">
       <p class="stat-label">Tax Collected</p>
       <p class="stat-value">$${centsToFixed2(parseMoneyToCents(summary.sales_tax_total))}</p>
+    </div>
+    <div class="stat-card">
+      <p class="stat-label">Shipping Total</p>
+      <p class="stat-value">$${centsToFixed2(parseMoneyToCents(summary.shipping_total))}</p>
+    </div>
+    <div class="stat-card">
+      <p class="stat-label">Alterations Total</p>
+      <p class="stat-value">$${centsToFixed2(parseMoneyToCents(summary.alterations_total))}</p>
+    </div>
+    <div class="stat-card">
+      <p class="stat-label">Gift Card Loads</p>
+      <p class="stat-value">${moneyWithCount(parseMoneyToCents(summary.gift_card_load_total), summary.gift_card_load_count)}</p>
     </div>
     <div class="stat-card" style="border-color:#10b981; background: #f0fdf4;">
       <p class="stat-label" style="color:#047857">Cash Collected</p>

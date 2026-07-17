@@ -186,18 +186,35 @@ async function openBackofficeSidebarTab(page, tabPattern) {
   const nav = await ensureMainNavigationVisible(page);
   const exactId = tabPattern.source.match(/^\^([a-z-]+)\$$/i)?.[1];
   if (exactId) {
-    const testIdButton = page.getByTestId(`sidebar-nav-${exactId}`);
-    if (await testIdButton.isVisible().catch(() => false)) {
-      await testIdButton.scrollIntoViewIfNeeded().catch(() => {});
-      await testIdButton.click();
-      return testIdButton;
+    const testId = exactId === "pos" ? "register" : exactId;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const testIdButton = page.getByTestId(`sidebar-nav-${testId}`);
+      await testIdButton.waitFor({ state: "visible", timeout: 10000 }).catch(() => {});
+      if (await testIdButton.isVisible().catch(() => false)) {
+        await testIdButton.scrollIntoViewIfNeeded().catch(() => {});
+        try {
+          await testIdButton.click({ timeout: 10000 });
+          return testIdButton;
+        } catch (error) {
+          if (attempt === 2) throw error;
+          await page.waitForTimeout(500);
+        }
+      }
     }
   }
-  const button = nav.getByRole("button", { name: tabPattern });
-  await button.waitFor({ state: "visible", timeout: 15000 });
-  await button.scrollIntoViewIfNeeded().catch(() => {});
-  await button.click();
-  return button;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const currentNav = page.getByRole("navigation", { name: "Main Navigation" });
+    const button = currentNav.getByRole("button", { name: tabPattern });
+    await button.waitFor({ state: "visible", timeout: 15000 });
+    await button.scrollIntoViewIfNeeded().catch(() => {});
+    try {
+      await button.click({ timeout: 10000 });
+      return button;
+    } catch (error) {
+      if (attempt === 2) throw error;
+      await page.waitForTimeout(500);
+    }
+  }
 }
 
 async function openSettingsSection(page, sectionPattern) {
@@ -219,7 +236,9 @@ async function enterPosShell(page) {
     if (await posNav.isVisible().catch(() => false)) {
       return;
     }
-    await openBackofficeSidebarTab(page, /^pos$/i);
+    const registerNavButton = page.getByTestId("sidebar-nav-register");
+    await registerNavButton.waitFor({ state: "visible", timeout: 30000 });
+    await registerNavButton.click({ timeout: 10000 });
     const enterButton = page.getByRole("button", { name: /^(enter|return) to pos$/i });
     const posDashboardPlaceholder = page.getByText(/pos-dashboard module coming soon\./i);
     const operationsOverview = page.getByRole("heading", {
@@ -307,11 +326,21 @@ async function openPosRegisterTabIfNeeded(page) {
 }
 
 async function ensurePosRegisterSessionOpen(page, { staffCode }) {
-  const registerDialog = page.getByRole("dialog", { name: /riverside register/i });
+  const registerDialog = page.getByRole("dialog", { name: /open register|riverside register/i });
+  const cashDrawerClosedDialog = page.getByRole("dialog", { name: /cash drawer not open yet/i });
   const posNav = page.getByRole("navigation", { name: "POS Navigation" });
 
   if (!(await posNav.isVisible().catch(() => false))) {
     await enterPosShell(page);
+  }
+
+  if (await cashDrawerClosedDialog.isVisible().catch(() => false)) {
+    const openMainRegister = cashDrawerClosedDialog.getByRole("button", {
+      name: "Open Register #1 (I am at the main terminal)",
+    });
+    await openMainRegister.waitFor({ state: "visible", timeout: 15000 });
+    await openMainRegister.click();
+    await registerDialog.waitFor({ state: "visible", timeout: 20000 });
   }
 
   const dialogVisible = await registerDialog.isVisible().catch(() => false);
@@ -319,18 +348,24 @@ async function ensurePosRegisterSessionOpen(page, { staffCode }) {
     return;
   }
 
-  for (const digit of staffCode) {
-    await registerDialog.getByTestId(`pin-key-${digit}`).click();
-  }
-  const lane = registerDialog.getByLabel("Physical register number");
-  if (await lane.isVisible().catch(() => false)) {
+  const lane = registerDialog.locator("select");
+  if ((await lane.count()) === 1) {
     await lane.selectOption("1");
   }
   const floatInput = registerDialog.locator("input[type='number']").first();
   if (await floatInput.isVisible().catch(() => false)) {
     await floatInput.fill("200");
   }
-  await registerDialog.getByRole("button", { name: /^open register$/i }).click();
+  const pinKey = registerDialog.getByTestId(`pin-key-${staffCode[0]}`);
+  if (await pinKey.isVisible().catch(() => false)) {
+    for (const digit of staffCode) {
+      await registerDialog.getByTestId(`pin-key-${digit}`).click();
+    }
+  }
+  const openRegisterButton = registerDialog.getByRole("button", { name: /^open register$/i });
+  if (await openRegisterButton.isVisible().catch(() => false)) {
+    await openRegisterButton.click();
+  }
   await registerDialog.waitFor({ state: "hidden", timeout: 30000 });
   await waitForOverlayBackdropsHidden(page);
 }
@@ -387,11 +422,7 @@ async function selectFirstSaleStaffMember(cashierDialog) {
   const currentLabel = ((await selectorButton.textContent().catch(() => "")) ?? "")
     .replace(/\s+/g, " ")
     .trim();
-  const selectionRequired =
-    /select staff member|select\.\.\.|select your name/i.test(currentLabel) ||
-    (await cashierDialog.getByText(/please select a staff member first/i).isVisible().catch(() => false));
-
-  if (!selectionRequired || currentLabel.match(new RegExp(preferredName, "i"))) {
+  if (currentLabel.match(new RegExp(preferredName, "i"))) {
     return;
   }
 
@@ -464,9 +495,19 @@ async function ensurePosSaleCashierSignedIn(page, { staffCode }) {
 
   for (const digit of staffCode) {
     await cashierDialog.getByTestId(`pin-key-${digit}`).click();
+    await page.waitForTimeout(150);
   }
-  await continueButton.waitFor({ state: "visible", timeout: 15000 });
-  await continueButton.click();
+  for (let i = 0; i < 60; i += 1) {
+    if (!(await cashierDialog.isVisible().catch(() => false))) {
+      await waitForRegisterReady(page);
+      return;
+    }
+    if (await continueButton.isEnabled().catch(() => false)) {
+      await continueButton.click();
+      break;
+    }
+    await page.waitForTimeout(250);
+  }
   await cashierDialog.waitFor({ state: "hidden", timeout: 20000 });
   await waitForRegisterReady(page);
 }
@@ -474,6 +515,7 @@ async function ensurePosSaleCashierSignedIn(page, { staffCode }) {
 async function preparePosRegister(page, opts) {
   await prepareBase(page, opts);
   await enterPosShell(page);
+  await openPosRegisterTabIfNeeded(page);
   await ensurePosRegisterSessionOpen(page, opts);
   await openPosRegisterTabIfNeeded(page);
   await ensurePosSaleCashierSignedIn(page, opts);
@@ -736,7 +778,13 @@ async function runSpec(page, api, spec, opts) {
       await openBackofficeSidebarTab(page, new RegExp(`^${spec.tab}$`, "i"));
       if (spec.subSection) {
         const nav = await ensureMainNavigationVisible(page);
-        const subButton = nav.getByRole("button", { name: new RegExp(`^${spec.subSection}$`, "i") });
+        const subSectionAliases = {
+          list: "Find Item",
+          receiving: "Receive Stock",
+          purchase_orders: "Order Stock",
+        };
+        const subSectionLabel = subSectionAliases[spec.subSection] || spec.subSection;
+        const subButton = nav.getByRole("button", { name: new RegExp(`^${subSectionLabel}$`, "i") });
         if (await subButton.isVisible().catch(() => false)) {
           await subButton.click();
         } else {

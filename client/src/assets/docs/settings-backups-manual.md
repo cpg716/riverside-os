@@ -10,11 +10,11 @@ tags: settings, backups, restore, recovery
 
 ## Screenshots
 
-![Data and backups settings](../images/help/settings-backups/main.png)
+![Data and backups settings](../images/help/settings-backups/workflow-1.png)
 
-![Remote access panel](../images/help/remote-access/panel-main.png)
+![Remote access panel](../images/help/settings-backups/workflow-2.png)
 
-![Help Center settings](../images/help/settings-help-center-settings-panel/example.png)
+![Help Center settings](../images/help/settings-backups/workflow-3.png)
 
 Riverside OS includes an enterprise-grade backup and restoration system designed to ensure data integrity across local and cloud environments.
 

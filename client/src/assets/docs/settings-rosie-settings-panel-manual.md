@@ -13,11 +13,11 @@ status: approved
 
 ## Screenshots
 
-![Help Center drawer](../images/help/help-center-drawer/example.png)
+![Help Center drawer](../images/help/settings-rosie-settings-panel/workflow-1.png)
 
-![Help Center settings](../images/help/settings-help-center-settings-panel/example.png)
+![Help Center settings](../images/help/settings-rosie-settings-panel/workflow-2.png)
 
-![ROSIE settings](../images/help/settings-rosie-settings-panel/example.png)
+![ROSIE settings](../images/help/settings-rosie-settings-panel/workflow-3.png)
 
 ## What this is
 

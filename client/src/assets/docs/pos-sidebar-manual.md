@@ -13,11 +13,11 @@ status: approved
 
 ## Screenshots
 
-![Register dashboard](../images/help/pos/register-dashboard.png)
+![Register dashboard](../images/help/pos-sidebar/workflow-1.png)
 
-![Cart with lines](../images/help/pos/cart-with-lines.png)
+![Cart with lines](../images/help/pos-sidebar/workflow-2.png)
 
-![Checkout drawer](../images/help/pos/nexo-checkout-drawer.png)
+![Checkout drawer](../images/help/pos-sidebar/workflow-3.png)
 
 The POS sidebar is the left rail for register work. It keeps cashier workflows close to the cart without exposing the full Back Office settings tree.
 

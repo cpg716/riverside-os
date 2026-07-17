@@ -13,11 +13,11 @@ status: published
 
 ## Screenshots
 
-![Meilisearch settings](../images/help/settings-meilisearch-settings-panel/main.png)
+![Meilisearch settings](../images/help/settings-meilisearch-settings-panel/workflow-1.png)
 
-![Help Center settings](../images/help/settings-help-center-settings-panel/example.png)
+![Help Center settings](../images/help/settings-meilisearch-settings-panel/workflow-2.png)
 
-![Customers workspace search context](../images/help/customers-workspace/main.png)
+![Customers workspace search context](../images/help/settings-meilisearch-settings-panel/workflow-3.png)
 
 <!-- help:component-source -->
 _Linked component: `client/src/components/settings/MeilisearchSettingsPanel.tsx`._

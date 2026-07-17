@@ -13,11 +13,11 @@ status: approved
 
 ## Screenshots
 
-![Receipt settings panel](../images/help/settings-receipt-builder-panel/main.png)
+![Receipt settings panel](../images/help/settings-receipt-builder-panel/workflow-1.png)
 
-![Receipt preview](../images/help/pos/receipt-preview.png)
+![Receipt preview](../images/help/settings-receipt-builder-panel/workflow-2.png)
 
-![Receipt summary](../images/help/pos/receipt-summary.png)
+![Receipt summary](../images/help/settings-receipt-builder-panel/workflow-3.png)
 
 ## What this is
 

@@ -12,11 +12,11 @@ tags: layout-backoffice-sign-in-gate, signin, access-pin, host-settings
 
 ## Screenshots
 
-![Back Office sign-in gate](../images/help/layout-backoffice-sign-in-gate/main.png)
+![Back Office sign-in gate](../images/help/layout-backoffice-sign-in-gate/workflow-1.png)
 
-![Operational home](../images/help/operations-operational-home/main.png)
+![Operational home](../images/help/layout-backoffice-sign-in-gate/workflow-2.png)
 
-![Help Center drawer after sign-in](../images/help/help-center-drawer/example.png)
+![Help Center drawer after sign-in](../images/help/layout-backoffice-sign-in-gate/workflow-3.png)
 
 The sign-in gate protects Riverside before any shell or navigation appears.
 

@@ -12,11 +12,11 @@ tags: inventory-vendor-hub, inventory, vendors, procurement
 
 ## Screenshots
 
-![Inventory control board](../images/help/inventory-control-board/main.png)
+![Inventory control board](../images/help/inventory-vendor-hub/workflow-1.png)
 
-![Receive Stock workflow](../images/help/inventory-receiving-bay/main.png)
+![Receive Stock workflow](../images/help/inventory-vendor-hub/workflow-2.png)
 
-![Purchase order panel](../images/help/inventory-purchase-order-panel/main.png)
+![Purchase order panel](../images/help/inventory-vendor-hub/workflow-3.png)
 
 ## What this is
 

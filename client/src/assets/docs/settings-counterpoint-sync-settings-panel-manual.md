@@ -13,11 +13,11 @@ status: approved
 
 ## Screenshots
 
-![Counterpoint command center](../images/help/settings-counterpoint-sync-settings-panel/main.png)
+![Counterpoint command center](../images/help/settings-counterpoint-sync-settings-panel/workflow-1.png)
 
-![Inventory control board](../images/help/inventory-control-board/main.png)
+![Inventory control board](../images/help/settings-counterpoint-sync-settings-panel/workflow-2.png)
 
-![Orders workspace](../images/help/orders-workspace/main.png)
+![Orders workspace](../images/help/settings-counterpoint-sync-settings-panel/workflow-3.png)
 
 ## What this is
 

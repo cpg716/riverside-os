@@ -186,6 +186,17 @@ pub struct RegisterDaySummary {
     pub merchant_fees_total: String,
     /// Merchandise sales excluding tax. Taxes remain in `sales_tax_total`.
     pub net_sales: String,
+    /// Shipping charges, reported separately from merchandise subtotal.
+    #[serde(default = "default_money_label")]
+    pub shipping_total: String,
+    /// Alteration-service sales, reported separately from merchandise subtotal.
+    #[serde(default = "default_money_label")]
+    pub alterations_total: String,
+    /// Gift-card loads are recorded separately as liability activity, not sales.
+    #[serde(default)]
+    pub gift_card_load_count: i64,
+    #[serde(default = "default_money_label")]
+    pub gift_card_load_total: String,
     /// Total payments received in cash ($0.00 format)
     pub cash_collected: String,
     /// Total payments received towards unfulfilled orders or as partial payments.
@@ -201,6 +212,10 @@ pub struct RegisterDaySummary {
 
 fn default_reporting_basis() -> String {
     "booked".to_string()
+}
+
+fn default_money_label() -> String {
+    "0.00".to_string()
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -624,6 +639,8 @@ pub async fn fetch_register_day_summary(
             WHERE COALESCE(oi.is_internal, false) = FALSE
               AND (p.pos_line_kind IS DISTINCT FROM 'rms_charge_payment')
               AND (p.pos_line_kind IS DISTINCT FROM 'pos_gift_card_load')
+              AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
+              AND (oi.custom_item_type IS DISTINCT FROM 'alteration_service')
             GROUP BY transaction_id
         ) ln ON ln.transaction_id = o.id
         WHERE {order_in_range}
@@ -642,6 +659,70 @@ pub async fn fetch_register_day_summary(
     let subtotal = row.1.unwrap_or(Decimal::ZERO);
     let tax_total = row.2.unwrap_or(Decimal::ZERO);
     let online_order_count = row.3;
+
+    let shipping_sql = format!(
+        r#"
+        SELECT COALESCE(SUM(o.shipping_amount_usd), 0)::numeric(14,2)
+        FROM transactions o
+        WHERE {order_in_range}
+        {order_session_filter}
+        "#,
+    );
+    let shipping_total: (Decimal,) = sqlx::query_as(&shipping_sql)
+        .bind(start_utc)
+        .bind(end_utc)
+        .bind(register_session_id)
+        .fetch_one(pool)
+        .await?;
+
+    let alterations_sql = format!(
+        r#"
+        SELECT COALESCE(SUM(
+            GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0)::numeric * oi.unit_price
+        ), 0)::numeric(14,2)
+        FROM transactions o
+        INNER JOIN transaction_lines oi ON oi.transaction_id = o.id
+        LEFT JOIN products p ON p.id = oi.product_id
+        LEFT JOIN (
+            SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
+            FROM transaction_return_lines
+            GROUP BY transaction_line_id
+        ) orl ON orl.transaction_line_id = oi.id
+        WHERE {order_in_range}
+          AND COALESCE(oi.is_internal, false) = FALSE
+          AND (
+              p.pos_line_kind = 'alteration_service'
+              OR oi.custom_item_type = 'alteration_service'
+          )
+        {order_session_filter}
+        "#,
+    );
+    let alterations_total: (Decimal,) = sqlx::query_as(&alterations_sql)
+        .bind(start_utc)
+        .bind(end_utc)
+        .bind(register_session_id)
+        .fetch_one(pool)
+        .await?;
+
+    let gift_card_sql = format!(
+        r#"
+        SELECT
+            COUNT(*)::bigint,
+            COALESCE(SUM(GREATEST(oi.quantity, 0)::numeric * oi.unit_price), 0)::numeric(14,2)
+        FROM transactions o
+        INNER JOIN transaction_lines oi ON oi.transaction_id = o.id
+        LEFT JOIN products p ON p.id = oi.product_id
+        WHERE {order_in_range}
+          AND p.pos_line_kind = 'pos_gift_card_load'
+        {order_session_filter}
+        "#,
+    );
+    let gift_card_totals: (i64, Decimal) = sqlx::query_as(&gift_card_sql)
+        .bind(start_utc)
+        .bind(end_utc)
+        .bind(register_session_id)
+        .fetch_one(pool)
+        .await?;
 
     // Booked mode: pickups completed in range (fulfillment date). Completed mode: same as sale_count (orders completed in range).
     let pickup_count = if matches!(basis, ReportBasis::Booked) {
@@ -1548,6 +1629,10 @@ pub async fn fetch_register_day_summary(
         new_invoice_count,
         merchant_fees_total: money_label(merchant_fees),
         net_sales: money_label(subtotal),
+        shipping_total: money_label(shipping_total.0),
+        alterations_total: money_label(alterations_total.0),
+        gift_card_load_count: gift_card_totals.0,
+        gift_card_load_total: money_label(gift_card_totals.1),
         cash_collected: money_label(cash_collected),
         deposits_collected: money_label(deposits_collected),
         weather_days,

@@ -13,11 +13,11 @@ status: approved
 
 ## Screenshots
 
-![ROS Dev Center overview](../images/help/settings-ros-dev-center-panel/main.png)
+![ROS Dev Center overview](../images/help/settings-ros-dev-center-panel/workflow-1.png)
 
-![Bug report dialog](../images/help/bug-report-flow/help-drawer.png)
+![Bug report dialog](../images/help/settings-ros-dev-center-panel/workflow-2.png)
 
-![ROSIE settings](../images/help/settings-rosie-settings-panel/example.png)
+![ROSIE settings](../images/help/settings-ros-dev-center-panel/workflow-3.png)
 
 ## What this is
 

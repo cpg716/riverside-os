@@ -13,11 +13,11 @@ status: approved
 
 ## Screenshots
 
-![Inventory control board](../images/help/inventory-control-board/main.png)
+![Inventory control board](../images/help/inventory-variations-workspace/workflow-1.png)
 
-![Receive Stock workflow](../images/help/inventory-receiving-bay/main.png)
+![Receive Stock workflow](../images/help/inventory-variations-workspace/workflow-2.png)
 
-![Purchase order panel](../images/help/inventory-purchase-order-panel/main.png)
+![Purchase order panel](../images/help/inventory-variations-workspace/workflow-3.png)
 
 ## What this is
 

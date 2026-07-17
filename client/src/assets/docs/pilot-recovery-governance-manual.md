@@ -11,11 +11,11 @@ status: approved
 
 ## Screenshots
 
-![Operations Home](../images/help/operations-operational-home/main.png)
+![Operations Home](../images/help/pilot-recovery-governance/workflow-1.png)
 
-![QBO staging review](../images/help/qbo-workspace/staging.png)
+![QBO staging review](../images/help/pilot-recovery-governance/workflow-2.png)
 
-![Printers and scanners](../images/help/settings-printers-and-scanners-panel/main.png)
+![Printers and scanners](../images/help/pilot-recovery-governance/workflow-3.png)
 
 ## What this is
 

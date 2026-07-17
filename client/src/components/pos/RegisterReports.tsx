@@ -136,6 +136,10 @@ interface RegisterDaySummary {
   new_invoice_count: number;
   merchant_fees_total: string;
   net_sales: string;
+  shipping_total: string;
+  alterations_total: string;
+  gift_card_load_count: number;
+  gift_card_load_total: string;
   cash_collected: string;
   deposits_collected: string;
   weather_days?: RegisterDayWeatherSummary[];
@@ -580,6 +584,10 @@ async function openZReportFromSession(
     cashCollected: daySummary?.cash_collected,
     depositsCollected: daySummary?.deposits_collected,
     netSales: daySummary?.net_sales,
+    shippingTotal: daySummary?.shipping_total,
+    alterationsTotal: daySummary?.alterations_total,
+    giftCardLoadCount: daySummary?.gift_card_load_count,
+    giftCardLoadTotal: daySummary?.gift_card_load_total,
     pickupsToday: (daySummary?.pickups_today ?? []).map((pickup) => ({
       occurred_at: pickup.occurred_at,
       customer_name: pickup.customer_name,
@@ -901,6 +909,10 @@ export default function RegisterReports({
         sales_subtotal_no_tax: printSummary.sales_subtotal_no_tax,
         sales_tax_total: printSummary.sales_tax_total,
         net_sales: printSummary.net_sales,
+        shipping_total: printSummary.shipping_total,
+        alterations_total: printSummary.alterations_total,
+        gift_card_load_count: printSummary.gift_card_load_count,
+        gift_card_load_total: printSummary.gift_card_load_total,
         appointment_count: printSummary.appointment_count,
         online_order_count: printSummary.online_order_count,
         pickup_count: printSummary.pickup_count,
@@ -1304,6 +1316,20 @@ export default function RegisterReports({
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-2 mt-2">
+                    <div className="ui-metric-cell ui-tint-neutral p-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-app-text-muted">Shipping</span>
+                        <span className="text-lg font-black text-app-text">${summaryBooked.shipping_total}</span>
+                      </div>
+                    </div>
+                    <div className="ui-metric-cell ui-tint-neutral p-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-app-text-muted">Alterations</span>
+                        <span className="text-lg font-black text-app-text">${summaryBooked.alterations_total}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 mt-2">
                     <div className="ui-metric-cell ui-tint-info p-2">
                       <div className="flex items-center justify-between">
 	                        <span className="text-xs font-bold text-app-info">Cash Taken</span>
@@ -1343,6 +1369,20 @@ export default function RegisterReports({
                     <div className="ui-metric-cell ui-tint-success p-2">
 	                      <div className="text-xs font-bold text-app-success">Net</div>
                       <p className="text-lg font-black text-app-text">${centsToFixed2(parseMoneyToCents(summary.net_sales))}</p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 mt-2">
+                    <div className="ui-metric-cell ui-tint-neutral p-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-app-text-muted">Shipping</span>
+                        <span className="text-lg font-black text-app-text">${summary.shipping_total}</span>
+                      </div>
+                    </div>
+                    <div className="ui-metric-cell ui-tint-neutral p-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-app-text-muted">Alterations</span>
+                        <span className="text-lg font-black text-app-text">${summary.alterations_total}</span>
+                      </div>
                     </div>
                   </div>
                 </div>

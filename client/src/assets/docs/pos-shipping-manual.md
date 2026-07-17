@@ -12,11 +12,11 @@ tags: pos, shipping, shippo, fulfillment, back-office
 
 ## Screenshots
 
-![Register dashboard](../images/help/pos/register-dashboard.png)
+![Register dashboard](../images/help/pos-shipping-manual/workflow-1.png)
 
-![Cart with lines](../images/help/pos/cart-with-lines.png)
+![Cart with lines](../images/help/pos-shipping-manual/workflow-2.png)
 
-![Checkout drawer](../images/help/pos/nexo-checkout-drawer.png)
+![Checkout drawer](../images/help/pos-shipping-manual/workflow-3.png)
 
 Riverside OS features a unified shipping integration that connects the **POS Register**, the **Online Store**, and the **Customer Relationship Hub**. Shipping is a delivery method, not automatically a Special/Custom/Wedding order.
 

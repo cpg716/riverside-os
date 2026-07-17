@@ -12,11 +12,11 @@ tags: qbo, mapping, accounting, chart-of-accounts, coa, setup
 
 ## Screenshots
 
-![QBO mapping review](../images/help/qbo-workspace/mappings.png)
+![QBO mapping review](../images/help/qbo-mapping-matrix/workflow-1.png)
 
-![QBO connection health](../images/help/qbo-workspace/connection.png)
+![QBO connection health](../images/help/qbo-mapping-matrix/workflow-2.png)
 
-![QBO staging queue](../images/help/qbo-workspace/staging.png)
+![QBO staging queue](../images/help/qbo-mapping-matrix/workflow-3.png)
 
 The Mapping Matrix is the configuration engine that tells Riverside OS where to "post" every dollar. Correct mappings are essential for automated reconciliation with QuickBooks Online.
 

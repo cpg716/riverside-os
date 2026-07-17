@@ -13,11 +13,11 @@ status: approved
 
 ## Screenshots
 
-![Staff commissions workspace](../images/help/staff-workspace/commissions.png)
+![Staff commissions workspace](../images/help/staff-commission-payouts-panel/workflow-1.png)
 
-![Reports catalog for payroll review](../images/help/reports/catalog.png)
+![Reports catalog for payroll review](../images/help/staff-commission-payouts-panel/workflow-2.png)
 
-![QBO staging queue](../images/help/qbo-workspace/staging.png)
+![QBO staging queue](../images/help/staff-commission-payouts-panel/workflow-3.png)
 
 ## What This Is
 

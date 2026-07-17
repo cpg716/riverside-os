@@ -12,11 +12,11 @@ tags: inventory-physical-inventory-workspace, inventory, physical-count, reconci
 
 ## Screenshots
 
-![Inventory list](../images/help/inventory-physical-inventory-workspace/inventory-list.png)
+![Inventory list](../images/help/inventory-physical-inventory-workspace/workflow-1.png)
 
-![Physical inventory workspace](../images/help/inventory-physical-inventory-workspace/physical-inventory.png)
+![Physical inventory workspace](../images/help/inventory-physical-inventory-workspace/workflow-2.png)
 
-![Receive Stock context](../images/help/inventory-physical-inventory-workspace/receiving-context.png)
+![Receive Stock context](../images/help/inventory-physical-inventory-workspace/workflow-3.png)
 
 ## What this is
 

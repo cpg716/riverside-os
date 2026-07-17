@@ -12,11 +12,11 @@ tags: orders, fulfillment, deposits, tracking
 
 ## Screenshots
 
-![Orders workspace](../images/help/orders-workspace/main.png)
+![Orders workspace](../images/help/orders-workspace/workflow-1.png)
 
-![Receipt summary](../images/help/pos/receipt-summary.png)
+![Receipt summary](../images/help/orders-workspace/workflow-2.png)
 
-![Operations pickup context](../images/help/operations-operational-home/main.png)
+![Operations pickup context](../images/help/orders-workspace/workflow-3.png)
 
 The Orders workspace is the main place to review unfulfilled Special, Custom, and Wedding order work. Use **Transaction Records** for the complete sale history, including takeaways, gift cards, alterations, payments, refunds, and receipts.
 

@@ -40,11 +40,11 @@ This is the main **Register desktop shell** used on the Windows Tauri app after 
 
 ## Screenshots
 
-![POS dashboard](../images/help/pos/register-dashboard.png)
+![POS dashboard](../images/help/layout-pos-shell/workflow-1.png)
 
-![Register cart](../images/help/pos/cart-with-lines.png)
+![Register cart](../images/help/layout-pos-shell/workflow-2.png)
 
-![Checkout drawer](../images/help/pos/nexo-checkout-drawer.png)
+![Checkout drawer](../images/help/layout-pos-shell/workflow-3.png)
 
 
 ## Related workflows

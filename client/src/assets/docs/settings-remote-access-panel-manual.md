@@ -12,11 +12,11 @@ tags: settings-remote-access-panel, remote-access, tailscale, host-mode
 
 ## Screenshots
 
-![Remote access panel](../images/help/remote-access/panel-main.png)
+![Remote access panel](../images/help/settings-remote-access-panel/workflow-1.png)
 
-![Help Center settings](../images/help/settings-help-center-settings-panel/example.png)
+![Help Center settings](../images/help/settings-remote-access-panel/workflow-2.png)
 
-![Operational home](../images/help/operations-operational-home/main.png)
+![Operational home](../images/help/settings-remote-access-panel/workflow-3.png)
 
 Use **Settings → Remote Access** only on the dedicated Windows host machine. This panel is for:
 

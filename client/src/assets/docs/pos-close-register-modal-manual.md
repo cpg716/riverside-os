@@ -11,11 +11,11 @@ tags: pos, register, closing, Z-report, audit
 
 ## Screenshots
 
-![Register dashboard](../images/help/pos/register-dashboard.png)
+![Register dashboard](../images/help/pos-close-register-modal/workflow-1.png)
 
-![Cart with lines](../images/help/pos/cart-with-lines.png)
+![Cart with lines](../images/help/pos-close-register-modal/workflow-2.png)
 
-![Checkout drawer](../images/help/pos/nexo-checkout-drawer.png)
+![Checkout drawer](../images/help/pos-close-register-modal/workflow-3.png)
 
 The **Close Register** workspace is the final step of a shift. It reconciles expected totals against actual physical counts.
 
@@ -51,7 +51,7 @@ ROSIE does not close the register, change tender totals, change counted cash, ap
 Upon closing, a professional, full-page **Z-Audit Report** is generated. 
 - **Audit Grade**: Produces high-fidelity Letter/A4 documents for accounting review.
 - **Reporting Station**: The header confirms the assigned printer name for accountability.
-- **Per-Transaction Subtotal Before Tax**: The audit list separates merchandise subtotal before tax from payment totals.
+- **Per-Transaction Subtotal Before Tax**: The audit list separates merchandise subtotal before tax from payment totals. Shipping and alteration-service charges are shown separately from merchandise subtotal, while gift-card loads are shown as separate liability activity and are not included in merchandise sales.
 - **Line Discounts**: Each transaction line shows the final line price plus the regular price and discount percent applied.
 - **Daily Cash Deposit**: Captures the bank deposit date and cash deposit amount for deposit verification and accounting review.
 - **QBO Preview**: Shows the journal-entry breakdown staged for QuickBooks review.

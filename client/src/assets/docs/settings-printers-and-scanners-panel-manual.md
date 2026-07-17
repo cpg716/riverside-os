@@ -13,11 +13,11 @@ status: approved
 
 ## Screenshots
 
-![Printers and Scanners settings](../images/help/settings-printers-and-scanners-panel/main.png)
+![Printers and Scanners settings](../images/help/settings-printers-and-scanners-panel/workflow-1.png)
 
-![Tag Designer context](../images/help/settings-printers-and-scanners-panel/tag-designer.png)
+![Tag Designer context](../images/help/settings-printers-and-scanners-panel/workflow-2.png)
 
-![Sale complete receipt actions](../images/help/pos/receipt-summary.png)
+![Sale complete receipt actions](../images/help/settings-printers-and-scanners-panel/workflow-3.png)
 
 ## What this is
 

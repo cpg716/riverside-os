@@ -10,11 +10,11 @@ tags: pos, custom-orders, rush, fulfillment
 
 ## Screenshots
 
-![Register dashboard](../images/help/pos/register-dashboard.png)
+![Register dashboard](../images/help/pos-custom-work/workflow-1.png)
 
-![Cart with lines](../images/help/pos/cart-with-lines.png)
+![Cart with lines](../images/help/pos-custom-work/workflow-2.png)
 
-![Checkout drawer](../images/help/pos/nexo-checkout-drawer.png)
+![Checkout drawer](../images/help/pos-custom-work/workflow-3.png)
 
 Custom orders are used for made-to-measure (MTM) garments that require specific vendor-form details and individualized pricing.
 

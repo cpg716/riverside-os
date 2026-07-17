@@ -11,11 +11,11 @@ tags: pos, register, reports, audit, printing
 
 ## Screenshots
 
-![Reports catalog](../images/help/reports/catalog.png)
+![Reports catalog](../images/help/pos-register-reports/workflow-1.png)
 
-![Insights dashboard](../images/help/insights/metabase-main.png)
+![Insights dashboard](../images/help/pos-register-reports/workflow-2.png)
 
-![Operational home](../images/help/operations-operational-home/main.png)
+![Operational home](../images/help/pos-register-reports/workflow-3.png)
 
 This screen provides a real-time audit of register activity, daily sales, and shared drawer coordination.
 
@@ -33,7 +33,7 @@ Use this screen to review the current register session, void a completed sale wi
 6. Open **Z-Reports** to see which linked lanes are still open, which drawer is already reconciling, and whether Register #1 still needs to finish the shared close.
 
 ## Daily Sales Activity
-The **Daily Sales** view shows a chronological timeline of every transaction. Each sale row shows its `TXN-` transaction number so the screen, printout, receipt, and payment records can be reconciled against the same reference. Counterpoint-imported rows keep the Counterpoint transaction time as the activity time and show **Imported at** only as secondary import context. Tap an entry to view the full receipt or reprint it. Use this for:
+The **Daily Sales** view shows a chronological timeline of every transaction. Each sale row shows its `TXN-` transaction number so the screen, printout, receipt, and payment records can be reconciled against the same reference. Counterpoint-imported rows keep the Counterpoint transaction time as the activity time and show **Imported at** only as secondary import context. Tap an entry to view the full receipt or reprint it. Merchandise **Subtotal** and **Net Sales** exclude shipping, alteration-service charges, and gift-card loads. Daily Sales reports show shipping and alterations as separate totals, and gift-card loads as separate count/amount activity. Gift-card loads are recorded as liability activity until redeemed; redemption is recorded as a tender and does not turn the original load into merchandise revenue. Use this for:
 - Verifying the status of recent sales.
 - Correcting tender types by reviewing the audit log.
 - Monitoring mid-shift velocity without closing the drawer.

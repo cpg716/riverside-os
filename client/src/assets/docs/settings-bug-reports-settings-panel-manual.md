@@ -13,11 +13,11 @@ status: approved
 
 ## Screenshots
 
-![Bug reports support center](../images/help/settings-bug-reports-settings-panel/main.png)
+![Bug reports support center](../images/help/settings-bug-reports-settings-panel/workflow-1.png)
 
-![Bug report dialog](../images/help/bug-report-flow/help-drawer.png)
+![Bug report dialog](../images/help/settings-bug-reports-settings-panel/workflow-2.png)
 
-![ROS Dev Center](../images/help/settings-ros-dev-center-panel/main.png)
+![ROS Dev Center](../images/help/settings-bug-reports-settings-panel/workflow-3.png)
 
 ## What this is
 

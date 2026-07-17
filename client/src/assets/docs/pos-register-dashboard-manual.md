@@ -33,11 +33,11 @@ Use the dashboard between customers, not during an in-progress checkout. If the 
 
 ## Screenshots
 
-![Register dashboard](../images/help/pos/register-dashboard.png)
+![Register dashboard](../images/help/pos-register-dashboard/workflow-1.png)
 
-![Cart with lines](../images/help/pos/cart-with-lines.png)
+![Cart with lines](../images/help/pos-register-dashboard/workflow-2.png)
 
-![Checkout drawer](../images/help/pos/nexo-checkout-drawer.png)
+![Checkout drawer](../images/help/pos-register-dashboard/workflow-3.png)
 
 
 ## What happens next

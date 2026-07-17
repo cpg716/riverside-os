@@ -10,11 +10,11 @@ tags: insights, metabase, reports, analytics, commission
 
 ## Screenshots
 
-![Reports catalog](../images/help/reports/catalog.png)
+![Reports catalog](../images/help/insights/workflow-1.png)
 
-![Operational home](../images/help/operations-operational-home/main.png)
+![Operational home](../images/help/insights/workflow-2.png)
 
-![Insights Metabase dashboard](../images/help/insights/metabase-main.png)
+![Insights Metabase dashboard](../images/help/insights/workflow-3.png)
 ## What this is
 
 Insights displays **Metabase** dashboards directly within Riverside OS. Use this for advanced analytics, staff commissions, and custom store performance tracking.
