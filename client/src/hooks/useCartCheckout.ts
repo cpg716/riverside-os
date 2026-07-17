@@ -897,5 +897,6 @@ export function useCartCheckout({
     lastReceiptTransactionLineIds,
     setLastTransactionId,
     setLastReceiptTransactionLineIds,
+    setCheckoutClientId,
   };
 }

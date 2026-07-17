@@ -7,11 +7,15 @@ import {
   type FulfillmentKind,
   type PendingAlterationIntake,
   type OrderPaymentCartLine,
+  type AppliedPaymentLine,
 } from "../components/pos/types";
 import { type PosShippingSelection } from "../components/pos/PosShippingModal";
+import { newCheckoutClientId } from "../lib/posUtils";
 
 interface PersistedSale {
   sessionId: string;
+  checkoutClientId?: string;
+  appliedPayments?: AppliedPaymentLine[];
   lines?: CartLineItem[];
   selectedCustomer?: Customer;
   activeWeddingMember?: WeddingMember;
@@ -26,6 +30,8 @@ interface PersistedSale {
 
 interface UseCartPersistenceProps {
   sessionId: string;
+  checkoutClientId: string;
+  appliedPayments: AppliedPaymentLine[];
   lines: CartLineItem[];
   selectedCustomer: Customer | null;
   activeWeddingMember: WeddingMember | null;
@@ -44,6 +50,8 @@ interface UseCartPersistenceProps {
   setPosShipping: (shipping: PosShippingSelection | null) => void;
   setPrimarySalespersonId: (id: string) => void;
   setCheckoutOperator: (operator: { staffId: string; fullName: string } | null) => void;
+  setCheckoutClientId: (id: string) => void;
+  setAppliedPayments: (payments: AppliedPaymentLine[]) => void;
   setPendingAlterationIntakes?: (intakes: PendingAlterationIntake[]) => void;
   setOrderPaymentLines?: (lines: OrderPaymentCartLine[]) => void;
   clearCart: () => void;
@@ -51,6 +59,8 @@ interface UseCartPersistenceProps {
 
 export function useCartPersistence({
   sessionId,
+  checkoutClientId,
+  appliedPayments,
   lines,
   selectedCustomer,
   activeWeddingMember,
@@ -69,12 +79,15 @@ export function useCartPersistence({
   setPosShipping,
   setPrimarySalespersonId,
   setCheckoutOperator,
+  setCheckoutClientId,
+  setAppliedPayments,
   setPendingAlterationIntakes,
   setOrderPaymentLines,
   clearCart,
 }: UseCartPersistenceProps) {
   const [saleHydrated, setSaleHydrated] = useState(false);
   const prevSessionIdForHydrateRef = useRef<string | null>(null);
+  const hadActiveSaleRef = useRef(false);
   const persistenceWriteQueueRef = useRef<Promise<void>>(Promise.resolve());
 
   const queuePersistenceWrite = useCallback((write: () => Promise<void>) => {
@@ -115,7 +128,13 @@ export function useCartPersistence({
             rawAlterationIntakes.length === 0
           ) {
             await localforage.removeItem("ros_pos_active_sale");
+            setCheckoutClientId(newCheckoutClientId());
+            setAppliedPayments([]);
           } else {
+            if (saved.checkoutClientId?.trim()) {
+              setCheckoutClientId(saved.checkoutClientId.trim());
+            }
+            setAppliedPayments(saved.appliedPayments ?? []);
             const wm = saved.activeWeddingMember || null;
             setLines(
               rawLines.map((l) => {
@@ -159,8 +178,12 @@ export function useCartPersistence({
           }
         } else if (saved && saved.sessionId !== sessionId) {
           clearCart();
+          setCheckoutClientId(newCheckoutClientId());
+          setAppliedPayments([]);
         } else {
           setPrimarySalespersonId("");
+          setCheckoutClientId(newCheckoutClientId());
+          setAppliedPayments([]);
         }
       } finally {
         if (!cancelled) setSaleHydrated(true);
@@ -178,6 +201,8 @@ export function useCartPersistence({
     setPosShipping, 
     setPrimarySalespersonId, 
     setCheckoutOperator,
+    setCheckoutClientId,
+    setAppliedPayments,
     setPendingAlterationIntakes,
     setOrderPaymentLines,
   ]);
@@ -192,10 +217,18 @@ export function useCartPersistence({
       pendingAlterationIntakes.length > 0;
     if (!hasActiveSale) {
       queuePersistenceWrite(() => localforage.removeItem("ros_pos_active_sale"));
+      if (hadActiveSaleRef.current) {
+        hadActiveSaleRef.current = false;
+        setCheckoutClientId(newCheckoutClientId());
+        setAppliedPayments([]);
+      }
       return;
     }
+    hadActiveSaleRef.current = true;
     const sale: PersistedSale = {
       sessionId,
+      checkoutClientId,
+      appliedPayments: appliedPayments.length > 0 ? appliedPayments : undefined,
       lines,
       selectedCustomer: selectedCustomer || undefined,
       activeWeddingMember: activeWeddingMember || undefined,
@@ -211,6 +244,8 @@ export function useCartPersistence({
   }, [
     saleHydrated,
     sessionId,
+    checkoutClientId,
+    appliedPayments,
     lines,
     selectedCustomer,
     activeWeddingMember,
@@ -222,6 +257,8 @@ export function useCartPersistence({
     pendingAlterationIntakes,
     orderPaymentLines,
     queuePersistenceWrite,
+    setCheckoutClientId,
+    setAppliedPayments,
   ]);
 
   return { saleHydrated };

@@ -1645,6 +1645,7 @@ export default function Cart({
     lastReceiptTransactionLineIds,
     setLastTransactionId: setCheckoutTransactionId,
     setLastReceiptTransactionLineIds,
+    setCheckoutClientId,
   } = useCartCheckout({
     sessionId,
     baseUrl,
@@ -1726,6 +1727,8 @@ export default function Cart({
   // --- Persistence Hook ---
   const { saleHydrated } = useCartPersistence({
     sessionId,
+    checkoutClientId,
+    appliedPayments: checkoutAppliedPayments,
     lines,
     selectedCustomer,
     activeWeddingMember,
@@ -1744,6 +1747,8 @@ export default function Cart({
     setPosShipping,
     setPrimarySalespersonId,
     setCheckoutOperator,
+    setCheckoutClientId: setCheckoutClientId,
+    setAppliedPayments: setCheckoutAppliedPayments,
     setPendingAlterationIntakes,
     setOrderPaymentLines,
     clearCart: clearCartAndAlterations,
