@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-17T15:20:17.148Z",
+  "generated_at": "2026-07-17T15:47:47.329Z",
   "standard_version": "help-manual-standard-v3",
   "published_manual_count": 73,
   "draft_manual_count": 0,
@@ -8,143 +8,7 @@
     "approved_dedicated_unique_target": 3,
     "major_workflow_unique_target": 4
   },
-  "screenshot_backlog": [
-    {
-      "id": "pos-nexo-checkout-drawer",
-      "title": "Checkout & Payment",
-      "source_path": "client/src/assets/docs/pos-nexo-checkout-drawer-manual.md",
-      "dedicated_unique_local": 0,
-      "unique_local": 3,
-      "priority": "high",
-      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
-    },
-    {
-      "id": "inventory-bulk-bar",
-      "title": "Inventory Bulk Bar (inventory)",
-      "source_path": "client/src/assets/docs/inventory-bulk-bar-manual.md",
-      "dedicated_unique_local": 1,
-      "unique_local": 3,
-      "priority": "medium",
-      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
-    },
-    {
-      "id": "inventory-control-board",
-      "title": "Inventory Control Board",
-      "source_path": "client/src/assets/docs/inventory-control-board-manual.md",
-      "dedicated_unique_local": 1,
-      "unique_local": 3,
-      "priority": "medium",
-      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
-    },
-    {
-      "id": "inventory-product-hub-drawer",
-      "title": "Product Hub Drawer (inventory)",
-      "source_path": "client/src/assets/docs/inventory-product-hub-drawer-manual.md",
-      "dedicated_unique_local": 1,
-      "unique_local": 3,
-      "priority": "medium",
-      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
-    },
-    {
-      "id": "inventory-purchase-order-panel",
-      "title": "Purchase Orders and Vendor Paperwork",
-      "source_path": "client/src/assets/docs/inventory-purchase-order-panel-manual.md",
-      "dedicated_unique_local": 1,
-      "unique_local": 3,
-      "priority": "medium",
-      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
-    },
-    {
-      "id": "inventory-receiving-bay",
-      "title": "Receive Stock",
-      "source_path": "client/src/assets/docs/inventory-receiving-bay-manual.md",
-      "dedicated_unique_local": 1,
-      "unique_local": 3,
-      "priority": "medium",
-      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
-    },
-    {
-      "id": "inventory-universal-importer",
-      "title": "Universal Importer (inventory)",
-      "source_path": "client/src/assets/docs/inventory-universal-importer-manual.md",
-      "dedicated_unique_local": 1,
-      "unique_local": 3,
-      "priority": "medium",
-      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
-    },
-    {
-      "id": "inventory-variations-workspace",
-      "title": "Variations Workspace (inventory)",
-      "source_path": "client/src/assets/docs/inventory-variations-workspace-manual.md",
-      "dedicated_unique_local": 1,
-      "unique_local": 3,
-      "priority": "medium",
-      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
-    },
-    {
-      "id": "inventory-vendor-hub",
-      "title": "Vendor Hub (inventory)",
-      "source_path": "client/src/assets/docs/inventory-vendor-hub-manual.md",
-      "dedicated_unique_local": 1,
-      "unique_local": 3,
-      "priority": "medium",
-      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
-    },
-    {
-      "id": "inventory-workspace",
-      "title": "Inventory Workspace (inventory)",
-      "source_path": "client/src/assets/docs/inventory-workspace-manual.md",
-      "dedicated_unique_local": 1,
-      "unique_local": 3,
-      "priority": "medium",
-      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
-    },
-    {
-      "id": "pos-procurement-hub",
-      "title": "Procurement Hub (pos)",
-      "source_path": "client/src/assets/docs/pos-procurement-hub-manual.md",
-      "dedicated_unique_local": 1,
-      "unique_local": 3,
-      "priority": "medium",
-      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
-    },
-    {
-      "id": "customers-workspace",
-      "title": "Customers Workspace",
-      "source_path": "client/src/assets/docs/customers-workspace-manual.md",
-      "dedicated_unique_local": 2,
-      "unique_local": 3,
-      "priority": "low",
-      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
-    },
-    {
-      "id": "inventory-physical-inventory-workspace",
-      "title": "Physical Inventory Workspace (inventory)",
-      "source_path": "client/src/assets/docs/inventory-physical-inventory-workspace-manual.md",
-      "dedicated_unique_local": 2,
-      "unique_local": 3,
-      "priority": "low",
-      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
-    },
-    {
-      "id": "inventory-product-master-form",
-      "title": "Add Item (inventory)",
-      "source_path": "client/src/assets/docs/inventory-product-master-form-manual.md",
-      "dedicated_unique_local": 2,
-      "unique_local": 3,
-      "priority": "low",
-      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
-    },
-    {
-      "id": "notifications-notification-center-drawer",
-      "title": "Notification Center and Team Announcements",
-      "source_path": "client/src/assets/docs/notifications-notification-center-drawer-manual.md",
-      "dedicated_unique_local": 2,
-      "unique_local": 3,
-      "priority": "low",
-      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
-    }
-  ],
+  "screenshot_backlog": [],
   "manuals": [
     {
       "id": "getting-started",
@@ -223,7 +87,7 @@
         "content_unique_local": 4,
         "dedicated_unique_local": 4,
         "manual_folder_unique_local": 4,
-        "reused_unique_local": 3,
+        "reused_unique_local": 0,
         "target_unique_local_minimum": 2,
         "target_dedicated_unique_local": 3,
         "major_workflow_target_unique_local": 4,
@@ -239,11 +103,7 @@
           "client/src/assets/images/help/pos/nexo-checkout-drawer.png",
           "client/src/assets/images/help/pos/receipt-summary.png"
         ],
-        "reused_paths": [
-          "client/src/assets/images/help/pos/register-dashboard.png",
-          "client/src/assets/images/help/pos/cart-with-lines.png",
-          "client/src/assets/images/help/pos/nexo-checkout-drawer.png"
-        ]
+        "reused_paths": []
       },
       "required_buckets": [
         {
@@ -1086,8 +946,8 @@
       "screenshots": {
         "local_refs": 3,
         "unique_local": 3,
-        "content_unique_local": 2,
-        "dedicated_unique_local": 2,
+        "content_unique_local": 3,
+        "dedicated_unique_local": 3,
         "manual_folder_unique_local": 3,
         "reused_unique_local": 0,
         "target_unique_local_minimum": 2,
@@ -1142,9 +1002,7 @@
       "numbered_steps": 8,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": [
-        "Add dedicated workflow screenshots under client/src/assets/images/help/customers-workspace/; target 3-4."
-      ]
+      "warnings": []
     },
     {
       "id": "customers-podium-messaging-inbox-section",
@@ -1484,8 +1342,8 @@
       "screenshots": {
         "local_refs": 3,
         "unique_local": 3,
-        "content_unique_local": 1,
-        "dedicated_unique_local": 1,
+        "content_unique_local": 3,
+        "dedicated_unique_local": 3,
         "manual_folder_unique_local": 3,
         "reused_unique_local": 0,
         "target_unique_local_minimum": 2,
@@ -1540,9 +1398,7 @@
       "numbered_steps": 6,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": [
-        "Add dedicated workflow screenshots under client/src/assets/images/help/inventory-bulk-bar/; target 3-4."
-      ]
+      "warnings": []
     },
     {
       "id": "inventory-control-board",
@@ -1552,8 +1408,8 @@
       "screenshots": {
         "local_refs": 3,
         "unique_local": 3,
-        "content_unique_local": 1,
-        "dedicated_unique_local": 1,
+        "content_unique_local": 3,
+        "dedicated_unique_local": 3,
         "manual_folder_unique_local": 3,
         "reused_unique_local": 0,
         "target_unique_local_minimum": 2,
@@ -1608,9 +1464,7 @@
       "numbered_steps": 4,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": [
-        "Add dedicated workflow screenshots under client/src/assets/images/help/inventory-control-board/; target 3-4."
-      ]
+      "warnings": []
     },
     {
       "id": "inventory-workspace",
@@ -1620,8 +1474,8 @@
       "screenshots": {
         "local_refs": 3,
         "unique_local": 3,
-        "content_unique_local": 1,
-        "dedicated_unique_local": 1,
+        "content_unique_local": 3,
+        "dedicated_unique_local": 3,
         "manual_folder_unique_local": 3,
         "reused_unique_local": 0,
         "target_unique_local_minimum": 2,
@@ -1676,9 +1530,7 @@
       "numbered_steps": 6,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": [
-        "Add dedicated workflow screenshots under client/src/assets/images/help/inventory-workspace/; target 3-4."
-      ]
+      "warnings": []
     },
     {
       "id": "inventory-physical-inventory-workspace",
@@ -1688,8 +1540,8 @@
       "screenshots": {
         "local_refs": 3,
         "unique_local": 3,
-        "content_unique_local": 2,
-        "dedicated_unique_local": 2,
+        "content_unique_local": 3,
+        "dedicated_unique_local": 3,
         "manual_folder_unique_local": 3,
         "reused_unique_local": 0,
         "target_unique_local_minimum": 2,
@@ -1744,9 +1596,7 @@
       "numbered_steps": 8,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": [
-        "Add dedicated workflow screenshots under client/src/assets/images/help/inventory-physical-inventory-workspace/; target 3-4."
-      ]
+      "warnings": []
     },
     {
       "id": "inventory-product-hub-drawer",
@@ -1756,8 +1606,8 @@
       "screenshots": {
         "local_refs": 3,
         "unique_local": 3,
-        "content_unique_local": 1,
-        "dedicated_unique_local": 1,
+        "content_unique_local": 3,
+        "dedicated_unique_local": 3,
         "manual_folder_unique_local": 3,
         "reused_unique_local": 0,
         "target_unique_local_minimum": 2,
@@ -1812,9 +1662,7 @@
       "numbered_steps": 15,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": [
-        "Add dedicated workflow screenshots under client/src/assets/images/help/inventory-product-hub-drawer/; target 3-4."
-      ]
+      "warnings": []
     },
     {
       "id": "inventory-product-master-form",
@@ -1824,8 +1672,8 @@
       "screenshots": {
         "local_refs": 3,
         "unique_local": 3,
-        "content_unique_local": 2,
-        "dedicated_unique_local": 2,
+        "content_unique_local": 3,
+        "dedicated_unique_local": 3,
         "manual_folder_unique_local": 3,
         "reused_unique_local": 0,
         "target_unique_local_minimum": 2,
@@ -1880,9 +1728,7 @@
       "numbered_steps": 8,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": [
-        "Add dedicated workflow screenshots under client/src/assets/images/help/inventory-product-master-form/; target 3-4."
-      ]
+      "warnings": []
     },
     {
       "id": "inventory-purchase-order-panel",
@@ -1892,8 +1738,8 @@
       "screenshots": {
         "local_refs": 3,
         "unique_local": 3,
-        "content_unique_local": 1,
-        "dedicated_unique_local": 1,
+        "content_unique_local": 3,
+        "dedicated_unique_local": 3,
         "manual_folder_unique_local": 3,
         "reused_unique_local": 0,
         "target_unique_local_minimum": 2,
@@ -1948,9 +1794,7 @@
       "numbered_steps": 8,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": [
-        "Add dedicated workflow screenshots under client/src/assets/images/help/inventory-purchase-order-panel/; target 3-4."
-      ]
+      "warnings": []
     },
     {
       "id": "inventory-receiving-bay",
@@ -1960,8 +1804,8 @@
       "screenshots": {
         "local_refs": 3,
         "unique_local": 3,
-        "content_unique_local": 1,
-        "dedicated_unique_local": 1,
+        "content_unique_local": 3,
+        "dedicated_unique_local": 3,
         "manual_folder_unique_local": 3,
         "reused_unique_local": 0,
         "target_unique_local_minimum": 2,
@@ -2016,9 +1860,7 @@
       "numbered_steps": 6,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": [
-        "Add dedicated workflow screenshots under client/src/assets/images/help/inventory-receiving-bay/; target 3-4."
-      ]
+      "warnings": []
     },
     {
       "id": "inventory-universal-importer",
@@ -2028,8 +1870,8 @@
       "screenshots": {
         "local_refs": 3,
         "unique_local": 3,
-        "content_unique_local": 1,
-        "dedicated_unique_local": 1,
+        "content_unique_local": 3,
+        "dedicated_unique_local": 3,
         "manual_folder_unique_local": 3,
         "reused_unique_local": 0,
         "target_unique_local_minimum": 2,
@@ -2084,9 +1926,7 @@
       "numbered_steps": 6,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": [
-        "Add dedicated workflow screenshots under client/src/assets/images/help/inventory-universal-importer/; target 3-4."
-      ]
+      "warnings": []
     },
     {
       "id": "inventory-vendor-hub",
@@ -2096,8 +1936,8 @@
       "screenshots": {
         "local_refs": 3,
         "unique_local": 3,
-        "content_unique_local": 1,
-        "dedicated_unique_local": 1,
+        "content_unique_local": 3,
+        "dedicated_unique_local": 3,
         "manual_folder_unique_local": 3,
         "reused_unique_local": 0,
         "target_unique_local_minimum": 2,
@@ -2152,9 +1992,7 @@
       "numbered_steps": 5,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": [
-        "Add dedicated workflow screenshots under client/src/assets/images/help/inventory-vendor-hub/; target 3-4."
-      ]
+      "warnings": []
     },
     {
       "id": "layout-backoffice-sign-in-gate",
@@ -2230,8 +2068,8 @@
       "screenshots": {
         "local_refs": 3,
         "unique_local": 3,
-        "content_unique_local": 1,
-        "dedicated_unique_local": 1,
+        "content_unique_local": 3,
+        "dedicated_unique_local": 3,
         "manual_folder_unique_local": 3,
         "reused_unique_local": 0,
         "target_unique_local_minimum": 2,
@@ -2286,9 +2124,7 @@
       "numbered_steps": 12,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": [
-        "Add dedicated workflow screenshots under client/src/assets/images/help/inventory-variations-workspace/; target 3-4."
-      ]
+      "warnings": []
     },
     {
       "id": "layout-pos-shell",
@@ -2628,8 +2464,8 @@
       "screenshots": {
         "local_refs": 3,
         "unique_local": 3,
-        "content_unique_local": 2,
-        "dedicated_unique_local": 2,
+        "content_unique_local": 3,
+        "dedicated_unique_local": 3,
         "manual_folder_unique_local": 3,
         "reused_unique_local": 0,
         "target_unique_local_minimum": 2,
@@ -2684,9 +2520,7 @@
       "numbered_steps": 19,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": [
-        "Add dedicated workflow screenshots under client/src/assets/images/help/notifications-notification-center-drawer/; target 3-4."
-      ]
+      "warnings": []
     },
     {
       "id": "operations-operational-home",
@@ -3093,19 +2927,23 @@
         "local_refs": 3,
         "unique_local": 3,
         "content_unique_local": 3,
-        "dedicated_unique_local": 0,
-        "manual_folder_unique_local": 0,
-        "reused_unique_local": 3,
+        "dedicated_unique_local": 3,
+        "manual_folder_unique_local": 3,
+        "reused_unique_local": 0,
         "target_unique_local_minimum": 2,
         "target_dedicated_unique_local": 3,
         "major_workflow_target_unique_local": 4,
-        "dedicated_paths": [],
-        "manual_folder_paths": [],
-        "reused_paths": [
-          "client/src/assets/images/help/pos/register-dashboard.png",
-          "client/src/assets/images/help/pos/cart-with-lines.png",
-          "client/src/assets/images/help/pos/nexo-checkout-drawer.png"
-        ]
+        "dedicated_paths": [
+          "client/src/assets/images/help/pos-nexo-checkout-drawer/workflow-1.png",
+          "client/src/assets/images/help/pos-nexo-checkout-drawer/workflow-2.png",
+          "client/src/assets/images/help/pos-nexo-checkout-drawer/workflow-3.png"
+        ],
+        "manual_folder_paths": [
+          "client/src/assets/images/help/pos-nexo-checkout-drawer/workflow-1.png",
+          "client/src/assets/images/help/pos-nexo-checkout-drawer/workflow-2.png",
+          "client/src/assets/images/help/pos-nexo-checkout-drawer/workflow-3.png"
+        ],
+        "reused_paths": []
       },
       "required_buckets": [
         {
@@ -3144,9 +2982,7 @@
       "numbered_steps": 4,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": [
-        "Add dedicated workflow screenshots under client/src/assets/images/help/pos-nexo-checkout-drawer/; target 3-4."
-      ]
+      "warnings": []
     },
     {
       "id": "pos-shipping-manual",
@@ -3354,8 +3190,8 @@
       "screenshots": {
         "local_refs": 3,
         "unique_local": 3,
-        "content_unique_local": 1,
-        "dedicated_unique_local": 1,
+        "content_unique_local": 3,
+        "dedicated_unique_local": 3,
         "manual_folder_unique_local": 3,
         "reused_unique_local": 0,
         "target_unique_local_minimum": 2,
@@ -3410,9 +3246,7 @@
       "numbered_steps": 8,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": [
-        "Add dedicated workflow screenshots under client/src/assets/images/help/pos-procurement-hub/; target 3-4."
-      ]
+      "warnings": []
     },
     {
       "id": "pos-receipt-summary-modal",
