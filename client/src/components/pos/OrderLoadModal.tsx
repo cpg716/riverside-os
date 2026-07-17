@@ -239,7 +239,7 @@ export default function OrderLoadModal({
       customer_id: customerId,
       limit: "25",
       record_scope: "orders",
-      status_scope: "all",
+      status_scope: "open",
     });
     if (registerSessionId) params.set("register_session_id", registerSessionId);
     fetch(`${baseUrl}/api/transactions?${params.toString()}`, {

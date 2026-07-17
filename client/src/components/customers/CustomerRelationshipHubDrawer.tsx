@@ -2375,7 +2375,7 @@ export function CustomerRelationshipHubDrawer({
             <p className="mb-3 text-xs text-app-text-muted">
               {tab === "transactions"
                 ? "Customer notes, visits, and past purchases stay together here. Complete sale records include takeaways, gift cards, alterations, payments, refunds, and order payments."
-                : "Open and recent special orders, custom work, and wedding items for this customer."}{" "}
+                : "All special orders, custom work, and wedding items for this customer, including fulfilled records."}{" "}
               Showing {customer.first_name} {customer.last_name} ·{" "}
               {customer.customer_code}
             </p>

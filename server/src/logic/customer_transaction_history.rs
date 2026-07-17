@@ -104,7 +104,10 @@ pub async fn query_customer_transaction_history(
                 SELECT 1
                 FROM transaction_lines
                 WHERE transaction_id = o.id
-                  AND fulfillment::text IN ('special_order', 'custom', 'wedding_order')
+                  AND (
+                      fulfillment_order_id IS NOT NULL
+                      OR fulfillment::text IN ('special_order', 'custom', 'wedding_order')
+                  )
             ) AS is_fulfillment_order,
             o.is_counterpoint_import,
             CASE
@@ -190,9 +193,9 @@ pub async fn query_customer_transaction_history(
             );
         }
         CustomerHistoryRecordScope::Orders => {
-            // Orders are only unfulfilled fulfillment work: Special, Custom, Wedding, and Counterpoint open docs.
+            // Customer Hub Orders includes the complete order record regardless of lifecycle status.
             qb.push(
-                " AND (o.counterpoint_doc_ref IS NOT NULL OR EXISTS(SELECT 1 FROM transaction_lines tl_scope WHERE tl_scope.transaction_id = o.id AND tl_scope.fulfillment::text IN ('special_order', 'custom', 'wedding_order'))) ",
+                " AND (o.counterpoint_doc_ref IS NOT NULL OR EXISTS(SELECT 1 FROM transaction_lines tl_scope WHERE tl_scope.transaction_id = o.id AND (tl_scope.fulfillment_order_id IS NOT NULL OR tl_scope.fulfillment::text IN ('special_order', 'custom', 'wedding_order')))) ",
             );
         }
     }

@@ -52,7 +52,7 @@ Each sub-section distinguishes:
 - **Failed sub-load:** that section could not load and shows a quiet degraded message.
 - **Successful empty:** the section loaded and has no matching records.
 
-This applies to Transaction Records, fulfillment-order work, alterations, loyalty activity, messages, measurements, and timeline.
+This applies to Transaction Records, fulfillment-order work, alterations, loyalty activity, messages, measurements, and timeline. The **Orders** tab always keeps the customer's order records, including fulfilled and cancelled orders, and shows their current status. The POS order loader is a separate operational picker and intentionally shows open orders only.
 
 Wedding split deposits are visible on the beneficiary member's customer profile. If the member already has an open Transaction Record, History shows the amount allocated to that member rather than the payer's combined party tender. If the member has no open Transaction Record yet, the profile shows **Deposit waiting** and History records the wedding deposit amount and payer name. Applying that held deposit later adds a separate deposit-applied entry.
 
