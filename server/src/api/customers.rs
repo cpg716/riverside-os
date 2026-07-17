@@ -3321,6 +3321,7 @@ async fn list_rms_charge_records(
                     OR c.customer_code ILIKE $9 ESCAPE '\'
                     OR CONCAT(COALESCE(c.first_name, ''), ' ', COALESCE(c.last_name, '')) ILIKE $9 ESCAPE '\'
                     OR r.order_short_ref ILIKE $9 ESCAPE '\'
+                    OR r.host_reference ILIKE $9 ESCAPE '\'
                     OR r.payment_method ILIKE $9 ESCAPE '\'
                   )
                 ORDER BY r.created_at DESC
@@ -3450,6 +3451,7 @@ async fn list_rms_charge_records(
                     c.customer_code ILIKE $8 ESCAPE '\'
                     OR CONCAT(COALESCE(c.first_name, ''), ' ', COALESCE(c.last_name, '')) ILIKE $8 ESCAPE '\'
                     OR r.order_short_ref ILIKE $8 ESCAPE '\'
+                    OR r.host_reference ILIKE $8 ESCAPE '\'
                     OR r.payment_method ILIKE $8 ESCAPE '\'
                   )
                 ORDER BY r.created_at DESC

@@ -217,6 +217,8 @@ export async function resetOpenRegisterSessions(request: APIRequestContext) {
     );
   }
   const reconciliation = (await reconRes.json()) as { expected_cash: string };
+  const expectedCash = reconciliation.expected_cash.trim();
+  const actualCash = expectedCash.startsWith("-") ? "0.00" : expectedCash;
   const closeRes = await request.post(`${apiBase()}/api/sessions/${sessionId}/close`, {
       headers: {
         "Content-Type": "application/json",
@@ -225,9 +227,13 @@ export async function resetOpenRegisterSessions(request: APIRequestContext) {
         "x-riverside-station-key": "station-e2e",
       },
       data: {
-        actual_cash: reconciliation.expected_cash,
-        closing_notes: "E2E RMS permissions reset",
-        closing_comments: "E2E RMS permissions reset",
+        actual_cash: actualCash,
+        closing_notes: actualCash === expectedCash
+          ? "E2E RMS permissions reset"
+          : "E2E RMS permissions reset; negative expected cash clamped to zero",
+        closing_comments: actualCash === expectedCash
+          ? "E2E RMS permissions reset"
+          : "E2E RMS permissions reset; negative expected cash clamped to zero",
       },
       failOnStatusCode: false,
     });

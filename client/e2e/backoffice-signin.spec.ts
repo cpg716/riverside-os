@@ -149,7 +149,9 @@ test.describe("Back Office sign-in gate", () => {
   test("Switch staff returns to sign-in", async ({ page, request }) => {
     await closeOpenRegisterSessions(request);
     await signInToBackOffice(page);
-    const userMenuButton = page.locator('button[aria-haspopup="true"]').last();
+    const userMenuButton = page.getByRole("button", {
+      name: /open staff profile menu/i,
+    });
     await expect(userMenuButton).toBeVisible({ timeout: 15_000 });
     await userMenuButton.click();
     await page.getByRole("button", { name: /change staff member/i }).click();
