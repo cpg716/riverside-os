@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - **Refund and Exchange Financial Integrity**: Linked Helcim refunds now verify the current V2 transaction and card-batch state, reverse full open-batch charges, refund closed-batch charges, and defer return/inventory writes until provider approval. Card-funded exchanges preserve the completed exchange and leave a failed remainder visible for retry; refund APIs reject unsupported synthetic tenders; check refunds retain the check number; Staff Account refunds reduce receivables; manager-confirmed RMS/R2S refunds update both the negative payment ledger and linked RMS Charge records; and QBO clears return liabilities for the real negative RMS and Staff Account tenders.
+- **Windows Release Compiler Resilience**: The long standalone Main Hub server build now compiles without the optional remote compiler wrapper, matching the Register updater build and preventing a dropped `sccache` connection from discarding an otherwise valid release compile.
 - **Fulfillment-Day QBO Shipping Balance**: Shipping revenue recognized after the tender day now releases the matching prepaid shipping amount from deposit liability, preventing fulfillment journals from crediting shipping income without the corresponding debit.
 - **Payments Dashboard Read Path**: Added provider/reference indexes for Helcim payment history and settlement reconciliation joins to reduce slow dashboard queries as payment history grows.
 - **Connection Failure Diagnostics**: Server-error logs now include the method and URI that produced the failure, and the Register connection banner requires two consecutive failed health probes so one transient timeout does not interrupt staff work.
@@ -40,7 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - **Payment, tax, and receipt follow-up**: Hardened card-not-present approval recovery and sale linking, normalized card tender reporting, added post-payment gift-card balances to receipts and Receipt Builder placement tokens, and made explicit single-line tax-status overrides server-authoritative without stale client tax mismatches blocking valid sales.
 - **PostgreSQL 16 Operations Guidance**: Updated replication and WAL paths to the deployed PostgreSQL 16 baseline and replaced obsolete `recovery.conf` instructions with `standby.signal` guidance.
-- **v0.95.0 Release Evidence**: Updated README, release notes, certification, and deployment checklist to the current published build `efe5e234`, current Windows/macOS release evidence, fresh updater-manifest verification, the ROSIE-preserving replacement deployment ZIP, and the remaining physical Main Hub verification hold.
+- **v0.95.0 Release Evidence**: Updated README, release notes, certification, and deployment guidance for the current replacement source, exact-commit local/CI evidence, the ROSIE-preserving Windows deployment package, and the remaining physical Main Hub verification hold.
 
 ## [0.95.0] - 2026-07-11
 

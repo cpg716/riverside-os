@@ -460,7 +460,13 @@ jobs:
           echo "SCCACHE_GHA_ENABLED=false" >> "$GITHUB_ENV"
       - name: Build Windows server binary
         shell: pwsh
-        run: cargo build --release --manifest-path server/Cargo.toml
+        run: |
+          # This is the longest standalone Rust compile in the deployment build.
+          # Keep it off the remote compiler cache so a dropped sccache connection
+          # cannot discard an otherwise valid release build.
+          Remove-Item Env:RUSTC_WRAPPER -ErrorAction SilentlyContinue
+          $env:SCCACHE_GHA_ENABLED = "false"
+          cargo build --release --manifest-path server/Cargo.toml
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
