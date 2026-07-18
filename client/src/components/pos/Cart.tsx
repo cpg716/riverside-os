@@ -4090,6 +4090,12 @@ export default function Cart({
                   : null;
               const refundTender = refundTenders[0] ?? zeroCashRefundTender;
               const refundRemainderCents = pendingReturnTender.refundAmountCents - exchangeCreditAppliedCents;
+              const linkedCardRemainder =
+                refundTender?.method === "card_credit" ||
+                refundTender?.method === "card_present" ||
+                refundTender?.method === "card_terminal" ||
+                refundTender?.method === "card_manual" ||
+                refundTender?.method === "card_saved";
               try {
                 const settlementRes = await fetch(
                   `${baseUrl}/api/transactions/${encodeURIComponent(pendingReturnTender.originalTransactionId)}/exchange-settlement`,
@@ -4109,7 +4115,7 @@ export default function Cart({
                         reason: line.reason ?? "exchange",
                         restock: line.restock ?? undefined,
                       })),
-                      refund_remainder: refundTender
+                      refund_remainder: refundTender && !linkedCardRemainder
                         ? {
                             payment_method: refundTender.method,
                             amount: centsToFixed2(refundRemainderCents),
@@ -4127,13 +4133,41 @@ export default function Cart({
                   toast(payload.error ?? "Exchange settlement failed after recording the replacement sale.", "error");
                   return;
                 }
+                let cardRefundPending = false;
+                if (refundTender && linkedCardRemainder && refundRemainderCents > 0) {
+                  const cardRefundRes = await fetch(
+                    `${baseUrl}/api/transactions/${encodeURIComponent(pendingReturnTender.originalTransactionId)}/refunds/process`,
+                    {
+                      method: "POST",
+                      headers: {
+                        ...apiAuth(),
+                        "Content-Type": "application/json",
+                      },
+                      body: JSON.stringify({
+                        session_id: sessionId,
+                        payment_method: refundTender.method,
+                        amount: centsToFixed2(refundRemainderCents),
+                      }),
+                    },
+                  );
+                  if (!cardRefundRes.ok) {
+                    const payload = (await cardRefundRes.json().catch(() => ({}))) as { error?: string };
+                    cardRefundPending = true;
+                    toast(
+                      `${payload.error ?? "The original-card refund needs attention."} The exchange and inventory return were saved; retry the remaining refund from the refund queue.`,
+                      "error",
+                    );
+                  }
+                }
                 setLastReceiptOrderPaymentLines([]);
                 setLastReceiptExchangeReturnTransactionId(pendingReturnTender.originalTransactionId);
                 setLastReceiptTransactionLineIds([]);
                 setCheckoutTransactionId(replacementTransactionId);
                 clearCartAndAlterations();
                 setCheckoutDrawerOpen(false);
-                toast(`Exchange settled for ${pendingReturnTender.receiptLabel}.`, "success");
+                if (!cardRefundPending) {
+                  toast(`Exchange settled for ${pendingReturnTender.receiptLabel}.`, "success");
+                }
               } catch {
                 toast("Exchange settlement failed. Check the API connection before retrying.", "error");
               }

@@ -1064,6 +1064,7 @@ export default function OrdersWorkspace({
   const [refundAmountStr, setRefundAmountStr] = useState("");
   const [refundMethod, setRefundMethod] = useState("cash");
   const [refundGiftCode, setRefundGiftCode] = useState("");
+  const [refundCheckNumber, setRefundCheckNumber] = useState("");
   const [refundExternalReference, setRefundExternalReference] = useState("");
   const [refundManagerReason, setRefundManagerReason] = useState("");
   const [refundManagerAccessOpen, setRefundManagerAccessOpen] = useState(false);
@@ -1648,9 +1649,13 @@ export default function OrdersWorkspace({
   const submitProcessRefund = async (managerApproval?: { managerStaffId: string; managerPin: string }) => {
     if (!refundTargetOrderId || !canRefund) return;
     const manualHelcimRefund = refundMethod === "card_terminal_manual";
-    if (manualHelcimRefund && !managerApproval) {
+    const rmsRefund = refundMethod === "on_account_rms" || refundMethod === "on_account_rms90";
+    const externallyCompletedRefund = manualHelcimRefund || rmsRefund;
+    if (externallyCompletedRefund && !managerApproval) {
       if (!refundExternalReference.trim()) {
-        toast("Enter the Helcim refund reference before recording the backend refund.", "error");
+        toast(rmsRefund
+          ? "Enter the RMS Charge refund reference before recording the refund."
+          : "Enter the Helcim refund reference before recording the backend refund.", "error");
         return;
       }
       if (!refundManagerReason.trim()) {
@@ -1687,10 +1692,17 @@ export default function OrdersWorkspace({
         payment_method: refundMethod.trim(),
         amount: centsToFixed2(amtCents),
       };
+      if (refundMethod === "check") {
+        if (!refundCheckNumber.trim()) {
+          toast("Enter the refund check number.", "error");
+          return;
+        }
+        body.check_number = refundCheckNumber.trim();
+      }
       if (refundMethod.toLowerCase().includes("gift")) {
         body.gift_card_code = refundGiftCode.trim();
       }
-      if (manualHelcimRefund && managerApproval) {
+      if (externallyCompletedRefund && managerApproval) {
         body.manager_staff_id = managerApproval.managerStaffId;
         body.manager_pin = managerApproval.managerPin;
         body.manager_reason = refundManagerReason.trim();
@@ -1714,6 +1726,7 @@ export default function OrdersWorkspace({
       setRefundManagerAccessOpen(false);
       setRefundExternalReference("");
       setRefundManagerReason("");
+      setRefundCheckNumber("");
       if (detail?.transaction_id === refundTargetOrderId)
         await loadDetail(refundTargetOrderId);
       await loadTransactions();
@@ -2384,6 +2397,8 @@ export default function OrdersWorkspace({
         setMethod={setRefundMethod}
         giftCode={refundGiftCode}
         setGiftCode={setRefundGiftCode}
+        checkNumber={refundCheckNumber}
+        setCheckNumber={setRefundCheckNumber}
         externalRefundReference={refundExternalReference}
         setExternalRefundReference={setRefundExternalReference}
         managerReason={refundManagerReason}
@@ -2393,7 +2408,9 @@ export default function OrdersWorkspace({
         isOpen={refundManagerAccessOpen}
         onClose={() => setRefundManagerAccessOpen(false)}
         title="Manager Access"
-        message="Record this only after the refund was processed in the Helcim backend. The Helcim reference and Manager Access approval will be saved to the register audit trail."
+        message={refundMethod === "on_account_rms" || refundMethod === "on_account_rms90"
+          ? "Record this only after the refund was completed in RMS/R2S. The external reference and Manager Access approval will be saved to the financial and RMS audit trails."
+          : "Record this only after the refund was processed in the Helcim backend. The Helcim reference and Manager Access approval will be saved to the register audit trail."}
         onApprove={async (pin, managerId) => {
           await submitProcessRefund({ managerStaffId: managerId, managerPin: pin });
           return false;

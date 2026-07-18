@@ -4,7 +4,7 @@ title: "Payments Operations"
 order: 85
 summary: "Review Helcim transactions, batches, deposits, reconciliation issues, and payment health without changing processor truth."
 source: client/src/components/payments/PaymentsWorkspace.tsx
-last_scanned: 2026-07-15
+last_scanned: 2026-07-17
 tags: payments, helcim, batches, deposits, reconciliation, terminal, refunds
 status: approved
 ---
@@ -113,7 +113,7 @@ ROS refuses recovery when the target is missing, closed, belongs to no customer,
 - Never retry blindly after a terminal approval that Riverside has not attached.
 - Approved provider payments cannot be removed, parked, or cleared from the active sale. Record the sale or use the audited recovery/refund workflow.
 - Never use paid-sale recovery to force a near match. The exact retained-cart banner must be present.
-- Standalone processor refunds do not automatically create a sales return or rewrite merchandise history.
+- Standalone processor refunds verify the Helcim batch before sending, retain the original provider transaction on the audit attempt, and cap later ROS attempts to the remaining tracked amount. They do not automatically create a sales return or rewrite merchandise history.
 - Do not resolve a reconciliation warning merely to make the dashboard green.
 
 ## What happens next

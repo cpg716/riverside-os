@@ -252,7 +252,9 @@ export default function GlobalTopBar({
 
         {/* Global Action Cluster */}
         <div className="flex items-center gap-1.5 border-r border-app-border pr-2 sm:gap-2 sm:pr-3 md:mr-1">
-          {onOpenRosie ? <RosieTriggerButton onOpen={onOpenRosie} /> : null}
+          {onOpenRosie ? (
+            <RosieTriggerButton onOpen={onOpenRosie} className="hidden min-[480px]:inline-flex" />
+          ) : null}
           {onOpenHelp ? <HelpCenterTriggerButton onOpen={onOpenHelp} className="hidden min-[480px]:inline-flex" /> : null}
           {onOpenBugReport ? <BugReportTriggerButton onOpen={onOpenBugReport} className="hidden min-[480px]:inline-flex" /> : null}
 

@@ -195,6 +195,47 @@ pub struct HelcimFeeDetails {
     pub source_field: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HelcimCardReturnAction {
+    Refund,
+    Reverse,
+}
+
+pub fn card_return_action(
+    batch_status: Option<&str>,
+    original_amount_cents: i64,
+    requested_amount_cents: i64,
+    already_refunded_cents: i64,
+) -> Result<HelcimCardReturnAction, String> {
+    let status = batch_status
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "Helcim card batch status is unavailable; no refund was sent".to_string())?
+        .to_ascii_lowercase();
+    let open_batch = matches!(status.as_str(), "open" | "opened" | "active" | "pending");
+    let closed_batch = matches!(
+        status.as_str(),
+        "closed" | "settled" | "completed" | "deposited"
+    );
+    if closed_batch {
+        return Ok(HelcimCardReturnAction::Refund);
+    }
+    if open_batch && already_refunded_cents == 0 && requested_amount_cents == original_amount_cents
+    {
+        return Ok(HelcimCardReturnAction::Reverse);
+    }
+    if open_batch {
+        Err(
+            "Helcim only permits a full reversal while the original card batch is open. Close the batch before issuing a partial refund."
+                .to_string(),
+        )
+    } else {
+        Err(format!(
+            "Helcim card batch status `{status}` is not recognized as open or closed; no refund was sent"
+        ))
+    }
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct HelcimCardBatchSnapshot {
     pub provider_batch_id: String,
@@ -2232,5 +2273,29 @@ mod tests {
     fn provider_idempotency_key_preserves_valid_provider_key() {
         let provider_key = "11111111-1111-4111-8111-111111111111";
         assert_eq!(provider_idempotency_key(provider_key), provider_key);
+    }
+
+    #[test]
+    fn card_return_action_reverses_only_full_open_batch_charge() {
+        assert_eq!(
+            card_return_action(Some("open"), 10_000, 10_000, 0).expect("full reverse"),
+            HelcimCardReturnAction::Reverse
+        );
+        assert!(card_return_action(Some("open"), 10_000, 5_000, 0).is_err());
+        assert!(card_return_action(Some("open"), 10_000, 5_000, 5_000).is_err());
+    }
+
+    #[test]
+    fn card_return_action_refunds_closed_batch_and_fails_without_status() {
+        assert_eq!(
+            card_return_action(Some("closed"), 10_000, 2_500, 0).expect("closed batch refund"),
+            HelcimCardReturnAction::Refund
+        );
+        assert_eq!(
+            card_return_action(Some("settled"), 10_000, 2_500, 0).expect("settled batch refund"),
+            HelcimCardReturnAction::Refund
+        );
+        assert!(card_return_action(None, 10_000, 2_500, 0).is_err());
+        assert!(card_return_action(Some("unknown"), 10_000, 2_500, 0).is_err());
     }
 }

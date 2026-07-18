@@ -911,6 +911,8 @@ pub struct HelcimCardRefundRequestBody {
     pub register_session_id: Option<Uuid>,
     #[serde(default)]
     pub idempotency_key: Option<String>,
+    #[serde(default)]
+    pub checkout_client_id: Option<Uuid>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -8437,10 +8439,10 @@ async fn process_helcim_card_refund(
         }
         middleware::StaffOrPosSession::PosSession { session_id } => (Some(session_id), None),
     };
-    let config = helcim::HelcimConfig::from_env();
     let attempt_id = Uuid::new_v4();
     let idempotency_key = payload
         .idempotency_key
+        .clone()
         .and_then(non_empty_string)
         .unwrap_or_else(|| format!("helcim-card-refund-{attempt_id}"));
     if let Some(existing) = load_helcim_attempt_by_idempotency_key(
@@ -8451,9 +8453,84 @@ async fn process_helcim_card_refund(
     )
     .await?
     {
+        if existing.checkout_client_id != payload.checkout_client_id
+            || existing.amount_cents != payload.amount_cents
+        {
+            return Err(PaymentError::Conflict(
+                "Helcim refund retry does not match the original checkout or amount.".to_string(),
+            ));
+        }
         return Ok(Json(existing));
     }
-
+    let config = helcim::HelcimConfig::from_env();
+    let mut provider_original_transaction_id = payload.original_transaction_id;
+    let mut provider_action = "refund";
+    if !config.simulator_enabled() {
+        let original = helcim::fetch_card_transaction(
+            &state.http_client,
+            &config,
+            &payload.original_transaction_id.to_string(),
+        )
+        .await
+        .map_err(PaymentError::ProviderError)?;
+        if let Some(current_id) = original
+            .transaction_id_string()
+            .and_then(|value| value.parse::<i64>().ok())
+        {
+            provider_original_transaction_id = current_id;
+        }
+        let batch_id = helcim::HelcimFeeDetails::from_card_transaction(&original)
+            .card_batch_id
+            .ok_or_else(|| {
+                PaymentError::ProviderError(
+                    "Helcim transaction lookup did not return a card batch; refund was not sent"
+                        .to_string(),
+                )
+            })?;
+        let batch = helcim::fetch_card_batch(&state.http_client, &config, &batch_id)
+            .await
+            .map_err(PaymentError::ProviderError)?;
+        let original_amount_cents = original.amount_cents().ok_or_else(|| {
+            PaymentError::ProviderError(
+                "Helcim transaction lookup did not return the original amount; refund was not sent"
+                    .to_string(),
+            )
+        })?;
+        let already_returned_cents: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COALESCE(SUM(amount_cents), 0)::bigint
+            FROM payment_provider_attempts
+            WHERE provider = 'helcim'
+              AND status IN ('approved', 'captured')
+              AND provider_transaction_id = $1
+              AND (
+                    raw_audit_reference LIKE 'helcim:cardrefund:%'
+                 OR raw_audit_reference LIKE 'helcim:cardreverse:%'
+              )
+            "#,
+        )
+        .bind(provider_original_transaction_id.to_string())
+        .fetch_one(&state.db)
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+        if payload.amount_cents > original_amount_cents - already_returned_cents {
+            return Err(PaymentError::InvalidPayload(
+                "refund exceeds the remaining amount tracked for the original Helcim transaction"
+                    .to_string(),
+            ));
+        }
+        provider_action = match helcim::card_return_action(
+            batch.status.as_deref(),
+            original_amount_cents,
+            payload.amount_cents,
+            already_returned_cents,
+        )
+        .map_err(PaymentError::InvalidPayload)?
+        {
+            helcim::HelcimCardReturnAction::Refund => "refund",
+            helcim::HelcimCardReturnAction::Reverse => "reverse",
+        };
+    }
     let mut tx = state
         .db
         .begin()
@@ -8464,9 +8541,9 @@ async fn process_helcim_card_refund(
         r#"
         INSERT INTO payment_provider_attempts (
             id, provider, status, amount_cents, currency, register_session_id, staff_id,
-            idempotency_key, provider_transaction_id, raw_audit_reference
+            idempotency_key, provider_transaction_id, raw_audit_reference, checkout_client_id
         )
-        VALUES ($1, 'helcim', 'pending', $2, 'usd', $3, $4, $5, $6, $7)
+        VALUES ($1, 'helcim', 'pending', $2, 'usd', $3, $4, $5, $6, $7, $8)
         "#,
     )
     .bind(attempt_id)
@@ -8474,11 +8551,12 @@ async fn process_helcim_card_refund(
     .bind(register_session_id)
     .bind(staff_id)
     .bind(&idempotency_key)
-    .bind(payload.original_transaction_id.to_string())
+    .bind(provider_original_transaction_id.to_string())
     .bind(format!(
-        "helcim:cardRefund:{}",
-        payload.original_transaction_id
+        "helcim:card{provider_action}:{}",
+        provider_original_transaction_id
     ))
+    .bind(payload.checkout_client_id)
     .execute(&mut *tx)
     .await;
     if let Err(error) = insert_result {
@@ -8492,6 +8570,14 @@ async fn process_helcim_card_refund(
             )
             .await?
             {
+                if existing.checkout_client_id != payload.checkout_client_id
+                    || existing.amount_cents != payload.amount_cents
+                {
+                    return Err(PaymentError::Conflict(
+                        "Helcim refund retry does not match the original checkout or amount."
+                            .to_string(),
+                    ));
+                }
                 return Ok(Json(existing));
             }
         }
@@ -8501,21 +8587,37 @@ async fn process_helcim_card_refund(
         .await
         .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
 
-    let request = helcim::HelcimCardRefundRequest {
-        original_transaction_id: payload.original_transaction_id,
-        amount: cents_to_decimal_string(payload.amount_cents),
-        ip_address: request_ip_address(&headers),
-        ecommerce: false,
-    };
-    let transaction =
-        match helcim::process_card_refund(&state.http_client, &config, request, &idempotency_key)
-            .await
-        {
-            Ok(transaction) => transaction,
-            Err(error) => {
-                let persisted_message = persisted_provider_error(&error);
-                sqlx::query(
-                    r#"
+    let transaction = match if provider_action == "reverse" {
+        helcim::process_card_reverse(
+            &state.http_client,
+            &config,
+            helcim::HelcimCardReverseRequest {
+                card_transaction_id: provider_original_transaction_id,
+                ip_address: request_ip_address(&headers),
+                ecommerce: false,
+            },
+            &format!("{idempotency_key}-reverse"),
+        )
+        .await
+    } else {
+        helcim::process_card_refund(
+            &state.http_client,
+            &config,
+            helcim::HelcimCardRefundRequest {
+                original_transaction_id: provider_original_transaction_id,
+                amount: cents_to_decimal_string(payload.amount_cents),
+                ip_address: request_ip_address(&headers),
+                ecommerce: false,
+            },
+            &idempotency_key,
+        )
+        .await
+    } {
+        Ok(transaction) => transaction,
+        Err(error) => {
+            let persisted_message = persisted_provider_error(&error);
+            sqlx::query(
+                r#"
                 UPDATE payment_provider_attempts
                 SET status = 'failed',
                     error_code = 'request_failed',
@@ -8523,15 +8625,15 @@ async fn process_helcim_card_refund(
                     completed_at = now()
                 WHERE id = $1
                 "#,
-                )
-                .bind(attempt_id)
-                .bind(persisted_message)
-                .execute(&state.db)
-                .await
-                .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
-                return Err(PaymentError::ProviderError(error));
-            }
-        };
+            )
+            .bind(attempt_id)
+            .bind(persisted_message)
+            .execute(&state.db)
+            .await
+            .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+            return Err(PaymentError::ProviderError(error));
+        }
+    };
 
     let status = transaction.normalized_status();
     let provider_transaction_id = transaction.transaction_id_string();
@@ -8550,7 +8652,6 @@ async fn process_helcim_card_refund(
         UPDATE payment_provider_attempts
         SET status = $2,
             provider_payment_id = $3,
-            provider_transaction_id = COALESCE($3, provider_transaction_id),
             error_code = CASE WHEN $2 = 'failed' THEN 'declined' ELSE NULL END,
             error_message = CASE WHEN $2 = 'failed' THEN COALESCE($5, 'Helcim refund was declined.') ELSE NULL END,
             raw_audit_reference = COALESCE($4, raw_audit_reference),

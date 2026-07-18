@@ -215,7 +215,7 @@ export async function ensurePosRegisterSessionOpen(
   const registerNavButton = posNav.getByRole("button", { name: /^register$/i });
   if (!(await registerPanel.isVisible().catch(() => false))) {
     if (await goToRegisterButton.isVisible().catch(() => false)) {
-      await goToRegisterButton.click();
+      await goToRegisterButton.evaluate((button: HTMLButtonElement) => button.click());
     } else if (await registerNavButton.isVisible().catch(() => false)) {
       await registerNavButton.click();
     }
@@ -238,7 +238,7 @@ export async function ensurePosRegisterSessionOpen(
         if (await registerDialog.isVisible().catch(() => false)) return "pin";
         if (await openPrimaryRegisterButton.isVisible().catch(() => false)) return "primary-gate";
         if (await goToRegisterButton.isVisible().catch(() => false)) {
-          await goToRegisterButton.click();
+          await goToRegisterButton.evaluate((button: HTMLButtonElement) => button.click());
           return "waiting";
         }
         if (

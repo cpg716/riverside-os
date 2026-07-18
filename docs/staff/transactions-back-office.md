@@ -65,6 +65,8 @@
 
 - Removing an item from an existing Transaction Record is only for open, unpaid, unfulfilled order lines that are still waiting on measurements or vendor ordering. Once payment, pickup, vendor processing, or completed-sale activity exists, use the trained void, return, refund, exchange, or cancellation workflow so audit and money history stay intact.
 - Use **return lines** / **exchange link** per training — do not bypass **refund queue** rules.
+- Refund to the actual tender: linked Helcim card, cash, check, gift card, Store Credit, Staff Account, or RMS Charge. Check requires the refund check number. RMS Charge requires the completed RMS/R2S reference plus Manager Access. Open Deposit is restored by cancellation/void, not selected as a refund tender.
+- If an exchange finishes but Helcim cannot return a card remainder, the exchange and inventory return remain saved and the unresolved amount stays in the refund queue. Retry that queue item; do not repeat the exchange or manually change inventory.
 - From a Transaction Record, use **Return / Exchange** on an item line to open Register with that customer, transaction, and item already selected. Use **Return All** only when every returnable line on the transaction is coming back.
 - **Void sale** (unpaid mistake carts) differs from **refund after payment** — permission and SOP differ.
 

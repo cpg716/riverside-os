@@ -2101,6 +2101,10 @@ export default function NexoCheckoutDrawer({
 
   const processHelcimApiRefund = useCallback(
     async (amtCents: number, originalTransactionId: number) => {
+      if (!checkoutClientId) {
+        toast("Start a checkout before sending a Helcim refund.", "error");
+        return;
+      }
       setHelcimAttemptLoading(true);
       pendingHelcimCentsRef.current = amtCents;
       pendingHelcimTenderRef.current = {
@@ -2118,6 +2122,7 @@ export default function NexoCheckoutDrawer({
             amount_cents: Math.abs(amtCents),
             original_transaction_id: originalTransactionId,
             register_session_id: registerSessionId ?? undefined,
+            checkout_client_id: checkoutClientId,
           }),
         });
         const body = (await res.json().catch(() => ({}))) as HelcimAttempt | { error?: string };
@@ -2144,7 +2149,7 @@ export default function NexoCheckoutDrawer({
         setHelcimAttemptLoading(false);
       }
     },
-    [addApprovedHelcimAttempt, backofficeHeaders, baseUrl, registerSessionId, toast],
+    [addApprovedHelcimAttempt, backofficeHeaders, baseUrl, checkoutClientId, registerSessionId, toast],
   );
 
   const applyAmountToTab = useCallback(async (keypadCents: number) => {

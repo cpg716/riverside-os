@@ -1363,7 +1363,7 @@ test.describe("QBO audit contract", () => {
     expect(artifacts.payment_rows).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          payment_method: "card_terminal_manual",
+          payment_method: "card_manual",
           metadata: expect.objectContaining({
             kind: "legacy_migration_refund",
             manual_terminal_confirmation: true,

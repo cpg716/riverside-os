@@ -33,6 +33,7 @@ type TransactionArtifacts = {
   balance_due: string;
   payment_rows: Array<{
     payment_method: string;
+    check_number?: string | null;
     metadata: Record<string, unknown>;
   }>;
   allocation_rows: Array<{
@@ -41,6 +42,8 @@ type TransactionArtifacts = {
     amount_allocated: string;
     payment_method: string;
     payment_amount: string;
+    payment_check_number?: string | null;
+    allocation_check_number?: string | null;
   }>;
 };
 
@@ -204,6 +207,7 @@ async function doRefund(
     managerPin?: string;
     managerReason?: string;
     externalRefundReference?: string;
+    checkNumber?: string;
   },
 ): Promise<{ status: number; body: unknown }> {
   const res = await request.post(apiUrl(`/api/transactions/${options.transactionId}/refunds/process`), {
@@ -217,6 +221,7 @@ async function doRefund(
       manager_pin: options.managerPin,
       manager_reason: options.managerReason,
       external_refund_reference: options.externalRefundReference,
+      check_number: options.checkNumber,
     },
     failOnStatusCode: false,
   });
@@ -707,6 +712,74 @@ test.describe("refund split-tender capacity contract", () => {
     expect((refundRow!.metadata as Record<string, unknown>)["transaction_id"]).toBe(checkout.transaction_id);
   });
 
+  test("refund API rejects unsupported tenders before writing a payment", async ({ request }) => {
+    test.setTimeout(60_000);
+    const { sessionId, sessionToken } = await ensureSessionAuth(request);
+    const operatorStaffId = await verifyStaffId(request);
+    const fixture = await seedRmsFixture(request, "single_valid", "Unsupported Refund Tender");
+    const checkout = await doCheckout(request, { sessionId, sessionToken, operatorStaffId, fixture });
+    const lines = await getTransactionLines(request, checkout.transaction_id);
+    await doReturn(request, {
+      transactionId: checkout.transaction_id,
+      sessionId,
+      sessionToken,
+      lineId: lines[0]!.transaction_line_id,
+      qty: 1,
+    });
+
+    const rejected = await doRefund(request, {
+      transactionId: checkout.transaction_id,
+      sessionId,
+      amount: checkout.grossStr,
+      paymentMethod: "synthetic_refund",
+    });
+    expect(rejected.status).toBe(400);
+    expect((rejected.body as { error?: string }).error ?? "").toContain("unsupported refund payment method");
+    const artifacts = await getArtifacts(request, checkout.transaction_id);
+    expect(artifacts.payment_rows.some((row) => row.payment_method === "synthetic_refund")).toBe(false);
+  });
+
+  test("check refunds require and retain the check number", async ({ request }) => {
+    test.setTimeout(60_000);
+    const { sessionId, sessionToken } = await ensureSessionAuth(request);
+    const operatorStaffId = await verifyStaffId(request);
+    const fixture = await seedRmsFixture(request, "single_valid", "Check Refund Evidence");
+    const checkout = await doCheckout(request, { sessionId, sessionToken, operatorStaffId, fixture });
+    const lines = await getTransactionLines(request, checkout.transaction_id);
+    await doReturn(request, {
+      transactionId: checkout.transaction_id,
+      sessionId,
+      sessionToken,
+      lineId: lines[0]!.transaction_line_id,
+      qty: 1,
+    });
+
+    const missing = await doRefund(request, {
+      transactionId: checkout.transaction_id,
+      sessionId,
+      amount: checkout.grossStr,
+      paymentMethod: "check",
+    });
+    expect(missing.status).toBe(400);
+    expect((missing.body as { error?: string }).error ?? "").toContain("check_number");
+
+    const completed = await doRefund(request, {
+      transactionId: checkout.transaction_id,
+      sessionId,
+      amount: checkout.grossStr,
+      paymentMethod: "check",
+      checkNumber: "REF-CHK-417",
+    });
+    expect(completed.status, JSON.stringify(completed.body)).toBe(200);
+    const artifacts = await getArtifacts(request, checkout.transaction_id);
+    expect(artifacts.payment_rows.some((row) => row.payment_method === "check" && row.check_number === "REF-CHK-417")).toBe(true);
+    const refundAllocation = artifacts.allocation_rows.find(
+      (row) => row.payment_method === "check" && row.payment_amount.startsWith("-"),
+    );
+    expect(refundAllocation?.payment_check_number).toBe("REF-CHK-417");
+    expect(refundAllocation?.allocation_check_number).toBe("REF-CHK-417");
+  });
+
   test("legacy/manual card refund recording requires manager authorization", async ({ request }) => {
     test.setTimeout(60_000);
     const { sessionId, sessionToken } = await ensureSessionAuth(request);
@@ -795,7 +868,7 @@ test.describe("refund split-tender capacity contract", () => {
 
     const artifacts = await getArtifacts(request, checkout.transaction_id);
     const manualRow = artifacts.payment_rows.find(
-      (r) => r.payment_method === "card_terminal_manual",
+      (r) => r.payment_method === "card_manual",
     );
     expect(manualRow).toBeTruthy();
     expect(manualRow!.metadata.kind).toBe("external_helcim_refund");

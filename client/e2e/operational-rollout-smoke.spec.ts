@@ -329,7 +329,9 @@ test.describe("operational rollout smoke", () => {
     await checkoutDrawer.getByRole("button", { name: /full balance/i }).click();
     await checkoutDrawer.getByRole("button", { name: /add payment/i }).click();
     await checkoutDrawer.getByTestId("pos-finalize-checkout").click();
-    await expect(page.getByText(/sale complete/i)).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole("heading", { name: "Payment recorded" })).toBeVisible({
+      timeout: 20_000,
+    });
 
     expect(checkoutBody).toMatchObject({
       customer_id: CUSTOMER.id,

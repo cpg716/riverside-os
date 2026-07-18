@@ -129,6 +129,8 @@ Technical reference for engineers and leads: **[Parked sales and RMS charges](..
 4. **Integrated card payments:**
    - Card payments use the Helcim terminal flow.
    - **Card Refund** appears only when ROS already has the original Helcim payment reference for the refund. In a guided return or exchange, choose **Card Not Present** to stage the refund; ROS processes Helcim and the refund ledger together at final settlement. Staff do not enter Helcim invoice, provider, or transaction IDs.
+   - ROS verifies the current Helcim transaction and batch before sending the card action. A full open-batch charge is reversed; a closed-batch charge is refunded. Returned inventory is not committed before provider approval. If a card remainder fails after an exchange, the exchange stays saved and the remaining amount stays in the refund queue for retry.
+   - **Check refund** requires the refund check number. **Staff Account refund** reduces the employee receivable. **RMS Charge refund** must be completed in RMS/R2S first and then recorded with the external reference, reason, and Manager Access approval. **Open Deposit** is restored through cancellation/void instead of being selected as a refund tender.
    - See **[`pos-nexo-checkout-drawer-manual.md`](../../client/src/assets/docs/pos-nexo-checkout-drawer-manual.md)** for full details.
 5. **Audited Tax Exemptions:**
    - For tax-free sales, tap the **Tax Exempt** toggle in the checkout drawer.

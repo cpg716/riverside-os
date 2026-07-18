@@ -44,6 +44,7 @@ use crate::logic::receipt_escpos;
 use crate::logic::receipt_plain_text;
 use crate::logic::receipt_shared;
 use crate::logic::receipt_studio_html;
+use crate::logic::staff_accounts;
 use crate::logic::store_credit;
 use crate::logic::suit_component_swap::{self, SuitSwapInput, SuitSwapOutcome};
 use crate::logic::tax::{erie_local_tax_usd, nys_state_tax_usd, round_money_usd, TaxCategory};
@@ -1143,6 +1144,30 @@ mod tests {
     }
 
     #[test]
+    fn refund_payment_method_rejects_synthetic_or_unknown_tenders() {
+        for method in ["open_deposit", "donation", "synthetic", ""] {
+            assert!(RefundPaymentMethod::parse(method).is_err(), "{method}");
+        }
+    }
+
+    #[test]
+    fn check_refund_requires_instrument_number() {
+        assert!(required_refund_check_number(RefundPaymentMethod::Check, None).is_err());
+        assert_eq!(
+            required_refund_check_number(RefundPaymentMethod::Check, Some(" CHK-42 "))
+                .expect("check number")
+                .as_deref(),
+            Some("CHK-42")
+        );
+        assert_eq!(
+            required_refund_check_number(RefundPaymentMethod::Cash, Some("ignored"))
+                .expect("non-check")
+                .as_deref(),
+            None
+        );
+    }
+
+    #[test]
     fn card_refund_idempotency_key_is_stable_until_ledger_records_refund() {
         let refund_queue_id = Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap();
 
@@ -1227,6 +1252,27 @@ mod tests {
         let display_id = format!("TXN-DUR-{}", &test_suffix[..12]);
         let original_provider_transaction_id =
             (9_000_000_000_i64 + (Utc::now().timestamp_micros() % 900_000_000)).to_string();
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/card-transactions/{original_provider_transaction_id}"
+            )))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "transactionId": original_provider_transaction_id,
+                "status": "APPROVED",
+                "amount": "100.00",
+                "currency": "USD",
+                "cardBatchId": "445566"
+            })))
+            .mount(&mock)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/card-batches/445566"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "cardBatchId": "445566",
+                "status": "closed"
+            })))
+            .mount(&mock)
+            .await;
         let session_ordinal = 9_000_000_000_i64 + (Utc::now().timestamp_micros() % 900_000_000);
         let register_lane: i16 = sqlx::query_scalar(
             r#"
@@ -1356,6 +1402,7 @@ mod tests {
             tender_amount: None,
             rounding_adjustment: None,
             final_cash_due: None,
+            check_number: None,
             gift_card_code: None,
             manager_staff_id: None,
             manager_pin: None,
@@ -1381,8 +1428,8 @@ mod tests {
         let provider_calls = mock.received_requests().await.expect("mock requests");
         assert_eq!(
             provider_calls.len(),
-            1,
-            "first attempt should call Helcim exactly once"
+            3,
+            "first attempt should perform two safety lookups and one refund"
         );
 
         let attempt_after_failure: (Uuid, String, Option<String>, String) = sqlx::query_as(
@@ -1425,7 +1472,7 @@ mod tests {
         );
 
         let provider_calls = mock.received_requests().await.expect("mock requests");
-        assert_eq!(provider_calls.len(), 1, "retry must not call Helcim again");
+        assert_eq!(provider_calls.len(), 3, "retry must not call Helcim again");
 
         let attempts: i64 = sqlx::query_scalar(
             r#"
@@ -2023,6 +2070,9 @@ pub struct ProcessRefundRequest {
     pub rounding_adjustment: Option<Decimal>,
     #[serde(default)]
     pub final_cash_due: Option<Decimal>,
+    /// Required when refunding by check so register and QBO audit trails retain the instrument.
+    #[serde(default)]
+    pub check_number: Option<String>,
     /// Required when `payment_method` is a gift-card tender (e.g. `gift_card`).
     #[serde(default)]
     pub gift_card_code: Option<String>,
@@ -2053,6 +2103,8 @@ pub struct ExchangeRefundRemainderBody {
     pub rounding_adjustment: Option<Decimal>,
     #[serde(default)]
     pub final_cash_due: Option<Decimal>,
+    #[serde(default)]
+    pub check_number: Option<String>,
     #[serde(default)]
     pub gift_card_code: Option<String>,
 }
@@ -2267,6 +2319,67 @@ fn cash_refund_tender_amount(
     Ok((tender, rounding))
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RefundPaymentMethod {
+    Cash,
+    Check,
+    LinkedHelcimCard,
+    RecordedHelcimCard,
+    GiftCard,
+    StoreCredit,
+    RmsCharge,
+    StaffAccount,
+}
+
+impl RefundPaymentMethod {
+    fn parse(value: &str) -> Result<Self, TransactionError> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "cash" => Ok(Self::Cash),
+            "check" => Ok(Self::Check),
+            "card" | "card_present" | "card_terminal" | "card_manual" | "card_saved"
+            | "card_credit" | "helcim" => Ok(Self::LinkedHelcimCard),
+            "card_terminal_manual" => Ok(Self::RecordedHelcimCard),
+            "gift_card" => Ok(Self::GiftCard),
+            "store_credit" => Ok(Self::StoreCredit),
+            "on_account_rms" | "on_account_rms90" => Ok(Self::RmsCharge),
+            "staff_account_charge" => Ok(Self::StaffAccount),
+            "open_deposit" => Err(TransactionError::InvalidPayload(
+                "Open Deposit is restored through the cancellation or void workflow, not issued as a refund tender"
+                    .to_string(),
+            )),
+            _ => Err(TransactionError::InvalidPayload(
+                "unsupported refund payment method".to_string(),
+            )),
+        }
+    }
+
+    fn requires_provider_approval(self) -> bool {
+        self == Self::LinkedHelcimCard
+    }
+
+    fn is_card(self) -> bool {
+        matches!(self, Self::LinkedHelcimCard | Self::RecordedHelcimCard)
+    }
+}
+
+fn required_refund_check_number(
+    method: RefundPaymentMethod,
+    value: Option<&str>,
+) -> Result<Option<String>, TransactionError> {
+    if method != RefundPaymentMethod::Check {
+        return Ok(None);
+    }
+    let check_number = value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            TransactionError::InvalidPayload(
+                "check_number is required for a check refund".to_string(),
+            )
+        })?;
+    Ok(Some(check_number.to_string()))
+}
+
 #[derive(Debug)]
 struct RefundCapacity {
     corrected_amount_due: Decimal,
@@ -2362,6 +2475,63 @@ async fn validate_refund_capacity_in_tx(
         corrected_amount_due,
         void_original_paid,
     })
+}
+
+async fn validate_original_tender_refund_capacity_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    transaction_id: Uuid,
+    method: RefundPaymentMethod,
+    refund_amount: Decimal,
+) -> Result<(), TransactionError> {
+    if !matches!(
+        method,
+        RefundPaymentMethod::RmsCharge | RefundPaymentMethod::StaffAccount
+    ) {
+        return Ok(());
+    }
+    let remaining: Decimal = match method {
+        RefundPaymentMethod::RmsCharge => {
+            sqlx::query_scalar(
+                r#"
+                SELECT COALESCE(SUM(pa.amount_allocated), 0)::numeric(14,2)
+                FROM payment_allocations pa
+                INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
+                WHERE pa.target_transaction_id = $1
+                  AND LOWER(TRIM(pt.payment_method)) IN ('on_account_rms', 'on_account_rms90')
+                "#,
+            )
+            .bind(transaction_id)
+            .fetch_one(&mut **tx)
+            .await?
+        }
+        RefundPaymentMethod::StaffAccount => {
+            sqlx::query_scalar(
+                r#"
+                SELECT COALESCE(SUM(pa.amount_allocated), 0)::numeric(14,2)
+                FROM payment_allocations pa
+                INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
+                WHERE pa.target_transaction_id = $1
+                  AND LOWER(TRIM(pt.payment_method)) = 'staff_account_charge'
+                "#,
+            )
+            .bind(transaction_id)
+            .fetch_one(&mut **tx)
+            .await?
+        }
+        _ => Decimal::ZERO,
+    };
+    if refund_amount > remaining.max(Decimal::ZERO) {
+        return Err(TransactionError::InvalidPayload(format!(
+            "refund exceeds the remaining ${} capacity on the original {} tender",
+            remaining.max(Decimal::ZERO),
+            if method == RefundPaymentMethod::RmsCharge {
+                "RMS Charge"
+            } else {
+                "Staff Account"
+            }
+        )));
+    }
+    Ok(())
 }
 
 #[derive(Debug, FromRow)]
@@ -5033,7 +5203,9 @@ async fn process_refund(
         ));
     }
 
-    let method_l = body.payment_method.to_lowercase();
+    let method_l = body.payment_method.trim().to_ascii_lowercase();
+    let refund_method = RefundPaymentMethod::parse(&method_l)?;
+    let check_number = required_refund_check_number(refund_method, body.check_number.as_deref())?;
     let exact_refund_amount = body.amount.round_dp(2);
     let (cash_tender_amount, cash_rounding_adjustment) = cash_refund_tender_amount(
         &body.payment_method,
@@ -5041,6 +5213,62 @@ async fn process_refund(
         body.tender_amount,
         body.rounding_adjustment,
     )?;
+    let rms_refund_approval = if refund_method == RefundPaymentMethod::RmsCharge {
+        let manager_id = body.manager_staff_id.ok_or_else(|| {
+            TransactionError::InvalidPayload(
+                "Manager Access is required after completing the RMS Charge refund".to_string(),
+            )
+        })?;
+        let manager_pin = body.manager_pin.as_deref().ok_or_else(|| {
+            TransactionError::InvalidPayload(
+                "Manager Access PIN is required after completing the RMS Charge refund".to_string(),
+            )
+        })?;
+        let reason = body
+            .manager_reason
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                TransactionError::InvalidPayload(
+                    "reason is required for an RMS Charge refund".to_string(),
+                )
+            })?
+            .to_string();
+        let reference = body
+            .external_refund_reference
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                TransactionError::InvalidPayload(
+                    "RMS Charge refund reference is required".to_string(),
+                )
+            })?
+            .to_string();
+        let manager = authenticate_manager_approval(
+            &state,
+            manager_id,
+            manager_pin,
+            "Manager Access approval permission required for RMS Charge refund",
+        )
+        .await?;
+        log_staff_access(
+            &state.db,
+            manager.id,
+            "rms_charge_refund",
+            json!({
+                "transaction_id": transaction_id,
+                "amount": exact_refund_amount,
+                "external_refund_reference": reference,
+                "reason": reason,
+            }),
+        )
+        .await?;
+        Some((manager.id, reference, reason))
+    } else {
+        None
+    };
 
     let mut tx = state.db.begin().await?;
     let session_open: Option<bool> = sqlx::query_scalar(
@@ -5060,22 +5288,7 @@ async fn process_refund(
         ));
     }
 
-    if !body.return_lines.is_empty() {
-        let return_inputs = return_line_inputs_from_body(&body.return_lines, "refund");
-        transaction_returns::apply_transaction_returns_in_tx(
-            &mut tx,
-            transaction_id,
-            Some(staff.id),
-            return_inputs,
-        )
-        .await
-        .map_err(|e| match e {
-            transaction_returns::TransactionReturnError::Db(d) => TransactionError::Database(d),
-            transaction_returns::TransactionReturnError::BadRequest(m) => {
-                TransactionError::InvalidPayload(m)
-            }
-        })?;
-    }
+    apply_refund_return_lines_in_tx(&mut tx, transaction_id, staff.id, &body.return_lines).await?;
 
     let row: Option<RefundQueueRow> = sqlx::query_as(
         r#"
@@ -5098,13 +5311,29 @@ async fn process_refund(
     let mut capacity =
         validate_refund_capacity_in_tx(&mut tx, transaction_id, &refund, exact_refund_amount)
             .await?;
+    validate_original_tender_refund_capacity_in_tx(
+        &mut tx,
+        transaction_id,
+        refund_method,
+        exact_refund_amount,
+    )
+    .await?;
 
     let mut refund_metadata = json!({
         "kind": "order_refund",
         "transaction_id": transaction_id,
     });
+    if let (Some(object), Some((manager_id, reference, reason))) = (
+        refund_metadata.as_object_mut(),
+        rms_refund_approval.as_ref(),
+    ) {
+        object.insert("rms_charge_refund".to_string(), json!(true));
+        object.insert("authorizing_manager_id".to_string(), json!(manager_id));
+        object.insert("external_refund_reference".to_string(), json!(reference));
+        object.insert("refund_reason".to_string(), json!(reason));
+    }
 
-    if method_l.contains("gift") {
+    if refund_method == RefundPaymentMethod::GiftCard {
         let code = body
             .gift_card_code
             .as_deref()
@@ -5144,7 +5373,7 @@ async fn process_refund(
         }
     }
 
-    if method_l.contains("store_credit") {
+    if refund_method == RefundPaymentMethod::StoreCredit {
         let customer_id = refund.customer_id.ok_or_else(|| {
             TransactionError::InvalidPayload(
                 "store credit refunds require a customer on the transaction".to_string(),
@@ -5188,8 +5417,8 @@ async fn process_refund(
     let mut card_brand: Option<String> = None;
     let mut card_last4: Option<String> = None;
 
-    if (method_l.contains("card") || method_l.contains("helcim")) && !method_l.contains("gift") {
-        let manual_external_card_refund = method_l == "card_terminal_manual";
+    if refund_method.is_card() {
+        let manual_external_card_refund = refund_method == RefundPaymentMethod::RecordedHelcimCard;
         // Query all positive Helcim charges on this transaction with per-card remaining capacity.
         // Prior refunds are attributed to their source card via the `original_provider_transaction_id`
         // metadata field written on every Helcim refund payment_transactions row.
@@ -5313,15 +5542,18 @@ async fn process_refund(
                 )
                 .await?;
 
-                // Create the negative payment transaction (manual terminal record).
+                // Create the negative payment transaction as a canonical Helcim card
+                // refund. The external reference is the provider-side audit reference;
+                // it is intentionally not treated as the original charge transaction ID.
                 let pt_id = Uuid::new_v4();
                 sqlx::query(
                     r#"
                     INSERT INTO payment_transactions (
                         id, session_id, payer_id, category, payment_method, amount,
-                        status, metadata, merchant_fee, net_amount, occurred_at, created_at
+                        status, metadata, merchant_fee, net_amount, occurred_at, created_at,
+                        payment_provider, provider_payment_id, provider_status
                     )
-                    VALUES ($1, $2, $3, 'retail_sale', 'card_terminal_manual', $4, 'approved', $5, 0, $4, NOW(), NOW())
+                    VALUES ($1, $2, $3, 'retail_sale', 'card_manual', $4, 'approved', $5, 0, $4, NOW(), NOW(), 'helcim', $6, 'approved')
                     "#,
                 )
                 .bind(pt_id)
@@ -5342,6 +5574,7 @@ async fn process_refund(
                     "cash_tender_amount": cash_tender_amount,
                     "cash_rounding_adjustment": cash_rounding_adjustment,
                 }))
+                .bind(external_refund_reference)
                 .execute(&mut *tx)
                 .await?;
 
@@ -5556,7 +5789,9 @@ async fn process_refund(
                 Some(attempt.status),
             )
         } else {
-            tx.commit().await?;
+            // The first transaction validates staged returns and provider capacity only.
+            // Roll it back so inventory and return history cannot commit before Helcim.
+            tx.rollback().await?;
 
             let mut provider_attempt_id = Uuid::new_v4();
             let mut idempotency_key = base_idempotency_key.clone();
@@ -5652,6 +5887,8 @@ async fn process_refund(
             .ok_or_else(|| {
                 TransactionError::InvalidPayload("no open refund for this order".to_string())
             })?;
+            apply_refund_return_lines_in_tx(&mut tx, transaction_id, staff.id, &body.return_lines)
+                .await?;
             capacity = validate_refund_capacity_in_tx(
                 &mut tx,
                 transaction_id,
@@ -5710,7 +5947,7 @@ async fn process_refund(
             ledger_tx
                 .take()
                 .expect("refund ledger transaction is available before provider call")
-                .commit()
+                .rollback()
                 .await?;
         }
 
@@ -5722,20 +5959,122 @@ async fn process_refund(
             (Some(provider_payment_id), approved_provider_status)
         } else {
             let config = helcim::HelcimConfig::from_env();
-            let refund_request = helcim::HelcimCardRefundRequest {
-                original_transaction_id,
-                amount: cents_to_decimal_string(amount_cents),
-                ip_address: request_ip_address(&headers),
-                ecommerce: false,
-            };
-            let provider_started = std::time::Instant::now();
-            let provider_result = helcim::process_card_refund(
+            let mut provider_action = "refund";
+            let mut provider_original_transaction_id = original_transaction_id;
+
+            // Helcim's V2 API uses the V2 card transaction ID, while some older
+            // ROS records contain the legacy ID returned by Helcim.js. Resolve
+            // the current ID when the provider can look it up. This also lets
+            // us select reverse for a full refund in an open batch, as required
+            // by Helcim, instead of sending an invalid refund request.
+            let provider_transaction = match helcim::fetch_card_transaction(
                 &state.http_client,
                 &config,
-                refund_request,
-                &idempotency_key,
+                &original_transaction_id.to_string(),
             )
-            .await;
+            .await
+            {
+                Ok(transaction) => transaction,
+                Err(error) => {
+                    let message = helcim::redact_provider_text(&error);
+                    mark_card_refund_attempt_failed(
+                        &state.db,
+                        provider_attempt_id,
+                        "transaction_lookup_failed",
+                        message.clone(),
+                    )
+                    .await?;
+                    return Err(TransactionError::BadGateway(format!(
+                        "Helcim transaction lookup failed; no refund was sent: {message}"
+                    )));
+                }
+            };
+            if let Some(current_id) = provider_transaction
+                .transaction_id_string()
+                .and_then(|value| value.parse::<i64>().ok())
+            {
+                provider_original_transaction_id = current_id;
+            }
+            let Some(batch_id) =
+                helcim::HelcimFeeDetails::from_card_transaction(&provider_transaction)
+                    .card_batch_id
+            else {
+                let message =
+                    "Helcim transaction lookup did not return a card batch; no refund was sent";
+                mark_card_refund_attempt_failed(
+                    &state.db,
+                    provider_attempt_id,
+                    "batch_id_missing",
+                    message.to_string(),
+                )
+                .await?;
+                return Err(TransactionError::BadGateway(message.to_string()));
+            };
+            let batch = match helcim::fetch_card_batch(&state.http_client, &config, &batch_id).await
+            {
+                Ok(batch) => batch,
+                Err(error) => {
+                    let message = helcim::redact_provider_text(&error);
+                    mark_card_refund_attempt_failed(
+                        &state.db,
+                        provider_attempt_id,
+                        "batch_lookup_failed",
+                        message.clone(),
+                    )
+                    .await?;
+                    return Err(TransactionError::BadGateway(format!(
+                        "Helcim batch lookup failed; no refund was sent: {message}"
+                    )));
+                }
+            };
+            let provider_return_action = match helcim::card_return_action(
+                batch.status.as_deref(),
+                best.original_amount_cents,
+                amount_cents,
+                per_card_already_cents,
+            ) {
+                Ok(action) => action,
+                Err(message) => {
+                    mark_card_refund_attempt_failed(
+                        &state.db,
+                        provider_attempt_id,
+                        "invalid_batch_refund_action",
+                        message.clone(),
+                    )
+                    .await?;
+                    return Err(TransactionError::InvalidPayload(message));
+                }
+            };
+
+            let provider_started = std::time::Instant::now();
+            let provider_result =
+                if provider_return_action == helcim::HelcimCardReturnAction::Reverse {
+                    provider_action = "reverse";
+                    helcim::process_card_reverse(
+                        &state.http_client,
+                        &config,
+                        helcim::HelcimCardReverseRequest {
+                            card_transaction_id: provider_original_transaction_id,
+                            ip_address: request_ip_address(&headers),
+                            ecommerce: false,
+                        },
+                        &format!("{idempotency_key}-reverse"),
+                    )
+                    .await
+                } else {
+                    helcim::process_card_refund(
+                        &state.http_client,
+                        &config,
+                        helcim::HelcimCardRefundRequest {
+                            original_transaction_id: provider_original_transaction_id,
+                            amount: cents_to_decimal_string(amount_cents),
+                            ip_address: request_ip_address(&headers),
+                            ecommerce: false,
+                        },
+                        &idempotency_key,
+                    )
+                    .await
+                };
             crate::logic::operation_metrics::record_phase(
                 state.db.clone(),
                 "refund",
@@ -5762,7 +6101,7 @@ async fn process_refund(
                     )
                     .await?;
                     return Err(TransactionError::BadGateway(format!(
-                        "Helcim refund failed: {staff_message}"
+                        "Helcim {provider_action} failed: {staff_message}"
                     )));
                 }
             };
@@ -5800,7 +6139,7 @@ async fn process_refund(
                     .unwrap_or("not approved")
                     .to_string();
                 return Err(TransactionError::BadGateway(format!(
-                    "Helcim refund was not approved: {provider_status_label}"
+                    "Helcim {provider_action} was not approved: {provider_status_label}"
                 )));
             }
 
@@ -5851,6 +6190,13 @@ async fn process_refund(
                         .to_string(),
                 )
             })?;
+            apply_refund_return_lines_in_tx(
+                &mut resumed_tx,
+                transaction_id,
+                staff.id,
+                &body.return_lines,
+            )
+            .await?;
             capacity = validate_refund_capacity_in_tx(
                 &mut resumed_tx,
                 transaction_id,
@@ -5942,12 +6288,12 @@ async fn process_refund(
         INSERT INTO payment_transactions (
             session_id, payer_id, category, payment_method, amount, effective_date, metadata,
             payment_provider, provider_payment_id, provider_status, provider_transaction_id,
-            provider_auth_code, provider_card_type, card_brand, card_last4
+            provider_auth_code, provider_card_type, card_brand, card_last4, check_number
         )
         VALUES (
             $1, $2, $3, $4, $5,
             (CURRENT_TIMESTAMP AT TIME ZONE reporting.effective_store_timezone())::date,
-            $6, $7, $8, $9, $10, $11, $12, $13, $14
+            $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
         )
         RETURNING id
         "#,
@@ -5987,19 +6333,63 @@ async fn process_refund(
     .bind(provider_card_type)
     .bind(card_brand)
     .bind(card_last4)
+    .bind(check_number.clone())
     .fetch_one(&mut *tx)
     .await?;
 
+    if refund_method == RefundPaymentMethod::StaffAccount {
+        let customer_id = refund.customer_id.ok_or_else(|| {
+            TransactionError::InvalidPayload(
+                "Staff Account refunds require the linked staff customer on the transaction"
+                    .to_string(),
+            )
+        })?;
+        staff_accounts::record_payment_in_tx(
+            &mut tx,
+            customer_id,
+            exact_refund_amount,
+            transaction_id,
+            Some(payment_tx_id),
+            body.session_id,
+            staff.id,
+            Some(&json!({
+                "kind": "transaction_refund",
+                "refund_queue_id": refund.id,
+            })),
+        )
+        .await
+        .map_err(|error| match error {
+            staff_accounts::StaffAccountError::Database(database) => {
+                TransactionError::Database(database)
+            }
+            other => TransactionError::InvalidPayload(other.to_string()),
+        })?;
+    }
+    if let Some((manager_id, reference, reason)) = rms_refund_approval.as_ref() {
+        pos_rms_charge::record_charge_refund_in_tx(
+            &mut tx,
+            transaction_id,
+            exact_refund_amount,
+            payment_tx_id,
+            *manager_id,
+            reference,
+            reason,
+        )
+        .await
+        .map_err(TransactionError::Database)?;
+    }
+
     sqlx::query(
         r#"
-        INSERT INTO payment_allocations (transaction_id, target_transaction_id, amount_allocated, metadata)
-        VALUES ($1, $2, $3, $4)
+        INSERT INTO payment_allocations (transaction_id, target_transaction_id, amount_allocated, metadata, check_number)
+        VALUES ($1, $2, $3, $4, $5)
         "#,
     )
     .bind(payment_tx_id)
     .bind(transaction_id)
     .bind(-cash_tender_amount)
     .bind(json!({ "kind": "order_refund" }))
+    .bind(check_number.clone())
     .execute(&mut *tx)
     .await?;
 
@@ -6130,11 +6520,18 @@ async fn process_exchange_settlement(
                 "refund remainder amount must be positive".to_string(),
             ));
         }
-        let method_l = remainder.payment_method.to_lowercase();
-        if (method_l.contains("card") || method_l.contains("helcim")) && !method_l.contains("gift")
-        {
+        let method = RefundPaymentMethod::parse(&remainder.payment_method)?;
+        required_refund_check_number(method, remainder.check_number.as_deref())?;
+        if matches!(
+            method,
+            RefundPaymentMethod::LinkedHelcimCard
+                | RefundPaymentMethod::RecordedHelcimCard
+                | RefundPaymentMethod::RmsCharge
+                | RefundPaymentMethod::StaffAccount
+        ) {
             return Err(TransactionError::InvalidPayload(
-                "card refund remainders must use the original provider refund flow".to_string(),
+                "provider and receivable refund remainders must be completed through the transaction refund workflow after the exchange settlement"
+                    .to_string(),
             ));
         }
     }
@@ -6487,7 +6884,9 @@ async fn process_exchange_settlement(
     }
 
     if let Some(remainder) = &body.refund_remainder {
-        let method_l = remainder.payment_method.to_lowercase();
+        let refund_method = RefundPaymentMethod::parse(&remainder.payment_method)?;
+        let check_number =
+            required_refund_check_number(refund_method, remainder.check_number.as_deref())?;
         let mut refund_metadata = json!({
             "kind": "exchange_refund_remainder",
             "original_transaction_id": transaction_id,
@@ -6495,7 +6894,7 @@ async fn process_exchange_settlement(
             "refund_queue_id": refund.id,
         });
 
-        if method_l.contains("gift") {
+        if refund_method == RefundPaymentMethod::GiftCard {
             let code = remainder
                 .gift_card_code
                 .as_deref()
@@ -6536,7 +6935,7 @@ async fn process_exchange_settlement(
                 object.insert("balance_after".to_string(), json!(refund_plan.new_balance));
             }
         }
-        if method_l.contains("store_credit") {
+        if refund_method == RefundPaymentMethod::StoreCredit {
             let customer_id = refund.customer_id.ok_or_else(|| {
                 TransactionError::InvalidPayload(
                     "store credit refunds require a customer on the transaction".to_string(),
@@ -6592,12 +6991,13 @@ async fn process_exchange_settlement(
         let refund_payment_id: Uuid = sqlx::query_scalar(
             r#"
             INSERT INTO payment_transactions (
-                session_id, payer_id, category, payment_method, amount, effective_date, metadata
+                session_id, payer_id, category, payment_method, amount, effective_date, metadata,
+                check_number
             )
             VALUES (
                 $1, $2, $3, $4, $5,
                 (CURRENT_TIMESTAMP AT TIME ZONE reporting.effective_store_timezone())::date,
-                $6
+                $6, $7
             )
             RETURNING id
             "#,
@@ -6608,13 +7008,14 @@ async fn process_exchange_settlement(
         .bind(remainder.payment_method.trim())
         .bind(-refund_remainder_tender_amount)
         .bind(refund_metadata)
+        .bind(check_number.clone())
         .fetch_one(&mut *tx)
         .await?;
 
         sqlx::query(
             r#"
-            INSERT INTO payment_allocations (transaction_id, target_transaction_id, amount_allocated, metadata)
-            VALUES ($1, $2, $3, $4)
+            INSERT INTO payment_allocations (transaction_id, target_transaction_id, amount_allocated, metadata, check_number)
+            VALUES ($1, $2, $3, $4, $5)
             "#,
         )
         .bind(refund_payment_id)
@@ -6624,6 +7025,7 @@ async fn process_exchange_settlement(
             "kind": "exchange_refund_remainder",
             "replacement_transaction_id": body.replacement_transaction_id,
         }))
+        .bind(check_number)
         .execute(&mut *tx)
         .await?;
     }
@@ -8003,6 +8405,33 @@ fn return_line_inputs_from_body(
             restock: line.restock,
         })
         .collect()
+}
+
+async fn apply_refund_return_lines_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    transaction_id: Uuid,
+    staff_id: Uuid,
+    lines: &[TransactionReturnLineBody],
+) -> Result<(), TransactionError> {
+    if lines.is_empty() {
+        return Ok(());
+    }
+    transaction_returns::apply_transaction_returns_in_tx(
+        tx,
+        transaction_id,
+        Some(staff_id),
+        return_line_inputs_from_body(lines, "refund"),
+    )
+    .await
+    .map_err(|error| match error {
+        transaction_returns::TransactionReturnError::Db(database) => {
+            TransactionError::Database(database)
+        }
+        transaction_returns::TransactionReturnError::BadRequest(message) => {
+            TransactionError::InvalidPayload(message)
+        }
+    })?;
+    Ok(())
 }
 
 async fn post_transaction_returns(

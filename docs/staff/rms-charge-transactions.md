@@ -58,6 +58,8 @@ A payment is a collection against an existing RMS balance using the internal `RM
 
 A refund is a follow-on financial correction that credits back an RMS-financed action.
 
+Complete the real refund in RMS/R2S first. Then use the Transaction Record refund workflow, select the matching RMS Charge tender, and enter the RMS/R2S refund reference and reason under Manager Access. ROS writes a negative transaction payment, reduces the remaining refundable RMS tender capacity, and updates the linked RMS Charge record in one local financial transaction. A refund may span multiple RMS Charge splits from the same sale, but cannot exceed their combined remaining balance.
+
 ### Reversal
 
 A reversal is a correction against a previously recorded RMS action.
@@ -66,7 +68,7 @@ A reversal is a correction against a previously recorded RMS action.
 
 Every RMS Charge Sale and RMS Charge Payment created through POS starts as `Unreported` and is due the next day.
 
-Phase 1 R2S reporting applies to POS-created Sales and Payments. Manual refund and reversal corrections remain tracked on the RMS Charge record/reference trail, but they do not create a separate R2S reporting checklist item.
+Phase 1 R2S reporting applies to POS-created Sales and Payments. Manual refund and reversal corrections remain tracked on both the Transaction Record payment ledger and RMS Charge record/reference trail, but they do not create a separate R2S reporting checklist item.
 
 R2S reporting applies to new manual RMS Charge Sales and Payments created after reporting metadata was added. Earlier historical rows without explicit reporting metadata remain in transaction history, but they do not create R2S reporting reminders unless they are explicitly marked reporting-required.
 

@@ -41,6 +41,10 @@ fn rms_payment_collection_flag(value: Option<bool>) -> bool {
     value.unwrap_or(false)
 }
 
+fn tender_relieves_refund_liability(amount: Decimal, rms_collection: Option<bool>) -> bool {
+    amount < Decimal::ZERO && !rms_payment_collection_flag(rms_collection)
+}
+
 fn gift_card_uses_loyalty_expense(sub_type: Option<&str>) -> bool {
     matches!(
         sub_type.map(str::trim),
@@ -2419,10 +2423,7 @@ AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
     let mut refund_liability_relieved = Decimal::ZERO;
     for t in &tender_rows {
         let amt = t.total.unwrap_or(Decimal::ZERO);
-        if amt < Decimal::ZERO
-            && !rms_payment_collection_flag(t.rms_charge_collection)
-            && !is_staff_account_tender(&t.payment_method, t.tender_family.as_deref())
-        {
+        if tender_relieves_refund_liability(amt, t.rms_charge_collection) {
             refund_liability_relieved += amt.abs();
         }
     }
@@ -2685,6 +2686,22 @@ mod tests {
         assert!(rms_payment_collection_flag(Some(true)));
         assert!(!rms_payment_collection_flag(Some(false)));
         assert!(!rms_payment_collection_flag(None));
+    }
+
+    #[test]
+    fn negative_financing_and_staff_tenders_relieve_refund_liability() {
+        assert!(tender_relieves_refund_liability(
+            Decimal::new(-14138, 2),
+            None
+        ));
+        assert!(!tender_relieves_refund_liability(
+            Decimal::new(-14138, 2),
+            Some(true)
+        ));
+        assert!(!tender_relieves_refund_liability(
+            Decimal::new(14138, 2),
+            None
+        ));
     }
 
     #[test]

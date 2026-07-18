@@ -123,11 +123,13 @@ Use this when a customer is exchanging or returning items tied to a completed tr
 4. Follow the wizard instructions for the refund path or replacement sale.
 5. Complete any replacement checkout before handing the customer their final receipt.
 
-Selecting a returned line only stages the return. The original Transaction Record is not changed until Riverside successfully records the refund or exchange settlement. If a tax/refund problem stops the flow, close it with the on-screen close button and the original item should remain visible as active.
+Selecting a returned line only stages the return. For a linked-card refund, Riverside verifies the original Helcim transaction and batch before changing the returned item or inventory. The original Transaction Record is not changed until the card refund is approved and the local refund settlement succeeds.
 
 Return and exchange credits use the original selected item price and the tax paid on that item. Each returned item remains a separate negative cart/receipt line; replacement items remain separate positive lines. If the Transaction Record was only partially paid, Riverside caps the credit to the paid amount available on that Transaction Record.
 
-When the replacement item costs less than the customer-paid return credit, the checkout shows a negative balance as a cash or other eligible refund. Once that refund tender is staged, record the exchange; Riverside does not require a positive amount to collect.
+When the replacement item costs less than the customer-paid return credit, the checkout shows a negative balance as a cash or other eligible refund. Once that refund tender is staged, record the exchange; Riverside does not require a positive amount to collect. For an original-card remainder, Riverside records the exchange and inventory return first, then sends the remaining refund to Helcim. If the provider is unavailable, the exchange stays saved and the remaining card refund stays visible in the refund queue for a safe retry.
+
+Check refunds require the refund check number. Staff Account refunds reduce the linked Staff Account receivable. RMS Charge refunds must be completed in RMS/R2S first, then recorded with the external reference, reason, and Manager Access approval. Open Deposit amounts are restored through cancellation or void and are not issued as a generic refund tender.
 
 If the original Transaction Record still has a balance due, the returned item may reduce that balance without creating cash back for the customer. Continue the exchange, add the replacement item, and finish checkout so Riverside records the return and links the replacement sale.
 

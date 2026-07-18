@@ -12,6 +12,8 @@ interface PosRefundModalProps {
   setMethod: (v: string) => void;
   giftCode: string;
   setGiftCode: (v: string) => void;
+  checkNumber: string;
+  setCheckNumber: (v: string) => void;
   externalRefundReference: string;
   setExternalRefundReference: (v: string) => void;
   managerReason: string;
@@ -29,6 +31,8 @@ export default function PosRefundModal({
   setMethod,
   giftCode,
   setGiftCode,
+  checkNumber,
+  setCheckNumber,
   externalRefundReference,
   setExternalRefundReference,
   managerReason,
@@ -44,6 +48,8 @@ export default function PosRefundModal({
   const root = document.getElementById("drawer-root");
   if (!root) return null;
   const manualHelcimRefund = method === "card_terminal_manual";
+  const rmsRefund = method === "on_account_rms" || method === "on_account_rms90";
+  const externallyCompletedRefund = manualHelcimRefund || rmsRefund;
 
   return createPortal(
     <div className="ui-overlay-backdrop !z-[200]">
@@ -60,8 +66,9 @@ export default function PosRefundModal({
             Process refund
           </h3>
           <p className="ui-type-instruction-muted mt-1 text-xs">
-            A register session must be open. Helcim backend refunds record a refund already
-            processed in Helcim and require Manager Access.
+            A register session must be open. Linked Helcim card refunds are processed to the
+            original card. A refund already completed in Helcim can be recorded separately with
+            Manager Access.
           </p>
         </div>
         <div className="ui-modal-body space-y-4">
@@ -82,24 +89,40 @@ export default function PosRefundModal({
               onChange={(e) => setMethod(e.target.value)}
               className="ui-input mt-1 w-full text-sm"
             >
-              <option value="card_present">Card refund</option>
-              <option value="card_terminal_manual">Credit Card / Manual (Helcim)</option>
+              <option value="card_present">Credit Card (original Helcim card)</option>
+              <option value="card_manual">Credit Card / Manual (original Helcim card)</option>
+              <option value="card_terminal_manual">Helcim refund already processed (record only)</option>
               <option value="cash">Cash</option>
               <option value="check">Check</option>
               <option value="store_credit">Store credit</option>
               <option value="gift_card">Gift card</option>
+              <option value="on_account_rms">RMS Charge</option>
+              <option value="on_account_rms90">RMS 90 Charge</option>
+              <option value="staff_account_charge">Staff Account</option>
             </select>
           </label>
-          {manualHelcimRefund && (
+          {method === "check" && (
+            <label className="block text-xs font-bold text-app-text-muted">
+              Refund check number
+              <input
+                type="text"
+                value={checkNumber}
+                onChange={(e) => setCheckNumber(e.target.value)}
+                className="ui-input mt-1 w-full text-sm font-mono"
+                placeholder="Required for register reconciliation"
+              />
+            </label>
+          )}
+          {externallyCompletedRefund && (
             <div className="space-y-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
               <label className="block text-xs font-bold text-app-text-muted">
-                Helcim refund reference
+                {rmsRefund ? "RMS Charge refund reference" : "Helcim refund reference"}
                 <input
                   type="text"
                   value={externalRefundReference}
                   onChange={(e) => setExternalRefundReference(e.target.value)}
                   className="ui-input mt-1 w-full text-sm font-mono"
-                  placeholder="Helcim refund transaction/reference"
+                  placeholder={rmsRefund ? "RMS/R2S refund reference" : "Helcim refund transaction/reference"}
                 />
               </label>
               <label className="block text-xs font-bold text-app-text-muted">
@@ -108,7 +131,7 @@ export default function PosRefundModal({
                   value={managerReason}
                   onChange={(e) => setManagerReason(e.target.value)}
                   className="ui-input mt-1 min-h-20 w-full text-sm"
-                  placeholder="Refund processed in Helcim backend"
+                  placeholder={rmsRefund ? "Refund completed in RMS/R2S" : "Refund processed in Helcim backend"}
                 />
               </label>
             </div>

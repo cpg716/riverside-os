@@ -4,7 +4,7 @@ use chrono::{Duration, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use sqlx::{Executor, PgPool, Postgres};
+use sqlx::{Executor, PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
 pub const RMS_TENDER_FAMILY: &str = "rms_charge";
@@ -523,6 +523,115 @@ where
     .fetch_one(ex)
     .await?;
     Ok(record_id)
+}
+
+pub async fn record_charge_refund_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    transaction_id: Uuid,
+    amount: Decimal,
+    refund_payment_transaction_id: Uuid,
+    operator_staff_id: Uuid,
+    external_reference: &str,
+    reason: &str,
+) -> Result<Vec<Uuid>, sqlx::Error> {
+    let rows: Vec<(Uuid, Decimal, Value)> = sqlx::query_as(
+        r#"
+        SELECT id, amount, metadata_json
+        FROM pos_rms_charge_record
+        WHERE transaction_id = $1
+          AND record_kind = 'charge'
+        ORDER BY created_at ASC
+        FOR UPDATE
+        "#,
+    )
+    .bind(transaction_id)
+    .fetch_all(&mut **tx)
+    .await?;
+
+    let mut remaining = amount.round_dp(2);
+    let mut updated_record_ids = Vec::new();
+    for (record_id, original_amount, mut metadata) in rows {
+        if remaining <= Decimal::ZERO {
+            break;
+        }
+        if !metadata.is_object() {
+            metadata = json!({});
+        }
+        let object = metadata.as_object_mut().expect("RMS metadata is an object");
+        let already_refunded = object
+            .get("refund_total")
+            .and_then(Value::as_str)
+            .and_then(|value| value.parse::<Decimal>().ok())
+            .unwrap_or(Decimal::ZERO);
+        let available = (original_amount - already_refunded)
+            .round_dp(2)
+            .max(Decimal::ZERO);
+        if available.is_zero() {
+            continue;
+        }
+        let applied = remaining.min(available);
+        let refund_total = (already_refunded + applied).round_dp(2);
+        let fully_refunded = refund_total >= original_amount.round_dp(2);
+        object.insert("refund_total".to_string(), json!(refund_total.to_string()));
+        object.insert(
+            "latest_refund_amount".to_string(),
+            json!(applied.to_string()),
+        );
+        object.insert(
+            "latest_refund_reference".to_string(),
+            json!(external_reference.trim()),
+        );
+        object.insert("latest_refund_reason".to_string(), json!(reason.trim()));
+        object.insert(
+            "latest_refund_payment_transaction_id".to_string(),
+            json!(refund_payment_transaction_id),
+        );
+        object.insert(
+            "latest_refund_operator_staff_id".to_string(),
+            json!(operator_staff_id),
+        );
+        object.insert(
+            "resolution_status".to_string(),
+            json!(if fully_refunded {
+                "refunded"
+            } else {
+                "partially_refunded"
+            }),
+        );
+
+        sqlx::query(
+            r#"
+            UPDATE pos_rms_charge_record
+            SET metadata_json = $2,
+                resolution_status = $3,
+                posting_status = $3,
+                host_reference = $4,
+                refunded_at = CASE WHEN $5 THEN COALESCE(refunded_at, now()) ELSE refunded_at END
+            WHERE id = $1
+            "#,
+        )
+        .bind(record_id)
+        .bind(metadata)
+        .bind(if fully_refunded {
+            "refunded"
+        } else {
+            "partially_refunded"
+        })
+        .bind(external_reference.trim())
+        .bind(fully_refunded)
+        .execute(&mut **tx)
+        .await?;
+        updated_record_ids.push(record_id);
+        remaining = (remaining - applied).round_dp(2);
+    }
+
+    if remaining > Decimal::ZERO {
+        return Err(sqlx::Error::Protocol(
+            "RMS Charge refund exceeds the remaining original financing tender capacity"
+                .to_string(),
+        ));
+    }
+    Ok(updated_record_ids)
 }
 
 /// Fan-out one inbox notification per Sales Support staff member per RMS split (deduped per payment tx).

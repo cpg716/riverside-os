@@ -285,7 +285,7 @@ Register #1/#2 non-default terminal use requires Manager Access through `payment
 
 Card refunds that go through Helcim create a durable provider-attempt audit row before ROS records the refund. ROS only writes the negative payment and updates the refund queue after Helcim returns an approved or captured refund status.
 
-Standalone refunds started from **POS → Payments → Refund** also create a provider-attempt audit row, but they are provider-side refunds only until a manager links or records the related Transaction Record action through the normal refund workflow.
+Standalone refunds started from **POS → Payments → Refund** also create a provider-attempt audit row. ROS verifies whether the Helcim batch permits a full reverse or closed-batch refund, retains the original provider transaction reference, and prevents later ROS attempts from exceeding the remaining amount it has already approved. These are provider-side refunds only until a manager links or records the related Transaction Record action through the normal refund workflow.
 
 If Helcim declines the refund, returns a rate-limit response, or the provider request fails, ROS keeps the refund state unchanged and records the failed provider attempt for review.
 
