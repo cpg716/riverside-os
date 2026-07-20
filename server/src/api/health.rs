@@ -42,7 +42,9 @@ pub struct WorkerStatus {
     pub qbo_sync_worker: bool,
     pub job_queue_worker: bool,
     pub metrics_worker: bool,
+    pub redis_configured: bool,
     pub redis_connected: bool,
+    pub job_queue_enabled: bool,
 }
 
 // Shared state for tracking worker health
@@ -140,7 +142,11 @@ pub async fn ready(State(state): State<AppState>) -> Result<Json<ReadyResponse>,
         qbo_sync_worker: WorkerHealth::is_healthy("qbo_sync", 7200).await,
         job_queue_worker: WorkerHealth::is_healthy("job_queue", 7200).await,
         metrics_worker: WorkerHealth::is_healthy("metrics", 7200).await,
+        redis_configured: std::env::var("RIVERSIDE_REDIS_URL")
+            .ok()
+            .is_some_and(|value| !value.trim().is_empty()),
         redis_connected: check_redis_health(&state.cache).await,
+        job_queue_enabled: crate::jobs::enabled_from_env(),
     };
 
     let response = ReadyResponse {

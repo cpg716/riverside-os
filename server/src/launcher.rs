@@ -491,13 +491,19 @@ async fn launch_server_inner(
         }
     };
 
-    let cache = crate::cache::CacheService::from_env().ok();
+    let cache = match crate::cache::CacheService::from_env() {
+        Ok(cache) => Some(cache),
+        Err(error) => {
+            tracing::warn!(%error, "Redis cache disabled; Main Hub will use PostgreSQL-backed fallbacks");
+            None
+        }
+    };
     let metrics_config = crate::metrics::MetricsConfig {
         // The legacy synthetic business/host collectors do not represent production truth.
         // Keep the registry active for real HTTP middleware samples; durable operation-phase
         // measurements are recorded separately in PostgreSQL.
         enable_business_metrics: false,
-        enable_technical_metrics: false,
+        enable_technical_metrics: true,
         ..crate::metrics::MetricsConfig::default()
     };
     let metrics_collector =
@@ -576,15 +582,7 @@ async fn launch_server_inner(
     crate::logic::operational_outbox::start_worker(state.db.clone());
 
     // Start background job worker if enabled
-    if matches!(
-        std::env::var("RIVERSIDE_JOB_QUEUE_ENABLED")
-            .ok()
-            .as_deref()
-            .map(str::trim)
-            .map(str::to_ascii_lowercase)
-            .as_deref(),
-        Some("1" | "true" | "yes" | "on")
-    ) {
+    if crate::jobs::enabled_from_env() {
         if let Ok(queue) = crate::jobs::JobQueue::from_env() {
             let mut registry = crate::jobs::create_registry();
             crate::jobs::register_handler(
@@ -610,6 +608,13 @@ async fn launch_server_inner(
         } else {
             tracing::error!("Failed to initialize JobQueue for background worker");
         }
+    } else {
+        tracing::info!(
+            redis_configured = std::env::var("RIVERSIDE_REDIS_URL")
+                .ok()
+                .is_some_and(|value| !value.trim().is_empty()),
+            "Redis-backed job queue worker is disabled"
+        );
     }
 
     let fallback_pool = state.db.clone();

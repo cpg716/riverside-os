@@ -1,5 +1,25 @@
 # Section 4 Performance Baseline
 
+## Production Main Hub measurement — 2026-07-20
+
+The repository now contains a production-only read check:
+`npm run check:production-performance`. It defaults to `https://ros.riversidemens.com`,
+refuses localhost targets unless explicitly overridden, and enforces a 1,000 ms budget for
+`/api/live`, `/api/ready`, and `/api/health`. Authenticated read-only search/report paths can be
+measured by supplying `RIVERSIDE_PERF_SEARCH_PATH`, `RIVERSIDE_PERF_REPORT_PATH`, and
+`RIVERSIDE_PERF_HEADERS_JSON`.
+
+Observed Main Hub baseline during this audit:
+
+| Endpoint | Result | Time | Budget |
+| --- | ---: | ---: | ---: |
+| `/api/live` | 200 | 369–707 ms | 1,000 ms |
+| `/api/ready` | 200 | 181–260 ms | 1,000 ms |
+| `/api/health` | 200 | 104–109 ms | 1,000 ms |
+
+These are availability/readiness timings, not authenticated search or report p95s. Those paths
+remain opt-in because they require production staff headers and must be run as read-only probes.
+
 Date: 2026-05-12
 
 This baseline inventory records what is currently known for post-release performance and concurrency readiness. The initial audit found no production render-time, API latency, payload-size, or query-duration baseline in the inspected files. Coverage noted here is correctness or workflow evidence only unless a metric is explicitly listed.

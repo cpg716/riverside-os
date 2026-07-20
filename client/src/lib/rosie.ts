@@ -1139,6 +1139,7 @@ export async function rosieChatCompletions(
   options?: {
     headers?: Record<string, string>;
     settings?: RosieSettings;
+    signal?: AbortSignal;
   },
 ): Promise<RosieChatCompletionResponse> {
   const settings = normalizeRosieSettings(options?.settings ?? loadLocalRosieSettings());
@@ -2250,6 +2251,7 @@ export async function requestRosieSearchIntent(
   options?: {
     headers?: Record<string, string>;
     settings?: RosieSettings;
+    signal?: AbortSignal;
   },
 ): Promise<RosieSearchIntentResponse> {
   const settings = normalizeRosieSettings(options?.settings ?? loadLocalRosieSettings());
@@ -2266,6 +2268,7 @@ export async function requestRosieSearchIntent(
         ...(options?.headers ?? {}),
       },
       body: JSON.stringify(request),
+      signal: options?.signal,
     });
     if (!response.ok) {
       return { status: "unavailable", shortcut_ids: [] };

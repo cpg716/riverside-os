@@ -10,6 +10,8 @@
     "check:updater-release": "node scripts/verify-updater-release-assets.mjs",
     "check:print-routing": "node scripts/check-print-routing-manifest.mjs",
     "check:reports": "node scripts/check-reports-catalog.mjs",
+    "check:search-indexes": "node scripts/check-search-indexes.mjs",
+    "check:production-performance": "node scripts/check-production-performance.mjs",
     "check:help-impact": "node scripts/check-help-impact.mjs",
     "check:staff-customer-save-contracts": "node scripts/check-staff-customer-save-contracts.mjs",
     "check:financial-invariants": "node scripts/check-financial-invariants.mjs",

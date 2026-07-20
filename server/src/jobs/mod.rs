@@ -64,6 +64,25 @@ pub trait JobHandler: Send + Sync {
 
 pub type HandlerRegistry = HashMap<String, std::sync::Arc<dyn JobHandler>>;
 
+/// Returns whether the Redis-backed worker should start.
+///
+/// An explicit false value keeps operators able to disable background
+/// processing during maintenance. Otherwise, a configured Redis URL enables
+/// the worker by default so production cannot silently omit the queue flag.
+pub fn enabled_from_env() -> bool {
+    match std::env::var("RIVERSIDE_JOB_QUEUE_ENABLED")
+        .ok()
+        .map(|value| value.trim().to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("0" | "false" | "no" | "off") => false,
+        Some("1" | "true" | "yes" | "on") => true,
+        _ => std::env::var("RIVERSIDE_REDIS_URL")
+            .ok()
+            .is_some_and(|value| !value.trim().is_empty()),
+    }
+}
+
 pub fn create_registry() -> HandlerRegistry {
     HashMap::new()
 }

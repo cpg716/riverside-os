@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { type RmsPaymentLineMeta } from "../components/pos/types";
 import { type SearchResult } from "../components/pos/cart/PosSearchResultList";
+import { fetchWithTimeout } from "../lib/api";
 
 function shouldAttemptExactSkuScan(query: string): boolean {
   return /\d/.test(query) || /^[a-z]{1,6}[-_/]/i.test(query);
@@ -42,9 +43,16 @@ export function usePosSearch({
   const [search, setSearch] = useState("");
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchRequestRef = useRef(0);
+  const searchAbortRef = useRef<AbortController | null>(null);
 
   const runSearch = useCallback(async (raw: string) => {
     const q = raw.trim();
+    const requestId = ++searchRequestRef.current;
+    const isCurrent = () => requestId === searchRequestRef.current;
+    searchAbortRef.current?.abort();
+    const abortController = new AbortController();
+    searchAbortRef.current = abortController;
     if (q.length < 2) {
       setSearchResults([]);
       return [];
@@ -91,9 +99,11 @@ export function usePosSearch({
       try {
         let meta = rmsPaymentMeta;
         if (!meta) {
-          const res = await fetch(`${baseUrl}/api/pos/rms-payment-line-meta`, {
+          const res = await fetchWithTimeout(`${baseUrl}/api/pos/rms-payment-line-meta`, {
             headers: apiAuth(),
+            signal: abortController.signal,
           });
+          if (!isCurrent()) return [];
           if (!res.ok) {
             setSearchResults([]);
             toast(
@@ -130,7 +140,8 @@ export function usePosSearch({
         ];
         setSearchResults(results);
         return results;
-      } catch {
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") return [];
         setSearchResults([]);
         toast("Could not load RMS payment line.", "error");
       }
@@ -145,8 +156,9 @@ export function usePosSearch({
     // surface as noisy 404s while staff are searching customers or product names.
     if (shouldAttemptExactSkuScan(q)) {
       requests.push(
-        fetch(`${baseUrl}/api/inventory/scan/${encodeURIComponent(q)}`, {
+        fetchWithTimeout(`${baseUrl}/api/inventory/scan/${encodeURIComponent(q)}`, {
           headers: apiAuth(),
+          signal: abortController.signal,
         }).then(async (res) => {
           if (res.ok) {
             const r = (await res.json()) as Partial<SearchResult>;
@@ -187,10 +199,11 @@ export function usePosSearch({
 
     // 2. Parent Product Fuzzy Search
     requests.push(
-      fetch(
+      fetchWithTimeout(
         `${baseUrl}/api/products/pos-parent-search?search=${encodeURIComponent(q)}&limit=100`,
         {
           headers: apiAuth(),
+          signal: abortController.signal,
         },
       ).then(async (res) => {
         if (res.ok) {
@@ -226,6 +239,7 @@ export function usePosSearch({
 
     try {
       await Promise.all(requests);
+      if (!isCurrent()) return [];
       const seen = new Set<string>();
       const finalResults = collected.filter((it) => {
         if (seen.has(it.variant_id)) return false;
@@ -235,10 +249,13 @@ export function usePosSearch({
       setSearchResults(finalResults);
       return finalResults;
     } catch (e) {
+      if (e instanceof DOMException && e.name === "AbortError") return [];
       console.error("POS Search Error", e);
       setSearchResults([]);
       toast("Product search failed. Check the Main Hub connection and try again.", "error");
       return [];
+    } finally {
+      if (searchAbortRef.current === abortController) searchAbortRef.current = null;
     }
   }, [baseUrl, apiAuth, rmsPaymentMeta, setRmsPaymentMeta, toast]);
 

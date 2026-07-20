@@ -617,6 +617,8 @@ pub async fn check_job_queue_health(queue: &JobQueue) -> Result<HealthStatus, Er
 
 ```bash
 # Job Queue Configuration
+# A configured Redis URL enables the worker by default.
+# Keep this explicit in production; set false only during maintenance.
 RIVERSIDE_JOB_QUEUE_ENABLED=true
 RIVERSIDE_JOB_WORKERS=3
 RIVERSIDE_JOB_MAX_CONCURRENT=10
@@ -624,7 +626,7 @@ RIVERSIDE_JOB_POLL_INTERVAL=5
 RIVERSIDE_JOB_TIMEOUT=300
 
 # Redis Configuration (for job queue)
-RIVERSIDE_REDIS_URL=redis://localhost:6379
+RIVERSIDE_REDIS_URL=redis://<production-redis-host>:6379
 RIVERSIDE_REDIS_QUEUE_NAME=riverside_jobs
 RIVERSIDE_REVIS_VISIBILITY_TIMEOUT=120
 ```

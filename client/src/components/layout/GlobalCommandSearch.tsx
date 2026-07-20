@@ -19,6 +19,7 @@ import { requestRosieSearchIntent, type RosieSearchShortcutId } from "../../lib/
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
 import { useBodyScrollLock } from "../../hooks/useBodyScrollLock";
 import type { SidebarTabId } from "./sidebarSections";
+import { fetchWithTimeout } from "../../lib/api";
 
 function cn(...inputs: Array<string | false | null | undefined>) {
   return twMerge(clsx(inputs));
@@ -491,6 +492,7 @@ export default function GlobalCommandSearch({
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchAbortRef = useRef<AbortController | null>(null);
   const activeSearchQueryRef = useRef("");
   const onSearchOpenOrderRef = useRef(onSearchOpenOrder);
 
@@ -748,13 +750,16 @@ export default function GlobalCommandSearch({
     }
 
     activeSearchQueryRef.current = q;
+    searchAbortRef.current?.abort();
+    const abortController = new AbortController();
+    searchAbortRef.current = abortController;
     setLoading(true);
     clearResults();
 
     try {
-      const res = await fetch(
+      const res = await fetchWithTimeout(
         `${baseUrl}/api/search/universal?q=${encodeURIComponent(q)}&limit=8`,
-        { headers: apiAuth() },
+        { headers: apiAuth(), signal: abortController.signal },
       );
       if (!res.ok) throw new Error("Universal search failed");
       const data = (await res.json()) as UniversalSearchResponse;
@@ -795,7 +800,7 @@ export default function GlobalCommandSearch({
                 description: SEARCH_SHORTCUTS[id].subtitle,
               })),
             },
-            { headers: apiAuth() },
+            { headers: apiAuth(), signal: abortController.signal },
           );
           if (activeSearchQueryRef.current === q) {
             setRosieShortcutIds(response.status === "available" ? response.shortcut_ids : []);
@@ -804,7 +809,8 @@ export default function GlobalCommandSearch({
           // ignore rosie failure
         }
       }
-    } catch {
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
       if (activeSearchQueryRef.current === q) {
         setFailedSources(["Universal Search"]);
       }
@@ -812,6 +818,7 @@ export default function GlobalCommandSearch({
       if (activeSearchQueryRef.current === q) {
         setLoading(false);
       }
+      if (searchAbortRef.current === abortController) searchAbortRef.current = null;
     }
   }, [apiAuth, closePalette]);
 

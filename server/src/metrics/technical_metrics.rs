@@ -4,7 +4,7 @@ use crate::metrics::MetricRegistry;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use std::collections::HashMap;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TechnicalMetrics {
@@ -103,17 +103,16 @@ impl TechnicalMetrics {
         let database_metrics = Self::collect_database_metrics(pool).await?;
 
         // Collect API metrics (from registry or external source)
-        let api_metrics = Self::collect_api_metrics(registry).await?;
+        let api_metrics = Self::collect_api_metrics(registry, pool).await?;
 
         // Collect cache metrics if available
         let cache_metrics = if let Some(cache_service) = cache {
-            Self::collect_cache_metrics(cache_service).await?
+            Self::collect_cache_metrics(cache_service).await
         } else {
             CacheMetrics::default()
         };
 
-        // Collect job metrics (if job queue is available)
-        let job_metrics = Self::collect_job_metrics().await?;
+        let job_metrics = Self::collect_job_metrics(cache).await;
 
         // Record metrics to registry
         Self::record_metrics_to_registry(
@@ -143,22 +142,22 @@ impl TechnicalMetrics {
 
     async fn collect_system_metrics(
     ) -> Result<SystemMetrics, Box<dyn std::error::Error + Send + Sync>> {
-        // CPU usage (simplified - would use sysinfo crate in production)
-        let cpu_usage_percent = 45.0; // Placeholder
+        // The server deliberately avoids synthetic host values. Platform-specific host
+        // telemetry is reported only where the runtime exposes it without a new dependency.
+        let cpu_usage_percent = 0.0;
 
         // Memory usage
         let memory_usage_mb = Self::get_memory_usage()?;
-        let total_memory_mb = 8192; // 8GB placeholder
+        let total_memory_mb = Self::get_total_memory_mb();
         let memory_usage_percent = (memory_usage_mb as f64 / total_memory_mb as f64) * 100.0;
 
         // Disk usage
         let disk_usage_mb = Self::get_disk_usage()?;
-        let total_disk_mb = 102400; // 100GB placeholder
+        let total_disk_mb = 0;
         let disk_usage_percent = (disk_usage_mb as f64 / total_disk_mb as f64) * 100.0;
 
-        // Network stats (placeholder)
-        let network_bytes_sent = 1024 * 1024 * 100; // 100MB
-        let network_bytes_received = 1024 * 1024 * 500; // 500MB
+        let network_bytes_sent = 0;
+        let network_bytes_received = 0;
 
         // Uptime
         let uptime_seconds = Self::get_system_uptime()?;
@@ -193,13 +192,14 @@ impl TechnicalMetrics {
         // Query performance metrics
         let query_duration_avg_ms: Option<f64> = sqlx::query_scalar(
             r#"
-            SELECT COALESCE(AVG(EXTRACT(EPOCH FROM (query_end - query_start)) * 1000), 0)
+            SELECT COALESCE(AVG(mean_exec_time), 0)
             FROM pg_stat_statements
             WHERE calls > 0
             "#,
         )
         .fetch_optional(pool)
-        .await?;
+        .await
+        .unwrap_or(Some(0.0));
 
         // Slow queries (queries taking longer than 1 second)
         let slow_queries_count: i64 = sqlx::query_scalar(
@@ -210,7 +210,8 @@ impl TechnicalMetrics {
             "#,
         )
         .fetch_one(pool)
-        .await?;
+        .await
+        .unwrap_or(0);
 
         // Database size
         let database_size_mb: Option<i64> =
@@ -253,56 +254,132 @@ impl TechnicalMetrics {
     }
 
     async fn collect_api_metrics(
-        _registry: &MetricRegistry,
+        registry: &MetricRegistry,
+        pool: &PgPool,
     ) -> Result<ApiMetrics, Box<dyn std::error::Error + Send + Sync>> {
-        // These would typically be collected from middleware
-        // For now, we'll use placeholder values and try to extract from registry
-
-        let requests_per_second = 10.5; // Placeholder
-        let average_response_time_ms = 150.0; // Placeholder
-        let p95_response_time_ms = 450.0; // Placeholder
-        let p99_response_time_ms = 1200.0; // Placeholder
-        let error_rate_percent = 2.1; // Placeholder
-
+        let duration_values = registry
+            .get_metric("api_request_duration_ms")
+            .into_iter()
+            .flat_map(|values| values.iter())
+            .filter(|value| value.value.is_finite())
+            .collect::<Vec<_>>();
+        let request_values = registry
+            .get_metric("api_requests_total")
+            .into_iter()
+            .flat_map(|values| values.iter())
+            .collect::<Vec<_>>();
+        let error_count = registry
+            .get_metric("api_errors_total")
+            .map(|values| values.len() as u64)
+            .unwrap_or(0);
+        let window_seconds = duration_values
+            .first()
+            .zip(duration_values.last())
+            .map(|(first, last)| {
+                (last.timestamp - first.timestamp).num_milliseconds().max(1) as f64 / 1000.0
+            })
+            .unwrap_or(1.0);
+        let mut sorted_durations = duration_values
+            .iter()
+            .map(|value| value.value)
+            .collect::<Vec<_>>();
+        sorted_durations.sort_by(|a, b| a.total_cmp(b));
+        let percentile = |percent: f64| {
+            sorted_durations
+                .get(
+                    (((sorted_durations.len().saturating_sub(1)) as f64 * percent).round())
+                        as usize,
+                )
+                .copied()
+                .unwrap_or(0.0)
+        };
         let mut status_codes = HashMap::new();
-        status_codes.insert("200".to_string(), 1000);
-        status_codes.insert("404".to_string(), 15);
-        status_codes.insert("500".to_string(), 5);
-
-        let mut endpoints_by_latency = HashMap::new();
-        endpoints_by_latency.insert("/api/transactions".to_string(), 120.0);
-        endpoints_by_latency.insert("/api/products".to_string(), 85.0);
-        endpoints_by_latency.insert("/api/customers".to_string(), 95.0);
-
-        let active_connections = 25; // Placeholder
+        let mut endpoint_durations: HashMap<String, Vec<f64>> = HashMap::new();
+        for value in &request_values {
+            if let Some(status) = value.tags.get("status") {
+                *status_codes.entry(status.clone()).or_insert(0) += 1;
+            }
+        }
+        for value in duration_values {
+            let path = value
+                .tags
+                .get("path")
+                .cloned()
+                .unwrap_or_else(|| "unknown".to_string());
+            endpoint_durations
+                .entry(path)
+                .or_default()
+                .push(value.value);
+        }
+        let endpoints_by_latency = endpoint_durations
+            .into_iter()
+            .map(|(path, mut values)| {
+                values.sort_by(|a, b| a.total_cmp(b));
+                let index = ((values.len().saturating_sub(1) as f64) * 0.95).round() as usize;
+                (path, values.get(index).copied().unwrap_or(0.0))
+            })
+            .collect();
+        let request_count = request_values.len() as f64;
+        let average_response_time_ms = if sorted_durations.is_empty() {
+            0.0
+        } else {
+            sorted_durations.iter().sum::<f64>() / sorted_durations.len() as f64
+        };
+        let active_connections = pool.size().saturating_sub(pool.num_idle() as u32);
 
         Ok(ApiMetrics {
-            requests_per_second,
+            requests_per_second: request_count / window_seconds,
             average_response_time_ms,
-            p95_response_time_ms,
-            p99_response_time_ms,
-            error_rate_percent,
+            p95_response_time_ms: percentile(0.95),
+            p99_response_time_ms: percentile(0.99),
+            error_rate_percent: if request_count > 0.0 {
+                error_count as f64 / request_count * 100.0
+            } else {
+                0.0
+            },
             status_codes,
             endpoints_by_latency,
             active_connections,
         })
     }
 
-    async fn collect_cache_metrics(
-        _cache: &crate::cache::CacheService,
-    ) -> Result<CacheMetrics, Box<dyn std::error::Error + Send + Sync>> {
-        // These would be collected from Redis INFO command
-        // For now, we'll use placeholder values
+    async fn collect_cache_metrics(cache: &crate::cache::CacheService) -> CacheMetrics {
+        let info = match tokio::time::timeout(Duration::from_secs(1), cache.redis().info()).await {
+            Ok(Ok(info)) => info,
+            Ok(Err(error)) => {
+                tracing::warn!(%error, "Redis INFO telemetry unavailable");
+                return CacheMetrics::default();
+            }
+            Err(_) => {
+                tracing::warn!("Redis INFO telemetry timed out");
+                return CacheMetrics::default();
+            }
+        };
+        let value = |key: &str| -> u64 {
+            info.lines()
+                .find_map(|line| line.strip_prefix(&format!("{key}:")))
+                .and_then(|raw| raw.trim().parse::<u64>().ok())
+                .unwrap_or(0)
+        };
+        let hits = value("keyspace_hits");
+        let misses = value("keyspace_misses");
+        let total_operations = value("total_commands_processed");
+        let hit_rate_percent = if hits + misses > 0 {
+            hits as f64 / (hits + misses) as f64 * 100.0
+        } else {
+            0.0
+        };
+        let miss_rate_percent = if hits + misses > 0 {
+            misses as f64 / (hits + misses) as f64 * 100.0
+        } else {
+            0.0
+        };
+        let memory_usage_mb = value("used_memory") / (1024 * 1024);
+        let evicted_keys = value("evicted_keys");
+        let expired_keys = value("expired_keys");
+        let connected_clients = value("connected_clients") as u32;
 
-        let hit_rate_percent = 85.5;
-        let miss_rate_percent = 14.5;
-        let total_operations = 100000;
-        let memory_usage_mb = 256;
-        let evicted_keys = 1500;
-        let expired_keys = 800;
-        let connected_clients = 12;
-
-        Ok(CacheMetrics {
+        CacheMetrics {
             hit_rate_percent,
             miss_rate_percent,
             total_operations,
@@ -310,32 +387,52 @@ impl TechnicalMetrics {
             evicted_keys,
             expired_keys,
             connected_clients,
-        })
+        }
     }
 
-    async fn collect_job_metrics() -> Result<JobMetrics, Box<dyn std::error::Error + Send + Sync>> {
-        // These would be collected from the job queue
-        // For now, we'll use placeholder values
-
-        let jobs_enqueued = 5000;
-        let jobs_dequeued = 4800;
-        let jobs_completed = 4750;
-        let jobs_failed = 50;
-        let average_processing_time_seconds = 12.5;
-        let pending_jobs = 200;
-        let processing_jobs = 15;
-        let dead_letter_jobs = 35;
-
-        Ok(JobMetrics {
-            jobs_enqueued,
-            jobs_dequeued,
-            jobs_completed,
-            jobs_failed,
-            average_processing_time_seconds,
-            pending_jobs,
-            processing_jobs,
-            dead_letter_jobs,
-        })
+    async fn collect_job_metrics(cache: Option<&crate::cache::CacheService>) -> JobMetrics {
+        if !matches!(
+            std::env::var("RIVERSIDE_JOB_QUEUE_ENABLED")
+                .ok()
+                .as_deref()
+                .map(str::trim)
+                .map(str::to_ascii_lowercase)
+                .as_deref(),
+            Some("1" | "true" | "yes" | "on")
+        ) {
+            return JobMetrics::default();
+        }
+        let Some(_cache) = cache else {
+            return JobMetrics::default();
+        };
+        match crate::jobs::JobQueue::from_env() {
+            Ok(queue) => {
+                match tokio::time::timeout(Duration::from_secs(1), queue.get_stats()).await {
+                    Ok(Ok(stats)) => JobMetrics {
+                        jobs_enqueued: stats.enqueued.max(0) as u64,
+                        jobs_dequeued: stats.dequeued.max(0) as u64,
+                        jobs_completed: stats.completed.max(0) as u64,
+                        jobs_failed: stats.failed.max(0) as u64,
+                        average_processing_time_seconds: 0.0,
+                        pending_jobs: stats.pending.max(0) as u64,
+                        processing_jobs: stats.processing.max(0) as u64,
+                        dead_letter_jobs: stats.dead_letter.max(0) as u64,
+                    },
+                    Ok(Err(error)) => {
+                        tracing::warn!(%error, "job queue telemetry unavailable");
+                        JobMetrics::default()
+                    }
+                    Err(_) => {
+                        tracing::warn!("job queue telemetry timed out");
+                        JobMetrics::default()
+                    }
+                }
+            }
+            Err(error) => {
+                tracing::warn!(%error, "job queue telemetry unavailable");
+                JobMetrics::default()
+            }
+        }
     }
 
     fn record_metrics_to_registry(
@@ -531,25 +628,68 @@ impl TechnicalMetrics {
         );
     }
 
-    // Helper methods for system metrics (would use proper system libraries in production)
+    // Helper methods use host-provided procfs values where available. Unsupported platforms
+    // return zero/None rather than presenting made-up capacity numbers.
     fn get_memory_usage() -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
-        // Placeholder - would use sysinfo or similar
-        Ok(2048) // 2GB
+        #[cfg(target_os = "linux")]
+        {
+            let pages = std::fs::read_to_string("/proc/self/statm")?
+                .split_whitespace()
+                .nth(1)
+                .and_then(|value| value.parse::<u64>().ok())
+                .unwrap_or(0);
+            return Ok(pages.saturating_mul(4096) / (1024 * 1024));
+        }
+        #[cfg(not(target_os = "linux"))]
+        Ok(0)
+    }
+
+    fn get_total_memory_mb() -> u64 {
+        #[cfg(target_os = "linux")]
+        {
+            return std::fs::read_to_string("/proc/meminfo")
+                .ok()
+                .and_then(|contents| {
+                    contents.lines().find_map(|line| {
+                        line.strip_prefix("MemTotal:")
+                            .and_then(|value| value.split_whitespace().next())
+                            .and_then(|value| value.parse::<u64>().ok())
+                    })
+                })
+                .map(|kb| kb / 1024)
+                .unwrap_or(0);
+        }
+        #[cfg(not(target_os = "linux"))]
+        0
     }
 
     fn get_disk_usage() -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
-        // Placeholder - would use sysinfo or similar
-        Ok(51200) // 50GB
+        Ok(0)
     }
 
     fn get_system_uptime() -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
-        // Placeholder - would read from /proc/uptime or similar
-        Ok(86400 * 7) // 7 days
+        #[cfg(target_os = "linux")]
+        {
+            return Ok(std::fs::read_to_string("/proc/uptime")?
+                .split_whitespace()
+                .next()
+                .and_then(|value| value.parse::<f64>().ok())
+                .unwrap_or(0.0) as u64);
+        }
+        #[cfg(not(target_os = "linux"))]
+        Ok(0)
     }
 
     fn get_load_average() -> Result<Option<f64>, Box<dyn std::error::Error + Send + Sync>> {
-        // Placeholder - would read from /proc/loadavg or similar
-        Ok(Some(1.5))
+        #[cfg(target_os = "linux")]
+        {
+            return Ok(std::fs::read_to_string("/proc/loadavg")?
+                .split_whitespace()
+                .next()
+                .and_then(|value| value.parse::<f64>().ok()));
+        }
+        #[cfg(not(target_os = "linux"))]
+        Ok(None)
     }
 }
 
@@ -563,6 +703,21 @@ impl Default for CacheMetrics {
             evicted_keys: 0,
             expired_keys: 0,
             connected_clients: 0,
+        }
+    }
+}
+
+impl Default for JobMetrics {
+    fn default() -> Self {
+        Self {
+            jobs_enqueued: 0,
+            jobs_dequeued: 0,
+            jobs_completed: 0,
+            jobs_failed: 0,
+            average_processing_time_seconds: 0.0,
+            pending_jobs: 0,
+            processing_jobs: 0,
+            dead_letter_jobs: 0,
         }
     }
 }

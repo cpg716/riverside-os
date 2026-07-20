@@ -1,5 +1,5 @@
 import { getBaseUrl } from "../../lib/apiConfig";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowRight,
   BadgeDollarSign,
@@ -42,6 +42,7 @@ import type { ReportPrintAction } from "../../lib/reportPrint";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
 import { downloadTextFile } from "../../lib/desktopFileBridge";
 import { useToast } from "../ui/ToastProviderLogic";
+import { fetchWithTimeout } from "../../lib/api";
 
 const baseUrl = getBaseUrl();
 
@@ -833,6 +834,8 @@ export default function ReportsWorkspace({
   const [payload, setPayload] = useState<unknown>(null);
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const reportRequestRef = useRef(0);
+  const reportAbortRef = useRef<AbortController | null>(null);
 
   const ctx: ReportUrlContext = useMemo(
     () => ({ fromYmd: from, toYmd: to, basis, groupBy, bestSellerView }),
@@ -874,12 +877,19 @@ export default function ReportsWorkspace({
   const runLoad = useCallback(
     async (r: ReportDef) => {
       if (!isAvailableReport(r)) return;
+      const requestId = ++reportRequestRef.current;
+      reportAbortRef.current?.abort();
+      const abortController = new AbortController();
+      reportAbortRef.current = abortController;
       setLoading(true);
       setLoadErr(null);
       setPayload(null);
       try {
         const path = r.buildPath(ctx);
-        const res = await fetch(`${baseUrl}${path}`, { headers: apiAuth() });
+        const res = await fetchWithTimeout(`${baseUrl}${path}`, {
+          headers: apiAuth(),
+          signal: abortController.signal,
+        });
         const text = await res.text();
         let body: unknown = null;
         try {
@@ -887,6 +897,7 @@ export default function ReportsWorkspace({
         } catch {
           body = text;
         }
+        if (requestId !== reportRequestRef.current) return;
         if (!res.ok) {
           const msg =
             body &&
@@ -900,9 +911,16 @@ export default function ReportsWorkspace({
         }
         setPayload(body);
       } catch (e) {
+        if (requestId !== reportRequestRef.current) return;
+        if (e instanceof DOMException && e.name === "AbortError") {
+          if (requestId !== reportRequestRef.current) return;
+          setLoadErr("Report load timed out. Check the Main Hub connection and try again.");
+          return;
+        }
         setLoadErr(e instanceof Error ? e.message : "Load failed");
       } finally {
-        setLoading(false);
+        if (requestId === reportRequestRef.current) setLoading(false);
+        if (reportAbortRef.current === abortController) reportAbortRef.current = null;
       }
     },
     [apiAuth, ctx],

@@ -1567,88 +1567,132 @@ async fn universal_search(
         let mut hits = Vec::new();
         let mut failed = Vec::new();
 
-        if has_permission(&perms, WEDDINGS_VIEW) {
-            match search_appointments(&state.db, state.meilisearch.as_ref(), &q, limit.min(4)).await
-            {
-                Ok(rows) => hits.extend(rows),
-                Err(error) => {
-                    tracing::warn!(%error, "universal appointment source failed");
-                    failed.push("Appointments".to_string());
+        let (
+            appointments,
+            tasks,
+            qbo,
+            receiving,
+            physical_inventory,
+            gift_cards,
+            loyalty,
+            notifications,
+            payments,
+        ) = tokio::join!(
+            async {
+                if has_permission(&perms, WEDDINGS_VIEW) {
+                    Some(
+                        search_appointments(
+                            &state.db,
+                            state.meilisearch.as_ref(),
+                            &q,
+                            limit.min(4),
+                        )
+                        .await,
+                    )
+                } else {
+                    None
                 }
-            }
-        }
-        if has_permission(&perms, TASKS_VIEW_TEAM) {
-            match search_tasks(&state.db, state.meilisearch.as_ref(), &q, limit.min(4)).await {
-                Ok(rows) => hits.extend(rows),
-                Err(error) => {
-                    tracing::warn!(%error, "universal task source failed");
-                    failed.push("Tasks".to_string());
+            },
+            async {
+                if has_permission(&perms, TASKS_VIEW_TEAM) {
+                    Some(
+                        search_tasks(&state.db, state.meilisearch.as_ref(), &q, limit.min(4)).await,
+                    )
+                } else {
+                    None
                 }
-            }
-        }
-        if has_permission(&perms, QBO_VIEW) {
-            match search_qbo_logs(&state.db, &q, limit.min(4)).await {
-                Ok(rows) => hits.extend(rows),
-                Err(error) => {
-                    tracing::warn!(%error, "universal QBO source failed");
-                    failed.push("QBO".to_string());
+            },
+            async {
+                if has_permission(&perms, QBO_VIEW) {
+                    Some(search_qbo_logs(&state.db, &q, limit.min(4)).await)
+                } else {
+                    None
                 }
-            }
-        }
-        if has_permission(&perms, PROCUREMENT_VIEW) {
-            match search_receiving_events(&state.db, &q, limit.min(4)).await {
-                Ok(rows) => hits.extend(rows),
-                Err(error) => {
-                    tracing::warn!(%error, "universal receiving source failed");
-                    failed.push("Receiving".to_string());
+            },
+            async {
+                if has_permission(&perms, PROCUREMENT_VIEW) {
+                    Some(search_receiving_events(&state.db, &q, limit.min(4)).await)
+                } else {
+                    None
                 }
-            }
-        }
-        if has_permission(&perms, PHYSICAL_INVENTORY_VIEW) {
-            match search_physical_inventory_sessions(&state.db, &q, limit.min(4)).await {
-                Ok(rows) => hits.extend(rows),
-                Err(error) => {
-                    tracing::warn!(%error, "universal physical inventory source failed");
-                    failed.push("Physical Inventory".to_string());
+            },
+            async {
+                if has_permission(&perms, PHYSICAL_INVENTORY_VIEW) {
+                    Some(search_physical_inventory_sessions(&state.db, &q, limit.min(4)).await)
+                } else {
+                    None
                 }
-            }
-        }
-        if has_permission(&perms, GIFT_CARDS_MANAGE) {
-            match search_gift_cards(&state.db, &q, limit.min(4)).await {
-                Ok(rows) => hits.extend(rows),
-                Err(error) => {
-                    tracing::warn!(%error, "universal gift card source failed");
-                    failed.push("Gift Cards".to_string());
+            },
+            async {
+                if has_permission(&perms, GIFT_CARDS_MANAGE) {
+                    Some(search_gift_cards(&state.db, &q, limit.min(4)).await)
+                } else {
+                    None
                 }
-            }
-        }
-        if has_permission(&perms, LOYALTY_PROGRAM_SETTINGS) {
-            match search_loyalty(&state.db, &q, limit.min(4)).await {
-                Ok(rows) => hits.extend(rows),
-                Err(error) => {
-                    tracing::warn!(%error, "universal loyalty source failed");
-                    failed.push("Loyalty".to_string());
+            },
+            async {
+                if has_permission(&perms, LOYALTY_PROGRAM_SETTINGS) {
+                    Some(search_loyalty(&state.db, &q, limit.min(4)).await)
+                } else {
+                    None
                 }
-            }
-        }
-        if has_permission(&perms, NOTIFICATIONS_VIEW) {
-            match search_notifications(&state.db, &q, limit.min(4)).await {
-                Ok(rows) => hits.extend(rows),
-                Err(error) => {
-                    tracing::warn!(%error, "universal notification source failed");
-                    failed.push("Notifications".to_string());
+            },
+            async {
+                if has_permission(&perms, NOTIFICATIONS_VIEW) {
+                    Some(search_notifications(&state.db, &q, limit.min(4)).await)
+                } else {
+                    None
                 }
-            }
-        }
-        if has_permission(&perms, PAYMENTS_VIEW) || has_permission(&perms, REGISTER_REPORTS) {
-            match search_payments(&state.db, &q, limit.min(4)).await {
-                Ok(rows) => hits.extend(rows),
-                Err(error) => {
-                    tracing::warn!(%error, "universal payment source failed");
-                    failed.push("Payments".to_string());
+            },
+            async {
+                if has_permission(&perms, PAYMENTS_VIEW) || has_permission(&perms, REGISTER_REPORTS)
+                {
+                    Some(search_payments(&state.db, &q, limit.min(4)).await)
+                } else {
+                    None
                 }
-            }
+            },
+        );
+
+        macro_rules! collect_source {
+            ($result:expr, $label:literal, $message:literal) => {
+                if let Some(result) = $result {
+                    match result {
+                        Ok(rows) => hits.extend(rows),
+                        Err(error) => {
+                            tracing::warn!(%error, $message);
+                            failed.push($label.to_string());
+                        }
+                    }
+                }
+            };
         }
+
+        collect_source!(
+            appointments,
+            "Appointments",
+            "universal appointment source failed"
+        );
+        collect_source!(tasks, "Tasks", "universal task source failed");
+        collect_source!(qbo, "QBO", "universal QBO source failed");
+        collect_source!(receiving, "Receiving", "universal receiving source failed");
+        collect_source!(
+            physical_inventory,
+            "Physical Inventory",
+            "universal physical inventory source failed"
+        );
+        collect_source!(
+            gift_cards,
+            "Gift Cards",
+            "universal gift card source failed"
+        );
+        collect_source!(loyalty, "Loyalty", "universal loyalty source failed");
+        collect_source!(
+            notifications,
+            "Notifications",
+            "universal notification source failed"
+        );
+        collect_source!(payments, "Payments", "universal payment source failed");
 
         hits.sort_by(|a, b| b.occurred_at.cmp(&a.occurred_at));
         hits.truncate(limit);

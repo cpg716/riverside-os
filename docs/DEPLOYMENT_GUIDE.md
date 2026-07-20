@@ -109,6 +109,8 @@ RIVERSIDE_METRICS_PROMETHEUS_SUBSYSTEM=production
 # =============================================================================
 # Job Queue Configuration
 # =============================================================================
+# A configured production Redis URL enables the worker by default.
+# Keep this explicit in production; set false only during maintenance.
 RIVERSIDE_JOB_QUEUE_ENABLED=true
 RIVERSIDE_JOB_WORKERS=3
 RIVERSIDE_JOB_MAX_CONCURRENT=10
@@ -118,7 +120,7 @@ RIVERSIDE_JOB_TIMEOUT=300
 # =============================================================================
 # External Integrations
 # =============================================================================
-# Meilisearch (optional)
+# Meilisearch (optional; independent of Redis)
 RIVERSIDE_MEILISEARCH_URL=http://meilisearch:7700
 
 # QBO (optional)

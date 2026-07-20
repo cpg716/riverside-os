@@ -26,6 +26,12 @@ impl RedisCache {
         redis::cmd("PING").query_async(&mut conn).await
     }
 
+    /// Read Redis' bounded INFO snapshot for operational telemetry.
+    pub async fn info(&self) -> RedisResult<String> {
+        let mut conn = self.get_connection().await?;
+        redis::cmd("INFO").query_async(&mut conn).await
+    }
+
     /// Cache a value with TTL
     pub async fn set<T: Serialize>(&self, key: &str, value: &T, ttl: Duration) -> RedisResult<()> {
         let serialized = serde_json::to_string(value).map_err(|e| {
