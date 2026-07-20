@@ -466,6 +466,7 @@ async fn cp_category_masters(
                 entity = "category_masters",
                 batch_size = n,
                 categories_created = summary.categories_created,
+                categories_renamed = summary.categories_renamed,
                 maps_upserted = summary.maps_upserted,
                 skipped = summary.skipped,
                 already_mapped = summary.already_mapped,

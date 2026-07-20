@@ -10702,6 +10702,7 @@ pub struct CounterpointCategoryMastersPayload {
 #[derive(Debug, Serialize)]
 pub struct CategoryMasterSummary {
     pub categories_created: i32,
+    pub categories_renamed: i32,
     pub maps_upserted: i32,
     pub skipped: i32,
     pub already_mapped: i32,
@@ -10795,8 +10796,9 @@ fn counterpoint_category_is_clothing_footwear(cp_category: &str, display_label: 
         .any(|marker| haystack.contains(marker) || raw_haystack.contains(&marker.replace(' ', "_")))
 }
 
-/// Upserts `categories` + `counterpoint_category_map`. Skips rows that already have a non-null `ros_category_id`
-/// so manual Settings mappings are not overwritten.
+/// Upserts `categories` + `counterpoint_category_map`. Existing manual mappings are preserved, but a
+/// category that was previously created from its numeric Counterpoint code may be repaired once the
+/// authoritative Counterpoint display name becomes available.
 pub async fn execute_counterpoint_category_masters_batch(
     pool: &PgPool,
     payload: CounterpointCategoryMastersPayload,
@@ -10810,6 +10812,7 @@ pub async fn execute_counterpoint_category_masters_batch(
     let mut tx = pool.begin().await?;
     let mut summary = CategoryMasterSummary {
         categories_created: 0,
+        categories_renamed: 0,
         maps_upserted: 0,
         skipped: 0,
         already_mapped: 0,
@@ -10822,20 +10825,49 @@ pub async fn execute_counterpoint_category_masters_batch(
             continue;
         }
 
-        let has_mapped: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM counterpoint_category_map WHERE cp_category = $1 AND ros_category_id IS NOT NULL)",
+        let label_src = trim_opt(&row.display_name).unwrap_or_else(|| cp.to_string());
+        let label = clamp_chars(&label_src, 500);
+        let has_meaningful_label = !label.eq_ignore_ascii_case(cp);
+
+        let mapped_category: Option<(Uuid, String)> = sqlx::query_as(
+            r#"
+            SELECT ccm.ros_category_id, c.name
+            FROM counterpoint_category_map ccm
+            JOIN categories c ON c.id = ccm.ros_category_id
+            WHERE ccm.cp_category = $1
+              AND ccm.ros_category_id IS NOT NULL
+            LIMIT 1
+            "#,
         )
         .bind(cp)
-        .fetch_one(&mut *tx)
+        .fetch_optional(&mut *tx)
         .await?;
 
-        if has_mapped {
+        if let Some((mapped_id, current_name)) = mapped_category {
+            if has_meaningful_label
+                && current_name.trim().eq_ignore_ascii_case(cp)
+                && !sqlx::query_scalar::<_, bool>(
+                    "SELECT EXISTS(SELECT 1 FROM categories WHERE lower(trim(name)) = lower(trim($1)) AND id <> $2)",
+                )
+                .bind(&label)
+                .bind(mapped_id)
+                .fetch_one(&mut *tx)
+                .await?
+            {
+                let is_clothing_footwear = counterpoint_category_is_clothing_footwear(cp, &label);
+                sqlx::query(
+                    "UPDATE categories SET name = $1, is_clothing_footwear = $2 WHERE id = $3",
+                )
+                .bind(&label)
+                .bind(is_clothing_footwear)
+                .bind(mapped_id)
+                .execute(&mut *tx)
+                .await?;
+                summary.categories_renamed += 1;
+            }
             summary.already_mapped += 1;
             continue;
         }
-
-        let label_src = trim_opt(&row.display_name).unwrap_or_else(|| cp.to_string());
-        let label = clamp_chars(&label_src, 500);
 
         let cat_id = get_or_create_category_id_for_cp(&mut tx, cp, &label, &mut summary).await?;
 
@@ -10863,7 +10895,12 @@ pub async fn execute_counterpoint_category_masters_batch(
                 "category_masters",
                 s.cursor.as_deref(),
                 true,
-                Some(summary.categories_created + summary.maps_upserted + summary.skipped),
+                Some(
+                    summary.categories_created
+                        + summary.categories_renamed
+                        + summary.maps_upserted
+                        + summary.skipped,
+                ),
                 None,
             )
             .await;
