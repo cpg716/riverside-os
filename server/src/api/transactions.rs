@@ -5598,7 +5598,11 @@ async fn process_refund(
                     &state,
                     m_id,
                     m_pin,
-                    "Manager Access approval permission required for legacy manual refund",
+                    if manual_external_card_refund {
+                        "Manager Access approval permission required for manual external card refund"
+                    } else {
+                        "Manager Access approval permission required for legacy manual refund"
+                    },
                 )
                 .await?;
 
@@ -5608,7 +5612,12 @@ async fn process_refund(
                     .filter(|s| !s.trim().is_empty())
                     .ok_or_else(|| {
                         TransactionError::InvalidPayload(
-                            "reason is required for legacy manual refund override".to_string(),
+                            if manual_external_card_refund {
+                                "reason is required for manual external card refund"
+                            } else {
+                                "reason is required for legacy manual refund override"
+                            }
+                            .to_string(),
                         )
                     })?;
                 let external_refund_reference = body
@@ -5633,11 +5642,17 @@ async fn process_refund(
                     "Manual legacy refund recorded in Register"
                 };
 
+                let staff_access_action = if manual_external_card_refund {
+                    "manual_external_card_refund"
+                } else {
+                    "manual_legacy_refund"
+                };
+
                 // Log the audit event.
                 crate::auth::pins::log_staff_access(
                     &state.db,
                     manager.id,
-                    "manual_legacy_refund",
+                    staff_access_action,
                     json!({
                         "transaction_id": transaction_id,
                         "refund_queue_id": refund.id,
@@ -5649,9 +5664,8 @@ async fn process_refund(
                 )
                 .await?;
 
-                // Create the negative payment transaction as a canonical Helcim card
-                // refund. The external reference is the provider-side audit reference;
-                // it is intentionally not treated as the original charge transaction ID.
+                // Create a real negative external-card payment. The supplied reference is
+                // provider-side audit evidence, not a fabricated original charge ID.
                 let pt_id = Uuid::new_v4();
                 sqlx::query(
                     r#"
@@ -5676,7 +5690,6 @@ async fn process_refund(
                     "external_refund_reference": external_refund_reference,
                     "external_refund_processor": "external_card",
                     "refund_event_id": refund_event_id,
-                    "original_provider_transaction_id": "MANUAL_MIGRATION",
                     "transaction_id": transaction_id,
                     "exact_refund_amount": exact_refund_amount,
                     "cash_tender_amount": cash_tender_amount,

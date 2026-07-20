@@ -895,7 +895,7 @@ async function createSalespersonStaff(request: APIRequestContext): Promise<{ id:
   return JSON.parse(bodyText) as { id: string };
 }
 
-async function processManualLegacyRefund(
+async function processManualExternalCardRefund(
   request: APIRequestContext,
   options: {
     transactionId: string;
@@ -915,7 +915,7 @@ async function processManualLegacyRefund(
     },
     data: {
       session_id: options.sessionId,
-      payment_method: "card",
+      payment_method: "card_terminal_manual",
       amount: options.amount,
       manager_staff_id: options.managerStaffId,
       manager_pin: options.managerPin,
@@ -1282,7 +1282,7 @@ test.describe("QBO audit contract", () => {
     expect(refundAllocations).toHaveLength(1);
   });
 
-  test("manual legacy refund rejects salesperson authorization and records admin approval", async ({
+  test("manual external card refund rejects salesperson authorization and records admin approval", async ({
     request,
   }) => {
     test.setTimeout(90_000);
@@ -1306,21 +1306,21 @@ test.describe("QBO audit contract", () => {
     });
 
     const salesperson = await createSalespersonStaff(request);
-    const salespersonAttempt = await processManualLegacyRefund(request, {
+    const salespersonAttempt = await processManualExternalCardRefund(request, {
       transactionId: checkout.transaction_id,
       sessionId,
       amount: returnedUnitTotal,
       managerStaffId: salesperson.id,
       managerPin: "1234",
-      managerReason: "E2E salesperson denial for manual migration refund",
+      managerReason: "E2E salesperson denial for manual external card refund",
     });
     const salespersonAttemptText = await salespersonAttempt.text();
     expect(salespersonAttempt.status(), salespersonAttemptText.slice(0, 1000)).toBe(403);
     expect(salespersonAttemptText).toContain(
-      "Manager Access approval permission required for legacy manual refund",
+      "Manager Access approval permission required for manual external card refund",
     );
 
-    const missingReasonAttempt = await processManualLegacyRefund(request, {
+    const missingReasonAttempt = await processManualExternalCardRefund(request, {
       transactionId: checkout.transaction_id,
       sessionId,
       amount: returnedUnitTotal,
@@ -1331,28 +1331,28 @@ test.describe("QBO audit contract", () => {
     expect(missingReasonAttempt.status(), missingReasonText.slice(0, 1000)).toBe(400);
     expect(missingReasonText).toContain("reason is required");
 
-    const missingReferenceAttempt = await processManualLegacyRefund(request, {
+    const missingReferenceAttempt = await processManualExternalCardRefund(request, {
       transactionId: checkout.transaction_id,
       sessionId,
       amount: returnedUnitTotal,
       managerStaffId: operatorStaffId,
       managerPin: staffCode(),
-      managerReason: "E2E missing Helcim reference",
+      managerReason: "E2E missing external card reference",
     });
     const missingReferenceText = await missingReferenceAttempt.text();
     expect(missingReferenceAttempt.status(), missingReferenceText.slice(0, 1000)).toBe(400);
-    expect(missingReferenceText).toContain("Helcim refund reference is required");
+    expect(missingReferenceText).toContain("external card refund reference is required");
 
-    const approvalReason = "E2E approved manual migration refund after terminal confirmation";
-    const helcimRefundReference = `E2E-HELCIM-REF-${Date.now()}`;
-    const adminAttempt = await processManualLegacyRefund(request, {
+    const approvalReason = "E2E approved manual external card refund after processor confirmation";
+    const externalRefundReference = `E2E-EXTERNAL-CARD-REF-${Date.now()}`;
+    const adminAttempt = await processManualExternalCardRefund(request, {
       transactionId: checkout.transaction_id,
       sessionId,
       amount: returnedUnitTotal,
       managerStaffId: operatorStaffId,
       managerPin: staffCode(),
       managerReason: approvalReason,
-      externalRefundReference: helcimRefundReference,
+      externalRefundReference,
     });
     const adminAttemptText = await adminAttempt.text();
     expect(adminAttempt.status(), adminAttemptText.slice(0, 1000)).toBe(200);
@@ -1363,16 +1363,15 @@ test.describe("QBO audit contract", () => {
     expect(artifacts.payment_rows).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          payment_method: "card_manual",
+          payment_method: "card_terminal_manual",
           metadata: expect.objectContaining({
-            kind: "legacy_migration_refund",
+            kind: "external_card_refund",
             manual_terminal_confirmation: true,
             requires_operator_terminal_action: true,
             authorizing_manager_id: operatorStaffId,
             reason: approvalReason,
-            external_refund_reference: helcimRefundReference,
-            external_refund_processor: "helcim",
-            original_provider_transaction_id: "MANUAL_MIGRATION",
+            external_refund_reference: externalRefundReference,
+            external_refund_processor: "external_card",
             transaction_id: checkout.transaction_id,
           }),
         }),
@@ -1387,15 +1386,15 @@ test.describe("QBO audit contract", () => {
       expect.arrayContaining([
         expect.objectContaining({
           event_kind: "refund_processed",
-          summary: "Manual legacy refund recorded in Register",
+          summary: "Manual external card refund recorded in Register",
           metadata: expect.objectContaining({
-            kind: "legacy_migration_refund",
+            kind: "external_card_refund",
             payment_transaction_id: adminBody.payment_transaction_id,
             refund_queue_id: expect.any(String),
             authorizing_manager_id: operatorStaffId,
             reason: approvalReason,
-            external_refund_reference: helcimRefundReference,
-            external_refund_processor: "helcim",
+            external_refund_reference: externalRefundReference,
+            external_refund_processor: "external_card",
           }),
         }),
       ]),
