@@ -1655,7 +1655,7 @@ export default function OrdersWorkspace({
       if (!refundExternalReference.trim()) {
         toast(rmsRefund
           ? "Enter the RMS Charge refund reference before recording the refund."
-          : "Enter the Helcim refund reference before recording the backend refund.", "error");
+          : "Enter the external card refund reference before recording the refund.", "error");
         return;
       }
       if (!refundManagerReason.trim()) {

@@ -91,7 +91,7 @@ export default function PosRefundModal({
             >
               <option value="card_present">Credit Card (original Helcim card)</option>
               <option value="card_manual">Credit Card / Manual (original Helcim card)</option>
-              <option value="card_terminal_manual">Helcim refund already processed (record only)</option>
+              <option value="card_terminal_manual">External card refund already completed (record only)</option>
               <option value="cash">Cash</option>
               <option value="check">Check</option>
               <option value="store_credit">Store credit</option>
@@ -116,7 +116,7 @@ export default function PosRefundModal({
           {externallyCompletedRefund && (
             <div className="space-y-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
               <label className="block text-xs font-bold text-app-text-muted">
-                {rmsRefund ? "RMS Charge refund reference" : "Helcim refund reference"}
+                {rmsRefund ? "RMS Charge refund reference" : "External card refund reference"}
                 <input
                   type="text"
                   value={externalRefundReference}
