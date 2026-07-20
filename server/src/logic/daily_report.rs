@@ -274,7 +274,10 @@ AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
         r#"
         SELECT
             COUNT(DISTINCT orl.id)::bigint AS return_count,
-            COALESCE(SUM(((oi.unit_price - COALESCE(oi.discount_amount, 0)) * orl.quantity_returned)::numeric(14,2)), 0)::numeric(14,2) AS return_total
+            COALESCE(SUM(COALESCE(
+                orl.refund_total,
+                (oi.unit_price + oi.state_tax + oi.local_tax) * orl.quantity_returned
+            )), 0)::numeric(14,2) AS return_total
         FROM transaction_return_lines orl
         INNER JOIN transaction_lines oi ON oi.id = orl.transaction_line_id
         INNER JOIN transactions o ON o.id = oi.transaction_id
@@ -301,7 +304,7 @@ AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
                 WHEN LOWER(TRIM(payment_method)) IN (
                     'card', 'cc', 'credit', 'credit_card', 'debit',
                     'card_terminal', 'card_reader', 'card_manual', 'card_not_present',
-                    'card_saved', 'card_credit', 'offline_cc'
+                    'card_saved', 'card_credit', 'offline_cc', 'card_terminal_manual'
                 )
                 THEN 'Credit/Debit Card'
                 WHEN LOWER(TRIM(payment_method)) = 'cash' THEN 'Cash'

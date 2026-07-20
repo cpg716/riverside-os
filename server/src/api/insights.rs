@@ -3727,12 +3727,14 @@ async fn returns_exchanges_refunds_report(
                 COALESCE(p.name, pv.sku, 'Item') AS item,
                 pv.sku AS sku,
                 rl.quantity_returned::bigint AS quantity,
-                COALESCE(ROUND(tl.unit_price * rl.quantity_returned, 2), 0)::numeric(14,2) AS merchandise_amount,
+                COALESCE(rl.refund_subtotal, ROUND(tl.unit_price * rl.quantity_returned, 2), 0)::numeric(14,2) AS merchandise_amount,
                 COALESCE(
+                    rl.refund_state_tax + rl.refund_local_tax,
                     ROUND((COALESCE(tl.state_tax, 0) + COALESCE(tl.local_tax, 0)) * rl.quantity_returned, 2),
                     0
                 )::numeric(14,2) AS tax_amount,
                 COALESCE(
+                    rl.refund_total,
                     ROUND(
                         (COALESCE(tl.unit_price, 0) + COALESCE(tl.state_tax, 0) + COALESCE(tl.local_tax, 0))
                         * rl.quantity_returned,

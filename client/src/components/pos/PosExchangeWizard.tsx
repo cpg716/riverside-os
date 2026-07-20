@@ -41,6 +41,7 @@ interface TransactionDetailLite {
   is_counterpoint_import?: boolean;
   is_tax_exempt?: boolean;
   payment_methods_summary?: string;
+  original_helcim_transaction_id_for_refund?: string | null;
   customer: {
     id: string;
     first_name: string;
@@ -234,6 +235,7 @@ export default function PosExchangeWizard({
     returnedLines?: ReturnedLineSummary[];
     refundAmountCents?: number;
     action?: "refund" | "exchange";
+    originalHelcimTransactionIdForRefund?: string | null;
   }) => void;
 }) {
   const { toast } = useToast();
@@ -439,6 +441,8 @@ export default function PosExchangeWizard({
           returnedLines: refundLines,
           refundAmountCents: refundCents,
           action: nextAction,
+          originalHelcimTransactionIdForRefund:
+            detail.original_helcim_transaction_id_for_refund ?? null,
         });
         onClose();
         return;
@@ -480,6 +484,8 @@ export default function PosExchangeWizard({
       returnedLines,
       refundAmountCents: parseMoneyToCents(refundAmount),
       action: "exchange",
+      originalHelcimTransactionIdForRefund:
+        detail.original_helcim_transaction_id_for_refund ?? null,
     });
     onClose();
   };
@@ -899,6 +905,9 @@ export default function PosExchangeWizard({
                       returnedLines,
                       refundAmountCents: amountCents,
                       action: "refund",
+                      originalHelcimTransactionIdForRefund:
+                        detail.original_helcim_transaction_id_for_refund ??
+                        null,
                     });
                     onClose();
                   }}

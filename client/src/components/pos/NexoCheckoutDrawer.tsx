@@ -34,6 +34,7 @@ import {
   type HeldOpenDeposit,
 } from "./openDeposit";
 import { isApprovedProviderPayment } from "./paymentLineGuards";
+import ManagerApprovalModal from "./ManagerApprovalModal";
 
 // Cash rounding is configured in Settings → Register (Terminal Overrides).
 // Value is fetched from /api/settings/pos-station-config/public on drawer open.
@@ -628,6 +629,8 @@ export default function NexoCheckoutDrawer({
   const [offlineCardApprovalCode, setOfflineCardApprovalCode] = useState("");
   const [offlineCardLast4, setOfflineCardLast4] = useState("");
   const [offlineCardReason, setOfflineCardReason] = useState("");
+  const [manualRefundApprovalOpen, setManualRefundApprovalOpen] = useState(false);
+  const [pendingManualRefundCents, setPendingManualRefundCents] = useState<number | null>(null);
   const [providerSettings, setProviderSettings] = useState<PaymentProviderSettings | null>(null);
   const [providerSettingsLoading, setProviderSettingsLoading] = useState(false);
   const [providerSettingsError, setProviderSettingsError] = useState<string | null>(null);
@@ -882,9 +885,6 @@ export default function NexoCheckoutDrawer({
       if (!hasOriginalHelcimRefundReference) {
         base = base.filter((id) => id !== "card_credit");
       }
-      if (returnOnlyRefundMode) {
-        base = base.filter((id) => id !== "card_credit" && id !== "offline_cc");
-      }
     } else {
       base = base.filter((id) => id !== "card_credit");
     }
@@ -896,7 +896,7 @@ export default function NexoCheckoutDrawer({
       base = base.filter((id) => !id.startsWith("card_"));
     }
     return base;
-  }, [allowStoreCredit, amountDueCents, rmsPaymentCollectionMode, providerHealthHardFailed, returnOnlyRefundMode, hasOriginalHelcimRefundReference, staffAccount]);
+  }, [allowStoreCredit, amountDueCents, rmsPaymentCollectionMode, providerHealthHardFailed, hasOriginalHelcimRefundReference, staffAccount]);
 
   const paidSoFarCents = useMemo(() => applied.reduce((s, p) => s + p.amountCents, 0), [applied]);
   const depositDisplayCents = useMemo(() => Math.max(0, parseMoneyToCents(appliedDepositAmount.trim())), [appliedDepositAmount]);
@@ -1041,7 +1041,7 @@ export default function NexoCheckoutDrawer({
     // the next sale has the same total as the previous one.
     if (isOpen) {
       setKeypad("");
-      setTab(amountDueCents < 0 ? (returnOnlyRefundMode || !hasOriginalHelcimRefundReference ? "cash" : "card_credit") : rmsPaymentCollectionMode ? "cash" : "card_terminal");
+      setTab(amountDueCents < 0 ? (!hasOriginalHelcimRefundReference ? "cash" : "card_credit") : rmsPaymentCollectionMode ? "cash" : "card_terminal");
       setGiftCardCode("");
       setGiftCardPreview(null);
       setGiftCardPreviewError(null);
@@ -2236,27 +2236,32 @@ export default function NexoCheckoutDrawer({
         return;
       }
       const isRefund = amtCents < 0;
+      if (isRefund) {
+        setPendingManualRefundCents(amtCents);
+        setManualRefundApprovalOpen(true);
+        return;
+      }
       setApplied((prev) => [
         ...prev,
         {
           id: newId(),
-          method: isRefund ? "card_credit" : "card_manual",
+          method: "card_manual",
           amountCents: amtCents,
-          label: isRefund ? "Manual Card Refund" : "Manual Card",
+          label: "Manual Card",
           metadata: {
             tender_family: "manual_card",
             offline_card_approval_code: approvalCode,
             offline_card_last4: last4,
             offline_card_reason: reason,
-            offline_card_direction: isRefund ? "refund" : "sale",
-            offline_card_entry_type: isRefund ? "manual_refund" : "manual_sale",
+            offline_card_direction: "sale",
+            offline_card_entry_type: "manual_sale",
             manual_card_approval_code: approvalCode,
             manual_card_last4: last4,
             manual_card_reason: reason,
-            manual_card_direction: isRefund ? "refund" : "sale",
-            manual_card_entry_type: isRefund ? "manual_refund" : "manual_sale",
+            manual_card_direction: "sale",
+            manual_card_entry_type: "manual_sale",
             external_auth_code: approvalCode,
-            external_transaction_type: isRefund ? "manual_card_refund" : "manual_card_sale",
+            external_transaction_type: "manual_card_sale",
             card_last4: last4,
           },
         },
@@ -4461,6 +4466,46 @@ export default function NexoCheckoutDrawer({
           </div>
         </div>
       </div>
+      <ManagerApprovalModal
+        isOpen={manualRefundApprovalOpen}
+        onClose={() => {
+          setManualRefundApprovalOpen(false);
+          setPendingManualRefundCents(null);
+        }}
+        title="Approve manual card refund"
+        message="Confirm the refund was completed on the prior processor or external card system. ROS will record a real negative card tender using the approval reference entered above."
+        onApprove={async (pin, managerId) => {
+          const amountCents = pendingManualRefundCents;
+          if (amountCents == null || amountCents >= 0) return false;
+          const approvalCode = offlineCardApprovalCode.trim();
+          const last4 = offlineCardLast4.replace(/\D/g, "");
+          const reason = offlineCardReason.trim();
+          setApplied((prev) => [
+            ...prev,
+            {
+              id: newId(),
+              method: "card_terminal_manual",
+              amountCents,
+              label: "Manual CC Refund",
+              metadata: {
+                tender_family: "manual_card",
+                manual_card_direction: "refund",
+                external_transaction_type: "manual_card_refund",
+                external_refund_reference: approvalCode,
+                manager_staff_id: managerId,
+                manager_pin: pin,
+                manager_reason: reason,
+                card_last4: last4,
+              },
+            },
+          ]);
+          setPendingManualRefundCents(null);
+          setOfflineCardApprovalCode("");
+          setOfflineCardLast4("");
+          setOfflineCardReason("");
+          return true;
+        }}
+      />
     </DetailDrawer>
   );
 }

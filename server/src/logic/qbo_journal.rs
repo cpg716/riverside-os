@@ -421,8 +421,10 @@ AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
         SELECT
             CASE
                 WHEN LOWER(COALESCE(payment_provider, '')) = 'helcim'
-                AND LOWER(TRIM(payment_method)) IN ('card', 'card_terminal', 'card_manual', 'card_saved', 'card_credit')
+                AND LOWER(TRIM(payment_method)) IN ('card', 'cc', 'credit_card', 'card_terminal', 'card_manual', 'card_not_present', 'card_saved', 'card_credit', 'offline_cc', 'card_terminal_manual')
                 THEN 'helcim_card'
+                WHEN LOWER(TRIM(payment_method)) = 'card_terminal_manual'
+                THEN 'card_manual'
                 ELSE payment_method
             END AS payment_method,
             STRING_AGG(DISTINCT payment_method, ', ' ORDER BY payment_method) AS source_payment_methods,
@@ -460,8 +462,10 @@ AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
         GROUP BY
             CASE
                 WHEN LOWER(COALESCE(payment_provider, '')) = 'helcim'
-                 AND LOWER(TRIM(payment_method)) IN ('card', 'card_terminal', 'card_manual', 'card_saved', 'card_credit')
+                 AND LOWER(TRIM(payment_method)) IN ('card', 'cc', 'credit_card', 'card_terminal', 'card_manual', 'card_not_present', 'card_saved', 'card_credit', 'offline_cc', 'card_terminal_manual')
                 THEN 'helcim_card'
+                WHEN LOWER(TRIM(payment_method)) = 'card_terminal_manual'
+                THEN 'card_manual'
                 ELSE payment_method
             END,
             NULLIF(TRIM(COALESCE(metadata->>'sub_type', '')), ''),
@@ -1385,9 +1389,18 @@ AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
         SELECT
             p.category_id,
             c.name AS category_name,
-            SUM((oi.unit_price * orl.quantity_returned::numeric)::numeric(14, 2)) AS net_product,
-            SUM((oi.state_tax * orl.quantity_returned::numeric)::numeric(14, 2)) AS tax_state,
-            SUM((oi.local_tax * orl.quantity_returned::numeric)::numeric(14, 2)) AS tax_local,
+            SUM(COALESCE(
+                orl.refund_subtotal,
+                oi.unit_price * orl.quantity_returned::numeric
+            ))::numeric(14, 2) AS net_product,
+            SUM(COALESCE(
+                orl.refund_state_tax,
+                oi.state_tax * orl.quantity_returned::numeric
+            ))::numeric(14, 2) AS tax_state,
+            SUM(COALESCE(
+                orl.refund_local_tax,
+                oi.local_tax * orl.quantity_returned::numeric
+            ))::numeric(14, 2) AS tax_local,
             SUM(
                 CASE WHEN orl.restocked
                     THEN (oi.unit_cost * orl.quantity_returned::numeric)::numeric(14, 2)

@@ -634,21 +634,10 @@ pub async fn fetch_register_day_summary(
         INNER JOIN (
             SELECT
                 transaction_id,
-                SUM(
-                    GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0)::numeric
-                    * oi.unit_price
-                )::numeric(14,2) AS line_subtotal,
-                SUM(
-                    GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0)::numeric
-                    * (oi.state_tax + oi.local_tax)
-                )::numeric(14,2) AS line_tax
+                SUM(oi.quantity::numeric * oi.unit_price)::numeric(14,2) AS line_subtotal,
+                SUM(oi.quantity::numeric * (oi.state_tax + oi.local_tax))::numeric(14,2) AS line_tax
             FROM transaction_lines oi
             LEFT JOIN products p ON p.id = oi.product_id
-            LEFT JOIN (
-                SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
-                FROM transaction_return_lines
-                GROUP BY transaction_line_id
-            ) orl ON orl.transaction_line_id = oi.id
             WHERE COALESCE(oi.is_internal, false) = FALSE
               AND (p.pos_line_kind IS DISTINCT FROM 'rms_charge_payment')
               AND (p.pos_line_kind IS DISTINCT FROM 'pos_gift_card_load')
@@ -669,8 +658,36 @@ pub async fn fetch_register_day_summary(
         .await?;
 
     let sales_count = row.0;
-    let subtotal = row.1.unwrap_or(Decimal::ZERO);
-    let tax_total = row.2.unwrap_or(Decimal::ZERO);
+    let return_adjustments: (Decimal, Decimal) = sqlx::query_as(
+        r#"
+        SELECT
+            COALESCE(SUM(COALESCE(
+                trl.refund_subtotal,
+                tl.unit_price * trl.quantity_returned
+            )), 0)::numeric(14,2),
+            COALESCE(SUM(
+                COALESCE(trl.refund_state_tax, tl.state_tax * trl.quantity_returned)
+                + COALESCE(trl.refund_local_tax, tl.local_tax * trl.quantity_returned)
+            ), 0)::numeric(14,2)
+        FROM transaction_return_lines trl
+        INNER JOIN transaction_lines tl ON tl.id = trl.transaction_line_id
+        LEFT JOIN products p ON p.id = tl.product_id
+        WHERE trl.created_at >= $1
+          AND trl.created_at < $2
+          AND ($3::uuid IS NULL OR trl.register_session_id = $3)
+          AND COALESCE(tl.is_internal, false) = false
+          AND (p.pos_line_kind IS DISTINCT FROM 'rms_charge_payment')
+          AND (p.pos_line_kind IS DISTINCT FROM 'pos_gift_card_load')
+        "#,
+    )
+    .bind(start_utc)
+    .bind(end_utc)
+    .bind(register_session_id)
+    .fetch_one(pool)
+    .await?;
+
+    let subtotal = row.1.unwrap_or(Decimal::ZERO) - return_adjustments.0;
+    let tax_total = row.2.unwrap_or(Decimal::ZERO) - return_adjustments.1;
     let online_order_count = row.3;
 
     let shipping_sql = format!(
@@ -976,6 +993,9 @@ pub async fn fetch_register_day_summary(
         merchant_fee: Option<Decimal>,
         net_amount: Option<Decimal>,
         target_display_id: Option<String>,
+        metadata: Option<serde_json::Value>,
+        refund_tax: Decimal,
+        refund_items_json: Option<serde_json::Value>,
     }
 
     let sale_ts = match basis {
@@ -1313,7 +1333,38 @@ pub async fn fetch_register_day_summary(
             c.email AS customer_email,
             pt.merchant_fee,
             pt.net_amount,
-            COALESCE(NULLIF(TRIM(o.display_id), ''), o.counterpoint_doc_ref, o.counterpoint_ticket_ref, o.id::text) AS target_display_id
+            COALESCE(NULLIF(TRIM(o.display_id), ''), o.counterpoint_doc_ref, o.counterpoint_ticket_ref, o.id::text) AS target_display_id,
+            pt.metadata,
+            COALESCE((
+                SELECT SUM(
+                    COALESCE(trl.refund_state_tax, tl.state_tax * trl.quantity_returned)
+                    + COALESCE(trl.refund_local_tax, tl.local_tax * trl.quantity_returned)
+                )
+                FROM transaction_return_lines trl
+                INNER JOIN transaction_lines tl ON tl.id = trl.transaction_line_id
+                WHERE trl.refund_event_id::text = pt.metadata->>'refund_event_id'
+            ), 0)::numeric(14,2) AS refund_tax,
+            (
+                SELECT jsonb_agg(jsonb_build_object(
+                    'name', COALESCE(NULLIF(TRIM(p.name), ''), pv.sku, 'Returned item'),
+                    'sku', COALESCE(pv.sku, 'Unknown SKU'),
+                    'quantity', -trl.quantity_returned,
+                    'price', (
+                        COALESCE(trl.refund_subtotal, tl.unit_price * trl.quantity_returned)
+                        / GREATEST(trl.quantity_returned, 1)
+                    )::text,
+                    'reg_price', COALESCE(pv.retail_price_override, p.base_retail_price)::text,
+                    'product_id', p.id,
+                    'fulfillment', 'return',
+                    'is_internal', false,
+                    'line_kind', 'return'
+                ) ORDER BY trl.created_at, trl.id)
+                FROM transaction_return_lines trl
+                INNER JOIN transaction_lines tl ON tl.id = trl.transaction_line_id
+                INNER JOIN products p ON p.id = tl.product_id
+                INNER JOIN product_variants pv ON pv.id = tl.variant_id
+                WHERE trl.refund_event_id::text = pt.metadata->>'refund_event_id'
+            ) AS refund_items_json
         FROM payment_transactions pt
         INNER JOIN payment_allocations pa ON pa.transaction_id = pt.id
         INNER JOIN transactions o ON o.id = pa.target_transaction_id
@@ -1552,12 +1603,38 @@ pub async fn fetch_register_day_summary(
         };
         let payment_label = reporting_tender_label(&p.payment_method);
         let payment_amount = money_label(p.amount);
+        let is_refund = p.amount < Decimal::ZERO
+            && p.metadata
+                .as_ref()
+                .and_then(|metadata| metadata.get("kind"))
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|kind| {
+                    matches!(
+                        kind,
+                        "order_refund"
+                            | "exchange_refund_remainder"
+                            | "external_card_refund"
+                            | "legacy_migration_refund"
+                    )
+                });
 
         activities.push(RegisterActivityItem {
-            id: format!("payment:{}", p.payment_id),
-            kind: "payment".to_string(),
+            id: format!(
+                "{}:{}",
+                if is_refund { "refund" } else { "payment" },
+                p.payment_id
+            ),
+            kind: if is_refund {
+                "refund".to_string()
+            } else {
+                "payment".to_string()
+            },
             occurred_at: p.created_at,
-            title: "Payment Recorded".to_string(),
+            title: if is_refund {
+                "Return / Refund".to_string()
+            } else {
+                "Payment Recorded".to_string()
+            },
             subtitle: p
                 .target_display_id
                 .as_deref()
@@ -1572,12 +1649,14 @@ pub async fn fetch_register_day_summary(
                 method: payment_label,
                 amount_label: payment_amount,
             }]),
-            sales_total: None,
-            tax_total: None,
+            sales_total: is_refund.then(|| money_label(p.amount)),
+            tax_total: is_refund.then(|| money_label(-p.refund_tax)),
             is_takeaway: None,
             channel: None,
             wedding_party_name: None,
-            items: None,
+            items: p
+                .refund_items_json
+                .and_then(|value| serde_json::from_value::<Vec<ActivityItemDetail>>(value).ok()),
             merchant_fees_total: p.merchant_fee.map(money_label),
             net_amount: p.net_amount.map(money_label),
             customer_id: p.customer_id,

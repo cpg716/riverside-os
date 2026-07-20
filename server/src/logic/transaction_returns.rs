@@ -159,7 +159,11 @@ pub async fn apply_transaction_returns_in_tx(
             )));
         }
 
-        let line_total = refundable_line_total(unit_price, state_tax, local_tax, line.quantity);
+        let fallback_subtotal = unit_price * Decimal::from(line.quantity);
+        let fallback_state_tax = state_tax * Decimal::from(line.quantity);
+        let fallback_local_tax = local_tax * Decimal::from(line.quantity);
+        let (refund_subtotal, refund_state_tax, refund_local_tax, line_total) =
+            line.financial_components(fallback_subtotal, fallback_state_tax, fallback_local_tax)?;
         refund_add += line_total;
 
         let restock = line
@@ -192,9 +196,12 @@ pub async fn apply_transaction_returns_in_tx(
 
         let return_line_id: Uuid = sqlx::query_scalar(
             r#"
-            INSERT INTO transaction_return_lines
-                (transaction_id, transaction_line_id, quantity_returned, reason, restocked, staff_id)
-            VALUES ($1, $2, $3, $4, $5, $6)
+            INSERT INTO transaction_return_lines (
+                transaction_id, transaction_line_id, quantity_returned, reason, restocked, staff_id,
+                refund_event_id, register_session_id, refund_subtotal, refund_state_tax,
+                refund_local_tax, refund_total
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
             RETURNING id
             "#,
         )
@@ -204,6 +211,12 @@ pub async fn apply_transaction_returns_in_tx(
         .bind(line.reason.as_deref().unwrap_or("return"))
         .bind(restock)
         .bind(staff_id)
+        .bind(line.refund_event_id)
+        .bind(line.register_session_id)
+        .bind(refund_subtotal)
+        .bind(refund_state_tax)
+        .bind(refund_local_tax)
+        .bind(line_total)
         .fetch_one(&mut **tx)
         .await?;
 
@@ -255,7 +268,7 @@ pub async fn apply_transaction_returns_in_tx(
         .await?;
 
         if !excludes_loyalty {
-            loyalty_subtotal += unit_price * Decimal::from(line.quantity);
+            loyalty_subtotal += refund_subtotal;
         }
     }
 
@@ -298,7 +311,12 @@ pub async fn apply_transaction_returns_in_tx(
     .bind(transaction_id)
     .bind(customer_id)
     .bind(format!("Return recorded (${refund_add})"))
-    .bind(json!({ "refund_subtotal": refund_add.to_string(), "line_count": lines.len() }))
+    .bind(json!({
+        "refund_total": refund_add.to_string(),
+        "line_count": lines.len(),
+        "refund_event_id": lines.first().map(|line| line.refund_event_id),
+        "register_session_id": lines.first().and_then(|line| line.register_session_id),
+    }))
     .execute(&mut **tx)
     .await?;
 
@@ -320,6 +338,50 @@ mod tests {
 
         assert_eq!(total, Decimal::new(21750, 2));
     }
+
+    #[test]
+    fn exact_refund_components_override_the_original_line_price() {
+        let input = ReturnLineInput {
+            transaction_line_id: Uuid::nil(),
+            quantity: 1,
+            reason: Some("refund".to_string()),
+            restock: Some(true),
+            refund_event_id: Uuid::nil(),
+            register_session_id: None,
+            refund_subtotal: Some(Decimal::new(8881, 2)),
+            refund_state_tax: Some(Decimal::new(337, 2)),
+            refund_local_tax: Some(Decimal::ZERO),
+            refund_total: Some(Decimal::new(9218, 2)),
+        };
+
+        let components = input
+            .financial_components(Decimal::new(11000, 2), Decimal::new(418, 2), Decimal::ZERO)
+            .expect("exact refund components should be accepted");
+
+        assert_eq!(components.0, Decimal::new(8881, 2));
+        assert_eq!(components.1, Decimal::new(337, 2));
+        assert_eq!(components.3, Decimal::new(9218, 2));
+    }
+
+    #[test]
+    fn mismatched_exact_refund_components_are_rejected() {
+        let input = ReturnLineInput {
+            transaction_line_id: Uuid::nil(),
+            quantity: 1,
+            reason: Some("refund".to_string()),
+            restock: Some(true),
+            refund_event_id: Uuid::nil(),
+            register_session_id: None,
+            refund_subtotal: Some(Decimal::new(8881, 2)),
+            refund_state_tax: Some(Decimal::new(337, 2)),
+            refund_local_tax: Some(Decimal::ZERO),
+            refund_total: Some(Decimal::new(11418, 2)),
+        };
+
+        assert!(input
+            .financial_components(Decimal::new(11000, 2), Decimal::new(418, 2), Decimal::ZERO,)
+            .is_err());
+    }
 }
 
 pub struct ReturnLineInput {
@@ -328,6 +390,60 @@ pub struct ReturnLineInput {
     pub reason: Option<String>,
     /// When None, restock if takeaway and fulfilled.
     pub restock: Option<bool>,
+    pub refund_event_id: Uuid,
+    pub register_session_id: Option<Uuid>,
+    pub refund_subtotal: Option<Decimal>,
+    pub refund_state_tax: Option<Decimal>,
+    pub refund_local_tax: Option<Decimal>,
+    pub refund_total: Option<Decimal>,
+}
+
+impl ReturnLineInput {
+    fn financial_components(
+        &self,
+        fallback_subtotal: Decimal,
+        fallback_state_tax: Decimal,
+        fallback_local_tax: Decimal,
+    ) -> Result<(Decimal, Decimal, Decimal, Decimal), TransactionReturnError> {
+        let supplied = [
+            self.refund_subtotal,
+            self.refund_state_tax,
+            self.refund_local_tax,
+            self.refund_total,
+        ];
+        if supplied.iter().all(Option::is_none) {
+            let total = (fallback_subtotal + fallback_state_tax + fallback_local_tax).round_dp(2);
+            return Ok((
+                fallback_subtotal.round_dp(2),
+                fallback_state_tax.round_dp(2),
+                fallback_local_tax.round_dp(2),
+                total,
+            ));
+        }
+        if supplied.iter().any(Option::is_none) {
+            return Err(TransactionReturnError::BadRequest(
+                "refund line financial components must be supplied together".to_string(),
+            ));
+        }
+        let subtotal = self.refund_subtotal.unwrap_or_default().round_dp(2);
+        let state_tax = self.refund_state_tax.unwrap_or_default().round_dp(2);
+        let local_tax = self.refund_local_tax.unwrap_or_default().round_dp(2);
+        let total = self.refund_total.unwrap_or_default().round_dp(2);
+        if [subtotal, state_tax, local_tax, total]
+            .iter()
+            .any(|amount| *amount < Decimal::ZERO)
+        {
+            return Err(TransactionReturnError::BadRequest(
+                "refund line financial components cannot be negative".to_string(),
+            ));
+        }
+        if (subtotal + state_tax + local_tax).round_dp(2) != total {
+            return Err(TransactionReturnError::BadRequest(
+                "refund line subtotal plus tax must equal refund total".to_string(),
+            ));
+        }
+        Ok((subtotal, state_tax, local_tax, total))
+    }
 }
 
 async fn refundable_credit_due(

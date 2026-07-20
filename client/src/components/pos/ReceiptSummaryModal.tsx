@@ -64,6 +64,8 @@ type OrderLineRow = {
   is_fulfilled?: boolean;
   is_internal?: boolean;
   gift_card_load_code?: string | null;
+  quantity_returned?: number;
+  returned_total?: string;
 };
 
 function maskGiftCardCode(code: string | null | undefined): string | null {
@@ -82,6 +84,8 @@ type OrderDetail = {
   amount_paid?: string;
   balance_due?: string;
   payment_methods_summary?: string;
+  refund_payment_methods_summary?: string;
+  refund_total?: string;
   customer?: OrderCustomer | null;
   items?: OrderLineRow[];
   receipt_studio_layout_available?: boolean;
@@ -172,6 +176,17 @@ export default function ReceiptSummaryModal({
       const ids = extra?.transactionLineIds?.length
         ? extra.transactionLineIds
         : receiptTransactionLineIds;
+      const refundRequest =
+        ids.length > 0 &&
+        ids.every((id) => {
+          const item = transactionDetail?.items?.find(
+            (row) => row.transaction_line_id === id,
+          );
+          return (
+            (item?.quantity_returned ?? 0) > 0 &&
+            parseMoneyToCents(item?.returned_total ?? "0") > 0
+          );
+        });
       if (ids.length) {
         sp.set("transaction_line_ids", ids.join(","));
       }
@@ -179,8 +194,8 @@ export default function ReceiptSummaryModal({
         sp.set("exchange_return_transaction_id", exchangeReturnTransactionId);
       }
       if (
-        transactionDetail?.status === "fulfilled" ||
-        ids.length > 0 ||
+        (!refundRequest && transactionDetail?.status === "fulfilled") ||
+        (!refundRequest && ids.length > 0) ||
         (orderPaymentLines && orderPaymentLines.length > 0)
       ) {
         sp.set("pickup", "true");
@@ -191,6 +206,7 @@ export default function ReceiptSummaryModal({
     [
       registerSessionId,
       transactionDetail?.status,
+      transactionDetail?.items,
       receiptTransactionLineIds,
       exchangeReturnTransactionId,
       orderPaymentLines,
@@ -714,28 +730,45 @@ export default function ReceiptSummaryModal({
     0,
   );
   const transactionTotalCents = parseMoneyToCents(transactionDetail?.total_price ?? "0");
-  const pickupCheckout = receiptTransactionLineIds.length > 0;
-  const paymentOnlyCheckout = !pickupCheckout && transactionTotalCents === 0 && orderPaymentTotalCents > 0;
-  const currentCheckoutAmountCents = pickupCheckout || paymentOnlyCheckout
-    ? orderPaymentTotalCents
-    : parseMoneyToCents(transactionDetail?.amount_paid ?? "0");
-  const activityLabel = pickupCheckout
-    ? currentCheckoutAmountCents > 0
-      ? "Pickup and payment recorded"
-      : "Pickup completed"
-    : paymentOnlyCheckout
-      ? "Payment recorded"
-      : orderPaymentTotalCents > 0
-        ? "Sale and order payment recorded"
-        : "Sale recorded";
+  const refundCheckout =
+    receiptTransactionLineIds.length > 0 &&
+    receiptTransactionLineIds.every((id) => {
+      const item = itemRows.find((row) => row.transaction_line_id === id);
+      return (
+        (item?.quantity_returned ?? 0) > 0 &&
+        parseMoneyToCents(item?.returned_total ?? "0") > 0
+      );
+    });
+  const pickupCheckout = !refundCheckout && receiptTransactionLineIds.length > 0;
+  const paymentOnlyCheckout =
+    !refundCheckout &&
+    !pickupCheckout &&
+    transactionTotalCents === 0 &&
+    orderPaymentTotalCents > 0;
+  const currentCheckoutAmountCents = refundCheckout
+    ? -Math.abs(parseMoneyToCents(transactionDetail?.refund_total ?? "0"))
+    : pickupCheckout || paymentOnlyCheckout
+      ? orderPaymentTotalCents
+      : parseMoneyToCents(transactionDetail?.amount_paid ?? "0");
+  const activityLabel = refundCheckout
+    ? "Return and refund recorded"
+    : pickupCheckout
+      ? currentCheckoutAmountCents > 0
+        ? "Pickup and payment recorded"
+        : "Pickup completed"
+      : paymentOnlyCheckout
+        ? "Payment recorded"
+        : orderPaymentTotalCents > 0
+          ? "Sale and order payment recorded"
+          : "Sale recorded";
   const summaryTotal =
-    pickupCheckout || paymentOnlyCheckout
+    refundCheckout || pickupCheckout || paymentOnlyCheckout
       ? centsToFixed2(currentCheckoutAmountCents)
       : transactionDetail?.total_price ?? transactionDetail?.amount_paid ?? "…";
-  const summaryPaid = pickupCheckout || paymentOnlyCheckout
+  const summaryPaid = refundCheckout || pickupCheckout || paymentOnlyCheckout
     ? centsToFixed2(currentCheckoutAmountCents)
     : transactionDetail?.amount_paid ?? "…";
-  const summaryBalance = pickupCheckout || paymentOnlyCheckout
+  const summaryBalance = refundCheckout || pickupCheckout || paymentOnlyCheckout
     ? "0.00"
     : transactionDetail?.balance_due ?? "…";
   const customerName = transactionDetail?.customer
@@ -899,11 +932,13 @@ export default function ReceiptSummaryModal({
             </div>
             <div className="min-w-0 text-left">
               <h2 className="text-xl font-black uppercase italic tracking-tighter text-app-text sm:text-2xl lg:text-3xl">
-                {pickupCheckout
-                  ? "Pickup complete"
-                  : paymentOnlyCheckout
-                    ? "Payment recorded"
-                    : "Sale complete"}
+                {refundCheckout
+                  ? "Refund complete"
+                  : pickupCheckout
+                    ? "Pickup complete"
+                    : paymentOnlyCheckout
+                      ? "Payment recorded"
+                      : "Sale complete"}
               </h2>
               <p className="text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
                 {activityLabel} · Transaction #{transactionDetail?.transaction_display_id ?? transactionDisplayFallback(transactionId)}
@@ -932,7 +967,7 @@ export default function ReceiptSummaryModal({
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="text-[10px] font-black uppercase tracking-widest text-app-danger">
-                    Sale succeeded
+                    {refundCheckout ? "Refund succeeded" : "Sale succeeded"}
                   </p>
                   <h3 className="mt-1 text-sm font-black uppercase tracking-tight text-app-text sm:text-base">
                     {printingFailureTitle ?? "Receipt did not print"}
@@ -998,10 +1033,16 @@ export default function ReceiptSummaryModal({
             <div className="flex flex-wrap items-end justify-between gap-3 lg:gap-6">
               <div>
                 <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted lg:text-[11px]">
-                  {pickupCheckout || paymentOnlyCheckout ? "Collected now" : "Sale total"}
+                  {refundCheckout
+                    ? "Refunded now"
+                    : pickupCheckout || paymentOnlyCheckout
+                      ? "Collected now"
+                      : "Sale total"}
                 </p>
                 <p className="text-2xl font-black tabular-nums tracking-tighter text-app-text sm:text-3xl lg:text-4xl">
-                  ${summaryTotal}
+                  {summaryTotal.startsWith("-")
+                    ? `-$${summaryTotal.slice(1)}`
+                    : `$${summaryTotal}`}
                 </p>
               </div>
               <div className="min-w-0 max-w-full text-right md:max-w-[50%]">
@@ -1009,14 +1050,22 @@ export default function ReceiptSummaryModal({
                   Tender
                 </p>
                 <p className="line-clamp-2 text-xs font-black uppercase tracking-tight text-app-text sm:text-sm lg:text-base">
-                  {transactionDetail?.payment_methods_summary ?? "…"}
+                  {refundCheckout
+                    ? (transactionDetail?.refund_payment_methods_summary ?? "…")
+                    : (transactionDetail?.payment_methods_summary ?? "…")}
                 </p>
               </div>
             </div>
             <div className="mt-3 grid grid-cols-2 gap-3 border-t border-app-border/50 pt-3">
               <div>
-                <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Paid</p>
-                <p className="mt-1 text-lg font-black tabular-nums text-app-success">${summaryPaid}</p>
+                <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                  {refundCheckout ? "Refunded" : "Paid"}
+                </p>
+                <p className="mt-1 text-lg font-black tabular-nums text-app-success">
+                  {summaryPaid.startsWith("-")
+                    ? `-$${summaryPaid.slice(1)}`
+                    : `$${summaryPaid}`}
+                </p>
               </div>
               <div className="text-right">
                 <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Balance</p>

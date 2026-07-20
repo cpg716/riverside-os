@@ -128,6 +128,11 @@ interface ExchangeReturnHandoffLine {
   tax_cents: number;
   reason?: "refund" | "exchange";
   restock?: boolean | null;
+  refund_subtotal_cents?: number;
+  refund_state_tax_cents?: number;
+  refund_local_tax_cents?: number;
+  refund_total_cents?: number;
+  original_helcim_transaction_id_for_refund?: string | null;
 }
 
 function allocateCentsByWeight(
@@ -260,6 +265,7 @@ interface ExchangeReturnHandoff {
   returnedLines?: ExchangeReturnHandoffLine[];
   refundAmountCents?: number;
   action?: "refund" | "exchange";
+  originalHelcimTransactionIdForRefund?: string | null;
 }
 
 interface HandoffOrderDetail {
@@ -777,11 +783,6 @@ export default function Cart({
     });
 
     const returnedLines = args.returnedLines ?? [];
-    setPendingReturnLineDrafts((prev) => ({
-      ...prev,
-      [args.originalTransactionId]: returnedLines,
-    }));
-
     const selectedReturnGrossCents = returnedLines.reduce(
       (sum, line) =>
         sum +
@@ -802,6 +803,7 @@ export default function Cart({
 
     const receiptLabel = args.receiptLabel ?? args.originalTransactionId.slice(0, 8).toUpperCase();
     let allocatedCreditCents = 0;
+    const settledReturnLines: ExchangeReturnHandoffLine[] = [];
     const returnCreditLines = returnedLines.map((returnedLine, index) => {
       const quantity = Math.max(1, returnedLine.quantity);
       const lineGrossCents =
@@ -817,6 +819,15 @@ export default function Cart({
             );
       allocatedCreditCents += lineCreditCents;
       const lineComponents = exchangeReturnCreditComponents([returnedLine], lineCreditCents);
+      settledReturnLines.push({
+        ...returnedLine,
+        refund_subtotal_cents: lineComponents.subtotalCents,
+        refund_state_tax_cents: lineComponents.stateTaxCents,
+        refund_local_tax_cents: lineComponents.localTaxCents,
+        refund_total_cents: lineComponents.totalCents,
+        original_helcim_transaction_id_for_refund:
+          args.originalHelcimTransactionIdForRefund ?? null,
+      });
       const rowId = newCartRowId();
       return {
         product_id: returnedLine.product_id,
@@ -839,6 +850,11 @@ export default function Cart({
         return_tender_refund_cents: lineComponents.totalCents,
       } satisfies CartLineItem;
     });
+
+    setPendingReturnLineDrafts((prev) => ({
+      ...prev,
+      [args.originalTransactionId]: settledReturnLines,
+    }));
 
     setLines((prev) => [
       ...prev.filter((line) => line.return_tender_original_transaction_id !== args.originalTransactionId),
@@ -1522,6 +1538,9 @@ export default function Cart({
       receiptLabel: returnLines[0].return_tender_receipt_label ?? originalTransactionId.slice(0, 8).toUpperCase(),
       refundAmountCents,
       returnLines: pendingReturnLineDrafts[originalTransactionId] ?? [],
+      originalHelcimTransactionIdForRefund:
+        pendingReturnLineDrafts[originalTransactionId]?.[0]
+          ?.original_helcim_transaction_id_for_refund ?? null,
       returnOnly: returnLines.length === lines.length && orderPaymentLines.length === 0,
     };
   }, [lines, orderPaymentLines.length, pendingReturnLineDrafts]);
@@ -3973,6 +3992,9 @@ export default function Cart({
         customerTaxExemptId={selectedCustomer?.tax_exempt_id ?? null}
         returnOnlyRefundMode={pendingReturnTender?.returnOnly ?? false}
         deferCardRefund={Boolean(pendingReturnTender)}
+        originalHelcimTransactionIdForRefund={
+          pendingReturnTender?.originalHelcimTransactionIdForRefund ?? null
+        }
         authoritativeDepositCents={0}
         existingPaidAmountCents={pickupPaidAmountCents}
         heldOpenDeposit={heldOpenDeposit}
@@ -4095,7 +4117,8 @@ export default function Cart({
                 refundTender?.method === "card_present" ||
                 refundTender?.method === "card_terminal" ||
                 refundTender?.method === "card_manual" ||
-                refundTender?.method === "card_saved";
+                refundTender?.method === "card_saved" ||
+                refundTender?.method === "card_terminal_manual";
               try {
                 const settlementRes = await fetch(
                   `${baseUrl}/api/transactions/${encodeURIComponent(pendingReturnTender.originalTransactionId)}/exchange-settlement`,
@@ -4109,11 +4132,19 @@ export default function Cart({
                       session_id: sessionId,
                       replacement_transaction_id: replacementTransactionId,
                       exchange_credit_amount: centsToFixed2(exchangeCreditAppliedCents),
+                      deferred_card_refund_amount:
+                        refundTender && linkedCardRemainder
+                          ? centsToFixed2(refundRemainderCents)
+                          : undefined,
                       return_lines: pendingReturnTender.returnLines.map((line) => ({
                         transaction_line_id: line.transaction_line_id,
                         quantity: line.quantity,
                         reason: line.reason ?? "exchange",
                         restock: line.restock ?? undefined,
+                        refund_subtotal: centsToFixed2(line.refund_subtotal_cents ?? 0),
+                        refund_state_tax: centsToFixed2(line.refund_state_tax_cents ?? 0),
+                        refund_local_tax: centsToFixed2(line.refund_local_tax_cents ?? 0),
+                        refund_total: centsToFixed2(line.refund_total_cents ?? 0),
                       })),
                       refund_remainder: refundTender && !linkedCardRemainder
                         ? {
@@ -4122,6 +4153,7 @@ export default function Cart({
                             tender_amount: centsToFixed2(Math.abs(refundTender.amountCents)),
                             rounding_adjustment: centsToFixed2(roundingAdjustmentCents),
                             final_cash_due: ledger.finalCashDueCents != null ? centsToFixed2(ledger.finalCashDueCents) : undefined,
+                            check_number: refundTender.metadata?.check_number,
                             gift_card_code: refundTender.gift_card_code,
                           }
                         : undefined,
@@ -4147,6 +4179,12 @@ export default function Cart({
                         session_id: sessionId,
                         payment_method: refundTender.method,
                         amount: centsToFixed2(refundRemainderCents),
+                        check_number: refundTender.metadata?.check_number,
+                        manager_staff_id: refundTender.metadata?.manager_staff_id,
+                        manager_pin: refundTender.metadata?.manager_pin,
+                        manager_reason: refundTender.metadata?.manager_reason,
+                        external_refund_reference:
+                          refundTender.metadata?.external_refund_reference,
                       }),
                     },
                   );
@@ -4225,11 +4263,21 @@ export default function Cart({
                     rounding_adjustment: centsToFixed2(roundingAdjustmentCents),
                     final_cash_due: ledger.finalCashDueCents != null ? centsToFixed2(ledger.finalCashDueCents) : undefined,
                     gift_card_code: primaryTender.gift_card_code,
+                    check_number: primaryTender.metadata?.check_number,
+                    manager_staff_id: primaryTender.metadata?.manager_staff_id,
+                    manager_pin: primaryTender.metadata?.manager_pin,
+                    manager_reason: primaryTender.metadata?.manager_reason,
+                    external_refund_reference:
+                      primaryTender.metadata?.external_refund_reference,
                     return_lines: pendingReturnTender.returnLines.map((line) => ({
                       transaction_line_id: line.transaction_line_id,
                       quantity: line.quantity,
                       reason: line.reason ?? "refund",
                       restock: line.restock ?? undefined,
+                      refund_subtotal: centsToFixed2(line.refund_subtotal_cents ?? 0),
+                      refund_state_tax: centsToFixed2(line.refund_state_tax_cents ?? 0),
+                      refund_local_tax: centsToFixed2(line.refund_local_tax_cents ?? 0),
+                      refund_total: centsToFixed2(line.refund_total_cents ?? 0),
                     })),
                   }),
                 },

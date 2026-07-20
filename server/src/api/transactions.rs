@@ -235,6 +235,10 @@ pub struct TransactionDetailItem {
     pub quantity: i32,
     /// Units recorded on `transaction_return_lines` for this line.
     pub quantity_returned: i32,
+    pub returned_subtotal: Decimal,
+    pub returned_state_tax: Decimal,
+    pub returned_local_tax: Decimal,
+    pub returned_total: Decimal,
     pub unit_price: Decimal,
     pub unit_cost: Decimal,
     pub state_tax: Decimal,
@@ -352,6 +356,12 @@ pub struct TransactionDetailResponse {
     #[serde(default)]
     pub exchange_group_id: Option<Uuid>,
     pub payment_methods_summary: String,
+    #[serde(default)]
+    pub refund_payment_methods_summary: String,
+    #[serde(default)]
+    pub refund_total: Decimal,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub original_helcim_transaction_id_for_refund: Option<String>,
     #[serde(default)]
     pub payment_applications: Vec<TransactionPaymentApplication>,
     #[serde(default)]
@@ -513,6 +523,13 @@ impl TransactionDetailResponse {
     ) -> Result<receipt_shared::ReceiptOrder, TransactionError> {
         let selected = self.selected_receipt_items(transaction_line_ids)?;
         let payment_only = selected.is_empty() && !self.payment_applications.is_empty();
+        let refund_receipt = !selected.is_empty()
+            && self.refund_total > Decimal::ZERO
+            && selected.iter().all(|item| item.quantity_returned > 0)
+            && (transaction_line_ids.is_some()
+                || selected
+                    .iter()
+                    .all(|item| item.quantity_returned >= item.quantity));
         let mut receipt_items: Vec<receipt_shared::ReceiptLine> = if payment_only {
             self.payment_applications
                 .iter()
@@ -538,7 +555,7 @@ impl TransactionDetailResponse {
             let mut lines = Vec::new();
             for it in &selected {
                 let effective_qty = (it.quantity - it.quantity_returned).max(0);
-                if effective_qty > 0 {
+                if effective_qty > 0 && !refund_receipt {
                     lines.push(receipt_shared::ReceiptLine {
                         product_name: it.product_name.clone(),
                         sku: it.sku.clone(),
@@ -560,7 +577,11 @@ impl TransactionDetailResponse {
                     });
                 }
                 if it.quantity_returned > 0 {
-                    let refund_unit = (it.unit_price + it.state_tax + it.local_tax).round_dp(2);
+                    let refund_unit = if it.quantity_returned > 0 {
+                        (it.returned_subtotal / Decimal::from(it.quantity_returned)).round_dp(2)
+                    } else {
+                        Decimal::ZERO
+                    };
                     lines.push(receipt_shared::ReceiptLine {
                         product_name: it.product_name.clone(),
                         sku: it.sku.clone(),
@@ -572,10 +593,7 @@ impl TransactionDetailResponse {
                         ),
                         variation_label: it.variation_label.clone(),
                         original_unit_price: None,
-                        discount_event_label: Some(
-                            "Refund/exchange credit includes item tax where applicable."
-                                .to_string(),
-                        ),
+                        discount_event_label: None,
                         gift_card_load_code: None,
                         custom_order_details: it.custom_order_details.clone(),
                         custom_item_type: it.custom_item_type.clone(),
@@ -585,7 +603,7 @@ impl TransactionDetailResponse {
                         } else {
                             receipt_shared::ReceiptLineAdjustment::Returned
                         }),
-                        contributes_to_totals: false,
+                        contributes_to_totals: refund_receipt,
                     });
                 }
             }
@@ -659,6 +677,10 @@ impl TransactionDetailResponse {
             .round_dp(2);
         let tax_total = if payment_only {
             Decimal::ZERO
+        } else if refund_receipt {
+            -selected.iter().fold(Decimal::ZERO, |sum, item| {
+                sum + item.returned_state_tax + item.returned_local_tax
+            })
         } else {
             selected.iter().fold(Decimal::ZERO, |sum, it| {
                 let effective_qty = (it.quantity - it.quantity_returned).max(0);
@@ -680,15 +702,24 @@ impl TransactionDetailResponse {
         };
         let receipt_total_price = if payment_only {
             subtotal_price
+        } else if refund_receipt {
+            -(selected
+                .iter()
+                .fold(Decimal::ZERO, |sum, item| sum + item.returned_total))
+            .round_dp(2)
         } else {
             self.total_price
         };
         let receipt_amount_paid = if payment_only {
             subtotal_price
+        } else if refund_receipt {
+            receipt_total_price
         } else {
             (self.amount_paid + self.wedding_deposit_amount).round_dp(2)
         };
         let receipt_balance_due = if payment_only {
+            Decimal::ZERO
+        } else if refund_receipt {
             Decimal::ZERO
         } else {
             self.balance_due
@@ -707,7 +738,11 @@ impl TransactionDetailResponse {
             amount_paid: receipt_amount_paid,
             wedding_deposit_amount: self.wedding_deposit_amount,
             balance_due: receipt_balance_due,
-            payment_methods_summary: self.payment_methods_summary.clone(),
+            payment_methods_summary: if refund_receipt {
+                self.refund_payment_methods_summary.clone()
+            } else {
+                self.payment_methods_summary.clone()
+            },
             payment_applications: self
                 .payment_applications
                 .iter()
@@ -760,6 +795,29 @@ impl TransactionDetailResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn refund_payment_method_accepts_all_card_entry_aliases() {
+        for method in [
+            "cc",
+            "credit_card",
+            "card_present",
+            "card_not_present",
+            "cnp",
+            "card_manual",
+            "card_saved",
+        ] {
+            assert_eq!(
+                RefundPaymentMethod::parse(method).expect("card alias should be accepted"),
+                RefundPaymentMethod::LinkedHelcimCard
+            );
+        }
+        assert_eq!(
+            RefundPaymentMethod::parse("card_terminal_manual")
+                .expect("external card refund should be accepted"),
+            RefundPaymentMethod::RecordedHelcimCard
+        );
+    }
     use axum::http::HeaderValue;
     use sqlx::Connection;
     use wiremock::matchers::{method, path};
@@ -797,6 +855,9 @@ mod tests {
     }
 
     fn sample_transaction_detail(items: Vec<TransactionDetailItem>) -> TransactionDetailResponse {
+        let refund_total = items
+            .iter()
+            .fold(Decimal::ZERO, |sum, item| sum + item.returned_total);
         TransactionDetailResponse {
             transaction_id: Uuid::nil(),
             transaction_display_id: "TXN-TEST".to_string(),
@@ -821,6 +882,9 @@ mod tests {
             shipping_label_url: None,
             exchange_group_id: None,
             payment_methods_summary: "Card".to_string(),
+            refund_payment_methods_summary: "Cash".to_string(),
+            refund_total,
+            original_helcim_transaction_id_for_refund: None,
             payment_applications: Vec::new(),
             pickup_applications: Vec::new(),
             operator_staff_id: None,
@@ -918,6 +982,10 @@ mod tests {
             variation_label: Some("42R".to_string()),
             quantity,
             quantity_returned,
+            returned_subtotal: Decimal::new(25000, 2) * Decimal::from(quantity_returned),
+            returned_state_tax: Decimal::new(1000, 2) * Decimal::from(quantity_returned),
+            returned_local_tax: Decimal::new(500, 2) * Decimal::from(quantity_returned),
+            returned_total: Decimal::new(26500, 2) * Decimal::from(quantity_returned),
             unit_price: Decimal::new(25000, 2),
             unit_cost: Decimal::new(10000, 2),
             state_tax: Decimal::new(1000, 2),
@@ -973,7 +1041,7 @@ mod tests {
             Some(receipt_shared::ReceiptLineAdjustment::Returned)
         );
         assert_eq!(receipt.items[1].quantity, 1);
-        assert_eq!(receipt.items[1].unit_price, Decimal::new(-26500, 2));
+        assert_eq!(receipt.items[1].unit_price, Decimal::new(-25000, 2));
     }
 
     #[test]
@@ -1008,7 +1076,11 @@ mod tests {
             receipt.items[0].adjustment,
             Some(receipt_shared::ReceiptLineAdjustment::Returned)
         );
-        assert!(!receipt.items[0].contributes_to_totals);
+        assert!(receipt.items[0].contributes_to_totals);
+        assert_eq!(receipt.subtotal_price, Decimal::new(-25000, 2));
+        assert_eq!(receipt.tax_total, Decimal::new(-1500, 2));
+        assert_eq!(receipt.total_price, Decimal::new(-26500, 2));
+        assert_eq!(receipt.amount_paid, Decimal::new(-26500, 2));
     }
 
     #[test]
@@ -1857,6 +1929,10 @@ struct OrderItemRow {
     variation_label: Option<String>,
     quantity: i32,
     quantity_returned: i32,
+    returned_subtotal: Decimal,
+    returned_state_tax: Decimal,
+    returned_local_tax: Decimal,
+    returned_total: Decimal,
     unit_price: Decimal,
     unit_cost: Decimal,
     state_tax: Decimal,
@@ -2119,6 +2195,9 @@ pub struct ExchangeSettlementRequest {
     pub return_lines: Vec<TransactionReturnLineBody>,
     #[serde(default)]
     pub refund_remainder: Option<ExchangeRefundRemainderBody>,
+    /// Card refund completed by the provider workflow immediately after this settlement.
+    #[serde(default)]
+    pub deferred_card_refund_amount: Option<Decimal>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -2140,6 +2219,14 @@ pub struct TransactionReturnLineBody {
     pub reason: Option<String>,
     #[serde(default)]
     pub restock: Option<bool>,
+    #[serde(default)]
+    pub refund_subtotal: Option<Decimal>,
+    #[serde(default)]
+    pub refund_state_tax: Option<Decimal>,
+    #[serde(default)]
+    pub refund_local_tax: Option<Decimal>,
+    #[serde(default)]
+    pub refund_total: Option<Decimal>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -2336,8 +2423,10 @@ impl RefundPaymentMethod {
         match value.trim().to_ascii_lowercase().as_str() {
             "cash" => Ok(Self::Cash),
             "check" => Ok(Self::Check),
-            "card" | "card_present" | "card_terminal" | "card_manual" | "card_saved"
-            | "card_credit" | "helcim" => Ok(Self::LinkedHelcimCard),
+            "card" | "cc" | "credit_card" | "card_present" | "card_not_present" | "cnp"
+            | "card_terminal" | "card_manual" | "card_saved" | "card_credit" | "helcim" => {
+                Ok(Self::LinkedHelcimCard)
+            }
             "card_terminal_manual" => Ok(Self::RecordedHelcimCard),
             "gift_card" => Ok(Self::GiftCard),
             "store_credit" => Ok(Self::StoreCredit),
@@ -4671,6 +4760,7 @@ async fn post_transaction_void(
         .sum();
 
     if !candidates.is_empty() {
+        let refund_event_id = Uuid::new_v4();
         let return_lines = candidates
             .iter()
             .map(|line| ReturnLineInput {
@@ -4678,6 +4768,12 @@ async fn post_transaction_void(
                 quantity: line.quantity_remaining,
                 reason: Some("void".to_string()),
                 restock: Some(line.fulfillment == DbFulfillmentType::Takeaway && line.is_fulfilled),
+                refund_event_id,
+                register_session_id: Some(body.register_session_id),
+                refund_subtotal: None,
+                refund_state_tax: None,
+                refund_local_tax: None,
+                refund_total: None,
             })
             .collect::<Vec<_>>();
         transaction_returns::apply_transaction_returns_in_tx(
@@ -5207,6 +5303,8 @@ async fn process_refund(
     let refund_method = RefundPaymentMethod::parse(&method_l)?;
     let check_number = required_refund_check_number(refund_method, body.check_number.as_deref())?;
     let exact_refund_amount = body.amount.round_dp(2);
+    let refund_event_id = Uuid::new_v4();
+    validate_return_line_financial_total(&body.return_lines, exact_refund_amount)?;
     let (cash_tender_amount, cash_rounding_adjustment) = cash_refund_tender_amount(
         &body.payment_method,
         exact_refund_amount,
@@ -5288,7 +5386,15 @@ async fn process_refund(
         ));
     }
 
-    apply_refund_return_lines_in_tx(&mut tx, transaction_id, staff.id, &body.return_lines).await?;
+    apply_refund_return_lines_in_tx(
+        &mut tx,
+        transaction_id,
+        staff.id,
+        body.session_id,
+        refund_event_id,
+        &body.return_lines,
+    )
+    .await?;
 
     let row: Option<RefundQueueRow> = sqlx::query_as(
         r#"
@@ -5322,6 +5428,7 @@ async fn process_refund(
     let mut refund_metadata = json!({
         "kind": "order_refund",
         "transaction_id": transaction_id,
+        "refund_event_id": refund_event_id,
     });
     if let (Some(object), Some((manager_id, reference, reason))) = (
         refund_metadata.as_object_mut(),
@@ -5511,17 +5618,17 @@ async fn process_refund(
                     .filter(|s| !s.is_empty())
                     .ok_or_else(|| {
                         TransactionError::InvalidPayload(
-                            "Helcim refund reference is required for manual card refund recording"
+                    "external card refund reference is required for manual card refund recording"
                                 .to_string(),
                         )
                     })?;
                 let refund_record_kind = if manual_external_card_refund {
-                    "external_helcim_refund"
+                    "external_card_refund"
                 } else {
                     "legacy_migration_refund"
                 };
                 let refund_summary = if manual_external_card_refund {
-                    "Manual Helcim refund recorded in Register"
+                    "Manual external card refund recorded in Register"
                 } else {
                     "Manual legacy refund recorded in Register"
                 };
@@ -5553,7 +5660,7 @@ async fn process_refund(
                         status, metadata, merchant_fee, net_amount, occurred_at, created_at,
                         payment_provider, provider_payment_id, provider_status
                     )
-                    VALUES ($1, $2, $3, 'retail_sale', 'card_manual', $4, 'approved', $5, 0, $4, NOW(), NOW(), 'helcim', $6, 'approved')
+                    VALUES ($1, $2, $3, 'retail_sale', 'card_terminal_manual', $4, 'approved', $5, 0, $4, NOW(), NOW(), 'external', $6, 'approved')
                     "#,
                 )
                 .bind(pt_id)
@@ -5567,7 +5674,8 @@ async fn process_refund(
                     "authorizing_manager_id": manager.id,
                     "reason": reason,
                     "external_refund_reference": external_refund_reference,
-                    "external_refund_processor": "helcim",
+                    "external_refund_processor": "external_card",
+                    "refund_event_id": refund_event_id,
                     "original_provider_transaction_id": "MANUAL_MIGRATION",
                     "transaction_id": transaction_id,
                     "exact_refund_amount": exact_refund_amount,
@@ -5659,7 +5767,8 @@ async fn process_refund(
                         "authorizing_manager_id": manager.id,
                         "reason": reason,
                         "external_refund_reference": external_refund_reference,
-                        "external_refund_processor": "helcim",
+                        "external_refund_processor": "external_card",
+                        "refund_event_id": refund_event_id,
                     }),
                 )
                 .await?;
@@ -5680,7 +5789,7 @@ async fn process_refund(
                 return Ok(Json(json!({
                     "status": "success",
                     "message": if manual_external_card_refund {
-                        "Manual Helcim refund recorded successfully."
+                        "Manual external card refund recorded successfully."
                     } else {
                         "Manual legacy refund recorded successfully."
                     },
@@ -5690,7 +5799,7 @@ async fn process_refund(
 
             if manual_external_card_refund {
                 return Err(TransactionError::InvalidPayload(
-                    "Manager Access is required to record a Helcim backend refund".to_string(),
+                    "Manager Access is required to record an external card refund".to_string(),
                 ));
             }
 
@@ -5887,8 +5996,15 @@ async fn process_refund(
             .ok_or_else(|| {
                 TransactionError::InvalidPayload("no open refund for this order".to_string())
             })?;
-            apply_refund_return_lines_in_tx(&mut tx, transaction_id, staff.id, &body.return_lines)
-                .await?;
+            apply_refund_return_lines_in_tx(
+                &mut tx,
+                transaction_id,
+                staff.id,
+                body.session_id,
+                refund_event_id,
+                &body.return_lines,
+            )
+            .await?;
             capacity = validate_refund_capacity_in_tx(
                 &mut tx,
                 transaction_id,
@@ -6194,6 +6310,8 @@ async fn process_refund(
                 &mut resumed_tx,
                 transaction_id,
                 staff.id,
+                body.session_id,
+                refund_event_id,
                 &body.return_lines,
             )
             .await?;
@@ -6552,13 +6670,27 @@ async fn process_exchange_settlement(
         } else {
             (Decimal::ZERO, Decimal::ZERO)
         };
-    let total_relief = body.exchange_credit_amount + refund_remainder_amount;
-    if total_relief < Decimal::ZERO || (total_relief.is_zero() && body.return_lines.is_empty()) {
+    let deferred_card_refund_amount = body
+        .deferred_card_refund_amount
+        .unwrap_or(Decimal::ZERO)
+        .round_dp(2);
+    if deferred_card_refund_amount < Decimal::ZERO {
+        return Err(TransactionError::InvalidPayload(
+            "deferred card refund amount cannot be negative".to_string(),
+        ));
+    }
+    let settled_relief = body.exchange_credit_amount + refund_remainder_amount;
+    let total_return_credit = settled_relief + deferred_card_refund_amount;
+    if total_return_credit < Decimal::ZERO
+        || (total_return_credit.is_zero() && body.return_lines.is_empty())
+    {
         return Err(TransactionError::InvalidPayload(
             "exchange settlement must apply credit, refund a remainder, or record return lines"
                 .to_string(),
         ));
     }
+    validate_return_line_financial_total(&body.return_lines, total_return_credit.round_dp(2))?;
+    let refund_event_id = Uuid::new_v4();
 
     let mut tx = state.db.begin().await?;
     let session_open: Option<bool> = sqlx::query_scalar(
@@ -6619,7 +6751,12 @@ async fn process_exchange_settlement(
     }
 
     if !body.return_lines.is_empty() {
-        let return_inputs = return_line_inputs_from_body(&body.return_lines, "exchange");
+        let return_inputs = return_line_inputs_from_body(
+            &body.return_lines,
+            "exchange",
+            Some(body.session_id),
+            refund_event_id,
+        );
         transaction_returns::apply_transaction_returns_in_tx(
             &mut tx,
             transaction_id,
@@ -6650,7 +6787,7 @@ async fn process_exchange_settlement(
     .await?;
     let refund = match row {
         Some(refund) => Some(refund),
-        None if total_relief.is_zero() && !body.return_lines.is_empty() => None,
+        None if total_return_credit.is_zero() && !body.return_lines.is_empty() => None,
         None => {
             return Err(TransactionError::InvalidPayload(
                 "no open refund for this transaction".to_string(),
@@ -6708,7 +6845,7 @@ async fn process_exchange_settlement(
         }
     }
 
-    if total_relief.is_zero() {
+    if total_return_credit.is_zero() {
         let exchange_group_id = match (original_exchange_group_id, replacement_exchange_group_id) {
             (Some(left), Some(right)) if left != right => {
                 return Err(TransactionError::InvalidPayload(
@@ -6833,7 +6970,7 @@ async fn process_exchange_settlement(
         .execute(&mut *tx)
         .await?;
     }
-    if total_relief > remaining {
+    if total_return_credit > remaining {
         return Err(TransactionError::InvalidPayload(format!(
             "exchange settlement exceeds refundable paid credit of ${remaining}"
         )));
@@ -6891,6 +7028,7 @@ async fn process_exchange_settlement(
             "kind": "exchange_refund_remainder",
             "original_transaction_id": transaction_id,
             "replacement_transaction_id": body.replacement_transaction_id,
+            "refund_event_id": refund_event_id,
             "refund_queue_id": refund.id,
         });
 
@@ -7030,7 +7168,7 @@ async fn process_exchange_settlement(
         .await?;
     }
 
-    let new_refunded = refund.amount_refunded + total_relief;
+    let new_refunded = refund.amount_refunded + settled_relief;
     let close = new_refunded >= corrected_amount_due;
     sqlx::query(
         r#"
@@ -7767,6 +7905,29 @@ pub(crate) async fn load_transaction_detail(
                 FROM transaction_return_lines orx
                 WHERE orx.transaction_line_id = oi.id
             ), 0) AS quantity_returned,
+            COALESCE((
+                SELECT SUM(COALESCE(orx.refund_subtotal, oi.unit_price * orx.quantity_returned))
+                FROM transaction_return_lines orx
+                WHERE orx.transaction_line_id = oi.id
+            ), 0)::numeric(14,2) AS returned_subtotal,
+            COALESCE((
+                SELECT SUM(COALESCE(orx.refund_state_tax, oi.state_tax * orx.quantity_returned))
+                FROM transaction_return_lines orx
+                WHERE orx.transaction_line_id = oi.id
+            ), 0)::numeric(14,2) AS returned_state_tax,
+            COALESCE((
+                SELECT SUM(COALESCE(orx.refund_local_tax, oi.local_tax * orx.quantity_returned))
+                FROM transaction_return_lines orx
+                WHERE orx.transaction_line_id = oi.id
+            ), 0)::numeric(14,2) AS returned_local_tax,
+            COALESCE((
+                SELECT SUM(COALESCE(
+                    orx.refund_total,
+                    (oi.unit_price + oi.state_tax + oi.local_tax) * orx.quantity_returned
+                ))
+                FROM transaction_return_lines orx
+                WHERE orx.transaction_line_id = oi.id
+            ), 0)::numeric(14,2) AS returned_total,
             -- Returns and exchanges must use the paid amount recorded on the
             -- transaction ledger. Display/audit override metadata is not a
             -- substitute for the authoritative transaction-line price.
@@ -7945,6 +8106,46 @@ pub(crate) async fn load_transaction_detail(
         )
         .collect::<Vec<_>>();
 
+    let refund_total = payments
+        .iter()
+        .filter(|payment| payment.amount < Decimal::ZERO)
+        .fold(Decimal::ZERO, |sum, payment| sum + -payment.amount)
+        .round_dp(2);
+    let mut refund_method_parts = Vec::new();
+    for payment in payments
+        .iter()
+        .filter(|payment| payment.amount < Decimal::ZERO)
+    {
+        let label = receipt_shared::tender_display_label(&payment.method);
+        if !refund_method_parts
+            .iter()
+            .any(|existing| existing == &label)
+        {
+            refund_method_parts.push(label);
+        }
+    }
+    let refund_payment_methods_summary = if refund_method_parts.is_empty() {
+        "—".to_string()
+    } else {
+        refund_method_parts.join(", ")
+    };
+    let original_helcim_transaction_id_for_refund: Option<String> = sqlx::query_scalar(
+        r#"
+        SELECT pt.provider_transaction_id
+        FROM payment_allocations pa
+        INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
+        WHERE pa.target_transaction_id = $1
+          AND pa.amount_allocated > 0
+          AND pt.payment_provider = 'helcim'
+          AND NULLIF(TRIM(pt.provider_transaction_id), '') IS NOT NULL
+        ORDER BY pt.created_at DESC, pt.id DESC
+        LIMIT 1
+        "#,
+    )
+    .bind(transaction_id)
+    .fetch_optional(pool)
+    .await?;
+
     let mut summary_parts: Vec<String> = Vec::new();
     for row in payment_rows {
         let part = pos_rms_charge::payment_method_summary(
@@ -8089,6 +8290,10 @@ pub(crate) async fn load_transaction_detail(
             variation_label: r.variation_label,
             quantity: r.quantity,
             quantity_returned: r.quantity_returned,
+            returned_subtotal: r.returned_subtotal,
+            returned_state_tax: r.returned_state_tax,
+            returned_local_tax: r.returned_local_tax,
+            returned_total: r.returned_total,
             unit_price: r.unit_price,
             unit_cost: r.unit_cost,
             state_tax: r.state_tax,
@@ -8304,6 +8509,9 @@ pub(crate) async fn load_transaction_detail(
         shipping_label_url: h.shipping_label_url,
         exchange_group_id: h.exchange_group_id,
         payment_methods_summary,
+        refund_payment_methods_summary,
+        refund_total,
+        original_helcim_transaction_id_for_refund,
         payment_applications,
         pickup_applications,
         operator_staff_id: h.operator_staff_id,
@@ -8389,6 +8597,8 @@ async fn log_customer_milestone_note(
 fn return_line_inputs_from_body(
     lines: &[TransactionReturnLineBody],
     default_reason: &str,
+    register_session_id: Option<Uuid>,
+    refund_event_id: Uuid,
 ) -> Vec<ReturnLineInput> {
     lines
         .iter()
@@ -8403,14 +8613,54 @@ fn return_line_inputs_from_body(
                     .to_string(),
             ),
             restock: line.restock,
+            refund_event_id,
+            register_session_id,
+            refund_subtotal: line.refund_subtotal,
+            refund_state_tax: line.refund_state_tax,
+            refund_local_tax: line.refund_local_tax,
+            refund_total: line.refund_total,
         })
         .collect()
+}
+
+fn validate_return_line_financial_total(
+    lines: &[TransactionReturnLineBody],
+    expected_total: Decimal,
+) -> Result<(), TransactionError> {
+    if lines.is_empty() {
+        return Ok(());
+    }
+    let supplied_count = lines
+        .iter()
+        .filter(|line| line.refund_total.is_some())
+        .count();
+    if supplied_count == 0 {
+        return Ok(());
+    }
+    if supplied_count != lines.len() {
+        return Err(TransactionError::InvalidPayload(
+            "every return line must include its exact refund financials".to_string(),
+        ));
+    }
+    let supplied_total = lines.iter().fold(Decimal::ZERO, |sum, line| {
+        sum + line.refund_total.unwrap_or_default()
+    });
+    if supplied_total.round_dp(2) != expected_total.round_dp(2) {
+        return Err(TransactionError::InvalidPayload(format!(
+            "return line refund total {} must equal settlement total {}",
+            supplied_total.round_dp(2),
+            expected_total.round_dp(2)
+        )));
+    }
+    Ok(())
 }
 
 async fn apply_refund_return_lines_in_tx(
     tx: &mut Transaction<'_, Postgres>,
     transaction_id: Uuid,
     staff_id: Uuid,
+    register_session_id: Uuid,
+    refund_event_id: Uuid,
     lines: &[TransactionReturnLineBody],
 ) -> Result<(), TransactionError> {
     if lines.is_empty() {
@@ -8420,7 +8670,7 @@ async fn apply_refund_return_lines_in_tx(
         tx,
         transaction_id,
         Some(staff_id),
-        return_line_inputs_from_body(lines, "refund"),
+        return_line_inputs_from_body(lines, "refund", Some(register_session_id), refund_event_id),
     )
     .await
     .map_err(|error| match error {
@@ -8455,7 +8705,8 @@ async fn post_transaction_returns(
         ));
     }
 
-    let inputs = return_line_inputs_from_body(&body.lines, "return");
+    let inputs =
+        return_line_inputs_from_body(&body.lines, "return", q.register_session_id, Uuid::new_v4());
 
     transaction_returns::apply_transaction_returns(&state.db, transaction_id, staff_id, inputs)
         .await

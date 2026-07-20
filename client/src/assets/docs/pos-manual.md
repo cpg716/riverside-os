@@ -129,13 +129,13 @@ Return and exchange credits use the original selected item price and the tax pai
 
 When the replacement item costs less than the customer-paid return credit, the checkout shows a negative balance as a cash or other eligible refund. Once that refund tender is staged, record the exchange; Riverside does not require a positive amount to collect. For an original-card remainder, Riverside records the exchange and inventory return first, then sends the remaining refund to Helcim. If the provider is unavailable, the exchange stays saved and the remaining card refund stays visible in the refund queue for a safe retry.
 
-Check refunds require the refund check number. Staff Account refunds reduce the linked Staff Account receivable. RMS Charge refunds must be completed in RMS/R2S first, then recorded with the external reference, reason, and Manager Access approval. Open Deposit amounts are restored through cancellation or void and are not issued as a generic refund tender.
+Check refunds require the refund check number. **Manual CC Refund** is available when the real card refund was already completed on a prior processor or another external card system; enter the external approval/reference, card last four, and reason, then complete Manager Access approval. This records the real negative card tender without pretending it was processed by Helcim. Staff Account refunds reduce the linked Staff Account receivable. RMS Charge refunds must be completed in RMS/R2S first, then recorded with the external reference, reason, and Manager Access approval. Open Deposit amounts are restored through cancellation or void and are not issued as a generic refund tender.
 
 If the original Transaction Record still has a balance due, the returned item may reduce that balance without creating cash back for the customer. Continue the exchange, add the replacement item, and finish checkout so Riverside records the return and links the replacement sale.
 
 For Special, Custom, Wedding, and shipped order lines, confirm the original Transaction Record, returned quantities, tender/refund path, and inventory handling before settlement.
 
-Return and exchange receipts keep the audit trail visible. Active merchandise prints in the normal receipt sections, while every returned or exchanged item prints separately in **RETURNED / REFUNDED** or **EXCHANGED** sections with its negative credit amount shown clearly.
+Return and exchange receipts keep the audit trail visible. Every returned item prints separately as negative merchandise, with exact negative tax and the real refund tender; replacement items remain positive. The refund completion screen, Daily Sales, Z-Report, Payments, and QBO use the same completed refund event and amount.
 
 Inventory and bookkeeping follow server rules for takeaway, order, and wedding lines; ask a lead if you are unsure.
 

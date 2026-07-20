@@ -159,9 +159,10 @@ pub fn tender_display_label(method: &str) -> String {
         .filter(|c| c.is_ascii_alphanumeric())
         .collect::<String>();
     match key.as_str() {
-        "card" | "cardterminal" | "cardmanual" | "cardsaved" | "cardcredit" | "offlinecc"
-        | "credit" | "creditcard" | "creditcards" | "creditdebit" | "debit" | "helcim" | "visa"
-        | "mastercard" | "mc" | "amex" | "americanexpress" | "discover" => "CC".to_string(),
+        "card" | "cardterminal" | "cardmanual" | "cardterminalmanual" | "cardsaved"
+        | "cardcredit" | "offlinecc" | "credit" | "creditcard" | "creditcards" | "creditdebit"
+        | "debit" | "helcim" | "visa" | "mastercard" | "mc" | "amex" | "americanexpress"
+        | "discover" => "CC".to_string(),
         "cash" => "Cash".to_string(),
         "rms90" | "rms90day" | "rms90days" | "rmscharge90" | "onaccountrms90" => {
             "RMS90".to_string()

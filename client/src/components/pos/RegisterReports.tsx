@@ -1705,14 +1705,14 @@ export default function RegisterReports({
 	                              <div className="flex flex-col items-end gap-0.5 pt-2 border-t border-app-border/40">
 		                                 <span className="text-xs font-bold text-app-text-muted">Sales Total (Booked)</span>
 	                                 <span className="text-lg font-black text-app-text tabular-nums leading-none tracking-tighter">
-	                                   ${row.sales_total || "0.00"}
+	                                   {moneyFromValue(row.sales_total || "0.00")}
 	                                 </span>
 	                              </div>
 
 	                              <div className="flex flex-col items-end gap-0.5 pt-2 border-t border-app-border/40">
 	                                 <span className="text-xs font-bold text-app-success">Paid on this Transaction</span>
                                  <span className="text-base font-black text-app-text tabular-nums leading-none tracking-tighter">
-                                   ${row.transaction_total || "0.00"}
+                                   {moneyFromValue(row.transaction_total || "0.00")}
                                  </span>
 	                                 <div className="mt-1 flex flex-col items-end gap-0.5 text-xs font-semibold text-app-text-muted opacity-80">
                                     {row.payments?.length

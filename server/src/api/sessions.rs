@@ -1704,9 +1704,9 @@ async fn build_reconciliation(
             pay_tx.ledger_transaction_id,
             o.display_id AS transaction_display_id,
             o.status::text AS transaction_status,
-            o.total_price AS transaction_total,
-            o.amount_paid AS transaction_paid,
-            o.balance_due AS transaction_balance_due,
+            CASE WHEN pay_tx.amount < 0 THEN pay_tx.amount ELSE o.total_price END AS transaction_total,
+            CASE WHEN pay_tx.amount < 0 THEN pay_tx.amount ELSE o.amount_paid END AS transaction_paid,
+            CASE WHEN pay_tx.amount < 0 THEN 0::numeric ELSE o.balance_due END AS transaction_balance_due,
             o.shipping_amount_usd AS shipping_amount,
             COALESCE(
                 NULLIF(TRIM(COALESCE(c.first_name, '') || ' ' || COALESCE(c.last_name, '')), ''),
@@ -1718,15 +1718,21 @@ async fn build_reconciliation(
                     DISTINCT jsonb_build_object(
                         'name', COALESCE(NULLIF(TRIM(p.name), ''), pv.sku, 'Item'),
                         'sku', COALESCE(pv.sku, ''),
-                        'quantity', oi.quantity,
-                        'unit_price', oi.unit_price::text,
+                        'quantity', CASE WHEN pay_tx.amount < 0 THEN -trl.quantity_returned ELSE oi.quantity END,
+                        'unit_price', CASE
+                            WHEN pay_tx.amount < 0 THEN (
+                                COALESCE(trl.refund_subtotal, oi.unit_price * trl.quantity_returned)
+                                / GREATEST(trl.quantity_returned, 1)
+                            )::text
+                            ELSE oi.unit_price::text
+                        END,
                         'original_unit_price', oi.size_specs ->> 'original_unit_price',
                         'overridden_unit_price', oi.size_specs ->> 'overridden_unit_price',
                         'fulfillment', oi.fulfillment::text,
                         'is_internal', COALESCE(oi.is_internal, false),
                         'line_kind', p.pos_line_kind::text
                     )
-                ) FILTER (WHERE oi.id IS NOT NULL),
+                ) FILTER (WHERE oi.id IS NOT NULL AND (pay_tx.amount >= 0 OR trl.id IS NOT NULL)),
                 '[]'::jsonb
             ) AS items_json,
             COALESCE(
@@ -1769,6 +1775,14 @@ async fn build_reconciliation(
                     ELSE 'split'
                 END AS payment_method,
                 COALESCE(SUM(pa.amount_allocated), 0)::numeric AS amount,
+                MAX(NULLIF(pt.metadata->>'refund_event_id', '')) AS refund_event_id,
+                CASE
+                    WHEN pa.amount_allocated < 0 THEN COALESCE(
+                        NULLIF(pt.metadata->>'refund_event_id', ''),
+                        pt.id::text
+                    )
+                    ELSE 'sale'
+                END AS payment_event_key,
                 NULLIF(STRING_AGG(DISTINCT NULLIF(TRIM(pt.check_number), ''), ', '), '') AS check_number,
                 COALESCE(
                     (
@@ -1807,6 +1821,19 @@ async fn build_reconciliation(
                             WHERE pa_part.target_transaction_id = pa.target_transaction_id
                               AND pt_part.session_id = ANY($1)
                               AND (pt_part.created_at AT TIME ZONE reporting.effective_store_timezone())::date = $2
+                              AND CASE
+                                    WHEN pa_part.amount_allocated < 0 THEN COALESCE(
+                                        NULLIF(pt_part.metadata->>'refund_event_id', ''),
+                                        pt_part.id::text
+                                    )
+                                    ELSE 'sale'
+                                  END = CASE
+                                    WHEN pa.amount_allocated < 0 THEN COALESCE(
+                                        NULLIF(pt.metadata->>'refund_event_id', ''),
+                                        pt.id::text
+                                    )
+                                    ELSE 'sale'
+                                  END
                             GROUP BY 1
                         ) payment_parts
                     ),
@@ -1820,17 +1847,28 @@ async fn build_reconciliation(
                     pt.effective_date,
                     (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date
                   ) = $2
-            GROUP BY pa.target_transaction_id
+            GROUP BY
+                pa.target_transaction_id,
+                CASE
+                    WHEN pa.amount_allocated < 0 THEN COALESCE(
+                        NULLIF(pt.metadata->>'refund_event_id', ''),
+                        pt.id::text
+                    )
+                    ELSE 'sale'
+                END
         ) pay_tx
         INNER JOIN transactions o ON o.id = pay_tx.ledger_transaction_id
         LEFT JOIN customers c ON c.id = o.customer_id
         LEFT JOIN transaction_lines oi ON oi.transaction_id = o.id
+        LEFT JOIN transaction_return_lines trl
+            ON trl.transaction_line_id = oi.id
+           AND trl.refund_event_id::text = pay_tx.refund_event_id
         LEFT JOIN products p ON p.id = oi.product_id
         LEFT JOIN product_variants pv ON pv.id = oi.variant_id
         GROUP BY
             pay_tx.payment_transaction_id, pay_tx.register_session_id, pay_tx.register_lane,
             pay_tx.created_at, pay_tx.payment_method, pay_tx.amount, pay_tx.check_number,
-            pay_tx.ledger_transaction_id, pay_tx.payments_json,
+            pay_tx.ledger_transaction_id, pay_tx.payments_json, pay_tx.refund_event_id,
             o.display_id, o.status, o.total_price, o.amount_paid, o.balance_due, o.shipping_amount_usd,
             c.first_name, c.last_name
         ORDER BY pay_tx.created_at DESC
