@@ -1490,8 +1490,13 @@ export default function OrdersWorkspace({
       },
     );
     if (!res.ok) {
-      await res.json().catch(() => ({}));
-      toast("We couldn't remove this item. Please try again.", "error");
+      const body = await res.json().catch(() => ({}));
+      toast(
+        typeof body?.error === "string"
+          ? body.error
+          : "We couldn't remove this item. Please try again.",
+        "error",
+      );
       return;
     }
     await loadDetail(detail.transaction_id);

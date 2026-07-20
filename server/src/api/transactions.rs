@@ -9417,6 +9417,9 @@ async fn delete_transaction_line(
         DbFulfillmentType,
         DbOrderItemLifecycleStatus,
         i32,
+        Option<Uuid>,
+        Option<Uuid>,
+        Option<chrono::DateTime<chrono::Utc>>,
         bool,
     )> = sqlx::query_as(
         r#"
@@ -9427,6 +9430,9 @@ async fn delete_transaction_line(
             tl.fulfillment,
             tl.order_lifecycle_status,
             tl.quantity,
+            tl.po_line_id,
+            tl.vendor_id,
+            tl.received_at,
             EXISTS (
                 SELECT 1
                 FROM payment_allocations pa
@@ -9450,6 +9456,9 @@ async fn delete_transaction_line(
         fulfillment,
         lifecycle_status,
         quantity,
+        po_line_id,
+        vendor_id,
+        received_at,
         has_payments,
     )) = line_state
     else {
@@ -9475,12 +9484,15 @@ async fn delete_transaction_line(
                 .to_string(),
         ));
     }
-    if !matches!(
+    let lifecycle_allows_delete = matches!(
         lifecycle_status,
         DbOrderItemLifecycleStatus::NeedsMeasurements | DbOrderItemLifecycleStatus::Ntbo
-    ) {
+    );
+    let has_no_fulfillment_activity =
+        !is_fulfilled && po_line_id.is_none() && vendor_id.is_none() && received_at.is_none();
+    if !lifecycle_allows_delete && !has_no_fulfillment_activity {
         return Err(TransactionError::InvalidPayload(
-            "Only uncommitted order lines waiting on measurements or vendor ordering can be deleted."
+            "Only open, unpaid, unfulfilled order lines with no vendor, purchase-order, or receiving activity can be deleted."
                 .to_string(),
         ));
     }
