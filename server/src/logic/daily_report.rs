@@ -298,7 +298,11 @@ AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
         r#"
         SELECT
             CASE
-                WHEN LOWER(TRIM(payment_method)) IN ('card', 'card_terminal', 'card_manual', 'card_saved', 'card_credit')
+                WHEN LOWER(TRIM(payment_method)) IN (
+                    'card', 'cc', 'credit', 'credit_card', 'debit',
+                    'card_terminal', 'card_reader', 'card_manual', 'card_not_present',
+                    'card_saved', 'card_credit', 'offline_cc'
+                )
                 THEN 'Credit/Debit Card'
                 WHEN LOWER(TRIM(payment_method)) = 'cash' THEN 'Cash'
                 WHEN LOWER(TRIM(payment_method)) = 'gift_card' THEN 'Gift Card'

@@ -26,6 +26,19 @@ fn money_label(d: Decimal) -> String {
     format!("{}", d.round_dp(2))
 }
 
+fn reporting_tender_label(method: &str) -> String {
+    match method
+        .trim()
+        .to_ascii_lowercase()
+        .replace([' ', '-', '_'], "")
+        .as_str()
+    {
+        "cardnotpresent" | "cnp" => "Card Not Present".to_string(),
+        "cardmanual" | "manualcard" => "Card Manual".to_string(),
+        _ => receipt_shared::tender_display_label(method),
+    }
+}
+
 fn payment_summary_label(payments: &[RegisterActivityPayment]) -> Option<String> {
     if payments.is_empty() {
         return None;
@@ -47,7 +60,7 @@ fn parse_activity_payments(value: Option<serde_json::Value>) -> Vec<RegisterActi
         .filter_map(|raw| {
             let amount = raw.amount.trim().parse::<Decimal>().ok()?;
             Some(RegisterActivityPayment {
-                method: receipt_shared::tender_display_label(&raw.method),
+                method: reporting_tender_label(&raw.method),
                 amount_label: money_label(amount),
             })
         })
@@ -1002,7 +1015,24 @@ pub async fn fetch_register_day_summary(
             COALESCE(BOOL_AND(oi.fulfillment::text = 'takeaway'), false) AS is_takeaway,
             o.sale_channel::text AS channel,
             (
-                SELECT STRING_AGG(DISTINCT pt.payment_method, ', ' ORDER BY pt.payment_method)
+                SELECT STRING_AGG(
+                    DISTINCT CASE
+                        WHEN LOWER(COALESCE(pt.metadata->>'tender_family', '')) = 'card_not_present'
+                          OR EXISTS (
+                              SELECT 1
+                              FROM payment_provider_attempts ppa
+                              WHERE ppa.provider = 'helcim'
+                                AND ppa.raw_audit_reference LIKE 'helcim-pay-js%'
+                                AND (
+                                    ppa.id::text = pt.metadata->>'payment_provider_attempt_id'
+                                    OR (pt.provider_transaction_id IS NOT NULL AND ppa.provider_transaction_id = pt.provider_transaction_id)
+                                )
+                          )
+                        THEN 'card_not_present'
+                        ELSE pt.payment_method
+                    END,
+                    ', '
+                )
                 FROM payment_allocations pa
                 INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
                 WHERE pa.target_transaction_id = o.id
@@ -1018,13 +1048,27 @@ pub async fn fetch_register_day_summary(
                 )
                 FROM (
                     SELECT
-                        pt.payment_method,
+                        CASE
+                            WHEN LOWER(COALESCE(pt.metadata->>'tender_family', '')) = 'card_not_present'
+                              OR EXISTS (
+                                  SELECT 1
+                                  FROM payment_provider_attempts ppa
+                                  WHERE ppa.provider = 'helcim'
+                                    AND ppa.raw_audit_reference LIKE 'helcim-pay-js%'
+                                    AND (
+                                        ppa.id::text = pt.metadata->>'payment_provider_attempt_id'
+                                        OR (pt.provider_transaction_id IS NOT NULL AND ppa.provider_transaction_id = pt.provider_transaction_id)
+                                    )
+                              )
+                            THEN 'card_not_present'
+                            ELSE pt.payment_method
+                        END AS payment_method,
                         SUM(COALESCE(pa.amount_allocated, pt.amount))::numeric(14,2) AS amount
                     FROM payment_allocations pa
                     INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
                     WHERE pa.target_transaction_id = o.id
                       AND pt.status = 'success'
-                    GROUP BY pt.payment_method
+                    GROUP BY 1
                 ) payment_parts
             ) AS payments_json,
             (
@@ -1246,7 +1290,21 @@ pub async fn fetch_register_day_summary(
             pa.target_transaction_id,
             pt.created_at,
             pa.amount_allocated AS amount,
-            pt.payment_method,
+            CASE
+                WHEN LOWER(COALESCE(pt.metadata->>'tender_family', '')) = 'card_not_present'
+                  OR EXISTS (
+                      SELECT 1
+                      FROM payment_provider_attempts ppa
+                      WHERE ppa.provider = 'helcim'
+                        AND ppa.raw_audit_reference LIKE 'helcim-pay-js%'
+                        AND (
+                            ppa.id::text = pt.metadata->>'payment_provider_attempt_id'
+                            OR (pt.provider_transaction_id IS NOT NULL AND ppa.provider_transaction_id = pt.provider_transaction_id)
+                        )
+                  )
+                THEN 'card_not_present'
+                ELSE pt.payment_method
+            END AS payment_method,
             c.id AS customer_id,
             c.first_name AS customer_first,
             c.last_name AS customer_last,
@@ -1492,7 +1550,7 @@ pub async fn fetch_register_day_summary(
             (None, Some(l)) => Some(l.to_string()),
             _ => p.customer_code.clone(),
         };
-        let payment_label = receipt_shared::tender_display_label(&p.payment_method);
+        let payment_label = reporting_tender_label(&p.payment_method);
         let payment_amount = money_label(p.amount);
 
         activities.push(RegisterActivityItem {
@@ -1640,4 +1698,20 @@ pub async fn fetch_register_day_summary(
         activities,
         pickups_today,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::reporting_tender_label;
+
+    #[test]
+    fn reporting_tender_labels_preserve_card_entry_type() {
+        assert_eq!(reporting_tender_label("card_terminal"), "CC");
+        assert_eq!(reporting_tender_label("card_manual"), "Card Manual");
+        assert_eq!(
+            reporting_tender_label("card_not_present"),
+            "Card Not Present"
+        );
+        assert_eq!(reporting_tender_label("cnp"), "Card Not Present");
+    }
 }

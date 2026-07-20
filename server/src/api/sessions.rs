@@ -1522,7 +1522,24 @@ async fn build_reconciliation(
     let tender_rows: Vec<TenderAggregateRow> = sqlx::query_as(
         r#"
         SELECT
-            payment_method,
+            CASE
+                WHEN LOWER(COALESCE(metadata->>'tender_family', '')) = 'card_not_present'
+                  OR EXISTS (
+                      SELECT 1
+                      FROM payment_provider_attempts ppa
+                      WHERE ppa.provider = 'helcim'
+                        AND ppa.raw_audit_reference LIKE 'helcim-pay-js%'
+                        AND (
+                            ppa.id::text = payment_transactions.metadata->>'payment_provider_attempt_id'
+                            OR (
+                                payment_transactions.provider_transaction_id IS NOT NULL
+                                AND ppa.provider_transaction_id = payment_transactions.provider_transaction_id
+                            )
+                        )
+                  )
+                THEN 'card_not_present'
+                ELSE payment_method
+            END AS payment_method,
             SUM(amount) AS total_amount,
             COUNT(*)::bigint AS tx_count
         FROM payment_transactions
@@ -1531,8 +1548,8 @@ async fn build_reconciliation(
                 effective_date,
                 (created_at AT TIME ZONE reporting.effective_store_timezone())::date
               ) = $2
-        GROUP BY payment_method
-        ORDER BY payment_method
+        GROUP BY 1
+        ORDER BY 1
         "#,
     )
     .bind(&payment_session_ids)
@@ -1544,7 +1561,24 @@ async fn build_reconciliation(
         r#"
         SELECT
             rs.register_lane,
-            pt.payment_method,
+            CASE
+                WHEN LOWER(COALESCE(pt.metadata->>'tender_family', '')) = 'card_not_present'
+                  OR EXISTS (
+                      SELECT 1
+                      FROM payment_provider_attempts ppa
+                      WHERE ppa.provider = 'helcim'
+                        AND ppa.raw_audit_reference LIKE 'helcim-pay-js%'
+                        AND (
+                            ppa.id::text = pt.metadata->>'payment_provider_attempt_id'
+                            OR (
+                                pt.provider_transaction_id IS NOT NULL
+                                AND ppa.provider_transaction_id = pt.provider_transaction_id
+                            )
+                        )
+                  )
+                THEN 'card_not_present'
+                ELSE pt.payment_method
+            END AS payment_method,
             SUM(pt.amount) AS total_amount,
             COUNT(*)::bigint AS tx_count
         FROM payment_transactions pt
@@ -1554,8 +1588,8 @@ async fn build_reconciliation(
                 pt.effective_date,
                 (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date
               ) = $2
-        GROUP BY rs.register_lane, pt.payment_method
-        ORDER BY rs.register_lane, pt.payment_method
+        GROUP BY rs.register_lane, 2
+        ORDER BY rs.register_lane, 2
         "#,
     )
     .bind(&payment_session_ids)
@@ -1748,7 +1782,24 @@ async fn build_reconciliation(
                         )
                         FROM (
                             SELECT
-                                pt_part.payment_method,
+                                CASE
+                                    WHEN LOWER(COALESCE(pt_part.metadata->>'tender_family', '')) = 'card_not_present'
+                                      OR EXISTS (
+                                          SELECT 1
+                                          FROM payment_provider_attempts ppa
+                                          WHERE ppa.provider = 'helcim'
+                                            AND ppa.raw_audit_reference LIKE 'helcim-pay-js%'
+                                            AND (
+                                                ppa.id::text = pt_part.metadata->>'payment_provider_attempt_id'
+                                                OR (
+                                                    pt_part.provider_transaction_id IS NOT NULL
+                                                    AND ppa.provider_transaction_id = pt_part.provider_transaction_id
+                                                )
+                                            )
+                                      )
+                                    THEN 'card_not_present'
+                                    ELSE pt_part.payment_method
+                                END AS payment_method,
                                 SUM(pa_part.amount_allocated)::numeric(14, 2) AS amount,
                                 NULLIF(STRING_AGG(DISTINCT NULLIF(TRIM(pt_part.check_number), ''), ', '), '') AS check_number
                             FROM payment_allocations pa_part
@@ -1756,7 +1807,7 @@ async fn build_reconciliation(
                             WHERE pa_part.target_transaction_id = pa.target_transaction_id
                               AND pt_part.session_id = ANY($1)
                               AND (pt_part.created_at AT TIME ZONE reporting.effective_store_timezone())::date = $2
-                            GROUP BY pt_part.payment_method
+                            GROUP BY 1
                         ) payment_parts
                     ),
                     '[]'::jsonb

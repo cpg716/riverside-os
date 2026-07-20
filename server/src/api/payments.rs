@@ -6548,7 +6548,7 @@ async fn load_helcim_transaction_rows(
             1::bigint AS issue_count
         FROM payment_provider_attempts ppa
         WHERE ppa.provider = 'helcim'
-          AND ppa.raw_audit_reference = 'helcim-pay-js'
+          AND ppa.raw_audit_reference LIKE 'helcim-pay-js%'
           AND ppa.status IN ('approved', 'captured')
           AND ppa.provider_transaction_id IS NOT NULL
           AND NOT EXISTS (
@@ -9599,7 +9599,10 @@ fn helcim_pay_public_handoff_url(attempt_id: Uuid, checkout_token: &str) -> Opti
 }
 
 fn is_hosted_manual_helcim_attempt(attempt: &HelcimAttemptRow) -> bool {
-    attempt.raw_audit_reference.as_deref() == Some("helcim-pay-js")
+    attempt
+        .raw_audit_reference
+        .as_deref()
+        .is_some_and(|reference| reference.to_ascii_lowercase().starts_with("helcim-pay-js"))
 }
 
 fn helcim_attempt_has_provider_settlement_reference(attempt: &HelcimAttemptRow) -> bool {
@@ -10185,6 +10188,14 @@ mod tests {
         attempt.raw_audit_reference = Some("helcim-pay-js".to_string());
 
         assert!(!helcim_attempt_has_provider_settlement_reference(&attempt));
+    }
+
+    #[test]
+    fn completed_hosted_manual_reference_remains_card_not_present() {
+        let mut attempt = sample_helcim_attempt_row("approved");
+        attempt.raw_audit_reference = Some("helcim-pay-js:51754655".to_string());
+
+        assert!(is_hosted_manual_helcim_attempt(&attempt));
     }
 
     #[test]

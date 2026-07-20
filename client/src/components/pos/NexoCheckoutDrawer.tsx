@@ -222,7 +222,7 @@ function helcimAttemptNeedsAttention(attempt: HelcimAttempt): boolean {
 }
 
 function isHostedManualHelcimAttempt(attempt: HelcimAttempt): boolean {
-  return attempt.raw_audit_reference === "helcim-pay-js";
+  return attempt.raw_audit_reference?.toLowerCase().startsWith("helcim-pay-js") === true;
 }
 
 function isHelcimCardRefundAttempt(attempt: HelcimAttempt): boolean {

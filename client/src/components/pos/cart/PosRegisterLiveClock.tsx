@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 /** live register clock — same TZ as Settings receipt config (thermal line uses server time when the sale completes). */
 function formatStoreClockLine(d: Date, timeZone: string): string {
@@ -67,6 +67,7 @@ export function PosRegisterLiveClock({
   onOverrideChange,
 }: PosRegisterLiveClockProps) {
   const [now, setNow] = useState(() => new Date());
+  const inputRef = useRef<HTMLInputElement>(null);
   
   useEffect(() => {
     const id = window.setInterval(() => setNow(new Date()), 1000);
@@ -75,10 +76,26 @@ export function PosRegisterLiveClock({
 
   const inputValue = overrideLocalDateTime ?? storeDateTimeInputValue(now, timeZone);
 
+  const openDateTimePicker = () => {
+    const input = inputRef.current;
+    if (!input) return;
+    if (typeof input.showPicker === "function") {
+      try {
+        input.showPicker();
+        return;
+      } catch {
+        // Some WebViews expose showPicker but reject it; use the native click fallback.
+      }
+    }
+    input.click();
+  };
+
   return (
     <div className="ml-auto flex min-w-0 max-w-[55%] shrink items-center justify-end gap-2 text-right sm:max-w-none">
-      <label
-        className="relative min-w-0 cursor-pointer rounded-xl px-2 py-1 transition-colors hover:bg-app-surface"
+      <button
+        type="button"
+        onClick={openDateTimePicker}
+        className="min-w-0 rounded-xl px-2 py-1 text-right transition-colors hover:bg-app-surface"
         title="Click to set the date and time for this transaction only."
       >
         <p className="text-[9px] font-black uppercase tracking-[0.2em] text-app-text-muted">
@@ -89,15 +106,17 @@ export function PosRegisterLiveClock({
             ? formatLocalDateTimeLine(overrideLocalDateTime)
             : formatStoreClockLine(now, timeZone)}
         </p>
-        <input
-          aria-label="Set transaction date and time"
-          type="datetime-local"
-          value={inputValue}
-          max={storeDateTimeInputValue(now, timeZone)}
-          onChange={(event) => onOverrideChange?.(event.target.value || null)}
-          className="absolute inset-0 cursor-pointer opacity-0"
-        />
-      </label>
+      </button>
+      <input
+        ref={inputRef}
+        aria-label="Set transaction date and time"
+        type="datetime-local"
+        value={inputValue}
+        max={storeDateTimeInputValue(now, timeZone)}
+        onChange={(event) => onOverrideChange?.(event.target.value || null)}
+        tabIndex={-1}
+        className="sr-only"
+      />
       {overrideLocalDateTime ? (
         <button
           type="button"

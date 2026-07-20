@@ -93,9 +93,19 @@ function isCreditCardTender(method: string): boolean {
     "card",
     "cardterminal",
     "cardreader",
+    "cardmanual",
+    "manualcard",
+    "cardnotpresent",
+    "cnp",
+    "cardsaved",
+    "cardcredit",
+    "offlinecc",
     "cc",
+    "credit",
     "creditcard",
     "creditcards",
+    "creditdebit",
+    "creditdebitcard",
     "debit",
     "visa",
     "mastercard",
@@ -446,6 +456,13 @@ function tenderLinesForTransaction(transaction: ZReportPrintTransaction) {
   }];
 }
 
+function transactionPaymentMethod(transaction: ZReportPrintTransaction): string {
+  const payments = tenderLinesForTransaction(transaction);
+  return payments.length > 1
+    ? "split"
+    : payments[0]?.payment_method ?? transaction.payment_method;
+}
+
 function normalizeZReportTransactions(transactions: ZReportPrintTransaction[]): ZReportPrintTransaction[] {
   const grouped = new Map<string, ZReportPrintTransaction>();
   for (const transaction of transactions) {
@@ -456,7 +473,7 @@ function normalizeZReportTransactions(transactions: ZReportPrintTransaction[]): 
       grouped.set(key, {
         ...transaction,
         payments: tenderLines,
-        payment_method: tenderLines.length > 1 ? "split" : transaction.payment_method,
+        payment_method: transactionPaymentMethod(transaction),
       });
       continue;
     }
@@ -738,7 +755,7 @@ export async function openProfessionalZReportPrint(opts: {
             return `
               <section class="activity-card">
                 <div class="activity-left">
-                  <div class="pill">${reportLabel(t.payment_method)}</div>
+                  <div class="pill">${reportLabel(transactionPaymentMethod(t))}</div>
                   <div class="time">${tm}</div>
                   <div class="customer">${t.customer_name || "Walk-in Customer"}</div>
                   <div class="chips">${t.transaction_display_id ? `<span class="chip mono">Transaction ${t.transaction_display_id}</span>` : ""}<span class="chip mono">Lane #${t.register_lane}</span>${chips}</div>
@@ -932,7 +949,7 @@ export async function openProfessionalZReportPrint(opts: {
           "TRANSACTION LIST",
           ...transactions.flatMap((tx) => {
             const transactionSubtotalBeforeTaxCents = auditItemsSubtotalBeforeTaxCents(tx.items);
-            const header = `${new Date(tx.created_at).toLocaleString()} | ${reportLabel(tx.payment_method)} | ${
+            const header = `${new Date(tx.created_at).toLocaleString()} | ${reportLabel(transactionPaymentMethod(tx))} | ${
               tx.customer_name || "Walk-in Customer"
             } | Lane #${tx.register_lane} | Amount: ${formatReportMoney(tx.amount)}${
               tx.transaction_display_id ? ` | Transaction: ${tx.transaction_display_id}` : ""

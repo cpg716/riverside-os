@@ -393,6 +393,30 @@ type Props = {
   onOpenTransactionInBackoffice?: (transactionId: string) => void;
 };
 
+type PaymentListSection = "batches" | "deposits" | "transactions";
+type PaymentListFilter = { dateFrom: string; dateTo: string; search: string };
+type PaymentListFilters = Record<PaymentListSection, PaymentListFilter>;
+
+function emptyPaymentListFilter(): PaymentListFilter {
+  return { dateFrom: "", dateTo: "", search: "" };
+}
+
+function initialPaymentListFilters(): PaymentListFilters {
+  return {
+    batches: emptyPaymentListFilter(),
+    deposits: emptyPaymentListFilter(),
+    transactions: emptyPaymentListFilter(),
+  };
+}
+
+function paymentListQuery(filter: PaymentListFilter, limit = 500): string {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (filter.dateFrom) params.set("date_from", filter.dateFrom);
+  if (filter.dateTo) params.set("date_to", filter.dateTo);
+  if (filter.search.trim()) params.set("search", filter.search.trim());
+  return params.toString();
+}
+
 function todayYmd(): string {
   const now = new Date();
   const month = `${now.getMonth() + 1}`.padStart(2, "0");
@@ -596,6 +620,47 @@ function SectionButton({
   );
 }
 
+function PaymentListFilterBar({
+  value,
+  searchPlaceholder,
+  onChange,
+  onApply,
+  onClear,
+}: {
+  value: PaymentListFilter;
+  searchPlaceholder: string;
+  onChange: (value: PaymentListFilter) => void;
+  onApply: () => void;
+  onClear: () => void;
+}) {
+  return (
+    <form
+      className="grid gap-3 rounded-lg border border-app-border bg-app-surface p-3 md:grid-cols-[minmax(140px,0.55fr)_minmax(140px,0.55fr)_minmax(240px,1fr)_auto] md:items-end"
+      onSubmit={(event) => { event.preventDefault(); onApply(); }}
+    >
+      <label className="text-xs font-bold uppercase tracking-wide text-app-text-muted">
+        From
+        <input type="date" value={value.dateFrom} onChange={(event) => onChange({ ...value, dateFrom: event.target.value })} className="mt-1 w-full rounded-lg border border-app-border bg-app-bg px-3 py-2 text-sm font-semibold normal-case tracking-normal text-app-text outline-none focus:border-app-accent" />
+      </label>
+      <label className="text-xs font-bold uppercase tracking-wide text-app-text-muted">
+        To
+        <input type="date" value={value.dateTo} onChange={(event) => onChange({ ...value, dateTo: event.target.value })} className="mt-1 w-full rounded-lg border border-app-border bg-app-bg px-3 py-2 text-sm font-semibold normal-case tracking-normal text-app-text outline-none focus:border-app-accent" />
+      </label>
+      <label className="text-xs font-bold uppercase tracking-wide text-app-text-muted">
+        Search
+        <span className="mt-1 flex items-center gap-2 rounded-lg border border-app-border bg-app-bg px-3 py-2 text-sm font-semibold normal-case tracking-normal text-app-text focus-within:border-app-accent">
+          <Search size={16} className="text-app-text-muted" />
+          <input value={value.search} onChange={(event) => onChange({ ...value, search: event.target.value })} placeholder={searchPlaceholder} className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-app-text-muted" />
+        </span>
+      </label>
+      <div className="flex gap-2">
+        <button type="submit" className="rounded-lg bg-app-accent px-4 py-2 text-sm font-bold text-white">Apply</button>
+        <button type="button" onClick={onClear} className="rounded-lg border border-app-border bg-app-surface px-4 py-2 text-sm font-bold text-app-text">Clear</button>
+      </div>
+    </form>
+  );
+}
+
 export default function PaymentsWorkspace({
   activeSection = "overview",
   surface = "backoffice",
@@ -634,7 +699,8 @@ export default function PaymentsWorkspace({
   const [selectedDepositId, setSelectedDepositId] = useState<string | null>(null);
   const [depositDetail, setDepositDetail] = useState<DepositDetail | null>(null);
   const [depositBusy, setDepositBusy] = useState(false);
-  const [transactionSearch, setTransactionSearch] = useState("");
+  const [listFilterDrafts, setListFilterDrafts] = useState<PaymentListFilters>(initialPaymentListFilters);
+  const [listFilters, setListFilters] = useState<PaymentListFilters>(initialPaymentListFilters);
   const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
   const [standaloneRefundBusy, setStandaloneRefundBusy] = useState(false);
   const [standaloneRefundAttempt, setStandaloneRefundAttempt] = useState<HelcimAttemptResponse | null>(null);
@@ -660,6 +726,18 @@ export default function PaymentsWorkspace({
   const canDepositReview = hasAnyPermission(["payments.deposit.review"]);
   const canDepositLink = hasAnyPermission(["payments.deposit.link"]);
   const canDepositAdjust = hasAnyPermission(["payments.deposit.adjust"]);
+
+  const updateListFilterDraft = useCallback((filterSection: PaymentListSection, value: PaymentListFilter) => {
+    setListFilterDrafts((current) => ({ ...current, [filterSection]: value }));
+  }, []);
+  const applyListFilter = useCallback((filterSection: PaymentListSection) => {
+    setListFilters((current) => ({ ...current, [filterSection]: listFilterDrafts[filterSection] }));
+  }, [listFilterDrafts]);
+  const clearListFilter = useCallback((filterSection: PaymentListSection) => {
+    const cleared = emptyPaymentListFilter();
+    setListFilterDrafts((current) => ({ ...current, [filterSection]: cleared }));
+    setListFilters((current) => ({ ...current, [filterSection]: cleared }));
+  }, []);
 
   useEffect(() => {
     setSection(posSurface ? "transactions" : isSection(activeSection) ? activeSection : "overview");
@@ -763,14 +841,14 @@ export default function PaymentsWorkspace({
         getJson<OverviewResponse>(
           `/api/payments/providers/helcim/operations/overview?date_from=${today}&date_to=${today}`,
         ),
-        getJson<BatchRow[]>("/api/payments/providers/helcim/batches?limit=50"),
-        getJson<DepositRow[]>("/api/payments/providers/helcim/deposits?limit=50"),
+        getJson<BatchRow[]>(`/api/payments/providers/helcim/batches?${paymentListQuery(listFilters.batches)}`),
+        getJson<DepositRow[]>(`/api/payments/providers/helcim/deposits?${paymentListQuery(listFilters.deposits)}`),
         getJson<BatchRow[]>("/api/payments/providers/helcim/deposits/unmatched-batches?limit=25"),
         getJson<DepositRow[]>("/api/payments/providers/helcim/deposits/unmatched-deposits?limit=25"),
         getJson<ReconciliationItem[]>(
           "/api/payments/providers/helcim/reconciliation/items?status=open&limit=50",
         ),
-        getJson<TransactionRow[]>("/api/payments/providers/helcim/transactions?limit=50"),
+        getJson<TransactionRow[]>(`/api/payments/providers/helcim/transactions?${paymentListQuery(listFilters.transactions)}`),
         getJson<SettlementRun[]>("/api/payments/providers/helcim/sync/runs?limit=10"),
         getJson<EventsHealth>("/api/payments/providers/helcim/events/health"),
         getJson<ActiveProviderResponse>("/api/payments/providers/active"),
@@ -809,7 +887,7 @@ export default function PaymentsWorkspace({
     } finally {
       setLoading(false);
     }
-  }, [getJson, posSurface]);
+  }, [getJson, listFilters, posSurface]);
 
   useEffect(() => {
     void refresh();
@@ -1437,7 +1515,7 @@ export default function PaymentsWorkspace({
   );
 
   const filteredTransactions = useMemo(() => {
-    const query = transactionSearch.trim().toLowerCase();
+    const query = listFilterDrafts.transactions.search.trim().toLowerCase();
     if (!query) return data.transactions;
     return data.transactions.filter((transaction) =>
       [
@@ -1453,7 +1531,7 @@ export default function PaymentsWorkspace({
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(query)),
     );
-  }, [data.transactions, transactionSearch]);
+  }, [data.transactions, listFilterDrafts.transactions.search]);
 
   const groupedIssues = useMemo(() => {
     const groups = new Map<string, ReconciliationItem[]>();
@@ -1561,12 +1639,25 @@ export default function PaymentsWorkspace({
                 onSyncFees={() => void runSync("fees")}
               />
             )}
-            {section === "batches" && <BatchesPanel batches={data.batches} onOpenBatch={openBatch} />}
+            {section === "batches" && (
+              <BatchesPanel
+                batches={data.batches}
+                filters={listFilterDrafts.batches}
+                onFiltersChange={(value) => updateListFilterDraft("batches", value)}
+                onApplyFilters={() => applyListFilter("batches")}
+                onClearFilters={() => clearListFilter("batches")}
+                onOpenBatch={openBatch}
+              />
+            )}
             {section === "deposits" && (
               <DepositsPanel
                 deposits={data.deposits}
                 unmatchedBatches={data.unmatchedBatches}
                 unmatchedDeposits={data.unmatchedDeposits}
+                filters={listFilterDrafts.deposits}
+                onFiltersChange={(value) => updateListFilterDraft("deposits", value)}
+                onApplyFilters={() => applyListFilter("deposits")}
+                onClearFilters={() => clearListFilter("deposits")}
                 canAdjust={canDepositAdjust}
                 canReview={canDepositReview}
                 busy={depositBusy}
@@ -1585,8 +1676,11 @@ export default function PaymentsWorkspace({
             {section === "transactions" && (
               <TransactionsPanel
                 transactions={filteredTransactions}
-                search={transactionSearch}
-                onSearch={setTransactionSearch}
+                filters={listFilterDrafts.transactions}
+                showDateFilters={!posSurface}
+                onFiltersChange={(value) => updateListFilterDraft("transactions", value)}
+                onApplyFilters={() => applyListFilter("transactions")}
+                onClearFilters={() => clearListFilter("transactions")}
                 onOpenPayment={openTransaction}
                 onOpenTransaction={onOpenTransactionInBackoffice}
                 title={posSurface ? "Today's Transactions" : "Transactions"}

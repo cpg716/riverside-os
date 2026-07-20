@@ -354,18 +354,14 @@ function moneyFromValue(value: string | null | undefined): string {
 }
 
 function isCreditCardTender(method: string): boolean {
-  const tender = method.toLowerCase();
-  return (
-    tender.includes("card") ||
-    tender.includes("cc") ||
-    tender.includes("helcim") ||
-    tender.includes("credit") ||
-    tender.includes("debit") ||
-    tender.includes("visa") ||
-    tender.includes("master") ||
-    tender.includes("discover") ||
-    tender.includes("amex")
-  );
+  const tender = method.toLowerCase().replace(/[^a-z0-9]/g, "");
+  return new Set([
+    "card", "cardterminal", "cardreader", "cardmanual", "manualcard",
+    "cardnotpresent", "cnp", "cardsaved", "cardcredit", "offlinecc",
+    "cc", "credit", "creditcard", "creditcards", "creditdebitcard",
+    "debit", "helcim", "helcimcard", "visa", "mastercard", "mc",
+    "amex", "americanexpress", "discover",
+  ]).has(tender);
 }
 
 function activityCreditCardTotalCents(activities: RegisterActivityItem[] | undefined): number {
