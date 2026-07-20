@@ -249,10 +249,23 @@ export default function ReceiptSummaryModal({
     const fetchDetail = async () => {
       try {
         const q = buildReceiptQuery();
-        const res = await fetch(`${baseUrl}/api/transactions/${transactionId}${q}`, {
-          headers: getAuthHeaders(),
-          cache: "no-store",
-        });
+        let res: Response | null = null;
+        let lastError: unknown = null;
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+          try {
+            res = await fetch(`${baseUrl}/api/transactions/${transactionId}${q}`, {
+              headers: getAuthHeaders(),
+              cache: "no-store",
+            });
+            if (res.ok || ![502, 503, 504].includes(res.status) || attempt === 1) {
+              break;
+            }
+          } catch (error) {
+            lastError = error;
+            if (attempt === 1) throw error;
+          }
+        }
+        if (!res) throw lastError ?? new Error("transaction detail request failed");
         if (res.ok) {
           const data = (await res.json()) as OrderDetail;
           setTransactionDetail(data);

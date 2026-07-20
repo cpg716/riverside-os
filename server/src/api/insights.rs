@@ -1615,7 +1615,16 @@ async fn register_session_history(
             r.cash_deposit_amount,
             (
                 SELECT COALESCE(SUM(line_sales.sales_subtotal), 0)::numeric(14,2)
-                FROM transactions o
+                FROM (
+                    SELECT DISTINCT pa.target_transaction_id
+                    FROM payment_allocations pa
+                    INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
+                    INNER JOIN register_sessions rs_group ON rs_group.id = pt.session_id
+                    WHERE rs_group.till_close_group_id = r.till_close_group_id
+                      AND (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date = r.business_date
+                      AND pa.amount_allocated > 0
+                ) paid_transactions
+                INNER JOIN transactions o ON o.id = paid_transactions.target_transaction_id
                 LEFT JOIN LATERAL (
                     SELECT COALESCE(SUM(
                         ((tl.unit_price - COALESCE(tl.discount_amount, 0))
@@ -1629,16 +1638,6 @@ async fn register_session_history(
                     ) orl ON orl.transaction_line_id = tl.id
                     WHERE tl.transaction_id = o.id
                 ) line_sales ON TRUE
-                WHERE EXISTS (
-                    SELECT 1
-                    FROM payment_allocations pa
-                    INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
-                    INNER JOIN register_sessions rs_group ON rs_group.id = pt.session_id
-                    WHERE pa.target_transaction_id = o.id
-                      AND rs_group.till_close_group_id = r.till_close_group_id
-                      AND (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date = r.business_date
-                      AND pa.amount_allocated > 0
-                )
             ) AS total_sales,
             r.closing_notes,
             r.closing_comments,

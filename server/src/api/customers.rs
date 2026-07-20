@@ -1428,13 +1428,10 @@ async fn get_address_suggestions(
         return Ok(Json(Vec::new()));
     }
 
-    let api_key = geoapify_api_key_from_settings(&state.db)
-        .await?
-        .ok_or_else(|| {
-            CustomerError::ExternalUnavailable(
-                "Geoapify address lookup is not configured.".to_string(),
-            )
-        })?;
+    let Some(api_key) = geoapify_api_key_from_settings(&state.db).await? else {
+        tracing::warn!("customer Geoapify address lookup is not configured; using manual entry");
+        return Ok(Json(Vec::new()));
+    };
     let limit = ADDRESS_LOOKUP_PROVIDER_LIMIT.to_string();
     let bias = format!("proximity:{ADDRESS_LOOKUP_STORE_LON},{ADDRESS_LOOKUP_STORE_LAT}");
     let filter = format!(
@@ -1458,26 +1455,20 @@ async fn get_address_suggestions(
 
     let Ok(res) = res else {
         tracing::warn!("customer Geoapify address lookup request failed");
-        return Err(CustomerError::ExternalUnavailable(
-            "Address lookup is temporarily unavailable.".to_string(),
-        ));
+        return Ok(Json(Vec::new()));
     };
     if !res.status().is_success() {
         tracing::warn!(
             status = %res.status(),
             "customer Geoapify address lookup returned non-success status"
         );
-        return Err(CustomerError::ExternalUnavailable(
-            "Address lookup is temporarily unavailable.".to_string(),
-        ));
+        return Ok(Json(Vec::new()));
     }
 
     let body = res.json::<GeoapifyAutocompleteResponse>().await;
     let Ok(body) = body else {
         tracing::warn!("customer Geoapify address lookup response was not valid JSON");
-        return Err(CustomerError::ExternalUnavailable(
-            "Address lookup returned an unreadable response.".to_string(),
-        ));
+        return Ok(Json(Vec::new()));
     };
 
     let mut seen = HashSet::new();

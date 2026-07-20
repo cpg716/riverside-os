@@ -1,7 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
 import { isTauri } from "@tauri-apps/api/core";
 import { getBaseUrl } from "./apiConfig";
-import { sessionPollAuthHeaders } from "./posRegisterAuth";
+import {
+  clearPosRegisterAuth,
+  getPosRegisterAuth,
+  hydratePosRegisterAuthIfNeeded,
+  sessionPollAuthHeaders,
+} from "./posRegisterAuth";
 
 export type PrintDocType = "receipt" | "tag" | "report";
 export type ThermalPrinterLanguage = "zpl" | "epl";
@@ -549,13 +554,33 @@ export async function syncPrinterConfigToServer(
   registerLane: number,
 ): Promise<void> {
   try {
-    const res = await fetch(`${baseUrl}/api/settings/printer-config/${registerLane}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json", ...authHeaders },
-      body: JSON.stringify(gatherPrinterSettings()),
-    });
+    const request = (headers: Record<string, string>) => fetch(
+      `${baseUrl}/api/settings/printer-config/${registerLane}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", ...headers },
+        body: JSON.stringify(gatherPrinterSettings()),
+      },
+    );
+    let res = await request(authHeaders);
+    if (res.status === 401) {
+      const current = getPosRegisterAuth();
+      if (current) {
+        clearPosRegisterAuth();
+        const refreshed = await hydratePosRegisterAuthIfNeeded({
+          baseUrl,
+          sessionId: current.sessionId,
+          authHeaders: sessionPollAuthHeaders(),
+        });
+        if (refreshed) {
+          res = await request(sessionPollAuthHeaders());
+        }
+      }
+    }
     if (!res.ok) {
-      console.warn("Failed to sync printer config to server", res.status);
+      if (res.status !== 401) {
+        console.warn("Failed to sync printer config to server", res.status);
+      }
     }
   } catch (e) {
     console.warn("Printer config sync failed", e);
