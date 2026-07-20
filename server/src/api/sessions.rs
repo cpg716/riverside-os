@@ -1776,13 +1776,6 @@ async fn build_reconciliation(
                 END AS payment_method,
                 COALESCE(SUM(pa.amount_allocated), 0)::numeric AS amount,
                 MAX(NULLIF(pt.metadata->>'refund_event_id', '')) AS refund_event_id,
-                CASE
-                    WHEN pa.amount_allocated < 0 THEN COALESCE(
-                        NULLIF(pt.metadata->>'refund_event_id', ''),
-                        pt.id::text
-                    )
-                    ELSE 'sale'
-                END AS payment_event_key,
                 NULLIF(STRING_AGG(DISTINCT NULLIF(TRIM(pt.check_number), ''), ', '), '') AS check_number,
                 COALESCE(
                     (
@@ -1827,13 +1820,15 @@ async fn build_reconciliation(
                                         pt_part.id::text
                                     )
                                     ELSE 'sale'
-                                  END = CASE
-                                    WHEN pa.amount_allocated < 0 THEN COALESCE(
-                                        NULLIF(pt.metadata->>'refund_event_id', ''),
-                                        pt.id::text
-                                    )
-                                    ELSE 'sale'
-                                  END
+                                  END = MAX(
+                                    CASE
+                                        WHEN pa.amount_allocated < 0 THEN COALESCE(
+                                            NULLIF(pt.metadata->>'refund_event_id', ''),
+                                            pt.id::text
+                                        )
+                                        ELSE 'sale'
+                                    END
+                                  )
                             GROUP BY 1
                         ) payment_parts
                     ),
