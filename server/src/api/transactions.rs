@@ -9417,10 +9417,10 @@ async fn delete_transaction_line(
         DbFulfillmentType,
         DbOrderItemLifecycleStatus,
         i32,
-        bool,
         Option<Uuid>,
         Option<Uuid>,
         Option<chrono::DateTime<chrono::Utc>>,
+        bool,
     )> = sqlx::query_as(
         r#"
         SELECT
