@@ -44,11 +44,12 @@ Use the Register checkout drawer to collect payment. Use Payments Operations to 
 
 ## Review batches and deposits
 
-1. Open **Batches** and confirm the processor batch number, status, close time, transaction count, and available totals.
-2. Use the approved sync action when current processor data is needed.
-3. Open **Deposits** to compare expected batches with actual bank/processor deposits.
-4. Link only records that clearly represent the same processor settlement.
-5. Escalate unexplained amount, fee, net, or timing differences.
+1. Open **Batches**, set **From** and **To** for any day, multi-day period, month, or longer range, and search by processor batch number or status. Select **Apply**.
+2. Confirm the processor batch number, status, close time, transaction count, and available totals. Use the approved sync action when current processor data is needed.
+3. Open **Deposits**, set the needed period, and search by source, QBO deposit, or bank reference before comparing expected batches with actual deposits.
+4. Use **Clear** to return a list to all dates with no search.
+5. Link only records that clearly represent the same processor settlement.
+6. Escalate unexplained amount, fee, net, or timing differences.
 
 Creating a manual deposit or accepting a variance is an audited manager/bookkeeper action. It does not rewrite the original card payment.
 
@@ -63,7 +64,7 @@ Creating a manual deposit or accepting a variance is an audited manager/bookkeep
 
 ## Check a transaction or health problem
 
-1. Open **Transactions** to locate the processor event or Riverside payment.
+1. Open **Transactions**, set the needed date range, and search by customer, `TXN-` number, provider transaction, batch, or payment method. Select **Apply** to search the complete period.
 2. Follow the Transaction number to the financial record when one is linked.
 3. An approved **Card Not Present** payment that lost its checkout attachment appears as **Unlinked** / **Missing ROS TXN**. Do not charge the card again; finish the retained checkout or use the audited recovery workflow in **Health → Helcim Terminal Review**.
 4. Open **Health** for terminal, webhook, sync, provider-reference, and failed-update evidence.

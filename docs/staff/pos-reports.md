@@ -37,7 +37,7 @@
 1. Runner-up reads **Reports** with closing lead.
 2. Confirm **no open carts** before trusting session totals.
 3. Follow **Z / close** on **Register #1**. If card review blocks close, use the close-drawer **Review** action or **POS → Payments** to record the terminal outcome before finalizing.
-4. The final Z-report includes cash/check review, all supported tender methods, a Credit Card Total that includes Card Manual and Card Not Present, per-register Cash Total / CC Total, the Quick Look business boxes, transaction detail, pickups for the day, and QBO journal-entry preview. It does not include non-sale inventory activity.
+4. The final Z-report includes cash/check review, all supported tender methods, a Credit Card Total that includes CC/Card Reader, Card Manual, Card Not Present, saved-card, and card-credit/refund entries, per-register Cash Total / CC Total, the Quick Look business boxes, transaction detail, pickups for the day, and QBO journal-entry preview. Hosted HelcimPay.js entries are labeled **Card Not Present**; only externally recorded/manual card entries are labeled **Card Manual**. It does not include non-sale inventory activity.
 
 ## Helping a coworker
 

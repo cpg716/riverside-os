@@ -1883,26 +1883,36 @@ function WarningLine({ count, label }: { count: number; label: string }) {
   );
 }
 
-function BatchesPanel({ batches, onOpenBatch }: { batches: BatchRow[]; onOpenBatch: (batch: BatchRow) => void }) {
+function BatchesPanel({ batches, filters, onFiltersChange, onApplyFilters, onClearFilters, onOpenBatch }: {
+  batches: BatchRow[];
+  filters: PaymentListFilter;
+  onFiltersChange: (value: PaymentListFilter) => void;
+  onApplyFilters: () => void;
+  onClearFilters: () => void;
+  onOpenBatch: (batch: BatchRow) => void;
+}) {
   return (
-    <DataTable
-      empty="No batches found."
-      headers={["Batch #", "Status", "Closed", "Gross", "Fees", "Expected Deposit", "Transactions", "Issues"]}
-      rows={batches.map((batch) => ({
-        key: batch.id,
-        onClick: () => onOpenBatch(batch),
-        cells: [
-          batch.provider_batch_id,
-          <StatusPill value={batch.status ?? "Not ready"} />,
-          shortDateTime(batch.closed_at),
-          money(batch.gross_amount, "Not ready"),
-          money(batch.fee_amount, "Fee not ready"),
-          money(batch.net_amount, "Deposit not ready"),
-          String(batch.transaction_count ?? 0),
-          batch.issue_count > 0 ? `${batch.issue_count} needs review` : "Clear",
-        ],
-      }))}
-    />
+    <div className="space-y-4">
+      <PaymentListFilterBar value={filters} searchPlaceholder="Batch number, status, or processor data" onChange={onFiltersChange} onApply={onApplyFilters} onClear={onClearFilters} />
+      <DataTable
+        empty="No batches found for this period or search."
+        headers={["Batch #", "Status", "Closed", "Gross", "Fees", "Expected Deposit", "Transactions", "Issues"]}
+        rows={batches.map((batch) => ({
+          key: batch.id,
+          onClick: () => onOpenBatch(batch),
+          cells: [
+            batch.provider_batch_id,
+            <StatusPill value={batch.status ?? "Not ready"} />,
+            shortDateTime(batch.closed_at),
+            money(batch.gross_amount, "Not ready"),
+            money(batch.fee_amount, "Fee not ready"),
+            money(batch.net_amount, "Deposit not ready"),
+            String(batch.transaction_count ?? 0),
+            batch.issue_count > 0 ? `${batch.issue_count} needs review` : "Clear",
+          ],
+        }))}
+      />
+    </div>
   );
 }
 
@@ -1910,6 +1920,10 @@ function DepositsPanel({
   deposits,
   unmatchedBatches,
   unmatchedDeposits,
+  filters,
+  onFiltersChange,
+  onApplyFilters,
+  onClearFilters,
   canAdjust,
   canReview,
   busy,
@@ -1920,6 +1934,10 @@ function DepositsPanel({
   deposits: DepositRow[];
   unmatchedBatches: BatchRow[];
   unmatchedDeposits: DepositRow[];
+  filters: PaymentListFilter;
+  onFiltersChange: (value: PaymentListFilter) => void;
+  onApplyFilters: () => void;
+  onClearFilters: () => void;
   canAdjust: boolean;
   canReview: boolean;
   busy: boolean;
@@ -1949,6 +1967,8 @@ function DepositsPanel({
         <MetricCard label="Unmatched Expected" value={`${unmatchedBatches.length}`} tone={unmatchedBatches.length > 0 ? "warning" : "good"} />
         <MetricCard label="Needs Review" value={`${openIssues}`} tone={openIssues > 0 ? "warning" : "good"} />
       </div>
+
+      <PaymentListFilterBar value={filters} searchPlaceholder="Reference, QBO deposit, or bank reference" onChange={onFiltersChange} onApply={onApplyFilters} onClear={onClearFilters} />
 
       <div className="flex flex-wrap gap-2">
         {canAdjust ? (
@@ -2121,16 +2141,22 @@ function ReconciliationPanel({
 
 function TransactionsPanel({
   transactions,
-  search,
-  onSearch,
+  filters,
+  showDateFilters,
+  onFiltersChange,
+  onApplyFilters,
+  onClearFilters,
   onOpenPayment,
   onOpenTransaction,
   title = "Transactions",
   empty = "No payments found.",
 }: {
   transactions: TransactionRow[];
-  search: string;
-  onSearch: (value: string) => void;
+  filters: PaymentListFilter;
+  showDateFilters: boolean;
+  onFiltersChange: (value: PaymentListFilter) => void;
+  onApplyFilters: () => void;
+  onClearFilters: () => void;
   onOpenPayment: (paymentId: string | null) => void;
   onOpenTransaction?: (transactionId: string) => void;
   title?: string;
@@ -2144,15 +2170,14 @@ function TransactionsPanel({
           Review payment records and open any row for provider, batch, and reconciliation details.
         </p>
       </div>
-      <label className="flex max-w-md items-center gap-2 rounded-lg border border-app-border bg-app-surface px-3 py-2 text-sm text-app-text">
-        <Search size={16} className="text-app-text-muted" />
-        <input
-          value={search}
-          onChange={(event) => onSearch(event.target.value)}
-          placeholder="Search payments"
-          className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-app-text-muted"
-        />
-      </label>
+      {showDateFilters ? (
+        <PaymentListFilterBar value={filters} searchPlaceholder="Customer, TXN, provider ID, batch, or method" onChange={onFiltersChange} onApply={onApplyFilters} onClear={onClearFilters} />
+      ) : (
+        <label className="flex max-w-md items-center gap-2 rounded-lg border border-app-border bg-app-surface px-3 py-2 text-sm text-app-text">
+          <Search size={16} className="text-app-text-muted" />
+          <input value={filters.search} onChange={(event) => onFiltersChange({ ...filters, search: event.target.value })} placeholder="Search payments" className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-app-text-muted" />
+        </label>
+      )}
       <DataTable
         empty={empty}
         headers={["Date", "Amount", "Status", "Type", "Customer", "Batch", "Fee", "Net", "Match", "ROS Transaction"]}

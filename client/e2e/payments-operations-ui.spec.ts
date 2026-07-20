@@ -226,6 +226,9 @@ test.describe.serial("Payments Operations workspace smoke", () => {
     await expect(page.getByText("Expected Deposit").first()).toBeVisible();
 
     await paymentsHeader.getByRole("button", { name: /^batches/i }).click();
+    await expect(page.getByLabel("From")).toBeVisible();
+    await page.getByPlaceholder("Batch number, status, or processor data").fill(seed.suite);
+    await page.getByRole("button", { name: "Apply", exact: true }).click();
     await expect(page.getByText(seed.providerBatchId)).toBeVisible({ timeout: 20_000 });
     await page.getByText(seed.providerBatchId).first().click();
     await expect(page.getByRole("dialog")).toContainText(`Batch ${seed.providerBatchId}`);
@@ -233,7 +236,10 @@ test.describe.serial("Payments Operations workspace smoke", () => {
     await page.keyboard.press("Escape");
 
     await paymentsHeader.getByRole("button", { name: /^transactions/i }).click();
-    await page.getByPlaceholder("Search payments").fill(seed.suite);
+    await page.getByLabel("From", { exact: true }).fill("2020-01-01");
+    await page.getByLabel("To", { exact: true }).fill("2099-12-31");
+    await page.getByPlaceholder("Customer, TXN, provider ID, batch, or method").fill(seed.suite);
+    await page.getByRole("button", { name: "Apply", exact: true }).click();
     await expect(page.getByText(seed.providerBatchId).first()).toBeVisible();
     await page.getByText(seed.providerBatchId).first().click();
     await expect(page.getByRole("dialog")).toContainText("Payment Detail");
@@ -250,6 +256,9 @@ test.describe.serial("Payments Operations workspace smoke", () => {
     await page.keyboard.press("Escape");
 
     await paymentsHeader.getByRole("button", { name: /^deposits/i }).click();
+    await expect(page.getByLabel("From")).toBeVisible();
+    await page.getByPlaceholder("Reference, QBO deposit, or bank reference").fill(seed.sourceReference);
+    await page.getByRole("button", { name: "Apply", exact: true }).click();
     await expect(page.getByText("Actual Bank Deposit").first()).toBeVisible();
     await expect(page.getByText("Expected Deposit").first()).toBeVisible();
     await expect(page.getByText(seed.sourceReference)).toBeVisible();
