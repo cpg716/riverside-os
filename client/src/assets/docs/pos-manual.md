@@ -119,6 +119,7 @@ Use this when a customer is exchanging or returning items tied to a completed tr
 
 1. On the **Register** screen, select **Exchange / Return**.
 2. If a customer is loaded, choose from that customer's transaction list. Otherwise scan the receipt barcode or search by transaction number.
+   Long transaction details wrap inside each row; review the transaction number, date, item count, and amount before selecting it.
 3. Choose the line being returned or exchanged. If you started from a Transaction Record item, Riverside preselects that line.
 4. Follow the wizard instructions for the refund path or replacement sale.
 5. Complete any replacement checkout before handing the customer their final receipt.

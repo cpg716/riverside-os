@@ -637,18 +637,18 @@ export default function PosExchangeWizard({
                           type="button"
                           onClick={() => void loadTransaction(row.transaction_id)}
                           disabled={loading}
-                          className="flex items-center justify-between gap-3 rounded-xl border border-app-border bg-app-surface px-3 py-3 text-left transition-colors hover:border-app-accent/40 hover:bg-app-accent/5 disabled:opacity-60"
+                          className="flex min-w-0 flex-col gap-3 overflow-hidden rounded-xl border border-app-border bg-app-surface px-3 py-3 text-left transition-colors hover:border-app-accent/40 hover:bg-app-accent/5 disabled:opacity-60 sm:flex-row sm:items-center sm:justify-between"
                         >
-                          <div className="min-w-0">
+                          <div className="min-w-0 flex-1">
                             <p className="font-mono text-xs font-black text-app-accent">
                               {row.display_id ?? row.transaction_id.slice(0, 8).toUpperCase()}
                             </p>
-                            <p className="mt-1 truncate text-[11px] font-semibold text-app-text-muted">
+                            <p className="mt-1 line-clamp-2 break-words text-[11px] font-semibold leading-relaxed text-app-text-muted">
                               {new Date(row.booked_at).toLocaleDateString()} · {row.item_count} item{row.item_count === 1 ? "" : "s"}
                               {row.order_items_summary ? ` · ${row.order_items_summary}` : ""}
                             </p>
                           </div>
-                          <div className="shrink-0 text-right">
+                          <div className="flex w-full shrink-0 items-center justify-between gap-3 border-t border-app-border/50 pt-2 sm:w-auto sm:flex-col sm:items-end sm:border-t-0 sm:pt-0 sm:text-right">
                             <p className="font-mono text-sm font-black text-app-text">
                               ${formatMoney(parseMoney(row.total_price))}
                             </p>
