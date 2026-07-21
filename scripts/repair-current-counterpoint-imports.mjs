@@ -138,8 +138,9 @@ function parseTicketDocId(ticketRef) {
 
 function parseTicketRef(ticketRef) {
   const parts = clean(ticketRef).split("|").map((part) => part.trim()).filter(Boolean);
+  const docId = [...parts].reverse().find((part) => /^\d+$/.test(part)) ?? "";
   return {
-    docId: parts.length ? parts[parts.length - 1] : "",
+    docId,
     ticketNo: parts.length >= 2 ? parts[parts.length - 2] : "",
   };
 }
@@ -240,6 +241,49 @@ async function fetchCounterpointAliases(pool) {
       AND RTRIM(LTRIM(CONVERT(NVARCHAR(128), BARCOD))) LIKE N'B-%'
   `);
   return result.recordset ?? [];
+}
+
+async function fetchCounterpointOpenDocLines(pool, docIds) {
+  const byDoc = new Map();
+  for (const ids of chunk(docIds, 1000)) {
+    const list = ids.map((id) => clean(id)).filter((id) => /^\d+$/.test(id)).join(", ");
+    if (!list) continue;
+    const result = await pool.request().query(`
+      SELECT RTRIM(LTRIM(CONVERT(NVARCHAR(128), h.DOC_ID))) AS doc_id,
+        CAST(NULL AS NVARCHAR(128)) AS ticket_no,
+        CAST(t.TOT AS DECIMAL(18,4)) AS header_total,
+        CAST(t.TAX_AMT AS DECIMAL(18,4)) AS header_tax,
+        CAST(t.TOT_TND AS DECIMAL(18,4)) AS header_tender,
+        CAST(l.LIN_SEQ_NO AS INT) AS line_sequence,
+        RTRIM(LTRIM(CONVERT(NVARCHAR(16), ISNULL(l.LIN_TYP, N'')))) AS line_type,
+        RTRIM(LTRIM(CONVERT(NVARCHAR(128), ISNULL(l.ITEM_NO, N'')))) AS item_no,
+        RTRIM(LTRIM(CONVERT(NVARCHAR(128), ISNULL(l.BARCOD, N'')))) AS barcode,
+        RTRIM(LTRIM(CONVERT(NVARCHAR(255), ISNULL(l.DESCR, N'')))) AS description,
+        CAST(ISNULL(l.QTY_SOLD, 1) AS DECIMAL(18,4)) AS quantity,
+        CAST(ISNULL(l.REG_PRC, 0) AS DECIMAL(18,4)) AS regular_price,
+        CAST(ISNULL(l.PRC, 0) AS DECIMAL(18,4)) AS price,
+        CAST(ISNULL(l.CALC_PRC, 0) AS DECIMAL(18,4)) AS calculated_price,
+        CAST(ISNULL(l.EXT_PRC, 0) AS DECIMAL(18,4)) AS extended_price,
+        CAST(ISNULL(l.GROSS_EXT_PRC, 0) AS DECIMAL(18,4)) AS gross_extended_price,
+        CAST(ISNULL(l.DISP_EXT_PRC, 0) AS DECIMAL(18,4)) AS display_extended_price,
+        RTRIM(LTRIM(CONVERT(NVARCHAR(80), ISNULL(l.DIM_1_UPR, N'')))) AS dim_1,
+        RTRIM(LTRIM(CONVERT(NVARCHAR(80), ISNULL(l.DIM_2_UPR, N'')))) AS dim_2,
+        RTRIM(LTRIM(CONVERT(NVARCHAR(80), ISNULL(l.DIM_3_UPR, N'')))) AS dim_3
+      FROM PS_DOC_HDR h
+      INNER JOIN PS_DOC_LIN l ON l.DOC_ID = h.DOC_ID
+      OUTER APPLY (SELECT TOP 1 TOT, TAX_AMT, TOT_TND FROM PS_DOC_HDR_TOT t0
+        WHERE t0.DOC_ID = h.DOC_ID
+        ORDER BY CASE WHEN t0.TOT_TYP IN ('O','L') THEN 0 ELSE 1 END, t0.TOT_TYP) t
+      WHERE h.DOC_ID IN (${list})
+      ORDER BY h.DOC_ID, l.LIN_SEQ_NO
+    `);
+    for (const row of result.recordset ?? []) {
+      const rows = byDoc.get(clean(row.doc_id)) ?? [];
+      rows.push(row);
+      byDoc.set(clean(row.doc_id), rows);
+    }
+  }
+  return byDoc;
 }
 
 function sourceLineFinancials(line) {
@@ -426,12 +470,13 @@ function buildFinancialRepairPlan(rosRows, sourceByDoc) {
   const transactions = new Map();
   for (const row of rosRows) {
     const id = row.transaction_id;
-    const ticketRef = parseTicketRef(row.counterpoint_ticket_ref);
+    const ticketRef = parseTicketRef(row.counterpoint_ticket_ref || row.counterpoint_doc_ref);
     const group = transactions.get(id) ?? {
       transaction_id: id,
-      ticket_ref: row.counterpoint_ticket_ref,
+      ticket_ref: row.counterpoint_ticket_ref || row.counterpoint_doc_ref,
       doc_id: ticketRef.docId,
       ticket_no: ticketRef.ticketNo,
+      counterpoint_total: null,
       rows: [],
     };
     group.rows.push(row);
@@ -457,6 +502,10 @@ function buildFinancialRepairPlan(rosRows, sourceByDoc) {
     if (sourceRows.length === 0) {
       skipped.missingCounterpointDoc += 1;
       continue;
+    }
+    const sourceHeaderTotal = cents(sourceRows[0]?.header_total);
+    if (sourceHeaderTotal !== null && sourceHeaderTotal !== 0) {
+      txn.counterpoint_total = sourceHeaderTotal;
     }
     if (sourceRows.length !== txn.rows.length) {
       skipped.lineCountMismatch += 1;
@@ -499,14 +548,18 @@ function buildFinancialRepairPlan(rosRows, sourceByDoc) {
   const totals = calculateTransactionTotals(rowsByTransaction);
   const transactionUpdates = [];
   for (const txn of transactions.values()) {
-    if (!txn.rows.some((row) => updatedLineIds.has(row.line_id))) continue;
-    const total = totals.get(txn.transaction_id);
+    const lineChanged = txn.rows.some((row) => updatedLineIds.has(row.line_id));
+    const total = txn.counterpoint_total ?? totals.get(txn.transaction_id);
     if (total === undefined) continue;
+    const currentTotal = cents(txn.rows[0]?.total_price);
+    if (!lineChanged && (txn.counterpoint_total === null || currentTotal === total)) continue;
     transactionUpdates.push({
       transaction_id: txn.transaction_id,
       total_price: centsToMoney(total),
-      amount_paid: centsToMoney(total),
-      balance_due: "0.00",
+      // Preserve the payment ledger.  Counterpoint's recorded tender can be
+      // greater than the sale total and must not be rewritten by a price repair.
+      amount_paid: txn.rows[0].amount_paid,
+      balance_due: centsToMoney(Math.max(0, total - (cents(txn.rows[0].amount_paid) ?? 0))),
     });
   }
 
@@ -670,7 +723,7 @@ WHERE tl.id = r.line_id
 
 UPDATE transactions t
 SET total_price = r.total_price,
-    amount_paid = r.amount_paid,
+    amount_paid = GREATEST(0, r.amount_paid),
     balance_due = r.balance_due,
     status = 'fulfilled'::order_status,
     fulfilled_at = COALESCE(t.fulfilled_at, t.booked_at),
@@ -678,7 +731,7 @@ SET total_price = r.total_price,
 FROM cp_transaction_repair r
 WHERE t.id = r.transaction_id
   AND COALESCE(t.is_counterpoint_import, false)
-  AND t.counterpoint_ticket_ref IS NOT NULL;
+  AND (t.counterpoint_ticket_ref IS NOT NULL OR t.counterpoint_doc_ref IS NOT NULL);
 
 INSERT INTO product_variant_barcode_aliases (
   variant_id,
@@ -747,16 +800,17 @@ async function main() {
     if (!skipFinancials) {
       const where = [
         "COALESCE(t.is_counterpoint_import, false)",
-        "t.counterpoint_ticket_ref IS NOT NULL",
+        "(t.counterpoint_ticket_ref IS NOT NULL OR t.counterpoint_doc_ref IS NOT NULL)",
       ];
       if (docIdArg) {
-        where.push(`t.counterpoint_ticket_ref LIKE '%${sqlString(docIdArg)}%'`);
+        where.push(`(t.counterpoint_ticket_ref LIKE '%${sqlString(docIdArg)}%' OR t.counterpoint_doc_ref LIKE '%${sqlString(docIdArg)}%')`);
       }
       const limitSql = limitArg > 0 ? ` LIMIT ${Math.trunc(limitArg)}` : "";
       const rosRows = pgJsonRows(`
         SELECT
           t.id::text AS transaction_id,
           t.counterpoint_ticket_ref,
+          t.counterpoint_doc_ref,
           t.total_price::text,
           t.amount_paid::text,
           t.balance_due::text,
@@ -782,8 +836,11 @@ async function main() {
         ${limitSql}
       `);
 
-      const docIds = [...new Set(rosRows.map((row) => parseTicketDocId(row.counterpoint_ticket_ref)).filter(Boolean))];
-      const sourceByDoc = await fetchCounterpointTicketLines(pool, docIds);
+      const ticketDocIds = [...new Set(rosRows.map((row) => parseTicketDocId(row.counterpoint_ticket_ref)).filter(Boolean))];
+      const openDocIds = [...new Set(rosRows.map((row) => parseTicketDocId(row.counterpoint_doc_ref)).filter(Boolean))];
+      const sourceByDoc = await fetchCounterpointTicketLines(pool, ticketDocIds);
+      const openSourceByDoc = await fetchCounterpointOpenDocLines(pool, openDocIds);
+      for (const [docId, rows] of openSourceByDoc) sourceByDoc.set(docId, rows);
       financialPlan = buildFinancialRepairPlan(rosRows, sourceByDoc);
     }
 
