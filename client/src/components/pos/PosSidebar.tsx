@@ -83,13 +83,13 @@ export default function PosSidebar({
 
   return (
     <aside
-      className={`ui-rail z-40 flex shrink-0 flex-col overflow-hidden border-r border-app-border py-5 text-app-text transition-all duration-300 ease-material md:sticky md:top-[72px] md:h-[calc(100dvh-72px)] md:self-start ${
+      className={`ui-rail z-40 flex min-h-0 shrink-0 flex-col overflow-hidden border-r border-app-border py-5 text-app-text transition-all duration-300 ease-material md:sticky md:top-[72px] md:h-[calc(100dvh-72px)] md:self-start ${
         collapsed
           ? "w-16 px-2 justify-between"
           : "w-[220px] px-3 sm:w-[240px] sm:px-4 lg:w-[260px] lg:px-5"
       }`}
     >
-      <div className="flex flex-col flex-1">
+      <div className="flex min-h-0 flex-1 flex-col">
         {/* Brand row */}
         <div className={`mb-5 flex min-h-[44px] items-center ${collapsed ? "justify-center" : "justify-between"}`}>
           <div className="flex items-center gap-2">
