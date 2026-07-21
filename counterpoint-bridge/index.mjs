@@ -1930,6 +1930,10 @@ function buildSchemaGeneratedSql(entries, { invCost, customerPts, locId }) {
     const docRefSelect = ticketRefSql("h", psDocHdr, docRefColumns, "doc_ref");
     const docTotJoinPairs = ticketJoinPairs(psDocHdr, psDocTot, docRef, docRef);
     const docTotJoinPredicate = ticketJoinPredicate("h", "t", docTotJoinPairs);
+    const docTotType = pickColumn(psDocTot, ["TOT_TYP", "TOTAL_TYPE"]);
+    const docTotTypeFilter = docTotType
+      ? ` AND UPPER(RTRIM(LTRIM(CONVERT(NVARCHAR(32), t.[${docTotType}])))) = 'O'`
+      : "";
     const hasTot = Boolean(psDocTot && docTotJoinPredicate && psDocTot.has("TOT") && psDocTot.has("TOT_TND"));
     const total = pickColumn(psDocHdr, ["TOT", "TOT_EXTD_PRC"]);
     const paid = pickColumn(psDocHdr, ["TOT_TND", "AMT_PAID", "TOT"]);
@@ -1957,9 +1961,11 @@ function buildSchemaGeneratedSql(entries, { invCost, customerPts, locId }) {
       activeDocPredicates.push(`h.[${docClosedAt}] IS NULL`);
     }
     const activeDocWhere = activeDocPredicates.length > 0 ? activeDocPredicates.join(" AND ") : "1=1";
-    const docTotJoinForChildren = hasTot ? ` LEFT JOIN PS_DOC_HDR_TOT t ON ${docTotJoinPredicate}` : "";
+    const docTotJoinForChildren = hasTot
+      ? ` INNER JOIN PS_DOC_HDR_TOT t ON ${docTotJoinPredicate}${docTotTypeFilter}`
+      : "";
     sqlMap.open_docs = hasTot
-      ? `SELECT ${docRefSelect}, ${sqlText("h", psDocHdr, ["CUST_NO"], "cust_no")}, CONVERT(varchar, h.[${docDate}], 126) + 'Z' AS booked_at, ${sqlText("h", psDocHdr, ["USR_ID"], "usr_id")}, ${sqlText("h", psDocHdr, ["SLS_REP"], "sls_rep")}, ${sqlText("h", psDocHdr, ["DOC_TYP", "TKT_TYP"], "doc_typ")}, t.[TOT] AS total_price, t.[TOT_TND] AS amount_paid FROM ${psDocTable} h INNER JOIN PS_DOC_HDR_TOT t ON ${docTotJoinPredicate} WHERE ${activeDocWhere}`
+      ? `SELECT ${docRefSelect}, ${sqlText("h", psDocHdr, ["CUST_NO"], "cust_no")}, CONVERT(varchar, h.[${docDate}], 126) + 'Z' AS booked_at, ${sqlText("h", psDocHdr, ["USR_ID"], "usr_id")}, ${sqlText("h", psDocHdr, ["SLS_REP"], "sls_rep")}, ${sqlText("h", psDocHdr, ["DOC_TYP", "TKT_TYP"], "doc_typ")}, t.[TOT] AS total_price, t.[TOT_TND] AS amount_paid FROM ${psDocTable} h INNER JOIN PS_DOC_HDR_TOT t ON ${docTotJoinPredicate}${docTotTypeFilter} WHERE ${activeDocWhere}`
       : `SELECT ${docRefSelect}, ${sqlText("h", psDocHdr, ["CUST_NO"], "cust_no")}, CONVERT(varchar, h.[${docDate}], 126) + 'Z' AS booked_at, ${sqlText("h", psDocHdr, ["USR_ID"], "usr_id")}, ${sqlText("h", psDocHdr, ["SLS_REP"], "sls_rep")}, ${sqlText("h", psDocHdr, ["DOC_TYP", "TKT_TYP"], "doc_typ")}, ${total ? `h.[${total}]` : "CAST(0 AS DECIMAL(18,2))"} AS total_price, ${paid ? `h.[${paid}]` : "CAST(0 AS DECIMAL(18,2))"} AS amount_paid FROM ${psDocTable} h WHERE ${activeDocWhere}`;
     changes.push(`${psDocTable} open documents enabled; key=${docRefColumns.join("+")}`);
     const lineDoc = pickColumn(psDocLin, [docRef, "DOC_ID", "DOC_NO", "TKT_NO"]);

@@ -12117,6 +12117,7 @@ async fn find_existing_pos_transaction_for_counterpoint_payment(
     amount_paid: Decimal,
     resolved_lines: &[(Uuid, Uuid)],
     line_quantities: &[i32],
+    ticket_ref: &str,
 ) -> Result<Option<Uuid>, sqlx::Error> {
     let Some(customer_id) = customer_id else {
         return Ok(None);
@@ -12130,9 +12131,18 @@ async fn find_existing_pos_transaction_for_counterpoint_payment(
         SELECT t.id
         FROM transactions t
         WHERE t.customer_id = $1
-          AND NOT COALESCE(t.is_counterpoint_import, false)
           AND t.status <> 'cancelled'::order_status
-          AND ABS(COALESCE(t.amount_paid, 0) - $2) <= 0.01
+          AND (t.counterpoint_ticket_ref IS NULL OR t.counterpoint_ticket_ref <> $5)
+          AND (
+              (
+                  NOT COALESCE(t.is_counterpoint_import, false)
+                  AND ABS(COALESCE(t.amount_paid, 0) - $2) <= 0.01
+              )
+              OR (
+                  COALESCE(t.is_counterpoint_import, false)
+                  AND t.counterpoint_doc_ref IS NOT NULL
+              )
+          )
           AND ABS(EXTRACT(EPOCH FROM (t.booked_at - $3))) <= 259200
           AND (
               SELECT COUNT(*)
@@ -12147,6 +12157,7 @@ async fn find_existing_pos_transaction_for_counterpoint_payment(
     .bind(amount_paid)
     .bind(booked_at)
     .bind(resolved_lines.len() as i64)
+    .bind(ticket_ref)
     .fetch_all(&mut **tx)
     .await?;
 
@@ -12239,69 +12250,6 @@ async fn supersede_counterpoint_payment_only_duplicate(
     .execute(&mut **tx)
     .await?;
 
-    Ok(())
-}
-
-async fn repair_existing_pos_transaction_line_prices(
-    tx: &mut Transaction<'_, Postgres>,
-    transaction_id: Uuid,
-    resolved_lines: &[(Uuid, Uuid)],
-    source_lines: &[TicketLineRow],
-    source_unit_prices: &[Decimal],
-    source_taxes: Option<&[(Decimal, Decimal)]>,
-    salesperson_id: Option<Uuid>,
-) -> Result<(), sqlx::Error> {
-    for (index, ((variant_id, product_id), line)) in
-        resolved_lines.iter().zip(source_lines).enumerate()
-    {
-        let taxes = source_taxes
-            .and_then(|values| values.get(index))
-            .copied()
-            .unwrap_or((Decimal::ZERO, Decimal::ZERO));
-        let original_unit_price = line.original_unit_price.or_else(|| {
-            line.unit_price
-                .checked_add(line.discount_amount.unwrap_or_default())
-        });
-        let updated = sqlx::query(
-            r#"
-            UPDATE transaction_lines
-            SET unit_price = $4,
-                state_tax = CASE WHEN $5 THEN $6 ELSE state_tax END,
-                local_tax = CASE WHEN $5 THEN $7 ELSE local_tax END,
-                salesperson_id = COALESCE($8, salesperson_id),
-                size_specs = COALESCE(size_specs, '{}'::jsonb) || jsonb_build_object(
-                    'counterpoint_actual_unit_price', $4::numeric,
-                    'counterpoint_original_unit_price', $9::numeric,
-                    'counterpoint_price_source', 'EXT_PRC_OR_DISP_EXT_PRC'
-                )
-            WHERE id = (
-                SELECT tl.id
-                FROM transaction_lines tl
-                WHERE tl.transaction_id = $1
-                  AND tl.product_id = $2
-                  AND tl.variant_id = $3
-                  AND tl.quantity = $10
-                ORDER BY tl.id
-                LIMIT 1
-            )
-            "#,
-        )
-        .bind(transaction_id)
-        .bind(product_id)
-        .bind(variant_id)
-        .bind(source_unit_prices[index])
-        .bind(source_taxes.is_some())
-        .bind(taxes.0)
-        .bind(taxes.1)
-        .bind(salesperson_id)
-        .bind(original_unit_price.unwrap_or(line.unit_price))
-        .bind(line.quantity)
-        .execute(&mut **tx)
-        .await?;
-        if updated.rows_affected() != 1 {
-            return Err(sqlx::Error::RowNotFound);
-        }
-    }
     Ok(())
 }
 
@@ -12920,7 +12868,7 @@ pub async fn execute_counterpoint_ticket_batch(
                 normalized_amount_paid,
                 tkt.tax_total,
                 ticket_lines,
-                true,
+                false,
             );
         // Historical tickets are closed sales, but their paid amount must remain
         // the source-of-truth tender total. Do not replace a discounted payment
@@ -12956,23 +12904,10 @@ pub async fn execute_counterpoint_ticket_batch(
                         .iter()
                         .map(|line| line.quantity)
                         .collect::<Vec<_>>(),
+                    ticket_ref,
                 )
                 .await?
             {
-                let (source_unit_prices, _) = counterpoint_line_source_prices(ticket_lines);
-                let source_taxes =
-                    explicit_counterpoint_line_taxes(ticket_lines, &source_unit_prices);
-                repair_existing_pos_transaction_line_prices(
-                    &mut tx,
-                    existing_transaction_id,
-                    &resolved_lines,
-                    ticket_lines,
-                    &source_unit_prices,
-                    source_taxes.as_deref(),
-                    salesperson,
-                )
-                .await?;
-
                 if let Some(salesperson) = salesperson {
                     sqlx::query(
                         r#"
@@ -13947,24 +13882,26 @@ fn counterpoint_import_line_financials(
         );
     }
 
-    if let Some((
-        effective_total_price,
-        effective_line_prices,
-        original_line_prices,
-        inferred_line_taxes,
-    )) = infer_counterpoint_discounted_open_doc_financials(
-        total_price,
-        amount_paid,
-        tax_total,
-        lines,
-        false,
-    ) {
-        return (
+    if total_price > Decimal::ZERO {
+        if let Some((
             effective_total_price,
             effective_line_prices,
             original_line_prices,
             inferred_line_taxes,
-        );
+        )) = infer_counterpoint_discounted_open_doc_financials(
+            total_price,
+            amount_paid,
+            tax_total,
+            lines,
+            false,
+        ) {
+            return (
+                effective_total_price,
+                effective_line_prices,
+                original_line_prices,
+                inferred_line_taxes,
+            );
+        }
     }
 
     (
@@ -18900,6 +18837,37 @@ mod tests {
         assert_eq!(unit_prices, vec![Decimal::new(30000, 2)]);
         assert_eq!(original_prices, vec![Some(Decimal::new(37500, 2))]);
         assert_eq!(taxes, vec![(Decimal::new(1200, 2), Decimal::new(1425, 2))]);
+    }
+
+    #[test]
+    fn historical_payment_only_ticket_does_not_reprice_merchandise_from_tender() {
+        let lines = vec![TicketLineRow {
+            sku: Some("B-1350103".into()),
+            counterpoint_item_key: Some("I-102118|46306/2|42 R|J BOND".into()),
+            lin_seq_no: Some(1),
+            quantity: 1,
+            unit_price: Decimal::new(26000, 2),
+            unit_cost: Some(Decimal::ZERO),
+            state_tax: None,
+            local_tax: None,
+            tax_amount: None,
+            original_unit_price: None,
+            discount_amount: None,
+            description: Some("Gruppo Bravo Suit (46306)".into()),
+            reason_code: None,
+        }];
+
+        let (total, unit_prices, original_prices, _) = counterpoint_import_line_financials(
+            Decimal::ZERO,
+            Decimal::new(13000, 2),
+            None,
+            &lines,
+            false,
+        );
+
+        assert_eq!(total, Decimal::ZERO);
+        assert_eq!(unit_prices, vec![Decimal::new(26000, 2)]);
+        assert_eq!(original_prices, vec![None]);
     }
 
     #[test]

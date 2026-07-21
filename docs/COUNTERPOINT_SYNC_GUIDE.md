@@ -22,6 +22,10 @@ The Counterpoint screen in **Settings → Integrations → Counterpoint** is the
 
 The Command Center shows a business-area ingest path for Customers, Inventory, Ticket History / Sales Movement, Open Orders, Gift Cards, and Loyalty Points. Each one follows the same control pattern: Bridge extraction → ROS import/proof → staff review/fix → PostgreSQL.
 
+### Payment-only ticket handling
+
+Counterpoint can emit a history ticket with merchandise line rows but a zero ticket total and a positive tender amount when the tender belongs to an existing open document. ROS treats that source shape as payment activity, not a second sale: it attaches the tender to the matching open-document transaction, preserves the open document's line prices, and supersedes any prior duplicate history transaction on rerun. Split tenders on the same open document remain separate payment rows and are summed normally. The Bridge selects the `PS_DOC_HDR_TOT` row whose `TOT_TYP` is `O` when that column is available, so remaining/void total snapshots do not create competing open-document totals.
+
 Counterpoint SQL is the source authority for cutover customer profiles, open orders, gift cards, loyalty balances, catalog identity, and inventory quantities. ROS may add deterministic `CP-*` recovery SKUs only when Counterpoint provides a valid item/cell key without a usable `B-*` barcode/SKU. That recovery identity is additive; imports must preserve Counterpoint keys, barcode aliases, balances, quantities, and provenance rather than replacing source data with ROS-generated values.
 
 Advancement is proof-gated. Bridge-reported row counts alone do not unlock cutover. If the Bridge reports suspiciously low ticket or open-doc counts, a wrong ROS base URL, empty required SQL mappings, or a history floor other than January 1, 2024, ROS records a failed preflight and the Bridge blocks the import.
