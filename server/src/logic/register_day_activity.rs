@@ -637,6 +637,7 @@ pub async fn fetch_register_day_summary(
             WHERE booked_at >= $1
               AND booked_at < $2
               AND is_internal = FALSE
+              AND COALESCE(metadata->>'reporting_excluded', '') <> 'counterpoint_financial_repair'
               AND line_kind IS DISTINCT FROM 'rms_charge_payment'
               AND line_kind IS DISTINCT FROM 'pos_gift_card_load'
               AND line_kind IS DISTINCT FROM 'alteration_service'
@@ -1038,6 +1039,7 @@ pub async fn fetch_register_day_summary(
                 FROM transaction_line_booking_events
                 WHERE booked_at >= $1 AND booked_at < $2
                   AND is_internal = FALSE
+                  AND COALESCE(metadata->>'reporting_excluded', '') <> 'counterpoint_financial_repair'
                   AND line_kind IS DISTINCT FROM 'rms_charge_payment'
                   AND line_kind IS DISTINCT FROM 'pos_gift_card_load'
                   AND line_kind IS DISTINCT FROM 'alteration_service'

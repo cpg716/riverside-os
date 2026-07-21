@@ -676,6 +676,8 @@ function applyRepairs(lineUpdates, transactionUpdates, aliasInserts) {
   const sqlText = `
 BEGIN;
 
+SELECT pg_catalog.set_config('riverside.suppress_booking_event', 'true', true);
+
 CREATE TEMP TABLE cp_line_repair (
   line_id uuid PRIMARY KEY,
   transaction_id uuid NOT NULL,

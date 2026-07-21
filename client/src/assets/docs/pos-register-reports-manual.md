@@ -63,6 +63,7 @@ Use the refund workflow to finish cash, card, gift card, store credit, or split-
 You can now generate a professional, full-page **Daily Sales Report** that includes:
 - **Tender Breakdown**: Totals for Cash, Card, Gift Card, and R2S charges.
 - **Business Summary Boxes**: New Orders, Orders Picked Up, Credit Card Total, RMS Payments, and RMS Charge appear in the top summary so daily review focuses on register operations. Credit Card Total includes CC/Card Reader, Card Manual, Card Not Present, saved-card, and card refund/credit activity; it does not include Staff Account or exchange credit.
+- Administrative Counterpoint price repairs are excluded from Booked Sales; they do not represent new customer transactions or tender collected.
 - **Card entry labels**: Hosted HelcimPay.js entries print as **Card Not Present**, while **Card Manual** is reserved for externally recorded/manual card activity.
 - **Per-Transaction Subtotal Before Tax**: Each transaction card separates subtotal before tax, tax collected, and total before showing payments or balance.
 - **Transaction Audit**: A complete list of all `TXN-` transaction numbers and amounts.

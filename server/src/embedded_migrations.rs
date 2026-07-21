@@ -142,4 +142,5 @@ pub const EMBEDDED_MIGRATIONS: &[(&str, &str)] = &[
     ("139_transaction_return_financial_events.sql", include_str!("../../migrations/139_transaction_return_financial_events.sql")),
     ("140_search_trigram_read_path_indexes.sql", include_str!("../../migrations/140_search_trigram_read_path_indexes.sql")),
     ("141_transaction_line_booking_events.sql", include_str!("../../migrations/141_transaction_line_booking_events.sql")),
+    ("142_counterpoint_repair_reporting_guard.sql", include_str!("../../migrations/142_counterpoint_repair_reporting_guard.sql")),
 ];
