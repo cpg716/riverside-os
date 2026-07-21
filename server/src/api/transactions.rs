@@ -9071,13 +9071,17 @@ async fn update_transaction_line(
 
     let current_line: Option<(
         Uuid,
+        Uuid,
         DbOrderItemLifecycleStatus,
         bool,
         DbFulfillmentType,
         String,
+        i32,
+        Decimal,
     )> = sqlx::query_as(
         r#"
-            SELECT oi.product_id, oi.order_lifecycle_status, oi.is_fulfilled, oi.fulfillment, pv.sku
+            SELECT oi.product_id, oi.variant_id, oi.order_lifecycle_status, oi.is_fulfilled, oi.fulfillment, pv.sku,
+                   oi.quantity, oi.unit_price
             FROM transaction_lines oi
             JOIN product_variants pv ON pv.id = oi.variant_id
             WHERE oi.id = $1
@@ -9091,10 +9095,13 @@ async fn update_transaction_line(
     .await?;
     let Some((
         current_product_id,
+        current_variant_id,
         current_lifecycle_status,
         is_fulfilled,
         current_fulfillment,
         current_sku,
+        current_quantity,
+        current_unit_price,
     )) = current_line
     else {
         return Err(TransactionError::NotFound);
@@ -9237,6 +9244,34 @@ async fn update_transaction_line(
     transaction_recalc::recalc_transaction_totals(&mut tx, transaction_id)
         .await
         .map_err(TransactionError::Database)?;
+    let mut changed_fields = Vec::new();
+    if body
+        .variant_id
+        .is_some_and(|variant_id| variant_id != current_variant_id)
+    {
+        changed_fields.push("variant");
+    }
+    if body
+        .quantity
+        .is_some_and(|quantity| quantity != current_quantity)
+    {
+        changed_fields.push("quantity");
+    }
+    if body
+        .unit_price
+        .is_some_and(|unit_price| unit_price != current_unit_price)
+    {
+        changed_fields.push("unit_price");
+    }
+    if body.fulfillment.is_some() {
+        changed_fields.push("fulfillment");
+    }
+    if body.order_lifecycle_status.is_some() {
+        changed_fields.push("order_lifecycle_status");
+    }
+    if canonical_custom_details.is_some() {
+        changed_fields.push("custom_order_details");
+    }
     let customer_id: Option<Uuid> =
         sqlx::query_scalar("SELECT customer_id FROM transactions WHERE id = $1")
             .bind(transaction_id)
@@ -9251,11 +9286,25 @@ async fn update_transaction_line(
         "Order item edited",
         json!({
             "transaction_line_id": transaction_line_id,
-            "variant_id": body.variant_id,
-            "quantity": body.quantity,
-            "unit_price": body.unit_price,
-            "fulfillment": normalized_fulfillment,
-            "order_lifecycle_status": body.order_lifecycle_status.map(|s| s.as_str()),
+            "changed_fields": changed_fields,
+            "before": {
+                "variant_id": current_variant_id,
+                "sku": current_sku,
+                "quantity": current_quantity,
+                "unit_price": current_unit_price,
+                "fulfillment": current_fulfillment,
+                "order_lifecycle_status": current_lifecycle_status.as_str(),
+            },
+            "after": {
+                "variant_id": body.variant_id.unwrap_or(current_variant_id),
+                "quantity": body.quantity.unwrap_or(current_quantity),
+                "unit_price": body.unit_price.unwrap_or(current_unit_price),
+                "fulfillment": normalized_fulfillment.unwrap_or(current_fulfillment),
+                "order_lifecycle_status": body
+                    .order_lifecycle_status
+                    .map(|s| s.as_str())
+                    .unwrap_or(current_lifecycle_status.as_str()),
+            },
             "custom_order_details_updated": canonical_custom_details.is_some(),
         }),
     )
@@ -9420,7 +9469,6 @@ async fn delete_transaction_line(
         Option<Uuid>,
         Option<Uuid>,
         Option<chrono::DateTime<chrono::Utc>>,
-        bool,
     )> = sqlx::query_as(
         r#"
         SELECT
@@ -9432,12 +9480,7 @@ async fn delete_transaction_line(
             tl.quantity,
             tl.po_line_id,
             tl.vendor_id,
-            tl.received_at,
-            EXISTS (
-                SELECT 1
-                FROM payment_allocations pa
-                WHERE pa.target_transaction_id = t.id
-            ) AS has_payments
+            tl.received_at
         FROM transactions t
         INNER JOIN transaction_lines tl ON tl.transaction_id = t.id
         WHERE t.id = $1 AND tl.id = $2
@@ -9459,7 +9502,6 @@ async fn delete_transaction_line(
         po_line_id,
         vendor_id,
         received_at,
-        has_payments,
     )) = line_state
     else {
         return Err(TransactionError::NotFound);
@@ -9470,12 +9512,7 @@ async fn delete_transaction_line(
         DbOrderStatus::Open | DbOrderStatus::PendingMeasurement
     ) {
         return Err(TransactionError::InvalidPayload(
-            "Only open unpaid order lines can be deleted. Use void, return, or cancellation workflow for completed or processing transactions.".to_string(),
-        ));
-    }
-    if has_payments {
-        return Err(TransactionError::InvalidPayload(
-            "Paid transactions cannot have lines deleted. Use return, refund, or cancellation workflow.".to_string(),
+            "Only open order lines can be deleted. Use void, return, or cancellation workflow for completed or processing transactions.".to_string(),
         ));
     }
     if is_fulfilled || fulfillment == DbFulfillmentType::Takeaway {
@@ -9492,7 +9529,7 @@ async fn delete_transaction_line(
         !is_fulfilled && po_line_id.is_none() && vendor_id.is_none() && received_at.is_none();
     if !lifecycle_allows_delete && !has_no_fulfillment_activity {
         return Err(TransactionError::InvalidPayload(
-            "Only open, unpaid, unfulfilled order lines with no vendor, purchase-order, or receiving activity can be deleted."
+            "Only open, unfulfilled order lines with no vendor, purchase-order, or receiving activity can be deleted."
                 .to_string(),
         ));
     }
@@ -9517,6 +9554,7 @@ async fn delete_transaction_line(
             "quantity": quantity,
             "fulfillment": fulfillment,
             "order_lifecycle_status": lifecycle_status,
+            "payments_retained_on_transaction": true,
             "deleted_by_staff_id": staff.id,
         }),
     )

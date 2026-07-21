@@ -1543,6 +1543,7 @@ export default function NexoCheckoutDrawer({
             "info",
           );
         }
+        return attempt;
       } catch (error) {
         const message =
           error instanceof Error ? error.message : "Could not check card status.";
@@ -1551,9 +1552,10 @@ export default function NexoCheckoutDrawer({
           if (!options.quietStaleSession) {
             toast(HELCIM_UNVERIFIED_OUTCOME_MESSAGE, "error");
           }
-          return;
+          return null;
         }
         toast(message, "error");
+        return null;
       } finally {
         setHelcimAttemptLoading(false);
       }
@@ -1729,10 +1731,17 @@ export default function NexoCheckoutDrawer({
     [loadProviderSettings, remainingCents, toast],
   );
 
-  const retryFinalHelcimAttempt = useCallback(() => {
+  const retryFinalHelcimAttempt = useCallback(async () => {
     if (!helcimAttempt || !["failed", "canceled", "expired"].includes(helcimAttempt.status)) return;
+    const refreshed = await refreshHelcimAttempt(helcimAttempt.id, {
+      quietPending: true,
+      quietStaleSession: true,
+    });
+    if (!refreshed || refreshed.status === "approved" || refreshed.status === "captured") {
+      return;
+    }
     clearHelcimAttemptForRetry(helcimAttempt);
-  }, [clearHelcimAttemptForRetry, helcimAttempt]);
+  }, [clearHelcimAttemptForRetry, helcimAttempt, refreshHelcimAttempt]);
 
   const clearUnverifiedHelcimAttempt = useCallback(() => {
     clearHelcimAttemptForRetry(helcimAttempt);

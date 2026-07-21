@@ -34,14 +34,16 @@ Use this window when a customer already has Special, Custom, or Wedding work and
 1. Select the customer in POS.
 2. Open the order loader.
 3. Review the order you need.
-4. Use **Add to Order** when the customer is adding another item to the same original fulfillment work.
-5. Use **Save Line** only when correcting quantity or price on an unfulfilled line.
+4. Click an open item name to choose its available size or variation from the product’s option picker. The original order price is preserved when only the size or variation changes; **Save Line** remains available for quantity, price, lifecycle, or search-based corrections.
+5. Use **Add to Order** when the customer is adding another item to the same original fulfillment work. When one open line already exists for the selected product, choosing another variant updates that line instead of creating a duplicate; use the quantity field when the customer needs more than one unit.
 6. Use **Add Payment** when the customer is paying an existing balance.
 7. For pickup, select the lines leaving with the customer and use **Pick Up Selected**. ROS adds those lines to a pickup basket; open another order and add its selected lines when the customer is taking items from multiple orders. Use **Start Pickup** when the basket contains every item leaving today.
 
 ## Important
 
-- **Add to Order** and **Save Line** update the original fulfillment work and refresh the linked Transaction Record totals.
+- **Add to Order** and **Save Line** update the original fulfillment work and refresh the linked Transaction Record totals. Save Line changes an existing size, variation, quantity, or price in place; when a single open line exists for a product, selecting another variant from the add search also updates that line instead of creating a duplicate.
+- Open, unfulfilled lines can be deleted even when the order has a deposit. The deposit and its payment allocation remain attached to the original Transaction Record, and any resulting credit or balance is recalculated there for the next payment/refund action.
+- Every line edit is recorded in the Transaction Record audit history with the staff member, changed fields, and before/after values—even when the price and total do not change.
 - Payment taken later remains a new payment movement, but it is attached to the original Transaction Record.
 - **Pick Up Selected** does not finish inside this window. It adds the selected pickup lines to the basket, keeps each line's original Transaction Record link, and lets staff combine one or more orders before selecting **Start Pickup**. The register finishes from **Complete Pickup** so the Sale Complete receipt screen opens.
 - The pickup basket supports one item, several items, or all open ready items from each of several orders. Payment and pickup release remain tracked against each source Transaction Record.

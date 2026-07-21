@@ -26,8 +26,12 @@ struct CandidatePairRow {
     ticket_display_id: String,
     counterpoint_ticket_ref: String,
     ticket_booked_at: DateTime<Utc>,
+    ticket_is_counterpoint_import: bool,
     ticket_match_count: i64,
     line_signature: JsonValue,
+    line_signature_matches: bool,
+    canonical_is_existing_pos: bool,
+    ticket_primary_salesperson_id: Option<Uuid>,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -111,6 +115,7 @@ struct PreparedCandidate {
     ticket_transaction_ids: Vec<Uuid>,
     moved_payments: Vec<ReconciliationPaymentRow>,
     duplicate_payments: Vec<ReconciliationPaymentRow>,
+    ticket_primary_salesperson_id: Option<Uuid>,
 }
 
 async fn discover_candidates(
@@ -138,14 +143,25 @@ async fn discover_candidates(
                 ) AS line_signature
             FROM transactions t
             LEFT JOIN transaction_lines tl ON tl.transaction_id = t.id
-            WHERE t.counterpoint_doc_ref IS NOT NULL
-               OR t.counterpoint_ticket_ref IS NOT NULL
+            GROUP BY t.id
+        ), item_signatures AS (
+            SELECT
+                t.id AS transaction_id,
+                COALESCE(
+                    jsonb_agg(
+                        jsonb_build_array(tl.product_id, tl.quantity)
+                        ORDER BY tl.product_id, tl.quantity, tl.id
+                    ) FILTER (WHERE tl.id IS NOT NULL),
+                    '[]'::jsonb
+                ) AS item_signature
+            FROM transactions t
+            LEFT JOIN transaction_lines tl ON tl.transaction_id = t.id
             GROUP BY t.id
         ), candidate_pairs AS (
             SELECT
                 d.id AS canonical_transaction_id,
                 COALESCE(NULLIF(TRIM(d.display_id), ''), d.counterpoint_doc_ref, d.id::text) AS canonical_display_id,
-                d.counterpoint_doc_ref,
+                COALESCE(d.counterpoint_doc_ref, '') AS counterpoint_doc_ref,
                 d.customer_id,
                 COALESCE(
                     NULLIF(TRIM(CONCAT_WS(' ', c.first_name, c.last_name)), ''),
@@ -159,29 +175,83 @@ async fn discover_candidates(
                 d.balance_due AS canonical_balance_due,
                 t.id AS ticket_transaction_id,
                 COALESCE(NULLIF(TRIM(t.display_id), ''), t.counterpoint_ticket_ref, t.id::text) AS ticket_display_id,
-                t.counterpoint_ticket_ref,
+                COALESCE(t.counterpoint_ticket_ref, '') AS counterpoint_ticket_ref,
                 t.booked_at AS ticket_booked_at,
+                COALESCE(t.is_counterpoint_import, false) AS ticket_is_counterpoint_import,
+                t.primary_salesperson_id AS ticket_primary_salesperson_id,
                 ds.line_signature,
+                (ts.line_signature = ds.line_signature) AS line_signature_matches,
+                (d.counterpoint_doc_ref IS NULL) AS canonical_is_existing_pos,
                 COUNT(*) OVER (PARTITION BY t.id) AS ticket_match_count
             FROM transactions d
             INNER JOIN customers c ON c.id = d.customer_id
             INNER JOIN line_signatures ds ON ds.transaction_id = d.id
             INNER JOIN transactions t
                 ON t.customer_id = d.customer_id
-               AND t.counterpoint_ticket_ref IS NOT NULL
+               AND (
+                   t.counterpoint_ticket_ref IS NOT NULL
+                   OR t.counterpoint_doc_ref IS NOT NULL
+               )
                AND t.id <> d.id
-               AND ABS(COALESCE(t.total_price, 0) - COALESCE(d.total_price, 0)) <= 0.01
-               AND t.booked_at >= d.booked_at - INTERVAL '5 minutes'
+               AND (
+                   ABS(COALESCE(t.total_price, 0) - COALESCE(d.total_price, 0)) <= 0.01
+                   OR (
+                       d.counterpoint_doc_ref IS NULL
+                       AND ABS(COALESCE(t.amount_paid, 0) - COALESCE(d.amount_paid, 0)) <= 0.01
+                   )
+               )
+               AND t.booked_at >= d.booked_at - INTERVAL '730 days'
                AND t.booked_at <= d.booked_at + INTERVAL '730 days'
             INNER JOIN line_signatures ts
                 ON ts.transaction_id = t.id
-               AND ts.line_signature = ds.line_signature
-            WHERE d.counterpoint_doc_ref IS NOT NULL
+            INNER JOIN item_signatures di ON di.transaction_id = d.id
+            INNER JOIN item_signatures ti
+                ON ti.transaction_id = t.id
+               AND (
+                   ts.line_signature = ds.line_signature
+                   OR (
+                       di.item_signature = ti.item_signature
+                       AND d.counterpoint_doc_ref IS NULL
+                       AND NOT COALESCE(d.is_counterpoint_import, false)
+                       AND ABS(COALESCE(t.amount_paid, 0) - COALESCE(d.amount_paid, 0)) <= 0.01
+                   )
+                   OR (
+                       jsonb_array_length(di.item_signature) = jsonb_array_length(ti.item_signature)
+                       AND d.counterpoint_doc_ref IS NULL
+                       AND NOT COALESCE(d.is_counterpoint_import, false)
+                       AND COALESCE(t.is_counterpoint_import, false)
+                       AND ABS(COALESCE(t.amount_paid, 0) - COALESCE(d.amount_paid, 0)) <= 0.01
+                   )
+               )
+            WHERE (
+                d.counterpoint_doc_ref IS NOT NULL
+                OR (
+                    d.counterpoint_doc_ref IS NULL
+                    AND NOT COALESCE(d.is_counterpoint_import, false)
+                    AND COALESCE(t.is_counterpoint_import, false)
+                )
+            )
               AND d.customer_id IS NOT NULL
               AND COALESCE(d.total_price, 0) > 0
-              AND ds.line_signature <> '[]'::jsonb
+              AND di.item_signature <> '[]'::jsonb
               AND COALESCE(d.metadata->>'counterpoint_reconciliation_status', '') <> 'reconciled'
               AND COALESCE(t.metadata->>'counterpoint_reconciliation_status', '') <> 'superseded'
+              AND NOT (
+                  d.counterpoint_doc_ref IS NOT NULL
+                  AND EXISTS (
+                      SELECT 1
+                      FROM transactions existing_pos
+                      INNER JOIN item_signatures existing_items
+                          ON existing_items.transaction_id = existing_pos.id
+                      WHERE existing_pos.customer_id = d.customer_id
+                        AND NOT COALESCE(existing_pos.is_counterpoint_import, false)
+                        AND ABS(COALESCE(existing_pos.amount_paid, 0) - COALESCE(d.amount_paid, 0)) <= 0.01
+                        AND (
+                            existing_items.item_signature = di.item_signature
+                            OR jsonb_array_length(existing_items.item_signature) = jsonb_array_length(di.item_signature)
+                        )
+                  )
+              )
               AND NOT EXISTS (
                   SELECT 1
                   FROM counterpoint_transaction_reconciliation r
@@ -249,15 +319,27 @@ async fn discover_candidates(
         let first = group.first().expect("candidate group is non-empty");
         let mut review_reasons = Vec::new();
 
-        if group.iter().any(|row| row.ticket_match_count != 1) {
+        let existing_pos_match = first.canonical_is_existing_pos;
+        let imported_doc_match = !existing_pos_match
+            && !first.counterpoint_doc_ref.trim().is_empty()
+            && group.iter().all(|row| {
+                row.ticket_is_counterpoint_import
+                    && !row.counterpoint_ticket_ref.trim().is_empty()
+                    && row.line_signature_matches
+            });
+
+        if !imported_doc_match && group.iter().any(|row| row.ticket_match_count != 1) {
             review_reasons.push("At least one ticket matches more than one open order.");
         }
-        if !group.iter().any(|row| {
-            (row.ticket_booked_at - row.canonical_booked_at)
-                .num_seconds()
-                .abs()
-                <= 300
-        }) {
+        if !existing_pos_match
+            && !imported_doc_match
+            && !group.iter().any(|row| {
+                (row.ticket_booked_at - row.canonical_booked_at)
+                    .num_seconds()
+                    .abs()
+                    <= 300
+            })
+        {
             review_reasons.push("No same-time ticket proves the original open-order lifecycle.");
         }
 
@@ -295,6 +377,10 @@ async fn discover_candidates(
                 if payment.status != "success" {
                     review_reasons.push("A matching ticket contains a non-success payment.");
                 }
+                if existing_pos_match {
+                    duplicate_payments.push(payment.clone());
+                    continue;
+                }
                 if payment.amount <= Decimal::ZERO {
                     review_reasons.push("A matching ticket contains a zero or negative payment.");
                 }
@@ -311,10 +397,11 @@ async fn discover_candidates(
             }
         }
 
-        if moved_payments.is_empty() {
+        if !existing_pos_match && !imported_doc_match && moved_payments.is_empty() {
             review_reasons.push("No later payment can be moved to the original order.");
         }
-        if (reconciled_amount - first.total_price).abs() > Decimal::new(1, 2) {
+        if !existing_pos_match && (reconciled_amount - first.total_price).abs() > Decimal::new(1, 2)
+        {
             review_reasons.push("Unique payment totals do not exactly equal the order total.");
         }
 
@@ -322,7 +409,14 @@ async fn discover_candidates(
         review_reasons.dedup();
         let ready = review_reasons.is_empty();
         let review_reason = if ready {
-            "Exact customer, total, line, same-time ticket, and unique-payment match.".to_string()
+            if existing_pos_match {
+                "Existing ROS transaction matched by customer, paid amount, and exact product/quantity lines; imported payment ticket is a duplicate.".to_string()
+            } else if imported_doc_match {
+                "Imported Counterpoint document and payment ticket have the same customer, total, and exact charged lines; the ticket is a duplicate.".to_string()
+            } else {
+                "Exact customer, total, line, same-time ticket, and unique-payment match."
+                    .to_string()
+            }
         } else {
             review_reasons.join(" ")
         };
@@ -366,6 +460,7 @@ async fn discover_candidates(
             ticket_transaction_ids,
             moved_payments,
             duplicate_payments,
+            ticket_primary_salesperson_id: first.ticket_primary_salesperson_id,
         });
     }
 
@@ -610,18 +705,19 @@ pub async fn apply_counterpoint_transaction_reconciliation(
             UPDATE transactions
             SET amount_paid = $2,
                 balance_due = GREATEST(total_price - $2, 0),
+                primary_salesperson_id = COALESCE($4, primary_salesperson_id),
                 metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
                     'counterpoint_reconciliation_status', 'reconciled',
                     'counterpoint_reconciliation_id', $3::text,
                     'counterpoint_reconciled_at', NOW()
                 )
             WHERE id = $1
-              AND counterpoint_doc_ref IS NOT NULL
             "#,
         )
         .bind(canonical_id)
         .bind(reconciled_amount)
         .bind(reconciliation_id)
+        .bind(candidate.ticket_primary_salesperson_id)
         .execute(&mut *tx)
         .await?;
 
@@ -640,7 +736,10 @@ pub async fn apply_counterpoint_transaction_reconciliation(
                     'counterpoint_reconciled_at', NOW()
                 )
             WHERE id = ANY($1)
-              AND counterpoint_ticket_ref IS NOT NULL
+              AND (
+                  counterpoint_ticket_ref IS NOT NULL
+                  OR counterpoint_doc_ref IS NOT NULL
+              )
             "#,
         )
         .bind(&candidate.ticket_transaction_ids)

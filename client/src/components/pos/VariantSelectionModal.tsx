@@ -28,6 +28,8 @@ export interface VariantSelectionModalProps {
   product: ProductWithVariants | null;
   onClose: () => void;
   onSelect: (variant: VariantOption, priceOverride?: string) => void;
+  actionLabel?: string;
+  allowPriceOverride?: boolean;
 }
 
 function parseVariantAttributes(label: string): string[] {
@@ -59,6 +61,8 @@ export default function VariantSelectionModal({
   product,
   onClose,
   onSelect,
+  actionLabel = "Add to Sale",
+  allowPriceOverride = true,
 }: VariantSelectionModalProps) {
   const [selections, setSelections] = useState<string[]>([]);
   const [priceOverride, setPriceOverride] = useState("");
@@ -178,7 +182,7 @@ export default function VariantSelectionModal({
           >
              <div className="flex items-center gap-3">
                 <ShoppingCart size={24} />
-                <span className="text-xl font-black uppercase italic tracking-widest">Add to Sale</span>
+                <span className="text-xl font-black uppercase italic tracking-widest">{actionLabel}</span>
              </div>
           </button>
         </div>
@@ -246,7 +250,7 @@ export default function VariantSelectionModal({
               </div>
 
               {/* Price Intelligence Numpad (Integrated into Modal) */}
-              <div className="rounded-3xl border-2 border-app-border bg-app-surface p-5 shadow-lg space-y-4">
+              {allowPriceOverride ? <div className="rounded-3xl border-2 border-app-border bg-app-surface p-5 shadow-lg space-y-4">
                  <div className="flex items-center justify-between">
                     <div className="flex items-center gap-1.5 text-app-text">
                        <CircleDollarSign size={14} />
@@ -296,7 +300,7 @@ export default function VariantSelectionModal({
                        </button>
                     </div>
                  </div>
-              </div>
+              </div> : null}
             </div>
           )}
         </div>

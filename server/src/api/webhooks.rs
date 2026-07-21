@@ -931,8 +931,15 @@ async fn handle_helcim_card_transaction(
             SELECT id
             FROM payment_provider_attempts
             WHERE provider = 'helcim'
-              AND status = 'pending'
-              AND provider_transaction_id = $2
+              AND (
+                  status = 'pending'
+                  OR (
+                      status = 'failed'
+                      AND $1 IN ('approved', 'captured')
+                      AND provider_payment_id = $3
+                  )
+              )
+              AND (provider_transaction_id = $2 OR provider_payment_id = $3)
             ORDER BY created_at ASC
             LIMIT 1
         )
@@ -1012,16 +1019,151 @@ async fn handle_helcim_card_transaction(
         && final_payment_transaction_id.is_none()
     {
         if let Some(client_id) = checkout_client_id {
-            let txn: Option<(Uuid, Decimal, Decimal, Uuid)> = sqlx::query_as(
-                "SELECT id, total_price, rounding_adjustment, operator_id FROM transactions WHERE checkout_client_id = $1 AND status = 'processing'"
+            let txn: Option<(Uuid, String, Decimal, Decimal, Uuid, String)> = sqlx::query_as(
+                "SELECT id, display_id, total_price, rounding_adjustment, operator_id, status FROM transactions WHERE checkout_client_id = $1 ORDER BY created_at DESC LIMIT 1"
             )
             .bind(client_id)
             .fetch_optional(&mut *tx)
             .await?;
 
-            if let Some((tid, total_price, rounding_adjustment, operator_id)) = txn {
+            if let Some((
+                tid,
+                display_id,
+                total_price,
+                rounding_adjustment,
+                operator_id,
+                txn_status,
+            )) = txn
+            {
                 let payment_txn_id = Uuid::new_v4();
                 let payment_amount = Decimal::from(amount_cents) / Decimal::from(100);
+
+                // If staff recorded the approved terminal payment as Manual
+                // Card after the checkout disappeared, convert that exact
+                // allocated payment instead of creating a duplicate movement.
+                let manual_payment_ids: Vec<Uuid> = sqlx::query_scalar(
+                    r#"
+                    SELECT pt.id
+                    FROM payment_transactions pt
+                    WHERE pt.payment_method = 'card_manual'
+                      AND pt.amount = $1
+                      AND (
+                          pt.metadata->>'checkout_transaction_id' = $2
+                          OR pt.metadata->>'checkout_display_id' = $3
+                      )
+                      AND EXISTS (
+                          SELECT 1
+                          FROM payment_allocations pa
+                          WHERE pa.transaction_id = pt.id
+                      )
+                    ORDER BY pt.created_at DESC
+                    LIMIT 2
+                    "#,
+                )
+                .bind(payment_amount)
+                .bind(tid.to_string())
+                .bind(&display_id)
+                .fetch_all(&mut *tx)
+                .await?;
+
+                if manual_payment_ids.len() == 1 {
+                    let manual_payment_id = manual_payment_ids[0];
+                    sqlx::query(
+                        r#"
+                        UPDATE payment_transactions
+                        SET payment_method = 'card_terminal',
+                            status = 'approved',
+                            payment_provider = 'helcim',
+                            provider_payment_id = $2,
+                            provider_transaction_id = $3,
+                            provider_status = $4,
+                            metadata = (
+                                COALESCE(metadata, '{}'::jsonb)
+                                - ARRAY['card_last4', 'offline_card_entry_type']::text[]
+                            ) || $5::jsonb
+                        WHERE id = $1
+                        "#,
+                    )
+                    .bind(manual_payment_id)
+                    .bind(&provider_payment_id)
+                    .bind(&provider_transaction_id)
+                    .bind(provider_status.clone())
+                    .bind(serde_json::json!({
+                        "payment_provider_attempt_id": attempt_id,
+                        "helcim_transaction_id": provider_transaction_id.clone(),
+                        "helcim_payment_id": provider_payment_id.clone(),
+                        "audit_reference": audit_reference.clone(),
+                        "manual_card_replaced": true,
+                    }))
+                    .execute(&mut *tx)
+                    .await?;
+                    sqlx::query(
+                        r#"
+                        UPDATE payment_allocations
+                        SET metadata = (
+                                COALESCE(metadata, '{}'::jsonb)
+                                - ARRAY['card_last4', 'offline_card_entry_type']::text[]
+                            ) || $2::jsonb
+                        WHERE transaction_id = $1
+                        "#,
+                    )
+                    .bind(manual_payment_id)
+                    .bind(serde_json::json!({
+                        "tender_family": "credit_card",
+                        "payment_provider_attempt_id": attempt_id,
+                        "helcim_transaction_id": provider_transaction_id.clone(),
+                        "helcim_payment_id": provider_payment_id.clone(),
+                        "manual_card_replaced": true,
+                    }))
+                    .execute(&mut *tx)
+                    .await?;
+                    final_payment_transaction_id = Some(manual_payment_id);
+                    match_type = "manual_card_replaced";
+                }
+
+                if final_payment_transaction_id.is_some() {
+                    // The existing payment allocation already identifies the
+                    // completed sale; do not create a second payment row.
+                    mark_helcim_event_processed(
+                        &mut tx,
+                        event_id,
+                        Some(&provider_transaction_id),
+                        attempt_id,
+                        final_payment_transaction_id,
+                        match_type,
+                        provider_status.as_deref(),
+                    )
+                    .await?;
+                    tx.commit().await?;
+                    return Ok(HelcimProcessingOutcome {
+                        updated: 1,
+                        provider_transaction_id: Some(provider_transaction_id),
+                        payment_provider_attempt_id: attempt_id,
+                        payment_transaction_id: final_payment_transaction_id,
+                        match_type: match_type.to_string(),
+                    });
+                }
+
+                if txn_status != "processing" {
+                    mark_helcim_event_processed(
+                        &mut tx,
+                        event_id,
+                        Some(&provider_transaction_id),
+                        attempt_id,
+                        None,
+                        "completed_sale_without_manual_payment",
+                        provider_status.as_deref(),
+                    )
+                    .await?;
+                    tx.commit().await?;
+                    return Ok(HelcimProcessingOutcome {
+                        updated: 1,
+                        provider_transaction_id: Some(provider_transaction_id),
+                        payment_provider_attempt_id: attempt_id,
+                        payment_transaction_id: None,
+                        match_type: "completed_sale_without_manual_payment".to_string(),
+                    });
+                }
 
                 let insert_result = sqlx::query(
                     r#"

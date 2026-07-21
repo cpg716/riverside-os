@@ -1475,6 +1475,16 @@ function sqlLineAmountPerUnit(alias, set, candidates, quantityColumn, outputName
   return `CAST(ISNULL(${alias}.[${c}], 0) / NULLIF(ABS(CAST(ISNULL(${alias}.[${quantityColumn}], 1) AS DECIMAL(18,4))), 0) AS DECIMAL(18,4)) AS ${outputName}`;
 }
 
+function sqlChargedLinePrice(alias, set, quantityColumn) {
+  const charged = pickColumn(set, ["DISP_EXT_PRC", "EXT_PRC", "EXT_PRICE", "EXTENDED_PRC"]);
+  const fallback = pickColumn(set, ["PRC", "PRICE"]);
+  const fallbackExpr = fallback
+    ? `CAST(${alias}.[${fallback}] AS DECIMAL(18,4))`
+    : "CAST(0 AS DECIMAL(18,4))";
+  if (!charged || !quantityColumn) return fallbackExpr;
+  return `CAST(COALESCE(${alias}.[${charged}], 0) / NULLIF(ABS(CAST(ISNULL(${alias}.[${quantityColumn}], 1) AS DECIMAL(18,4))), 0) AS DECIMAL(18,4))`;
+}
+
 function counterpointLineFinancialSelects(alias, set, quantityColumn) {
   return [
     sqlLineAmountPerUnit(
@@ -1878,11 +1888,11 @@ function buildSchemaGeneratedSql(entries, { invCost, customerPts, locId }) {
       ].filter(Boolean).join(", ")})`;
       const seq = pickColumn(lin, ["LIN_SEQ_NO", "SEQ_NO"]);
       const qty = pickColumn(lin, ["QTY_SOLD", "QTY"]);
-      const price = pickColumn(lin, ["PRC", "PRICE"]);
+      const price = sqlChargedLinePrice("l", lin, qty);
       const cost = pickColumn(lin, ["UNIT_COST", "COST"]);
       const reason = pickColumn(lin, ["RET_REAS", "REAS_COD"]);
       const lineFinancialSelects = counterpointLineFinancialSelects("l", lin, qty);
-      sqlMap.ticket_lines = `SELECT ${ticketRefSelect}, ${seq ? `l.[${seq}]` : "CAST(NULL AS INT)"} AS lin_seq_no, ${lineSku} AS sku, ${lineItemKey} AS counterpoint_item_key, ${qty ? `l.[${qty}]` : "CAST(1 AS DECIMAL(18,4))"} AS quantity, ${price ? `l.[${price}]` : "CAST(0 AS DECIMAL(18,4))"} AS unit_price, ${cost ? `l.[${cost}]` : "CAST(NULL AS DECIMAL(18,4))"} AS unit_cost, CAST(NULL AS NVARCHAR(255)) AS description, ${lineFinancialSelects.join(", ")}${reason ? `, ${sqlText("l", lin, [reason], "reason_code")}` : ""} FROM PS_TKT_HIST_LIN l${lineBarcodeApply} INNER JOIN PS_TKT_HIST h ON ${linJoinPredicate} WHERE h.[${tktActivityDate}] >= '__CP_IMPORT_SINCE__'${typeFilter}`;
+      sqlMap.ticket_lines = `SELECT ${ticketRefSelect}, ${seq ? `l.[${seq}]` : "CAST(NULL AS INT)"} AS lin_seq_no, ${lineSku} AS sku, ${lineItemKey} AS counterpoint_item_key, ${qty ? `l.[${qty}]` : "CAST(1 AS DECIMAL(18,4))"} AS quantity, ${price} AS unit_price, ${cost ? `l.[${cost}]` : "CAST(NULL AS DECIMAL(18,4))"} AS unit_cost, CAST(NULL AS NVARCHAR(255)) AS description, ${lineFinancialSelects.join(", ")}${reason ? `, ${sqlText("l", lin, [reason], "reason_code")}` : ""} FROM PS_TKT_HIST_LIN l${lineBarcodeApply} INNER JOIN PS_TKT_HIST h ON ${linJoinPredicate} WHERE h.[${tktActivityDate}] >= '__CP_IMPORT_SINCE__'${typeFilter}`;
       changes.push(`PS_TKT_HIST_LIN ticket lines enabled; join=${linJoinPairs.map(([h, l]) => `${h}=${l}`).join("+")}`);
     }
 
@@ -1988,7 +1998,7 @@ function buildSchemaGeneratedSql(entries, { invCost, customerPts, locId }) {
       const openDocDescriptionSelect = `COALESCE(${lineDescriptionExpr}, ${itemDescriptionExpr}) AS description`;
       const openDocQuantity = pickColumn(psDocLin, ["QTY_ORD", "QTY_SOLD", "QTY"]);
       const openDocLineFinancialSelects = counterpointLineFinancialSelects("l", psDocLin, openDocQuantity);
-      sqlMap.open_doc_lines = `SELECT ${docRefSelect}, ${sqlNumber("l", psDocLin, ["LIN_SEQ_NO", "SEQ_NO"], "lin_seq_no")}, ${openDocLineSku} AS sku, ${openDocLineKey} AS counterpoint_item_key, ${openDocQuantity ? `l.[${openDocQuantity}]` : "CAST(1 AS DECIMAL(18,4))"} AS quantity, ${sqlNumber("l", psDocLin, ["PRC", "PRICE"], "unit_price", "CAST(0 AS DECIMAL(18,4))")}, ${sqlNumber("l", psDocLin, ["UNIT_COST", "COST"], "unit_cost")}, ${openDocDescriptionSelect}, ${openDocLineFinancialSelects.join(", ")} FROM PS_DOC_LIN l${openDocBarcodeApply} INNER JOIN ${psDocTable} h ON ${lineJoinPredicate}${docTotJoinForChildren}${itemDescriptionJoin} WHERE ${activeDocWhere}`;
+      sqlMap.open_doc_lines = `SELECT ${docRefSelect}, ${sqlNumber("l", psDocLin, ["LIN_SEQ_NO", "SEQ_NO"], "lin_seq_no")}, ${openDocLineSku} AS sku, ${openDocLineKey} AS counterpoint_item_key, ${openDocQuantity ? `l.[${openDocQuantity}]` : "CAST(1 AS DECIMAL(18,4))"} AS quantity, ${sqlChargedLinePrice("l", psDocLin, openDocQuantity)} AS unit_price, ${sqlNumber("l", psDocLin, ["UNIT_COST", "COST"], "unit_cost")}, ${openDocDescriptionSelect}, ${openDocLineFinancialSelects.join(", ")} FROM PS_DOC_LIN l${openDocBarcodeApply} INNER JOIN ${psDocTable} h ON ${lineJoinPredicate}${docTotJoinForChildren}${itemDescriptionJoin} WHERE ${activeDocWhere}`;
       changes.push(`PS_DOC_LIN open-doc lines enabled; join=${lineJoinPairs.map(([h, l]) => `${h}=${l}`).join("+")}`);
     }
     const pmtDoc = pickColumn(psDocPmt, [docRef, "DOC_ID", "DOC_NO", "TKT_NO"]);

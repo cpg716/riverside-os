@@ -3447,9 +3447,17 @@ async fn link_helcim_reconciliation_payment(
     sqlx::query(
         r#"
         UPDATE payment_transactions
-        SET payment_provider = 'helcim',
+        SET payment_method = CASE
+                WHEN payment_method = 'card_manual' THEN 'card_terminal'
+                ELSE payment_method
+            END,
+            payment_provider = 'helcim',
             provider_transaction_id = $2,
-            provider_status = COALESCE(provider_status, 'approved')
+            provider_status = COALESCE(provider_status, 'approved'),
+            metadata = (
+                COALESCE(metadata, '{}'::jsonb)
+                - ARRAY['card_last4', 'offline_card_entry_type']::text[]
+            ) || '{"tender_family":"credit_card","manual_card_replaced":true}'::jsonb
         WHERE id = $1
           AND (
               payment_provider = 'helcim'
@@ -3463,6 +3471,21 @@ async fn link_helcim_reconciliation_payment(
     )
     .bind(payload.payment_transaction_id)
     .bind(&provider_transaction_id)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+
+    sqlx::query(
+        r#"
+        UPDATE payment_allocations
+        SET metadata = (
+                COALESCE(metadata, '{}'::jsonb)
+                - ARRAY['card_last4', 'offline_card_entry_type']::text[]
+            ) || '{"tender_family":"credit_card","manual_card_replaced":true}'::jsonb
+        WHERE transaction_id = $1
+        "#,
+    )
+    .bind(payload.payment_transaction_id)
     .execute(&mut *tx)
     .await
     .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
@@ -7890,10 +7913,11 @@ async fn start_helcim_purchase(
         payload.customer_code.and_then(non_empty_string)
     };
 
+    let invoice_number = format!("ROS-{}", attempt_id.simple());
     let request_payload = helcim::build_purchase_request_payload(
         payload.amount_cents,
         currency.clone(),
-        format!("ROS-{}", attempt_id.simple()),
+        invoice_number.clone(),
         helcim_customer_code,
     );
     let accepted = match helcim::start_terminal_purchase(
@@ -7955,16 +7979,16 @@ async fn start_helcim_purchase(
     sqlx::query(
         r#"
         UPDATE payment_provider_attempts
-        SET provider_payment_id = $2,
-            provider_transaction_id = $3,
-            raw_audit_reference = $4
+        SET provider_payment_id = $4,
+            provider_transaction_id = $2,
+            raw_audit_reference = $3
         WHERE id = $1
         "#,
     )
     .bind(attempt_id)
-    .bind(&pending.provider_payment_id)
     .bind(&pending.provider_transaction_id)
     .bind(&pending.raw_audit_reference)
+    .bind(invoice_number)
     .execute(&state.db)
     .await
     .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
@@ -9771,6 +9795,16 @@ async fn refresh_helcim_attempt_from_provider(
     let Some(status) = final_helcim_attempt_status(&provider_status) else {
         return Ok(None);
     };
+
+    // A terminal can report a decline before Helcim finishes the same invoice.
+    // Search by the ROS invoice before preserving that failure so a late
+    // approval can recover the original attempt and its ledger link.
+    if attempt.status == "failed" && status == "failed" {
+        if let Some(recovered) = recover_helcim_attempt_by_invoice(state, attempt, &config).await? {
+            return Ok(Some(recovered));
+        }
+    }
+
     let provider_transaction_id = transaction
         .transaction_id_string()
         .unwrap_or_else(|| transaction_id.to_string());

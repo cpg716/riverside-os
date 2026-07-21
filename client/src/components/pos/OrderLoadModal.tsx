@@ -24,6 +24,10 @@ import {
 import VariantSearchInput, {
   type VariantSearchResult,
 } from "../ui/VariantSearchInput";
+import VariantSelectionModal, {
+  type ProductWithVariants,
+  type VariantOption,
+} from "./VariantSelectionModal";
 
 export interface CustomerOrder {
   id: string;
@@ -146,6 +150,10 @@ export default function OrderLoadModal({
   const [paymentAmount, setPaymentAmount] = useState("");
   const [addSku, setAddSku] = useState("");
   const [orderMutationBusy, setOrderMutationBusy] = useState(false);
+  const [variantPicker, setVariantPicker] = useState<{
+    item: OrderItem;
+    product: ProductWithVariants;
+  } | null>(null);
   const [pickupBusy, setPickupBusy] = useState(false);
   const [pickupConfirm, setPickupConfirm] = useState<{
     mode: ReleaseMode;
@@ -618,9 +626,21 @@ export default function OrderLoadModal({
   };
 
   const addVariantToSelectedOrder = async (variant: VariantSearchResult) => {
-    if (!selectedOrder || !onAddItemToOrder) return;
+    if (!selectedOrder) return;
     setOrderMutationBusy(true);
     try {
+      const matchingOpenLines = selectedOrderItems.filter(
+        (item) => item.product_id === variant.product_id && !isCompletedOrderItem(item),
+      );
+      if (matchingOpenLines.length === 1 && onUpdateOrderItem) {
+        const existingLine = matchingOpenLines[0];
+        const ok = await onUpdateOrderItem(selectedOrder, existingLine, {
+          variant_id: variant.variant_id,
+        });
+        if (ok && selectedOrder.id) await loadOrderItems(selectedOrder.id);
+        return;
+      }
+      if (!onAddItemToOrder) return;
       const ok = await onAddItemToOrder(selectedOrder, variant.sku);
       if (ok && selectedOrder.id) await loadOrderItems(selectedOrder.id);
     } finally {
@@ -673,6 +693,45 @@ export default function OrderLoadModal({
     try {
       const ok = await onDeleteOrderItem(selectedOrder, item);
       if (ok && selectedOrder.id) await loadOrderItems(selectedOrder.id);
+    } finally {
+      setOrderMutationBusy(false);
+    }
+  };
+
+  const openVariantPicker = async (item: OrderItem) => {
+    if (!selectedOrder || !onUpdateOrderItem || isCompletedOrderItem(item)) return;
+    setOrderMutationBusy(true);
+    try {
+      const params = new URLSearchParams({
+        product_id: item.product_id,
+        limit: "500",
+        include_hidden: "true",
+      });
+      const res = await fetch(`${baseUrl}/api/products/control-board?${params.toString()}`, {
+        headers: apiAuth(),
+      });
+      if (!res.ok) throw new Error("Could not load the available sizes and variations.");
+      const body = (await res.json()) as { rows?: VariantSearchResult[] };
+      const variants: VariantOption[] = (body.rows ?? [])
+        .filter((variant) => variant.product_id === item.product_id)
+        .map((variant) => ({
+          variant_id: variant.variant_id,
+          sku: variant.sku,
+          variation_label: variant.variation_label ?? variant.sku,
+          stock_on_hand: 0,
+          retail_price: String(variant.retail_price ?? item.unit_price),
+        }));
+      if (variants.length === 0) throw new Error("No selectable sizes or variations were found for this item.");
+      setVariantPicker({
+        item,
+        product: {
+          product_id: item.product_id,
+          name: item.product_name,
+          variants,
+        },
+      });
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Could not load item variations.", "error");
     } finally {
       setOrderMutationBusy(false);
     }
@@ -1019,9 +1078,15 @@ export default function OrderLoadModal({
                             }
                             className="mt-1 h-5 w-5 rounded border-app-border text-app-success focus:ring-app-success/30 disabled:opacity-40"
                           />
-                          <span className="font-medium text-app-text">
+                          <button
+                            type="button"
+                            disabled={isCompletedOrderItem(item) || orderMutationBusy}
+                            onClick={() => void openVariantPicker(item)}
+                            className="text-left font-medium text-app-text underline decoration-app-accent/40 underline-offset-4 hover:text-app-accent disabled:no-underline"
+                            title={isCompletedOrderItem(item) ? undefined : "Choose a size or variation"}
+                          >
                             {item.product_name}
-                          </span>
+                          </button>
                         </label>
                         <span className="text-app-text-muted">
                           {lineDrafts[item.transaction_line_id]?.sku ??
@@ -1366,6 +1431,28 @@ export default function OrderLoadModal({
           </div>
         </div>
       )}
+      <VariantSelectionModal
+        product={variantPicker?.product ?? null}
+        actionLabel="Update Item"
+        allowPriceOverride={false}
+        onClose={() => setVariantPicker(null)}
+        onSelect={(variant) => {
+          const selection = variantPicker;
+          if (!selection || !selectedOrder || !onUpdateOrderItem) return;
+          void (async () => {
+            setOrderMutationBusy(true);
+            try {
+              const ok = await onUpdateOrderItem(selectedOrder, selection.item, {
+                variant_id: variant.variant_id,
+              });
+              if (ok && selectedOrder.id) await loadOrderItems(selectedOrder.id);
+              if (ok) setVariantPicker(null);
+            } finally {
+              setOrderMutationBusy(false);
+            }
+          })();
+        }}
+      />
       {pickupConfirm && (
         <ConfirmationModal
           isOpen={true}

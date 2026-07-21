@@ -63,7 +63,7 @@ If a card attempt is canceled and retried, use the current checkout status befor
 
 If the physical terminal was canceled but ROS still says **Waiting for Card**, select **I canceled on terminal — clear ROS**. This releases only the pending attempt with no provider transaction; an approved/provider-referenced payment remains protected for recovery.
 
-If the terminal approves but the drawer still shows the card attempt as pending or declined, use **Recover payment** before running the card again or changing tender. ROS sends a unique invoice reference with each terminal request and can recover the approved Helcim transaction by that reference and amount when the terminal response is delayed. If the card was truly declined, use **Retry card** to clear the declined attempt and send a new ROS-tracked request to the terminal.
+If the terminal approves but the drawer still shows the card attempt as pending or declined, use **Recover payment** before running the card again or changing tender. ROS sends a unique invoice reference with each terminal request and can recover the approved Helcim transaction by that reference and amount when the terminal response is delayed. A recovered approval is restored to the active checkout payment ledger; finish the sale to post the final Transaction Record. **Retry card** performs one final Helcim status and invoice recovery check first; it only clears the attempt and sends a new ROS-tracked request when no approval is found.
 
 ## Keypad and amount controls
 

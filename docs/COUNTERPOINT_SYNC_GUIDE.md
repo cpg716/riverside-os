@@ -409,13 +409,15 @@ query uses that code as a controlled fallback. Historical tickets also remain
 openable as Transaction Records so staff can review payment and pickup audit
 events and reprint the receipt.
 
-**Idempotency:** If a Transaction Record with the same `counterpoint_ticket_ref` already exists, the entire ticket is **skipped** (no duplicates).
+**Idempotency:** If a Transaction Record with the same `counterpoint_ticket_ref` already exists, the source is not imported twice. Payment-only tickets (a zero merchandise total with positive tenders) are matched to exactly one existing non-imported ROS transaction by customer, paid amount, and product/quantity lines; the existing ROS transaction retains its customer-facing lines and the imported duplicate is superseded. Ambiguous matches are skipped with a review issue rather than creating another sale.
 
 **Totals / paid semantics:** The runtime mapper sources the gross historical ticket total from the best visible `PS_TKT_HIST` total column. ROS prefers the summed tender history from `PS_TKT_HIST_PMT` for `amount_paid` and `balance_due` whenever those rows are present. If tender rows are absent, ROS falls back to the header `amount_paid` value.
 
 **Header/detail proof:** Closed ticket headers, lines, and payments must be in the same rough order of magnitude. If `PS_TKT_HIST` returns only a tiny number of ticket headers while `PS_TKT_HIST_LIN` or `PS_TKT_HIST_PMT` returns tens of thousands of rows, ROS blocks preflight because the ticket header query/filter is not aligned with the line/payment queries. Rerun Auto Config and verify the ticket date, identity, join, and optional document-type settings before accepting the import.
 
 **Historical sales posture:** Closed ticket rows are imported for customer history, item history, and reporting comparison. They are not active fulfillment obligations. ROS links historical lines to exact variants when the payload has enough SKU/cell detail; unresolved historical lines use the historical Counterpoint fallback item instead of blocking the import. Open documents remain strict because they are current obligations.
+
+**Line-price source:** When Counterpoint exposes `EXT_PRC` or `DISP_EXT_PRC`, the bridge imports that charged extended line amount divided by quantity as the effective unit price. `PRC`/`REG_PRC` remain source/original price fields. This prevents retail or proportional payment allocation values from replacing the amount the customer actually paid.
 
 ### Post-cutover legacy order reconciliation
 

@@ -93,6 +93,7 @@ function isCreditCardTender(method: string): boolean {
     "card",
     "cardterminal",
     "cardreader",
+    "cardpresent",
     "cardmanual",
     "manualcard",
     "cardnotpresent",
@@ -100,6 +101,7 @@ function isCreditCardTender(method: string): boolean {
     "cardsaved",
     "cardcredit",
     "offlinecc",
+    "cardterminalmanual",
     "cc",
     "credit",
     "creditcard",
@@ -118,30 +120,31 @@ function isCreditCardTender(method: string): boolean {
   ]).has(tender);
 }
 
-const Z_REPORT_TENDER_KEYS = [
-  "cash",
-  "card_reader",
-  "card_manual",
-  "card_not_present",
-  "check",
-  "gift_card",
-  "store_credit",
-  "rms_charge",
-  "rms_payment",
-  "staff_account",
-  "donation",
-] as const;
-
-type ZReportTenderKey = typeof Z_REPORT_TENDER_KEYS[number];
+type ZReportTenderKey =
+  | "cash"
+  | "card_reader"
+  | "card_manual"
+  | "card_not_present"
+  | "check"
+  | "gift_card"
+  | "store_credit"
+  | "deposit_applied"
+  | "exchange_credit"
+  | "rms_charge"
+  | "rms_payment"
+  | "staff_account"
+  | "donation";
 
 function normalizedTenderKey(method: string): ZReportTenderKey | "other" {
   const tender = method.toLowerCase().replace(/[^a-z0-9]/g, "");
   if (tender === "cash") return "cash";
-  if (tender.includes("manualcard") || tender.includes("cardmanual")) return "card_manual";
+  if (tender.includes("manualcard") || tender.includes("cardmanual") || tender === "cardterminalmanual") return "card_manual";
   if (tender.includes("cardnotpresent") || tender === "cnp") return "card_not_present";
   if (tender === "check" || tender === "cheque") return "check";
   if (tender.includes("gift")) return "gift_card";
   if (tender.includes("storecredit") || tender === "sc") return "store_credit";
+  if (tender === "opendeposit" || tender === "depositledger") return "deposit_applied";
+  if (tender === "exchangecredit") return "exchange_credit";
   if (tender.includes("rmspayment")) return "rms_payment";
   if (tender.includes("rms")) return "rms_charge";
   if (tender.includes("staffaccount")) return "staff_account";
@@ -166,6 +169,10 @@ function tenderKeyLabel(key: ZReportTenderKey | "other"): string {
       return "Gift Card";
     case "store_credit":
       return "Store Credit";
+    case "deposit_applied":
+      return "Deposit Applied";
+    case "exchange_credit":
+      return "Exchange Credit";
     case "rms_charge":
       return "RMS Charge";
     case "rms_payment":
@@ -175,28 +182,93 @@ function tenderKeyLabel(key: ZReportTenderKey | "other"): string {
     case "donation":
       return "Donation";
     default:
-      return "Other";
+      return "Unmapped Tender";
   }
 }
 
-function tenderRowsWithZeros(tenders: ZReportTenderRow[], extras?: Partial<Record<ZReportTenderKey, { amountCents: number; txCount: number }>>) {
-  const buckets = new Map<ZReportTenderKey | "other", { amountCents: number; txCount: number }>();
-  for (const key of Z_REPORT_TENDER_KEYS) {
-    buckets.set(key, { amountCents: extras?.[key]?.amountCents ?? 0, txCount: extras?.[key]?.txCount ?? 0 });
-  }
+interface TenderFamilySummary {
+  cash: { amountCents: number; txCount: number };
+  card: { amountCents: number; txCount: number };
+  checks: { amountCents: number; txCount: number };
+  cardTerminal: { amountCents: number; txCount: number };
+  cardNotPresent: { amountCents: number; txCount: number };
+  cardManual: { amountCents: number; txCount: number };
+  cardRefunds: { amountCents: number; txCount: number };
+  informational: Array<{ label: string; amountCents: number; txCount: number }>;
+}
+
+function emptyTenderFamilySummary(): TenderFamilySummary {
+  const zero = () => ({ amountCents: 0, txCount: 0 });
+  return {
+    cash: zero(),
+    card: zero(),
+    checks: zero(),
+    cardTerminal: zero(),
+    cardNotPresent: zero(),
+    cardManual: zero(),
+    cardRefunds: zero(),
+    informational: [],
+  };
+}
+
+function summarizeTenderFamilies(tenders: ZReportTenderRow[]): TenderFamilySummary {
+  const summary = emptyTenderFamilySummary();
+  const informational = new Map<string, { amountCents: number; txCount: number }>();
   for (const tender of tenders) {
+    const amountCents = parseMoneyToCents(tender.total_amount);
+    const txCount = tender.tx_count;
     const key = normalizedTenderKey(tender.payment_method);
-    const bucket = buckets.get(key) ?? { amountCents: 0, txCount: 0 };
-    bucket.amountCents += parseMoneyToCents(tender.total_amount);
-    bucket.txCount += tender.tx_count;
-    buckets.set(key, bucket);
+    if (key === "cash") {
+      summary.cash.amountCents += amountCents;
+      summary.cash.txCount += txCount;
+    } else if (key === "check") {
+      summary.checks.amountCents += amountCents;
+      summary.checks.txCount += txCount;
+    } else if (key === "card_reader" || key === "card_not_present" || key === "card_manual") {
+      summary.card.amountCents += amountCents;
+      summary.card.txCount += txCount;
+      if (amountCents < 0) {
+        summary.cardRefunds.amountCents += amountCents;
+        summary.cardRefunds.txCount += txCount;
+      } else if (key === "card_not_present") {
+        summary.cardNotPresent.amountCents += amountCents;
+        summary.cardNotPresent.txCount += txCount;
+      } else if (key === "card_manual") {
+        summary.cardManual.amountCents += amountCents;
+        summary.cardManual.txCount += txCount;
+      } else {
+        summary.cardTerminal.amountCents += amountCents;
+        summary.cardTerminal.txCount += txCount;
+      }
+    } else {
+      const label = tenderKeyLabel(key);
+      const existing = informational.get(label) ?? { amountCents: 0, txCount: 0 };
+      existing.amountCents += amountCents;
+      existing.txCount += txCount;
+      informational.set(label, existing);
+    }
   }
-  return Array.from(buckets.entries()).map(([key, value]) => ({
-    key,
-    label: tenderKeyLabel(key),
-    amountCents: value.amountCents,
-    txCount: value.txCount,
-  }));
+  summary.informational = Array.from(informational.entries()).map(([label, value]) => ({ label, ...value }));
+  return summary;
+}
+
+function tenderFamilyRows(summary: TenderFamilySummary): string[] {
+  const rows = [
+    `Cash Total | Transactions: ${summary.cash.txCount} | Total: ${formatReportMoney(summary.cash.amountCents)}`,
+    `CC Total (Net) | Transactions: ${summary.card.txCount} | Total: ${formatReportMoney(summary.card.amountCents)}`,
+    `  CC Terminal | Transactions: ${summary.cardTerminal.txCount} | Total: ${formatReportMoney(summary.cardTerminal.amountCents)}`,
+    `  CNP | Transactions: ${summary.cardNotPresent.txCount} | Total: ${formatReportMoney(summary.cardNotPresent.amountCents)}`,
+    `  CC Manual | Transactions: ${summary.cardManual.txCount} | Total: ${formatReportMoney(summary.cardManual.amountCents)}`,
+    `  CC Refunds (all kinds) | Transactions: ${summary.cardRefunds.txCount} | Total: ${formatReportMoney(summary.cardRefunds.amountCents)}`,
+    `Checks Total | Transactions: ${summary.checks.txCount} | Total: ${formatReportMoney(summary.checks.amountCents)}`,
+  ];
+  if (summary.informational.length > 0) {
+    rows.push("INFORMATIONAL ACTIVITY (NOT ADDITIVE)");
+    rows.push(...summary.informational.map((row) =>
+      `  ${row.label} | Transactions: ${row.txCount} | Activity: ${formatReportMoney(row.amountCents)}`,
+    ));
+  }
+  return rows;
 }
 
 function creditCardTenderTotalCents(tenders: ZReportTenderRow[]): number {
@@ -683,15 +755,33 @@ export async function openProfessionalZReportPrint(opts: {
   const creditCardTxCount = creditCardTenderCount(opts.tenders) || transactions.filter((transaction) =>
     tenderLinesForTransaction(transaction).some((payment) => isCreditCardTender(payment.payment_method)),
   ).length;
-  const normalizedTenderRows = tenderRowsWithZeros(opts.tenders, {
-    rms_payment: { amountCents: rmsPaymentTotalCents, txCount: rmsPaymentTotalCents === 0 ? 0 : 1 },
+  const tenderFamilySummary = summarizeTenderFamilies(opts.tenders);
+  if (rmsPaymentTotalCents !== 0) {
+    tenderFamilySummary.informational.push({
+      label: "RMS Payment",
+      amountCents: rmsPaymentTotalCents,
+      txCount: 1,
+    });
+  }
+  const tenderSummaryRows = [
+    ["Cash Total", tenderFamilySummary.cash],
+    ["CC Total (Net)", tenderFamilySummary.card],
+    ["  CC Terminal", tenderFamilySummary.cardTerminal],
+    ["  CNP", tenderFamilySummary.cardNotPresent],
+    ["  CC Manual", tenderFamilySummary.cardManual],
+    ["  CC Refunds (all kinds)", tenderFamilySummary.cardRefunds],
+    ["Checks Total", tenderFamilySummary.checks],
+  ].map(([label, value]) => {
+    const row = value as { amountCents: number; txCount: number };
+    return `<tr><td>${escapeReportHtml(label as string)}</td><td class="center">${row.txCount}</td><td class="money">${formatReportMoney(row.amountCents)}</td></tr>`;
   });
-  const tendersRows = normalizedTenderRows
-    .map(
-      (t) =>
-        `<tr><td>${escapeReportHtml(t.label)}</td><td class="center">${t.txCount}</td><td class="money">${formatReportMoney(t.amountCents)}</td></tr>`,
-    )
-    .join("");
+  if (tenderFamilySummary.informational.length > 0) {
+    tenderSummaryRows.push(`<tr><td colspan="3" class="muted"><strong>Informational Activity (not additive)</strong></td></tr>`);
+    tenderSummaryRows.push(...tenderFamilySummary.informational.map((row) =>
+      `<tr><td>&nbsp;&nbsp;${escapeReportHtml(row.label)}</td><td class="center">${row.txCount}</td><td class="money">${formatReportMoney(row.amountCents)}</td></tr>`,
+    ));
+  }
+  const tendersRows = tenderSummaryRows.join("");
   const byLaneSections =
     opts.tendersByLane && opts.tendersByLane.length > 0
       ? opts.tendersByLane
@@ -873,9 +963,7 @@ export async function openProfessionalZReportPrint(opts: {
     `Merchandise Subtotal: ${formatReportMoney(opts.netSales ?? subtotalBeforeTaxCents)}`,
     "",
     "COMBINED TENDERS",
-    ...normalizedTenderRows.map(
-      (t) => `${t.label} | Transactions: ${t.txCount} | Total: ${formatReportMoney(t.amountCents)}`,
-    ),
+    ...tenderFamilyRows(tenderFamilySummary),
     "",
     ...(opts.tendersByLane?.length
       ? [

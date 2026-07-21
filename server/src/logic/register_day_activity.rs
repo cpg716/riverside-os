@@ -623,17 +623,29 @@ pub async fn fetch_register_day_summary(
 
     let order_in_range = crate::logic::report_basis::order_date_filter_sql(basis);
     let order_session_filter = order_session_filter_sql(basis);
-    let agg_sql = format!(
-        r#"
-        SELECT
-            COUNT(DISTINCT o.id)::bigint AS sale_count,
-            COALESCE(SUM(ln.line_subtotal), 0::numeric) AS subtotal_no_tax,
-            COALESCE(SUM(ln.line_tax), 0::numeric) AS tax_total,
-            COUNT(DISTINCT o.id) FILTER (WHERE o.sale_channel = 'web')::bigint AS web_count
-        FROM transactions o
-        INNER JOIN (
+    let summary_order_in_range = match basis {
+        ReportBasis::Booked => "o.status::text NOT IN ('cancelled')".to_string(),
+        ReportBasis::Completed => order_in_range.clone(),
+    };
+    let summary_line_source = match basis {
+        ReportBasis::Booked => r#"
             SELECT
                 transaction_id,
+                SUM(subtotal_delta)::numeric(14,2) AS line_subtotal,
+                SUM(tax_delta)::numeric(14,2) AS line_tax
+            FROM transaction_line_booking_events
+            WHERE booked_at >= $1
+              AND booked_at < $2
+              AND is_internal = FALSE
+              AND line_kind IS DISTINCT FROM 'rms_charge_payment'
+              AND line_kind IS DISTINCT FROM 'pos_gift_card_load'
+              AND line_kind IS DISTINCT FROM 'alteration_service'
+            GROUP BY transaction_id
+        "#
+        .to_string(),
+        ReportBasis::Completed => r#"
+            SELECT
+                oi.transaction_id,
                 SUM(oi.quantity::numeric * oi.unit_price)::numeric(14,2) AS line_subtotal,
                 SUM(oi.quantity::numeric * (oi.state_tax + oi.local_tax))::numeric(14,2) AS line_tax
             FROM transaction_lines oi
@@ -643,9 +655,20 @@ pub async fn fetch_register_day_summary(
               AND (p.pos_line_kind IS DISTINCT FROM 'pos_gift_card_load')
               AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
               AND (oi.custom_item_type IS DISTINCT FROM 'alteration_service')
-            GROUP BY transaction_id
-        ) ln ON ln.transaction_id = o.id
-        WHERE {order_in_range}
+            GROUP BY oi.transaction_id
+        "#
+        .to_string(),
+    };
+    let agg_sql = format!(
+        r#"
+        SELECT
+            COUNT(DISTINCT o.id)::bigint AS sale_count,
+            COALESCE(SUM(ln.line_subtotal), 0::numeric) AS subtotal_no_tax,
+            COALESCE(SUM(ln.line_tax), 0::numeric) AS tax_total,
+            COUNT(DISTINCT o.id) FILTER (WHERE o.sale_channel = 'web')::bigint AS web_count
+        FROM transactions o
+        INNER JOIN ({summary_line_source}) ln ON ln.transaction_id = o.id
+        WHERE {summary_order_in_range}
         {order_session_filter}
         "#,
     );
@@ -998,18 +1021,68 @@ pub async fn fetch_register_day_summary(
         refund_items_json: Option<serde_json::Value>,
     }
 
+    let sales_line_join = match basis {
+        ReportBasis::Booked => {
+            "LEFT JOIN transaction_lines oi ON oi.transaction_id = o.id".to_string()
+        }
+        ReportBasis::Completed => {
+            "LEFT JOIN transaction_lines oi ON oi.transaction_id = o.id".to_string()
+        }
+    };
+    let sales_event_join = match basis {
+        ReportBasis::Booked => r#"
+            INNER JOIN (
+                SELECT transaction_id, MAX(booked_at) AS last_booked_at,
+                       SUM(subtotal_delta)::numeric(14,2) AS line_subtotal,
+                       SUM(tax_delta)::numeric(14,2) AS line_tax
+                FROM transaction_line_booking_events
+                WHERE booked_at >= $1 AND booked_at < $2
+                  AND is_internal = FALSE
+                  AND line_kind IS DISTINCT FROM 'rms_charge_payment'
+                  AND line_kind IS DISTINCT FROM 'pos_gift_card_load'
+                  AND line_kind IS DISTINCT FROM 'alteration_service'
+                GROUP BY transaction_id
+            ) be ON be.transaction_id = o.id
+        "#
+        .to_string(),
+        ReportBasis::Completed => String::new(),
+    };
+    let sales_order_in_range = match basis {
+        ReportBasis::Booked => "o.status::text NOT IN ('cancelled')".to_string(),
+        ReportBasis::Completed => order_in_range.clone(),
+    };
     let sale_ts = match basis {
-        ReportBasis::Booked => "o.booked_at".to_string(),
+        ReportBasis::Booked => "MAX(be.last_booked_at)".to_string(),
         ReportBasis::Completed => crate::logic::report_basis::ORDER_RECOGNITION_TS_SQL
             .trim()
             .to_string(),
     };
     let sale_order_by = match basis {
-        ReportBasis::Booked => "o.booked_at DESC".to_string(),
+        ReportBasis::Booked => "MAX(be.last_booked_at) DESC".to_string(),
         ReportBasis::Completed => format!(
             "{ts} DESC",
             ts = crate::logic::report_basis::ORDER_RECOGNITION_TS_SQL.trim()
         ),
+    };
+    let sale_group_by = match basis {
+        ReportBasis::Booked => "o.id, be.line_subtotal, be.line_tax".to_string(),
+        ReportBasis::Completed => sale_ts.clone(),
+    };
+    let sales_tax_expr = match basis {
+        ReportBasis::Booked => "be.line_tax".to_string(),
+        ReportBasis::Completed => r#"COALESCE(SUM(
+                GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0)::numeric
+                * (oi.state_tax + oi.local_tax)
+            ), 0)::numeric(14,2)"#
+            .to_string(),
+    };
+    let sales_total_expr = match basis {
+        ReportBasis::Booked => "(be.line_subtotal + be.line_tax)".to_string(),
+        ReportBasis::Completed => r#"COALESCE(SUM(
+                GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0)::numeric
+                * (oi.unit_price + oi.state_tax + oi.local_tax)
+            ), 0)::numeric(14,2)"#
+            .to_string(),
     };
     let sales_sql = format!(
         r#"
@@ -1020,10 +1093,7 @@ pub async fn fetch_register_day_summary(
             o.created_at,
             o.counterpoint_doc_ref,
             o.total_price,
-            COALESCE(SUM(
-                GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0)::numeric
-                * (oi.state_tax + oi.local_tax)
-            ), 0)::numeric(14,2) AS tax_total,
+            {sales_tax_expr} AS tax_total,
             wp.id AS wedding_party_id,
             wp.party_name,
             c.id AS customer_id,
@@ -1057,6 +1127,8 @@ pub async fn fetch_register_day_summary(
                 INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
                 WHERE pa.target_transaction_id = o.id
                   AND pt.status = 'success'
+                  AND COALESCE(pt.effective_date, (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date) >= ($1 AT TIME ZONE reporting.effective_store_timezone())::date
+                  AND COALESCE(pt.effective_date, (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date) < ($2 AT TIME ZONE reporting.effective_store_timezone())::date
             ) AS pay,
             (
                 SELECT jsonb_agg(
@@ -1088,6 +1160,8 @@ pub async fn fetch_register_day_summary(
                     INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
                     WHERE pa.target_transaction_id = o.id
                       AND pt.status = 'success'
+                      AND COALESCE(pt.effective_date, (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date) >= ($1 AT TIME ZONE reporting.effective_store_timezone())::date
+                      AND COALESCE(pt.effective_date, (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date) < ($2 AT TIME ZONE reporting.effective_store_timezone())::date
                     GROUP BY 1
                 ) payment_parts
             ) AS payments_json,
@@ -1112,10 +1186,7 @@ pub async fn fetch_register_day_summary(
                   AND COALESCE(pt.effective_date, (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date) < ($2 AT TIME ZONE reporting.effective_store_timezone())::date
                   AND pt.status = 'success'
             ) AS amount_paid_in_window,
-            COALESCE(SUM(
-                GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0)::numeric
-                * (oi.unit_price + oi.state_tax + oi.local_tax)
-            ), 0)::numeric(14,2) AS sales_total_booked,
+            {sales_total_expr} AS sales_total_booked,
             (
                 SELECT STRING_AGG(DISTINCT oi2.fulfillment::text, ', ')
                 FROM transaction_lines oi2
@@ -1160,23 +1231,24 @@ pub async fn fetch_register_day_summary(
                 WHERE oix.transaction_id = o.id
             ) AS items_json
         FROM transactions o
+        {sales_event_join}
         LEFT JOIN customers c ON c.id = o.customer_id
         LEFT JOIN wedding_members wm ON wm.id = o.wedding_member_id
         LEFT JOIN wedding_parties wp ON wp.id = wm.wedding_party_id
-        LEFT JOIN transaction_lines oi ON oi.transaction_id = o.id
+        {sales_line_join}
         LEFT JOIN (
             SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
             FROM transaction_return_lines
             GROUP BY transaction_line_id
         ) orl ON orl.transaction_line_id = oi.id
-        WHERE {order_in_range}
+        WHERE {sales_order_in_range}
           AND EXISTS (
               SELECT 1
               FROM transaction_lines tl_activity
               WHERE tl_activity.transaction_id = o.id
           )
         {order_session_filter}
-        GROUP BY o.id, {sale_ts}, o.created_at, o.counterpoint_doc_ref, o.total_price, o.balance_due, wp.id, wp.party_name, c.id, c.first_name, c.last_name, c.customer_code, c.phone, c.email, o.sale_channel::text
+        GROUP BY o.id, {sale_group_by}, o.created_at, o.counterpoint_doc_ref, o.total_price, o.balance_due, wp.id, wp.party_name, c.id, c.first_name, c.last_name, c.customer_code, c.phone, c.email, o.sale_channel::text
         ORDER BY {sale_order_by}
         LIMIT 120
         "#
