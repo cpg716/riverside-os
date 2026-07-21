@@ -215,13 +215,6 @@ async fn discover_candidates(
                        AND NOT COALESCE(d.is_counterpoint_import, false)
                        AND ABS(COALESCE(t.amount_paid, 0) - COALESCE(d.amount_paid, 0)) <= 0.01
                    )
-                   OR (
-                       jsonb_array_length(di.item_signature) = jsonb_array_length(ti.item_signature)
-                       AND d.counterpoint_doc_ref IS NULL
-                       AND NOT COALESCE(d.is_counterpoint_import, false)
-                       AND COALESCE(t.is_counterpoint_import, false)
-                       AND ABS(COALESCE(t.amount_paid, 0) - COALESCE(d.amount_paid, 0)) <= 0.01
-                   )
                )
             WHERE (
                 d.counterpoint_doc_ref IS NOT NULL
