@@ -79,7 +79,7 @@ Tiles **only appear** if you have **every** required permission for that tile (a
 | **Customer RMS Charge Records** | Paged list aligned with **Customers → RMS charge** | **customers.rms_charge** |
 | **Closed Register Drawers** | Recent closes, variance-oriented summary | **insights.view** |
 | **Discount & Override Reasons** | Counts of override and discount reasons | **insights.view** |
-| **Register Day Summary** | Store-wide register day summary | **register.reports** |
+| **Register Day Summary** | Store-wide register day summary; defaults to Today and retrieves all audited activity pages before display, print, or CSV (up to the explicit 100,000-row limit) | **register.reports** |
 | **Saved Wedding Report Views** | Your saved filter bundles | **insights.view** |
 | **Card Processing Summary** | Daily card volume, fees, and net settlement values | **insights.view** |
 | **Payment Exception Review** | Failed, declined, voided, cancelled, or error-status payment activity by date, method, provider, and status | **insights.view** |

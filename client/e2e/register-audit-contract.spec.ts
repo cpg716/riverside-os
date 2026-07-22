@@ -1,5 +1,10 @@
 import { expect, test, type APIRequestContext } from "@playwright/test";
-import { apiBase, staffCode, staffHeaders } from "./helpers/rmsCharge";
+import {
+  apiBase,
+  resetOpenRegisterSessions,
+  staffCode,
+  staffHeaders,
+} from "./helpers/rmsCharge";
 
 type OpenSessionResponse = {
   session_id: string;
@@ -22,7 +27,11 @@ type ReconciliationResponse = {
   expected_cash: string;
   tenders_by_lane: Array<{
     register_lane: number;
-    tenders: Array<{ payment_method: string; total_amount: string; tx_count: number }>;
+    tenders: Array<{
+      payment_method: string;
+      total_amount: string;
+      tx_count: number;
+    }>;
   }>;
 };
 
@@ -66,7 +75,9 @@ function storeLocalDate(): string {
   }).format(new Date());
 }
 
-async function listOpenSessions(request: APIRequestContext): Promise<OpenSessionRow[]> {
+async function listOpenSessions(
+  request: APIRequestContext,
+): Promise<OpenSessionRow[]> {
   const res = await request.get(`${apiBase()}/api/sessions/list-open`, {
     headers: staffHeaders(),
     failOnStatusCode: false,
@@ -76,19 +87,25 @@ async function listOpenSessions(request: APIRequestContext): Promise<OpenSession
   return JSON.parse(bodyText) as OpenSessionRow[];
 }
 
-async function issuePosToken(request: APIRequestContext, sessionId: string): Promise<string> {
-  const res = await request.post(`${apiBase()}/api/sessions/${sessionId}/pos-api-token`, {
-    headers: {
-      ...staffHeaders(),
-      "Content-Type": "application/json",
-      "x-riverside-station-key": "station-e2e",
+async function issuePosToken(
+  request: APIRequestContext,
+  sessionId: string,
+): Promise<string> {
+  const res = await request.post(
+    `${apiBase()}/api/sessions/${sessionId}/pos-api-token`,
+    {
+      headers: {
+        ...staffHeaders(),
+        "Content-Type": "application/json",
+        "x-riverside-station-key": "station-e2e",
+      },
+      data: {
+        cashier_code: staffCode(),
+        pin: staffCode(),
+      },
+      failOnStatusCode: false,
     },
-    data: {
-      cashier_code: staffCode(),
-      pin: staffCode(),
-    },
-    failOnStatusCode: false,
-  });
+  );
   const bodyText = await res.text();
   expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
   const body = JSON.parse(bodyText) as { pos_api_token?: string };
@@ -117,17 +134,75 @@ async function fetchReconciliation(
   sessionId: string,
   sessionToken: string,
 ): Promise<ReconciliationResponse> {
-  const res = await request.get(`${apiBase()}/api/sessions/${sessionId}/reconciliation`, {
-    headers: {
-      "x-riverside-pos-session-id": sessionId,
-      "x-riverside-pos-session-token": sessionToken,
-      "x-riverside-station-key": "station-e2e",
+  const res = await request.get(
+    `${apiBase()}/api/sessions/${sessionId}/reconciliation`,
+    {
+      headers: {
+        "x-riverside-pos-session-id": sessionId,
+        "x-riverside-pos-session-token": sessionToken,
+        "x-riverside-station-key": "station-e2e",
+      },
+      failOnStatusCode: false,
     },
-    failOnStatusCode: false,
-  });
+  );
   const bodyText = await res.text();
   expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
   return JSON.parse(bodyText) as ReconciliationResponse;
+}
+
+async function prepareGroupForClose(
+  request: APIRequestContext,
+  primarySessionId: string,
+  primarySessionToken: string,
+): Promise<void> {
+  const begin = await request.post(
+    `${apiBase()}/api/sessions/${primarySessionId}/begin-reconcile`,
+    {
+      headers: {
+        "Content-Type": "application/json",
+        "x-riverside-pos-session-id": primarySessionId,
+        "x-riverside-pos-session-token": primarySessionToken,
+        "x-riverside-station-key": "station-e2e",
+      },
+      data: { active: true },
+      failOnStatusCode: false,
+    },
+  );
+  const beginText = await begin.text();
+  expect(begin.status(), beginText.slice(0, 1000)).toBe(200);
+
+  const rows = await listOpenSessions(request);
+  const primary = rows.find((row) => row.session_id === primarySessionId);
+  expect(primary).toBeTruthy();
+  const group = rows.filter(
+    (row) => row.till_close_group_id === primary?.till_close_group_id,
+  );
+  for (const session of group) {
+    const token =
+      session.session_id === primarySessionId
+        ? primarySessionToken
+        : await issuePosToken(request, session.session_id);
+    const acknowledgement = await request.post(
+      `${apiBase()}/api/recovery/station-close-status`,
+      {
+        headers: {
+          "Content-Type": "application/json",
+          "x-riverside-pos-session-id": session.session_id,
+          "x-riverside-pos-session-token": token,
+          "x-riverside-station-key": "station-e2e",
+        },
+        data: {
+          pending_checkout_count: 0,
+          blocked_checkout_count: 0,
+        },
+        failOnStatusCode: false,
+      },
+    );
+    const acknowledgementText = await acknowledgement.text();
+    expect(acknowledgement.status(), acknowledgementText.slice(0, 1000)).toBe(
+      200,
+    );
+  }
 }
 
 async function createParkedSale(
@@ -136,23 +211,26 @@ async function createParkedSale(
   sessionToken: string,
   staffId: string,
 ): Promise<ParkedSaleResponse> {
-  const res = await request.post(`${apiBase()}/api/sessions/${sessionId}/parked-sales`, {
-    headers: {
-      "Content-Type": "application/json",
-      "x-riverside-pos-session-id": sessionId,
-      "x-riverside-pos-session-token": sessionToken,
-      "x-riverside-station-key": "station-e2e",
-    },
-    data: {
-      parked_by_staff_id: staffId,
-      label: "E2E parked sale close purge",
-      payload_json: {
-        cart: [{ sku: "E2E-PARKED", quantity: 1 }],
-        source: "register-audit-contract",
+  const res = await request.post(
+    `${apiBase()}/api/sessions/${sessionId}/parked-sales`,
+    {
+      headers: {
+        "Content-Type": "application/json",
+        "x-riverside-pos-session-id": sessionId,
+        "x-riverside-pos-session-token": sessionToken,
+        "x-riverside-station-key": "station-e2e",
       },
+      data: {
+        parked_by_staff_id: staffId,
+        label: "E2E parked sale close purge",
+        payload_json: {
+          cart: [{ sku: "E2E-PARKED", quantity: 1 }],
+          source: "register-audit-contract",
+        },
+      },
+      failOnStatusCode: false,
     },
-    failOnStatusCode: false,
-  });
+  );
   const bodyText = await res.text();
   expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
   return JSON.parse(bodyText) as ParkedSaleResponse;
@@ -162,16 +240,21 @@ async function fetchParkedSaleStatus(
   request: APIRequestContext,
   parkedSaleId: string,
 ): Promise<ParkedSaleStatusResponse> {
-  const res = await request.get(`${apiBase()}/api/test-support/parked-sales/${parkedSaleId}`, {
-    headers: staffHeaders(),
-    failOnStatusCode: false,
-  });
+  const res = await request.get(
+    `${apiBase()}/api/test-support/parked-sales/${parkedSaleId}`,
+    {
+      headers: staffHeaders(),
+      failOnStatusCode: false,
+    },
+  );
   const bodyText = await res.text();
   expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
   return JSON.parse(bodyText) as ParkedSaleStatusResponse;
 }
 
-async function expectPendingQboStagingForToday(request: APIRequestContext): Promise<void> {
+async function expectPendingQboStagingForToday(
+  request: APIRequestContext,
+): Promise<void> {
   const businessDate = storeLocalDate();
   await expect
     .poll(
@@ -201,21 +284,25 @@ async function closeGroupExactly(
   sessionId: string,
   sessionToken: string,
 ): Promise<CloseSessionResponse> {
+  await prepareGroupForClose(request, sessionId, sessionToken);
   const recon = await fetchReconciliation(request, sessionId, sessionToken);
-  const res = await request.post(`${apiBase()}/api/sessions/${sessionId}/close`, {
-    headers: {
-      "Content-Type": "application/json",
-      "x-riverside-pos-session-id": sessionId,
-      "x-riverside-pos-session-token": sessionToken,
-      "x-riverside-station-key": "station-e2e",
+  const res = await request.post(
+    `${apiBase()}/api/sessions/${sessionId}/close`,
+    {
+      headers: {
+        "Content-Type": "application/json",
+        "x-riverside-pos-session-id": sessionId,
+        "x-riverside-pos-session-token": sessionToken,
+        "x-riverside-station-key": "station-e2e",
+      },
+      data: {
+        actual_cash: recon.expected_cash,
+        closing_notes: "E2E exact-cash cleanup close",
+        closing_comments: null,
+      },
+      failOnStatusCode: false,
     },
-    data: {
-      actual_cash: recon.expected_cash,
-      closing_notes: "E2E exact-cash cleanup close",
-      closing_comments: null,
-    },
-    failOnStatusCode: false,
-  });
+  );
   const bodyText = await res.text();
   expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
   return JSON.parse(bodyText) as CloseSessionResponse;
@@ -226,19 +313,22 @@ async function postStaffClose(
   sessionId: string,
   actualCash: string,
 ): Promise<{ status: number; bodyText: string }> {
-  const res = await request.post(`${apiBase()}/api/sessions/${sessionId}/close`, {
-    headers: {
-      ...staffHeaders(),
-      "Content-Type": "application/json",
-      "x-riverside-station-key": "station-e2e",
+  const res = await request.post(
+    `${apiBase()}/api/sessions/${sessionId}/close`,
+    {
+      headers: {
+        ...staffHeaders(),
+        "Content-Type": "application/json",
+        "x-riverside-station-key": "station-e2e",
+      },
+      data: {
+        actual_cash: actualCash,
+        closing_notes: null,
+        closing_comments: null,
+      },
+      failOnStatusCode: false,
     },
-    data: {
-      actual_cash: actualCash,
-      closing_notes: null,
-      closing_comments: null,
-    },
-    failOnStatusCode: false,
-  });
+  );
   return {
     status: res.status(),
     bodyText: await res.text(),
@@ -260,6 +350,7 @@ async function postStaleCheckout(
     },
     data: {
       session_id: sessionId,
+      checkout_client_id: crypto.randomUUID(),
       operator_staff_id: staffId,
       customer_id: staffId,
       payment_method: "cash",
@@ -286,15 +377,15 @@ async function postStaleCheckout(
   };
 }
 
-async function closeExistingPrimaryGroup(request: APIRequestContext): Promise<void> {
-  const rows = await listOpenSessions(request);
-  const primary = rows.find((row) => row.register_lane === 1);
-  if (!primary) return;
-  const token = await issuePosToken(request, primary.session_id);
-  await closeGroupExactly(request, primary.session_id, token);
+async function closeExistingPrimaryGroup(
+  request: APIRequestContext,
+): Promise<void> {
+  await resetOpenRegisterSessions(request);
 }
 
-async function openPrimaryRegister(request: APIRequestContext): Promise<OpenSessionResponse> {
+async function openPrimaryRegister(
+  request: APIRequestContext,
+): Promise<OpenSessionResponse> {
   const res = await request.post(`${apiBase()}/api/sessions/open`, {
     headers: {
       "Content-Type": "application/json",
@@ -328,7 +419,7 @@ test.describe("register audit contract", () => {
       request.post(`${apiBase()}/api/sessions/open`, {
         headers: {
           "Content-Type": "application/json",
-      "x-riverside-station-key": "station-e2e",
+          "x-riverside-station-key": "station-e2e",
         },
         data: {
           cashier_code: staffCode(),
@@ -348,7 +439,9 @@ test.describe("register audit contract", () => {
     expect(responses[rejectedIndex]?.status()).toBe(409);
     expect(responseTexts[rejectedIndex]).toMatch(/register_lane_in_use/i);
 
-    const opened = JSON.parse(responseTexts[successfulIndex]) as OpenSessionResponse;
+    const opened = JSON.parse(
+      responseTexts[successfulIndex],
+    ) as OpenSessionResponse;
     expect(opened.register_lane).toBe(1);
     expect(opened.pos_api_token).toBeTruthy();
 
@@ -359,7 +452,11 @@ test.describe("register audit contract", () => {
     expect(groupRows.map((row) => row.register_lane)).toEqual([1, 2, 3, 4]);
     expect(rows.filter((row) => row.register_lane === 1)).toHaveLength(1);
 
-    const close = await closeGroupExactly(request, opened.session_id, opened.pos_api_token ?? "");
+    const close = await closeGroupExactly(
+      request,
+      opened.session_id,
+      opened.pos_api_token ?? "",
+    );
     expect(close.status).toBe("closed");
   });
 
@@ -375,32 +472,42 @@ test.describe("register audit contract", () => {
       .filter((row) => row.till_close_group_id === opened.till_close_group_id)
       .sort((a, b) => a.register_lane - b.register_lane);
     expect(groupRows.map((row) => row.register_lane)).toEqual([1, 2, 3, 4]);
-    expect(groupRows.every((row) => row.lifecycle_status === "open")).toBe(true);
+    expect(groupRows.every((row) => row.lifecycle_status === "open")).toBe(
+      true,
+    );
 
-    const duplicatePrimary = await request.post(`${apiBase()}/api/sessions/open`, {
-      headers: {
-        "Content-Type": "application/json",
-      "x-riverside-station-key": "station-e2e",
+    const duplicatePrimary = await request.post(
+      `${apiBase()}/api/sessions/open`,
+      {
+        headers: {
+          "Content-Type": "application/json",
+          "x-riverside-station-key": "station-e2e",
+        },
+        data: {
+          cashier_code: staffCode(),
+          pin: staffCode(),
+          opening_float: "200.00",
+          register_lane: 1,
+        },
+        failOnStatusCode: false,
       },
-      data: {
-        cashier_code: staffCode(),
-        pin: staffCode(),
-        opening_float: "200.00",
-        register_lane: 1,
-      },
-      failOnStatusCode: false,
-    });
+    );
     expect(duplicatePrimary.status()).toBe(409);
-    await expect(duplicatePrimary.text()).resolves.toMatch(/register_lane_in_use/i);
+    await expect(duplicatePrimary.text()).resolves.toMatch(
+      /register_lane_in_use/i,
+    );
 
-    const currentWithOtherStation = await request.get(`${apiBase()}/api/sessions/current`, {
-      headers: {
-        "x-riverside-pos-session-id": opened.session_id,
-        "x-riverside-pos-session-token": opened.pos_api_token ?? "",
-        "x-riverside-station-key": "station-e2e-other",
+    const currentWithOtherStation = await request.get(
+      `${apiBase()}/api/sessions/current`,
+      {
+        headers: {
+          "x-riverside-pos-session-id": opened.session_id,
+          "x-riverside-pos-session-token": opened.pos_api_token ?? "",
+          "x-riverside-station-key": "station-e2e-other",
+        },
+        failOnStatusCode: false,
       },
-      failOnStatusCode: false,
-    });
+    );
     expect(currentWithOtherStation.status()).toBe(401);
 
     const satellite = groupRows.find((row) => row.register_lane === 2);
@@ -408,14 +515,20 @@ test.describe("register audit contract", () => {
     const satelliteAttach = await request.post(
       `${apiBase()}/api/sessions/${satellite?.session_id}/attach`,
       {
-        headers: { ...staffHeaders(), "x-riverside-station-key": "station-e2e" },
+        headers: {
+          ...staffHeaders(),
+          "x-riverside-station-key": "station-e2e",
+        },
         failOnStatusCode: false,
       },
     );
     const satelliteAttachText = await satelliteAttach.text();
-    expect(satelliteAttach.status(), satelliteAttachText.slice(0, 1000)).toBe(200);
-    const satelliteToken = (JSON.parse(satelliteAttachText) as { pos_api_token?: string })
-      .pos_api_token;
+    expect(satelliteAttach.status(), satelliteAttachText.slice(0, 1000)).toBe(
+      200,
+    );
+    const satelliteToken = (
+      JSON.parse(satelliteAttachText) as { pos_api_token?: string }
+    ).pos_api_token;
     expect(satelliteToken).toBeTruthy();
 
     const satelliteClose = await request.post(
@@ -425,7 +538,7 @@ test.describe("register audit contract", () => {
           "Content-Type": "application/json",
           "x-riverside-pos-session-id": satellite?.session_id ?? "",
           "x-riverside-pos-session-token": satelliteToken ?? "",
-      "x-riverside-station-key": "station-e2e",
+          "x-riverside-station-key": "station-e2e",
         },
         data: {
           actual_cash: "0.00",
@@ -438,29 +551,42 @@ test.describe("register audit contract", () => {
     expect(satelliteClose.status()).toBe(400);
     await expect(satelliteClose.text()).resolves.toMatch(/Register #1 only/i);
 
-    const recon = await fetchReconciliation(request, opened.session_id, opened.pos_api_token ?? "");
+    const recon = await fetchReconciliation(
+      request,
+      opened.session_id,
+      opened.pos_api_token ?? "",
+    );
     expect(recon.session_id).toBe(opened.session_id);
     expect(recon.opening_float).toBe("200.00");
     expect(recon.expected_cash).toBe("200.00");
     expect(recon.tenders_by_lane).toEqual([]);
 
-    const close = await closeGroupExactly(request, opened.session_id, opened.pos_api_token ?? "");
+    const close = await closeGroupExactly(
+      request,
+      opened.session_id,
+      opened.pos_api_token ?? "",
+    );
     expect(close.status).toBe("closed");
     expectMoney(close.discrepancy, "0.00");
 
     const afterCloseRows = await listOpenSessions(request);
     expect(
-      afterCloseRows.some((row) => row.till_close_group_id === opened.till_close_group_id),
+      afterCloseRows.some(
+        (row) => row.till_close_group_id === opened.till_close_group_id,
+      ),
     ).toBe(false);
 
-    const currentWithClosedToken = await request.get(`${apiBase()}/api/sessions/current`, {
-      headers: {
-        "x-riverside-pos-session-id": opened.session_id,
-        "x-riverside-pos-session-token": opened.pos_api_token ?? "",
-      "x-riverside-station-key": "station-e2e",
+    const currentWithClosedToken = await request.get(
+      `${apiBase()}/api/sessions/current`,
+      {
+        headers: {
+          "x-riverside-pos-session-id": opened.session_id,
+          "x-riverside-pos-session-token": opened.pos_api_token ?? "",
+          "x-riverside-station-key": "station-e2e",
+        },
+        failOnStatusCode: false,
       },
-      failOnStatusCode: false,
-    });
+    );
     expect([401, 404]).toContain(currentWithClosedToken.status());
 
     const tokenAfterClose = await request.post(
@@ -468,7 +594,7 @@ test.describe("register audit contract", () => {
       {
         headers: {
           "Content-Type": "application/json",
-      "x-riverside-station-key": "station-e2e",
+          "x-riverside-station-key": "station-e2e",
         },
         data: {
           cashier_code: staffCode(),
@@ -480,42 +606,113 @@ test.describe("register audit contract", () => {
     expect(tokenAfterClose.status()).toBe(404);
   });
 
-  test("simultaneous primary register closes leave one closed till group", async ({ request }) => {
+  test("Z-close rejects a missing workstation empty-queue acknowledgement", async ({
+    request,
+  }) => {
     test.setTimeout(90_000);
     await closeExistingPrimaryGroup(request);
 
     const opened = await openPrimaryRegister(request);
-    const recon = await fetchReconciliation(request, opened.session_id, opened.pos_api_token ?? "");
+    const begin = await request.post(
+      `${apiBase()}/api/sessions/${opened.session_id}/begin-reconcile`,
+      {
+        headers: {
+          "Content-Type": "application/json",
+          "x-riverside-pos-session-id": opened.session_id,
+          "x-riverside-pos-session-token": opened.pos_api_token ?? "",
+          "x-riverside-station-key": "station-e2e",
+        },
+        data: { active: true },
+        failOnStatusCode: false,
+      },
+    );
+    expect(begin.status()).toBe(200);
+    const recon = await fetchReconciliation(
+      request,
+      opened.session_id,
+      opened.pos_api_token ?? "",
+    );
+    const blocked = await postStaffClose(
+      request,
+      opened.session_id,
+      recon.expected_cash,
+    );
+    expect(blocked.status).toBe(409);
+    const blockedBody = JSON.parse(blocked.bodyText) as {
+      error?: string;
+      station_blockers?: string[];
+    };
+    expect(blockedBody.error).toBe("checkout_recovery_blocks_close");
+    expect(blockedBody.station_blockers).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/acknowledgement missing/i),
+      ]),
+    );
+
+    const close = await closeGroupExactly(
+      request,
+      opened.session_id,
+      opened.pos_api_token ?? "",
+    );
+    expect(close.status).toBe("closed");
+  });
+
+  test("simultaneous primary register closes leave one closed till group", async ({
+    request,
+  }) => {
+    test.setTimeout(90_000);
+    await closeExistingPrimaryGroup(request);
+
+    const opened = await openPrimaryRegister(request);
+    const recon = await fetchReconciliation(
+      request,
+      opened.session_id,
+      opened.pos_api_token ?? "",
+    );
+    await prepareGroupForClose(
+      request,
+      opened.session_id,
+      opened.pos_api_token ?? "",
+    );
 
     const closeAttempts = await Promise.all([
       postStaffClose(request, opened.session_id, recon.expected_cash),
       postStaffClose(request, opened.session_id, recon.expected_cash),
     ]);
 
-    const successful = closeAttempts.filter((attempt) => attempt.status === 200);
+    const successful = closeAttempts.filter(
+      (attempt) => attempt.status === 200,
+    );
     const rejected = closeAttempts.filter((attempt) => attempt.status !== 200);
     expect(successful).toHaveLength(1);
     expect(rejected).toHaveLength(1);
     expect(rejected[0]?.status).toBe(409);
     expect(rejected[0]?.bodyText).toMatch(/already closed/i);
 
-    const close = JSON.parse(successful[0]?.bodyText ?? "{}") as CloseSessionResponse;
+    const close = JSON.parse(
+      successful[0]?.bodyText ?? "{}",
+    ) as CloseSessionResponse;
     expect(close.status).toBe("closed");
     expectMoney(close.discrepancy, "0.00");
 
     const afterCloseRows = await listOpenSessions(request);
     expect(
-      afterCloseRows.some((row) => row.till_close_group_id === opened.till_close_group_id),
+      afterCloseRows.some(
+        (row) => row.till_close_group_id === opened.till_close_group_id,
+      ),
     ).toBe(false);
 
-    const currentWithClosedToken = await request.get(`${apiBase()}/api/sessions/current`, {
-      headers: {
-        "x-riverside-pos-session-id": opened.session_id,
-        "x-riverside-pos-session-token": opened.pos_api_token ?? "",
-      "x-riverside-station-key": "station-e2e",
+    const currentWithClosedToken = await request.get(
+      `${apiBase()}/api/sessions/current`,
+      {
+        headers: {
+          "x-riverside-pos-session-id": opened.session_id,
+          "x-riverside-pos-session-token": opened.pos_api_token ?? "",
+          "x-riverside-station-key": "station-e2e",
+        },
+        failOnStatusCode: false,
       },
-      failOnStatusCode: false,
-    });
+    );
     expect([401, 404]).toContain(currentWithClosedToken.status());
   });
 
@@ -527,18 +724,32 @@ test.describe("register audit contract", () => {
 
     const opened = await openPrimaryRegister(request);
     const staffId = await verifyStaffId(request);
-    const recon = await fetchReconciliation(request, opened.session_id, opened.pos_api_token ?? "");
+    const recon = await fetchReconciliation(
+      request,
+      opened.session_id,
+      opened.pos_api_token ?? "",
+    );
+    await prepareGroupForClose(
+      request,
+      opened.session_id,
+      opened.pos_api_token ?? "",
+    );
 
     const [closeAttempt, checkoutAttempt] = await Promise.all([
       postStaffClose(request, opened.session_id, recon.expected_cash),
-      postStaleCheckout(request, opened.session_id, opened.pos_api_token ?? "", staffId),
+      postStaleCheckout(
+        request,
+        opened.session_id,
+        opened.pos_api_token ?? "",
+        staffId,
+      ),
     ]);
 
     expect(closeAttempt.status, closeAttempt.bodyText.slice(0, 1000)).toBe(200);
     expect(checkoutAttempt.status).not.toBe(200);
     expect([400, 401, 404]).toContain(checkoutAttempt.status);
     expect(checkoutAttempt.bodyText).toMatch(
-      /Register session is not open|invalid or expired register session token|target transaction|Transaction not found/i,
+      /waiting for Z-close|Restore Register for Selling|Register #\d+ is closed|invalid or expired register session token|target transaction|Transaction not found/i,
     );
 
     const staleRetry = await postStaleCheckout(
@@ -548,11 +759,15 @@ test.describe("register audit contract", () => {
       staffId,
     );
     expect(staleRetry.status).toBe(401);
-    expect(staleRetry.bodyText).toMatch(/invalid or expired register session token/i);
+    expect(staleRetry.bodyText).toMatch(
+      /invalid or expired register session token/i,
+    );
 
     const afterCloseRows = await listOpenSessions(request);
     expect(
-      afterCloseRows.some((row) => row.till_close_group_id === opened.till_close_group_id),
+      afterCloseRows.some(
+        (row) => row.till_close_group_id === opened.till_close_group_id,
+      ),
     ).toBe(false);
   });
 
@@ -572,13 +787,19 @@ test.describe("register audit contract", () => {
     );
     expect(parked.status).toBe("parked");
 
-    const close = await closeGroupExactly(request, opened.session_id, opened.pos_api_token ?? "");
+    const close = await closeGroupExactly(
+      request,
+      opened.session_id,
+      opened.pos_api_token ?? "",
+    );
     expect(close.status).toBe("closed");
 
     const status = await fetchParkedSaleStatus(request, parked.id);
     expect(status.register_session_id).toBe(opened.session_id);
     expect(status.status).toBe("deleted");
-    expect(status.audit_actions).toEqual(expect.arrayContaining(["park", "purge_on_close"]));
+    expect(status.audit_actions).toEqual(
+      expect.arrayContaining(["park", "purge_on_close"]),
+    );
     await expectPendingQboStagingForToday(request);
   });
 });

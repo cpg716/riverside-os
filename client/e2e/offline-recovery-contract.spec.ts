@@ -1,10 +1,15 @@
-import { expect, test, type Page } from "@playwright/test";
+import {
+  expect,
+  test,
+  type APIRequestContext,
+  type Page,
+} from "@playwright/test";
 import { signInToBackOffice } from "./helpers/backofficeSignIn";
 import {
   enterPosShell,
   ensurePosRegisterSessionOpen,
 } from "./helpers/openPosRegister";
-import { ensureSessionAuth } from "./helpers/rmsCharge";
+import { apiBase, ensureSessionAuth } from "./helpers/rmsCharge";
 
 type QueueStatus = "pending" | "blocked";
 
@@ -17,6 +22,32 @@ type QueueItem = {
   lastErrorStatus?: number;
   lastErrorMessage?: string;
 };
+
+type RecoveryPostBody = {
+  client_job_key: string;
+  kind: "checkout_offline" | "checkout_unconfirmed" | "pickup_after_payment";
+  status: QueueStatus;
+  payload: unknown;
+  attempt_count?: number;
+  register_session_id?: string;
+  transaction_id?: string;
+  checkout_client_id?: string;
+  label?: string;
+  last_error?: string;
+};
+
+function mirroredRecoveryJob(
+  request: RecoveryPostBody,
+  status: QueueStatus | "resolved" | "dismissed" = request.status,
+): Record<string, unknown> {
+  return {
+    ...request,
+    status,
+    attempt_count: request.attempt_count ?? 0,
+    first_seen_at: new Date().toISOString(),
+    last_seen_at: new Date().toISOString(),
+  };
+}
 
 async function withCheckoutQueueStore<T>(
   page: Page,
@@ -65,7 +96,10 @@ async function clearCheckoutQueue(page: Page): Promise<void> {
   await page.evaluate(() => window.dispatchEvent(new Event("queue_changed")));
 }
 
-async function putCheckoutQueueItem(page: Page, item: QueueItem): Promise<void> {
+async function putCheckoutQueueItem(
+  page: Page,
+  item: QueueItem,
+): Promise<void> {
   await withCheckoutQueueStore(
     page,
     `
@@ -81,7 +115,10 @@ async function putCheckoutQueueItem(page: Page, item: QueueItem): Promise<void> 
   await page.evaluate(() => window.dispatchEvent(new Event("queue_changed")));
 }
 
-async function getCheckoutQueueItem(page: Page, id: string): Promise<QueueItem | null> {
+async function getCheckoutQueueItem(
+  page: Page,
+  id: string,
+): Promise<QueueItem | null> {
   return withCheckoutQueueStore<QueueItem | null>(
     page,
     `
@@ -96,9 +133,448 @@ async function getCheckoutQueueItem(page: Page, id: string): Promise<QueueItem |
   );
 }
 
+async function setRecoveryPosAuth(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    window.sessionStorage.setItem(
+      "ros.posRegisterAuth.v1",
+      JSON.stringify({
+        sessionId: "11111111-1111-4111-8111-111111111111",
+        token: "offline-recovery-contract-token",
+        stationKey: "offline-recovery-contract-station",
+      }),
+    );
+  });
+}
+
+async function closeRegisterSession(
+  page: Page,
+  request: APIRequestContext,
+): Promise<void> {
+  const auth = await page.evaluate(() => {
+    const raw = window.sessionStorage.getItem("ros.posRegisterAuth.v1");
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw) as {
+        sessionId?: string;
+        token?: string;
+        stationKey?: string;
+      };
+    } catch {
+      return null;
+    }
+  });
+  if (!auth?.sessionId || !auth.token || !auth.stationKey) return;
+  const headers = {
+    "Content-Type": "application/json",
+    "x-riverside-pos-session-id": auth.sessionId,
+    "x-riverside-pos-session-token": auth.token,
+    "x-riverside-station-key": auth.stationKey,
+  };
+  const begin = await request.post(
+    `${apiBase()}/api/sessions/${auth.sessionId}/begin-reconcile`,
+    {
+      headers,
+      data: { active: true },
+      failOnStatusCode: false,
+    },
+  );
+  if (begin.status() !== 200) return;
+  const acknowledgement = await request.post(
+    `${apiBase()}/api/recovery/station-close-status`,
+    {
+      headers,
+      data: { pending_checkout_count: 0, blocked_checkout_count: 0 },
+      failOnStatusCode: false,
+    },
+  );
+  if (acknowledgement.status() !== 200) return;
+  const reconciliation = await request.get(
+    `${apiBase()}/api/sessions/${auth.sessionId}/reconciliation`,
+    { headers, failOnStatusCode: false },
+  );
+  if (reconciliation.status() !== 200) return;
+  const { expected_cash: expectedCash } = (await reconciliation.json()) as {
+    expected_cash?: string;
+  };
+  if (!expectedCash) return;
+  await request.post(`${apiBase()}/api/sessions/${auth.sessionId}/close`, {
+    headers: {
+      ...headers,
+    },
+    data: {
+      actual_cash: expectedCash,
+      closing_notes: "E2E offline recovery fixture cleanup",
+      closing_comments: null,
+    },
+    failOnStatusCode: false,
+  });
+}
+
 test.describe("offline checkout recovery contract", () => {
-  test.afterEach(async ({ page }) => {
+  test.afterEach(async ({ page, request }) => {
     await clearCheckoutQueue(page).catch(() => {});
+    await closeRegisterSession(page, request).catch(() => {});
+    await page.unrouteAll({ behavior: "wait" }).catch(() => {});
+  });
+
+  test("successful checkout waits for its recovery mirror before audited resolution", async ({
+    page,
+  }) => {
+    await signInToBackOffice(page);
+    await clearCheckoutQueue(page);
+
+    const id = crypto.randomUUID();
+    const calls: string[] = [];
+    let releasePost!: () => void;
+    let markPostStarted!: () => void;
+    const postGate = new Promise<void>((resolve) => {
+      releasePost = resolve;
+    });
+    const postStarted = new Promise<void>((resolve) => {
+      markPostStarted = resolve;
+    });
+    await page.route("**/api/recovery**", async (route) => {
+      const method = route.request().method();
+      if (method === "POST") {
+        calls.push("post-started");
+        markPostStarted();
+        await postGate;
+        calls.push("post-completed");
+        const body = route.request().postDataJSON() as RecoveryPostBody;
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify(mirroredRecoveryJob(body)),
+        });
+        return;
+      }
+      if (method === "PATCH") {
+        calls.push("patch-resolved");
+        await route.fulfill({ status: 204, body: "" });
+        return;
+      }
+      await route.continue();
+    });
+
+    const item: QueueItem = {
+      id,
+      timestamp: Date.now(),
+      status: "pending",
+      payload: {
+        checkout_client_id: crypto.randomUUID(),
+        session_id: crypto.randomUUID(),
+        operator_staff_id: crypto.randomUUID(),
+        payment_method: "cash",
+        total_price: "1.00",
+        amount_paid: "1.00",
+        items: [],
+      },
+    };
+    const completion = page.evaluate(async (queuedItem) => {
+      const modulePath = "/src/lib/offlineQueue.ts";
+      const queue = await import(/* @vite-ignore */ modulePath);
+      await queue.updateQueuedCheckout(queuedItem);
+      await queue.dequeueCheckout(queuedItem.id);
+    }, item);
+
+    await postStarted;
+    await page.waitForTimeout(100);
+    expect(calls).toEqual(["post-started"]);
+    releasePost();
+    await completion;
+    expect(calls).toEqual(["post-started", "post-completed", "patch-resolved"]);
+    expect(await getCheckoutQueueItem(page, id)).toBeNull();
+  });
+
+  test("failed recovery mirror leaves a visible retry task and never sends PATCH", async ({
+    page,
+  }) => {
+    await signInToBackOffice(page);
+    await clearCheckoutQueue(page);
+
+    const id = crypto.randomUUID();
+    const methods: string[] = [];
+    await page.route("**/api/recovery**", async (route) => {
+      const method = route.request().method();
+      if (method === "POST") {
+        methods.push(method);
+        await route.fulfill({
+          status: 503,
+          contentType: "application/json",
+          body: JSON.stringify({ error: "E2E mirror unavailable" }),
+        });
+        return;
+      }
+      if (method === "PATCH") {
+        methods.push(method);
+        await route.fulfill({ status: 500, body: "unexpected resolution" });
+        return;
+      }
+      await route.continue();
+    });
+
+    const item: QueueItem = {
+      id,
+      timestamp: Date.now(),
+      status: "pending",
+      payload: {
+        checkout_client_id: crypto.randomUUID(),
+        session_id: crypto.randomUUID(),
+        operator_staff_id: crypto.randomUUID(),
+        payment_method: "cash",
+        total_price: "1.00",
+        amount_paid: "1.00",
+        items: [],
+      },
+    };
+    await page.evaluate(async (queuedItem) => {
+      const modulePath = "/src/lib/offlineQueue.ts";
+      const queue = await import(/* @vite-ignore */ modulePath);
+      await queue.updateQueuedCheckout(queuedItem);
+      await queue.dequeueCheckout(queuedItem.id);
+    }, item);
+
+    expect(methods).toEqual(["POST"]);
+    expect(await getCheckoutQueueItem(page, id)).toMatchObject({
+      id,
+      status: "pending",
+      lastErrorMessage: expect.stringContaining("recovery audit sync"),
+    });
+  });
+
+  test("checkout mirrors preserve trailing blocked state after an in-flight pending POST", async ({
+    page,
+  }) => {
+    await signInToBackOffice(page);
+    await clearCheckoutQueue(page);
+    const statuses: string[] = [];
+    let releaseFirst!: () => void;
+    let firstStarted!: () => void;
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const started = new Promise<void>((resolve) => {
+      firstStarted = resolve;
+    });
+    await page.route("**/api/recovery", async (route) => {
+      if (route.request().method() === "GET") {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: "[]",
+        });
+        return;
+      }
+      const body = route.request().postDataJSON() as RecoveryPostBody;
+      statuses.push(body.status);
+      if (statuses.length === 1) {
+        firstStarted();
+        await firstGate;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(mirroredRecoveryJob(body)),
+      });
+    });
+    const item: QueueItem = {
+      id: crypto.randomUUID(),
+      timestamp: Date.now(),
+      status: "pending",
+      payload: {
+        checkout_client_id: crypto.randomUUID(),
+        session_id: crypto.randomUUID(),
+        operator_staff_id: crypto.randomUUID(),
+        payment_method: "cash",
+        total_price: "1.00",
+        amount_paid: "1.00",
+        items: [],
+      },
+    };
+    await page.evaluate(async (queuedItem) => {
+      const modulePath = "/src/lib/offlineQueue.ts";
+      const queue = await import(/* @vite-ignore */ modulePath);
+      await queue.updateQueuedCheckout(queuedItem);
+    }, item);
+    await started;
+    await page.evaluate(async (queuedItem) => {
+      const modulePath = "/src/lib/offlineQueue.ts";
+      const queue = await import(/* @vite-ignore */ modulePath);
+      await queue.updateQueuedCheckout({
+        ...queuedItem,
+        status: "blocked",
+        lastErrorMessage: "Manager review required",
+      });
+    }, item);
+    releaseFirst();
+    await expect.poll(() => statuses).toEqual(["pending", "blocked"]);
+  });
+
+  test("authoritative blocked state overrides a frozen pending payload and never auto-replays", async ({
+    page,
+  }) => {
+    await signInToBackOffice(page);
+    await clearCheckoutQueue(page);
+    await setRecoveryPosAuth(page);
+    const id = crypto.randomUUID();
+    const item: QueueItem = {
+      id,
+      timestamp: Date.now(),
+      status: "pending",
+      payload: {
+        checkout_client_id: crypto.randomUUID(),
+        session_id: "11111111-1111-4111-8111-111111111111",
+        operator_staff_id: crypto.randomUUID(),
+        payment_method: "cash",
+        total_price: "1.00",
+        amount_paid: "1.00",
+        items: [],
+      },
+    };
+    const serverJob = mirroredRecoveryJob(
+      {
+        client_job_key: `checkout:${id}`,
+        kind: "checkout_offline",
+        status: "pending",
+        payload: item,
+        attempt_count: 1,
+      },
+      "blocked",
+    );
+    let checkoutPosts = 0;
+    await page.route("**/api/recovery", async (route) => {
+      if (route.request().method() === "GET") {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify([serverJob]),
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(serverJob),
+      });
+    });
+    await page.route("**/api/transactions/checkout", async (route) => {
+      checkoutPosts += 1;
+      await route.fulfill({ status: 500, body: "unexpected replay" });
+    });
+    await page.evaluate(() => window.dispatchEvent(new Event("online")));
+    await expect
+      .poll(() => getCheckoutQueueItem(page, id))
+      .toMatchObject({
+        status: "blocked",
+      });
+    await page.evaluate(async () => {
+      const modulePath = "/src/lib/offlineQueue.ts";
+      const queue = await import(/* @vite-ignore */ modulePath);
+      await queue.flushCheckoutQueue(window.location.origin);
+    });
+    expect(checkoutPosts).toBe(0);
+  });
+
+  test("an authoritative resolved mirror clears crash-left local evidence", async ({
+    page,
+  }) => {
+    await signInToBackOffice(page);
+    await clearCheckoutQueue(page);
+    await setRecoveryPosAuth(page);
+    const item: QueueItem = {
+      id: crypto.randomUUID(),
+      timestamp: Date.now(),
+      status: "blocked",
+      payload: {
+        checkout_client_id: crypto.randomUUID(),
+        session_id: "11111111-1111-4111-8111-111111111111",
+        operator_staff_id: crypto.randomUUID(),
+        payment_method: "cash",
+        total_price: "1.00",
+        amount_paid: "1.00",
+        items: [],
+      },
+    };
+    await putCheckoutQueueItem(page, item);
+    await page.route("**/api/recovery", async (route) => {
+      if (route.request().method() === "GET") {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: "[]",
+        });
+        return;
+      }
+      const body = route.request().postDataJSON() as RecoveryPostBody;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(mirroredRecoveryJob(body, "resolved")),
+      });
+    });
+    await page.evaluate(() => window.dispatchEvent(new Event("online")));
+    await expect.poll(() => getCheckoutQueueItem(page, item.id)).toBeNull();
+  });
+
+  test("concurrent flush triggers share one checkout replay", async ({
+    page,
+  }) => {
+    await signInToBackOffice(page);
+    await clearCheckoutQueue(page);
+    const item: QueueItem = {
+      id: crypto.randomUUID(),
+      timestamp: Date.now(),
+      status: "pending",
+      payload: {
+        checkout_client_id: crypto.randomUUID(),
+        session_id: crypto.randomUUID(),
+        operator_staff_id: crypto.randomUUID(),
+        payment_method: "cash",
+        total_price: "1.00",
+        amount_paid: "1.00",
+        items: [],
+      },
+    };
+    await putCheckoutQueueItem(page, item);
+    let checkoutPosts = 0;
+    await page.route("**/api/transactions/checkout", async (route) => {
+      checkoutPosts += 1;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ transaction_id: crypto.randomUUID() }),
+      });
+    });
+    await page.route("**/api/recovery**", async (route) => {
+      if (route.request().method() === "PATCH") {
+        await route.fulfill({ status: 204, body: "" });
+        return;
+      }
+      if (route.request().method() === "GET") {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: "[]",
+        });
+        return;
+      }
+      const body = route.request().postDataJSON() as RecoveryPostBody;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(mirroredRecoveryJob(body)),
+      });
+    });
+    await page.evaluate(async () => {
+      const modulePath = "/src/lib/offlineQueue.ts";
+      const queue = await import(/* @vite-ignore */ modulePath);
+      await Promise.all([
+        queue.flushCheckoutQueue(window.location.origin),
+        queue.flushCheckoutQueue(window.location.origin),
+      ]);
+    });
+    expect(checkoutPosts).toBe(1);
+    expect(await getCheckoutQueueItem(page, item.id)).toBeNull();
   });
 
   test("4xx replay blocks a queued checkout for manager recovery instead of deleting it", async ({
@@ -108,6 +584,22 @@ test.describe("offline checkout recovery contract", () => {
     await clearCheckoutQueue(page);
 
     const id = crypto.randomUUID();
+    const recoveryServerKey = `checkout:${id}`;
+    await page.route("**/api/recovery", async (route) => {
+      const intercepted = route.request();
+      if (intercepted.method() === "POST") {
+        const body = intercepted.postDataJSON() as RecoveryPostBody | null;
+        if (body?.client_job_key === recoveryServerKey) {
+          await route.fulfill({
+            status: 200,
+            contentType: "application/json",
+            body: JSON.stringify(mirroredRecoveryJob(body)),
+          });
+          return;
+        }
+      }
+      await route.continue();
+    });
     await putCheckoutQueueItem(page, {
       id,
       timestamp: Date.now(),
@@ -128,7 +620,8 @@ test.describe("offline checkout recovery contract", () => {
     await expect
       .poll(async () => await getCheckoutQueueItem(page, id), {
         timeout: 15_000,
-        message: "Queued checkout was not retained and blocked after replay 4xx.",
+        message:
+          "Queued checkout was not retained and blocked after replay 4xx.",
       })
       .toMatchObject({
         id,
@@ -158,8 +651,26 @@ test.describe("offline checkout recovery contract", () => {
     }
     await clearCheckoutQueue(page);
 
+    const recoveryId = crypto.randomUUID();
+    const recoveryServerKey = `checkout:${recoveryId}`;
+    await page.route("**/api/recovery", async (route) => {
+      const intercepted = route.request();
+      if (intercepted.method() === "POST") {
+        const body = intercepted.postDataJSON() as RecoveryPostBody | null;
+        if (body?.client_job_key === recoveryServerKey) {
+          await route.fulfill({
+            status: 200,
+            contentType: "application/json",
+            body: JSON.stringify(mirroredRecoveryJob(body)),
+          });
+          return;
+        }
+      }
+      await route.continue();
+    });
+
     await putCheckoutQueueItem(page, {
-      id: crypto.randomUUID(),
+      id: recoveryId,
       timestamp: Date.now(),
       status: "blocked",
       attemptCount: 1,
@@ -175,13 +686,16 @@ test.describe("offline checkout recovery contract", () => {
     const closeButton = page.getByRole("button", { name: /close register/i });
     await expect(closeButton).toBeVisible({ timeout: 30_000 });
     await closeButton.click({ force: true });
-    const dialog = page.getByRole("dialog").filter({
-      hasText: /checkout recovery|resolve before close/i,
-    }).first();
-    await expect(dialog.getByText(/checkout recovery/i)).toBeVisible({
-      timeout: 15_000,
-    });
+    const dialogs = page.getByRole("dialog", { name: /end of shift/i });
+    await expect(dialogs).toHaveCount(1, { timeout: 15_000 });
+    const dialog = dialogs.first();
+    await expect(
+      dialog.getByText(/current till-group recovery/i),
+    ).toBeVisible();
     await expect(dialog.getByText(/1 need recovery/i)).toBeVisible();
     await expect(dialog.getByText(/resolve before close/i)).toBeVisible();
+
+    await dialog.getByRole("button", { name: /^cancel$/i }).click();
+    await expect(dialog).toBeHidden();
   });
 });

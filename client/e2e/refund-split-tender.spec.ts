@@ -1,13 +1,5 @@
 import { expect, test, type APIRequestContext } from "@playwright/test";
-import {
-  apiBase,
-  ensureSessionAuth,
-  resetOpenRegisterSessions,
-  staffHeaders,
-  verifyStaffId,
-  seedRmsFixture,
-  type SeedFixtureResponse,
-} from "./helpers/rmsCharge";
+import { apiBase, ensureSessionAuth, resetOpenRegisterSessions, staffHeaders, verifyStaffId, seedRmsFixture, type SeedFixtureResponse } from "./helpers/rmsCharge";
 
 function apiUrl(path: string) {
   return `${apiBase()}${path}`;
@@ -52,13 +44,25 @@ type TransactionDetail = {
   status: string;
   amount_paid: string;
   balance_due: string;
-  items: Array<{ transaction_line_id: string; sku: string; quantity: number; quantity_returned: number }>;
+  items: Array<{
+    transaction_line_id: string;
+    sku: string;
+    quantity: number;
+    quantity_returned: number;
+  }>;
   void_record?: {
     id: string;
     reversal_status: string;
     refundable_amount: string;
-    tender_summary: Array<{ payment_method: string; amount: string; gift_card_code?: string | null }>;
-    inventory_summary: { returned_line_count?: number; restocked_units?: number };
+    tender_summary: Array<{
+      payment_method: string;
+      amount: string;
+      gift_card_code?: string | null;
+    }>;
+    inventory_summary: {
+      returned_line_count?: number;
+      restocked_units?: number;
+    };
   };
 };
 
@@ -71,7 +75,10 @@ function moneyToCents(value: string | number | undefined | null): number {
   return sign * (Number.parseInt(dollars || "0", 10) * 100 + Number.parseInt(cents.padEnd(2, "0").slice(0, 2), 10));
 }
 
-function getGrossTotal(fixture: SeedFixtureResponse): { grossStr: string; grossCents: number } {
+function getGrossTotal(fixture: SeedFixtureResponse): {
+  grossStr: string;
+  grossCents: number;
+} {
   const stateTax = 900; // 9.00
   const localTax = 1069; // 10.69
   const unitPriceCents = moneyToCents(fixture.product.unit_price);
@@ -124,7 +131,12 @@ async function doCheckout(
           salesperson_id: options.operatorStaffId,
         },
       ],
-      payment_splits: options.paymentSplits ?? [{ payment_method: options.paymentMethod ?? "cash", amount: amountToPay }],
+      payment_splits: options.paymentSplits ?? [
+        {
+          payment_method: options.paymentMethod ?? "cash",
+          amount: amountToPay,
+        },
+      ],
       order_payments: [],
       is_tax_exempt: false,
       tax_exempt_reason: null,
@@ -175,22 +187,33 @@ async function doVoid(
 
 async function doReturn(
   request: APIRequestContext,
-  options: { transactionId: string; sessionId: string; sessionToken: string; lineId: string; qty: number },
+  options: {
+    transactionId: string;
+    sessionId: string;
+    sessionToken: string;
+    lineId: string;
+    qty: number;
+  },
 ): Promise<void> {
-  const res = await request.post(
-    apiUrl(`/api/transactions/${options.transactionId}/returns?register_session_id=${options.sessionId}`),
-    {
-      headers: {
-        ...staffHeaders(),
-        "Content-Type": "application/json",
-        "x-riverside-pos-session-id": options.sessionId,
-        "x-riverside-pos-session-token": options.sessionToken,
+  const res = await request.post(apiUrl(`/api/transactions/${options.transactionId}/returns?register_session_id=${options.sessionId}`), {
+    headers: {
+      ...staffHeaders(),
+      "Content-Type": "application/json",
+      "x-riverside-pos-session-id": options.sessionId,
+      "x-riverside-pos-session-token": options.sessionToken,
       "x-riverside-station-key": "station-e2e",
-      },
-      data: { lines: [{ transaction_line_id: options.lineId, quantity: options.qty, reason: "e2e_split_tender_test" }] },
-      failOnStatusCode: false,
     },
-  );
+    data: {
+      lines: [
+        {
+          transaction_line_id: options.lineId,
+          quantity: options.qty,
+          reason: "e2e_split_tender_test",
+        },
+      ],
+    },
+    failOnStatusCode: false,
+  });
   const bodyText = await res.text();
   expect(res.status(), `return failed: ${bodyText.slice(0, 500)}`).toBe(200);
 }
@@ -210,6 +233,31 @@ async function doRefund(
     checkNumber?: string;
   },
 ): Promise<{ status: number; body: unknown }> {
+  const isManualExternalCard = options.paymentMethod === "card_terminal_manual";
+  const cardLast4 = isManualExternalCard ? "4242" : undefined;
+  let managerApprovalReference: string | undefined;
+  if (isManualExternalCard && options.managerStaffId && options.managerPin) {
+    const approval = await request.post(apiUrl("/api/staff/verify-pin"), {
+      headers: { ...staffHeaders(), "Content-Type": "application/json" },
+      data: {
+        staff_id: options.managerStaffId,
+        pin: options.managerPin,
+        authorize_action: "manual_external_card_refund_authorization",
+        authorize_metadata: {
+          transaction_id: options.transactionId,
+          register_session_id: options.sessionId,
+          amount: options.amount,
+          external_refund_reference: options.externalRefundReference,
+          manager_reason: options.managerReason,
+          card_last4: cardLast4,
+        },
+      },
+      failOnStatusCode: false,
+    });
+    if (approval.status() === 200) {
+      managerApprovalReference = ((await approval.json()) as { manager_approval_reference?: string }).manager_approval_reference;
+    }
+  }
   const res = await request.post(apiUrl(`/api/transactions/${options.transactionId}/refunds/process`), {
     headers: { ...staffHeaders(), "Content-Type": "application/json" },
     data: {
@@ -218,9 +266,11 @@ async function doRefund(
       amount: options.amount,
       gift_card_code: options.giftCardCode,
       manager_staff_id: options.managerStaffId,
-      manager_pin: options.managerPin,
+      manager_pin: isManualExternalCard ? undefined : options.managerPin,
+      manager_approval_reference: managerApprovalReference,
       manager_reason: options.managerReason,
       external_refund_reference: options.externalRefundReference,
+      card_last4: cardLast4,
       check_number: options.checkNumber,
     },
     failOnStatusCode: false,
@@ -262,7 +312,9 @@ async function getTransactionLines(request: APIRequestContext, transactionId: st
   });
   const bodyText = await res.text();
   expect(res.status(), bodyText.slice(0, 500)).toBe(200);
-  const data = JSON.parse(bodyText) as { items: Array<{ transaction_line_id: string; sku: string }> };
+  const data = JSON.parse(bodyText) as {
+    items: Array<{ transaction_line_id: string; sku: string }>;
+  };
   return data.items;
 }
 
@@ -348,7 +400,10 @@ test.describe("refund split-tender capacity contract", () => {
       paymentMethod: "split",
       paymentSplits: [
         { payment_method: "cash", amount: "25.00" },
-        { payment_method: "card_present", amount: (cardCents / 100).toFixed(2) },
+        {
+          payment_method: "card_present",
+          amount: (cardCents / 100).toFixed(2),
+        },
       ],
     });
 
@@ -476,7 +531,11 @@ test.describe("refund split-tender capacity contract", () => {
     expect(creditRes.status(), creditBodyText.slice(0, 500)).toBe(200);
     const credit = JSON.parse(creditBodyText) as {
       balance: string;
-      ledger: Array<{ amount: string; reason: string; transaction_id: string | null }>;
+      ledger: Array<{
+        amount: string;
+        reason: string;
+        transaction_id: string | null;
+      }>;
     };
     expect(moneyToCents(credit.balance)).toBe(moneyToCents(checkout.grossStr));
     expect(credit.ledger.some((row) => row.reason === "transaction_refund" && row.transaction_id === checkout.transaction_id)).toBe(true);
@@ -528,12 +587,7 @@ test.describe("refund split-tender capacity contract", () => {
     expect(refund.status, JSON.stringify(refund.body)).toBe(200);
 
     const artifacts = await getArtifacts(request, checkout.transaction_id);
-    const giftRefund = artifacts.payment_rows.find(
-      (row) =>
-        row.payment_method === "gift_card" &&
-        row.metadata.kind === "order_refund" &&
-        row.metadata.gift_card_code === giftCardCode,
-    );
+    const giftRefund = artifacts.payment_rows.find((row) => row.payment_method === "gift_card" && row.metadata.kind === "order_refund" && row.metadata.gift_card_code === giftCardCode);
     expect(giftRefund).toBeTruthy();
   });
 
@@ -562,43 +616,39 @@ test.describe("refund split-tender capacity contract", () => {
       qty: 1,
     });
 
-    const queueBefore = (await getRefundsDue(request)).find(
-      (r) => r.transaction_id === checkout.transaction_id,
-    );
+    const queueBefore = (await getRefundsDue(request)).find((r) => r.transaction_id === checkout.transaction_id);
     expect(queueBefore?.is_open).toBe(true);
     expect(moneyToCents(queueBefore?.amount_due)).toBe(moneyToCents(checkout.grossStr));
     expect(moneyToCents(queueBefore?.amount_refunded)).toBe(0);
 
     // Partial refund 1: $10.00
-    const r1 = await doRefund(request, { transactionId: checkout.transaction_id, sessionId, amount: "10.00" });
+    const r1 = await doRefund(request, {
+      transactionId: checkout.transaction_id,
+      sessionId,
+      amount: "10.00",
+    });
     expect(r1.status, JSON.stringify(r1.body)).toBe(200);
 
-    const queueMid = (await getRefundsDue(request)).find(
-      (r) => r.transaction_id === checkout.transaction_id,
-    );
+    const queueMid = (await getRefundsDue(request)).find((r) => r.transaction_id === checkout.transaction_id);
     expect(queueMid?.is_open).toBe(true);
     expect(moneyToCents(queueMid?.amount_refunded)).toBe(1000);
 
     // Partial refund 2: remainder
     const remaining = moneyToCents(checkout.grossStr) - 1000;
-    const r2 = await doRefund(request, { 
-      transactionId: checkout.transaction_id, 
-      sessionId, 
-      amount: (remaining / 100).toFixed(2) 
+    const r2 = await doRefund(request, {
+      transactionId: checkout.transaction_id,
+      sessionId,
+      amount: (remaining / 100).toFixed(2),
     });
     expect(r2.status, JSON.stringify(r2.body)).toBe(200);
 
-    const queueAfter = (await getRefundsDue(request)).find(
-      (r) => r.transaction_id === checkout.transaction_id,
-    );
+    const queueAfter = (await getRefundsDue(request)).find((r) => r.transaction_id === checkout.transaction_id);
     // Queue should be closed (fully refunded)
     expect(queueAfter).toBeUndefined();
 
     // Two negative allocation rows should exist
     const artifacts = await getArtifacts(request, checkout.transaction_id);
-    const negativeAllocations = artifacts.allocation_rows.filter(
-      (r) => moneyToCents(r.amount_allocated) < 0,
-    );
+    const negativeAllocations = artifacts.allocation_rows.filter((r) => moneyToCents(r.amount_allocated) < 0);
     expect(negativeAllocations).toHaveLength(2);
     const refundedTotal = negativeAllocations.reduce((s, r) => s + moneyToCents(r.amount_allocated), 0);
     expect(refundedTotal).toBe(-moneyToCents(checkout.grossStr));
@@ -661,15 +711,19 @@ test.describe("refund split-tender capacity contract", () => {
     });
 
     // Fully refund using gross amount
-    const r1 = await doRefund(request, { 
-      transactionId: checkout.transaction_id, 
-      sessionId, 
-      amount: checkout.grossStr 
+    const r1 = await doRefund(request, {
+      transactionId: checkout.transaction_id,
+      sessionId,
+      amount: checkout.grossStr,
     });
     expect(r1.status).toBe(200);
 
     // Attempt a second refund — queue is now closed
-    const r2 = await doRefund(request, { transactionId: checkout.transaction_id, sessionId, amount: "1.00" });
+    const r2 = await doRefund(request, {
+      transactionId: checkout.transaction_id,
+      sessionId,
+      amount: "1.00",
+    });
     expect(r2.status).toBe(400);
     const body = r2.body as { error?: string };
     expect(body.error ?? "").toContain("no open refund");
@@ -705,9 +759,7 @@ test.describe("refund split-tender capacity contract", () => {
     expect(refundResult.status).toBe(200);
 
     const artifacts = await getArtifacts(request, checkout.transaction_id);
-    const refundRow = artifacts.payment_rows.find(
-      (r) => r.payment_method === "cash" && (r.metadata as Record<string, unknown>)["kind"] === "order_refund",
-    );
+    const refundRow = artifacts.payment_rows.find((r) => r.payment_method === "cash" && (r.metadata as Record<string, unknown>)["kind"] === "order_refund");
     expect(refundRow).toBeTruthy();
     expect((refundRow!.metadata as Record<string, unknown>)["transaction_id"]).toBe(checkout.transaction_id);
   });
@@ -717,7 +769,12 @@ test.describe("refund split-tender capacity contract", () => {
     const { sessionId, sessionToken } = await ensureSessionAuth(request);
     const operatorStaffId = await verifyStaffId(request);
     const fixture = await seedRmsFixture(request, "single_valid", "Unsupported Refund Tender");
-    const checkout = await doCheckout(request, { sessionId, sessionToken, operatorStaffId, fixture });
+    const checkout = await doCheckout(request, {
+      sessionId,
+      sessionToken,
+      operatorStaffId,
+      fixture,
+    });
     const lines = await getTransactionLines(request, checkout.transaction_id);
     await doReturn(request, {
       transactionId: checkout.transaction_id,
@@ -744,7 +801,12 @@ test.describe("refund split-tender capacity contract", () => {
     const { sessionId, sessionToken } = await ensureSessionAuth(request);
     const operatorStaffId = await verifyStaffId(request);
     const fixture = await seedRmsFixture(request, "single_valid", "Check Refund Evidence");
-    const checkout = await doCheckout(request, { sessionId, sessionToken, operatorStaffId, fixture });
+    const checkout = await doCheckout(request, {
+      sessionId,
+      sessionToken,
+      operatorStaffId,
+      fixture,
+    });
     const lines = await getTransactionLines(request, checkout.transaction_id);
     await doReturn(request, {
       transactionId: checkout.transaction_id,
@@ -773,9 +835,7 @@ test.describe("refund split-tender capacity contract", () => {
     expect(completed.status, JSON.stringify(completed.body)).toBe(200);
     const artifacts = await getArtifacts(request, checkout.transaction_id);
     expect(artifacts.payment_rows.some((row) => row.payment_method === "check" && row.check_number === "REF-CHK-417")).toBe(true);
-    const refundAllocation = artifacts.allocation_rows.find(
-      (row) => row.payment_method === "check" && row.payment_amount.startsWith("-"),
-    );
+    const refundAllocation = artifacts.allocation_rows.find((row) => row.payment_method === "check" && row.payment_amount.startsWith("-"));
     expect(refundAllocation?.payment_check_number).toBe("REF-CHK-417");
     expect(refundAllocation?.allocation_check_number).toBe("REF-CHK-417");
   });
@@ -853,7 +913,7 @@ test.describe("refund split-tender capacity contract", () => {
     // Valid override (using operator's own ID/PIN as "manager" for test simplicity if they have admin role)
     // In seedRmsFixture, the default staff usually has admin-level access.
     // We'll use "1234" which is the standard test PIN for the operator in these fixtures.
-    const helcimRefundReference = `E2E-HELCIM-REF-${Date.now()}`;
+    const externalCardRefundReference = `E2E-EXTERNAL-CARD-REF-${Date.now()}`;
     const r3 = await doRefund(request, {
       transactionId: checkout.transaction_id,
       sessionId,
@@ -862,24 +922,22 @@ test.describe("refund split-tender capacity contract", () => {
       managerStaffId: operatorStaffId,
       managerPin: "1234",
       managerReason: "migration migration",
-      externalRefundReference: helcimRefundReference,
+      externalRefundReference: externalCardRefundReference,
     });
     expect(r3.status, JSON.stringify(r3.body)).toBe(200);
 
     const artifacts = await getArtifacts(request, checkout.transaction_id);
-    const manualRow = artifacts.payment_rows.find(
-      (r) => r.payment_method === "card_manual",
-    );
+    const manualRow = artifacts.payment_rows.find((r) => r.payment_method === "card_terminal_manual");
     expect(manualRow).toBeTruthy();
-    expect(manualRow!.metadata.kind).toBe("external_helcim_refund");
-    expect(manualRow!.metadata.original_provider_transaction_id).toBe("MANUAL_MIGRATION");
+    expect(manualRow!.metadata.kind).toBe("external_card_refund");
+    expect(manualRow!.metadata.original_provider_transaction_id).toBeUndefined();
     expect(manualRow!.metadata.authorizing_manager_id).toBe(operatorStaffId);
-    expect(manualRow!.metadata.external_refund_reference).toBe(helcimRefundReference);
-    expect(manualRow!.metadata.external_refund_processor).toBe("helcim");
+    expect(manualRow!.metadata.manager_pin).toBeUndefined();
+    expect(manualRow!.metadata.manager_approval_reference).toBeTruthy();
+    expect(manualRow!.metadata.external_refund_reference).toBe(externalCardRefundReference);
+    expect(manualRow!.metadata.external_refund_processor).toBe("external_card");
 
-    const queue = (await getRefundsDue(request)).find(
-      (r) => r.transaction_id === checkout.transaction_id,
-    );
+    const queue = (await getRefundsDue(request)).find((r) => r.transaction_id === checkout.transaction_id);
     expect(queue).toBeUndefined(); // Should be closed
   });
 });

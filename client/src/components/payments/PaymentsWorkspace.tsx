@@ -15,7 +15,7 @@ import {
   Search,
   ShieldAlert,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
 const baseUrl = getBaseUrl();
@@ -396,6 +396,9 @@ type Props = {
 type PaymentListSection = "batches" | "deposits" | "transactions";
 type PaymentListFilter = { dateFrom: string; dateTo: string; search: string };
 type PaymentListFilters = Record<PaymentListSection, PaymentListFilter>;
+type PaymentListPages = Record<PaymentListSection, number>;
+type PaymentListHasMore = Record<PaymentListSection, boolean>;
+const PAYMENT_LIST_PAGE_SIZE = 100;
 
 function emptyPaymentListFilter(): PaymentListFilter {
   return { dateFrom: "", dateTo: "", search: "" };
@@ -409,8 +412,20 @@ function initialPaymentListFilters(): PaymentListFilters {
   };
 }
 
-function paymentListQuery(filter: PaymentListFilter, limit = 500): string {
-  const params = new URLSearchParams({ limit: String(limit) });
+function initialPaymentListPages(): PaymentListPages {
+  return { batches: 0, deposits: 0, transactions: 0 };
+}
+
+function initialPaymentListHasMore(): PaymentListHasMore {
+  return { batches: false, deposits: false, transactions: false };
+}
+
+function paymentListQuery(
+  filter: PaymentListFilter,
+  limit = PAYMENT_LIST_PAGE_SIZE + 1,
+  offset = 0,
+): string {
+  const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
   if (filter.dateFrom) params.set("date_from", filter.dateFrom);
   if (filter.dateTo) params.set("date_to", filter.dateTo);
   if (filter.search.trim()) params.set("search", filter.search.trim());
@@ -685,6 +700,7 @@ export default function PaymentsWorkspace({
     terminalError: null,
   });
   const [loading, setLoading] = useState(true);
+  const [loadedOnce, setLoadedOnce] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [syncing, setSyncing] = useState<"batches" | "fees" | null>(null);
   const [selectedBatch, setSelectedBatch] = useState<BatchRow | null>(null);
@@ -701,9 +717,13 @@ export default function PaymentsWorkspace({
   const [depositBusy, setDepositBusy] = useState(false);
   const [listFilterDrafts, setListFilterDrafts] = useState<PaymentListFilters>(initialPaymentListFilters);
   const [listFilters, setListFilters] = useState<PaymentListFilters>(initialPaymentListFilters);
+  const [listPages, setListPages] = useState<PaymentListPages>(initialPaymentListPages);
+  const [listHasMore, setListHasMore] = useState<PaymentListHasMore>(initialPaymentListHasMore);
   const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
   const [standaloneRefundBusy, setStandaloneRefundBusy] = useState(false);
   const [standaloneRefundAttempt, setStandaloneRefundAttempt] = useState<HelcimAttemptResponse | null>(null);
+  const refreshRequestRef = useRef(0);
+  const refreshAbortRef = useRef<AbortController | null>(null);
   const { backofficeHeaders, hasPermission, permissionsLoaded } = useBackofficeAuth();
   const { toast } = useToast();
   const hasAnyPermission = useCallback(
@@ -731,12 +751,18 @@ export default function PaymentsWorkspace({
     setListFilterDrafts((current) => ({ ...current, [filterSection]: value }));
   }, []);
   const applyListFilter = useCallback((filterSection: PaymentListSection) => {
+    setListPages((current) => ({ ...current, [filterSection]: 0 }));
     setListFilters((current) => ({ ...current, [filterSection]: listFilterDrafts[filterSection] }));
   }, [listFilterDrafts]);
   const clearListFilter = useCallback((filterSection: PaymentListSection) => {
     const cleared = emptyPaymentListFilter();
     setListFilterDrafts((current) => ({ ...current, [filterSection]: cleared }));
     setListFilters((current) => ({ ...current, [filterSection]: cleared }));
+    setListPages((current) => ({ ...current, [filterSection]: 0 }));
+  }, []);
+
+  const setListPage = useCallback((filterSection: PaymentListSection, page: number) => {
+    setListPages((current) => ({ ...current, [filterSection]: Math.max(0, page) }));
   }, []);
 
   useEffect(() => {
@@ -749,8 +775,8 @@ export default function PaymentsWorkspace({
   );
 
   const getJson = useCallback(
-    async <T,>(path: string): Promise<T> => {
-      const response = await fetch(`${baseUrl}${path}`, { headers: apiHeaders });
+    async <T,>(path: string, signal?: AbortSignal): Promise<T> => {
+      const response = await fetch(`${baseUrl}${path}`, { headers: apiHeaders, signal });
       const text = await response.text();
       const body = text ? (JSON.parse(text) as unknown) : null;
       if (!response.ok) {
@@ -800,26 +826,46 @@ export default function PaymentsWorkspace({
   }, []);
 
   const refresh = useCallback(async () => {
+    const requestId = ++refreshRequestRef.current;
+    refreshAbortRef.current?.abort();
+    const controller = new AbortController();
+    refreshAbortRef.current = controller;
+    const read = <T,>(path: string) => getJson<T>(path, controller.signal);
     setLoading(true);
     setError(null);
     const today = todayYmd();
     try {
       if (posSurface) {
-        const [health, activeProvider, transactions] = await Promise.all([
-          getJson<EventsHealth>("/api/payments/providers/helcim/events/health"),
-          getJson<ActiveProviderResponse>("/api/payments/providers/active"),
-          getJson<TransactionRow[]>(
-            `/api/payments/providers/helcim/transactions?date_from=${today}&date_to=${today}&limit=100`,
+        const posFilter = {
+          ...listFilters.transactions,
+          dateFrom: today,
+          dateTo: today,
+        };
+        const [health, activeProvider, transactionPage] = await Promise.all([
+          read<EventsHealth>("/api/payments/providers/helcim/events/health"),
+          read<ActiveProviderResponse>("/api/payments/providers/active"),
+          read<TransactionRow[]>(
+            `/api/payments/providers/helcim/transactions?${paymentListQuery(
+              posFilter,
+              PAYMENT_LIST_PAGE_SIZE + 1,
+              listPages.transactions * PAYMENT_LIST_PAGE_SIZE,
+            )}`,
           ),
         ]);
         const [terminalDevicesResult, cardTerminalsResult] = await Promise.all([
-          getJson<unknown>("/api/payments/providers/helcim/terminal/devices?limit=100")
+          read<unknown>("/api/payments/providers/helcim/terminal/devices?limit=100")
             .then((body) => ({ body, error: null as string | null }))
             .catch((err) => ({ body: null, error: err instanceof Error ? err.message : "Device status could not load." })),
-          getJson<unknown>("/api/payments/providers/helcim/terminal/card-terminals")
+          read<unknown>("/api/payments/providers/helcim/terminal/card-terminals")
             .then((body) => ({ body, error: null as string | null }))
             .catch((err) => ({ body: null, error: err instanceof Error ? err.message : "Card terminal status could not load." })),
         ]);
+        if (requestId !== refreshRequestRef.current) return;
+        const transactions = transactionPage.slice(0, PAYMENT_LIST_PAGE_SIZE);
+        setListHasMore((current) => ({
+          ...current,
+          transactions: transactionPage.length > PAYMENT_LIST_PAGE_SIZE,
+        }));
         setData({
           overview: null,
           batches: [],
@@ -835,30 +881,32 @@ export default function PaymentsWorkspace({
           terminalRouting: activeProvider.helcim_terminal_routing ?? null,
           terminalError: terminalDevicesResult.error ?? cardTerminalsResult.error,
         });
+        setLoadedOnce(true);
         return;
       }
-      const [overview, batches, deposits, unmatchedBatches, unmatchedDeposits, issues, transactions, runs, health, activeProvider] = await Promise.all([
-        getJson<OverviewResponse>(
+      const [overview, batchPage, depositPage, unmatchedBatches, unmatchedDeposits, issues, transactionPage, runs, health, activeProvider] = await Promise.all([
+        read<OverviewResponse>(
           `/api/payments/providers/helcim/operations/overview?date_from=${today}&date_to=${today}`,
         ),
-        getJson<BatchRow[]>(`/api/payments/providers/helcim/batches?${paymentListQuery(listFilters.batches)}`),
-        getJson<DepositRow[]>(`/api/payments/providers/helcim/deposits?${paymentListQuery(listFilters.deposits)}`),
-        getJson<BatchRow[]>("/api/payments/providers/helcim/deposits/unmatched-batches?limit=25"),
-        getJson<DepositRow[]>("/api/payments/providers/helcim/deposits/unmatched-deposits?limit=25"),
-        getJson<ReconciliationItem[]>(
+        read<BatchRow[]>(`/api/payments/providers/helcim/batches?${paymentListQuery(listFilters.batches, PAYMENT_LIST_PAGE_SIZE + 1, listPages.batches * PAYMENT_LIST_PAGE_SIZE)}`),
+        read<DepositRow[]>(`/api/payments/providers/helcim/deposits?${paymentListQuery(listFilters.deposits, PAYMENT_LIST_PAGE_SIZE + 1, listPages.deposits * PAYMENT_LIST_PAGE_SIZE)}`),
+        read<BatchRow[]>("/api/payments/providers/helcim/deposits/unmatched-batches?limit=25"),
+        read<DepositRow[]>("/api/payments/providers/helcim/deposits/unmatched-deposits?limit=25"),
+        read<ReconciliationItem[]>(
           "/api/payments/providers/helcim/reconciliation/items?status=open&limit=50",
         ),
-        getJson<TransactionRow[]>(`/api/payments/providers/helcim/transactions?${paymentListQuery(listFilters.transactions)}`),
-        getJson<SettlementRun[]>("/api/payments/providers/helcim/sync/runs?limit=10"),
-        getJson<EventsHealth>("/api/payments/providers/helcim/events/health"),
-        getJson<ActiveProviderResponse>("/api/payments/providers/active"),
+        read<TransactionRow[]>(`/api/payments/providers/helcim/transactions?${paymentListQuery(listFilters.transactions, PAYMENT_LIST_PAGE_SIZE + 1, listPages.transactions * PAYMENT_LIST_PAGE_SIZE)}`),
+        read<SettlementRun[]>("/api/payments/providers/helcim/sync/runs?limit=10"),
+        read<EventsHealth>("/api/payments/providers/helcim/events/health"),
+        read<ActiveProviderResponse>("/api/payments/providers/active"),
       ]);
+      if (requestId !== refreshRequestRef.current) return;
       const [terminalDevicesResult, cardTerminalsResult] = overview.helcim_api_active
         ? await Promise.all([
-            getJson<unknown>("/api/payments/providers/helcim/terminal/devices?limit=100")
+            read<unknown>("/api/payments/providers/helcim/terminal/devices?limit=100")
               .then((body) => ({ body, error: null as string | null }))
               .catch((err) => ({ body: null, error: err instanceof Error ? err.message : "Device status could not load." })),
-            getJson<unknown>("/api/payments/providers/helcim/terminal/card-terminals")
+            read<unknown>("/api/payments/providers/helcim/terminal/card-terminals")
               .then((body) => ({ body, error: null as string | null }))
               .catch((err) => ({ body: null, error: err instanceof Error ? err.message : "Card terminal status could not load." })),
           ])
@@ -866,6 +914,15 @@ export default function PaymentsWorkspace({
             { body: null, error: "Helcim API token is not saved in Backoffice Settings." },
             { body: null, error: null },
           ];
+      if (requestId !== refreshRequestRef.current) return;
+      const batches = batchPage.slice(0, PAYMENT_LIST_PAGE_SIZE);
+      const deposits = depositPage.slice(0, PAYMENT_LIST_PAGE_SIZE);
+      const transactions = transactionPage.slice(0, PAYMENT_LIST_PAGE_SIZE);
+      setListHasMore({
+        batches: batchPage.length > PAYMENT_LIST_PAGE_SIZE,
+        deposits: depositPage.length > PAYMENT_LIST_PAGE_SIZE,
+        transactions: transactionPage.length > PAYMENT_LIST_PAGE_SIZE,
+      });
       const terminalError = terminalDevicesResult.error ?? cardTerminalsResult.error;
       setData({
         overview,
@@ -882,16 +939,25 @@ export default function PaymentsWorkspace({
         terminalRouting: activeProvider.helcim_terminal_routing ?? null,
         terminalError,
       });
+      setLoadedOnce(true);
     } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
+      if (requestId !== refreshRequestRef.current) return;
       setError(err instanceof Error ? err.message : "Payments could not load.");
     } finally {
-      setLoading(false);
+      if (requestId === refreshRequestRef.current) setLoading(false);
+      if (refreshAbortRef.current === controller) refreshAbortRef.current = null;
     }
-  }, [getJson, listFilters, posSurface]);
+  }, [getJson, listFilters, listPages, posSurface]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => () => {
+    refreshRequestRef.current += 1;
+    refreshAbortRef.current?.abort();
+  }, []);
 
   const openBatch = useCallback(
     async (batch: BatchRow) => {
@@ -1514,24 +1580,7 @@ export default function PaymentsWorkspace({
     [confirmAction, refresh, sendJson, toast],
   );
 
-  const filteredTransactions = useMemo(() => {
-    const query = listFilterDrafts.transactions.search.trim().toLowerCase();
-    if (!query) return data.transactions;
-    return data.transactions.filter((transaction) =>
-      [
-        transaction.payment_transaction_id,
-        transaction.provider_transaction_id,
-        transaction.provider_batch_id,
-        transaction.payment_status,
-        transaction.provider_status,
-        transaction.match_status,
-        transaction.transaction_display_id,
-        transaction.customer_name,
-      ]
-        .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(query)),
-    );
-  }, [data.transactions, listFilterDrafts.transactions.search]);
+  const filteredTransactions = data.transactions;
 
   const groupedIssues = useMemo(() => {
     const groups = new Map<string, ReconciliationItem[]>();
@@ -1619,16 +1668,22 @@ export default function PaymentsWorkspace({
       </header>
 
       <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">
-        {loading ? (
+        {loading && !loadedOnce ? (
           <div className="rounded-lg border border-app-border bg-app-surface p-8 text-sm font-semibold text-app-text-muted">
             Loading payments…
           </div>
-        ) : error ? (
+        ) : error && !loadedOnce ? (
           <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-5 text-sm font-semibold text-rose-700">
             {error}
           </div>
         ) : (
           <>
+            {error ? (
+              <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-rose-500/30 bg-rose-500/10 p-4 text-sm font-semibold text-rose-700">
+                <span>Payments could not refresh: {error}. Showing the last loaded data.</span>
+                <button type="button" className="underline" onClick={() => void refresh()}>Retry</button>
+              </div>
+            ) : null}
             {section === "overview" && (
               <OverviewPanel
                 overview={data.overview}
@@ -1647,6 +1702,9 @@ export default function PaymentsWorkspace({
                 onApplyFilters={() => applyListFilter("batches")}
                 onClearFilters={() => clearListFilter("batches")}
                 onOpenBatch={openBatch}
+                page={listPages.batches}
+                hasMore={listHasMore.batches}
+                onPageChange={(page) => setListPage("batches", page)}
               />
             )}
             {section === "deposits" && (
@@ -1664,6 +1722,9 @@ export default function PaymentsWorkspace({
                 onCreateDeposit={createManualDeposit}
                 onOpenDeposit={openDeposit}
                 onRunReview={() => void runDepositReview()}
+                page={listPages.deposits}
+                hasMore={listHasMore.deposits}
+                onPageChange={(page) => setListPage("deposits", page)}
               />
             )}
             {section === "reconciliation" && (
@@ -1685,6 +1746,9 @@ export default function PaymentsWorkspace({
                 onOpenTransaction={onOpenTransactionInBackoffice}
                 title={posSurface ? "Today's Transactions" : "Transactions"}
                 empty={posSurface ? "No card transactions recorded today." : "No payments found."}
+                page={listPages.transactions}
+                hasMore={listHasMore.transactions}
+                onPageChange={(page) => setListPage("transactions", page)}
               />
             )}
             {section === "refunds" && posSurface && (
@@ -1883,13 +1947,54 @@ function WarningLine({ count, label }: { count: number; label: string }) {
   );
 }
 
-function BatchesPanel({ batches, filters, onFiltersChange, onApplyFilters, onClearFilters, onOpenBatch }: {
+function PaymentListPagination({
+  page,
+  hasMore,
+  rowCount,
+  onPageChange,
+}: {
+  page: number;
+  hasMore: boolean;
+  rowCount: number;
+  onPageChange: (page: number) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border border-app-border bg-app-surface px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+      <p className="text-xs font-semibold text-app-text-muted">
+        Page {page + 1} · {rowCount} record{rowCount === 1 ? "" : "s"} loaded
+      </p>
+      <div className="flex gap-2">
+        <button
+          type="button"
+          disabled={page === 0}
+          onClick={() => onPageChange(page - 1)}
+          className="rounded-lg border border-app-border bg-app-surface px-3 py-2 text-xs font-bold text-app-text disabled:opacity-40"
+        >
+          Previous
+        </button>
+        <button
+          type="button"
+          disabled={!hasMore}
+          onClick={() => onPageChange(page + 1)}
+          className="rounded-lg border border-app-border bg-app-surface px-3 py-2 text-xs font-bold text-app-text disabled:opacity-40"
+        >
+          Next
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function BatchesPanel({ batches, filters, onFiltersChange, onApplyFilters, onClearFilters, onOpenBatch, page, hasMore, onPageChange }: {
   batches: BatchRow[];
   filters: PaymentListFilter;
   onFiltersChange: (value: PaymentListFilter) => void;
   onApplyFilters: () => void;
   onClearFilters: () => void;
   onOpenBatch: (batch: BatchRow) => void;
+  page: number;
+  hasMore: boolean;
+  onPageChange: (page: number) => void;
 }) {
   return (
     <div className="space-y-4">
@@ -1912,6 +2017,7 @@ function BatchesPanel({ batches, filters, onFiltersChange, onApplyFilters, onCle
           ],
         }))}
       />
+      <PaymentListPagination page={page} hasMore={hasMore} rowCount={batches.length} onPageChange={onPageChange} />
     </div>
   );
 }
@@ -1930,6 +2036,9 @@ function DepositsPanel({
   onCreateDeposit,
   onOpenDeposit,
   onRunReview,
+  page,
+  hasMore,
+  onPageChange,
 }: {
   deposits: DepositRow[];
   unmatchedBatches: BatchRow[];
@@ -1949,6 +2058,9 @@ function DepositsPanel({
   }) => void;
   onOpenDeposit: (deposit: DepositRow) => void;
   onRunReview: () => void;
+  page: number;
+  hasMore: boolean;
+  onPageChange: (page: number) => void;
 }) {
   const [showAdd, setShowAdd] = useState(false);
   const [postedDate, setPostedDate] = useState(todayYmd());
@@ -1962,10 +2074,10 @@ function DepositsPanel({
   return (
     <div className="space-y-6">
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard label="Actual Bank Deposits" value={money(actualTotal, "$0.00")} />
-        <MetricCard label="Linked Expected Deposits" value={money(expectedTotal, "Deposit not ready")} />
-        <MetricCard label="Unmatched Expected" value={`${unmatchedBatches.length}`} tone={unmatchedBatches.length > 0 ? "warning" : "good"} />
-        <MetricCard label="Needs Review" value={`${openIssues}`} tone={openIssues > 0 ? "warning" : "good"} />
+        <MetricCard label="Page Actual Deposits" value={money(actualTotal, "$0.00")} />
+        <MetricCard label="Page Expected Deposits" value={money(expectedTotal, "Deposit not ready")} />
+        <MetricCard label="Unmatched Expected (first 25)" value={`${unmatchedBatches.length}`} tone={unmatchedBatches.length > 0 ? "warning" : "good"} />
+        <MetricCard label="Page Needs Review" value={`${openIssues}`} tone={openIssues > 0 ? "warning" : "good"} />
       </div>
 
       <PaymentListFilterBar value={filters} searchPlaceholder="Reference, QBO deposit, or bank reference" onChange={onFiltersChange} onApply={onApplyFilters} onClear={onClearFilters} />
@@ -2049,6 +2161,7 @@ function DepositsPanel({
             ],
           }))}
         />
+        <PaymentListPagination page={page} hasMore={hasMore} rowCount={deposits.length} onPageChange={onPageChange} />
       </section>
 
       <div className="grid gap-5 xl:grid-cols-2">
@@ -2150,6 +2263,9 @@ function TransactionsPanel({
   onOpenTransaction,
   title = "Transactions",
   empty = "No payments found.",
+  page,
+  hasMore,
+  onPageChange,
 }: {
   transactions: TransactionRow[];
   filters: PaymentListFilter;
@@ -2161,6 +2277,9 @@ function TransactionsPanel({
   onOpenTransaction?: (transactionId: string) => void;
   title?: string;
   empty?: string;
+  page: number;
+  hasMore: boolean;
+  onPageChange: (page: number) => void;
 }) {
   return (
     <div className="space-y-4">
@@ -2173,10 +2292,17 @@ function TransactionsPanel({
       {showDateFilters ? (
         <PaymentListFilterBar value={filters} searchPlaceholder="Customer, TXN, provider ID, batch, or method" onChange={onFiltersChange} onApply={onApplyFilters} onClear={onClearFilters} />
       ) : (
-        <label className="flex max-w-md items-center gap-2 rounded-lg border border-app-border bg-app-surface px-3 py-2 text-sm text-app-text">
-          <Search size={16} className="text-app-text-muted" />
-          <input value={filters.search} onChange={(event) => onFiltersChange({ ...filters, search: event.target.value })} placeholder="Search payments" className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-app-text-muted" />
-        </label>
+        <form
+          className="flex max-w-xl flex-col gap-2 sm:flex-row"
+          onSubmit={(event) => { event.preventDefault(); onApplyFilters(); }}
+        >
+          <label className="flex flex-1 items-center gap-2 rounded-lg border border-app-border bg-app-surface px-3 py-2 text-sm text-app-text">
+            <Search size={16} className="text-app-text-muted" />
+            <input value={filters.search} onChange={(event) => onFiltersChange({ ...filters, search: event.target.value })} placeholder="Customer, TXN, provider ID, batch, or method" className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-app-text-muted" />
+          </label>
+          <button type="submit" className="rounded-lg bg-app-accent px-4 py-2 text-sm font-bold text-white">Apply</button>
+          <button type="button" onClick={onClearFilters} className="rounded-lg border border-app-border bg-app-surface px-4 py-2 text-sm font-bold text-app-text">Clear</button>
+        </form>
       )}
       <DataTable
         empty={empty}
@@ -2216,6 +2342,7 @@ function TransactionsPanel({
           ],
         }))}
       />
+      <PaymentListPagination page={page} hasMore={hasMore} rowCount={transactions.length} onPageChange={onPageChange} />
     </div>
   );
 }
@@ -3034,7 +3161,7 @@ function HelcimRecoveryActionPanel({
       { value: "provider_charge_confirmed", label: "Provider Charge Confirmed" },
       { value: "duplicate_suspected", label: "Duplicate Suspected" },
       { value: "refund_required", label: "Refund Required" },
-      { value: "replayed_webhook", label: "Webhook Replay Reviewed" },
+      { value: "replayed_webhook", label: "Provider Update Replay Reviewed" },
     ];
     return [
       ...(canReview ? reviewActions : []),

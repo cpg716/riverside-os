@@ -3,7 +3,10 @@
 use crate::cache::CacheService;
 use crate::metrics::{BusinessMetrics, MetricRegistry, MetricsConfig, TechnicalMetrics};
 use sqlx::PgPool;
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc,
+};
 use tokio::sync::RwLock;
 use tracing::{error, info, warn};
 
@@ -14,6 +17,7 @@ pub struct MetricsCollector {
     db_pool: PgPool,
     cache: Option<CacheService>,
     is_running: Arc<RwLock<bool>>,
+    dropped_request_samples: Arc<AtomicU64>,
 }
 
 impl MetricsCollector {
@@ -24,6 +28,7 @@ impl MetricsCollector {
             db_pool,
             cache,
             is_running: Arc::new(RwLock::new(false)),
+            dropped_request_samples: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -47,6 +52,7 @@ impl MetricsCollector {
         let db_pool = self.db_pool.clone();
         let cache = self.cache.clone();
         let is_running = self.is_running.clone();
+        let dropped_request_samples = self.dropped_request_samples.clone();
         let collection_interval = config.collection_interval;
 
         tokio::spawn(async move {
@@ -54,45 +60,67 @@ impl MetricsCollector {
 
             while *is_running.read().await {
                 interval.tick().await;
-                crate::api::health::WorkerHealth::mark_heartbeat("metrics").await;
-
                 let start_time = std::time::Instant::now();
 
-                // Collect business metrics
+                // No database, Redis, or queue work is performed while the registry is locked.
                 if config.enable_business_metrics {
-                    match BusinessMetrics::collect(&db_pool, &mut *registry.write().await).await {
-                        Ok(_) => {
-                            info!("Business metrics collected successfully");
-                        }
-                        Err(e) => {
-                            error!("Failed to collect business metrics: {}", e);
-                        }
-                    }
-                }
-
-                // Collect technical metrics
-                if config.enable_technical_metrics {
-                    match TechnicalMetrics::collect(
-                        &db_pool,
-                        cache.as_ref(),
-                        &mut *registry.write().await,
+                    match tokio::time::timeout(
+                        std::time::Duration::from_secs(15),
+                        BusinessMetrics::collect(&db_pool),
                     )
                     .await
                     {
-                        Ok(_) => {
-                            info!("Technical metrics collected successfully");
+                        Ok(Ok(metrics)) => {
+                            let mut registry_guard = registry.write().await;
+                            metrics.record_to_registry(&mut registry_guard);
+                            info!("Business metrics collected successfully");
                         }
-                        Err(e) => {
-                            error!("Failed to collect technical metrics: {}", e);
+                        Ok(Err(e)) => {
+                            error!("Failed to collect business metrics: {}", e);
                         }
+                        Err(_) => warn!("Business metrics collection timed out"),
                     }
                 }
 
-                // Cleanup old metrics
+                if config.enable_technical_metrics {
+                    let registry_snapshot = registry.read().await.clone();
+                    match tokio::time::timeout(
+                        std::time::Duration::from_secs(15),
+                        TechnicalMetrics::collect(&db_pool, cache.as_ref(), &registry_snapshot),
+                    )
+                    .await
+                    {
+                        Ok(Ok(metrics)) => {
+                            let mut registry_guard = registry.write().await;
+                            metrics.record_to_registry(&mut registry_guard);
+                            info!("Technical metrics collected successfully");
+                        }
+                        Ok(Err(e)) => {
+                            error!("Failed to collect technical metrics: {}", e);
+                        }
+                        Err(_) => warn!("Technical metrics collection timed out"),
+                    }
+                }
+
                 {
                     let mut registry_guard = registry.write().await;
+                    let dropped = dropped_request_samples.swap(0, Ordering::Relaxed);
+                    if dropped > 0 {
+                        registry_guard.record_counter(
+                            "metrics_request_samples_dropped",
+                            dropped as f64,
+                            std::collections::HashMap::new(),
+                        );
+                    }
+                    registry_guard.record_timer(
+                        "metrics_collection_duration",
+                        start_time.elapsed(),
+                        std::collections::HashMap::new(),
+                    );
                     registry_guard.cleanup_old_metrics(config.retention_period);
                 }
+
+                crate::api::health::WorkerHealth::mark_heartbeat("metrics").await;
 
                 let collection_duration = start_time.elapsed();
                 if collection_duration > collection_interval {
@@ -153,6 +181,13 @@ impl MetricsCollector {
         tags: std::collections::HashMap<String, String>,
         metric_type: crate::metrics::MetricType,
     ) {
+        if !value.is_finite()
+            || (matches!(&metric_type, crate::metrics::MetricType::Timer)
+                && value.is_sign_negative())
+        {
+            warn!(metric = name, "Discarded invalid custom metric sample");
+            return;
+        }
         let mut registry = self.registry.write().await;
         match metric_type {
             crate::metrics::MetricType::Counter => registry.record_counter(name, value, tags),
@@ -170,44 +205,25 @@ impl MetricsCollector {
     }
 
     /// Record an API request (method, path, status, duration). Used by metrics middleware.
-    pub async fn record_request(
-        &self,
-        method: &str,
-        path: &str,
-        status_code: u16,
-        duration_ms: f64,
-    ) {
+    pub fn try_record_request(&self, method: &str, path: &str, status_code: u16, duration_ms: f64) {
         let mut tags = std::collections::HashMap::new();
         tags.insert("method".to_string(), method.to_string());
         tags.insert("path".to_string(), path.to_string());
         tags.insert("status".to_string(), status_code.to_string());
 
-        self.record_custom_metric(
-            "api_requests_total",
-            1.0,
-            tags.clone(),
-            crate::metrics::MetricType::Counter,
-        )
-        .await;
-        self.record_custom_metric(
-            "api_request_duration_ms",
-            duration_ms,
-            tags.clone(),
-            crate::metrics::MetricType::Histogram,
-        )
-        .await;
+        let Ok(mut registry) = self.registry.try_write() else {
+            self.dropped_request_samples.fetch_add(1, Ordering::Relaxed);
+            return;
+        };
+
+        registry.record_counter("api_requests_total", 1.0, tags.clone());
+        registry.record_histogram("api_request_duration_ms", duration_ms, tags);
 
         if status_code >= 400 {
             let mut error_tags = std::collections::HashMap::new();
             error_tags.insert("method".to_string(), method.to_string());
             error_tags.insert("status".to_string(), status_code.to_string());
-            self.record_custom_metric(
-                "api_errors_total",
-                1.0,
-                error_tags,
-                crate::metrics::MetricType::Counter,
-            )
-            .await;
+            registry.record_counter("api_errors_total", 1.0, error_tags);
         }
     }
 }
@@ -286,44 +302,8 @@ impl MetricsMiddleware {
         status_code: u16,
         duration_ms: f64,
     ) {
-        let mut tags = std::collections::HashMap::new();
-        tags.insert("method".to_string(), method.to_string());
-        tags.insert("path".to_string(), path.to_string());
-        tags.insert("status".to_string(), status_code.to_string());
-
         self.collector
-            .record_custom_metric(
-                "api_requests_total",
-                1.0,
-                tags.clone(),
-                crate::metrics::MetricType::Counter,
-            )
-            .await;
-
-        // Record request duration
-        self.collector
-            .record_custom_metric(
-                "api_request_duration_ms",
-                duration_ms,
-                tags.clone(),
-                crate::metrics::MetricType::Histogram,
-            )
-            .await;
-
-        // Record error count if status indicates error
-        if status_code >= 400 {
-            let mut error_tags = std::collections::HashMap::new();
-            error_tags.insert("method".to_string(), method.to_string());
-            error_tags.insert("status".to_string(), status_code.to_string());
-            self.collector
-                .record_custom_metric(
-                    "api_errors_total",
-                    1.0,
-                    error_tags,
-                    crate::metrics::MetricType::Counter,
-                )
-                .await;
-        }
+            .try_record_request(method, path, status_code, duration_ms);
     }
 }
 
@@ -344,9 +324,7 @@ pub async fn metrics_middleware(
 
     // Record metrics if collector is available
     if let Some(metrics_collector) = &state.metrics_collector {
-        metrics_collector
-            .record_request(&method, &path, status_code, duration_ms)
-            .await;
+        metrics_collector.try_record_request(&method, &path, status_code, duration_ms);
     }
 
     response

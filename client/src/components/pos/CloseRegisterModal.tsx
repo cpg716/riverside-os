@@ -10,9 +10,25 @@ import { useToast } from "../ui/ToastProviderLogic";
 import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
-import { getCheckoutQueueSummary, type CheckoutQueueSummary } from "../../lib/offlineQueue";
+import {
+  clearLocallyRecoveredCheckout,
+  getCheckoutQueueSummary,
+  type CheckoutQueueSummary,
+} from "../../lib/offlineQueue";
+import {
+  listGlobalRegisterRecoveryJobs,
+  listCurrentRegisterRecoveryJobs,
+  recoverExchangeSettlementJob,
+  recoveryJobsOutsideCurrentTillGroup,
+  replayCheckoutRecoveryJob,
+  replayGlobalCheckoutRecoveryJob,
+  reportStationCloseStatus,
+  verifyGlobalRecoveryFollowUp,
+  type ServerRecoveryJob,
+} from "../../lib/serverRecovery";
 import RosieInsightSummary from "../help/RosieInsightSummary";
 import RosieIcon from "../common/RosieIcon";
+import ManagerApprovalModal from "./ManagerApprovalModal";
 
 const MANDATORY_NOTE_OVER_USD = 5;
 
@@ -240,6 +256,26 @@ type HelcimCloseReviewAction =
   | "duplicate_suspected"
   | "refund_required";
 
+type RecoveryManagerMode =
+  | "replay_current"
+  | "replay_historical"
+  | "settle_current_exchange"
+  | "settle_historical_exchange"
+  | "verify_current_follow_up"
+  | "verify_historical_follow_up"
+  | "force_close";
+
+interface CloseRecoveryBlockDetails {
+  recoveryJobKeys: string[];
+  stationBlockers: string[];
+}
+
+interface RecoveryManagerApproval {
+  managerStaffId: string;
+  managerPin: string;
+  reason: string;
+}
+
 const HELCIM_CLOSE_REVIEW_ACTIONS: { value: HelcimCloseReviewAction; label: string }[] = [
   { value: "reviewed", label: "Reviewed" },
   { value: "resolved_no_action", label: "No charge / no action" },
@@ -319,6 +355,66 @@ function mapCloseSessionError(message: string): string {
     return "Close the shared drawer from Register #1 only. That single Z-close finishes every linked lane in the till group.";
   }
   return message;
+}
+
+function recoveryStepDescriptions(job: ServerRecoveryJob): string[] {
+  if (!job.payload || typeof job.payload !== "object") return [];
+  const steps = (job.payload as { recovery_steps?: unknown }).recovery_steps;
+  if (!Array.isArray(steps)) return [];
+  return steps.flatMap((step) => {
+    if (!step || typeof step !== "object") return [];
+    const value = step as {
+      kind?: unknown;
+      transaction_id?: unknown;
+      transaction_line_ids?: unknown;
+      alteration_id?: unknown;
+    };
+    const lineCount = Array.isArray(value.transaction_line_ids)
+      ? value.transaction_line_ids.length
+      : 0;
+    if (
+      value.kind === "ship_transaction" &&
+      typeof value.transaction_id === "string"
+    ) {
+      return [
+        `Ship Transaction Record ${value.transaction_id}${lineCount > 0 ? ` (${lineCount} line${lineCount === 1 ? "" : "s"})` : ""}`,
+      ];
+    }
+    if (
+      value.kind === "pickup_transaction" &&
+      typeof value.transaction_id === "string"
+    ) {
+      return [
+        `Record pickup for Transaction Record ${value.transaction_id}${lineCount > 0 ? ` (${lineCount} line${lineCount === 1 ? "" : "s"})` : ""}`,
+      ];
+    }
+    if (
+      value.kind === "alteration_pickup" &&
+      typeof value.alteration_id === "string"
+    ) {
+      return [`Record alteration pickup ${value.alteration_id}`];
+    }
+    return [];
+  });
+}
+
+function recoveryKindLabel(kind: ServerRecoveryJob["kind"]): string {
+  switch (kind) {
+    case "checkout_offline":
+      return "Saved offline checkout";
+    case "checkout_unconfirmed":
+      return "Unconfirmed online checkout";
+    case "pickup_after_payment":
+      return "Paid order follow-up";
+    case "receipt_print":
+      return "Receipt print retry";
+    case "exchange_settlement":
+      return "Exchange settlement";
+  }
+}
+
+function recoveryReasonLength(value: string): number {
+  return Array.from(value.trim()).length;
 }
 
 export default function CloseRegisterModal({
@@ -407,6 +503,17 @@ export default function CloseRegisterModal({
     pendingCount: 0,
     blockedCount: 0,
   });
+  const [serverRecoveryJobs, setServerRecoveryJobs] = useState<ServerRecoveryJob[]>([]);
+  const [globalRecoveryJobs, setGlobalRecoveryJobs] = useState<ServerRecoveryJob[]>([]);
+  const [globalRecoveryStatus, setGlobalRecoveryStatus] = useState<
+    "loading" | "available" | "error"
+  >("loading");
+  const [globalRecoveryError, setGlobalRecoveryError] = useState<string | null>(null);
+  const [recoveryManagerMode, setRecoveryManagerMode] = useState<RecoveryManagerMode | null>(null);
+  const [recoveryManagerJobKeys, setRecoveryManagerJobKeys] = useState<string[]>([]);
+  const [recoveryManagerReason, setRecoveryManagerReason] = useState("");
+  const [exchangeProviderRefundNotice, setExchangeProviderRefundNotice] = useState<string | null>(null);
+  const [closeRecoveryBlock, setCloseRecoveryBlock] = useState<CloseRecoveryBlockDetails | null>(null);
 
   const onReconcilingBegunRef = useRef(onReconcilingBegun);
   onReconcilingBegunRef.current = onReconcilingBegun;
@@ -415,15 +522,21 @@ export default function CloseRegisterModal({
     if (registerLane != null && registerLane !== 1) return;
     void (async () => {
       try {
-        const summary = await getCheckoutQueueSummary();
+        const [summary, jobs] = await Promise.all([
+          getCheckoutQueueSummary(),
+          listCurrentRegisterRecoveryJobs(),
+        ]);
         setOfflineQueueSummary(summary);
-        if (summary.totalCount > 0) return;
+        setServerRecoveryJobs(jobs);
         const res = await fetch(`${baseUrl}/api/sessions/${sessionId}/begin-reconcile`, {
           method: "POST",
           headers: jsonAuthHeaders(),
           body: JSON.stringify({ active: true }),
         });
-        if (res.ok) onReconcilingBegunRef.current?.();
+        if (res.ok) {
+          onReconcilingBegunRef.current?.();
+          await reportStationCloseStatus(summary);
+        }
       } catch { /* optional */ }
     })();
   }, [sessionId, baseUrl, jsonAuthHeaders, registerLane]);
@@ -458,20 +571,52 @@ export default function CloseRegisterModal({
     return () => { cancelled = true; };
   }, [refreshReconciliation, registerLane]);
 
-  const refreshOfflineQueueSummary = useCallback(async () => {
-    const summary = await getCheckoutQueueSummary();
+  const refreshGlobalRecoveryJobs = useCallback(async () => {
+    try {
+      const jobs = await listGlobalRegisterRecoveryJobs(backofficeHeaders());
+      setGlobalRecoveryJobs(jobs);
+      setGlobalRecoveryStatus("available");
+      setGlobalRecoveryError(null);
+      return jobs;
+    } catch (error) {
+      setGlobalRecoveryStatus("error");
+      setGlobalRecoveryError(
+        error instanceof Error
+          ? error.message
+          : "Prior till-group recovery could not be checked.",
+      );
+      throw error;
+    }
+  }, [backofficeHeaders]);
+
+  const refreshOfflineQueueSummary = useCallback(async (acknowledge = true) => {
+    const [summary, jobs] = await Promise.all([
+      getCheckoutQueueSummary(),
+      listCurrentRegisterRecoveryJobs(),
+    ]);
     setOfflineQueueSummary(summary);
-    return summary;
+    setServerRecoveryJobs(jobs);
+    if (acknowledge) await reportStationCloseStatus(summary);
+    return { summary, jobs };
   }, []);
 
   useEffect(() => {
     void refreshOfflineQueueSummary();
+    void refreshGlobalRecoveryJobs().catch(() => {});
     const handleQueueChanged = () => {
       void refreshOfflineQueueSummary();
+      void refreshGlobalRecoveryJobs().catch(() => {});
     };
     window.addEventListener("queue_changed", handleQueueChanged);
-    return () => window.removeEventListener("queue_changed", handleQueueChanged);
-  }, [refreshOfflineQueueSummary]);
+    const recoveryRefresh = window.setInterval(() => {
+      void refreshOfflineQueueSummary();
+      void refreshGlobalRecoveryJobs().catch(() => {});
+    }, 10_000);
+    return () => {
+      window.removeEventListener("queue_changed", handleQueueChanged);
+      window.clearInterval(recoveryRefresh);
+    };
+  }, [refreshGlobalRecoveryJobs, refreshOfflineQueueSummary]);
 
   const billTotalCents = useMemo(() => {
     let t = 0;
@@ -498,24 +643,17 @@ export default function CloseRegisterModal({
   }, [actualCash, cashDepositEdited, recon]);
 
   const blockForOfflineQueue = useCallback(async () => {
-    const summary = await refreshOfflineQueueSummary();
-    if (summary.totalCount === 0) return false;
-    try {
-      if (registerLane == null || registerLane === 1) {
-        await fetch(`${baseUrl}/api/sessions/${sessionId}/begin-reconcile`, {
-          method: "POST",
-          headers: jsonAuthHeaders(),
-          body: JSON.stringify({ active: false }),
-        });
-      }
-    } catch { /* optional recovery; the close remains blocked either way */ }
+    const { summary, jobs } = await refreshOfflineQueueSummary();
+    if (summary.totalCount === 0 && jobs.length === 0) return false;
     const message =
       summary.blockedCount > 0
         ? `${summary.blockedCount} completed checkout${summary.blockedCount === 1 ? "" : "s"} need manager recovery before Z-close.`
-        : `${summary.pendingCount} completed checkout${summary.pendingCount === 1 ? "" : "s"} still need to sync before Z-close.`;
+        : jobs.length > 0
+          ? `${jobs.length} server recovery item${jobs.length === 1 ? "" : "s"} must be resolved before Z-close.`
+          : `${summary.pendingCount} completed checkout${summary.pendingCount === 1 ? "" : "s"} still need to sync before Z-close.`;
     toast(message, "error");
     return true;
-  }, [baseUrl, jsonAuthHeaders, refreshOfflineQueueSummary, registerLane, sessionId, toast]);
+  }, [refreshOfflineQueueSummary, toast]);
 
   const unresolvedHelcimAttempts = useMemo(
     () => recon?.unresolved_helcim_attempts ?? [],
@@ -675,6 +813,7 @@ export default function CloseRegisterModal({
           headers: jsonAuthHeaders(),
           body: JSON.stringify({ active: false }),
         });
+        await reportStationCloseStatus(offlineQueueSummary);
       }
     } catch { /* ignore */ }
     onCancel();
@@ -684,7 +823,7 @@ export default function CloseRegisterModal({
     onEscape: () => {
       void internalCancel();
     },
-    closeOnEscape: !loading && !showFinalConfirm,
+    closeOnEscape: !loading && !showFinalConfirm && recoveryManagerMode == null,
   });
 
   const buildClosingNotesForReport = useCallback(() => {
@@ -789,12 +928,30 @@ export default function CloseRegisterModal({
     return opened;
   }, [actualCash, buildClosingNotesForReport, cashDepositAmount, cashDepositDate, cashierName, closingComments, fetchBookedDaySummaryForZ, recon, registerOrdinal, toast]);
 
-  const handleFinalClose = async () => {
+  const handleFinalClose = async (
+    forceApproval?: RecoveryManagerApproval,
+  ): Promise<boolean> => {
     setShowFinalConfirm(false);
-    if (await blockForOfflineQueue()) return;
+    if (!forceApproval && await blockForOfflineQueue()) return false;
     if (!cashDepositDate.trim()) {
       toast("Enter the Daily Cash Deposit date before closing.", "error");
-      return;
+      return false;
+    }
+    if (checkPayments.length > 0 && !checksReady) {
+      toast("Finish the check review before closing.", "error");
+      return false;
+    }
+    if (recon) {
+      const expected = parseMoneyToCents(recon.physical_expected_cash ?? recon.expected_cash);
+      const discrepancy = parseMoneyToCents(actualCash) - expected;
+      if (Math.abs(discrepancy) > MANDATORY_NOTE_OVER_USD * 100 && !notes.trim()) {
+        toast("Add a cash discrepancy note before closing.", "error");
+        return false;
+      }
+    }
+    if (forceApproval && recoveryReasonLength(forceApproval.reason) < 12) {
+      toast("Enter at least 12 characters explaining the forced recovery close.", "error");
+      return false;
     }
     setLoading(true);
     const closingNotesForReport = buildClosingNotesForReport();
@@ -808,13 +965,28 @@ export default function CloseRegisterModal({
           cash_deposit_date: cashDepositDate.trim(),
           cash_deposit_amount: centsToFixed2(cashDepositCentsForClose),
           closing_notes: closingNotesForReport || null,
-          closing_comments: closingComments.trim() || null
+          closing_comments: closingComments.trim() || null,
+          force_unresolved_recovery: Boolean(forceApproval),
+          manager_staff_id: forceApproval?.managerStaffId ?? null,
+          manager_pin: forceApproval?.managerPin ?? null,
+          manager_reason: forceApproval?.reason.trim() || null,
         }),
       });
       if (!res.ok) {
-        const errorMessage =
-          ((await res.json().catch(() => ({}))) as { error?: string }).error ??
-          "Failed to close session";
+        const body = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          message?: string;
+          recovery_job_keys?: string[];
+          station_blockers?: string[];
+        };
+        if (body.error === "checkout_recovery_blocks_close") {
+          setCloseRecoveryBlock({
+            recoveryJobKeys: body.recovery_job_keys ?? [],
+            stationBlockers: body.station_blockers ?? [],
+          });
+          await refreshOfflineQueueSummary();
+        }
+        const errorMessage = body.message ?? body.error ?? "Failed to close session";
         throw new Error(mapCloseSessionError(errorMessage));
       }
       const result = (await res.json()) as CloseSessionResult;
@@ -832,13 +1004,289 @@ export default function CloseRegisterModal({
           `${result.business_date} is closed separately. ${result.next_business_date ?? "The next business day"} must be closed next.`,
           "success",
         );
-        return;
+        return true;
       }
       onCloseComplete();
+      return true;
     } catch (err: unknown) {
       toast(err instanceof Error ? err.message : "Failed to close session", "error");
       setLoading(false);
+      return false;
     }
+  };
+
+  const replayableRecoveryJobs = serverRecoveryJobs.filter(
+    (job) => job.kind === "checkout_offline" || job.kind === "checkout_unconfirmed",
+  );
+  const currentPickupFollowUpJobs = serverRecoveryJobs.filter(
+    (job) => job.kind === "pickup_after_payment",
+  );
+  const currentExchangeSettlementJobs = serverRecoveryJobs.filter(
+    (job) => job.kind === "exchange_settlement",
+  );
+  const historicalRecoveryJobs = recoveryJobsOutsideCurrentTillGroup(
+    serverRecoveryJobs,
+    globalRecoveryJobs,
+  );
+  const historicalReplayableRecoveryJobs = historicalRecoveryJobs.filter(
+    (job) => job.kind === "checkout_offline" || job.kind === "checkout_unconfirmed",
+  );
+  const historicalPickupFollowUpJobs = historicalRecoveryJobs.filter(
+    (job) => job.kind === "pickup_after_payment",
+  );
+  const historicalExchangeSettlementJobs = historicalRecoveryJobs.filter(
+    (job) => job.kind === "exchange_settlement",
+  );
+
+  const openRecoveryManagerApproval = (
+    mode: RecoveryManagerMode,
+    jobs: ServerRecoveryJob[] = [],
+  ) => {
+    setRecoveryManagerJobKeys(jobs.map((job) => job.client_job_key));
+    setRecoveryManagerMode(mode);
+  };
+
+  const handleRecoveryManagerApproval = async (
+    pin: string,
+    managerId: string,
+  ): Promise<boolean> => {
+    const reason = recoveryManagerReason.trim();
+    if (recoveryReasonLength(reason) < 12) {
+      throw new Error("Enter at least 12 characters explaining this recovery action.");
+    }
+    if (recoveryManagerMode === "force_close") {
+      return handleFinalClose({
+        managerStaffId: managerId,
+        managerPin: pin,
+        reason,
+      });
+    }
+    const approval = {
+      managerStaffId: managerId,
+      managerPin: pin,
+      reason,
+    };
+    if (
+      recoveryManagerMode === "settle_current_exchange" ||
+      recoveryManagerMode === "settle_historical_exchange"
+    ) {
+      const jobs =
+        recoveryManagerMode === "settle_current_exchange"
+          ? currentExchangeSettlementJobs
+          : historicalExchangeSettlementJobs;
+      const selectedKeys = new Set(recoveryManagerJobKeys);
+      const selectedJobs = jobs.filter((job) => selectedKeys.has(job.client_job_key));
+      if (
+        recoveryManagerJobKeys.length === 0 ||
+        selectedJobs.length !== recoveryManagerJobKeys.length
+      ) {
+        throw new Error(
+          "The exchange recovery list changed. Close this approval and review the current records again.",
+        );
+      }
+
+      let settled = 0;
+      let deferredCardRefundCents = 0;
+      let settlementFailure: unknown = null;
+      for (const job of selectedJobs) {
+        try {
+          const result = await recoverExchangeSettlementJob(
+            job.client_job_key,
+            sessionId,
+            approval,
+          );
+          deferredCardRefundCents += parseMoneyToCents(
+            result.deferredCardRefundDueAmount,
+          );
+          settled += 1;
+        } catch (error) {
+          settlementFailure = error;
+          break;
+        }
+      }
+      await Promise.all([
+        refreshOfflineQueueSummary(),
+        refreshGlobalRecoveryJobs().catch(() => []),
+      ]);
+      if (deferredCardRefundCents > 0) {
+        setExchangeProviderRefundNotice(
+          `$${centsToFixed2(deferredCardRefundCents)} of linked card refund remains due. Open each original Transaction Record and complete its card refund workflow before Z-close.`,
+        );
+      }
+      if (settled > 0) {
+        try {
+          await refreshReconciliation();
+          setReconError(null);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "unknown error";
+          setReconError(message);
+          throw new Error(
+            `${settled} exchange settlement${settled === 1 ? " was" : "s were"} completed and audited, but Z-close totals could not refresh: ${message}. Refresh the close screen before continuing.`,
+          );
+        }
+      }
+      if (settlementFailure) {
+        const message =
+          settlementFailure instanceof Error
+            ? settlementFailure.message
+            : "Exchange settlement recovery failed.";
+        throw new Error(
+          settled > 0
+            ? `${settled} exchange settlement${settled === 1 ? " was" : "s were"} completed before the next record failed: ${message}`
+            : message,
+        );
+      }
+      setCloseRecoveryBlock(null);
+      toast(
+        `${settled} exchange settlement${settled === 1 ? "" : "s"} completed from the saved Main Hub record and audited to this Register session.`,
+        "success",
+      );
+      if (deferredCardRefundCents > 0) {
+        toast(
+          `$${centsToFixed2(deferredCardRefundCents)} of linked card refund remains due in the original Transaction Record.`,
+          "info",
+        );
+      }
+      return true;
+    }
+    if (
+      recoveryManagerMode === "verify_current_follow_up" ||
+      recoveryManagerMode === "verify_historical_follow_up"
+    ) {
+      const jobs =
+        recoveryManagerMode === "verify_current_follow_up"
+          ? currentPickupFollowUpJobs
+          : historicalPickupFollowUpJobs;
+      const selectedKeys = new Set(recoveryManagerJobKeys);
+      const selectedJobs = jobs.filter((job) => selectedKeys.has(job.client_job_key));
+      if (
+        recoveryManagerJobKeys.length === 0 ||
+        selectedJobs.length !== recoveryManagerJobKeys.length
+      ) {
+        throw new Error(
+          "The paid follow-up list changed. Close this approval and review the current records again.",
+        );
+      }
+      let verified = 0;
+      try {
+        for (const job of selectedJobs) {
+          await verifyGlobalRecoveryFollowUp(
+            job.client_job_key,
+            approval,
+            backofficeHeaders(),
+          );
+          await clearLocallyRecoveredCheckout(job.client_job_key);
+          verified += 1;
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Verification failed.";
+        throw new Error(
+          verified > 0
+            ? `${verified} follow-up record${verified === 1 ? " was" : "s were"} verified before the next record failed: ${message}`
+            : message,
+        );
+      } finally {
+        await Promise.all([
+          refreshOfflineQueueSummary(),
+          refreshGlobalRecoveryJobs().catch(() => []),
+        ]);
+      }
+      setCloseRecoveryBlock(null);
+      toast(
+        `${verified} paid follow-up record${verified === 1 ? "" : "s"} verified against completed Orders/Alterations work and audited.`,
+        "success",
+      );
+      return true;
+    }
+
+    const isHistoricalReplay = recoveryManagerMode === "replay_historical";
+    const jobs = isHistoricalReplay
+      ? historicalReplayableRecoveryJobs
+      : recoveryManagerMode === "replay_current"
+        ? replayableRecoveryJobs
+        : [];
+    const selectedKeys = new Set(recoveryManagerJobKeys);
+    const selectedJobs = jobs.filter((job) => selectedKeys.has(job.client_job_key));
+    if (
+      recoveryManagerJobKeys.length === 0 ||
+      selectedJobs.length !== recoveryManagerJobKeys.length
+    ) {
+      throw new Error(
+        "The checkout recovery list changed. Close this approval and review the current records again.",
+      );
+    }
+
+    let recovered = 0;
+    let postClose = 0;
+    try {
+      for (const job of selectedJobs) {
+        const result = isHistoricalReplay
+          ? await replayGlobalCheckoutRecoveryJob(
+              job.client_job_key,
+              approval,
+              backofficeHeaders(),
+            )
+          : await replayCheckoutRecoveryJob(job.client_job_key, approval);
+        await clearLocallyRecoveredCheckout(job.client_job_key);
+        recovered += 1;
+        if (result.postClose) postClose += 1;
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Checkout recovery failed.";
+      throw new Error(
+        recovered > 0
+          ? `${recovered} checkout${recovered === 1 ? " was" : "s were"} recovered before the next record failed: ${message}`
+          : message,
+      );
+    } finally {
+      await Promise.all([
+        refreshOfflineQueueSummary(),
+        refreshGlobalRecoveryJobs().catch(() => []),
+      ]);
+    }
+    setCloseRecoveryBlock(null);
+    toast(
+      `${recovered} checkout${recovered === 1 ? "" : "s"} recovered and audited${postClose > 0 ? `; ${postClose} recorded as post-close supplements` : ""}.`,
+      "success",
+    );
+    return true;
+  };
+
+  const renderRecoveryManagerModal = () => {
+    const isFollowUpVerification =
+      recoveryManagerMode === "verify_current_follow_up" ||
+      recoveryManagerMode === "verify_historical_follow_up";
+    const isExchangeSettlement =
+      recoveryManagerMode === "settle_current_exchange" ||
+      recoveryManagerMode === "settle_historical_exchange";
+    const title =
+      recoveryManagerMode === "force_close"
+        ? "Force Z-Close"
+        : isExchangeSettlement
+          ? "Complete Exchange Settlement"
+          : isFollowUpVerification
+            ? "Verify Completed Follow-up"
+            : "Recover Checkout Sales";
+    const message =
+      recoveryManagerMode === "force_close"
+        ? "Authorize an audited Z-close while preserving every unresolved recovery record for follow-up. This does not dismiss, alter, or hide the outstanding work."
+        : isExchangeSettlement
+          ? "Authorize completion from the locked Main Hub exchange record. Riverside verifies the original exchange-credit tender against its origin Register session and records any new relief or refund movement in this current Register session. No financial amount comes from this approval screen."
+          : isFollowUpVerification
+            ? "Confirm the named Orders/Alterations work was already completed. Riverside checks recorded database evidence before resolving the recovery record; this approval does not perform or assume the work."
+            : "Authorize exact replay of the saved checkout identity and payment snapshot. Duplicate or changed payloads are rejected, and prior-group results remain tied to the original Register session.";
+    return (
+      <ManagerApprovalModal
+        isOpen={recoveryManagerMode != null}
+        title={title}
+        message={message}
+        onApprove={handleRecoveryManagerApproval}
+        onClose={() => {
+          setRecoveryManagerMode(null);
+          setRecoveryManagerJobKeys([]);
+        }}
+      />
+    );
   };
 
   const renderWorkflowSummary = (currentStep: "count" | "checks" | "report") => {
@@ -889,12 +1337,19 @@ export default function CloseRegisterModal({
   };
 
   const renderOfflineQueueBlocker = () => {
-    if (offlineQueueSummary.totalCount === 0) return null;
+    const hasRecoveryBlocker =
+      offlineQueueSummary.totalCount > 0 ||
+      serverRecoveryJobs.length > 0 ||
+      (closeRecoveryBlock?.stationBlockers.length ?? 0) > 0;
+    if (!hasRecoveryBlocker) return null;
+    const nonReplayableJobs = serverRecoveryJobs.filter(
+      (job) => job.kind !== "checkout_offline" && job.kind !== "checkout_unconfirmed",
+    );
     return (
       <div className="ui-panel ui-tint-danger p-3 text-xs text-app-text-muted">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-[10px] font-black uppercase tracking-widest text-app-danger">
-            Checkout recovery
+            Current till-group recovery
           </p>
           <span className="rounded-full border border-app-danger/25 bg-app-danger/10 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-app-danger">
             Manager
@@ -903,8 +1358,314 @@ export default function CloseRegisterModal({
         <p className="mt-1 font-semibold">
           {offlineQueueSummary.blockedCount > 0 ? `${offlineQueueSummary.blockedCount} need recovery.` : ""}
           {offlineQueueSummary.pendingCount > 0 ? ` ${offlineQueueSummary.pendingCount} still syncing.` : ""}
-          {" "}Resolve before close.
+          {serverRecoveryJobs.length > 0 ? ` ${serverRecoveryJobs.length} durable Main Hub recovery item${serverRecoveryJobs.length === 1 ? "" : "s"} remain.` : ""}
+          {" "}Resolve before close when possible. An audited Manager force-close preserves unresolved work for later recovery; it does not dismiss it.
         </p>
+        {closeRecoveryBlock?.stationBlockers.length ? (
+          <ul className="mt-2 list-disc space-y-1 pl-5 font-semibold text-app-danger">
+            {closeRecoveryBlock.stationBlockers.map((blocker) => (
+              <li key={blocker}>{blocker}</li>
+            ))}
+          </ul>
+        ) : null}
+        {nonReplayableJobs.length > 0 ? (
+          <p className="mt-2 rounded-xl border border-app-danger/20 bg-app-surface/70 p-2 font-semibold">
+            {nonReplayableJobs.some((job) => job.kind === "exchange_settlement")
+              ? "An exchange replacement is saved, but its return settlement still needs completion. "
+              : ""}
+            {nonReplayableJobs.some((job) => job.kind === "pickup_after_payment")
+              ? "A paid order follow-up still needs completion in Orders/Alterations, then audited verification here. "
+              : ""}
+            {nonReplayableJobs.some((job) => job.kind === "receipt_print")
+              ? "A receipt print retry remains queued. "
+              : ""}
+            These records remain fully visible after a forced Z-close.
+          </p>
+        ) : null}
+        {currentPickupFollowUpJobs.map((job) => {
+          const steps = recoveryStepDescriptions(job);
+          return (
+            <div
+              key={job.client_job_key}
+              className="mt-2 rounded-xl border border-app-warning/25 bg-app-warning/10 p-2"
+            >
+              <p className="font-black text-app-text">
+                {job.label?.trim() || recoveryKindLabel(job.kind)} · {job.status}
+              </p>
+              <p className="mt-1 font-semibold">
+                Complete the named work in Orders or Alterations before selecting verification.
+              </p>
+              {steps.length > 0 ? (
+                <ul className="mt-1 list-disc space-y-1 pl-5 font-mono text-[10px]">
+                  {steps.map((description) => (
+                    <li key={description}>{description}</li>
+                  ))}
+                </ul>
+              ) : null}
+              {job.last_error?.trim() ? (
+                <p className="mt-1 font-semibold text-app-danger">
+                  Last recorded issue: {job.last_error}
+                </p>
+              ) : null}
+            </div>
+          );
+        })}
+        <label className="mt-3 block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+          Manager recovery reason
+          <textarea
+            value={recoveryManagerReason}
+            onChange={(event) => setRecoveryManagerReason(event.target.value)}
+            maxLength={500}
+            placeholder="Explain the recovery or why Z-close must continue (minimum 12 characters)."
+            className="ui-input mt-2 min-h-20 w-full p-3 text-xs normal-case tracking-normal"
+          />
+        </label>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {replayableRecoveryJobs.length > 0 ? (
+            <button
+              type="button"
+              disabled={loading || recoveryReasonLength(recoveryManagerReason) < 12}
+              onClick={() =>
+                openRecoveryManagerApproval("replay_current", replayableRecoveryJobs)
+              }
+              className="ui-btn-primary px-3 py-2 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+            >
+              Manager Recover {replayableRecoveryJobs.length} Sale{replayableRecoveryJobs.length === 1 ? "" : "s"}
+            </button>
+          ) : null}
+          {currentExchangeSettlementJobs.length > 0 ? (
+            <button
+              type="button"
+              disabled={loading || recoveryReasonLength(recoveryManagerReason) < 12}
+              onClick={() =>
+                openRecoveryManagerApproval(
+                  "settle_current_exchange",
+                  currentExchangeSettlementJobs,
+                )
+              }
+              className="ui-btn-primary px-3 py-2 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+            >
+              Complete {currentExchangeSettlementJobs.length} Exchange Settlement{currentExchangeSettlementJobs.length === 1 ? "" : "s"}
+            </button>
+          ) : null}
+          {currentPickupFollowUpJobs.length > 0 ? (
+            <button
+              type="button"
+              disabled={loading || recoveryReasonLength(recoveryManagerReason) < 12}
+              onClick={() =>
+                openRecoveryManagerApproval(
+                  "verify_current_follow_up",
+                  currentPickupFollowUpJobs,
+                )
+              }
+              className="ui-btn-primary px-3 py-2 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+            >
+              Verify {currentPickupFollowUpJobs.length} Completed Follow-up{currentPickupFollowUpJobs.length === 1 ? "" : "s"}
+            </button>
+          ) : null}
+          {step === "report" ? (
+            <button
+              type="button"
+              disabled={loading || recoveryReasonLength(recoveryManagerReason) < 12}
+              onClick={() => openRecoveryManagerApproval("force_close")}
+              className="ui-btn-secondary border-app-danger/30 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-danger disabled:opacity-50"
+            >
+              Manager Force Z-Close
+            </button>
+          ) : null}
+        </div>
+      </div>
+    );
+  };
+
+  const renderHistoricalRecovery = () => {
+    const hasCurrentRecoveryPanel =
+      offlineQueueSummary.totalCount > 0 ||
+      serverRecoveryJobs.length > 0 ||
+      (closeRecoveryBlock?.stationBlockers.length ?? 0) > 0;
+    const canAct =
+      globalRecoveryStatus === "available" &&
+      recoveryReasonLength(recoveryManagerReason) >= 12 &&
+      !loading;
+    return (
+      <div className="ui-panel ui-tint-info p-3 text-xs text-app-text-muted">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-widest text-app-accent">
+              Prior or other till-group recovery
+            </p>
+            <p className="mt-1 font-semibold">
+              Informational for this close. These records are outside the current till group and do
+              not block its Z-close.
+            </p>
+          </div>
+          {globalRecoveryStatus === "error" ? (
+            <button
+              type="button"
+              onClick={() => void refreshGlobalRecoveryJobs().catch(() => {})}
+              className="ui-btn-secondary px-3 py-2 text-[10px] font-black uppercase tracking-widest"
+            >
+              Retry Check
+            </button>
+          ) : null}
+        </div>
+
+        {globalRecoveryStatus === "loading" ? (
+          <p className="mt-2 rounded-xl border border-app-border bg-app-surface/70 p-2 font-semibold">
+            Checking the Main Hub for recovery records outside this till group…
+          </p>
+        ) : null}
+        {globalRecoveryStatus === "error" ? (
+          <p className="mt-2 rounded-xl border border-app-danger/25 bg-app-danger/10 p-2 font-semibold text-app-danger">
+            Global recovery list unavailable: {globalRecoveryError ?? "Unknown error"} This is not
+            confirmation that no prior recovery exists.
+            {globalRecoveryJobs.length > 0
+              ? " The last visible records below may be stale until Retry Check succeeds."
+              : ""}
+          </p>
+        ) : null}
+        {exchangeProviderRefundNotice ? (
+          <p className="mt-2 rounded-xl border border-app-warning/25 bg-app-warning/10 p-2 font-semibold text-app-warning">
+            Exchange settlement completed, but {exchangeProviderRefundNotice}
+          </p>
+        ) : null}
+        {globalRecoveryStatus === "available" && historicalRecoveryJobs.length === 0 ? (
+          <p className="mt-2 rounded-xl border border-app-success/25 bg-app-success/10 p-2 font-semibold text-app-success">
+            Main Hub reports no checkout, exchange settlement, receipt retry, or paid follow-up
+            recovery outside this till group.
+          </p>
+        ) : null}
+
+        {historicalRecoveryJobs.length > 0 ? (
+          <div className="mt-3 space-y-2">
+            {historicalRecoveryJobs.map((job) => {
+              const steps = recoveryStepDescriptions(job);
+              return (
+                <div
+                  key={job.client_job_key}
+                  className="rounded-xl border border-app-border bg-app-surface/80 p-3"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="font-black text-app-text">
+                      {job.label?.trim() || recoveryKindLabel(job.kind)}
+                    </p>
+                    <span className="rounded-full border border-app-warning/25 bg-app-warning/10 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-app-warning">
+                      {job.status}
+                    </span>
+                  </div>
+                  <p className="mt-1 break-all font-mono text-[10px]">
+                    Recovery key: {job.client_job_key}
+                    {job.register_session_id
+                      ? ` · Register session: ${job.register_session_id}`
+                      : " · Register session unavailable"}
+                  </p>
+                  {job.kind === "pickup_after_payment" ? (
+                    <p className="mt-2 font-semibold">
+                      Complete every named step in Orders or Alterations first. Manager verification
+                      checks recorded database evidence; it does not perform or assume the work.
+                    </p>
+                  ) : job.kind === "exchange_settlement" ? (
+                    <p className="mt-2 font-semibold">
+                      The replacement Transaction Record is saved, but the original return and
+                      exchange settlement are still incomplete. Manager completion below uses the
+                      locked server record, verifies the original tender, and posts any new refund
+                      movement to this current Register session. Do not record another replacement sale.
+                    </p>
+                  ) : job.kind === "receipt_print" ? (
+                    <p className="mt-2 font-semibold">
+                      The financial Transaction Record is saved. Retry or dismiss only the receipt
+                      print job from Print Recovery; do not record another sale.
+                    </p>
+                  ) : (
+                    <p className="mt-2 font-semibold">
+                      Manager recovery replays the exact saved checkout and records any post-close
+                      result against its original Register session.
+                    </p>
+                  )}
+                  {steps.length > 0 ? (
+                    <ul className="mt-1 list-disc space-y-1 pl-5 font-mono text-[10px]">
+                      {steps.map((description) => (
+                        <li key={description}>{description}</li>
+                      ))}
+                    </ul>
+                  ) : null}
+                  {job.last_error?.trim() ? (
+                    <p className="mt-2 font-semibold text-app-danger">
+                      Last recorded issue: {job.last_error}
+                    </p>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
+
+        {historicalRecoveryJobs.length > 0 && !hasCurrentRecoveryPanel ? (
+          <label className="mt-3 block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+            Manager recovery reason
+            <textarea
+              value={recoveryManagerReason}
+              onChange={(event) => setRecoveryManagerReason(event.target.value)}
+              maxLength={500}
+              placeholder="Explain the prior sale recovery (minimum 12 characters)."
+              className="ui-input mt-2 min-h-20 w-full p-3 text-xs normal-case tracking-normal"
+            />
+          </label>
+        ) : null}
+        {historicalRecoveryJobs.length > 0 && hasCurrentRecoveryPanel ? (
+          <p className="mt-3 font-semibold">
+            Use the Manager recovery reason in the current till-group section above for either action.
+          </p>
+        ) : null}
+        {historicalRecoveryJobs.length > 0 ? (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {historicalReplayableRecoveryJobs.length > 0 ? (
+              <button
+                type="button"
+                disabled={!canAct}
+                onClick={() =>
+                  openRecoveryManagerApproval(
+                    "replay_historical",
+                    historicalReplayableRecoveryJobs,
+                  )
+                }
+                className="ui-btn-primary px-3 py-2 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+              >
+                Recover {historicalReplayableRecoveryJobs.length} Prior Sale{historicalReplayableRecoveryJobs.length === 1 ? "" : "s"}
+              </button>
+            ) : null}
+            {historicalExchangeSettlementJobs.length > 0 ? (
+              <button
+                type="button"
+                disabled={!canAct}
+                onClick={() =>
+                  openRecoveryManagerApproval(
+                    "settle_historical_exchange",
+                    historicalExchangeSettlementJobs,
+                  )
+                }
+                className="ui-btn-primary px-3 py-2 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+              >
+                Complete {historicalExchangeSettlementJobs.length} Prior Exchange Settlement{historicalExchangeSettlementJobs.length === 1 ? "" : "s"}
+              </button>
+            ) : null}
+            {historicalPickupFollowUpJobs.length > 0 ? (
+              <button
+                type="button"
+                disabled={!canAct}
+                onClick={() =>
+                  openRecoveryManagerApproval(
+                    "verify_historical_follow_up",
+                    historicalPickupFollowUpJobs,
+                  )
+                }
+                className="ui-btn-primary px-3 py-2 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+              >
+                Verify {historicalPickupFollowUpJobs.length} Completed Follow-up{historicalPickupFollowUpJobs.length === 1 ? "" : "s"}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     );
   };
@@ -1054,6 +1815,7 @@ export default function CloseRegisterModal({
                 Review
               </p>
               {renderOfflineQueueBlocker()}
+              {renderHistoricalRecovery()}
               {renderHelcimReviewBlocker()}
               <p className="rounded-2xl border border-app-border bg-app-surface/70 px-3 py-2 text-[11px] font-bold text-app-text-muted">
                 Blind count. Enter denominations or one total.
@@ -1186,6 +1948,7 @@ export default function CloseRegisterModal({
             </form>
           </div>
         </div>
+        {renderRecoveryManagerModal()}
       </div>,
       root
     );
@@ -1262,8 +2025,12 @@ export default function CloseRegisterModal({
   const cashDepositCents = parseMoneyToCents(cashDepositAmount);
   const needsNote =
     Math.abs(discrepancyCents) > MANDATORY_NOTE_OVER_USD * 100;
+  const hasRecoveryBlockers =
+    offlineQueueSummary.totalCount > 0 ||
+    serverRecoveryJobs.length > 0 ||
+    (closeRecoveryBlock?.stationBlockers.length ?? 0) > 0;
   const closeBlockers = [
-    offlineQueueSummary.totalCount > 0 ? "Checkout recovery" : null,
+    hasRecoveryBlockers ? "Checkout recovery" : null,
     checkPayments.length > 0 && !checksReady ? "Check review" : null,
     needsNote && notes.trim() === "" ? "Cash discrepancy note" : null,
     cashDepositDate.trim() === "" ? "Cash deposit date" : null,
@@ -1306,10 +2073,10 @@ export default function CloseRegisterModal({
       {
         id: "offline-queue",
         label:
-          offlineQueueSummary.totalCount > 0
-            ? `${offlineQueueSummary.totalCount} checkout recovery item${offlineQueueSummary.totalCount === 1 ? "" : "s"} must clear before close.`
+          hasRecoveryBlockers
+            ? `${offlineQueueSummary.totalCount} local, ${serverRecoveryJobs.length} Main Hub, and ${closeRecoveryBlock?.stationBlockers.length ?? 0} linked-workstation recovery records must clear or receive audited Manager force-close approval.`
             : "No checkout recovery items are blocking close.",
-        severity: offlineQueueSummary.totalCount > 0 ? "warning" : "success",
+        severity: hasRecoveryBlockers ? "warning" : "success",
       },
     ],
     disclaimers: [
@@ -1575,6 +2342,7 @@ export default function CloseRegisterModal({
             />
           </div>
           {renderOfflineQueueBlocker()}
+          {renderHistoricalRecovery()}
           {renderHelcimReviewBlocker()}
           {(recon.tenders_by_lane?.length ?? 0) > 1 ? (
             <div className="ui-panel ui-tint-accent p-4 text-xs text-app-text-muted">
@@ -1818,6 +2586,7 @@ export default function CloseRegisterModal({
         onConfirm={() => void handleFinalClose()}
         onClose={() => setShowFinalConfirm(false)}
       />
+      {renderRecoveryManagerModal()}
     </div>,
     root
   );

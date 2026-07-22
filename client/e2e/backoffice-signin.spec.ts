@@ -26,25 +26,110 @@ async function closeOpenRegisterSessions(request: APIRequestContext) {
     headers,
     failOnStatusCode: false,
   });
-  if (listRes.status() !== 200) return;
-  const rows = (await listRes.json()) as Array<{ id?: string; session_id?: string }>;
-  for (const row of rows) {
-    const sessionId = row.session_id || row.id;
-    if (!sessionId) continue;
-    await request.post(`${apiBase()}/api/sessions/${sessionId}/close`, {
+  expect(listRes.status()).toBe(200);
+  const rows = (await listRes.json()) as Array<{
+    session_id: string;
+    register_lane: number;
+  }>;
+  const primary = rows.find((row) => row.register_lane === 1);
+  if (!primary) {
+    expect(rows).toHaveLength(0);
+    return;
+  }
+
+  const issueToken = async (sessionId: string): Promise<string> => {
+    const response = await request.post(
+      `${apiBase()}/api/sessions/${sessionId}/pos-api-token`,
+      {
+        headers: {
+          ...headers,
+          "Content-Type": "application/json",
+          "x-riverside-station-key": "station-e2e",
+        },
+        data: { cashier_code: code, pin: code },
+        failOnStatusCode: false,
+      },
+    );
+    const responseText = await response.text();
+    expect(response.status(), responseText.slice(0, 1000)).toBe(200);
+    const body = JSON.parse(responseText) as { pos_api_token?: string };
+    expect(body.pos_api_token).toBeTruthy();
+    return body.pos_api_token ?? "";
+  };
+
+  const primaryToken = await issueToken(primary.session_id);
+  const begin = await request.post(
+    `${apiBase()}/api/sessions/${primary.session_id}/begin-reconcile`,
+    {
       headers: {
-        ...headers,
         "Content-Type": "application/json",
-      "x-riverside-station-key": "station-e2e",
+        "x-riverside-pos-session-id": primary.session_id,
+        "x-riverside-pos-session-token": primaryToken,
+        "x-riverside-station-key": "station-e2e",
+      },
+      data: { active: true },
+      failOnStatusCode: false,
+    },
+  );
+  expect(begin.status()).toBe(200);
+
+  for (const row of rows) {
+    const token =
+      row.session_id === primary.session_id
+        ? primaryToken
+        : await issueToken(row.session_id);
+    const acknowledgement = await request.post(
+      `${apiBase()}/api/recovery/station-close-status`,
+      {
+        headers: {
+          "Content-Type": "application/json",
+          "x-riverside-pos-session-id": row.session_id,
+          "x-riverside-pos-session-token": token,
+          "x-riverside-station-key": "station-e2e",
+        },
+        data: {
+          pending_checkout_count: 0,
+          blocked_checkout_count: 0,
+        },
+        failOnStatusCode: false,
+      },
+    );
+    expect(acknowledgement.status()).toBe(200);
+  }
+
+  const reconciliation = await request.get(
+    `${apiBase()}/api/sessions/${primary.session_id}/reconciliation`,
+    {
+      headers: {
+        "x-riverside-pos-session-id": primary.session_id,
+        "x-riverside-pos-session-token": primaryToken,
+        "x-riverside-station-key": "station-e2e",
+      },
+      failOnStatusCode: false,
+    },
+  );
+  expect(reconciliation.status()).toBe(200);
+  const expectedCash = ((await reconciliation.json()) as { expected_cash: string })
+    .expected_cash;
+  const close = await request.post(
+    `${apiBase()}/api/sessions/${primary.session_id}/close`,
+    {
+      headers: {
+        "Content-Type": "application/json",
+        "x-riverside-pos-session-id": primary.session_id,
+        "x-riverside-pos-session-token": primaryToken,
+        "x-riverside-station-key": "station-e2e",
       },
       data: {
-        actual_cash: "0.00",
+        actual_cash: expectedCash,
         closing_notes: "E2E sign-in reset",
         closing_comments: "E2E sign-in reset",
       },
       failOnStatusCode: false,
-    });
-  }
+    },
+  );
+  const closeText = await close.text();
+  expect(close.status(), closeText.slice(0, 1000)).toBe(200);
 }
 
 test.beforeAll(async ({ request }) => {

@@ -12,6 +12,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::{PgPool, Row};
 use std::collections::HashSet;
+use std::future::Future;
+use std::time::Duration;
+use tokio::time::timeout;
 use uuid::Uuid;
 
 use crate::api::AppState;
@@ -34,6 +37,7 @@ use crate::middleware;
 
 const DEFAULT_LIMIT: usize = 8;
 const MAX_LIMIT: usize = 12;
+const UNIVERSAL_SOURCE_TIMEOUT: Duration = Duration::from_millis(1_100);
 
 #[derive(Debug, Deserialize)]
 struct UniversalSearchQuery {
@@ -182,8 +186,126 @@ fn has_permission(perms: &HashSet<String>, key: &str) -> bool {
     staff_has_permission(perms, key)
 }
 
+fn has_searchable_term(value: &str) -> bool {
+    value.chars().any(char::is_alphanumeric)
+}
+
 fn like_query(q: &str) -> String {
-    format!("%{q}%")
+    let escaped = q
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_");
+    format!("%{escaped}%")
+}
+
+fn phone_like_pattern(value: &str) -> Option<String> {
+    let phone_like = value.chars().all(|c| {
+        c.is_ascii_digit()
+            || c.is_ascii_whitespace()
+            || matches!(c, '+' | '-' | '(' | ')' | '.' | '/')
+    });
+    let digits = value
+        .chars()
+        .filter(|c| c.is_ascii_digit())
+        .collect::<String>();
+    (phone_like && digits.len() >= 7).then(|| format!("%{digits}%"))
+}
+
+async fn within_source_deadline<T>(future: impl Future<Output = T>) -> Option<T> {
+    timeout(UNIVERSAL_SOURCE_TIMEOUT, future).await.ok()
+}
+
+async fn validated_meili_candidate_ids(
+    pool: &PgPool,
+    client: &meilisearch_sdk::client::Client,
+    index_name: &str,
+    query: &str,
+    ids: Vec<Uuid>,
+) -> Option<Vec<Uuid>> {
+    if crate::logic::meilisearch_search::candidate_ids_may_be_truncated(index_name, ids.len()) {
+        tracing::warn!(
+            index = index_name,
+            candidate_count = ids.len(),
+            query,
+            "universal Meilisearch candidate cap reached; using PostgreSQL"
+        );
+        return None;
+    }
+    if !crate::logic::meilisearch_search::index_results_are_authoritative(pool, client, index_name)
+        .await
+    {
+        tracing::warn!(
+            index = index_name,
+            query,
+            "universal Meilisearch index health is not authoritative; using PostgreSQL"
+        );
+        return None;
+    }
+    if !ids.is_empty() && !crate::logic::meilisearch_search::candidate_ids_are_unique(&ids) {
+        tracing::warn!(
+            index = index_name,
+            query,
+            "universal Meilisearch candidate IDs are invalid or duplicated; using PostgreSQL"
+        );
+        return None;
+    }
+    Some(ids)
+}
+
+async fn ids_hydrate_completely(
+    pool: &PgPool,
+    table: &'static str,
+    ids: &[Uuid],
+) -> Result<bool, sqlx::Error> {
+    if ids.is_empty() {
+        return Ok(false);
+    }
+    let sql = match table {
+        "customers" => "SELECT COUNT(*)::bigint FROM customers WHERE id = ANY($1)",
+        "product_variants" => {
+            "SELECT COUNT(*)::bigint FROM product_variants pv JOIN products p ON p.id = pv.product_id WHERE pv.id = ANY($1) AND p.is_active = true"
+        }
+        "alteration_orders" => "SELECT COUNT(*)::bigint FROM alteration_orders WHERE id = ANY($1)",
+        "wedding_appointments" => {
+            "SELECT COUNT(*)::bigint FROM wedding_appointments WHERE id = ANY($1)"
+        }
+        "task_instance" => "SELECT COUNT(*)::bigint FROM task_instance WHERE id = ANY($1)",
+        _ => return Ok(false),
+    };
+    let valid = sqlx::query_scalar::<_, i64>(sql)
+        .bind(ids)
+        .fetch_one(pool)
+        .await?;
+    Ok(valid == ids.len() as i64)
+}
+
+fn hydrated_candidate_page_is_complete(
+    candidate_ids: &[Uuid],
+    hydrated_ids: impl IntoIterator<Item = Uuid>,
+    limit: usize,
+) -> bool {
+    if !crate::logic::meilisearch_search::candidate_ids_are_unique(candidate_ids) {
+        return false;
+    }
+    let candidate_set = candidate_ids.iter().copied().collect::<HashSet<_>>();
+    let mut hydrated_set = HashSet::new();
+    for id in hydrated_ids {
+        if !candidate_set.contains(&id) || !hydrated_set.insert(id) {
+            return false;
+        }
+    }
+    hydrated_set.len() == candidate_ids.len().min(limit)
+}
+
+fn help_hits_are_unique(rows: &[HelpSearchHit]) -> bool {
+    !rows.is_empty()
+        && rows.iter().all(|row| !row.id.trim().is_empty())
+        && rows
+            .iter()
+            .map(|row| row.id.as_str())
+            .collect::<HashSet<_>>()
+            .len()
+            == rows.len()
 }
 
 fn excerpt_from_body(text: &str, max: usize) -> String {
@@ -268,8 +390,20 @@ async fn search_customers(
 ) -> Result<Vec<UniversalCustomerHit>, sqlx::Error> {
     let meili_ids = if let Some(client) = meilisearch {
         match crate::logic::meilisearch_search::customer_search_ids(client, q).await {
-            Ok(ids) if !ids.is_empty() => Some(ids),
-            Ok(_) => None,
+            Ok(ids) => {
+                match validated_meili_candidate_ids(
+                    pool,
+                    client,
+                    crate::logic::meilisearch_client::INDEX_CUSTOMERS,
+                    q,
+                    ids,
+                )
+                .await
+                {
+                    Some(ids) if ids.is_empty() => return Ok(Vec::new()),
+                    ids => ids,
+                }
+            }
             Err(error) => {
                 tracing::warn!(%error, "universal customer Meilisearch failed; using SQL");
                 None
@@ -280,8 +414,14 @@ async fn search_customers(
     };
 
     if let Some(ids) = meili_ids {
-        return sqlx::query_as::<_, UniversalCustomerHit>(
-            r#"
+        if !ids_hydrate_completely(pool, "customers", &ids).await? {
+            tracing::warn!(
+                query = q,
+                "universal customer Meilisearch hydration is incomplete; using PostgreSQL"
+            );
+        } else {
+            let rows = sqlx::query_as::<_, UniversalCustomerHit>(
+                r#"
             SELECT
                 c.id,
                 NULLIF(TRIM(c.customer_code), '') AS customer_code,
@@ -337,15 +477,24 @@ async fn search_customers(
             ORDER BY array_position($2::uuid[], c.id)
             LIMIT $3
             "#,
-        )
-        .bind(&ids)
-        .bind(&ids)
-        .bind(limit as i64)
-        .fetch_all(pool)
-        .await;
+            )
+            .bind(&ids)
+            .bind(&ids)
+            .bind(limit as i64)
+            .fetch_all(pool)
+            .await?;
+            if hydrated_candidate_page_is_complete(&ids, rows.iter().map(|row| row.id), limit) {
+                return Ok(rows);
+            }
+            tracing::warn!(
+                query = q,
+                "universal customer Meilisearch page did not hydrate completely; using PostgreSQL"
+            );
+        }
     }
 
     let like = like_query(q);
+    let phone_like = phone_like_pattern(q);
     sqlx::query_as::<_, UniversalCustomerHit>(
         r#"
         SELECT
@@ -405,12 +554,14 @@ async fn search_customers(
            OR COALESCE(c.customer_code, '') ILIKE $1
            OR COALESCE(c.email, '') ILIKE $1
            OR COALESCE(c.phone, '') ILIKE $1
+           OR ($2::text IS NOT NULL AND regexp_replace(COALESCE(c.phone, ''), '[^0-9]', '', 'g') LIKE $2)
            OR COALESCE(c.company_name, '') ILIKE $1
-        ORDER BY c.created_at DESC
-        LIMIT $2
+        ORDER BY c.created_at DESC, c.id DESC
+        LIMIT $3
         "#,
     )
     .bind(like)
+    .bind(phone_like)
     .bind(limit as i64)
     .fetch_all(pool)
     .await
@@ -428,8 +579,20 @@ async fn search_products(
         )
         .await
         {
-            Ok(ids) if !ids.is_empty() => Some(ids),
-            Ok(_) => None,
+            Ok(ids) => {
+                match validated_meili_candidate_ids(
+                    pool,
+                    client,
+                    crate::logic::meilisearch_client::INDEX_VARIANTS,
+                    q,
+                    ids,
+                )
+                .await
+                {
+                    Some(ids) if ids.is_empty() => return Ok(Vec::new()),
+                    ids => ids,
+                }
+            }
             Err(error) => {
                 tracing::warn!(%error, "universal product Meilisearch failed; using SQL");
                 None
@@ -440,8 +603,14 @@ async fn search_products(
     };
 
     if let Some(ids) = meili_ids {
-        return sqlx::query_as::<_, UniversalProductHit>(
-            r#"
+        if !ids_hydrate_completely(pool, "product_variants", &ids).await? {
+            tracing::warn!(
+                query = q,
+                "universal product Meilisearch hydration is incomplete; using PostgreSQL"
+            );
+        } else {
+            let rows = sqlx::query_as::<_, UniversalProductHit>(
+                r#"
             SELECT
                 pv.id AS variant_id,
                 p.id AS product_id,
@@ -455,12 +624,24 @@ async fn search_products(
             ORDER BY array_position($2::uuid[], pv.id)
             LIMIT $3
             "#,
-        )
-        .bind(&ids)
-        .bind(&ids)
-        .bind(limit as i64)
-        .fetch_all(pool)
-        .await;
+            )
+            .bind(&ids)
+            .bind(&ids)
+            .bind(limit as i64)
+            .fetch_all(pool)
+            .await?;
+            if hydrated_candidate_page_is_complete(
+                &ids,
+                rows.iter().map(|row| row.variant_id),
+                limit,
+            ) {
+                return Ok(rows);
+            }
+            tracing::warn!(
+                query = q,
+                "universal product Meilisearch page did not hydrate completely; using PostgreSQL"
+            );
+        }
     }
 
     let like = like_query(q);
@@ -483,7 +664,7 @@ async fn search_products(
             OR COALESCE(p.brand, '') ILIKE $1
             OR COALESCE(pv.variation_label, '') ILIKE $1
           )
-        ORDER BY p.name ASC, pv.sku ASC
+        ORDER BY p.name ASC, pv.sku ASC, pv.id ASC
         LIMIT $2
         "#,
     )
@@ -523,8 +704,20 @@ async fn search_alterations(
 ) -> Result<Vec<UniversalAlterationHit>, sqlx::Error> {
     let meili_ids = if let Some(client) = meilisearch {
         match crate::logic::meilisearch_search::alteration_search_ids(client, q, false).await {
-            Ok(ids) if !ids.is_empty() => Some(ids),
-            Ok(_) => None,
+            Ok(ids) => {
+                match validated_meili_candidate_ids(
+                    pool,
+                    client,
+                    crate::logic::meilisearch_client::INDEX_ALTERATIONS,
+                    q,
+                    ids,
+                )
+                .await
+                {
+                    Some(ids) if ids.is_empty() => return Ok(Vec::new()),
+                    ids => ids,
+                }
+            }
             Err(error) => {
                 tracing::warn!(%error, "universal alteration Meilisearch failed; using SQL");
                 None
@@ -534,6 +727,48 @@ async fn search_alterations(
         None
     };
     let like = like_query(q);
+    let meili_ids = if let Some(ids) = meili_ids {
+        if ids_hydrate_completely(pool, "alteration_orders", &ids).await? {
+            Some(ids)
+        } else {
+            tracing::warn!(
+                query = q,
+                "universal alteration Meilisearch hydration is incomplete; using PostgreSQL"
+            );
+            None
+        }
+    } else {
+        None
+    };
+    let phone_like = phone_like_pattern(q);
+    let rows = query_alteration_rows(
+        pool,
+        meili_ids.as_deref(),
+        &like,
+        phone_like.as_deref(),
+        limit,
+    )
+    .await?;
+    if let Some(ids) = meili_ids.as_ref() {
+        if hydrated_candidate_page_is_complete(ids, rows.iter().map(|row| row.id), limit) {
+            return Ok(rows);
+        }
+        tracing::warn!(
+            query = q,
+            "universal alteration Meilisearch page did not hydrate completely; using PostgreSQL"
+        );
+        return query_alteration_rows(pool, None, &like, phone_like.as_deref(), limit).await;
+    }
+    Ok(rows)
+}
+
+async fn query_alteration_rows(
+    pool: &PgPool,
+    meili_ids: Option<&[Uuid]>,
+    like: &str,
+    phone_like: Option<&str>,
+    limit: usize,
+) -> Result<Vec<UniversalAlterationHit>, sqlx::Error> {
     sqlx::query_as::<_, UniversalAlterationHit>(
         r#"
         SELECT
@@ -559,19 +794,21 @@ async fn search_alterations(
             OR CONCAT(COALESCE(c.first_name, ''), ' ', COALESCE(c.last_name, '')) ILIKE $2
             OR COALESCE(c.customer_code, '') ILIKE $2
             OR COALESCE(c.phone, '') ILIKE $2
+            OR ($4::text IS NOT NULL AND regexp_replace(COALESCE(c.phone, ''), '[^0-9]', '', 'g') LIKE $4)
             OR COALESCE(c.email, '') ILIKE $2
             OR COALESCE(t.display_id, '') ILIKE $2
             OR COALESCE(a.item_description, '') ILIKE $2
             OR COALESCE(a.work_requested, '') ILIKE $2
             OR COALESCE(a.source_sku, '') ILIKE $2
           )
-        ORDER BY a.created_at DESC
+        ORDER BY a.created_at DESC, a.id DESC
         LIMIT $3
         "#,
     )
-    .bind(meili_ids.as_deref())
+    .bind(meili_ids)
     .bind(like)
     .bind(limit as i64)
+    .bind(phone_like)
     .fetch_all(pool)
     .await
 }
@@ -585,7 +822,31 @@ async fn search_help(
     let policies = load_all_policies(&state.db).await?;
     let rows = if let Some(client) = state.meilisearch.as_ref() {
         match help_search_hits(client, q, limit).await {
-            Ok(rows) => rows,
+            Ok(rows) => {
+                if !crate::logic::meilisearch_search::index_results_are_authoritative(
+                    &state.db,
+                    client,
+                    crate::logic::meilisearch_client::INDEX_HELP,
+                )
+                .await
+                {
+                    tracing::warn!(
+                        query = q,
+                        "universal Help Meilisearch health is not authoritative; using local corpus"
+                    );
+                    local_help_search_hits(q, limit)
+                } else if rows.is_empty() {
+                    Vec::new()
+                } else if help_hits_are_unique(&rows) {
+                    rows
+                } else {
+                    tracing::warn!(
+                        query = q,
+                        "universal Help Meilisearch IDs are missing or duplicated; using local corpus"
+                    );
+                    local_help_search_hits(q, limit)
+                }
+            }
             Err(error) => {
                 tracing::warn!(%error, "universal help Meilisearch failed; using local corpus");
                 local_help_search_hits(q, limit)
@@ -660,10 +921,22 @@ async fn search_appointments(
     q: &str,
     limit: usize,
 ) -> Result<Vec<UniversalOperationalHit>, sqlx::Error> {
-    let meili_ids = if let Some(client) = meilisearch {
+    let mut meili_ids = if let Some(client) = meilisearch {
         match crate::logic::meilisearch_search::appointment_search_ids(client, q).await {
-            Ok(ids) if !ids.is_empty() => Some(ids),
-            Ok(_) => None,
+            Ok(ids) => {
+                match validated_meili_candidate_ids(
+                    pool,
+                    client,
+                    crate::logic::meilisearch_client::INDEX_APPOINTMENTS,
+                    q,
+                    ids,
+                )
+                .await
+                {
+                    Some(ids) if ids.is_empty() => return Ok(Vec::new()),
+                    ids => ids,
+                }
+            }
             Err(error) => {
                 tracing::warn!(%error, "universal appointment Meilisearch failed; using SQL");
                 None
@@ -672,10 +945,20 @@ async fn search_appointments(
     } else {
         None
     };
+    if let Some(ids) = meili_ids.as_ref() {
+        let hydrates = ids_hydrate_completely(pool, "wedding_appointments", ids).await?;
+        if !hydrates {
+            tracing::warn!(
+                query = q,
+                "universal appointment Meilisearch hits did not hydrate; using PostgreSQL"
+            );
+            meili_ids = None;
+        }
+    }
     let like = like_query(q);
+    let phone_like = phone_like_pattern(q);
     let broad = has_domain_word(q, &["appointment", "appointments", "scheduler", "calendar"]);
-    let rows = sqlx::query(
-        r#"
+    const APPOINTMENT_SEARCH_SQL: &str = r#"
         SELECT
             a.id,
             a.customer_display_name,
@@ -692,6 +975,7 @@ async fn search_appointments(
             OR $4
             OR COALESCE(a.customer_display_name, '') ILIKE $2
             OR COALESCE(a.phone, '') ILIKE $2
+            OR ($5::text IS NOT NULL AND regexp_replace(COALESCE(a.phone, ''), '[^0-9]', '', 'g') LIKE $5)
             OR COALESCE(a.appointment_type, '') ILIKE $2
             OR COALESCE(a.notes, '') ILIKE $2
             OR COALESCE(a.salesperson, '') ILIKE $2
@@ -699,16 +983,39 @@ async fn search_appointments(
           )
         ORDER BY
           CASE WHEN a.starts_at >= now() THEN 0 ELSE 1 END,
-          a.starts_at ASC
+          a.starts_at ASC,
+          a.id ASC
         LIMIT $3
-        "#,
-    )
-    .bind(meili_ids.as_deref())
-    .bind(like)
-    .bind(limit as i64)
-    .bind(broad)
-    .fetch_all(pool)
-    .await?;
+        "#;
+    let mut rows = sqlx::query(APPOINTMENT_SEARCH_SQL)
+        .bind(meili_ids.as_deref())
+        .bind(&like)
+        .bind(limit as i64)
+        .bind(broad)
+        .bind(phone_like.as_deref())
+        .fetch_all(pool)
+        .await?;
+
+    if let Some(ids) = meili_ids.as_ref() {
+        if !hydrated_candidate_page_is_complete(
+            ids,
+            rows.iter().map(|row| row.get::<Uuid, _>("id")),
+            limit,
+        ) {
+            tracing::warn!(
+                query = q,
+                "universal appointment Meilisearch page did not hydrate completely; using PostgreSQL"
+            );
+            rows = sqlx::query(APPOINTMENT_SEARCH_SQL)
+                .bind(Option::<&[Uuid]>::None)
+                .bind(&like)
+                .bind(limit as i64)
+                .bind(broad)
+                .bind(phone_like.as_deref())
+                .fetch_all(pool)
+                .await?;
+        }
+    }
 
     Ok(rows
         .into_iter()
@@ -752,10 +1059,22 @@ async fn search_tasks(
     q: &str,
     limit: usize,
 ) -> Result<Vec<UniversalOperationalHit>, sqlx::Error> {
-    let meili_ids = if let Some(client) = meilisearch {
+    let mut meili_ids = if let Some(client) = meilisearch {
         match crate::logic::meilisearch_search::task_search_ids(client, q).await {
-            Ok(ids) if !ids.is_empty() => Some(ids),
-            Ok(_) => None,
+            Ok(ids) => {
+                match validated_meili_candidate_ids(
+                    pool,
+                    client,
+                    crate::logic::meilisearch_client::INDEX_TASKS,
+                    q,
+                    ids,
+                )
+                .await
+                {
+                    Some(ids) if ids.is_empty() => return Ok(Vec::new()),
+                    ids => ids,
+                }
+            }
             Err(error) => {
                 tracing::warn!(%error, "universal task Meilisearch failed; using SQL");
                 None
@@ -764,10 +1083,19 @@ async fn search_tasks(
     } else {
         None
     };
+    if let Some(ids) = meili_ids.as_ref() {
+        let hydrates = ids_hydrate_completely(pool, "task_instance", ids).await?;
+        if !hydrates {
+            tracing::warn!(
+                query = q,
+                "universal task Meilisearch hits did not hydrate; using PostgreSQL"
+            );
+            meili_ids = None;
+        }
+    }
     let like = like_query(q);
     let broad = has_domain_word(q, &["task", "tasks", "todo", "todos"]);
-    let rows = sqlx::query(
-        r#"
+    const TASK_SEARCH_SQL: &str = r#"
         SELECT
             ti.id,
             ti.title_snapshot,
@@ -789,16 +1117,36 @@ async fn search_tasks(
             OR COALESCE(c.first_name, '') ILIKE $2
             OR COALESCE(c.last_name, '') ILIKE $2
           )
-        ORDER BY ti.due_date ASC NULLS LAST, ti.materialized_at DESC
+        ORDER BY ti.due_date ASC NULLS LAST, ti.materialized_at DESC, ti.id ASC
         LIMIT $3
-        "#,
-    )
-    .bind(meili_ids.as_deref())
-    .bind(like)
-    .bind(limit as i64)
-    .bind(broad)
-    .fetch_all(pool)
-    .await?;
+        "#;
+    let mut rows = sqlx::query(TASK_SEARCH_SQL)
+        .bind(meili_ids.as_deref())
+        .bind(&like)
+        .bind(limit as i64)
+        .bind(broad)
+        .fetch_all(pool)
+        .await?;
+
+    if let Some(ids) = meili_ids.as_ref() {
+        if !hydrated_candidate_page_is_complete(
+            ids,
+            rows.iter().map(|row| row.get::<Uuid, _>("id")),
+            limit,
+        ) {
+            tracing::warn!(
+                query = q,
+                "universal task Meilisearch page did not hydrate completely; using PostgreSQL"
+            );
+            rows = sqlx::query(TASK_SEARCH_SQL)
+                .bind(Option::<&[Uuid]>::None)
+                .bind(&like)
+                .bind(limit as i64)
+                .bind(broad)
+                .fetch_all(pool)
+                .await?;
+        }
+    }
 
     Ok(rows
         .into_iter()
@@ -1394,6 +1742,11 @@ async fn universal_search(
             "query must be at least 2 characters".to_string(),
         ));
     }
+    if !has_searchable_term(&q) {
+        return Err(SearchError::BadRequest(
+            "query must include at least one letter or number".to_string(),
+        ));
+    }
 
     let staff = middleware::require_authenticated_staff_headers(&state, &headers)
         .await
@@ -1566,6 +1919,47 @@ async fn universal_search(
     let operational_fut = async {
         let mut hits = Vec::new();
         let mut failed = Vec::new();
+        let qbo_intent = has_domain_word(&q, &["qbo", "quickbooks", "journal", "sync"]);
+        let receiving_intent = has_domain_word(
+            &q,
+            &[
+                "receiving",
+                "receive",
+                "received",
+                "invoice",
+                "purchase",
+                "po",
+            ],
+        ) || q.to_ascii_lowercase().starts_with("po-");
+        let physical_inventory_intent = has_domain_word(
+            &q,
+            &[
+                "physical",
+                "inventory",
+                "count",
+                "counts",
+                "reconcile",
+                "mismatch",
+            ],
+        );
+        let gift_card_intent = has_domain_word(&q, &["gift", "card", "cards"]);
+        let loyalty_intent = has_domain_word(&q, &["loyalty", "points", "reward", "rewards"]);
+        let notification_intent = has_domain_word(
+            &q,
+            &[
+                "notification",
+                "notifications",
+                "podium",
+                "message",
+                "messages",
+            ],
+        );
+        let payment_intent = has_domain_word(
+            &q,
+            &[
+                "payment", "payments", "helcim", "check", "card", "tender", "refund",
+            ],
+        );
 
         let (
             appointments,
@@ -1581,12 +1975,12 @@ async fn universal_search(
             async {
                 if has_permission(&perms, WEDDINGS_VIEW) {
                     Some(
-                        search_appointments(
+                        within_source_deadline(search_appointments(
                             &state.db,
                             state.meilisearch.as_ref(),
                             &q,
                             limit.min(4),
-                        )
+                        ))
                         .await,
                     )
                 } else {
@@ -1596,58 +1990,86 @@ async fn universal_search(
             async {
                 if has_permission(&perms, TASKS_VIEW_TEAM) {
                     Some(
-                        search_tasks(&state.db, state.meilisearch.as_ref(), &q, limit.min(4)).await,
+                        within_source_deadline(search_tasks(
+                            &state.db,
+                            state.meilisearch.as_ref(),
+                            &q,
+                            limit.min(4),
+                        ))
+                        .await,
                     )
                 } else {
                     None
                 }
             },
             async {
-                if has_permission(&perms, QBO_VIEW) {
-                    Some(search_qbo_logs(&state.db, &q, limit.min(4)).await)
+                if has_permission(&perms, QBO_VIEW) && qbo_intent {
+                    Some(within_source_deadline(search_qbo_logs(&state.db, &q, limit.min(4))).await)
                 } else {
                     None
                 }
             },
             async {
-                if has_permission(&perms, PROCUREMENT_VIEW) {
-                    Some(search_receiving_events(&state.db, &q, limit.min(4)).await)
+                if has_permission(&perms, PROCUREMENT_VIEW) && receiving_intent {
+                    Some(
+                        within_source_deadline(search_receiving_events(
+                            &state.db,
+                            &q,
+                            limit.min(4),
+                        ))
+                        .await,
+                    )
                 } else {
                     None
                 }
             },
             async {
-                if has_permission(&perms, PHYSICAL_INVENTORY_VIEW) {
-                    Some(search_physical_inventory_sessions(&state.db, &q, limit.min(4)).await)
+                if has_permission(&perms, PHYSICAL_INVENTORY_VIEW) && physical_inventory_intent {
+                    Some(
+                        within_source_deadline(search_physical_inventory_sessions(
+                            &state.db,
+                            &q,
+                            limit.min(4),
+                        ))
+                        .await,
+                    )
                 } else {
                     None
                 }
             },
             async {
-                if has_permission(&perms, GIFT_CARDS_MANAGE) {
-                    Some(search_gift_cards(&state.db, &q, limit.min(4)).await)
+                if has_permission(&perms, GIFT_CARDS_MANAGE) && gift_card_intent {
+                    Some(
+                        within_source_deadline(search_gift_cards(&state.db, &q, limit.min(4)))
+                            .await,
+                    )
                 } else {
                     None
                 }
             },
             async {
-                if has_permission(&perms, LOYALTY_PROGRAM_SETTINGS) {
-                    Some(search_loyalty(&state.db, &q, limit.min(4)).await)
+                if has_permission(&perms, LOYALTY_PROGRAM_SETTINGS) && loyalty_intent {
+                    Some(within_source_deadline(search_loyalty(&state.db, &q, limit.min(4))).await)
                 } else {
                     None
                 }
             },
             async {
-                if has_permission(&perms, NOTIFICATIONS_VIEW) {
-                    Some(search_notifications(&state.db, &q, limit.min(4)).await)
+                if has_permission(&perms, NOTIFICATIONS_VIEW) && notification_intent {
+                    Some(
+                        within_source_deadline(search_notifications(&state.db, &q, limit.min(4)))
+                            .await,
+                    )
                 } else {
                     None
                 }
             },
             async {
-                if has_permission(&perms, PAYMENTS_VIEW) || has_permission(&perms, REGISTER_REPORTS)
+                if payment_intent
+                    && (has_permission(&perms, PAYMENTS_VIEW)
+                        || has_permission(&perms, REGISTER_REPORTS))
                 {
-                    Some(search_payments(&state.db, &q, limit.min(4)).await)
+                    Some(within_source_deadline(search_payments(&state.db, &q, limit.min(4))).await)
                 } else {
                     None
                 }
@@ -1658,11 +2080,12 @@ async fn universal_search(
             ($result:expr, $label:literal, $message:literal) => {
                 if let Some(result) = $result {
                     match result {
-                        Ok(rows) => hits.extend(rows),
-                        Err(error) => {
+                        Some(Ok(rows)) => hits.extend(rows),
+                        Some(Err(error)) => {
                             tracing::warn!(%error, $message);
                             failed.push($label.to_string());
                         }
+                        None => failed.push(format!("{} (timed out)", $label)),
                     }
                 }
             };
@@ -1700,24 +2123,44 @@ async fn universal_search(
     };
 
     let (
-        (customers, customers_failed),
-        (sku_hit, products, product_failures),
-        (orders, orders_failed),
-        (shipments, shipments_failed),
-        (weddings, weddings_failed),
-        (alterations, alterations_failed),
-        (help_hits, help_failed),
-        (operational_hits, operational_failures),
+        customers_result,
+        products_result,
+        orders_result,
+        shipments_result,
+        weddings_result,
+        alterations_result,
+        help_result,
+        operational_result,
     ) = tokio::join!(
-        customers_fut,
-        product_fut,
-        orders_fut,
-        shipments_fut,
-        weddings_fut,
-        alterations_fut,
-        help_fut,
+        within_source_deadline(customers_fut),
+        within_source_deadline(product_fut),
+        within_source_deadline(orders_fut),
+        within_source_deadline(shipments_fut),
+        within_source_deadline(weddings_fut),
+        within_source_deadline(alterations_fut),
+        within_source_deadline(help_fut),
         operational_fut
     );
+
+    let (customers, customers_failed) =
+        customers_result.unwrap_or_else(|| (Vec::new(), Some("Customers (timed out)".to_string())));
+    let (sku_hit, products, product_failures) = products_result
+        .unwrap_or_else(|| (None, Vec::new(), vec!["Inventory (timed out)".to_string()]));
+    let (orders, orders_failed) = orders_result.unwrap_or_else(|| {
+        (
+            Vec::new(),
+            Some("Transaction Records (timed out)".to_string()),
+        )
+    });
+    let (shipments, shipments_failed) =
+        shipments_result.unwrap_or_else(|| (Vec::new(), Some("Shipping (timed out)".to_string())));
+    let (weddings, weddings_failed) =
+        weddings_result.unwrap_or_else(|| (Vec::new(), Some("Weddings (timed out)".to_string())));
+    let (alterations, alterations_failed) = alterations_result
+        .unwrap_or_else(|| (Vec::new(), Some("Alterations (timed out)".to_string())));
+    let (help_hits, help_failed) =
+        help_result.unwrap_or_else(|| (Vec::new(), Some("Help Center (timed out)".to_string())));
+    let (operational_hits, operational_failures) = operational_result;
 
     let mut sources_failed = Vec::<String>::new();
     sources_failed.extend(customers_failed);
@@ -1749,4 +2192,60 @@ async fn universal_search(
 
 pub fn router() -> Router<AppState> {
     Router::new().route("/universal", get(universal_search))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        has_domain_word, has_searchable_term, hydrated_candidate_page_is_complete, like_query,
+    };
+    use uuid::Uuid;
+
+    #[test]
+    fn punctuation_only_query_is_not_searchable() {
+        assert!(!has_searchable_term("%_"));
+        assert!(!has_searchable_term("-- /"));
+        assert!(has_searchable_term("TXN-123"));
+        assert!(has_searchable_term("Élodie"));
+    }
+
+    #[test]
+    fn sql_fallback_treats_wildcards_as_literal_text() {
+        assert_eq!(like_query(r"A%_B\C"), r"%A\%\_B\\C%");
+    }
+
+    #[test]
+    fn operational_intent_requires_a_complete_domain_word() {
+        assert!(has_domain_word("failed QBO sync", &["qbo", "sync"]));
+        assert!(!has_domain_word("synchrony customer", &["sync"]));
+    }
+
+    #[test]
+    fn meili_candidate_page_requires_unique_complete_hydration() {
+        let first = Uuid::new_v4();
+        let second = Uuid::new_v4();
+        let third = Uuid::new_v4();
+        let candidates = [first, second, third];
+
+        assert!(hydrated_candidate_page_is_complete(
+            &candidates,
+            [first, second],
+            2
+        ));
+        assert!(!hydrated_candidate_page_is_complete(
+            &candidates,
+            [first],
+            2
+        ));
+        assert!(!hydrated_candidate_page_is_complete(
+            &candidates,
+            [first, first],
+            2
+        ));
+        assert!(!hydrated_candidate_page_is_complete(
+            &candidates,
+            [first, Uuid::new_v4()],
+            2
+        ));
+    }
 }

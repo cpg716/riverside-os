@@ -17,6 +17,24 @@ pub fn digits_only(s: &str) -> String {
     s.chars().filter(|c| c.is_ascii_digit()).collect()
 }
 
+fn literal_ilike_pattern(value: &str) -> String {
+    let escaped = value
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_");
+    format!("%{escaped}%")
+}
+
+fn phone_query_digits(value: &str) -> Option<String> {
+    let phone_like = value.chars().all(|c| {
+        c.is_ascii_digit()
+            || c.is_ascii_whitespace()
+            || matches!(c, '+' | '-' | '(' | ')' | '.' | '/')
+    });
+    let digits = digits_only(value);
+    (phone_like && digits.len() >= 7).then_some(digits)
+}
+
 fn party_select_sql() -> &'static str {
     r#"
         SELECT
@@ -132,16 +150,11 @@ pub async fn query_party_list_page(
     let search_pat = if search.is_empty() {
         None
     } else {
-        Some(format!("%{search}%"))
+        Some(literal_ilike_pattern(&search))
     };
-    let digits = digits_only(&search);
-    let phone_pat = if digits.len() >= 2 {
-        Some(format!("%{digits}%"))
-    } else {
-        None
-    };
+    let phone_pat = phone_query_digits(&search).map(|digits| format!("%{digits}%"));
 
-    let meili_party_ids: Option<Vec<Uuid>> = if search_pat.is_some() {
+    let mut meili_party_ids: Option<Vec<Uuid>> = if search_pat.is_some() {
         if let Some(c) = meilisearch {
             if !search.is_empty() {
                 match crate::logic::meilisearch_search::wedding_party_search_ids(
@@ -151,8 +164,43 @@ pub async fn query_party_list_page(
                 )
                 .await
                 {
-                    Ok(ids) if !ids.is_empty() => Some(ids),
-                    Ok(_) => None,
+                    Ok(ids)
+                        if crate::logic::meilisearch_search::candidate_ids_may_be_truncated(
+                            crate::logic::meilisearch_client::INDEX_WEDDING_PARTIES,
+                            ids.len(),
+                        ) =>
+                    {
+                        tracing::warn!(
+                            candidate_count = ids.len(),
+                            "Meilisearch wedding candidate cap reached; using PostgreSQL for complete pagination"
+                        );
+                        None
+                    }
+                    Ok(ids)
+                        if !crate::logic::meilisearch_search::index_results_are_authoritative(
+                            pool,
+                            c,
+                            crate::logic::meilisearch_client::INDEX_WEDDING_PARTIES,
+                        )
+                        .await =>
+                    {
+                        tracing::warn!(
+                            "Meilisearch wedding index health is not authoritative; using PostgreSQL ILIKE"
+                        );
+                        None
+                    }
+                    Ok(ids) if ids.is_empty() => {
+                        return Ok((Vec::new(), 0, page, limit));
+                    }
+                    Ok(ids)
+                        if !crate::logic::meilisearch_search::candidate_ids_are_unique(&ids) =>
+                    {
+                        tracing::warn!(
+                            "Meilisearch wedding candidate IDs are invalid or duplicated; using PostgreSQL ILIKE"
+                        );
+                        None
+                    }
+                    Ok(ids) => Some(ids),
                     Err(e) => {
                         tracing::warn!(
                             error = %e,
@@ -170,6 +218,21 @@ pub async fn query_party_list_page(
     } else {
         None
     };
+    if let Some(ids) = meili_party_ids.as_ref() {
+        let valid = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*)::bigint FROM wedding_parties WHERE id = ANY($1)",
+        )
+        .bind(ids)
+        .fetch_one(pool)
+        .await?;
+        if valid != ids.len() as i64 {
+            tracing::warn!(
+                query = search,
+                "wedding Meilisearch hits did not hydrate; using PostgreSQL"
+            );
+            meili_party_ids = None;
+        }
+    }
 
     let mut count_qb: QueryBuilder<'_, sqlx::Postgres> = QueryBuilder::new(
         "SELECT COUNT(DISTINCT wp.id) FROM wedding_parties wp \
@@ -314,7 +377,7 @@ pub async fn query_party_list_page(
         wp.groom_phone, wp.groom_email, wp.bride_name, wp.bride_phone, wp.bride_email, \
         wp.accessories, wp.groom_phone_clean, wp.bride_phone_clean, wp.is_deleted, wp.suit_variant_id ",
     );
-    data_qb.push(" ORDER BY wp.event_date ASC ");
+    data_qb.push(" ORDER BY wp.event_date ASC, wp.id ASC ");
     data_qb.push(" LIMIT ");
     data_qb.push_bind(limit);
     data_qb.push(" OFFSET ");
@@ -947,7 +1010,7 @@ pub async fn list_appointments_filtered(
     if let Some(to) = to {
         qb.push(" AND starts_at <= ").push_bind(to);
     }
-    qb.push(" ORDER BY starts_at ASC ");
+    qb.push(" ORDER BY starts_at ASC, id ASC ");
 
     qb.build_query_as::<AppointmentRow>().fetch_all(pool).await
 }
@@ -966,6 +1029,17 @@ pub async fn search_appointments_hybrid(
     let mut search_ids: Option<Vec<Uuid>> = None;
     if let Some(c) = meili {
         match crate::logic::meilisearch_search::appointment_search_ids(c, q).await {
+            Ok(ids)
+                if crate::logic::meilisearch_search::candidate_ids_may_be_truncated(
+                    crate::logic::meilisearch_client::INDEX_APPOINTMENTS,
+                    ids.len(),
+                ) =>
+            {
+                tracing::warn!(
+                    candidate_count = ids.len(),
+                    "Meilisearch appointment candidate cap reached; using PostgreSQL for complete results"
+                );
+            }
             Ok(ids) if !ids.is_empty() => search_ids = Some(ids),
             Ok(_) => {}
             Err(e) => {
@@ -974,6 +1048,22 @@ pub async fn search_appointments_hybrid(
                     "Meilisearch appointment search failed; using PostgreSQL ILIKE"
                 );
             }
+        }
+    }
+
+    if let Some(ids) = search_ids.as_ref() {
+        let valid = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*)::bigint FROM wedding_appointments WHERE id = ANY($1)",
+        )
+        .bind(ids)
+        .fetch_one(pool)
+        .await?;
+        if valid != ids.len() as i64 {
+            tracing::warn!(
+                query = q,
+                "Meilisearch appointment hits did not hydrate completely; using PostgreSQL"
+            );
+            search_ids = None;
         }
     }
 
@@ -994,7 +1084,7 @@ pub async fn search_appointments_hybrid(
         .await?;
         Ok(rows)
     } else {
-        let pat = format!("%{}%", q.to_lowercase());
+        let pat = literal_ilike_pattern(&q.to_lowercase());
         let rows = sqlx::query_as::<_, AppointmentRow>(
             r#"
             SELECT id, wedding_party_id, wedding_member_id, customer_id, customer_display_name, phone,
@@ -1006,7 +1096,7 @@ pub async fn search_appointments_hybrid(
                 OR LOWER(salesperson) LIKE $1
                 OR phone LIKE $1
             )
-            ORDER BY starts_at DESC
+            ORDER BY starts_at DESC, id DESC
             LIMIT $2
             "#,
         )
@@ -1015,5 +1105,30 @@ pub async fn search_appointments_hybrid(
         .fetch_all(pool)
         .await?;
         Ok(rows)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{literal_ilike_pattern, phone_query_digits};
+
+    #[test]
+    fn mixed_identifiers_do_not_turn_into_phone_searches() {
+        assert_eq!(phone_query_digits("SEEMAN-071926"), None);
+        assert_eq!(phone_query_digits("WP-2035551212"), None);
+    }
+
+    #[test]
+    fn phone_search_requires_phone_like_input_and_seven_digits() {
+        assert_eq!(
+            phone_query_digits("(203) 555-1212"),
+            Some("2035551212".to_string())
+        );
+        assert_eq!(phone_query_digits("555-12"), None);
+    }
+
+    #[test]
+    fn wedding_sql_fallback_escapes_like_wildcards() {
+        assert_eq!(literal_ilike_pattern(r"SM_TH%"), r"%SM\_TH\%%");
     }
 }

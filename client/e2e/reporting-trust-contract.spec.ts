@@ -56,6 +56,10 @@ type RegisterDaySummary = {
     sales_total?: string | null;
     tax_total?: string | null;
     payment_summary?: string | null;
+    payments?: Array<{
+      method: string;
+      amount_label: string;
+    }> | null;
     balance_due?: string | null;
     is_takeaway?: boolean;
     items?: Array<{ fulfillment?: string | null }>;
@@ -182,11 +186,63 @@ async function fetchReconciliation(
   return JSON.parse(bodyText) as ReconciliationResponse;
 }
 
+async function prepareGroupForClose(
+  request: APIRequestContext,
+  primarySessionId: string,
+  primarySessionToken: string,
+): Promise<void> {
+  const begin = await request.post(
+    `${apiBase()}/api/sessions/${primarySessionId}/begin-reconcile`,
+    {
+      headers: {
+        "Content-Type": "application/json",
+        "x-riverside-pos-session-id": primarySessionId,
+        "x-riverside-pos-session-token": primarySessionToken,
+        "x-riverside-station-key": "station-e2e",
+      },
+      data: { active: true },
+      failOnStatusCode: false,
+    },
+  );
+  const beginText = await begin.text();
+  expect(begin.status(), beginText.slice(0, 1000)).toBe(200);
+
+  const sessions = await listOpenSessions(request);
+  for (const session of sessions) {
+    const token =
+      session.session_id === primarySessionId
+        ? primarySessionToken
+        : await issuePosToken(request, session.session_id);
+    const acknowledgement = await request.post(
+      `${apiBase()}/api/recovery/station-close-status`,
+      {
+        headers: {
+          "Content-Type": "application/json",
+          "x-riverside-pos-session-id": session.session_id,
+          "x-riverside-pos-session-token": token,
+          "x-riverside-station-key": "station-e2e",
+        },
+        data: {
+          pending_checkout_count: 0,
+          blocked_checkout_count: 0,
+        },
+        failOnStatusCode: false,
+      },
+    );
+    const acknowledgementText = await acknowledgement.text();
+    expect(
+      acknowledgement.status(),
+      acknowledgementText.slice(0, 1000),
+    ).toBe(200);
+  }
+}
+
 async function closeRegisterGroup(
   request: APIRequestContext,
   sessionId: string,
   sessionToken: string,
 ): Promise<void> {
+  await prepareGroupForClose(request, sessionId, sessionToken);
   const recon = await fetchReconciliation(request, sessionId, sessionToken);
   const res = await request.post(`${apiBase()}/api/sessions/${sessionId}/close`, {
     headers: {
@@ -358,6 +414,7 @@ async function checkoutCashSale(
     },
     data: {
       session_id: options.sessionId,
+      checkout_client_id: crypto.randomUUID(),
       operator_staff_id: options.operatorStaffId,
       primary_salesperson_id: options.operatorStaffId,
       customer_id: null,
@@ -599,6 +656,12 @@ test.describe("Reporting trust contracts", () => {
     );
   });
 
+  test.afterEach(async ({ request }) => {
+    if (serverReachable) {
+      await closeAnyExistingOpenGroup(request);
+    }
+  });
+
   test("daily sales activity reconciles to canonical register evidence", async ({
     request,
   }) => {
@@ -652,6 +715,12 @@ test.describe("Reporting trust contracts", () => {
       parseMoneyToCents(artifacts.total_price),
     );
     expect(activity?.payment_summary?.toLowerCase()).toContain("cash");
+    expect(activity?.payments).toEqual([
+      {
+        method: "Cash",
+        amount_label: "108.75",
+      },
+    ]);
     expect(parseMoneyToCents(activity?.balance_due)).toBe(0);
   });
 
@@ -980,6 +1049,12 @@ test.describe("Reporting trust contracts", () => {
       parseMoneyToCents(artifacts.total_price),
     );
     expect(activity?.payment_summary?.toLowerCase()).toContain("cash");
+    expect(activity?.payments).toEqual([
+      {
+        method: "Cash",
+        amount_label: "108.75",
+      },
+    ]);
     expect(parseMoneyToCents(activity?.balance_due)).toBe(0);
   });
 });

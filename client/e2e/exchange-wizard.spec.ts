@@ -1,10 +1,16 @@
-import { expect, test, type Page, type APIRequestContext } from "@playwright/test";
+import {
+  expect,
+  test,
+  type Page,
+  type APIRequestContext,
+} from "@playwright/test";
 import {
   ensurePosRegisterSessionOpen,
   ensurePosSaleCashierSignedIn,
 } from "./helpers/openPosRegister";
 import { createVendor } from "./helpers/inventoryReceiving";
 import { signInToBackOffice } from "./helpers/backofficeSignIn";
+import { resetOpenRegisterSessions } from "./helpers/rmsCharge";
 
 function apiBase(): string {
   const raw =
@@ -160,13 +166,18 @@ async function ensureAlternateSessionToken(
   });
   expect(listRes.status()).toBe(200);
   const rows = (await listRes.json()) as SessionListRow[];
-  const existing = rows.find((row) => row.session_id && row.session_id !== excludedSessionId);
+  const existing = rows.find(
+    (row) => row.session_id && row.session_id !== excludedSessionId,
+  );
 
   if (existing?.session_id) {
     const tokenRes = await request.post(
       `${apiBase()}/api/sessions/${existing.session_id}/attach`,
       {
-        headers: { ...adminHeaders(), "x-riverside-station-key": "station-e2e" },
+        headers: {
+          ...adminHeaders(),
+          "x-riverside-station-key": "station-e2e",
+        },
         failOnStatusCode: false,
       },
     );
@@ -278,18 +289,21 @@ async function assignTransactionAge(
   transactionId: string,
   daysOld: number,
 ): Promise<void> {
-  const res = await request.post(`${apiBase()}/api/test-support/qbo/assign-transaction-timestamp`, {
-    headers: {
-      ...adminHeaders(),
-      "Content-Type": "application/json",
-      "x-riverside-station-key": "station-e2e",
+  const res = await request.post(
+    `${apiBase()}/api/test-support/qbo/assign-transaction-timestamp`,
+    {
+      headers: {
+        ...adminHeaders(),
+        "Content-Type": "application/json",
+        "x-riverside-station-key": "station-e2e",
+      },
+      data: {
+        transaction_id: transactionId,
+        timestamp_utc: daysAgoIsoTimestamp(daysOld),
+      },
+      failOnStatusCode: false,
     },
-    data: {
-      transaction_id: transactionId,
-      timestamp_utc: daysAgoIsoTimestamp(daysOld),
-    },
-    failOnStatusCode: false,
-  });
+  );
   expect(res.status()).toBe(200);
 }
 
@@ -304,37 +318,41 @@ async function createReturnPolicyFixture(
     operatorStaffId,
   );
 
-  const checkoutRes = await request.post(`${apiBase()}/api/transactions/checkout`, {
-    headers: {
-      "Content-Type": "application/json",
-      "x-riverside-pos-session-id": sessionId,
-      "x-riverside-pos-session-token": sessionToken,
-      "x-riverside-station-key": "station-e2e",
+  const checkoutRes = await request.post(
+    `${apiBase()}/api/transactions/checkout`,
+    {
+      headers: {
+        "Content-Type": "application/json",
+        "x-riverside-pos-session-id": sessionId,
+        "x-riverside-pos-session-token": sessionToken,
+        "x-riverside-station-key": "station-e2e",
+      },
+      data: {
+        session_id: sessionId,
+        checkout_client_id: crypto.randomUUID(),
+        operator_staff_id: operatorStaffId,
+        primary_salesperson_id: operatorStaffId,
+        customer_id: null,
+        payment_method: "cash",
+        total_price: "108.75",
+        amount_paid: "108.75",
+        items: [
+          {
+            product_id: productId,
+            variant_id: variantId,
+            fulfillment: "takeaway",
+            quantity: 1,
+            unit_price: "100.00",
+            unit_cost: "40.00",
+            state_tax: "4.00",
+            local_tax: "4.75",
+            salesperson_id: operatorStaffId,
+          },
+        ],
+      },
+      failOnStatusCode: false,
     },
-    data: {
-      session_id: sessionId,
-      operator_staff_id: operatorStaffId,
-      primary_salesperson_id: operatorStaffId,
-      customer_id: null,
-      payment_method: "cash",
-      total_price: "108.75",
-      amount_paid: "108.75",
-      items: [
-        {
-          product_id: productId,
-          variant_id: variantId,
-          fulfillment: "takeaway",
-          quantity: 1,
-          unit_price: "100.00",
-          unit_cost: "40.00",
-          state_tax: "4.00",
-          local_tax: "4.75",
-          salesperson_id: operatorStaffId,
-        },
-      ],
-    },
-    failOnStatusCode: false,
-  });
+  );
   expect(checkoutRes.status()).toBe(200);
   const checkout = (await checkoutRes.json()) as CheckoutResponse;
   expect(checkout.transaction_id).toBeTruthy();
@@ -346,7 +364,7 @@ async function createReturnPolicyFixture(
         ...adminHeaders(),
         "x-riverside-pos-session-id": sessionId,
         "x-riverside-pos-session-token": sessionToken,
-      "x-riverside-station-key": "station-e2e",
+        "x-riverside-station-key": "station-e2e",
       },
       failOnStatusCode: false,
     },
@@ -364,6 +382,10 @@ async function createReturnPolicyFixture(
 test.describe("POS exchange wizard", () => {
   test.describe.configure({ mode: "serial" });
 
+  test.afterEach(async ({ request }) => {
+    await resetOpenRegisterSessions(request);
+  });
+
   test("opens from cart when register is open", async ({ page, request }) => {
     test.setTimeout(60_000);
     await primeBackofficeSession(page, request);
@@ -373,7 +395,9 @@ test.describe("POS exchange wizard", () => {
     await ensurePosRegisterSessionOpen(page);
     await ensurePosSaleCashierSignedIn(page);
     const registerTab = page.getByTestId("pos-sidebar-tab-register");
-    const registerNavButton = posNav.getByRole("button", { name: /^register$/i });
+    const registerNavButton = posNav.getByRole("button", {
+      name: /^register$/i,
+    });
     const goToRegisterButton = page.getByRole("button", {
       name: /go to register/i,
     });
@@ -408,13 +432,19 @@ test.describe("POS exchange wizard", () => {
     await expect(wizardDialog).toBeVisible({
       timeout: 15_000,
     });
-    await expect(wizardDialog.getByText(/find original sale/i).first()).toBeVisible({
+    await expect(
+      wizardDialog.getByText(/find original sale/i).first(),
+    ).toBeVisible({
       timeout: 10_000,
     });
-    await expect(wizardDialog.getByText(/record return items/i).first()).toBeVisible({
+    await expect(
+      wizardDialog.getByText(/record return items/i).first(),
+    ).toBeVisible({
       timeout: 10_000,
     });
-    await expect(wizardDialog.getByText(/refund or replace/i).first()).toBeVisible({
+    await expect(
+      wizardDialog.getByText(/refund or replace/i).first(),
+    ).toBeVisible({
       timeout: 10_000,
     });
   });
@@ -432,51 +462,58 @@ test.describe("POS exchange wizard", () => {
       operatorStaffId,
     );
 
-    const checkoutRes = await request.post(`${apiBase()}/api/transactions/checkout`, {
-      headers: {
-        "Content-Type": "application/json",
-        "x-riverside-pos-session-id": sessionId,
-        "x-riverside-pos-session-token": sessionToken,
-        "x-riverside-station-key": "station-e2e",
+    const checkoutRes = await request.post(
+      `${apiBase()}/api/transactions/checkout`,
+      {
+        headers: {
+          "Content-Type": "application/json",
+          "x-riverside-pos-session-id": sessionId,
+          "x-riverside-pos-session-token": sessionToken,
+          "x-riverside-station-key": "station-e2e",
+        },
+        data: {
+          session_id: sessionId,
+          checkout_client_id: crypto.randomUUID(),
+          operator_staff_id: operatorStaffId,
+          primary_salesperson_id: operatorStaffId,
+          customer_id: null,
+          payment_method: "cash",
+          total_price: "326.25",
+          amount_paid: "108.75",
+          items: [
+            {
+              product_id: productId,
+              variant_id: variantId,
+              fulfillment: "special_order",
+              quantity: 3,
+              unit_price: "100.00",
+              unit_cost: "40.00",
+              state_tax: "4.00",
+              local_tax: "4.75",
+              salesperson_id: operatorStaffId,
+            },
+          ],
+          payment_splits: [
+            {
+              payment_method: "cash",
+              amount: "108.75",
+              applied_deposit_amount: "108.75",
+            },
+          ],
+        },
+        failOnStatusCode: false,
       },
-      data: {
-        session_id: sessionId,
-        operator_staff_id: operatorStaffId,
-        primary_salesperson_id: operatorStaffId,
-        customer_id: null,
-        payment_method: "cash",
-        total_price: "326.25",
-        amount_paid: "108.75",
-        items: [
-          {
-            product_id: productId,
-            variant_id: variantId,
-            fulfillment: "special_order",
-            quantity: 3,
-            unit_price: "100.00",
-            unit_cost: "40.00",
-            state_tax: "4.00",
-            local_tax: "4.75",
-            salesperson_id: operatorStaffId,
-          },
-        ],
-        payment_splits: [
-          {
-            payment_method: "cash",
-            amount: "108.75",
-            applied_deposit_amount: "108.75",
-          },
-        ],
-      },
-      failOnStatusCode: false,
-    });
-    expect(checkoutRes.status()).toBe(200);
-    const checkout = (await checkoutRes.json()) as CheckoutResponse;
+    );
+    const checkoutText = await checkoutRes.text();
+    expect(checkoutRes.status(), checkoutText.slice(0, 1_200)).toBe(200);
+    const checkout = JSON.parse(checkoutText) as CheckoutResponse;
     expect(checkout.transaction_id).toBeTruthy();
 
     await primeBackofficeSession(page, request);
     await page.goto("/pos", { waitUntil: "domcontentloaded" });
-    await expect(page.getByRole("navigation", { name: "POS Navigation" })).toBeVisible({
+    await expect(
+      page.getByRole("navigation", { name: "POS Navigation" }),
+    ).toBeVisible({
       timeout: 15_000,
     });
     await ensurePosRegisterSessionOpen(page);
@@ -494,18 +531,24 @@ test.describe("POS exchange wizard", () => {
     await wizardDialog
       .getByPlaceholder(/search transactions/i)
       .fill(checkout.transaction_id.slice(0, 8));
-    await wizardDialog.getByText(new RegExp(checkout.transaction_id.slice(0, 8), "i")).click();
+    await wizardDialog
+      .getByText(new RegExp(checkout.transaction_id.slice(0, 8), "i"))
+      .click();
 
     await expect(wizardDialog.getByText(sku)).toBeVisible({ timeout: 15_000 });
     await wizardDialog.getByPlaceholder("0").fill("1");
-    await wizardDialog.getByRole("button", { name: /continue exchange/i }).click();
+    await wizardDialog
+      .getByRole("button", { name: /continue exchange/i })
+      .click();
 
     await expect(wizardDialog).toBeHidden({ timeout: 15_000 });
     await expect(page.getByText(/exchange return/i).first()).toBeVisible({
       timeout: 15_000,
     });
     await expect(page.getByText("$100.00").first()).toBeVisible();
-    await expect(page.getByRole("button", { name: /\$-108\.75\s+pay/i })).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: /\$-108\.75\s+pay/i }),
+    ).toBeVisible();
   });
 
   test("returned quantity stays in sync across totals, refund queue, and receipt output", async ({
@@ -520,37 +563,41 @@ test.describe("POS exchange wizard", () => {
       operatorStaffId,
     );
 
-    const checkoutRes = await request.post(`${apiBase()}/api/transactions/checkout`, {
-      headers: {
-        "Content-Type": "application/json",
-        "x-riverside-pos-session-id": sessionId,
-        "x-riverside-pos-session-token": sessionToken,
-      "x-riverside-station-key": "station-e2e",
+    const checkoutRes = await request.post(
+      `${apiBase()}/api/transactions/checkout`,
+      {
+        headers: {
+          "Content-Type": "application/json",
+          "x-riverside-pos-session-id": sessionId,
+          "x-riverside-pos-session-token": sessionToken,
+          "x-riverside-station-key": "station-e2e",
+        },
+        data: {
+          session_id: sessionId,
+          checkout_client_id: crypto.randomUUID(),
+          operator_staff_id: operatorStaffId,
+          primary_salesperson_id: operatorStaffId,
+          customer_id: null,
+          payment_method: "cash",
+          total_price: "326.25",
+          amount_paid: "326.25",
+          items: [
+            {
+              product_id: productId,
+              variant_id: variantId,
+              fulfillment: "takeaway",
+              quantity: 3,
+              unit_price: "100.00",
+              unit_cost: "40.00",
+              state_tax: "4.00",
+              local_tax: "4.75",
+              salesperson_id: operatorStaffId,
+            },
+          ],
+        },
+        failOnStatusCode: false,
       },
-      data: {
-        session_id: sessionId,
-        operator_staff_id: operatorStaffId,
-        primary_salesperson_id: operatorStaffId,
-        customer_id: null,
-        payment_method: "cash",
-        total_price: "326.25",
-        amount_paid: "326.25",
-        items: [
-          {
-            product_id: productId,
-            variant_id: variantId,
-            fulfillment: "takeaway",
-            quantity: 3,
-            unit_price: "100.00",
-            unit_cost: "40.00",
-            state_tax: "4.00",
-            local_tax: "4.75",
-            salesperson_id: operatorStaffId,
-          },
-        ],
-      },
-      failOnStatusCode: false,
-    });
+    );
     expect(checkoutRes.status()).toBe(200);
     const checkout = (await checkoutRes.json()) as CheckoutResponse;
     expect(checkout.transaction_id).toBeTruthy();
@@ -562,7 +609,7 @@ test.describe("POS exchange wizard", () => {
           ...adminHeaders(),
           "x-riverside-pos-session-id": sessionId,
           "x-riverside-pos-session-token": sessionToken,
-      "x-riverside-station-key": "station-e2e",
+          "x-riverside-station-key": "station-e2e",
         },
         failOnStatusCode: false,
       },
@@ -580,7 +627,7 @@ test.describe("POS exchange wizard", () => {
           "Content-Type": "application/json",
           "x-riverside-pos-session-id": sessionId,
           "x-riverside-pos-session-token": sessionToken,
-      "x-riverside-station-key": "station-e2e",
+          "x-riverside-station-key": "station-e2e",
         },
         data: {
           lines: [
@@ -603,7 +650,7 @@ test.describe("POS exchange wizard", () => {
           ...adminHeaders(),
           "x-riverside-pos-session-id": sessionId,
           "x-riverside-pos-session-token": sessionToken,
-      "x-riverside-station-key": "station-e2e",
+          "x-riverside-station-key": "station-e2e",
         },
         failOnStatusCode: false,
       },
@@ -615,13 +662,18 @@ test.describe("POS exchange wizard", () => {
     expect(updatedLine?.quantity_returned).toBe(1);
     expect(detail.total_price).toBe("217.50");
 
-    const refundQueueRes = await request.get(`${apiBase()}/api/transactions/refunds/due`, {
-      headers: adminHeaders(),
-      failOnStatusCode: false,
-    });
+    const refundQueueRes = await request.get(
+      `${apiBase()}/api/transactions/refunds/due`,
+      {
+        headers: adminHeaders(),
+        failOnStatusCode: false,
+      },
+    );
     expect(refundQueueRes.status()).toBe(200);
     const refunds = (await refundQueueRes.json()) as RefundQueueRow[];
-    const refund = refunds.find((row) => row.transaction_id === checkout.transaction_id);
+    const refund = refunds.find(
+      (row) => row.transaction_id === checkout.transaction_id,
+    );
     expect(refund?.is_open).toBe(true);
     expect(refund?.amount_due).toBe("108.75");
     expect(refund?.amount_refunded).toBe("0");
@@ -655,7 +707,7 @@ test.describe("POS exchange wizard", () => {
           "Content-Type": "application/json",
           "x-riverside-pos-session-id": alternateSession.sessionId,
           "x-riverside-pos-session-token": alternateSession.sessionToken,
-      "x-riverside-station-key": "station-e2e",
+          "x-riverside-station-key": "station-e2e",
         },
         data: {
           lines: [
@@ -700,7 +752,7 @@ test.describe("POS exchange wizard", () => {
           "Content-Type": "application/json",
           "x-riverside-pos-session-id": alternateSession.sessionId,
           "x-riverside-pos-session-token": alternateSession.sessionToken,
-      "x-riverside-station-key": "station-e2e",
+          "x-riverside-station-key": "station-e2e",
         },
         data: {
           lines: [

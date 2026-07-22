@@ -5,7 +5,7 @@ use argon2::{
     Argon2,
 };
 use rand_core::OsRng;
-use sqlx::PgPool;
+use sqlx::{Executor, PgPool, Postgres};
 use uuid::Uuid;
 
 use crate::models::DbStaffRole;
@@ -214,8 +214,9 @@ pub async fn log_staff_access(
     pool: &PgPool,
     staff_id: Uuid,
     event_kind: &str,
-    metadata: serde_json::Value,
+    mut metadata: serde_json::Value,
 ) -> Result<(), sqlx::Error> {
+    strip_sensitive_audit_metadata(&mut metadata);
     sqlx::query(
         r#"
         INSERT INTO staff_access_log (staff_id, event_kind, metadata)
@@ -230,13 +231,38 @@ pub async fn log_staff_access(
     Ok(())
 }
 
-pub async fn log_staff_access_once(
+pub async fn log_staff_access_with_id(
     pool: &PgPool,
     staff_id: Uuid,
     event_kind: &str,
-    metadata: serde_json::Value,
+    mut metadata: serde_json::Value,
+) -> Result<Uuid, sqlx::Error> {
+    strip_sensitive_audit_metadata(&mut metadata);
+    sqlx::query_scalar(
+        r#"
+        INSERT INTO staff_access_log (staff_id, event_kind, metadata)
+        VALUES ($1, $2, $3)
+        RETURNING id
+        "#,
+    )
+    .bind(staff_id)
+    .bind(event_kind)
+    .bind(metadata)
+    .fetch_one(pool)
+    .await
+}
+
+pub async fn log_staff_access_once<'e, E>(
+    executor: E,
+    staff_id: Uuid,
+    event_kind: &str,
+    mut metadata: serde_json::Value,
     idempotency_key: &str,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), sqlx::Error>
+where
+    E: Executor<'e, Database = Postgres>,
+{
+    strip_sensitive_audit_metadata(&mut metadata);
     sqlx::query(
         r#"
         INSERT INTO staff_access_log (staff_id, event_kind, metadata, idempotency_key)
@@ -248,7 +274,92 @@ pub async fn log_staff_access_once(
     .bind(event_kind)
     .bind(metadata)
     .bind(idempotency_key)
-    .execute(pool)
+    .execute(executor)
     .await?;
     Ok(())
+}
+
+pub fn is_sensitive_pin_metadata_key(key: &str) -> bool {
+    let normalized = key
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect::<String>();
+    normalized == "pin"
+        || normalized.ends_with("accesspin")
+        || normalized.ends_with("managerpin")
+        || normalized.ends_with("staffpin")
+}
+
+fn strip_sensitive_audit_metadata(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(object) => {
+            object.retain(|key, _| !is_sensitive_pin_metadata_key(key));
+            for nested in object.values_mut() {
+                strip_sensitive_audit_metadata(nested);
+            }
+        }
+        serde_json::Value::Array(values) => {
+            for nested in values {
+                strip_sensitive_audit_metadata(nested);
+            }
+        }
+        serde_json::Value::String(encoded) => {
+            if let Ok(mut decoded) = serde_json::from_str::<serde_json::Value>(encoded) {
+                if decoded.is_object() || decoded.is_array() {
+                    let original = decoded.clone();
+                    strip_sensitive_audit_metadata(&mut decoded);
+                    if decoded != original {
+                        if let Ok(sanitized) = serde_json::to_string(&decoded) {
+                            *encoded = sanitized;
+                        }
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_sensitive_pin_metadata_key, strip_sensitive_audit_metadata};
+    use serde_json::json;
+
+    #[test]
+    fn sensitive_pin_metadata_keys_include_normalized_authority_suffixes() {
+        for key in [
+            "pin",
+            "temporary_access_pin",
+            "backupManagerPin",
+            "x-riverside-staff-pin",
+        ] {
+            assert!(is_sensitive_pin_metadata_key(key));
+        }
+        for key in ["shipping", "campaign", "manager_reason"] {
+            assert!(!is_sensitive_pin_metadata_key(key));
+        }
+    }
+
+    #[test]
+    fn audit_scrub_removes_pin_keys_from_string_encoded_json() {
+        let mut metadata = json!({
+            "encoded": "{\"manager_pin\":\"1234\",\"nested\":[{\"staffPin\":\"5678\",\"reason\":\"approved\"}]}"
+        });
+        strip_sensitive_audit_metadata(&mut metadata);
+        let decoded: serde_json::Value =
+            serde_json::from_str(metadata["encoded"].as_str().unwrap()).unwrap();
+        assert!(decoded.get("manager_pin").is_none());
+        assert!(decoded["nested"][0].get("staffPin").is_none());
+        assert_eq!(decoded["nested"][0]["reason"], "approved");
+    }
+
+    #[test]
+    fn audit_scrub_preserves_safe_string_encoded_json_exactly() {
+        let mut metadata = json!({
+            "reason": "{ \"note\": \"approved\" }"
+        });
+        strip_sensitive_audit_metadata(&mut metadata);
+        assert_eq!(metadata["reason"], "{ \"note\": \"approved\" }");
+    }
 }

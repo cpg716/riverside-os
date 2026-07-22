@@ -168,6 +168,16 @@ impl From<crate::logic::rms_account_list_import::AccountListPreviewError> for Cu
 const CUSTOMER_LIFECYCLE_ACTIVE_DAYS: i64 = 90;
 const ADDRESS_LOOKUP_MIN_QUERY_LEN: usize = 4;
 const ADDRESS_LOOKUP_MAX_RESULTS: usize = 5;
+
+fn literal_ilike_pattern(value: &str) -> String {
+    format!(
+        "%{}%",
+        value
+            .replace('\\', "\\\\")
+            .replace('%', "\\%")
+            .replace('_', "\\_")
+    )
+}
 const ADDRESS_LOOKUP_PROVIDER_LIMIT: usize = 10;
 const ADDRESS_LOOKUP_RADIUS_METERS: &str = "120000";
 const ADDRESS_LOOKUP_STORE_LAT: &str = "42.9056";
@@ -846,7 +856,7 @@ pub struct SearchQuery {
     pub q: String,
     /// Max rows (default 25; hard cap 100).
     pub limit: Option<i64>,
-    /// Pagination offset into `ORDER BY c.created_at DESC`.
+    /// Pagination offset into `ORDER BY c.created_at DESC, c.id DESC`.
     pub offset: Option<i64>,
 }
 
@@ -1252,7 +1262,7 @@ pub struct CustomerBrowseQuery {
     /// Optional wedding party name filter.
     pub wedding_party_q: Option<String>,
     pub limit: Option<i64>,
-    /// Pagination offset into `ORDER BY c.last_name ASC, c.first_name ASC` (default 0).
+    /// Pagination offset into `ORDER BY c.last_name ASC, c.first_name ASC, c.id ASC` (default 0).
     pub offset: Option<i64>,
     /// Filter to customers in a group (`customer_groups.code`).
     pub group_code: Option<String>,
@@ -2875,15 +2885,7 @@ async fn list_rms_account_list_unmatched(
         q.q.as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty())
-            .map(|value| {
-                format!(
-                    "%{}%",
-                    value
-                        .replace('\\', "\\\\")
-                        .replace('%', "\\%")
-                        .replace('_', "\\_")
-                )
-            });
+            .map(literal_ilike_pattern);
 
     let rows: Vec<RmsAccountListUnmatchedRow> = sqlx::query_as(
         r#"
@@ -3173,18 +3175,23 @@ async fn list_rms_charge_records(
     let q_trim = q.q.as_deref().map(str::trim).filter(|s| !s.is_empty());
     let r2s_cutoff = rms_r2s_reporting_activation_cutoff();
 
-    let search = q_trim.map(|s| {
-        format!(
-            "%{}%",
-            s.replace('\\', "\\\\")
-                .replace('%', "\\%")
-                .replace('_', "\\_")
-        )
-    });
+    let search = q_trim.map(literal_ilike_pattern);
 
     let meili_rms_customer_ids: Option<Vec<uuid::Uuid>> = if let Some(qs) = q_trim {
         if let Some(c) = state.meilisearch.as_ref() {
             match crate::logic::meilisearch_search::customer_search_ids(c, qs).await {
+                Ok(ids)
+                    if crate::logic::meilisearch_search::candidate_ids_may_be_truncated(
+                        crate::logic::meilisearch_client::INDEX_CUSTOMERS,
+                        ids.len(),
+                    ) =>
+                {
+                    tracing::warn!(
+                        candidate_count = ids.len(),
+                        "Meilisearch RMS charge candidate cap reached; using PostgreSQL for complete pagination"
+                    );
+                    None
+                }
                 Ok(ids) if !ids.is_empty() => Some(ids),
                 Ok(_) => None,
                 Err(e) => {
@@ -3777,9 +3784,10 @@ async fn post_merge_customers(
         let pool = state.db.clone();
         tokio::spawn(async move {
             // Delete slave from Meilisearch
-            if let Err(e) =
-                crate::logic::meilisearch_sync::spawn_meilisearch_customer_delete(&c, slave_id)
-                    .await
+            if let Err(e) = crate::logic::meilisearch_sync::spawn_meilisearch_customer_delete(
+                &c, &pool, slave_id,
+            )
+            .await
             {
                 tracing::error!(error = %e, slave_id = %slave_id, "Meilisearch customer delete after merge failed");
             }
@@ -3817,6 +3825,8 @@ async fn browse_customers(
         .as_deref()
         .map(str::trim)
         .filter(|s| !s.is_empty());
+    let search_pattern = search_raw.map(literal_ilike_pattern);
+    let party_search_pattern = party_search_raw.map(literal_ilike_pattern);
 
     let group_code = query
         .group_code
@@ -3826,26 +3836,39 @@ async fn browse_customers(
         .map(|s| s.to_string());
     let lifecycle_filter = normalize_customer_lifecycle_filter(query.lifecycle.as_deref());
 
-    let meili_browse_ids: Option<Vec<uuid::Uuid>> =
-        if search_raw.is_some() && party_search_raw.is_none() {
-            if let (Some(qs), Some(c)) = (search_raw, state.meilisearch.as_ref()) {
-                match crate::logic::meilisearch_search::customer_search_ids(c, qs).await {
-                    Ok(ids) if !ids.is_empty() => Some(ids),
-                    Ok(_) => None,
-                    Err(e) => {
-                        tracing::warn!(
-                            error = %e,
-                            "Meilisearch customer browse failed; using PostgreSQL ILIKE"
+    let meili_browse_ids: Option<Vec<uuid::Uuid>> = if search_raw.is_some()
+        && party_search_raw.is_none()
+    {
+        if let (Some(qs), Some(c)) = (search_raw, state.meilisearch.as_ref()) {
+            match crate::logic::meilisearch_search::customer_search_ids(c, qs).await {
+                Ok(ids)
+                    if crate::logic::meilisearch_search::candidate_ids_may_be_truncated(
+                        crate::logic::meilisearch_client::INDEX_CUSTOMERS,
+                        ids.len(),
+                    ) =>
+                {
+                    tracing::warn!(
+                            candidate_count = ids.len(),
+                            "Meilisearch customer browse candidate cap reached; using PostgreSQL for complete pagination"
                         );
-                        None
-                    }
+                    None
                 }
-            } else {
-                None
+                Ok(ids) if !ids.is_empty() => Some(ids),
+                Ok(_) => None,
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        "Meilisearch customer browse failed; using PostgreSQL ILIKE"
+                    );
+                    None
+                }
             }
         } else {
             None
-        };
+        }
+    } else {
+        None
+    };
 
     let rows = if let Some(ids) = meili_browse_ids {
         sqlx::query_as::<_, CustomerBrowseRow>(&format!(
@@ -3996,8 +4019,8 @@ async fn browse_customers(
                         WHERE wm.customer_id = c.id
                           AND (wp.is_deleted IS NULL OR wp.is_deleted = FALSE)
                           AND (
-                            COALESCE(wp.party_name, '') ILIKE ('%' || $6::text || '%')
-                            OR wp.groom_name ILIKE ('%' || $6::text || '%')
+                            COALESCE(wp.party_name, '') ILIKE $6::text
+                            OR wp.groom_name ILIKE $6::text
                           )
                     )
                   )
@@ -4084,8 +4107,8 @@ async fn browse_customers(
         .bind(vip_filter)
         .bind(bd_filter)
         .bind(ws_filter)
-        .bind(search_raw)
-        .bind(party_search_raw)
+        .bind(search_pattern.as_deref())
+        .bind(party_search_pattern.as_deref())
         .bind(group_code)
         .bind(&ids[..])
         .bind(&ids[..])
@@ -4161,12 +4184,18 @@ async fn browse_customers(
                   AND (
                     $5::text IS NULL
                     OR LENGTH(TRIM($5::text)) = 0
-                    OR c.first_name ILIKE ('%' || $5::text || '%')
-                    OR c.last_name ILIKE ('%' || $5::text || '%')
-                    OR c.customer_code ILIKE ('%' || $5::text || '%')
-                    OR COALESCE(c.company_name, '') ILIKE ('%' || $5::text || '%')
-                    OR COALESCE(c.email, '') ILIKE ('%' || $5::text || '%')
-                    OR COALESCE(c.phone, '') ILIKE ('%' || $5::text || '%')
+                    OR c.first_name ILIKE $5::text
+                    OR c.last_name ILIKE $5::text
+                    OR CONCAT_WS(' ', c.first_name, c.last_name) ILIKE $5::text
+                    OR c.customer_code ILIKE $5::text
+                    OR COALESCE(c.company_name, '') ILIKE $5::text
+                    OR COALESCE(c.email, '') ILIKE $5::text
+                    OR COALESCE(c.phone, '') ILIKE $5::text
+                    OR (
+                        LENGTH(regexp_replace($5::text, '[^0-9]', '', 'g')) >= 3
+                        AND regexp_replace(COALESCE(c.phone, ''), '[^0-9]', '', 'g')
+                            LIKE ('%' || regexp_replace($5::text, '[^0-9]', '', 'g') || '%')
+                    )
                   )
                   AND (
                     $6::text IS NULL
@@ -4177,8 +4206,8 @@ async fn browse_customers(
                         WHERE wm.customer_id = c.id
                           AND (wp.is_deleted IS NULL OR wp.is_deleted = FALSE)
                           AND (
-                            COALESCE(wp.party_name, '') ILIKE ('%' || $6::text || '%')
-                            OR wp.groom_name ILIKE ('%' || $6::text || '%')
+                            COALESCE(wp.party_name, '') ILIKE $6::text
+                            OR wp.groom_name ILIKE $6::text
                           )
                     )
                   )
@@ -4192,7 +4221,7 @@ async fn browse_customers(
                           AND cg.code = $7::text
                     )
                   )
-                ORDER BY last_name ASC, first_name ASC
+                ORDER BY last_name ASC, first_name ASC, id ASC
                 LIMIT $8 OFFSET $9
             ),
             browse_base AS (
@@ -4352,15 +4381,15 @@ async fn browse_customers(
                 couple_primary_id,
                 lifecycle_state
             FROM browse_derived
-            ORDER BY last_name ASC, first_name ASC
+            ORDER BY last_name ASC, first_name ASC, id ASC
             "#
         ))
         .bind(wedding_days)
         .bind(vip_filter)
         .bind(bd_filter)
         .bind(ws_filter)
-        .bind(search_raw)
-        .bind(party_search_raw)
+        .bind(search_pattern.as_deref())
+        .bind(party_search_pattern.as_deref())
         .bind(group_code)
         .bind(limit)
         .bind(offset)
@@ -4505,12 +4534,18 @@ async fn browse_customers(
                   AND (
                     $5::text IS NULL
                     OR LENGTH(TRIM($5::text)) = 0
-                    OR c.first_name ILIKE ('%' || $5::text || '%')
-                    OR c.last_name ILIKE ('%' || $5::text || '%')
-                    OR c.customer_code ILIKE ('%' || $5::text || '%')
-                    OR COALESCE(c.company_name, '') ILIKE ('%' || $5::text || '%')
-                    OR COALESCE(c.email, '') ILIKE ('%' || $5::text || '%')
-                    OR COALESCE(c.phone, '') ILIKE ('%' || $5::text || '%')
+                    OR c.first_name ILIKE $5::text
+                    OR c.last_name ILIKE $5::text
+                    OR CONCAT_WS(' ', c.first_name, c.last_name) ILIKE $5::text
+                    OR c.customer_code ILIKE $5::text
+                    OR COALESCE(c.company_name, '') ILIKE $5::text
+                    OR COALESCE(c.email, '') ILIKE $5::text
+                    OR COALESCE(c.phone, '') ILIKE $5::text
+                    OR (
+                        LENGTH(regexp_replace($5::text, '[^0-9]', '', 'g')) >= 3
+                        AND regexp_replace(COALESCE(c.phone, ''), '[^0-9]', '', 'g')
+                            LIKE ('%' || regexp_replace($5::text, '[^0-9]', '', 'g') || '%')
+                    )
                   )
                   AND (
                     $6::text IS NULL
@@ -4521,8 +4556,8 @@ async fn browse_customers(
                         WHERE wm.customer_id = c.id
                           AND (wp.is_deleted IS NULL OR wp.is_deleted = FALSE)
                           AND (
-                            COALESCE(wp.party_name, '') ILIKE ('%' || $6::text || '%')
-                            OR wp.groom_name ILIKE ('%' || $6::text || '%')
+                            COALESCE(wp.party_name, '') ILIKE $6::text
+                            OR wp.groom_name ILIKE $6::text
                           )
                     )
                   )
@@ -4601,7 +4636,7 @@ async fn browse_customers(
                 lifecycle_state
             FROM browse_derived
             WHERE ($11::text IS NULL OR lifecycle_state = $11::text)
-            ORDER BY last_name ASC, first_name ASC
+            ORDER BY last_name ASC, first_name ASC, id ASC
             LIMIT $8 OFFSET $9
             "#
         ))
@@ -4609,8 +4644,8 @@ async fn browse_customers(
         .bind(vip_filter)
         .bind(bd_filter)
         .bind(ws_filter)
-        .bind(search_raw)
-        .bind(party_search_raw)
+        .bind(search_pattern.as_deref())
+        .bind(party_search_pattern.as_deref())
         .bind(group_code)
         .bind(limit)
         .bind(offset)
@@ -4731,6 +4766,18 @@ async fn search_customers(
 
     let meili_ids: Option<Vec<uuid::Uuid>> = if let Some(c) = state.meilisearch.as_ref() {
         match crate::logic::meilisearch_search::customer_search_ids(c, q).await {
+            Ok(ids)
+                if crate::logic::meilisearch_search::candidate_ids_may_be_truncated(
+                    crate::logic::meilisearch_client::INDEX_CUSTOMERS,
+                    ids.len(),
+                ) =>
+            {
+                tracing::warn!(
+                    candidate_count = ids.len(),
+                    "Meilisearch customer search candidate cap reached; using PostgreSQL for complete pagination"
+                );
+                None
+            }
             Ok(ids) if !ids.is_empty() => Some(ids),
             Ok(_) => None,
             Err(e) => {
@@ -4818,7 +4865,7 @@ async fn search_customers(
         .fetch_all(&state.db)
         .await?
     } else {
-        let search_term = format!("%{q}%");
+        let search_term = literal_ilike_pattern(q);
         sqlx::query_as::<_, Customer>(&format!(
             r#"
             SELECT
@@ -4882,10 +4929,16 @@ async fn search_customers(
               AND (
                 c.first_name ILIKE $1 OR
                 c.last_name ILIKE $1 OR
+                CONCAT_WS(' ', c.first_name, c.last_name) ILIKE $1 OR
                 c.customer_code ILIKE $1 OR
                 COALESCE(c.company_name, '') ILIKE $1 OR
                 c.email ILIKE $1 OR
                 c.phone ILIKE $1 OR
+                (
+                    LENGTH(regexp_replace($1::text, '[^0-9]', '', 'g')) >= 3
+                    AND regexp_replace(COALESCE(c.phone, ''), '[^0-9]', '', 'g')
+                        LIKE ('%' || regexp_replace($1::text, '[^0-9]', '', 'g') || '%')
+                ) OR
                 c.city ILIKE $1 OR
                 c.state ILIKE $1 OR
                 c.postal_code ILIKE $1 OR
@@ -4902,7 +4955,7 @@ async fn search_customers(
                       )
                 )
               )
-            ORDER BY c.created_at DESC
+            ORDER BY c.created_at DESC, c.id DESC
             LIMIT $2 OFFSET $3
             "#
         ))
@@ -7599,8 +7652,16 @@ async fn post_customer_timeline_note(
 
 #[cfg(test)]
 mod customer_timeline_tests {
-    use super::{open_deposit_timeline_summary, wedding_deposit_contribution_timeline_summary};
+    use super::{
+        literal_ilike_pattern, open_deposit_timeline_summary,
+        wedding_deposit_contribution_timeline_summary,
+    };
     use rust_decimal::Decimal;
+
+    #[test]
+    fn customer_sql_search_treats_wildcards_as_literal_text() {
+        assert_eq!(literal_ilike_pattern(r"A%_B\C"), r"%A\%\_B\\C%");
+    }
 
     #[test]
     fn split_wedding_deposit_timeline_names_payer_and_amount() {

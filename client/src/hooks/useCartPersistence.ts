@@ -8,9 +8,14 @@ import {
   type PendingAlterationIntake,
   type OrderPaymentCartLine,
   type AppliedPaymentLine,
+  type ExchangeReturnHandoffLine,
 } from "../components/pos/types";
 import { type PosShippingSelection } from "../components/pos/PosShippingModal";
 import { newCheckoutClientId } from "../lib/posUtils";
+import {
+  scrubSensitivePinKeys,
+  sensitivePinKeysWereRemoved,
+} from "../lib/sensitiveData";
 
 interface PersistedSale {
   sessionId: string;
@@ -26,6 +31,7 @@ interface PersistedSale {
   checkoutOperator?: { staffId: string; fullName: string };
   pendingAlterationIntakes?: PendingAlterationIntake[];
   orderPaymentLines?: OrderPaymentCartLine[];
+  pendingReturnLineDrafts?: Record<string, ExchangeReturnHandoffLine[]>;
 }
 
 interface UseCartPersistenceProps {
@@ -42,6 +48,8 @@ interface UseCartPersistenceProps {
   checkoutOperator: { staffId: string; fullName: string } | null;
   pendingAlterationIntakes?: PendingAlterationIntake[];
   orderPaymentLines?: OrderPaymentCartLine[];
+  pendingReturnLineDrafts?: Record<string, ExchangeReturnHandoffLine[]>;
+  retainCheckoutIdentity?: boolean;
   setLines: (lines: CartLineItem[]) => void;
   setSelectedCustomer: (customer: Customer | null) => void;
   setActiveWeddingMember: (member: WeddingMember | null) => void;
@@ -54,6 +62,9 @@ interface UseCartPersistenceProps {
   setAppliedPayments: (payments: AppliedPaymentLine[]) => void;
   setPendingAlterationIntakes?: (intakes: PendingAlterationIntake[]) => void;
   setOrderPaymentLines?: (lines: OrderPaymentCartLine[]) => void;
+  setPendingReturnLineDrafts?: (
+    drafts: Record<string, ExchangeReturnHandoffLine[]>,
+  ) => void;
   clearCart: () => void;
 }
 
@@ -71,6 +82,8 @@ export function useCartPersistence({
   checkoutOperator,
   pendingAlterationIntakes = [],
   orderPaymentLines = [],
+  pendingReturnLineDrafts = {},
+  retainCheckoutIdentity = false,
   setLines,
   setSelectedCustomer,
   setActiveWeddingMember,
@@ -83,6 +96,7 @@ export function useCartPersistence({
   setAppliedPayments,
   setPendingAlterationIntakes,
   setOrderPaymentLines,
+  setPendingReturnLineDrafts,
   clearCart,
 }: UseCartPersistenceProps) {
   const [saleHydrated, setSaleHydrated] = useState(false);
@@ -113,7 +127,11 @@ export function useCartPersistence({
     let cancelled = false;
     void (async () => {
       try {
-        const saved = await localforage.getItem<PersistedSale>("ros_pos_active_sale");
+        const persisted = await localforage.getItem<PersistedSale>("ros_pos_active_sale");
+        const saved = persisted ? scrubSensitivePinKeys(persisted) : null;
+        if (persisted && saved && sensitivePinKeysWereRemoved(persisted, saved)) {
+          await localforage.setItem("ros_pos_active_sale", saved);
+        }
         if (cancelled) return;
 
         if (saved && saved.sessionId === sessionId) {
@@ -121,11 +139,14 @@ export function useCartPersistence({
           const rawDisbursementMembers = saved.disbursementMembers || [];
           const rawOrderPaymentLines = saved.orderPaymentLines || [];
           const rawAlterationIntakes = saved.pendingAlterationIntakes || [];
+          const rawReturnDrafts = saved.pendingReturnLineDrafts || {};
           if (
             rawLines.length === 0 &&
             rawDisbursementMembers.length === 0 &&
             rawOrderPaymentLines.length === 0 &&
-            rawAlterationIntakes.length === 0
+            rawAlterationIntakes.length === 0 &&
+            (saved.appliedPayments?.length ?? 0) === 0 &&
+            Object.keys(rawReturnDrafts).length === 0
           ) {
             await localforage.removeItem("ros_pos_active_sale");
             setCheckoutClientId(newCheckoutClientId());
@@ -175,6 +196,7 @@ export function useCartPersistence({
             }
             setPendingAlterationIntakes?.(rawAlterationIntakes);
             setOrderPaymentLines?.(rawOrderPaymentLines);
+            setPendingReturnLineDrafts?.(rawReturnDrafts);
           }
         } else if (saved && saved.sessionId !== sessionId) {
           clearCart();
@@ -205,6 +227,7 @@ export function useCartPersistence({
     setAppliedPayments,
     setPendingAlterationIntakes,
     setOrderPaymentLines,
+    setPendingReturnLineDrafts,
   ]);
 
   // Persist to disk on change
@@ -214,7 +237,10 @@ export function useCartPersistence({
       lines.length > 0 ||
       disbursementMembers.length > 0 ||
       orderPaymentLines.length > 0 ||
-      pendingAlterationIntakes.length > 0;
+      pendingAlterationIntakes.length > 0 ||
+      appliedPayments.length > 0 ||
+      Object.keys(pendingReturnLineDrafts).length > 0 ||
+      retainCheckoutIdentity;
     if (!hasActiveSale) {
       queuePersistenceWrite(() => localforage.removeItem("ros_pos_active_sale"));
       if (hadActiveSaleRef.current) {
@@ -239,8 +265,16 @@ export function useCartPersistence({
       checkoutOperator: checkoutOperator || undefined,
       pendingAlterationIntakes: pendingAlterationIntakes.length > 0 ? pendingAlterationIntakes : undefined,
       orderPaymentLines: orderPaymentLines.length > 0 ? orderPaymentLines : undefined,
+      pendingReturnLineDrafts:
+        Object.keys(pendingReturnLineDrafts).length > 0
+          ? pendingReturnLineDrafts
+          : undefined,
     };
-    queuePersistenceWrite(() => localforage.setItem("ros_pos_active_sale", sale).then(() => undefined));
+    queuePersistenceWrite(() =>
+      localforage
+        .setItem("ros_pos_active_sale", scrubSensitivePinKeys(sale))
+        .then(() => undefined),
+    );
   }, [
     saleHydrated,
     sessionId,
@@ -256,6 +290,8 @@ export function useCartPersistence({
     checkoutOperator,
     pendingAlterationIntakes,
     orderPaymentLines,
+    pendingReturnLineDrafts,
+    retainCheckoutIdentity,
     queuePersistenceWrite,
     setCheckoutClientId,
     setAppliedPayments,

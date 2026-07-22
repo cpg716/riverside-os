@@ -14,7 +14,7 @@ Riverside OS uses two time axes for revenue-style analytics:
 Back Office -> Reports exposes these curated report tiles through staff-facing names and a local search box. Staff can search by task or question (for example **tax**, **pickup**, **balance**, **slow stock**, or **What sold best last month?**) without changing the underlying basis rules below.
 
 - **`sales-pivot`** — Query **`basis`**: `booked` / `sale` / `booking` vs `fulfilled` / `pickup` / `fulfillment`. Fulfilled uses fulfillment filter + fulfilled date for **`group_by=date`**.
-- **`register-day-activity`** — Query **`basis`**: `booked` (default) vs `fulfilled`. Fulfilled timeline uses fulfillment timestamp. Z-close EOD snapshots remain **booked** only.
+- **`register-day-activity`** — Query **`basis`**: `booked` (default) vs `fulfilled`. Fulfilled timeline uses fulfillment timestamp. Z-close EOD snapshots remain **booked** only. Interactive responses are paged; the post-close snapshot follows every page, verifies stable totals and unique row identities, and refuses to persist a partial set.
 - **`register-override-mix`** — Optional **`basis`** + `from` / `to` (flattened): fulfilled = fulfillment window.
 - **`nys-tax-audit`** — **Fulfillment only** (no `basis`): lines are included when the order’s fulfillment instant falls in `from` / `to`.
 - **`commission-ledger`** — **Unpaid** = open lines with **booked** date in range (pipeline). **Earned in period** = append-only commission events with **fulfillment/recognition** instant in range.

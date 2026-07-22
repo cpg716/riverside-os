@@ -88,7 +88,7 @@ fn optional_trimmed(value: Option<String>) -> Option<String> {
 }
 
 fn log_meili_add_err(context: &'static str, e: &meilisearch_sdk::errors::Error) {
-    tracing::warn!(error = %e, context, "Meilisearch add_documents failed; will rely on SQL search until reindex");
+    tracing::warn!(error = %e, context, "Meilisearch document task failed; will rely on SQL search until reindex");
 }
 
 async fn record_incremental_sync_status(
@@ -105,10 +105,14 @@ async fn record_incremental_sync_status(
         VALUES
             ($1, CASE WHEN $2 THEN $3 ELSE NULL END, $3, $2, 0, $4, $3)
         ON CONFLICT (index_name) DO UPDATE SET
-            last_success_at = CASE WHEN $2 THEN EXCLUDED.last_attempt_at ELSE meilisearch_sync_status.last_success_at END,
+            last_success_at = CASE WHEN EXCLUDED.is_success THEN EXCLUDED.last_attempt_at ELSE meilisearch_sync_status.last_success_at END,
             last_attempt_at = EXCLUDED.last_attempt_at,
-            is_success = EXCLUDED.is_success,
-            error_message = EXCLUDED.error_message,
+            is_success = meilisearch_sync_status.is_success AND EXCLUDED.is_success,
+            error_message = CASE
+                WHEN NOT EXCLUDED.is_success THEN EXCLUDED.error_message
+                WHEN meilisearch_sync_status.is_success THEN NULL
+                ELSE meilisearch_sync_status.error_message
+            END,
             updated_at = EXCLUDED.updated_at
         "#
     )
@@ -124,12 +128,58 @@ async fn record_incremental_sync_status(
     }
 }
 
-/// Remove a variant document (e.g. inactive product or deleted variant).
-pub async fn delete_variant_document(client: &Client, variant_id: Uuid) {
-    let index = client.index(INDEX_VARIANTS);
-    if let Err(e) = index.delete_document(variant_id.to_string()).await {
-        tracing::warn!(error = %e, %variant_id, "Meilisearch delete_document variant failed");
+async fn record_incremental_read_failure(
+    pool: &PgPool,
+    index_name: &str,
+    context: &'static str,
+    error: &sqlx::Error,
+) {
+    tracing::warn!(error = %error, context, "PostgreSQL read failed during incremental Meilisearch sync; existing document preserved");
+    record_incremental_sync_status(pool, index_name, false, Some(&error.to_string())).await;
+}
+
+async fn finish_incremental_task(
+    pool: &PgPool,
+    client: &Client,
+    index_name: &str,
+    context: &'static str,
+    task_result: Result<TaskInfo, meilisearch_sdk::errors::Error>,
+) {
+    let result = match task_result {
+        Ok(task) => crate::logic::meilisearch_client::wait_task_ok(client, task).await,
+        Err(error) => Err(error),
+    };
+
+    match result {
+        Ok(()) => record_incremental_sync_status(pool, index_name, true, None).await,
+        Err(error) => {
+            log_meili_add_err(context, &error);
+            record_incremental_sync_status(pool, index_name, false, Some(&error.to_string())).await;
+        }
     }
+}
+
+async fn delete_incremental_document(
+    pool: &PgPool,
+    client: &Client,
+    index_name: &str,
+    document_id: Uuid,
+    context: &'static str,
+) {
+    let index = client.index(index_name);
+    finish_incremental_task(
+        pool,
+        client,
+        index_name,
+        context,
+        index.delete_document(document_id.to_string()).await,
+    )
+    .await;
+}
+
+/// Remove a variant document (e.g. inactive product or deleted variant).
+pub async fn delete_variant_document(client: &Client, pool: &PgPool, variant_id: Uuid) {
+    delete_incremental_document(pool, client, INDEX_VARIANTS, variant_id, "variant delete").await;
 }
 
 pub async fn upsert_variant_document(client: &Client, pool: &PgPool, variant_id: Uuid) {
@@ -163,13 +213,20 @@ pub async fn upsert_variant_document(client: &Client, pool: &PgPool, variant_id:
     .fetch_optional(pool)
     .await;
 
-    let Ok(Some(row)) = row else {
-        delete_variant_document(client, variant_id).await;
-        return;
+    let row = match row {
+        Ok(Some(row)) => row,
+        Ok(None) => {
+            delete_variant_document(client, pool, variant_id).await;
+            return;
+        }
+        Err(error) => {
+            record_incremental_read_failure(pool, INDEX_VARIANTS, "variant read", &error).await;
+            return;
+        }
     };
 
     if !row.is_active {
-        delete_variant_document(client, variant_id).await;
+        delete_variant_document(client, pool, variant_id).await;
         return;
     }
 
@@ -194,12 +251,14 @@ pub async fn upsert_variant_document(client: &Client, pool: &PgPool, variant_id:
     );
 
     let index = client.index(INDEX_VARIANTS);
-    if let Err(e) = index.add_or_replace(&[doc], Some("id")).await {
-        log_meili_add_err("variant upsert", &e);
-        record_incremental_sync_status(pool, INDEX_VARIANTS, false, Some(&e.to_string())).await;
-    } else {
-        record_incremental_sync_status(pool, INDEX_VARIANTS, true, None).await;
-    }
+    finish_incremental_task(
+        pool,
+        client,
+        INDEX_VARIANTS,
+        "variant upsert",
+        index.add_or_replace(&[doc], Some("id")).await,
+    )
+    .await;
 }
 
 /// Re-sync every variant for a product (and storefront product row).
@@ -255,10 +314,29 @@ pub async fn upsert_store_product_document(client: &Client, pool: &PgPool, produ
     .fetch_optional(pool)
     .await;
 
-    let Ok(Some(row)) = row else {
-        let index = client.index(INDEX_STORE_PRODUCTS);
-        let _ = index.delete_document(product_id.to_string()).await;
-        return;
+    let row = match row {
+        Ok(Some(row)) => row,
+        Ok(None) => {
+            delete_incremental_document(
+                pool,
+                client,
+                INDEX_STORE_PRODUCTS,
+                product_id,
+                "store product delete",
+            )
+            .await;
+            return;
+        }
+        Err(error) => {
+            record_incremental_read_failure(
+                pool,
+                INDEX_STORE_PRODUCTS,
+                "store product read",
+                &error,
+            )
+            .await;
+            return;
+        }
     };
 
     let slug_ok = !row.slug.is_empty();
@@ -278,16 +356,24 @@ pub async fn upsert_store_product_document(client: &Client, pool: &PgPool, produ
 
     let index = client.index(INDEX_STORE_PRODUCTS);
     if !catalog_ok {
-        let _ = index.delete_document(product_id.to_string()).await;
+        delete_incremental_document(
+            pool,
+            client,
+            INDEX_STORE_PRODUCTS,
+            product_id,
+            "store product delete",
+        )
+        .await;
         return;
     }
-    if let Err(e) = index.add_or_replace(&[doc], Some("id")).await {
-        log_meili_add_err("store product upsert", &e);
-        record_incremental_sync_status(pool, INDEX_STORE_PRODUCTS, false, Some(&e.to_string()))
-            .await;
-    } else {
-        record_incremental_sync_status(pool, INDEX_STORE_PRODUCTS, true, None).await;
-    }
+    finish_incremental_task(
+        pool,
+        client,
+        INDEX_STORE_PRODUCTS,
+        "store product upsert",
+        index.add_or_replace(&[doc], Some("id")).await,
+    )
+    .await;
 }
 
 pub async fn upsert_customer_document(client: &Client, pool: &PgPool, customer_id: Uuid) {
@@ -337,10 +423,16 @@ pub async fn upsert_customer_document(client: &Client, pool: &PgPool, customer_i
     .fetch_optional(pool)
     .await;
 
-    let Ok(Some(row)) = row else {
-        let index = client.index(INDEX_CUSTOMERS);
-        let _ = index.delete_document(customer_id.to_string()).await;
-        return;
+    let row = match row {
+        Ok(Some(row)) => row,
+        Ok(None) => {
+            delete_customer_document(client, pool, customer_id).await;
+            return;
+        }
+        Err(error) => {
+            record_incremental_read_failure(pool, INDEX_CUSTOMERS, "customer read", &error).await;
+            return;
+        }
     };
 
     let search_text = build_customer_search_text(
@@ -374,17 +466,25 @@ pub async fn upsert_customer_document(client: &Client, pool: &PgPool, customer_i
     };
 
     let index = client.index(INDEX_CUSTOMERS);
-    if let Err(e) = index.add_or_replace(&[doc], Some("id")).await {
-        log_meili_add_err("customer upsert", &e);
-        record_incremental_sync_status(pool, INDEX_CUSTOMERS, false, Some(&e.to_string())).await;
-    } else {
-        record_incremental_sync_status(pool, INDEX_CUSTOMERS, true, None).await;
-    }
+    finish_incremental_task(
+        pool,
+        client,
+        INDEX_CUSTOMERS,
+        "customer upsert",
+        index.add_or_replace(&[doc], Some("id")).await,
+    )
+    .await;
 }
 
-pub async fn delete_customer_document(client: &Client, customer_id: Uuid) {
-    let index = client.index(INDEX_CUSTOMERS);
-    let _ = index.delete_document(customer_id.to_string()).await;
+pub async fn delete_customer_document(client: &Client, pool: &PgPool, customer_id: Uuid) {
+    delete_incremental_document(
+        pool,
+        client,
+        INDEX_CUSTOMERS,
+        customer_id,
+        "customer delete",
+    )
+    .await;
 }
 
 pub async fn spawn_meilisearch_customer_upsert(
@@ -407,9 +507,10 @@ pub async fn spawn_meilisearch_transaction_upsert(
 
 pub async fn spawn_meilisearch_customer_delete(
     client: &Client,
+    pool: &PgPool,
     customer_id: Uuid,
 ) -> Result<(), meilisearch_sdk::errors::Error> {
-    delete_customer_document(client, customer_id).await;
+    delete_customer_document(client, pool, customer_id).await;
     Ok(())
 }
 
@@ -461,10 +562,29 @@ pub async fn upsert_wedding_party_document(client: &Client, pool: &PgPool, party
     .fetch_optional(pool)
     .await;
 
-    let Ok(Some(row)) = row else {
-        let index = client.index(INDEX_WEDDING_PARTIES);
-        let _ = index.delete_document(party_id.to_string()).await;
-        return;
+    let row = match row {
+        Ok(Some(row)) => row,
+        Ok(None) => {
+            delete_incremental_document(
+                pool,
+                client,
+                INDEX_WEDDING_PARTIES,
+                party_id,
+                "wedding party delete",
+            )
+            .await;
+            return;
+        }
+        Err(error) => {
+            record_incremental_read_failure(
+                pool,
+                INDEX_WEDDING_PARTIES,
+                "wedding party read",
+                &error,
+            )
+            .await;
+            return;
+        }
     };
 
     let mut base = String::new();
@@ -497,13 +617,14 @@ pub async fn upsert_wedding_party_document(client: &Client, pool: &PgPool, party
     };
 
     let index = client.index(INDEX_WEDDING_PARTIES);
-    if let Err(e) = index.add_or_replace(&[doc], Some("id")).await {
-        log_meili_add_err("wedding party upsert", &e);
-        record_incremental_sync_status(pool, INDEX_WEDDING_PARTIES, false, Some(&e.to_string()))
-            .await;
-    } else {
-        record_incremental_sync_status(pool, INDEX_WEDDING_PARTIES, true, None).await;
-    }
+    finish_incremental_task(
+        pool,
+        client,
+        INDEX_WEDDING_PARTIES,
+        "wedding party upsert",
+        index.add_or_replace(&[doc], Some("id")).await,
+    )
+    .await;
 }
 
 pub async fn upsert_transaction_document(client: &Client, pool: &PgPool, transaction_id: Uuid) {
@@ -514,6 +635,9 @@ pub async fn upsert_transaction_document(client: &Client, pool: &PgPool, transac
         status: String,
         customer_first: Option<String>,
         customer_last: Option<String>,
+        customer_code: Option<String>,
+        customer_phone: Option<String>,
+        customer_email: Option<String>,
         party_name: Option<String>,
         salesperson: Option<String>,
     }
@@ -526,6 +650,9 @@ pub async fn upsert_transaction_document(client: &Client, pool: &PgPool, transac
             o.status::text AS status,
             c.first_name AS customer_first,
             c.last_name AS customer_last,
+            NULLIF(TRIM(c.customer_code), '') AS customer_code,
+            NULLIF(TRIM(c.phone), '') AS customer_phone,
+            NULLIF(TRIM(c.email), '') AS customer_email,
             NULLIF(TRIM(COALESCE(wp.party_name, '')), '') AS party_name,
             ps.full_name AS salesperson
         FROM transactions o
@@ -540,10 +667,24 @@ pub async fn upsert_transaction_document(client: &Client, pool: &PgPool, transac
     .fetch_optional(pool)
     .await;
 
-    let Ok(Some(row)) = row else {
-        let index = client.index(INDEX_TRANSACTIONS);
-        let _ = index.delete_document(transaction_id.to_string()).await;
-        return;
+    let row = match row {
+        Ok(Some(row)) => row,
+        Ok(None) => {
+            delete_incremental_document(
+                pool,
+                client,
+                INDEX_TRANSACTIONS,
+                transaction_id,
+                "transaction delete",
+            )
+            .await;
+            return;
+        }
+        Err(error) => {
+            record_incremental_read_failure(pool, INDEX_TRANSACTIONS, "transaction read", &error)
+                .await;
+            return;
+        }
     };
 
     let s = row.status.to_lowercase();
@@ -556,13 +697,17 @@ pub async fn upsert_transaction_document(client: &Client, pool: &PgPool, transac
     let customer_name =
         customer_full_name(row.customer_first.as_deref(), row.customer_last.as_deref());
     let search_text = format!(
-        "{} {} {} {} {}",
+        "{} {} {} {} {} {} {} {}",
         row.id,
         row.display_id,
         cust.trim(),
+        row.customer_code.as_deref().unwrap_or(""),
+        row.customer_phone.as_deref().unwrap_or(""),
+        row.customer_email.as_deref().unwrap_or(""),
         row.party_name.as_deref().unwrap_or(""),
         row.salesperson.as_deref().unwrap_or("")
     );
+    let search_text = augment_search_with_phone_digits(&search_text, &[row.customer_phone.clone()]);
 
     let doc = TransactionDoc {
         id: row.id.to_string(),
@@ -574,12 +719,14 @@ pub async fn upsert_transaction_document(client: &Client, pool: &PgPool, transac
     };
 
     let index = client.index(INDEX_TRANSACTIONS);
-    if let Err(e) = index.add_or_replace(&[doc], Some("id")).await {
-        log_meili_add_err("transaction upsert", &e);
-        record_incremental_sync_status(pool, INDEX_TRANSACTIONS, false, Some(&e.to_string())).await;
-    } else {
-        record_incremental_sync_status(pool, INDEX_TRANSACTIONS, true, None).await;
-    }
+    finish_incremental_task(
+        pool,
+        client,
+        INDEX_TRANSACTIONS,
+        "transaction upsert",
+        index.add_or_replace(&[doc], Some("id")).await,
+    )
+    .await;
 }
 
 pub async fn upsert_order_document(client: &Client, pool: &PgPool, transaction_id: Uuid) {
@@ -591,6 +738,8 @@ pub async fn upsert_order_document(client: &Client, pool: &PgPool, transaction_i
         customer_first: Option<String>,
         customer_last: Option<String>,
         customer_code: Option<String>,
+        customer_phone: Option<String>,
+        customer_email: Option<String>,
         party_name: Option<String>,
         transaction_display_ids: Option<String>,
         item_blob: Option<String>,
@@ -607,6 +756,8 @@ pub async fn upsert_order_document(client: &Client, pool: &PgPool, transaction_i
             c.first_name AS customer_first,
             c.last_name AS customer_last,
             c.customer_code,
+            NULLIF(TRIM(c.phone), '') AS customer_phone,
+            NULLIF(TRIM(c.email), '') AS customer_email,
             NULLIF(TRIM(COALESCE(wp.party_name, '')), '') AS party_name,
             string_agg(DISTINCT o.display_id, ' ') AS transaction_display_ids,
             string_agg(DISTINCT TRIM(CONCAT_WS(' ', p.name, pv.sku, pv.variation_label)), ' ') AS item_blob
@@ -627,30 +778,41 @@ pub async fn upsert_order_document(client: &Client, pool: &PgPool, transaction_i
     .fetch_optional(pool)
     .await;
 
-    let Ok(Some(row)) = row else {
-        let index = client.index(INDEX_ORDERS);
-        let _ = index.delete_document(transaction_id.to_string()).await;
-        return;
+    let row = match row {
+        Ok(Some(row)) => row,
+        Ok(None) => {
+            delete_incremental_document(pool, client, INDEX_ORDERS, transaction_id, "order delete")
+                .await;
+            return;
+        }
+        Err(error) => {
+            record_incremental_read_failure(pool, INDEX_ORDERS, "order read", &error).await;
+            return;
+        }
     };
 
     let index = client.index(INDEX_ORDERS);
     if !row.is_order {
-        let _ = index.delete_document(transaction_id.to_string()).await;
+        delete_incremental_document(pool, client, INDEX_ORDERS, transaction_id, "order delete")
+            .await;
         return;
     }
 
     let search_text = format!(
-        "{} {} {} {} {} {} {} {}",
+        "{} {} {} {} {} {} {} {} {} {}",
         row.id,
         row.display_id,
         row.status,
         row.customer_first.as_deref().unwrap_or(""),
         row.customer_last.as_deref().unwrap_or(""),
         row.customer_code.as_deref().unwrap_or(""),
+        row.customer_phone.as_deref().unwrap_or(""),
+        row.customer_email.as_deref().unwrap_or(""),
         row.party_name.as_deref().unwrap_or(""),
         row.transaction_display_ids.as_deref().unwrap_or("")
     ) + " "
         + row.item_blob.as_deref().unwrap_or("");
+    let search_text = augment_search_with_phone_digits(&search_text, &[row.customer_phone.clone()]);
 
     let doc = OrderDoc {
         id: row.id.to_string(),
@@ -664,12 +826,14 @@ pub async fn upsert_order_document(client: &Client, pool: &PgPool, transaction_i
         search_text,
     };
 
-    if let Err(e) = index.add_or_replace(&[doc], Some("id")).await {
-        log_meili_add_err("order upsert", &e);
-        record_incremental_sync_status(pool, INDEX_ORDERS, false, Some(&e.to_string())).await;
-    } else {
-        record_incremental_sync_status(pool, INDEX_ORDERS, true, None).await;
-    }
+    finish_incremental_task(
+        pool,
+        client,
+        INDEX_ORDERS,
+        "order upsert",
+        index.add_or_replace(&[doc], Some("id")).await,
+    )
+    .await;
 }
 
 pub async fn upsert_staff_document(client: &Client, pool: &PgPool, staff_id: Uuid) {
@@ -689,10 +853,16 @@ pub async fn upsert_staff_document(client: &Client, pool: &PgPool, staff_id: Uui
     .fetch_optional(pool)
     .await;
 
-    let Ok(Some(row)) = row else {
-        let index = client.index(INDEX_STAFF);
-        let _ = index.delete_document(staff_id.to_string()).await;
-        return;
+    let row = match row {
+        Ok(Some(row)) => row,
+        Ok(None) => {
+            delete_incremental_document(pool, client, INDEX_STAFF, staff_id, "staff delete").await;
+            return;
+        }
+        Err(error) => {
+            record_incremental_read_failure(pool, INDEX_STAFF, "staff read", &error).await;
+            return;
+        }
     };
 
     let search_text = format!(
@@ -708,12 +878,14 @@ pub async fn upsert_staff_document(client: &Client, pool: &PgPool, staff_id: Uui
     };
 
     let index = client.index(INDEX_STAFF);
-    if let Err(e) = index.add_or_replace(&[doc], Some("id")).await {
-        log_meili_add_err("staff upsert", &e);
-        record_incremental_sync_status(pool, INDEX_STAFF, false, Some(&e.to_string())).await;
-    } else {
-        record_incremental_sync_status(pool, INDEX_STAFF, true, None).await;
-    }
+    finish_incremental_task(
+        pool,
+        client,
+        INDEX_STAFF,
+        "staff upsert",
+        index.add_or_replace(&[doc], Some("id")).await,
+    )
+    .await;
 }
 
 pub async fn upsert_vendor_document(client: &Client, pool: &PgPool, vendor_id: Uuid) {
@@ -732,10 +904,17 @@ pub async fn upsert_vendor_document(client: &Client, pool: &PgPool, vendor_id: U
     .fetch_optional(pool)
     .await;
 
-    let Ok(Some(row)) = row else {
-        let index = client.index(INDEX_VENDORS);
-        let _ = index.delete_document(vendor_id.to_string()).await;
-        return;
+    let row = match row {
+        Ok(Some(row)) => row,
+        Ok(None) => {
+            delete_incremental_document(pool, client, INDEX_VENDORS, vendor_id, "vendor delete")
+                .await;
+            return;
+        }
+        Err(error) => {
+            record_incremental_read_failure(pool, INDEX_VENDORS, "vendor read", &error).await;
+            return;
+        }
     };
 
     let search_text = format!("{} {}", row.name, row.vendor_code.as_deref().unwrap_or(""));
@@ -746,12 +925,14 @@ pub async fn upsert_vendor_document(client: &Client, pool: &PgPool, vendor_id: U
     };
 
     let index = client.index(INDEX_VENDORS);
-    if let Err(e) = index.add_or_replace(&[doc], Some("id")).await {
-        log_meili_add_err("vendor upsert", &e);
-        record_incremental_sync_status(pool, INDEX_VENDORS, false, Some(&e.to_string())).await;
-    } else {
-        record_incremental_sync_status(pool, INDEX_VENDORS, true, None).await;
-    }
+    finish_incremental_task(
+        pool,
+        client,
+        INDEX_VENDORS,
+        "vendor upsert",
+        index.add_or_replace(&[doc], Some("id")).await,
+    )
+    .await;
 }
 
 pub async fn upsert_category_document(client: &Client, pool: &PgPool, category_id: Uuid) {
@@ -766,10 +947,23 @@ pub async fn upsert_category_document(client: &Client, pool: &PgPool, category_i
         .fetch_optional(pool)
         .await;
 
-    let Ok(Some(row)) = row else {
-        let index = client.index(INDEX_CATEGORIES);
-        let _ = index.delete_document(category_id.to_string()).await;
-        return;
+    let row = match row {
+        Ok(Some(row)) => row,
+        Ok(None) => {
+            delete_incremental_document(
+                pool,
+                client,
+                INDEX_CATEGORIES,
+                category_id,
+                "category delete",
+            )
+            .await;
+            return;
+        }
+        Err(error) => {
+            record_incremental_read_failure(pool, INDEX_CATEGORIES, "category read", &error).await;
+            return;
+        }
     };
 
     let doc = CategoryDoc {
@@ -778,12 +972,14 @@ pub async fn upsert_category_document(client: &Client, pool: &PgPool, category_i
     };
 
     let index = client.index(INDEX_CATEGORIES);
-    if let Err(e) = index.add_or_replace(&[doc], Some("id")).await {
-        log_meili_add_err("category upsert", &e);
-        record_incremental_sync_status(pool, INDEX_CATEGORIES, false, Some(&e.to_string())).await;
-    } else {
-        record_incremental_sync_status(pool, INDEX_CATEGORIES, true, None).await;
-    }
+    finish_incremental_task(
+        pool,
+        client,
+        INDEX_CATEGORIES,
+        "category upsert",
+        index.add_or_replace(&[doc], Some("id")).await,
+    )
+    .await;
 }
 
 pub async fn upsert_appointment_document(client: &Client, pool: &PgPool, appt_id: Uuid) {
@@ -816,10 +1012,24 @@ pub async fn upsert_appointment_document(client: &Client, pool: &PgPool, appt_id
     .fetch_optional(pool)
     .await;
 
-    let Ok(Some(row)) = row else {
-        let index = client.index(INDEX_APPOINTMENTS);
-        let _ = index.delete_document(appt_id.to_string()).await;
-        return;
+    let row = match row {
+        Ok(Some(row)) => row,
+        Ok(None) => {
+            delete_incremental_document(
+                pool,
+                client,
+                INDEX_APPOINTMENTS,
+                appt_id,
+                "appointment delete",
+            )
+            .await;
+            return;
+        }
+        Err(error) => {
+            record_incremental_read_failure(pool, INDEX_APPOINTMENTS, "appointment read", &error)
+                .await;
+            return;
+        }
     };
 
     let search_text = format!(
@@ -837,12 +1047,14 @@ pub async fn upsert_appointment_document(client: &Client, pool: &PgPool, appt_id
     };
 
     let index = client.index(INDEX_APPOINTMENTS);
-    if let Err(e) = index.add_or_replace(&[doc], Some("id")).await {
-        log_meili_add_err("appointment upsert", &e);
-        record_incremental_sync_status(pool, INDEX_APPOINTMENTS, false, Some(&e.to_string())).await;
-    } else {
-        record_incremental_sync_status(pool, INDEX_APPOINTMENTS, true, None).await;
-    }
+    finish_incremental_task(
+        pool,
+        client,
+        INDEX_APPOINTMENTS,
+        "appointment upsert",
+        index.add_or_replace(&[doc], Some("id")).await,
+    )
+    .await;
 }
 
 pub async fn upsert_task_document(client: &Client, pool: &PgPool, task_id: Uuid) {
@@ -859,10 +1071,16 @@ pub async fn upsert_task_document(client: &Client, pool: &PgPool, task_id: Uuid)
     .fetch_optional(pool)
     .await;
 
-    let Ok(Some(row)) = task else {
-        let index = client.index(INDEX_TASKS);
-        let _ = index.delete_document(task_id.to_string()).await;
-        return;
+    let row = match task {
+        Ok(Some(row)) => row,
+        Ok(None) => {
+            delete_incremental_document(pool, client, INDEX_TASKS, task_id, "task delete").await;
+            return;
+        }
+        Err(error) => {
+            record_incremental_read_failure(pool, INDEX_TASKS, "task read", &error).await;
+            return;
+        }
     };
 
     use sqlx::Row;
@@ -883,12 +1101,14 @@ pub async fn upsert_task_document(client: &Client, pool: &PgPool, task_id: Uuid)
     };
 
     let index = client.index(INDEX_TASKS);
-    if let Err(e) = index.add_or_replace(&[doc], Some("id")).await {
-        log_meili_add_err("task upsert", &e);
-        record_incremental_sync_status(pool, INDEX_TASKS, false, Some(&e.to_string())).await;
-    } else {
-        record_incremental_sync_status(pool, INDEX_TASKS, true, None).await;
-    }
+    finish_incremental_task(
+        pool,
+        client,
+        INDEX_TASKS,
+        "task upsert",
+        index.add_or_replace(&[doc], Some("id")).await,
+    )
+    .await;
 }
 
 pub async fn upsert_alteration_document(client: &Client, pool: &PgPool, alteration_id: Uuid) {
@@ -943,10 +1163,24 @@ pub async fn upsert_alteration_document(client: &Client, pool: &PgPool, alterati
     .fetch_optional(pool)
     .await;
 
-    let Ok(Some(row)) = row else {
-        let index = client.index(INDEX_ALTERATIONS);
-        let _ = index.delete_document(alteration_id.to_string()).await;
-        return;
+    let row = match row {
+        Ok(Some(row)) => row,
+        Ok(None) => {
+            delete_incremental_document(
+                pool,
+                client,
+                INDEX_ALTERATIONS,
+                alteration_id,
+                "alteration delete",
+            )
+            .await;
+            return;
+        }
+        Err(error) => {
+            record_incremental_read_failure(pool, INDEX_ALTERATIONS, "alteration read", &error)
+                .await;
+            return;
+        }
     };
 
     let alteration_id_text = row.id.to_string();
@@ -976,12 +1210,14 @@ pub async fn upsert_alteration_document(client: &Client, pool: &PgPool, alterati
     };
 
     let index = client.index(INDEX_ALTERATIONS);
-    if let Err(e) = index.add_or_replace(&[doc], Some("id")).await {
-        log_meili_add_err("alteration upsert", &e);
-        record_incremental_sync_status(pool, INDEX_ALTERATIONS, false, Some(&e.to_string())).await;
-    } else {
-        record_incremental_sync_status(pool, INDEX_ALTERATIONS, true, None).await;
-    }
+    finish_incremental_task(
+        pool,
+        client,
+        INDEX_ALTERATIONS,
+        "alteration upsert",
+        index.add_or_replace(&[doc], Some("id")).await,
+    )
+    .await;
 }
 
 /// Spawn a cheap background sync (does not block the request path).
@@ -1195,31 +1431,30 @@ async fn reindex_all_meilisearch_inner(client: &Client, pool: &PgPool) -> anyhow
     let mut v_batch = Vec::with_capacity(1000);
     let mut n_variants = 0usize;
     while let Some(res) = variant_stream.next().await {
-        if let Ok(row) = res {
-            v_batch.push(variant_doc_from_row(
-                row.variant_id,
-                row.product_id,
-                row.category_id,
-                row.primary_vendor_id,
-                row.web_published,
-                row.is_clothing_footwear.unwrap_or(false),
-                true,
-                row.hidden_from_inventory,
-                row.stock_on_hand,
-                row.reserved_stock,
-                &row.sku,
-                row.barcode.as_deref(),
-                row.vendor_upc.as_deref(),
-                &row.product_name,
-                row.brand.as_deref(),
-                row.variation_label.as_deref(),
-                row.catalog_handle.as_deref(),
-            ));
-            if v_batch.len() >= 1000 {
-                n_variants += v_batch.len();
-                enqueue_documents(&index_v, &v_batch, &mut variant_tasks).await?;
-                v_batch.clear();
-            }
+        let row = res?;
+        v_batch.push(variant_doc_from_row(
+            row.variant_id,
+            row.product_id,
+            row.category_id,
+            row.primary_vendor_id,
+            row.web_published,
+            row.is_clothing_footwear.unwrap_or(false),
+            true,
+            row.hidden_from_inventory,
+            row.stock_on_hand,
+            row.reserved_stock,
+            &row.sku,
+            row.barcode.as_deref(),
+            row.vendor_upc.as_deref(),
+            &row.product_name,
+            row.brand.as_deref(),
+            row.variation_label.as_deref(),
+            row.catalog_handle.as_deref(),
+        ));
+        if v_batch.len() >= 1000 {
+            n_variants += v_batch.len();
+            enqueue_documents(&index_v, &v_batch, &mut variant_tasks).await?;
+            v_batch.clear();
         }
     }
     if !v_batch.is_empty() {
@@ -1255,28 +1490,27 @@ async fn reindex_all_meilisearch_inner(client: &Client, pool: &PgPool) -> anyhow
     let mut p_batch = Vec::with_capacity(500);
     let mut n_products = 0usize;
     while let Some(res) = product_stream.next().await {
-        if let Ok(row) = res {
-            use sqlx::Row;
-            let slug = row.get::<Option<String>, _>("slug").unwrap_or_default();
-            let name = row.get::<String, _>("name");
-            let brand = row.get::<Option<String>, _>("brand");
-            let is_active = row.get::<Option<bool>, _>("is_active").unwrap_or(true);
-            let web_count = row.get::<Option<i64>, _>("web_count").unwrap_or(0);
+        let row = res?;
+        use sqlx::Row;
+        let slug = row.get::<Option<String>, _>("slug").unwrap_or_default();
+        let name = row.get::<String, _>("name");
+        let brand = row.get::<Option<String>, _>("brand");
+        let is_active = row.get::<Option<bool>, _>("is_active").unwrap_or(true);
+        let web_count = row.get::<Option<i64>, _>("web_count").unwrap_or(0);
 
-            let slug_ok = !slug.is_empty();
-            let catalog_ok = is_active && slug_ok && web_count > 0;
-            if catalog_ok {
-                p_batch.push(StoreProductDoc {
-                    id: row.get::<Uuid, _>("id").to_string(),
-                    catalog_ok,
-                    search_text: format!("{} {} {}", name, slug, brand.as_deref().unwrap_or("")),
-                });
-            }
-            if p_batch.len() >= 500 {
-                n_products += p_batch.len();
-                enqueue_documents(&index_p, &p_batch, &mut product_tasks).await?;
-                p_batch.clear();
-            }
+        let slug_ok = !slug.is_empty();
+        let catalog_ok = is_active && slug_ok && web_count > 0;
+        if catalog_ok {
+            p_batch.push(StoreProductDoc {
+                id: row.get::<Uuid, _>("id").to_string(),
+                catalog_ok,
+                search_text: format!("{} {} {}", name, slug, brand.as_deref().unwrap_or("")),
+            });
+        }
+        if p_batch.len() >= 500 {
+            n_products += p_batch.len();
+            enqueue_documents(&index_p, &p_batch, &mut product_tasks).await?;
+            p_batch.clear();
         }
     }
     if !p_batch.is_empty() {
@@ -1311,52 +1545,51 @@ async fn reindex_all_meilisearch_inner(client: &Client, pool: &PgPool) -> anyhow
     let mut c_batch = Vec::with_capacity(1000);
     let mut n_customers = 0usize;
     while let Some(res) = customer_stream.next().await {
-        if let Ok(row) = res {
-            use sqlx::Row;
-            let first_name = row.get::<Option<String>, _>("first_name");
-            let last_name = row.get::<Option<String>, _>("last_name");
-            let customer_code = row.get::<String, _>("customer_code");
-            let company_name = row.get::<Option<String>, _>("company_name");
-            let email = row.get::<Option<String>, _>("email");
-            let phone = row.get::<Option<String>, _>("phone");
-            let city = row.get::<Option<String>, _>("city");
-            let state = row.get::<Option<String>, _>("state");
-            let postal_code = row.get::<Option<String>, _>("postal_code");
-            let address_line1 = row.get::<Option<String>, _>("address_line1");
-            let wedding_names = row.get::<Option<String>, _>("wedding_names");
+        let row = res?;
+        use sqlx::Row;
+        let first_name = row.get::<Option<String>, _>("first_name");
+        let last_name = row.get::<Option<String>, _>("last_name");
+        let customer_code = row.get::<String, _>("customer_code");
+        let company_name = row.get::<Option<String>, _>("company_name");
+        let email = row.get::<Option<String>, _>("email");
+        let phone = row.get::<Option<String>, _>("phone");
+        let city = row.get::<Option<String>, _>("city");
+        let state = row.get::<Option<String>, _>("state");
+        let postal_code = row.get::<Option<String>, _>("postal_code");
+        let address_line1 = row.get::<Option<String>, _>("address_line1");
+        let wedding_names = row.get::<Option<String>, _>("wedding_names");
 
-            let search_text = build_customer_search_text(
-                first_name.as_deref(),
-                last_name.as_deref(),
-                Some(&customer_code),
-                company_name.as_deref(),
-                email.as_deref(),
-                phone.as_deref(),
-                city.as_deref(),
-                state.as_deref(),
-                postal_code.as_deref(),
-                address_line1.as_deref(),
-                wedding_names.as_deref(),
-            );
-            c_batch.push(CustomerDoc {
-                id: row.get::<Uuid, _>("id").to_string(),
-                first_name: optional_trimmed(first_name.clone()),
-                last_name: optional_trimmed(last_name.clone()),
-                full_name: customer_full_name(first_name.as_deref(), last_name.as_deref()),
-                company_name: optional_trimmed(company_name.clone()),
-                email: optional_trimmed(email.clone()),
-                phone_digits: phone
-                    .as_deref()
-                    .map(crate::logic::meilisearch_documents::digits_only)
-                    .filter(|s| !s.is_empty()),
-                search_text,
-                customer_code: Some(customer_code),
-            });
-            if c_batch.len() >= 1000 {
-                n_customers += c_batch.len();
-                enqueue_documents(&index_c, &c_batch, &mut customer_tasks).await?;
-                c_batch.clear();
-            }
+        let search_text = build_customer_search_text(
+            first_name.as_deref(),
+            last_name.as_deref(),
+            Some(&customer_code),
+            company_name.as_deref(),
+            email.as_deref(),
+            phone.as_deref(),
+            city.as_deref(),
+            state.as_deref(),
+            postal_code.as_deref(),
+            address_line1.as_deref(),
+            wedding_names.as_deref(),
+        );
+        c_batch.push(CustomerDoc {
+            id: row.get::<Uuid, _>("id").to_string(),
+            first_name: optional_trimmed(first_name.clone()),
+            last_name: optional_trimmed(last_name.clone()),
+            full_name: customer_full_name(first_name.as_deref(), last_name.as_deref()),
+            company_name: optional_trimmed(company_name.clone()),
+            email: optional_trimmed(email.clone()),
+            phone_digits: phone
+                .as_deref()
+                .map(crate::logic::meilisearch_documents::digits_only)
+                .filter(|s| !s.is_empty()),
+            search_text,
+            customer_code: Some(customer_code),
+        });
+        if c_batch.len() >= 1000 {
+            n_customers += c_batch.len();
+            enqueue_documents(&index_c, &c_batch, &mut customer_tasks).await?;
+            c_batch.clear();
         }
     }
     if !c_batch.is_empty() {
@@ -1388,43 +1621,42 @@ async fn reindex_all_meilisearch_inner(client: &Client, pool: &PgPool) -> anyhow
     let mut w_batch = Vec::with_capacity(500);
     let mut n_weddings = 0usize;
     while let Some(res) = party_stream.next().await {
-        if let Ok(row) = res {
-            use sqlx::Row;
-            let mut base = String::new();
-            for p in [
-                row.get::<Option<String>, _>("party_name").as_deref(),
-                row.get::<Option<String>, _>("wedding_number").as_deref(),
-                Some(row.get::<String, _>("groom_name")).as_deref(),
-                row.get::<Option<String>, _>("notes").as_deref(),
-                row.get::<Option<String>, _>("groom_email").as_deref(),
-                row.get::<Option<String>, _>("bride_name").as_deref(),
-                row.get::<Option<String>, _>("bride_email").as_deref(),
-                row.get::<Option<String>, _>("member_blob").as_deref(),
-            ] {
-                if let Some(s) = p.filter(|x| !x.trim().is_empty()) {
-                    if !base.is_empty() {
-                        base.push(' ');
-                    }
-                    base.push_str(s);
+        let row = res?;
+        use sqlx::Row;
+        let mut base = String::new();
+        for p in [
+            row.get::<Option<String>, _>("party_name").as_deref(),
+            row.get::<Option<String>, _>("wedding_number").as_deref(),
+            Some(row.get::<String, _>("groom_name")).as_deref(),
+            row.get::<Option<String>, _>("notes").as_deref(),
+            row.get::<Option<String>, _>("groom_email").as_deref(),
+            row.get::<Option<String>, _>("bride_name").as_deref(),
+            row.get::<Option<String>, _>("bride_email").as_deref(),
+            row.get::<Option<String>, _>("member_blob").as_deref(),
+        ] {
+            if let Some(s) = p.filter(|x| !x.trim().is_empty()) {
+                if !base.is_empty() {
+                    base.push(' ');
                 }
+                base.push_str(s);
             }
-            let search_text = augment_search_with_phone_digits(
-                &base,
-                &[
-                    row.get::<Option<String>, _>("groom_phone"),
-                    row.get::<Option<String>, _>("bride_phone"),
-                ],
-            );
-            w_batch.push(WeddingPartyDoc {
-                id: row.get::<Uuid, _>("id").to_string(),
-                is_deleted: row.get::<Option<bool>, _>("is_deleted").unwrap_or(false),
-                search_text,
-            });
-            if w_batch.len() >= 500 {
-                n_weddings += w_batch.len();
-                enqueue_documents(&index_w, &w_batch, &mut wedding_tasks).await?;
-                w_batch.clear();
-            }
+        }
+        let search_text = augment_search_with_phone_digits(
+            &base,
+            &[
+                row.get::<Option<String>, _>("groom_phone"),
+                row.get::<Option<String>, _>("bride_phone"),
+            ],
+        );
+        w_batch.push(WeddingPartyDoc {
+            id: row.get::<Uuid, _>("id").to_string(),
+            is_deleted: row.get::<Option<bool>, _>("is_deleted").unwrap_or(false),
+            search_text,
+        });
+        if w_batch.len() >= 500 {
+            n_weddings += w_batch.len();
+            enqueue_documents(&index_w, &w_batch, &mut wedding_tasks).await?;
+            w_batch.clear();
         }
     }
     if !w_batch.is_empty() {
@@ -1446,6 +1678,9 @@ async fn reindex_all_meilisearch_inner(client: &Client, pool: &PgPool) -> anyhow
             o.display_id,
             o.status::text AS status,
             c.first_name AS customer_first, c.last_name AS customer_last,
+            NULLIF(TRIM(c.customer_code), '') AS customer_code,
+            NULLIF(TRIM(c.phone), '') AS customer_phone,
+            NULLIF(TRIM(c.email), '') AS customer_email,
             NULLIF(TRIM(COALESCE(wp.party_name, '')), '') AS party_name,
             ps.full_name AS salesperson
         FROM transactions o
@@ -1459,49 +1694,57 @@ async fn reindex_all_meilisearch_inner(client: &Client, pool: &PgPool) -> anyhow
     let mut txn_batch = Vec::with_capacity(1000);
     let mut n_txns = 0usize;
     while let Some(res) = txn_stream.next().await {
-        if let Ok(row) = res {
-            use sqlx::Row;
-            let status = row.get::<Option<String>, _>("status");
-            let s = status.as_deref().unwrap_or_default().to_lowercase();
-            let status_open = s == "open" || s == "pending_measurement";
-            let transaction_id = row.get::<Uuid, _>("id");
-            let display_id = row
-                .get::<Option<String>, _>("display_id")
-                .unwrap_or_else(|| transaction_id.to_string());
-            let transaction_id_str = transaction_id.to_string();
-            let search_text = format!(
-                "{} {} {} {} {} {}",
-                transaction_id_str,
-                display_id,
-                row.get::<Option<String>, _>("customer_first")
-                    .as_deref()
-                    .unwrap_or(""),
-                row.get::<Option<String>, _>("customer_last")
-                    .as_deref()
-                    .unwrap_or(""),
-                row.get::<Option<String>, _>("party_name")
-                    .as_deref()
-                    .unwrap_or(""),
-                row.get::<Option<String>, _>("salesperson")
-                    .as_deref()
-                    .unwrap_or("")
-            );
-            txn_batch.push(TransactionDoc {
-                id: transaction_id_str,
-                display_id,
-                customer_name: customer_full_name(
-                    row.get::<Option<String>, _>("customer_first").as_deref(),
-                    row.get::<Option<String>, _>("customer_last").as_deref(),
-                ),
-                party_name: optional_trimmed(row.get::<Option<String>, _>("party_name")),
-                status_open,
-                search_text,
-            });
-            if txn_batch.len() >= 1000 {
-                n_txns += txn_batch.len();
-                enqueue_documents(&index_txns, &txn_batch, &mut txn_tasks).await?;
-                txn_batch.clear();
-            }
+        let row = res?;
+        use sqlx::Row;
+        let status = row.get::<Option<String>, _>("status");
+        let s = status.as_deref().unwrap_or_default().to_lowercase();
+        let status_open = s == "open" || s == "pending_measurement";
+        let transaction_id = row.get::<Uuid, _>("id");
+        let display_id = row
+            .get::<Option<String>, _>("display_id")
+            .unwrap_or_else(|| transaction_id.to_string());
+        let transaction_id_str = transaction_id.to_string();
+        let customer_phone = row.get::<Option<String>, _>("customer_phone");
+        let search_text = format!(
+            "{} {} {} {} {} {} {} {} {}",
+            transaction_id_str,
+            display_id,
+            row.get::<Option<String>, _>("customer_first")
+                .as_deref()
+                .unwrap_or(""),
+            row.get::<Option<String>, _>("customer_last")
+                .as_deref()
+                .unwrap_or(""),
+            row.get::<Option<String>, _>("customer_code")
+                .as_deref()
+                .unwrap_or(""),
+            customer_phone.as_deref().unwrap_or(""),
+            row.get::<Option<String>, _>("customer_email")
+                .as_deref()
+                .unwrap_or(""),
+            row.get::<Option<String>, _>("party_name")
+                .as_deref()
+                .unwrap_or(""),
+            row.get::<Option<String>, _>("salesperson")
+                .as_deref()
+                .unwrap_or("")
+        );
+        let search_text = augment_search_with_phone_digits(&search_text, &[customer_phone]);
+        txn_batch.push(TransactionDoc {
+            id: transaction_id_str,
+            display_id,
+            customer_name: customer_full_name(
+                row.get::<Option<String>, _>("customer_first").as_deref(),
+                row.get::<Option<String>, _>("customer_last").as_deref(),
+            ),
+            party_name: optional_trimmed(row.get::<Option<String>, _>("party_name")),
+            status_open,
+            search_text,
+        });
+        if txn_batch.len() >= 1000 {
+            n_txns += txn_batch.len();
+            enqueue_documents(&index_txns, &txn_batch, &mut txn_tasks).await?;
+            txn_batch.clear();
         }
     }
     if !txn_batch.is_empty() {
@@ -1521,6 +1764,8 @@ async fn reindex_all_meilisearch_inner(client: &Client, pool: &PgPool) -> anyhow
         customer_first: Option<String>,
         customer_last: Option<String>,
         customer_code: Option<String>,
+        customer_phone: Option<String>,
+        customer_email: Option<String>,
         party_name: Option<String>,
         transaction_display_ids: Option<String>,
         item_blob: Option<String>,
@@ -1539,6 +1784,8 @@ async fn reindex_all_meilisearch_inner(client: &Client, pool: &PgPool) -> anyhow
             c.first_name AS customer_first,
             c.last_name AS customer_last,
             c.customer_code,
+            NULLIF(TRIM(c.phone), '') AS customer_phone,
+            NULLIF(TRIM(c.email), '') AS customer_email,
             wp.party_name,
             string_agg(DISTINCT o.display_id, ' ') AS transaction_display_ids,
             string_agg(DISTINCT TRIM(CONCAT_WS(' ', p.name, pv.sku, pv.variation_label)), ' ') AS item_blob,
@@ -1567,17 +1814,21 @@ async fn reindex_all_meilisearch_inner(client: &Client, pool: &PgPool) -> anyhow
         let row = res?;
         let order_id_str = row.id.to_string();
         let search_text = format!(
-            "{} {} {} {} {} {} {} {} {}",
+            "{} {} {} {} {} {} {} {} {} {} {}",
             order_id_str,
             row.display_id,
             row.status,
             row.customer_first.as_deref().unwrap_or(""),
             row.customer_last.as_deref().unwrap_or(""),
             row.customer_code.as_deref().unwrap_or(""),
+            row.customer_phone.as_deref().unwrap_or(""),
+            row.customer_email.as_deref().unwrap_or(""),
             row.party_name.as_deref().unwrap_or(""),
             row.transaction_display_ids.as_deref().unwrap_or(""),
             row.item_blob.as_deref().unwrap_or("")
         );
+        let search_text =
+            augment_search_with_phone_digits(&search_text, &[row.customer_phone.clone()]);
         order_batch.push(OrderDoc {
             id: order_id_str,
             display_id: row.display_id,
@@ -1610,7 +1861,11 @@ async fn reindex_all_meilisearch_inner(client: &Client, pool: &PgPool) -> anyhow
         tracing::warn!(error = %e, "Meilisearch help reindex failed (other indexes succeeded)");
         record_sync_status(pool, INDEX_HELP, false, 0, Some(&e.to_string())).await;
     } else {
-        record_sync_status(pool, INDEX_HELP, true, 0, None).await;
+        let help_count = crate::logic::help_corpus::load_help_chunk_docs_with_policies(pool)
+            .await
+            .map(|chunks| chunks.len() as i64)
+            .unwrap_or(0);
+        record_sync_status(pool, INDEX_HELP, true, help_count, None).await;
     }
 
     // 8. Staff
@@ -1622,20 +1877,19 @@ async fn reindex_all_meilisearch_inner(client: &Client, pool: &PgPool) -> anyhow
             .fetch(pool);
     let mut staff_batch = Vec::new();
     while let Some(res) = staff_stream.next().await {
-        if let Ok(row) = res {
-            use sqlx::Row;
-            let full_name = row.get::<String, _>("full_name");
-            let cashier_code = row.get::<String, _>("cashier_code");
-            let search_text = format!("{full_name} {cashier_code}");
-            staff_batch.push(StaffDoc {
-                id: row.get::<Uuid, _>("id").to_string(),
-                is_active: row.get::<Option<bool>, _>("is_active").unwrap_or(true),
-                role: row
-                    .get::<Option<String>, _>("role")
-                    .unwrap_or_else(|| "cashier".to_string()),
-                search_text,
-            });
-        }
+        let row = res?;
+        use sqlx::Row;
+        let full_name = row.get::<String, _>("full_name");
+        let cashier_code = row.get::<String, _>("cashier_code");
+        let search_text = format!("{full_name} {cashier_code}");
+        staff_batch.push(StaffDoc {
+            id: row.get::<Uuid, _>("id").to_string(),
+            is_active: row.get::<Option<bool>, _>("is_active").unwrap_or(true),
+            role: row
+                .get::<Option<String>, _>("role")
+                .unwrap_or_else(|| "cashier".to_string()),
+            search_text,
+        });
     }
     if !staff_batch.is_empty() {
         enqueue_documents(&index_staff, &staff_batch, &mut staff_tasks).await?;
@@ -1652,16 +1906,15 @@ async fn reindex_all_meilisearch_inner(client: &Client, pool: &PgPool) -> anyhow
         sqlx::query("SELECT id, name, vendor_code, is_active FROM vendors").fetch(pool);
     let mut vendor_batch = Vec::new();
     while let Some(res) = vendor_stream.next().await {
-        if let Ok(row) = res {
-            use sqlx::Row;
-            let name = row.get::<String, _>("name");
-            let vendor_code = row.get::<Option<String>, _>("vendor_code");
-            vendor_batch.push(VendorDoc {
-                id: row.get::<Uuid, _>("id").to_string(),
-                is_active: row.get::<bool, _>("is_active"),
-                search_text: format!("{} {}", name, vendor_code.as_deref().unwrap_or("")),
-            });
-        }
+        let row = res?;
+        use sqlx::Row;
+        let name = row.get::<String, _>("name");
+        let vendor_code = row.get::<Option<String>, _>("vendor_code");
+        vendor_batch.push(VendorDoc {
+            id: row.get::<Uuid, _>("id").to_string(),
+            is_active: row.get::<bool, _>("is_active"),
+            search_text: format!("{} {}", name, vendor_code.as_deref().unwrap_or("")),
+        });
     }
     if !vendor_batch.is_empty() {
         enqueue_documents(&index_vendors, &vendor_batch, &mut vendor_tasks).await?;
@@ -1677,13 +1930,12 @@ async fn reindex_all_meilisearch_inner(client: &Client, pool: &PgPool) -> anyhow
     let mut category_stream = sqlx::query("SELECT id, name FROM categories").fetch(pool);
     let mut category_batch = Vec::new();
     while let Some(res) = category_stream.next().await {
-        if let Ok(row) = res {
-            use sqlx::Row;
-            category_batch.push(CategoryDoc {
-                id: row.get::<Uuid, _>("id").to_string(),
-                search_text: row.get::<String, _>("name"),
-            });
-        }
+        let row = res?;
+        use sqlx::Row;
+        category_batch.push(CategoryDoc {
+            id: row.get::<Uuid, _>("id").to_string(),
+            search_text: row.get::<String, _>("name"),
+        });
     }
     if !category_batch.is_empty() {
         enqueue_documents(&index_categories, &category_batch, &mut category_tasks).await?;
@@ -1715,31 +1967,30 @@ async fn reindex_all_meilisearch_inner(client: &Client, pool: &PgPool) -> anyhow
     .fetch(pool);
     let mut appt_batch = Vec::new();
     while let Some(res) = appt_stream.next().await {
-        if let Ok(row) = res {
-            use sqlx::Row;
-            let status = row.get::<Option<String>, _>("status");
-            let is_cancelled = status.as_deref() == Some("Cancelled");
-            let search_text = format!(
-                "{} {} {} {}",
-                row.get::<Option<String>, _>("first_name")
-                    .as_deref()
-                    .unwrap_or(""),
-                row.get::<Option<String>, _>("last_name")
-                    .as_deref()
-                    .unwrap_or(""),
-                row.get::<Option<String>, _>("party_name")
-                    .as_deref()
-                    .unwrap_or(""),
-                row.get::<Option<String>, _>("notes")
-                    .as_deref()
-                    .unwrap_or("")
-            );
-            appt_batch.push(AppointmentDoc {
-                id: row.get::<Uuid, _>("id").to_string(),
-                is_cancelled,
-                search_text,
-            });
-        }
+        let row = res?;
+        use sqlx::Row;
+        let status = row.get::<Option<String>, _>("status");
+        let is_cancelled = status.as_deref() == Some("Cancelled");
+        let search_text = format!(
+            "{} {} {} {}",
+            row.get::<Option<String>, _>("first_name")
+                .as_deref()
+                .unwrap_or(""),
+            row.get::<Option<String>, _>("last_name")
+                .as_deref()
+                .unwrap_or(""),
+            row.get::<Option<String>, _>("party_name")
+                .as_deref()
+                .unwrap_or(""),
+            row.get::<Option<String>, _>("notes")
+                .as_deref()
+                .unwrap_or("")
+        );
+        appt_batch.push(AppointmentDoc {
+            id: row.get::<Uuid, _>("id").to_string(),
+            is_cancelled,
+            search_text,
+        });
     }
     if !appt_batch.is_empty() {
         enqueue_documents(&index_appointments, &appt_batch, &mut appointment_tasks).await?;
@@ -1770,21 +2021,20 @@ async fn reindex_all_meilisearch_inner(client: &Client, pool: &PgPool) -> anyhow
     .fetch(pool);
     let mut task_batch = Vec::new();
     while let Some(res) = task_stream.next().await {
-        if let Ok(row) = res {
-            use sqlx::Row;
-            let status = row.get::<Option<String>, _>("status");
-            let title = row.get::<String, _>("title");
-            let assignee_name = row.get::<Option<String>, _>("assignee_name");
-            let search_text = format!("{} {}", title, assignee_name.as_deref().unwrap_or(""));
-            task_batch.push(TaskDoc {
-                id: row.get::<Uuid, _>("id").to_string(),
-                status: status.unwrap_or_else(|| "open".to_string()),
-                assignee_id: row
-                    .get::<Option<Uuid>, _>("assignee_staff_id")
-                    .map(|id| id.to_string()),
-                search_text,
-            });
-        }
+        let row = res?;
+        use sqlx::Row;
+        let status = row.get::<Option<String>, _>("status");
+        let title = row.get::<String, _>("title");
+        let assignee_name = row.get::<Option<String>, _>("assignee_name");
+        let search_text = format!("{} {}", title, assignee_name.as_deref().unwrap_or(""));
+        task_batch.push(TaskDoc {
+            id: row.get::<Uuid, _>("id").to_string(),
+            status: status.unwrap_or_else(|| "open".to_string()),
+            assignee_id: row
+                .get::<Option<Uuid>, _>("assignee_staff_id")
+                .map(|id| id.to_string()),
+            search_text,
+        });
     }
     if !task_batch.is_empty() {
         enqueue_documents(&index_tasks, &task_batch, &mut task_tasks).await?;
@@ -1847,32 +2097,31 @@ async fn reindex_all_meilisearch_inner(client: &Client, pool: &PgPool) -> anyhow
     .fetch(pool);
     let mut alteration_batch = Vec::new();
     while let Some(res) = alteration_stream.next().await {
-        if let Ok(row) = res {
-            let alteration_id_text = row.id.to_string();
-            let search_text = build_alteration_search_text(
-                &alteration_id_text,
-                row.customer_first_name.as_deref(),
-                row.customer_last_name.as_deref(),
-                row.customer_code.as_deref(),
-                row.customer_email.as_deref(),
-                row.customer_phone.as_deref(),
-                row.address_line1.as_deref(),
-                row.city.as_deref(),
-                row.state.as_deref(),
-                row.postal_code.as_deref(),
-                row.transaction_display_id.as_deref(),
-                row.item_description.as_deref(),
-                row.work_requested.as_deref(),
-                row.notes.as_deref(),
-                row.source_sku.as_deref(),
-            );
-            alteration_batch.push(AlterationDoc {
-                id: alteration_id_text,
-                customer_id: row.customer_id.to_string(),
-                status_open: row.status != "picked_up",
-                search_text,
-            });
-        }
+        let row = res?;
+        let alteration_id_text = row.id.to_string();
+        let search_text = build_alteration_search_text(
+            &alteration_id_text,
+            row.customer_first_name.as_deref(),
+            row.customer_last_name.as_deref(),
+            row.customer_code.as_deref(),
+            row.customer_email.as_deref(),
+            row.customer_phone.as_deref(),
+            row.address_line1.as_deref(),
+            row.city.as_deref(),
+            row.state.as_deref(),
+            row.postal_code.as_deref(),
+            row.transaction_display_id.as_deref(),
+            row.item_description.as_deref(),
+            row.work_requested.as_deref(),
+            row.notes.as_deref(),
+            row.source_sku.as_deref(),
+        );
+        alteration_batch.push(AlterationDoc {
+            id: alteration_id_text,
+            customer_id: row.customer_id.to_string(),
+            status_open: row.status != "picked_up",
+            search_text,
+        });
     }
     if !alteration_batch.is_empty() {
         enqueue_documents(&index_alterations, &alteration_batch, &mut alteration_tasks).await?;

@@ -1,5 +1,5 @@
 import { getBaseUrl } from "../../lib/apiConfig";
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
@@ -27,13 +27,22 @@ import ReceiptSummaryModal from "./ReceiptSummaryModal";
 import PosVoidTransactionModal, { type PosVoidTransactionTarget } from "./PosVoidTransactionModal";
 import ProductHubDrawer from "../inventory/ProductHubDrawer";
 import TransactionDetailDrawer from "../orders/TransactionDetailDrawer";
-import { openProfessionalDailySalesPrint, openProfessionalZReportPrint } from "./zReportPrint";
+import {
+  openProfessionalDailySalesPrint,
+  openProfessionalZReportPrint,
+  parseRegisterReportMoneyToCents,
+  REGISTER_REPORT_OUTPUT_ROW_LIMIT,
+  registerReportCombinedRowCount,
+} from "./zReportPrint";
 import type { ReportPrintAction } from "../../lib/reportPrint";
 import { useToast } from "../ui/ToastProviderLogic";
 import { downloadTextFile } from "../../lib/desktopFileBridge";
 import type { Customer } from "./CustomerSelector";
 
 const baseUrl = getBaseUrl();
+const ACTIVITY_PAGE_SIZE = 200;
+const ACTIVITY_EXPORT_PAGE_SIZE = 500;
+const ACTIVITY_INTERACTIVE_ROW_LIMIT = 2_000;
 
 const isBookedToday = (occurredAtStr?: string | null) => {
   if (!occurredAtStr) return false;
@@ -144,9 +153,112 @@ interface RegisterDaySummary {
   deposits_collected: string;
   weather_days?: RegisterDayWeatherSummary[];
   weather_summary?: string | null;
+  activity_total_count?: number;
+  activity_offset?: number;
+  activities_has_more?: boolean;
   activities: RegisterActivityItem[];
+  pickups_total_count?: number;
+  pickups_has_more?: boolean;
   pickups_today?: RegisterActivityItem[];
-  amount_label?: string;
+}
+
+function registerReportRowCount(summary: RegisterDaySummary): number {
+  return registerReportCombinedRowCount(
+    summary.activity_total_count ?? summary.activities.length,
+    summary.pickups_total_count ?? summary.pickups_today?.length ?? 0,
+  );
+}
+
+function assertRegisterReportOutputLimit(summary: RegisterDaySummary, outputLabel: string): void {
+  const rowCount = registerReportRowCount(summary);
+  if (rowCount > REGISTER_REPORT_OUTPUT_ROW_LIMIT) {
+    throw new Error(
+      `${outputLabel} contains ${rowCount.toLocaleString()} detail rows, above the ${REGISTER_REPORT_OUTPUT_ROW_LIMIT.toLocaleString()}-row output limit. Narrow the date range or search.`,
+    );
+  }
+}
+
+interface RegisterReportPageAccumulator {
+  expectedActivityCount: number;
+  expectedPickupCount: number;
+  expectedSummaryTruth: string;
+  activityIds: Set<string>;
+  pickupIds: Set<string>;
+  activities: RegisterActivityItem[];
+  pickups: RegisterActivityItem[];
+}
+
+function registerReportSummaryTruth(summary: RegisterDaySummary): string {
+  const pagedDetailKeys = new Set([
+    "activity_offset",
+    "activities_has_more",
+    "activities",
+    "pickups_has_more",
+    "pickups_today",
+  ]);
+  return JSON.stringify(
+    Object.fromEntries(Object.entries(summary).filter(([key]) => !pagedDetailKeys.has(key))),
+  );
+}
+
+function createRegisterReportPageAccumulator(
+  firstPage: RegisterDaySummary,
+): RegisterReportPageAccumulator {
+  return {
+    expectedActivityCount: firstPage.activity_total_count ?? firstPage.activities.length,
+    expectedPickupCount:
+      firstPage.pickups_total_count ?? firstPage.pickups_today?.length ?? 0,
+    expectedSummaryTruth: registerReportSummaryTruth(firstPage),
+    activityIds: new Set<string>(),
+    pickupIds: new Set<string>(),
+    activities: [],
+    pickups: [],
+  };
+}
+
+function appendStableRegisterReportPage(
+  accumulator: RegisterReportPageAccumulator,
+  page: RegisterDaySummary,
+  outputLabel: string,
+): void {
+  const activityCount = page.activity_total_count ?? page.activities.length;
+  const pickupCount = page.pickups_total_count ?? page.pickups_today?.length ?? 0;
+  const failChangedOutput = () => {
+    throw new Error(
+      `${outputLabel} changed while its audited detail was being prepared. Nothing was output; retry after current Register activity settles.`,
+    );
+  };
+  if (
+    activityCount !== accumulator.expectedActivityCount ||
+    pickupCount !== accumulator.expectedPickupCount ||
+    registerReportSummaryTruth(page) !== accumulator.expectedSummaryTruth
+  ) {
+    failChangedOutput();
+  }
+  for (const row of page.activities) {
+    if (accumulator.activityIds.has(row.id)) failChangedOutput();
+    accumulator.activityIds.add(row.id);
+    accumulator.activities.push(row);
+  }
+  for (const row of page.pickups_today ?? []) {
+    if (accumulator.pickupIds.has(row.id)) failChangedOutput();
+    accumulator.pickupIds.add(row.id);
+    accumulator.pickups.push(row);
+  }
+}
+
+function assertCompleteRegisterReportPages(
+  accumulator: RegisterReportPageAccumulator,
+  outputLabel: string,
+): void {
+  if (
+    accumulator.activities.length !== accumulator.expectedActivityCount ||
+    accumulator.pickups.length !== accumulator.expectedPickupCount
+  ) {
+    throw new Error(
+      `${outputLabel} changed while its audited detail was being prepared. Nothing was output; retry after current Register activity settles.`,
+    );
+  }
 }
 
 interface RegisterDayWeatherSummary {
@@ -368,7 +480,7 @@ function activityCreditCardTotalCents(activities: RegisterActivityItem[] | undef
   return (activities ?? []).reduce((sum, row) => {
     return sum + (row.payments ?? []).reduce((paymentSum, payment) => {
       return isCreditCardTender(payment.method)
-        ? paymentSum + parseMoneyToCents(payment.amount_label)
+        ? paymentSum + parseRegisterReportMoneyToCents(payment.amount_label)
         : paymentSum;
     }, 0);
   }, 0);
@@ -383,7 +495,7 @@ function activityRmsChargeTotalCents(activities: RegisterActivityItem[] | undefi
   return (activities ?? []).reduce((sum, row) => {
     return sum + (row.payments ?? []).reduce((paymentSum, payment) => {
       return isRmsChargeTender(payment.method)
-        ? paymentSum + parseMoneyToCents(payment.amount_label)
+        ? paymentSum + parseRegisterReportMoneyToCents(payment.amount_label)
         : paymentSum;
     }, 0);
   }, 0);
@@ -423,7 +535,12 @@ function activityDiscountTransactionCount(activities: RegisterActivityItem[] | u
 
 function activityPickupTotalCents(pickups: RegisterActivityItem[] | undefined): number {
   return (pickups ?? []).reduce((sum, row) => {
-    return sum + parseMoneyToCents(row.sales_total ?? row.transaction_total ?? row.amount_label ?? "0");
+    return (
+      sum +
+      parseRegisterReportMoneyToCents(
+        row.sales_total ?? row.transaction_total ?? row.amount_label ?? "0",
+      )
+    );
   }, 0);
 }
 
@@ -440,31 +557,6 @@ function activityVoidTarget(row: RegisterActivityItem): PosVoidTransactionTarget
     paymentSummary: row.payment_summary,
     fulfillmentLabel: activityFulfillmentLabel(row),
   };
-}
-
-function activitySearchText(row: RegisterActivityItem): string {
-  return [
-    row.title,
-    row.kind,
-    row.transaction_id,
-    row.order_id,
-    row.short_id,
-    row.customer_name,
-    row.customer_code,
-    row.customer_phone,
-    row.customer_email,
-    row.payment_summary,
-    row.wedding_party_name,
-    row.fulfillment_type,
-    ...(row.items ?? []).flatMap((item) => [
-      item.name,
-      item.sku,
-      item.fulfillment,
-    ]),
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
 }
 
 function registerLifecycleLabel(status: string) {
@@ -668,6 +760,11 @@ export default function RegisterReports({
   const [customFromZ, setCustomFromZ] = useState("");
   const [customToZ, setCustomToZ] = useState("");
   const [activitySearch, setActivitySearch] = useState("");
+  const [debouncedActivitySearch, setDebouncedActivitySearch] = useState("");
+  const [activityLoadingMore, setActivityLoadingMore] = useState(false);
+  const [reportOutputBusy, setReportOutputBusy] = useState(false);
+  const summaryRequestRef = useRef<{ generation: number; controller: AbortController } | null>(null);
+  const loadMoreRequestRef = useRef<{ generation: number; controller: AbortController } | null>(null);
 
   const { backofficeHeaders } = useBackofficeAuth();
   const { toast } = useToast();
@@ -676,7 +773,15 @@ export default function RegisterReports({
   const [voidTarget, setVoidTarget] = useState<PosVoidTransactionTarget | null>(null);
   const [voidBusy, setVoidBusy] = useState(false);
 
-  const buildActivityParams = useCallback((basis: "booked" | "fulfilled" = reportBasis) => {
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedActivitySearch(activitySearch.trim()), 250);
+    return () => window.clearTimeout(timer);
+  }, [activitySearch]);
+
+  const buildActivityParams = useCallback((
+    basis: "booked" | "fulfilled" = reportBasis,
+    options?: { offset?: number; limit?: number; search?: string },
+  ) => {
     const params = new URLSearchParams();
     if (preset === "custom") {
       if (!customFrom || !customTo) {
@@ -690,61 +795,226 @@ export default function RegisterReports({
       params.set("preset", preset);
     }
     params.set("basis", basis);
+    params.set("activity_offset", String(options?.offset ?? 0));
+    params.set("activity_limit", String(options?.limit ?? ACTIVITY_PAGE_SIZE));
+    const search = options?.search?.trim();
+    if (search) params.set("activity_search", search);
     return params;
   }, [preset, customFrom, customTo, reportBasis]);
 
-  const fetchSummary = useCallback(async (basis?: "booked" | "fulfilled") => {
+  const fetchSummary = useCallback(async (
+    basis?: "booked" | "fulfilled",
+    options?: { offset?: number; limit?: number; search?: string; signal?: AbortSignal },
+  ) => {
     const targetBasis = basis || reportBasis;
-    setError(null);
-    setLoading(true);
-    try {
-      const h = apiAuth();
-      const params = buildActivityParams(targetBasis);
-      const res = await fetch(`${baseUrl}/api/insights/register-day-activity?${params}`, { headers: h });
-      if (res.status === 403) {
-        setError(sessionId ? "Register session is not open." : "register.reports permission required.");
-        return null;
-      }
-      if (!res.ok) {
-        const j = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(j.error || "Failed to load activity");
-      }
-      return (await res.json()) as RegisterDaySummary;
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "An error occurred");
-      return null;
-    } finally {
-      setLoading(false);
+    const h = apiAuth();
+    const params = buildActivityParams(targetBasis, options);
+    const res = await fetch(`${baseUrl}/api/insights/register-day-activity?${params}`, {
+      headers: h,
+      signal: options?.signal,
+    });
+    if (res.status === 403) {
+      throw new Error(sessionId ? "Register session is not open." : "register.reports permission required.");
     }
+    if (!res.ok) {
+      const j = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new Error(j.error || "Failed to load activity");
+    }
+    return (await res.json()) as RegisterDaySummary;
   }, [apiAuth, buildActivityParams, sessionId, reportBasis]);
 
   const fetchBookedSummaryForDate = useCallback(async (businessDate: string) => {
-    const params = new URLSearchParams({
-      preset: "custom",
-      from: businessDate,
-      to: businessDate,
-      basis: "booked",
-    });
-    const res = await fetch(`${baseUrl}/api/insights/register-day-activity?${params}`, {
-      headers: apiAuth(),
-    });
-    if (!res.ok) {
-      const body = (await res.json().catch(() => ({}))) as { error?: string };
-      throw new Error(body.error || "Failed to load the Z-report business day.");
+    let offset = 0;
+    let firstPage: RegisterDaySummary | null = null;
+    let accumulator: RegisterReportPageAccumulator | null = null;
+    while (offset <= REGISTER_REPORT_OUTPUT_ROW_LIMIT) {
+      const params = new URLSearchParams({
+        preset: "custom",
+        from: businessDate,
+        to: businessDate,
+        basis: "booked",
+        activity_offset: String(offset),
+        activity_limit: String(ACTIVITY_EXPORT_PAGE_SIZE),
+      });
+      const res = await fetch(`${baseUrl}/api/insights/register-day-activity?${params}`, {
+        headers: apiAuth(),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error || "Failed to load the Z-report business day.");
+      }
+      const page = (await res.json()) as RegisterDaySummary;
+      if (!firstPage) {
+        assertRegisterReportOutputLimit(page, "This Z-report");
+        firstPage = page;
+        accumulator = createRegisterReportPageAccumulator(page);
+      }
+      if (!accumulator) throw new Error("Failed to load the Z-report business day.");
+      if (
+        accumulator.activities.length +
+          accumulator.pickups.length +
+          page.activities.length +
+          (page.pickups_today?.length ?? 0) >
+        REGISTER_REPORT_OUTPUT_ROW_LIMIT
+      ) {
+        throw new Error("This Z-report exceeded the audited detail-row output limit.");
+      }
+      appendStableRegisterReportPage(accumulator, page, "This Z-report");
+      if (!page.activities_has_more && !page.pickups_has_more) break;
+      offset += ACTIVITY_EXPORT_PAGE_SIZE;
     }
-    return (await res.json()) as RegisterDaySummary;
+    if (!firstPage || !accumulator) {
+      throw new Error("Failed to load the Z-report business day.");
+    }
+    assertCompleteRegisterReportPages(accumulator, "This Z-report");
+    return {
+      ...firstPage,
+      activities: accumulator.activities,
+      activities_has_more: false,
+      pickups_today: accumulator.pickups,
+      pickups_has_more: false,
+    };
   }, [apiAuth]);
 
   const loadSummaries = useCallback(async () => {
-    const bookedData = await fetchSummary("booked");
-    if (bookedData) setSummaryBooked(bookedData);
-    const fulfilledData = await fetchSummary("fulfilled");
-    if (fulfilledData) setSummary(fulfilledData);
-  }, [fetchSummary]);
+    summaryRequestRef.current?.controller.abort();
+    loadMoreRequestRef.current?.controller.abort();
+    const controller = new AbortController();
+    const generation = (summaryRequestRef.current?.generation ?? 0) + 1;
+    summaryRequestRef.current = { generation, controller };
+    setError(null);
+    setLoading(true);
+    try {
+      const options = { search: debouncedActivitySearch, signal: controller.signal };
+      const [bookedData, fulfilledData] = await Promise.all([
+        fetchSummary("booked", options),
+        fetchSummary("fulfilled", options),
+      ]);
+      if (summaryRequestRef.current?.generation !== generation) return;
+      setSummaryBooked(bookedData);
+      setSummary(fulfilledData);
+    } catch (e) {
+      if (controller.signal.aborted || summaryRequestRef.current?.generation !== generation) return;
+      setError(e instanceof Error ? e.message : "An error occurred");
+    } finally {
+      if (summaryRequestRef.current?.generation === generation) setLoading(false);
+    }
+  }, [debouncedActivitySearch, fetchSummary]);
 
   useEffect(() => {
     void loadSummaries();
-  }, [loadSummaries, preset, customFrom, customTo]);
+    return () => {
+      summaryRequestRef.current?.controller.abort();
+      loadMoreRequestRef.current?.controller.abort();
+    };
+  }, [loadSummaries]);
+
+  const fetchCompleteSummary = useCallback(async (
+    basis: "booked" | "fulfilled",
+    search = debouncedActivitySearch,
+  ): Promise<RegisterDaySummary> => {
+    let offset = 0;
+    let firstPage: RegisterDaySummary | null = null;
+    let accumulator: RegisterReportPageAccumulator | null = null;
+
+    while (offset <= REGISTER_REPORT_OUTPUT_ROW_LIMIT) {
+      const page = await fetchSummary(basis, {
+        offset,
+        limit: ACTIVITY_EXPORT_PAGE_SIZE,
+        search,
+      });
+      if (!firstPage) {
+        assertRegisterReportOutputLimit(page, "This report");
+        firstPage = page;
+        accumulator = createRegisterReportPageAccumulator(page);
+      }
+      if (!accumulator) throw new Error("No report data was returned.");
+      if (
+        accumulator.activities.length +
+          accumulator.pickups.length +
+          page.activities.length +
+          (page.pickups_today?.length ?? 0) >
+        REGISTER_REPORT_OUTPUT_ROW_LIMIT
+      ) {
+        throw new Error("This report exceeded the audited detail-row output limit.");
+      }
+      appendStableRegisterReportPage(accumulator, page, "This report");
+      if (!page.activities_has_more && !page.pickups_has_more) break;
+      offset += ACTIVITY_EXPORT_PAGE_SIZE;
+    }
+
+    if (!firstPage || !accumulator) throw new Error("No report data was returned.");
+    assertCompleteRegisterReportPages(accumulator, "This report");
+    return {
+      ...firstPage,
+      activity_offset: 0,
+      activities_has_more: false,
+      activities: accumulator.activities,
+      pickups_has_more: false,
+      pickups_today: accumulator.pickups,
+    };
+  }, [debouncedActivitySearch, fetchSummary]);
+
+  const loadMoreActivity = useCallback(async () => {
+    const current = reportBasis === "booked" ? summaryBooked : summary;
+    if (!current || (!current.activities_has_more && !current.pickups_has_more)) return;
+    const loadedRowCount = current.activities.length + (current.pickups_today?.length ?? 0);
+    if (loadedRowCount >= ACTIVITY_INTERACTIVE_ROW_LIMIT) {
+      toast(
+        `The screen is limited to ${ACTIVITY_INTERACTIVE_ROW_LIMIT.toLocaleString()} detail rows for stability. Narrow the date range or search before loading more.`,
+        "info",
+      );
+      return;
+    }
+    const offset = Math.max(current.activities.length, current.pickups_today?.length ?? 0);
+    loadMoreRequestRef.current?.controller.abort();
+    const controller = new AbortController();
+    const generation = (loadMoreRequestRef.current?.generation ?? 0) + 1;
+    loadMoreRequestRef.current = { generation, controller };
+    setActivityLoadingMore(true);
+    try {
+      const page = await fetchSummary(reportBasis, {
+        offset,
+        search: debouncedActivitySearch,
+        signal: controller.signal,
+      });
+      if (loadMoreRequestRef.current?.generation !== generation) return;
+      if (
+        loadedRowCount + page.activities.length + (page.pickups_today?.length ?? 0) >
+        ACTIVITY_INTERACTIVE_ROW_LIMIT
+      ) {
+        throw new Error(
+          `Loading this page would exceed the ${ACTIVITY_INTERACTIVE_ROW_LIMIT.toLocaleString()}-row screen limit. Narrow the date range or search.`,
+        );
+      }
+      const mergePage = (previous: RegisterDaySummary | null) => {
+        if (!previous) return page;
+        const activityIds = new Set(previous.activities.map((row) => row.id));
+        const pickupIds = new Set((previous.pickups_today ?? []).map((row) => row.id));
+        return {
+          ...page,
+          activity_offset: 0,
+          activities: [
+            ...previous.activities,
+            ...page.activities.filter((row) => !activityIds.has(row.id)),
+          ],
+          pickups_today: [
+            ...(previous.pickups_today ?? []),
+            ...(page.pickups_today ?? []).filter((row) => !pickupIds.has(row.id)),
+          ],
+        };
+      };
+      if (reportBasis === "booked") setSummaryBooked(mergePage);
+      else setSummary(mergePage);
+    } catch (e) {
+      if (controller.signal.aborted || loadMoreRequestRef.current?.generation !== generation) return;
+      toast(e instanceof Error ? e.message : "More activity could not be loaded.", "error");
+    } finally {
+      if (loadMoreRequestRef.current?.generation === generation) {
+        setActivityLoadingMore(false);
+      }
+    }
+  }, [debouncedActivitySearch, fetchSummary, reportBasis, summary, summaryBooked, toast]);
 
   const buildZLogParams = useCallback(() => {
     const params = new URLSearchParams({ limit: "40" });
@@ -825,10 +1095,8 @@ export default function RegisterReports({
   const groupedActivities = useMemo((): GroupedDayActivity[] => {
     const source = reportBasis === "booked" ? summaryBooked : summary;
     if (!source?.activities?.length) return [];
-    const needle = activitySearch.trim().toLowerCase();
     const groups: Record<string, RegisterActivityItem[]> = {};
     source.activities
-      .filter((a) => !needle || activitySearchText(a).includes(needle))
       .forEach((a) => {
       const date = new Date(a.occurred_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
       if (!groups[date]) groups[date] = [];
@@ -838,17 +1106,21 @@ export default function RegisterReports({
       date,
       label: date,
       activities: acts,
-      total_sales: acts.reduce((sum, a) => sum + (parseFloat(a.sales_total || "0") || 0), 0).toFixed(2),
-      total_tax: acts.reduce((sum, a) => sum + (parseFloat(a.tax_total || "0") || 0), 0).toFixed(2),
+      total_sales: centsToFixed2(
+        acts.reduce((sum, activity) => sum + parseRegisterReportMoneyToCents(activity.sales_total), 0),
+      ),
+      total_tax: centsToFixed2(
+        acts.reduce((sum, activity) => sum + parseRegisterReportMoneyToCents(activity.tax_total), 0),
+      ),
       count: acts.length,
     }));
-  }, [summary, summaryBooked, reportBasis, activitySearch]);
+  }, [summary, summaryBooked, reportBasis]);
   const filteredPickupsToday = useMemo(() => {
     const source = (reportBasis === "booked" ? summaryBooked : summary)?.pickups_today ?? [];
-    const needle = activitySearch.trim().toLowerCase();
-    return source.filter((row) => !needle || activitySearchText(row).includes(needle));
-  }, [summary, summaryBooked, reportBasis, activitySearch]);
-  const activitySourceCount = (reportBasis === "booked" ? summaryBooked : summary)?.activities?.length ?? 0;
+    return source;
+  }, [summary, summaryBooked, reportBasis]);
+  const activitySourceCount = selectedSummary?.activity_total_count ?? selectedSummary?.activities.length ?? 0;
+  const pickupSourceCount = selectedSummary?.pickups_total_count ?? selectedSummary?.pickups_today?.length ?? 0;
 
   const coordinationGroups = useMemo((): RegisterCoordinationGroup[] => {
     const grouped = new Map<string, OpenRegisterSessionRow[]>();
@@ -889,35 +1161,45 @@ export default function RegisterReports({
     return Number.isFinite(parsed) ? parsed.toFixed(digits) : value;
   };
 
-  const handleReportOutput = (action: ReportPrintAction) => {
-    const printSummary = selectedSummary;
-    if (!printSummary) return;
+  const handleReportOutput = async (action: ReportPrintAction) => {
+    if (!selectedSummary || reportOutputBusy) return;
+    setReportOutputBusy(true);
+    try {
+    const detailFilter = activitySearch.trim();
+    const [printSummary, unfilteredPeriodSummary] = await Promise.all([
+      fetchCompleteSummary(reportBasis, detailFilter),
+      detailFilter
+        ? fetchSummary(reportBasis, { offset: 0, limit: 1 })
+        : Promise.resolve(null),
+    ]);
+    const periodSummary = unfilteredPeriodSummary ?? printSummary;
     const printRangeLabel =
       printSummary.from_local === printSummary.to_local
         ? printSummary.from_local
         : `${printSummary.from_local} → ${printSummary.to_local}`;
-    void openProfessionalDailySalesPrint({
+    await openProfessionalDailySalesPrint({
       title: `Daily Sales - ${printRangeLabel}`,
       rangeLabel: printRangeLabel,
+      detailFilter: detailFilter || undefined,
       action,
       summary: {
-        sales_count: printSummary.sales_count,
-        sales_subtotal_no_tax: printSummary.sales_subtotal_no_tax,
-        sales_tax_total: printSummary.sales_tax_total,
-        net_sales: printSummary.net_sales,
-        shipping_total: printSummary.shipping_total,
-        alterations_total: printSummary.alterations_total,
-        gift_card_load_count: printSummary.gift_card_load_count,
-        gift_card_load_total: printSummary.gift_card_load_total,
-        appointment_count: printSummary.appointment_count,
-        online_order_count: printSummary.online_order_count,
-        pickup_count: printSummary.pickup_count,
-        special_order_sale_count: printSummary.special_order_sale_count,
-        new_wedding_parties_count: printSummary.new_wedding_parties_count,
-        merchant_fees_total: printSummary.merchant_fees_total,
-        cash_collected: printSummary.cash_collected,
-        deposits_collected: printSummary.deposits_collected,
-        new_appointment_count: printSummary.new_appointment_count,
+        sales_count: periodSummary.sales_count,
+        sales_subtotal_no_tax: periodSummary.sales_subtotal_no_tax,
+        sales_tax_total: periodSummary.sales_tax_total,
+        net_sales: periodSummary.net_sales,
+        shipping_total: periodSummary.shipping_total,
+        alterations_total: periodSummary.alterations_total,
+        gift_card_load_count: periodSummary.gift_card_load_count,
+        gift_card_load_total: periodSummary.gift_card_load_total,
+        appointment_count: periodSummary.appointment_count,
+        online_order_count: periodSummary.online_order_count,
+        pickup_count: periodSummary.pickup_count,
+        special_order_sale_count: periodSummary.special_order_sale_count,
+        new_wedding_parties_count: periodSummary.new_wedding_parties_count,
+        merchant_fees_total: periodSummary.merchant_fees_total,
+        cash_collected: periodSummary.cash_collected,
+        deposits_collected: periodSummary.deposits_collected,
+        new_appointment_count: periodSummary.new_appointment_count,
         new_layaway_count: activityNewLayawayCount(printSummary.activities),
         pickup_total: centsToFixed2(activityPickupTotalCents(printSummary.pickups_today)),
         pickup_total_count: printSummary.pickups_today?.length ?? 0,
@@ -956,12 +1238,25 @@ export default function RegisterReports({
         })),
       }))
     });
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "The complete audited report could not be prepared.", "error");
+    } finally {
+      setReportOutputBusy(false);
+    }
   };
 
   const handleExportCSV = async () => {
-    if (!selectedSummary?.activities.length) return;
-    const rows = selectedSummary.activities.flatMap(a => {
-      const itemRows = (a.items || []).map((item, idx) => ({
+    if (!selectedSummary || reportOutputBusy) return;
+    setReportOutputBusy(true);
+    try {
+    const exportSummary = await fetchCompleteSummary(reportBasis, activitySearch.trim());
+    if (!exportSummary.activities.length) {
+      toast("No matching activity is available to export.", "info");
+      return;
+    }
+    const rows = exportSummary.activities.flatMap(a => {
+      const items: Array<ActivityItemDetail | null> = a.items?.length ? a.items : [null];
+      const itemRows = items.map((item, idx) => ({
         "Date": new Date(a.occurred_at).toLocaleDateString(),
         "Time": new Date(a.occurred_at).toLocaleTimeString(),
         "Transaction #": a.short_id || "",
@@ -971,11 +1266,11 @@ export default function RegisterReports({
         "Customer Name": a.customer_name || "",
         "Customer #": a.customer_code || "",
         "Wedding Party": a.wedding_party_name || "",
-        "Item": item.name,
-        "SKU": item.sku,
-        "Qty": item.quantity,
-        "Reg Price": item.reg_price,
-        "Sale Price": item.price,
+        "Item": item?.name ?? "",
+        "SKU": item?.sku ?? "",
+        "Qty": item?.quantity ?? "",
+        "Reg Price": item?.reg_price ?? "",
+        "Sale Price": item?.price ?? "",
         "Takeaway": a.is_takeaway ? "Yes" : "No",
         "Fulfillment": a.fulfillment_type || "",
         "Deposit Paid": idx === 0 ? (a.deposits_paid || "0") : "",
@@ -985,8 +1280,8 @@ export default function RegisterReports({
         "Wedding Members Funded": idx === 0 ? (a.wedding_deposit_member_count || 0) : "",
         "Total Tender Collected": idx === 0
           ? centsToFixed2(
-              parseMoneyToCents(a.transaction_total || a.amount_label || "0")
-              + parseMoneyToCents(a.wedding_deposit_contributions || "0"),
+              parseRegisterReportMoneyToCents(a.transaction_total || a.amount_label || "0")
+              + parseRegisterReportMoneyToCents(a.wedding_deposit_contributions || "0"),
             )
           : "",
         "Sales Total": idx === 0 ? (a.sales_total || "0") : "",
@@ -997,11 +1292,31 @@ export default function RegisterReports({
     });
 
     // Calculate totals
-    const totalTransaction = selectedSummary.activities.reduce((sum, a) => sum + (parseFloat(a.transaction_total || a.amount_label || "0") || 0), 0);
-    const totalWeddingDeposits = selectedSummary.activities.reduce((sum, a) => sum + (parseFloat(a.wedding_deposit_contributions || "0") || 0), 0);
-    const totalSales = selectedSummary.activities.reduce((sum, a) => sum + (parseFloat(a.sales_total || "0") || 0), 0);
-    const totalTax = selectedSummary.activities.reduce((sum, a) => sum + (parseFloat(a.tax_total || "0") || 0), 0);
-    const totalNet = selectedSummary.activities.reduce((sum, a) => sum + (parseFloat(a.amount_label || "0") || 0), 0);
+    const totalTransactionCents = exportSummary.activities.reduce(
+      (sum, activity) =>
+        sum +
+        parseRegisterReportMoneyToCents(
+          activity.transaction_total || activity.amount_label || "0",
+        ),
+      0,
+    );
+    const totalWeddingDepositsCents = exportSummary.activities.reduce(
+      (sum, activity) =>
+        sum + parseRegisterReportMoneyToCents(activity.wedding_deposit_contributions),
+      0,
+    );
+    const totalSalesCents = exportSummary.activities.reduce(
+      (sum, activity) => sum + parseRegisterReportMoneyToCents(activity.sales_total),
+      0,
+    );
+    const totalTaxCents = exportSummary.activities.reduce(
+      (sum, activity) => sum + parseRegisterReportMoneyToCents(activity.tax_total),
+      0,
+    );
+    const totalNetCents = exportSummary.activities.reduce(
+      (sum, activity) => sum + parseRegisterReportMoneyToCents(activity.amount_label),
+      0,
+    );
 
     const totalRow = {
       "Date": "TOTAL",
@@ -1022,13 +1337,15 @@ export default function RegisterReports({
       "Fulfillment": "",
       "Deposit Paid": "",
       "Balance Due": "",
-      "Transaction Total": totalTransaction.toFixed(2),
-      "Wedding Deposits Placed": totalWeddingDeposits.toFixed(2),
+      "Transaction Total": centsToFixed2(totalTransactionCents),
+      "Wedding Deposits Placed": centsToFixed2(totalWeddingDepositsCents),
       "Wedding Members Funded": "",
-      "Total Tender Collected": (totalTransaction + totalWeddingDeposits).toFixed(2),
-      "Sales Total": totalSales.toFixed(2),
-      "Tax": totalTax.toFixed(2),
-      "Net Total": totalNet.toFixed(2),
+      "Total Tender Collected": centsToFixed2(
+        totalTransactionCents + totalWeddingDepositsCents,
+      ),
+      "Sales Total": centsToFixed2(totalSalesCents),
+      "Tax": centsToFixed2(totalTaxCents),
+      "Net Total": centsToFixed2(totalNetCents),
     };
 
     const headers = ["Date", "Time", "Transaction #", "Imported At", "Kind", "Order ID", "Customer Name", "Customer #", "Wedding Party", "Item", "SKU", "Qty", "Reg Price", "Sale Price", "Takeaway", "Fulfillment", "Deposit Paid", "Balance Due", "Transaction Total", "Wedding Deposits Placed", "Wedding Members Funded", "Total Tender Collected", "Sales Total", "Tax", "Net Total"];
@@ -1043,6 +1360,11 @@ export default function RegisterReports({
     await downloadTextFile(`daily-sales-${preset}.csv`, csv, "text/csv;charset=utf-8", [
       { name: "CSV", extensions: ["csv"] },
     ]);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "The complete audited export could not be prepared.", "error");
+    } finally {
+      setReportOutputBusy(false);
+    }
   };
 
   const submitVoidTransaction = useCallback(
@@ -1100,10 +1422,7 @@ export default function RegisterReports({
         if (payload.reversal_status === "pending_refund" && onOpenRefundInRegister) {
           onOpenRefundInRegister(payload.transaction_id);
         } else {
-          const bookedData = await fetchSummary("booked");
-          if (bookedData) setSummaryBooked(bookedData);
-          const fulfilledData = await fetchSummary("fulfilled");
-          if (fulfilledData) setSummary(fulfilledData);
+          await loadSummaries();
         }
         return true;
       } catch {
@@ -1113,7 +1432,7 @@ export default function RegisterReports({
         setVoidBusy(false);
       }
     },
-    [apiAuth, fetchSummary, sessionId, toast, voidTarget, onOpenRefundInRegister],
+    [apiAuth, loadSummaries, sessionId, toast, voidTarget, onOpenRefundInRegister],
   );
 
   return (
@@ -1245,13 +1564,13 @@ export default function RegisterReports({
           ) : (
             <div className="flex flex-col gap-2 p-3">
               <div className="flex gap-2 mb-2">
-                <button type="button" onClick={() => handleReportOutput("preview")} className="ui-btn-secondary flex items-center gap-1.5 border-app-accent/20 px-3 py-1.5 text-xs font-black text-app-accent hover:bg-app-accent hover:text-white">
+                <button type="button" disabled={reportOutputBusy} onClick={() => void handleReportOutput("preview")} className="ui-btn-secondary flex items-center gap-1.5 border-app-accent/20 px-3 py-1.5 text-xs font-black text-app-accent hover:bg-app-accent hover:text-white disabled:opacity-50">
                   <Eye size={12} />View
                 </button>
-                <button type="button" onClick={() => handleReportOutput("print")} className="ui-btn-secondary flex items-center gap-1.5 border-app-success/20 px-3 py-1.5 text-xs font-black text-app-success hover:bg-app-success hover:text-white">
+                <button type="button" disabled={reportOutputBusy} onClick={() => void handleReportOutput("print")} className="ui-btn-secondary flex items-center gap-1.5 border-app-success/20 px-3 py-1.5 text-xs font-black text-app-success hover:bg-app-success hover:text-white disabled:opacity-50">
                   <Printer size={12} />Print
                 </button>
-                <button type="button" onClick={handleExportCSV} className="ui-btn-secondary flex items-center gap-1.5 border-app-border px-3 py-1.5 text-xs font-black text-app-text hover:bg-app-surface">
+                <button type="button" disabled={reportOutputBusy} onClick={() => void handleExportCSV()} className="ui-btn-secondary flex items-center gap-1.5 border-app-border px-3 py-1.5 text-xs font-black text-app-text hover:bg-app-surface disabled:opacity-50">
                   <Download size={12} />CSV
                 </button>
               </div>
@@ -1308,7 +1627,9 @@ export default function RegisterReports({
                     </div>
                     <div className="ui-metric-cell ui-tint-danger p-2">
 	                      <div className="text-xs font-bold text-app-danger">Credit Card Total</div>
-                      <p className="text-lg font-black text-app-text">${centsToFixed2(activityCreditCardTotalCents(summaryBooked.activities))}</p>
+                      <p className="text-lg font-black text-app-text" title={summaryBooked.activities_has_more ? "Load all activity to calculate this filtered detail." : undefined}>
+                        {summaryBooked.activities_has_more ? "—" : `$${centsToFixed2(activityCreditCardTotalCents(summaryBooked.activities))}`}
+                      </p>
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-2 mt-2">
@@ -1396,11 +1717,11 @@ export default function RegisterReports({
                 </div>
                 <div className="ui-metric-cell ui-tint-accent p-2">
 	                  <div className="flex items-center gap-1 text-xs font-bold text-app-text-muted"><DollarSign className="h-3 w-3" />RMS Payments</div>
-                  <p className="text-base font-black">${centsToFixed2(activityRmsPaymentTotalCents(summaryBooked?.activities))}</p>
+                  <p className="text-base font-black">{summaryBooked?.activities_has_more ? "—" : `$${centsToFixed2(activityRmsPaymentTotalCents(summaryBooked?.activities))}`}</p>
                 </div>
                 <div className="ui-metric-cell ui-tint-warning p-2">
 	                  <div className="flex items-center gap-1 text-xs font-bold text-app-text-muted"><DollarSign className="h-3 w-3" />RMS Charge</div>
-                  <p className="text-base font-black">${centsToFixed2(activityRmsChargeTotalCents(summaryBooked?.activities))}</p>
+                  <p className="text-base font-black">{summaryBooked?.activities_has_more ? "—" : `$${centsToFixed2(activityRmsChargeTotalCents(summaryBooked?.activities))}`}</p>
                 </div>
                 <div className="ui-metric-cell ui-tint-neutral p-2">
 	                  <div className="flex items-center gap-1 text-xs font-bold text-app-text-muted"><Clock className="h-3 w-3" />New Appts</div>
@@ -1408,18 +1729,22 @@ export default function RegisterReports({
                 </div>
                 <div className="ui-metric-cell ui-tint-neutral p-2">
 	                  <div className="flex items-center gap-1 text-xs font-bold text-app-text-muted"><Package className="h-3 w-3" />New Layaways</div>
-                  <p className="text-base font-black">{activityNewLayawayCount(summaryBooked?.activities)}</p>
+                  <p className="text-base font-black">{summaryBooked?.activities_has_more ? "—" : activityNewLayawayCount(summaryBooked?.activities)}</p>
                 </div>
                 <div className="ui-metric-cell ui-tint-info p-2">
 	                  <div className="flex items-center gap-1 text-xs font-bold text-app-text-muted"><Truck className="h-3 w-3" />Picked Up $</div>
                   <p className="text-base font-black">
-                    ${centsToFixed2(activityPickupTotalCents(summaryBooked?.pickups_today))} ({summaryBooked?.pickups_today?.length || 0})
+                    {summaryBooked?.pickups_has_more
+                      ? "—"
+                      : `$${centsToFixed2(activityPickupTotalCents(summaryBooked?.pickups_today))} (${summaryBooked?.pickups_total_count ?? summaryBooked?.pickups_today?.length ?? 0})`}
                   </p>
                 </div>
                 <div className="ui-metric-cell ui-tint-warning p-2">
 	                  <div className="flex items-center gap-1 text-xs font-bold text-app-text-muted"><DollarSign className="h-3 w-3" />Discounts</div>
                   <p className="text-base font-black">
-                    ${centsToFixed2(activityDiscountTotalCents(summaryBooked?.activities))} ({activityDiscountTransactionCount(summaryBooked?.activities)})
+                    {summaryBooked?.activities_has_more
+                      ? "—"
+                      : `$${centsToFixed2(activityDiscountTotalCents(summaryBooked?.activities))} (${activityDiscountTransactionCount(summaryBooked?.activities)})`}
                   </p>
                 </div>
               </div>
@@ -1437,9 +1762,9 @@ export default function RegisterReports({
           ) : error ? (
             <div className="flex flex-1 flex-col items-center justify-center p-8 text-center">
               <p className="font-bold text-app-text">{error}</p>
-              <button type="button" onClick={() => { fetchSummary("booked"); fetchSummary("fulfilled"); }} className="mt-4 text-sm font-bold text-app-accent hover:underline">Try again</button>
+              <button type="button" onClick={() => void loadSummaries()} className="mt-4 text-sm font-bold text-app-accent hover:underline">Try again</button>
             </div>
-          ) : activitySourceCount === 0 ? (
+          ) : activitySourceCount === 0 && pickupSourceCount === 0 && !debouncedActivitySearch ? (
             <div className="flex flex-1 flex-col items-center justify-center py-20 text-app-text-muted">No activity in this range.</div>
           ) : (
             <div className="flex flex-col gap-4 p-3 sm:p-4">
@@ -1460,16 +1785,20 @@ export default function RegisterReports({
                   />
                 </label>
               <div className="flex justify-end gap-2">
-                <button type="button" onClick={() => handleReportOutput("preview")} className="ui-btn-secondary flex items-center gap-2 border-app-accent/20 px-3 py-1.5 text-xs font-black text-app-accent hover:bg-app-accent hover:text-white">
+                <button type="button" disabled={reportOutputBusy} onClick={() => void handleReportOutput("preview")} className="ui-btn-secondary flex items-center gap-2 border-app-accent/20 px-3 py-1.5 text-xs font-black text-app-accent hover:bg-app-accent hover:text-white disabled:opacity-50">
                   <Eye size={12} />View
                 </button>
-                <button type="button" onClick={() => handleReportOutput("print")} className="ui-btn-secondary flex items-center gap-2 border-app-success/20 px-3 py-1.5 text-xs font-black text-app-success hover:bg-app-success hover:text-white">
+                <button type="button" disabled={reportOutputBusy} onClick={() => void handleReportOutput("print")} className="ui-btn-secondary flex items-center gap-2 border-app-success/20 px-3 py-1.5 text-xs font-black text-app-success hover:bg-app-success hover:text-white disabled:opacity-50">
                   <Printer size={12} />Print
                 </button>
-                <button type="button" onClick={handleExportCSV} className="ui-btn-secondary flex items-center gap-2 border-app-border px-3 py-1.5 text-xs font-black text-app-text hover:bg-app-surface">
+                <button type="button" disabled={reportOutputBusy} onClick={() => void handleExportCSV()} className="ui-btn-secondary flex items-center gap-2 border-app-border px-3 py-1.5 text-xs font-black text-app-text hover:bg-app-surface disabled:opacity-50">
                   <Download size={12} />Export
                 </button>
               </div>
+              <p className="text-xs font-semibold text-app-text-muted">
+                Showing {selectedSummary?.activities.length ?? 0} of {activitySourceCount} matching activity records
+                {pickupSourceCount > 0 ? ` and ${selectedSummary?.pickups_today?.length ?? 0} of ${pickupSourceCount} pickups` : ""}.
+              </p>
               </div>
               {groupedActivities.length === 0 && filteredPickupsToday.length === 0 ? (
                 <div className="flex flex-1 flex-col items-center justify-center py-20 text-app-text-muted">
@@ -1482,7 +1811,7 @@ export default function RegisterReports({
                   <div className="flex items-center justify-between border-b border-app-border pb-2">
                     <div>
                       <span className="text-xs font-black uppercase tracking-wider text-app-text">{group.label}</span>
-                      <span className="ml-2 text-[10px] text-app-text-muted">({group.count} transactions)</span>
+                      <span className="ml-2 text-[10px] text-app-text-muted">({group.count} activity records)</span>
                     </div>
                     <div className="text-right">
                       <span className="text-xs font-black text-app-text-muted">Total: </span>
@@ -1813,23 +2142,34 @@ export default function RegisterReports({
                 )}
                 </>
               )}
+              {(selectedSummary?.activities_has_more || selectedSummary?.pickups_has_more) && (
+                <button
+                  type="button"
+                  disabled={activityLoadingMore}
+                  onClick={() => void loadMoreActivity()}
+                  className="ui-btn-secondary mx-auto flex items-center gap-2 px-4 py-2 text-xs font-black disabled:opacity-50"
+                >
+                  {activityLoadingMore ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+                  Load more audited activity
+                </button>
+              )}
               {/* Grand Total */}
               {reportBasis === "booked" ? summaryBooked && (
                 <div className="ui-panel ui-tint-success mt-4 flex items-center justify-between px-4 py-3">
-                  <span className="text-sm font-black uppercase text-app-success">Daily Total ({summaryBooked.activities.length} transactions)</span>
+                  <span className="text-sm font-black uppercase text-app-success">Daily Summary ({summaryBooked.activity_total_count ?? summaryBooked.activities.length} activity records)</span>
                   <div className="text-right">
-                    <span className="text-xs font-black text-app-text-muted">Subtotal: ${centsToFixed2(parseMoneyToCents(summaryBooked.sales_subtotal_no_tax))}</span>
+                    <span className="text-xs font-black text-app-text-muted">Net Retail: ${centsToFixed2(parseMoneyToCents(summaryBooked.net_sales))}</span>
                     <span className="mx-2">|</span>
-                    <span className="text-sm font-black text-app-text">Total: {summaryBooked.amount_label}</span>
+                    <span className="text-sm font-black text-app-text">Tax: ${centsToFixed2(parseMoneyToCents(summaryBooked.sales_tax_total))}</span>
                   </div>
                 </div>
               ) : summary && (
                 <div className="ui-panel ui-tint-info mt-4 flex items-center justify-between px-4 py-3">
-                  <span className="text-sm font-black uppercase text-app-info">Daily Total ({summary.activities.length} transactions)</span>
+                  <span className="text-sm font-black uppercase text-app-info">Daily Summary ({summary.activity_total_count ?? summary.activities.length} activity records)</span>
                   <div className="text-right">
-                    <span className="text-xs font-black text-app-text-muted">Subtotal: ${centsToFixed2(parseMoneyToCents(summary.sales_subtotal_no_tax))}</span>
+                    <span className="text-xs font-black text-app-text-muted">Net Retail: ${centsToFixed2(parseMoneyToCents(summary.net_sales))}</span>
                     <span className="mx-2">|</span>
-                    <span className="text-sm font-black text-app-text">Total: {summary.amount_label}</span>
+                    <span className="text-sm font-black text-app-text">Tax: ${centsToFixed2(parseMoneyToCents(summary.sales_tax_total))}</span>
                   </div>
                 </div>
               )}

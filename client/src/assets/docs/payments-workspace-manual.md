@@ -21,7 +21,7 @@ status: approved
 
 ## What this is
 
-Payments Operations is the Back Office workspace for reviewing Riverside card activity against Helcim processor facts. It covers today's activity, processor batches, actual deposits, reconciliation exceptions, transaction lookup, webhook/provider attachment, and integration health.
+Payments Operations is the Back Office workspace for reviewing Riverside card activity against Helcim processor facts. It covers today's activity, processor batches, actual deposits, reconciliation exceptions, transaction lookup, processor-update attachment, and integration health.
 
 When a POS customer is selected, Riverside now creates or reuses that customer's Helcim profile before starting a terminal purchase and sends the Helcim customer code with the payment. This is what allows Helcim's Contact Name/Cardholder Name columns to be populated consistently; older guest payments cannot be renamed retroactively by Riverside.
 
@@ -67,7 +67,7 @@ Creating a manual deposit or accepting a variance is an audited manager/bookkeep
 1. Open **Transactions**, set the needed date range, and search by customer, `TXN-` number, provider transaction, batch, or payment method. Select **Apply** to search the complete period.
 2. Follow the Transaction number to the financial record when one is linked.
 3. An approved **Card Not Present** payment that lost its checkout attachment appears as **Unlinked** / **Missing ROS TXN**. Do not charge the card again; finish the retained checkout or use the audited recovery workflow in **Health → Helcim Terminal Review**.
-4. Open **Health** for terminal, webhook, sync, provider-reference, and failed-update evidence.
+4. Open **Health** for terminal, automatic processor update, sync, provider-reference, and failed-update evidence.
 5. Replay only the stored failed update after its configuration or data problem is corrected.
 6. Confirm the replay attached existing provider evidence rather than creating a second charge.
 
@@ -109,13 +109,15 @@ ROS refuses recovery when the target is missing, closed, belongs to no customer,
 
 ## What to watch for
 
-- Webhook received, checkout attached, and provider reference saved are different states.
+- Processor update received, checkout attached, and provider reference saved are different states.
 - A normal decline or cancellation is not an approved payment.
 - Never retry blindly after a terminal approval that Riverside has not attached.
 - Approved provider payments cannot be removed, parked, or cleared from the active sale. Record the sale or use the audited recovery/refund workflow.
 - Never use paid-sale recovery to force a near match. The exact retained-cart banner must be present.
 - Standalone processor refunds verify the Helcim batch before sending, retain the original provider transaction on the audit attempt, and cap later ROS attempts to the remaining tracked amount. They do not automatically create a sales return or rewrite merchandise history.
 - Do not resolve a reconciliation warning merely to make the dashboard green.
+- Batches, deposits, and payment transactions load in pages. Search is applied by the Main Hub to the full matching record set; select **Apply**, then use **Previous** or **Next** instead of treating the current page as the complete history.
+- Deposit summary cards labeled **Page** total only the records on the current page. If refresh fails, Riverside identifies the data as last loaded instead of presenting it as current.
 
 ## What happens next
 

@@ -48,6 +48,10 @@ Diagnostic feeds load independently. If one feed fails, the rest of the Dev Cent
 
 That means a missing incident feed should not hide available audit history, protected actions, or system status.
 
+Database diagnostics never turn a failed request into a disconnected pool with zero errors or zero migrations. When the current probe is unavailable, Riverside either keeps the last confirmed snapshot and labels it, or shows **Unavailable** and an em dash. Treat those states as missing evidence, not as zero activity.
+
+The migration total comes from Riverside's active `ros_schema_migrations` ledger. If that ledger cannot be read, the diagnostic is **Unavailable**; Riverside does not report a fabricated zero.
+
 ## Protected actions
 
 Only use protected operations when a manager or developer has asked for them. These actions are audit-sensitive and should remain traceable.

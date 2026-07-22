@@ -81,6 +81,8 @@ pub struct ListAlterationsQuery {
     pub status: Option<String>,
     pub customer_id: Option<Uuid>,
     pub search: Option<String>,
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -136,6 +138,16 @@ const VALID_ALTERATION_SOURCE_TYPES: &[&str] = &[
     "custom_item",
 ];
 const VALID_ALTERATION_INTAKE_CHANNELS: &[&str] = &["standalone", "pos_register"];
+
+fn literal_ilike_pattern(value: &str) -> String {
+    format!(
+        "%{}%",
+        value
+            .replace('\\', "\\\\")
+            .replace('%', "\\%")
+            .replace('_', "\\_")
+    )
+}
 
 fn normalize_alteration_status(status: &str) -> Result<&str, AlterationError> {
     let trimmed = status.trim();
@@ -477,18 +489,13 @@ async fn list_alterations(
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string());
-    let search = q
-        .search
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(|s| format!("%{s}%"));
     let raw_search = q
         .search
         .as_deref()
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(str::to_string);
+    let search = raw_search.as_deref().map(literal_ilike_pattern);
     let search_digits = raw_search
         .as_deref()
         .map(digits_only)
@@ -499,6 +506,17 @@ async fn list_alterations(
         match crate::logic::meilisearch_search::alteration_search_ids(client, query_text, false)
             .await
         {
+            Ok(ids)
+                if crate::logic::meilisearch_search::candidate_ids_may_be_truncated(
+                    crate::logic::meilisearch_client::INDEX_ALTERATIONS,
+                    ids.len(),
+                ) =>
+            {
+                tracing::warn!(
+                    candidate_count = ids.len(),
+                    "Meilisearch alteration candidate cap reached; using PostgreSQL for complete pagination"
+                );
+            }
             Ok(ids) if !ids.is_empty() => meili_ids = Some(ids),
             Ok(_) => {}
             Err(e) => {
@@ -507,6 +525,8 @@ async fn list_alterations(
         }
     }
     let sql_search = if meili_ids.is_some() { None } else { search };
+    let limit = q.limit.unwrap_or(200).clamp(1, 500);
+    let offset = q.offset.unwrap_or(0).max(0);
 
     let rows = sqlx::query_as::<_, AlterationOrderRow>(
         r#"
@@ -554,8 +574,8 @@ async fn list_alterations(
               AND regexp_replace(COALESCE(c.phone, ''), '[^0-9]', '', 'g') ILIKE $4
             )
           )
-        ORDER BY a.created_at DESC
-        LIMIT 200
+        ORDER BY a.created_at DESC, a.id DESC
+        LIMIT $6 OFFSET $7
         "#,
     )
     .bind(q.customer_id)
@@ -563,6 +583,8 @@ async fn list_alterations(
     .bind(sql_search)
     .bind(search_digits)
     .bind(meili_ids.as_deref())
+    .bind(limit)
+    .bind(offset)
     .fetch_all(&state.db)
     .await?;
 
@@ -1202,11 +1224,17 @@ async fn get_alteration_card(
 #[cfg(test)]
 mod tests {
     use super::{
-        normalize_alteration_intake_channel, normalize_alteration_source_type,
-        normalize_alteration_status, validate_alteration_create, CreateAlterationBody,
+        literal_ilike_pattern, normalize_alteration_intake_channel,
+        normalize_alteration_source_type, normalize_alteration_status, validate_alteration_create,
+        CreateAlterationBody,
     };
     use rust_decimal::Decimal;
     use uuid::Uuid;
+
+    #[test]
+    fn alteration_sql_search_treats_wildcards_as_literal_text() {
+        assert_eq!(literal_ilike_pattern(r"A%_B\C"), r"%A\%\_B\\C%");
+    }
 
     #[test]
     fn normalize_alteration_status_accepts_known_values() {

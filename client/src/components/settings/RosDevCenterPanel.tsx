@@ -157,6 +157,7 @@ export default function RosDevCenterPanel() {
 
   const [loading, setLoading] = useState(true);
   const [diagnostics, setDiagnostics] = useState<DiagnosticsSnapshot | null>(null);
+  const [diagnosticsError, setDiagnosticsError] = useState<string | null>(null);
   const [e2eHealth, setE2eHealth] = useState<E2eHealthSnapshot | null>(null);
   const [e2eHealthLoading, setE2eHealthLoading] = useState(false);
   const [auditRows, setAuditRows] = useState<ActionAuditRow[]>([]);
@@ -214,16 +215,20 @@ export default function RosDevCenterPanel() {
   const loadDiagnostics = useCallback(async () => {
     if (!canView) return;
     setLoading(true);
+    setDiagnosticsError(null);
     try {
       const headers = backofficeHeaders() as Record<string, string>;
       const res = await fetch(`${baseUrl}/api/ops/diagnostics`, { headers });
       if (!res.ok) {
-        setDiagnostics(null);
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        setDiagnosticsError(body.error || `Diagnostics request failed (${res.status}).`);
         return;
       }
       setDiagnostics((await res.json()) as DiagnosticsSnapshot);
-    } catch {
-      setDiagnostics(null);
+    } catch (error) {
+      setDiagnosticsError(
+        error instanceof Error ? error.message : "Diagnostics could not reach the Main Hub.",
+      );
     } finally {
       setLoading(false);
     }
@@ -487,6 +492,20 @@ export default function RosDevCenterPanel() {
         </button>
       </header>
 
+      {diagnosticsError ? (
+        <div className="rounded-xl border border-app-warning/40 bg-app-warning/10 px-4 py-3 text-sm font-semibold text-app-warning">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+            <div>
+              <p className="font-black">Diagnostics unavailable</p>
+              <p className="mt-1">
+                {diagnosticsError} {diagnostics ? "Values below are the last confirmed snapshot." : "No values are being inferred or replaced with zero."}
+              </p>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {/* Main Grid: DB and Server info */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Database diagnostics card */}
@@ -502,10 +521,16 @@ export default function RosDevCenterPanel() {
               className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-widest border ${
                 diagnostics?.database.connected
                   ? "bg-app-success/12 text-app-success border-app-success/30"
-                  : "bg-app-danger/12 text-app-danger border-app-danger/30"
+                  : diagnostics
+                    ? "bg-app-danger/12 text-app-danger border-app-danger/30"
+                    : "bg-app-warning/12 text-app-warning border-app-warning/30"
               }`}
             >
-              {diagnostics?.database.connected ? "Connected" : "Disconnected"}
+              {diagnostics?.database.connected
+                ? "Connected"
+                : diagnostics
+                  ? "Disconnected"
+                  : "Unavailable"}
             </span>
           </div>
 
@@ -515,7 +540,7 @@ export default function RosDevCenterPanel() {
                 Total Pool Size
               </p>
               <p className="mt-2 text-2xl font-black text-app-text">
-                {diagnostics?.database.pool_size ?? 0}
+                {diagnostics?.database.pool_size ?? "—"}
               </p>
             </div>
             <div className="ui-metric-cell ui-tint-neutral p-4">
@@ -523,7 +548,7 @@ export default function RosDevCenterPanel() {
                 Active Connections
               </p>
               <p className="mt-2 text-2xl font-black text-app-accent">
-                {diagnostics?.database.active_connections ?? 0}
+                {diagnostics?.database.active_connections ?? "—"}
               </p>
             </div>
             <div className="ui-metric-cell ui-tint-neutral p-4">
@@ -531,7 +556,7 @@ export default function RosDevCenterPanel() {
                 Idle Connections
               </p>
               <p className="mt-2 text-2xl font-black text-app-text">
-                {diagnostics?.database.idle_connections ?? 0}
+                {diagnostics?.database.idle_connections ?? "—"}
               </p>
             </div>
             <div className="ui-metric-cell ui-tint-neutral p-4">
@@ -539,7 +564,7 @@ export default function RosDevCenterPanel() {
                 Applied Migrations
               </p>
               <p className="mt-2 text-2xl font-black text-app-text">
-                {diagnostics?.database.migration_count ?? 0}
+                {diagnostics?.database.migration_count ?? "—"}
               </p>
             </div>
           </div>
@@ -547,7 +572,7 @@ export default function RosDevCenterPanel() {
           <div className="mt-6 flex justify-end">
             <button
               type="button"
-              disabled={vacuumBusy}
+              disabled={vacuumBusy || !diagnostics?.database.connected}
               onClick={() => void handleVacuumOptimize()}
               className="ui-btn-secondary px-4 py-2 text-xs font-black uppercase tracking-widest"
             >
@@ -586,14 +611,18 @@ export default function RosDevCenterPanel() {
               <div className="flex justify-between text-xs">
                 <span className="font-bold text-app-text-muted">Captured Errors / Warnings (24h):</span>
                 <span className="font-mono font-bold text-app-danger">
-                  {(diagnostics?.errors.length ?? 0)} E / {(diagnostics?.warnings.length ?? 0)} W
+                  {diagnostics
+                    ? `${diagnostics.errors.length} E / ${diagnostics.warnings.length} W`
+                    : "Unavailable"}
                 </span>
               </div>
             </div>
           </div>
           <p className="mt-4 text-[10px] text-app-text-muted">
             Environment metadata auto-compiled at startup. GitHub token configured:{" "}
-            <strong>{diagnostics?.github.token_configured ? "Yes" : "No"}</strong>
+            <strong>
+              {diagnostics ? (diagnostics.github.token_configured ? "Yes" : "No") : "Unavailable"}
+            </strong>
           </p>
         </div>
       </div>

@@ -89,12 +89,20 @@ function rangeForPreset(preset: RangePreset): { from: string; to: string } | nul
 
 function toCellString(v: unknown): string {
   if (v === null || v === undefined) return "";
-  if (typeof v === "object") return JSON.stringify(v);
+  if (Array.isArray(v)) return v.map((item) => toCellString(item)).filter(Boolean).join(", ");
+  if (typeof v === "object") {
+    return Object.entries(v as Record<string, unknown>)
+      .filter(([key, value]) => !looksTechnicalField(key) && value !== null && typeof value !== "object")
+      .filter(([, value]) => typeof value !== "string" || !/^[0-9a-f]{8}-[0-9a-f-]{28}$/i.test(value))
+      .map(([key, value]) => `${fieldLabel(key)}: ${String(value)}`)
+      .join(" · ");
+  }
   return String(v);
 }
 
 const MONEY_FIELD_PATTERN =
-  /(^|_)(amount|balance|cash|commission|cost|deposit|discount|fee|fees|gross|margin|net|paid|price|revenue|sale|sales|subtotal|tax|total|variance|volume)($|_)/i;
+  /(^|_)(amount|balance|cash|commission|cost|deposits?|discount|fee|fees|gross|margin|net|paid|price|revenue|sale|sales|subtotal|tax|total|variance|volume)($|_)/i;
+const COUNT_FIELD_PATTERN = /(^|_)(count|quantity|units?)($|_)/i;
 const DATE_FIELD_PATTERN = /(^|_)(date|day)$|_at$|time$/i;
 const ENUM_FIELD_PATTERN =
   /(^|_)(basis|category|fulfillment|kind|method|reason|source|status|type|area)($|_)/i;
@@ -200,6 +208,35 @@ function formatCellValue(value: unknown, key: string): string {
   }
   if (key === "weather_snapshot") return formatWeatherSnapshot(value) ?? "";
   if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (COUNT_FIELD_PATTERN.test(key)) {
+    const count = numberFromUnknown(value);
+    if (count !== null) return Math.round(count).toLocaleString();
+  }
+  if (key === "payments" && Array.isArray(value)) {
+    return value
+      .map((item) => {
+        if (!item || typeof item !== "object") return "";
+        const payment = item as Record<string, unknown>;
+        const method = typeof payment.method === "string" ? titleizeValue(payment.method) : "Payment";
+        const amount = formatMoney(payment.amount_label ?? payment.amount);
+        return amount ? `${method} ${amount}` : method;
+      })
+      .filter(Boolean)
+      .join(" · ");
+  }
+  if (key === "items" && Array.isArray(value)) {
+    return value
+      .map((item) => {
+        if (!item || typeof item !== "object") return "";
+        const line = item as Record<string, unknown>;
+        const name = typeof line.name === "string" ? line.name.trim() : "Item";
+        const sku = typeof line.sku === "string" && line.sku.trim() ? ` (${line.sku.trim()})` : "";
+        const quantity = numberFromUnknown(line.quantity);
+        return `${quantity !== null ? `${quantity}× ` : ""}${name}${sku}`;
+      })
+      .filter(Boolean)
+      .join(" · ");
+  }
   if (Array.isArray(value)) {
     return value
       .map((item) => (MONEY_FIELD_PATTERN.test(key) ? formatMoney(item) || toCellString(item) : toCellString(item)))
@@ -677,6 +714,24 @@ const REGISTER_DAY_SUMMARY_FIELDS = [
   "from_eod_snapshot",
 ];
 
+const REGISTER_DAY_ACTIVITY_FIELDS = [
+  "occurred_at",
+  "kind",
+  "short_id",
+  "customer_name",
+  "customer_code",
+  "title",
+  "payment_summary",
+  "payments",
+  "items",
+  "sales_total",
+  "tax_total",
+  "transaction_total",
+  "balance_due",
+  "fulfillment_type",
+  "channel",
+];
+
 type ReportCategoryVisual = {
   icon: LucideIcon;
   accent: string;
@@ -886,7 +941,10 @@ export default function ReportsWorkspace({
       setPayload(null);
       try {
         const path = r.buildPath(ctx);
-        const res = await fetchWithTimeout(`${baseUrl}${path}`, {
+        const firstPath = r.responseKind === "register_day_summary"
+          ? `${path}${path.includes("?") ? "&" : "?"}activity_limit=500&activity_offset=0`
+          : path;
+        const res = await fetchWithTimeout(`${baseUrl}${firstPath}`, {
           headers: apiAuth(),
           signal: abortController.signal,
         });
@@ -908,6 +966,66 @@ export default function ReportsWorkspace({
               : `Request failed (${res.status})`;
           setLoadErr(msg);
           return;
+        }
+        if (
+          r.responseKind === "register_day_summary" &&
+          body &&
+          typeof body === "object" &&
+          !Array.isArray(body)
+        ) {
+          const firstPage = body as Record<string, unknown> & {
+            activities?: Record<string, unknown>[];
+            pickups_today?: Record<string, unknown>[];
+            activities_has_more?: boolean;
+            pickups_has_more?: boolean;
+            activity_total_count?: number;
+            pickups_total_count?: number;
+          };
+          const expectedRows = Math.max(
+            firstPage.activity_total_count ?? 0,
+            firstPage.pickups_total_count ?? 0,
+          );
+          if (expectedRows > 100_000) {
+            throw new Error(
+              "This report exceeds the 100,000-row audited display limit. Narrow the date range.",
+            );
+          }
+          const activities = [...(firstPage.activities ?? [])];
+          const pickups = [...(firstPage.pickups_today ?? [])];
+          let offset = 500;
+          let activitiesHaveMore = firstPage.activities_has_more === true;
+          let pickupsHaveMore = firstPage.pickups_has_more === true;
+          while ((activitiesHaveMore || pickupsHaveMore) && offset <= 100_000) {
+            const pagePath = `${path}${path.includes("?") ? "&" : "?"}activity_limit=500&activity_offset=${offset}`;
+            const pageResponse = await fetchWithTimeout(`${baseUrl}${pagePath}`, {
+              headers: apiAuth(),
+              signal: abortController.signal,
+            });
+            const pageText = await pageResponse.text();
+            const pageBody = pageText ? JSON.parse(pageText) as {
+              error?: string;
+              activities?: Record<string, unknown>[];
+              pickups_today?: Record<string, unknown>[];
+              activities_has_more?: boolean;
+              pickups_has_more?: boolean;
+            } : {};
+            if (!pageResponse.ok) {
+              throw new Error(pageBody.error || `Request failed (${pageResponse.status})`);
+            }
+            activities.push(...(pageBody.activities ?? []));
+            pickups.push(...(pageBody.pickups_today ?? []));
+            activitiesHaveMore = pageBody.activities_has_more === true;
+            pickupsHaveMore = pageBody.pickups_has_more === true;
+            offset += 500;
+          }
+          body = {
+            ...firstPage,
+            activity_offset: 0,
+            activities_has_more: false,
+            activities,
+            pickups_has_more: false,
+            pickups_today: pickups,
+          };
         }
         setPayload(body);
       } catch (e) {
@@ -1001,6 +1119,14 @@ export default function ReportsWorkspace({
     setRangePreset(preset);
     const next = rangeForPreset(preset);
     if (next) setRange(next);
+  };
+  const selectReport = (report: ReportDef) => {
+    if (isAvailableReport(report) && report.responseKind === "register_day_summary") {
+      const today = rangeForPreset("day");
+      if (today) setRange(today);
+      setRangePreset("day");
+    }
+    setSelected(report);
   };
   const selectedVisual = selected ? REPORT_CATEGORY_VISUALS[selected.category] : null;
   const SelectedIcon = selectedVisual?.icon;
@@ -1157,7 +1283,7 @@ export default function ReportsWorkspace({
                         <ul className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-3">
                           {reports.map((r) => (
                             <li key={r.id}>
-                              <ReportTile report={r} onSelect={() => setSelected(r)} />
+                              <ReportTile report={r} onSelect={() => selectReport(r)} />
                             </li>
                           ))}
                         </ul>
@@ -1516,7 +1642,9 @@ export default function ReportsWorkspace({
                       <table className="w-full min-w-[640px] border-collapse text-left text-xs">
                         <thead>
                           <tr className="border-b border-app-border bg-app-surface-2">
-                            {keysFromRowsForDisplay(registerDayActivityRows(payload)).map((key) => (
+                            {REGISTER_DAY_ACTIVITY_FIELDS.filter((key) =>
+                              registerDayActivityRows(payload).some((row) => hasDisplayValue(row[key])),
+                            ).map((key) => (
                               <th
                                 key={key}
                                 className="whitespace-nowrap px-3 py-2 font-black text-app-text"
@@ -1529,7 +1657,9 @@ export default function ReportsWorkspace({
                         <tbody>
                           {registerDayActivityRows(payload).map((row, index) => (
                             <tr key={index} className="border-b border-app-border/70">
-                              {keysFromRowsForDisplay(registerDayActivityRows(payload)).map((key) => (
+                              {REGISTER_DAY_ACTIVITY_FIELDS.filter((key) =>
+                                registerDayActivityRows(payload).some((activity) => hasDisplayValue(activity[key])),
+                              ).map((key) => (
                                 <td
                                   key={key}
                                   className="px-3 py-2 font-semibold text-app-text-muted"

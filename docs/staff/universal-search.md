@@ -34,7 +34,7 @@ In POS, the trigger is intentionally tighter so it does not crowd the header. Th
 ## How to use this screen
 
 1. Open **Universal Search** from the Top Bar.
-2. Type at least **2 characters** for most searches.
+2. Type at least **2 characters**, including at least one letter or number, for most searches.
 3. Review the grouped results.
 4. Press **Enter** to open the highlighted result.
 5. Use **Arrow Up** / **Arrow Down** to change the highlighted result.
@@ -50,7 +50,7 @@ In POS, the trigger is intentionally tighter so it does not crowd the header. Th
 | **Transaction** | Open the matching Transaction Record |
 | **Shipment** | Jump to shipping details or tracking context |
 | **Wedding** | Open the wedding party |
-| **Alteration** | Jump to the alteration record |
+| **Alteration** | Jump to an open or historical alteration record |
 
 ## Common tasks
 
@@ -85,7 +85,10 @@ In POS, the trigger is intentionally tighter so it does not crowd the header. Th
 
 | Problem | What to try first | If that fails |
 |--------|-------------------|---------------|
+| Search asks for a letter or number | Replace punctuation-only text with a name, code, number, SKU, or other identifying detail | Search from the destination workspace directly |
 | No results | Use a broader search term; check spelling; try 2+ characters | Search from the destination workspace directly |
+| Search timed out | Try again before treating the result as “not found” | Check the Main Hub connection or ask a manager to review Search Health |
+| Search incomplete | Review the results that did respond, then retry the named source | Ask a manager to review Search Health if the same source repeatedly fails |
 | Exact customer or SKU not found | Try phone, email, customer code, or partial SKU/name | Confirm the record exists and is active |
 | Search opens the wrong kind of result | Read the result group label before pressing Enter | Use arrow keys to highlight the correct row |
 | Result exists but will not open | You may not have permission for that workspace | Ask a manager or switch to an authorized staff member |
@@ -117,4 +120,6 @@ Examples:
 - [inventory-back-office.md](inventory-back-office.md)
 - [pos-inventory.md](pos-inventory.md)
 
-**Last reviewed:** 2026-04-24
+Universal Search shows confirmed Riverside results as soon as they arrive. Optional ROSIE shortcuts may appear afterward, but they do not delay or replace the record results. Phone matching for weddings requires a complete phone-like entry; digits embedded in a name or identifier are treated as part of that literal text.
+
+**Last reviewed:** 2026-07-21

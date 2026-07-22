@@ -1,9 +1,9 @@
 //! Metrics exporters for different formats and destinations
 
-use crate::metrics::{ExportFormat, MetricRegistry};
+use crate::metrics::{ExportFormat, MetricRegistry, MetricType, MetricValue};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 #[async_trait]
 pub trait MetricsExporter: Send + Sync {
@@ -34,27 +34,124 @@ impl PrometheusExporter {
     }
 
     fn format_metric_name(&self, name: &str) -> String {
+        let namespace = Self::sanitize_identifier(&self.namespace, true);
+        let name = Self::sanitize_identifier(name, true);
         match &self.subsystem {
-            Some(subsystem) => format!("{}_{}_{}", self.namespace, subsystem, name),
-            None => format!("{}_{}", self.namespace, name),
+            Some(subsystem) => format!(
+                "{}_{}_{}",
+                namespace,
+                Self::sanitize_identifier(subsystem, true),
+                name
+            ),
+            None => format!("{namespace}_{name}"),
         }
     }
 
-    fn sanitize_metric_name(&self, name: &str) -> String {
-        name.replace(['.', '-', ' '], "_")
+    fn sanitize_identifier(value: &str, allow_colon: bool) -> String {
+        let mut sanitized = String::with_capacity(value.len().max(1));
+        for (index, character) in value.chars().enumerate() {
+            let valid = character == '_'
+                || character.is_ascii_alphabetic()
+                || (allow_colon && character == ':')
+                || (index > 0 && character.is_ascii_digit());
+            sanitized.push(if valid { character } else { '_' });
+        }
+        if sanitized.is_empty() {
+            sanitized.push('_');
+        }
+        sanitized
     }
 
-    fn format_tags(&self, tags: &HashMap<String, String>) -> String {
+    fn canonical_tags(tags: &HashMap<String, String>) -> Vec<(String, String)> {
+        let mut tags = tags
+            .iter()
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect::<Vec<_>>();
+        tags.sort_unstable();
+        tags
+    }
+
+    fn escape_label_value(value: &str) -> String {
+        value
+            .replace('\\', "\\\\")
+            .replace('\n', "\\n")
+            .replace('\r', "\\n")
+            .replace('"', "\\\"")
+    }
+
+    fn format_tags(&self, tags: &[(String, String)], extra: Option<(&str, String)>) -> String {
         if tags.is_empty() {
+            if let Some((key, value)) = extra {
+                return format!(
+                    "{{{}=\"{}\"}}",
+                    Self::sanitize_identifier(key, false),
+                    Self::escape_label_value(&value)
+                );
+            }
             return String::new();
         }
 
-        let formatted_tags: Vec<String> = tags
+        let mut formatted_tags: Vec<String> = tags
             .iter()
-            .map(|(key, value)| format!("{}=\"{}\"", self.sanitize_metric_name(key), value))
+            .filter(|(key, _)| extra.as_ref().is_none_or(|(extra_key, _)| key != extra_key))
+            .map(|(key, value)| {
+                format!(
+                    "{}=\"{}\"",
+                    Self::sanitize_identifier(key, false),
+                    Self::escape_label_value(value)
+                )
+            })
             .collect();
+        if let Some((key, value)) = extra {
+            formatted_tags.push(format!(
+                "{}=\"{}\"",
+                Self::sanitize_identifier(key, false),
+                Self::escape_label_value(&value)
+            ));
+        }
 
         format!("{{{}}}", formatted_tags.join(","))
+    }
+
+    fn histogram_buckets(metric_name: &str, metric_type: MetricType) -> &'static [f64] {
+        const SECONDS: &[f64] = &[
+            0.005,
+            0.01,
+            0.025,
+            0.05,
+            0.1,
+            0.25,
+            0.5,
+            1.0,
+            2.5,
+            5.0,
+            10.0,
+            f64::INFINITY,
+        ];
+        const MILLISECONDS: &[f64] = &[
+            5.0,
+            10.0,
+            25.0,
+            50.0,
+            100.0,
+            250.0,
+            500.0,
+            1_000.0,
+            2_500.0,
+            5_000.0,
+            10_000.0,
+            f64::INFINITY,
+        ];
+
+        if metric_type == MetricType::Histogram && metric_name.ends_with("_ms") {
+            MILLISECONDS
+        } else {
+            SECONDS
+        }
+    }
+
+    fn latest_value<'a>(values: &[&'a MetricValue]) -> Option<&'a MetricValue> {
+        values.iter().copied().max_by_key(|value| value.timestamp)
     }
 }
 
@@ -66,100 +163,81 @@ impl MetricsExporter for PrometheusExporter {
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let mut output = String::new();
         let metrics = registry.get_all_metrics();
+        let mut metric_names = metrics.keys().collect::<Vec<_>>();
+        metric_names.sort_unstable();
 
-        for (metric_name, values) in metrics {
+        for metric_name in metric_names {
+            let values = &metrics[metric_name];
             if values.is_empty() {
                 continue;
             }
 
-            let sanitized_name = self.sanitize_metric_name(metric_name);
-            let full_name = self.format_metric_name(&sanitized_name);
+            let metric_type = values[0].metric_type;
+            let full_name = self.format_metric_name(metric_name);
+            let type_name = match metric_type {
+                MetricType::Counter => "counter",
+                MetricType::Gauge => "gauge",
+                MetricType::Histogram | MetricType::Timer => "histogram",
+            };
+            output.push_str(&format!("# TYPE {full_name} {type_name}\n"));
 
-            // Get the latest value for gauges and counters
-            if let Some(latest_value) = values.last() {
-                let metric_type = match latest_value.metric_type {
-                    crate::metrics::MetricType::Counter => "counter",
-                    crate::metrics::MetricType::Gauge => "gauge",
-                    crate::metrics::MetricType::Histogram => "histogram",
-                    crate::metrics::MetricType::Timer => "histogram",
-                };
-
-                output.push_str(&format!("# TYPE {full_name} {metric_type}\n"));
-
-                // For histograms, we need to export buckets
-                if matches!(
-                    latest_value.metric_type,
-                    crate::metrics::MetricType::Histogram | crate::metrics::MetricType::Timer
-                ) {
-                    let mut sorted_values: Vec<f64> = values
-                        .iter()
-                        .map(|v| v.value)
-                        .filter(|v| v.is_finite())
-                        .collect();
-                    sorted_values.sort_by(|a, b| a.total_cmp(b));
-
-                    if sorted_values.is_empty() {
-                        continue;
-                    }
-
-                    // Define standard buckets
-                    let buckets = vec![
-                        0.005,
-                        0.01,
-                        0.025,
-                        0.05,
-                        0.1,
-                        0.25,
-                        0.5,
-                        1.0,
-                        2.5,
-                        5.0,
-                        10.0,
-                        f64::INFINITY,
-                    ];
-
-                    for bucket in &buckets {
-                        let count = sorted_values.iter().filter(|&&v| v <= *bucket).count() as f64;
-                        let _bucket_str = if bucket.is_infinite() {
-                            "+Inf".to_string()
-                        } else {
-                            bucket.to_string()
-                        };
-                        output.push_str(&format!(
-                            "{}_bucket{} {}\n",
-                            full_name,
-                            self.format_tags(&latest_value.tags),
-                            count
-                        ));
-                    }
-
-                    // Export sum and count
-                    let sum: f64 = sorted_values.iter().sum();
-                    let count = sorted_values.len() as f64;
-
-                    output.push_str(&format!(
-                        "{}_sum{} {}\n",
-                        full_name,
-                        self.format_tags(&latest_value.tags),
-                        sum
-                    ));
-                    output.push_str(&format!(
-                        "{}_count{} {}\n",
-                        full_name,
-                        self.format_tags(&latest_value.tags),
-                        count
-                    ));
-                } else {
-                    // For counters and gauges, export the latest value
-                    output.push_str(&format!(
-                        "{}{} {}\n",
-                        full_name,
-                        self.format_tags(&latest_value.tags),
-                        latest_value.value
-                    ));
-                }
+            let mut series = BTreeMap::<Vec<(String, String)>, Vec<&MetricValue>>::new();
+            for value in values
+                .iter()
+                .filter(|value| value.metric_type == metric_type && value.value.is_finite())
+            {
+                series
+                    .entry(Self::canonical_tags(&value.tags))
+                    .or_default()
+                    .push(value);
             }
 
+            for (tags, series_values) in series {
+                match metric_type {
+                    MetricType::Counter | MetricType::Gauge => {
+                        if let Some(latest) = Self::latest_value(&series_values) {
+                            output.push_str(&format!(
+                                "{}{} {}\n",
+                                full_name,
+                                self.format_tags(&tags, None),
+                                latest.value
+                            ));
+                        }
+                    }
+                    MetricType::Histogram | MetricType::Timer => {
+                        let samples = series_values
+                            .iter()
+                            .map(|value| value.value)
+                            .collect::<Vec<_>>();
+                        for bucket in Self::histogram_buckets(metric_name, metric_type) {
+                            let count = samples.iter().filter(|value| **value <= *bucket).count();
+                            let upper_bound = if bucket.is_infinite() {
+                                "+Inf".to_string()
+                            } else {
+                                bucket.to_string()
+                            };
+                            output.push_str(&format!(
+                                "{}_bucket{} {}\n",
+                                full_name,
+                                self.format_tags(&tags, Some(("le", upper_bound))),
+                                count
+                            ));
+                        }
+                        output.push_str(&format!(
+                            "{}_sum{} {}\n",
+                            full_name,
+                            self.format_tags(&tags, None),
+                            samples.iter().sum::<f64>()
+                        ));
+                        output.push_str(&format!(
+                            "{}_count{} {}\n",
+                            full_name,
+                            self.format_tags(&tags, None),
+                            samples.len()
+                        ));
+                    }
+                }
+            }
             output.push('\n');
         }
 
@@ -474,5 +552,79 @@ mod tests {
 
         assert!(output.contains("ros_checkout_latency_count 1"));
         assert!(!output.contains("NaN"));
+    }
+
+    #[tokio::test]
+    async fn prometheus_preserves_tagged_counter_series_and_cumulative_values() {
+        let mut registry = MetricRegistry::new(MetricsConfig::default());
+        let mut register_tags = HashMap::new();
+        register_tags.insert("method".to_string(), "POST".to_string());
+        register_tags.insert("path".to_string(), "/api/register".to_string());
+        let mut search_tags = HashMap::new();
+        search_tags.insert("method".to_string(), "GET".to_string());
+        search_tags.insert("path".to_string(), "/api/search".to_string());
+
+        registry.record_counter("api_requests_total", 1.0, register_tags.clone());
+        registry.record_counter("api_requests_total", 1.0, search_tags);
+        registry.record_counter("api_requests_total", 2.0, register_tags);
+
+        let output = PrometheusExporter::new("ros")
+            .export(&registry)
+            .await
+            .expect("prometheus export should succeed");
+
+        assert_eq!(
+            output
+                .matches("# TYPE ros_api_requests_total counter")
+                .count(),
+            1
+        );
+        assert!(output.contains("ros_api_requests_total{method=\"POST\",path=\"/api/register\"} 3"));
+        assert!(output.contains("ros_api_requests_total{method=\"GET\",path=\"/api/search\"} 1"));
+    }
+
+    #[tokio::test]
+    async fn prometheus_histograms_have_per_series_le_buckets() {
+        let mut registry = MetricRegistry::new(MetricsConfig::default());
+        let mut register_tags = HashMap::new();
+        register_tags.insert("path".to_string(), "/api/register".to_string());
+        let mut search_tags = HashMap::new();
+        search_tags.insert("path".to_string(), "/api/search".to_string());
+
+        registry.record_histogram("api_request_duration_ms", 10.0, register_tags.clone());
+        registry.record_histogram("api_request_duration_ms", 200.0, register_tags);
+        registry.record_histogram("api_request_duration_ms", 5.0, search_tags);
+
+        let output = PrometheusExporter::new("ros")
+            .export(&registry)
+            .await
+            .expect("prometheus export should succeed");
+
+        assert!(output
+            .contains("ros_api_request_duration_ms_bucket{path=\"/api/register\",le=\"10\"} 1"));
+        assert!(output
+            .contains("ros_api_request_duration_ms_bucket{path=\"/api/register\",le=\"+Inf\"} 2"));
+        assert!(output
+            .contains("ros_api_request_duration_ms_bucket{path=\"/api/search\",le=\"+Inf\"} 1"));
+        assert!(output.contains("ros_api_request_duration_ms_count{path=\"/api/register\"} 2"));
+    }
+
+    #[tokio::test]
+    async fn prometheus_escapes_label_values_and_sanitizes_names() {
+        let mut registry = MetricRegistry::new(MetricsConfig::default());
+        let mut tags = HashMap::new();
+        tags.insert(
+            "route-name".to_string(),
+            "line\n\"quoted\"\\tail".to_string(),
+        );
+        registry.record_gauge("1.bad metric", 2.0, tags);
+
+        let output = PrometheusExporter::new("river-side")
+            .export(&registry)
+            .await
+            .expect("prometheus export should succeed");
+
+        assert!(output.contains("# TYPE river_side___bad_metric gauge"));
+        assert!(output.contains("route_name=\"line\\n\\\"quoted\\\"\\\\tail\""));
     }
 }

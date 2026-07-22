@@ -87,7 +87,8 @@ import {
   type PosOrderOptions,
   type PendingAlterationIntake,
   type OrderPaymentCartLine,
-  type CartTotals
+  type CartTotals,
+  type ExchangeReturnHandoffLine
 } from "./types";
 import { PosRegisterLiveClock } from "./cart/PosRegisterLiveClock";
 import { PosSearchResultList, type SearchResult } from "./cart/PosSearchResultList";
@@ -112,28 +113,6 @@ const ORDER_HISTORY_ICON = getAppIcon("orderHistory");
 const ALTERATION_SERVICE_PRODUCT_ID = "b7c0a006-0006-4006-8006-000000000006";
 const ALTERATION_SERVICE_VARIANT_ID = "b7c0a007-0007-4007-8007-000000000007";
 const ALTERATION_SERVICE_SKU = "ROS-ALTERATION-SERVICE";
-
-interface ExchangeReturnHandoffLine {
-  transaction_line_id: string;
-  product_id: string;
-  variant_id: string;
-  sku: string;
-  product_name: string;
-  variation_label?: string | null;
-  quantity: number;
-  unit_price_cents: number;
-  unit_cost: string | number;
-  state_tax_cents?: number;
-  local_tax_cents?: number;
-  tax_cents: number;
-  reason?: "refund" | "exchange";
-  restock?: boolean | null;
-  refund_subtotal_cents?: number;
-  refund_state_tax_cents?: number;
-  refund_local_tax_cents?: number;
-  refund_total_cents?: number;
-  original_helcim_transaction_id_for_refund?: string | null;
-}
 
 function allocateCentsByWeight(
   components: Array<{ key: "subtotal" | "stateTax" | "localTax"; cents: number }>,
@@ -441,6 +420,7 @@ export default function Cart({
   const [checkoutOperator, setCheckoutOperator] = useState<CheckoutOperatorContext | null>(null);
   const [posShipping, setPosShipping] = useState<PosShippingSelection | null>(null);
   const [checkoutAppliedPayments, setCheckoutAppliedPayments] = useState<AppliedPaymentLine[]>([]);
+  const [providerCheckoutIdentityHeld, setProviderCheckoutIdentityHeld] = useState(false);
   const [checkoutDepositLedger, setCheckoutDepositLedger] = useState("");
   const approvedProviderPaymentInCheckout = useMemo(
     () => hasApprovedProviderPayment(checkoutAppliedPayments),
@@ -1758,6 +1738,12 @@ export default function Cart({
     checkoutOperator,
     pendingAlterationIntakes,
     orderPaymentLines,
+    pendingReturnLineDrafts,
+    retainCheckoutIdentity:
+      checkoutDrawerOpen ||
+      checkoutBusy ||
+      providerCheckoutIdentityHeld ||
+      checkoutAppliedPayments.length > 0,
     setLines,
     setSelectedCustomer,
     setActiveWeddingMember,
@@ -1770,6 +1756,7 @@ export default function Cart({
     setAppliedPayments: setCheckoutAppliedPayments,
     setPendingAlterationIntakes,
     setOrderPaymentLines,
+    setPendingReturnLineDrafts,
     clearCart: clearCartAndAlterations,
   });
 
@@ -3995,6 +3982,7 @@ export default function Cart({
         originalHelcimTransactionIdForRefund={
           pendingReturnTender?.originalHelcimTransactionIdForRefund ?? null
         }
+        refundTransactionId={pendingReturnTender?.originalTransactionId ?? null}
         authoritativeDepositCents={0}
         existingPaidAmountCents={pickupPaidAmountCents}
         heldOpenDeposit={heldOpenDeposit}
@@ -4004,6 +3992,7 @@ export default function Cart({
         }
         profileBlocksCheckout={false}
         onOpenProfileGate={() => {}}
+        onCheckoutIdentityHoldChange={setProviderCheckoutIdentityHeld}
         busy={checkoutBusy}
         onFinalize={async (applied, op, ledger) => {
           if (pendingReturnTender) {
@@ -4081,6 +4070,62 @@ export default function Cart({
                 ...(exchangeCreditAppliedCents > 0 ? [exchangeCreditPayment] : []),
                 ...(totals.totalCents > 0 ? applied.filter((payment) => payment.amountCents > 0) : []),
               ];
+              const zeroCashRefundTender: AppliedPaymentLine | null =
+                ledger.tenderMethod === "cash" &&
+                ledger.finalCashDueCents === 0 &&
+                roundingAdjustmentCents !== 0
+                  ? {
+                      id: `cash-rounding-refund-${pendingReturnTender.originalTransactionId}`,
+                      method: "cash",
+                      amountCents: 0,
+                      label: "Cash refund",
+                    }
+                  : null;
+              const refundTender = refundTenders[0] ?? zeroCashRefundTender;
+              const refundRemainderCents =
+                pendingReturnTender.refundAmountCents - exchangeCreditAppliedCents;
+              const linkedCardRemainder =
+                refundTender?.method === "card_credit" ||
+                refundTender?.method === "card_present" ||
+                refundTender?.method === "card_terminal" ||
+                refundTender?.method === "card_manual" ||
+                refundTender?.method === "card_saved" ||
+                refundTender?.method === "card_terminal_manual";
+              const exchangeSettlement = {
+                original_transaction_id: pendingReturnTender.originalTransactionId,
+                exchange_credit_amount: centsToFixed2(exchangeCreditAppliedCents),
+                deferred_card_refund_amount:
+                  refundTender && linkedCardRemainder
+                    ? centsToFixed2(refundRemainderCents)
+                    : undefined,
+                return_lines: pendingReturnTender.returnLines.map((line) => ({
+                  transaction_line_id: line.transaction_line_id,
+                  quantity: line.quantity,
+                  reason: line.reason ?? "exchange",
+                  restock: line.restock ?? undefined,
+                  refund_subtotal: centsToFixed2(line.refund_subtotal_cents ?? 0),
+                  refund_state_tax: centsToFixed2(line.refund_state_tax_cents ?? 0),
+                  refund_local_tax: centsToFixed2(line.refund_local_tax_cents ?? 0),
+                  refund_total: centsToFixed2(line.refund_total_cents ?? 0),
+                })),
+                refund_remainder: refundTender && !linkedCardRemainder
+                  ? {
+                      payment_method: refundTender.method,
+                      amount: centsToFixed2(refundRemainderCents),
+                      tender_amount: centsToFixed2(Math.abs(refundTender.amountCents)),
+                      rounding_adjustment: centsToFixed2(roundingAdjustmentCents),
+                      final_cash_due:
+                        ledger.finalCashDueCents != null
+                          ? centsToFixed2(ledger.finalCashDueCents)
+                          : undefined,
+                      check_number:
+                        typeof refundTender.metadata?.check_number === "string"
+                          ? refundTender.metadata.check_number
+                          : undefined,
+                      gift_card_code: refundTender.gift_card_code,
+                    }
+                  : undefined,
+              };
               const replacementTransactionId = await executeCheckout(
                 checkoutApplied,
                 op,
@@ -4095,30 +4140,10 @@ export default function Cart({
                   clearAfterCheckout: false,
                   emitSaleCompleted: false,
                   showSuccessToast: false,
+                  exchangeSettlement,
                 },
               );
               if (!replacementTransactionId) return;
-
-              const zeroCashRefundTender: AppliedPaymentLine | null =
-                ledger.tenderMethod === "cash" &&
-                ledger.finalCashDueCents === 0 &&
-                roundingAdjustmentCents !== 0
-                  ? {
-                      id: `cash-rounding-refund-${pendingReturnTender.originalTransactionId}`,
-                      method: "cash",
-                      amountCents: 0,
-                      label: "Cash refund",
-                    }
-                  : null;
-              const refundTender = refundTenders[0] ?? zeroCashRefundTender;
-              const refundRemainderCents = pendingReturnTender.refundAmountCents - exchangeCreditAppliedCents;
-              const linkedCardRemainder =
-                refundTender?.method === "card_credit" ||
-                refundTender?.method === "card_present" ||
-                refundTender?.method === "card_terminal" ||
-                refundTender?.method === "card_manual" ||
-                refundTender?.method === "card_saved" ||
-                refundTender?.method === "card_terminal_manual";
               try {
                 const settlementRes = await fetch(
                   `${baseUrl}/api/transactions/${encodeURIComponent(pendingReturnTender.originalTransactionId)}/exchange-settlement`,
@@ -4131,32 +4156,7 @@ export default function Cart({
                     body: JSON.stringify({
                       session_id: sessionId,
                       replacement_transaction_id: replacementTransactionId,
-                      exchange_credit_amount: centsToFixed2(exchangeCreditAppliedCents),
-                      deferred_card_refund_amount:
-                        refundTender && linkedCardRemainder
-                          ? centsToFixed2(refundRemainderCents)
-                          : undefined,
-                      return_lines: pendingReturnTender.returnLines.map((line) => ({
-                        transaction_line_id: line.transaction_line_id,
-                        quantity: line.quantity,
-                        reason: line.reason ?? "exchange",
-                        restock: line.restock ?? undefined,
-                        refund_subtotal: centsToFixed2(line.refund_subtotal_cents ?? 0),
-                        refund_state_tax: centsToFixed2(line.refund_state_tax_cents ?? 0),
-                        refund_local_tax: centsToFixed2(line.refund_local_tax_cents ?? 0),
-                        refund_total: centsToFixed2(line.refund_total_cents ?? 0),
-                      })),
-                      refund_remainder: refundTender && !linkedCardRemainder
-                        ? {
-                            payment_method: refundTender.method,
-                            amount: centsToFixed2(refundRemainderCents),
-                            tender_amount: centsToFixed2(Math.abs(refundTender.amountCents)),
-                            rounding_adjustment: centsToFixed2(roundingAdjustmentCents),
-                            final_cash_due: ledger.finalCashDueCents != null ? centsToFixed2(ledger.finalCashDueCents) : undefined,
-                            check_number: refundTender.metadata?.check_number,
-                            gift_card_code: refundTender.gift_card_code,
-                          }
-                        : undefined,
+                      ...exchangeSettlement,
                     }),
                   },
                 );
@@ -4181,8 +4181,10 @@ export default function Cart({
                         amount: centsToFixed2(refundRemainderCents),
                         check_number: refundTender.metadata?.check_number,
                         manager_staff_id: refundTender.metadata?.manager_staff_id,
-                        manager_pin: refundTender.metadata?.manager_pin,
+                        manager_approval_reference:
+                          refundTender.metadata?.manager_approval_reference,
                         manager_reason: refundTender.metadata?.manager_reason,
+                        card_last4: refundTender.metadata?.card_last4,
                         external_refund_reference:
                           refundTender.metadata?.external_refund_reference,
                       }),
@@ -4265,8 +4267,10 @@ export default function Cart({
                     gift_card_code: primaryTender.gift_card_code,
                     check_number: primaryTender.metadata?.check_number,
                     manager_staff_id: primaryTender.metadata?.manager_staff_id,
-                    manager_pin: primaryTender.metadata?.manager_pin,
+                    manager_approval_reference:
+                      primaryTender.metadata?.manager_approval_reference,
                     manager_reason: primaryTender.metadata?.manager_reason,
+                    card_last4: primaryTender.metadata?.card_last4,
                     external_refund_reference:
                       primaryTender.metadata?.external_refund_reference,
                     return_lines: pendingReturnTender.returnLines.map((line) => ({

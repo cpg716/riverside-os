@@ -505,7 +505,7 @@ pub struct InventoryBoardQuery {
     pub clothing_only: Option<bool>,
     /// Max variant rows (default: 25_000 unfiltered, 5_000 when `search` is non-empty; hard cap 50_000).
     pub limit: Option<i64>,
-    /// Pagination offset into `ORDER BY p.name, pv.sku`.
+    /// Pagination offset into `ORDER BY p.name, pv.sku, pv.id`.
     pub offset: Option<i64>,
     /// Only variants marked `web_published` (online storefront).
     pub web_published_only: Option<bool>,
@@ -717,6 +717,8 @@ pub async fn pos_parent_search(
             COALESCE(rep.cost_override, p.base_cost) AS cost_price,
             rep.stock_on_hand,
             variant_totals.total_variant_count,
+            variant_totals.retail_price_min,
+            variant_totals.retail_price_max,
             pvendor.name AS primary_vendor_name,
             p.tax_category,
             0::numeric AS state_tax,
@@ -762,7 +764,10 @@ pub async fn pos_parent_search(
             LIMIT 1
         ) rep ON true
         INNER JOIN LATERAL (
-            SELECT COUNT(*)::bigint AS total_variant_count
+            SELECT
+                COUNT(*)::bigint AS total_variant_count,
+                MIN(COALESCE(pv_total.retail_price_override, p.base_retail_price)) AS retail_price_min,
+                MAX(COALESCE(pv_total.retail_price_override, p.base_retail_price)) AS retail_price_max
             FROM product_variants pv_total
             WHERE pv_total.product_id = p.id
               AND "#,
@@ -802,6 +807,8 @@ pub struct InventoryControlRow {
     pub variant_id: Uuid,
     pub product_id: Uuid,
     pub total_variant_count: i64,
+    pub retail_price_min: Decimal,
+    pub retail_price_max: Decimal,
     pub sku: String,
     pub barcode: Option<String>,
     pub vendor_upc: Option<String>,
@@ -1639,6 +1646,18 @@ pub async fn list_control_board(
             )
             .await
             {
+                Ok(ids)
+                    if crate::logic::meilisearch_search::candidate_ids_may_be_truncated(
+                        crate::logic::meilisearch_client::INDEX_VARIANTS,
+                        ids.len(),
+                    ) =>
+                {
+                    tracing::warn!(
+                        candidate_count = ids.len(),
+                        "Meilisearch inventory candidate cap reached; using PostgreSQL for complete pagination"
+                    );
+                    None
+                }
                 Ok(ids) if !ids.is_empty() => Some(ids),
                 Ok(_) => None,
                 Err(e) => {
@@ -1662,6 +1681,8 @@ pub async fn list_control_board(
             pv.id AS variant_id,
             p.id AS product_id,
             variant_totals.total_variant_count,
+            variant_totals.retail_price_min,
+            variant_totals.retail_price_max,
             pv.sku,
             pv.barcode,
             pv.vendor_upc,
@@ -1703,7 +1724,10 @@ pub async fn list_control_board(
         FROM product_variants pv
         JOIN products p ON p.id = pv.product_id
         LEFT JOIN LATERAL (
-            SELECT COUNT(*)::bigint AS total_variant_count
+            SELECT
+                COUNT(*)::bigint AS total_variant_count,
+                MIN(COALESCE(pv_total.retail_price_override, p.base_retail_price)) AS retail_price_min,
+                MAX(COALESCE(pv_total.retail_price_override, p.base_retail_price)) AS retail_price_max
             FROM product_variants pv_total
             WHERE pv_total.product_id = p.id
         "#,
@@ -1890,12 +1914,12 @@ pub async fn list_control_board(
                     qb.push("::uuid[], pv.id), ");
                 }
             }
-            qb.push("units_sold_trailing DESC, p.name ASC, pv.sku ASC LIMIT ");
+            qb.push("units_sold_trailing DESC, p.name ASC, pv.sku ASC, pv.id ASC LIMIT ");
         } else {
-            qb.push(" ORDER BY units_sold_trailing DESC, p.name ASC, pv.sku ASC LIMIT ");
+            qb.push(" ORDER BY units_sold_trailing DESC, p.name ASC, pv.sku ASC, pv.id ASC LIMIT ");
         }
     } else {
-        qb.push(" ORDER BY p.name ASC, pv.sku ASC LIMIT ");
+        qb.push(" ORDER BY p.name ASC, pv.sku ASC, pv.id ASC LIMIT ");
     }
     qb.push_bind(limit);
     qb.push(" OFFSET ");
@@ -4481,6 +4505,12 @@ async fn get_maintenance_ledger(
     let tx_type_filter = query.tx_type.unwrap_or_else(|| "damaged".to_string());
     let limit = query.limit.unwrap_or(100).min(1000);
     let offset = query.offset.unwrap_or(0);
+    let search_pattern = query
+        .search
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(crate::logic::search_patterns::literal_contains_pattern);
 
     let rows = sqlx::query_as::<_, MaintenanceLedgerRow>(
         r#"
@@ -4506,13 +4536,13 @@ async fn get_maintenance_ledger(
         LEFT JOIN staff s ON s.id = it.created_by
         WHERE it.tx_type::text = $1
           AND ($2::text IS NULL OR pv.sku ILIKE $3 OR p.name ILIKE $3)
-        ORDER BY it.created_at DESC
+        ORDER BY it.created_at DESC, it.id DESC
         LIMIT $4 OFFSET $5
         "#,
     )
     .bind(tx_type_filter)
-    .bind(query.search.as_ref())
-    .bind(query.search.as_ref().map(|s| format!("%{s}%")))
+    .bind(search_pattern.as_deref())
+    .bind(search_pattern.as_deref())
     .bind(limit)
     .bind(offset)
     .fetch_all(&state.db)

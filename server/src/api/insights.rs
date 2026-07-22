@@ -1416,6 +1416,15 @@ pub struct RegisterDayActivityQuery {
     /// `booked` (date of sale) or `completed` (pickup / fulfillment day). Aliases: `sale`, `pickup`.
     #[serde(default = "default_insights_report_basis")]
     pub basis: String,
+    #[serde(default = "default_register_activity_limit")]
+    pub activity_limit: i64,
+    #[serde(default)]
+    pub activity_offset: i64,
+    pub activity_search: Option<String>,
+}
+
+fn default_register_activity_limit() -> i64 {
+    200
 }
 
 async fn register_day_activity_summary(
@@ -1465,13 +1474,37 @@ async fn register_day_activity_summary(
 
     let basis = parse_report_basis(&q.basis).map_err(InsightsError::BadRequest)?;
 
-    let summary = register_day_activity::fetch_register_day_summary(
+    if q.activity_offset < 0 || q.activity_offset > 100_000 {
+        return Err(InsightsError::BadRequest(
+            "activity_offset must be between 0 and 100000".to_string(),
+        ));
+    }
+    if !(1..=500).contains(&q.activity_limit) {
+        return Err(InsightsError::BadRequest(
+            "activity_limit must be between 1 and 500".to_string(),
+        ));
+    }
+    if q.activity_search
+        .as_deref()
+        .is_some_and(|value| value.len() > 120)
+    {
+        return Err(InsightsError::BadRequest(
+            "activity_search must be 120 characters or fewer".to_string(),
+        ));
+    }
+
+    let summary = register_day_activity::fetch_register_day_summary_page(
         &state.db,
         q.preset,
         q.from,
         q.to,
         q.register_session_id,
         basis,
+        register_day_activity::ActivityPageOptions {
+            limit: q.activity_limit,
+            offset: q.activity_offset,
+            search: q.activity_search,
+        },
     )
     .await
     .map_err(|e| match e {
@@ -1944,6 +1977,9 @@ pub async fn rosie_reporting_run(
                 to: params.to,
                 register_session_id: params.register_session_id,
                 basis: params.basis,
+                activity_limit: default_register_activity_limit(),
+                activity_offset: 0,
+                activity_search: None,
             };
             let Json(data) =
                 register_day_activity_summary(State(state.clone()), headers.clone(), Query(query))

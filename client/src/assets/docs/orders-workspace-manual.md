@@ -32,9 +32,10 @@ The Orders workspace is the main place to review unfulfilled Special, Custom, an
 - Use **Return / Exchange** on a Transaction Record item to send that exact line to Register, where the return/exchange wizard opens with the customer and item already selected.
 - Use **Mark Ready + Notify** in Order Detail only to mark an item operationally ready. Customer pickup completion must be finished from Register with **Open in Register** so recognition, inventory, and register audit stay together.
 - After Register checkout activity, reopen the parent Transaction Record or return to Orders to see the latest authoritative data instead of a stale snapshot.
-- For a refund already processed in Helcim backend, use **Helcim backend refund**, enter the Helcim refund reference, and complete Manager Access so the register refund record matches the external processor action.
+- For a card refund already completed in a prior processor or another external card system, choose **External card refund already completed (record only)**. Enter the external refund reference, card last four, and reason, then complete Manager Access. Riverside records the server-issued approval reference with the negative external-card tender and never stores the Access PIN in the refund ledger.
 - Use the `Order Integrity` summary at the top of the workspace to quickly see which shown orders are still waiting on booking details, still carrying balance due, or already showing action-needed / overdue follow-up counts from the existing pipeline stats feed.
 - Use the search bar and filter chips above the list to narrow the table before opening a row. The desktop table separates the secondary header labels, such as date, lifecycle, cashier, and deposit, so staff can scan the main work first.
+- Results load in numbered pages. Use **Previous** and **Next** to review every match; the range below the list shows exactly which matching orders are currently loaded.
 
 ## Order Progress
 

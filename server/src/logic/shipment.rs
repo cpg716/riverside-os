@@ -270,7 +270,7 @@ pub async fn list_shipments(
     if let Some(ref search) = q.search {
         let trimmed = search.trim();
         if !trimmed.is_empty() {
-            let like = format!("%{trimmed}%");
+            let like = crate::logic::search_patterns::literal_contains_pattern(trimmed);
             qb.push(" AND (");
             qb.push(" s.id::text ILIKE ");
             qb.push_bind(like.clone());
@@ -294,7 +294,7 @@ pub async fn list_shipments(
         }
     }
 
-    qb.push(" ORDER BY s.created_at DESC LIMIT ");
+    qb.push(" ORDER BY s.created_at DESC, s.id DESC LIMIT ");
     qb.push_bind(limit);
     qb.push(" OFFSET ");
     qb.push_bind(offset);

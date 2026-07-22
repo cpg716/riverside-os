@@ -96,7 +96,8 @@ The selected category recalculates immediately and remains attached to that line
 
 - Attach a customer or wedding party when your store requires it for the sale.
 - If scanner input lands in the wrong field after switching tabs or returning to the register, use **Focus /** next to the product search field, or press **/** on a keyboard station, and scan again.
-- If the Register says **Product search failed**, verify the Main Hub connection and retry. This message means Riverside could not complete the search; it is different from **SKU NOT FOUND**.
+- Product search starts only after the entry contains a letter or number; punctuation by itself is ignored. Scan/SKU and parent-product lookups stop after about five seconds instead of holding the sale screen.
+- If one search source times out but another returns verified matches, the Register keeps those matches visible and tells you to retry for complete results. If no verified match is available, verify the Main Hub connection and retry. A timeout or **Product search failed** message is different from **SKU NOT FOUND**.
 - Use on-screen actions for discounts or notes only when your manager has shown you how.
 
 ### Backdate the current sale
@@ -110,6 +111,9 @@ Use this only when the sale must be recorded under an earlier store-local date/t
 - Do not guess between takeaway, order, and wedding handling if the drawer is asking for a fulfillment decision.
 - Treat receipt printer failures as delivery issues only after the sale already succeeded. Receipt auto-print runs once for the newly completed sale; opening an older receipt from Reports, Orders, Customer history, or Staff Profile never auto-prints it.
 - Pending checkout recovery and failed receipt-print jobs are copied to the Main Hub when a connection is available. Another linked register in the same open till shift can restore those unresolved jobs for review. Never dismiss one until the Transaction Record or replacement receipt has been confirmed.
+- Once Register #1 starts Z-close reconciliation, every linked workstation stops new checkout and reports its local pending/blocked counts. A missing workstation acknowledgement is shown as a blocker, not assumed to be clear. If the team needs to resume selling before the close is final, open **Register Settings** and choose **Restore Register for Selling**, then retry the sale. A manager can recover exact saved checkouts or, with an Access PIN and written reason, force-close while preserving all unresolved records in the Z-Report audit trail.
+- After an audited force-close, open **Close Register** on a later till group and review **Prior or other till-group recovery**. These prior records are separate from current close blockers. Staff with **Register Reports** permission can recover an exact saved checkout with Manager Access; the resulting Transaction Record remains tied to its original Register session and is identified as post-close recovery when applicable. If the global check is unavailable or denied, Riverside says so instead of showing an empty result.
+- For a paid pickup follow-up, first complete every named shipping, pickup, or alteration action in **Orders** or **Alterations**. Then use **Verify completed follow-up** with Manager Access. Riverside verifies recorded evidence before resolving the recovery record; approval never performs or assumes missing work.
 
 ---
 
@@ -129,6 +133,8 @@ Selecting a returned line only stages the return. For a linked-card refund, Rive
 Return and exchange credits use the original selected item price and the tax paid on that item. Each returned item remains a separate negative cart/receipt line; replacement items remain separate positive lines. If the Transaction Record was only partially paid, Riverside caps the credit to the paid amount available on that Transaction Record.
 
 When the replacement item costs less than the customer-paid return credit, the checkout shows a negative balance as a cash or other eligible refund. Once that refund tender is staged, record the exchange; Riverside does not require a positive amount to collect. For an original-card remainder, Riverside records the exchange and inventory return first, then sends the remaining refund to Helcim. If the provider is unavailable, the exchange stays saved and the remaining card refund stays visible in the refund queue for a safe retry.
+
+The replacement checkout and its exchange-settlement recovery marker save together. If the return settlement is interrupted, Riverside restores the checkout identity, tender ledger, and staged return lines so staff can finish the original exchange. The recovery marker remains visible through Z-close until the original Transaction Record, replacement Transaction Record, returned quantities, inventory movement, and refund tender are linked and settled.
 
 Check refunds require the refund check number. **Manual CC Refund** is available when the real card refund was already completed on a prior processor or another external card system; enter the external approval/reference, card last four, and reason, then complete Manager Access approval. This records the real negative card tender without pretending it was processed by Helcim. Staff Account refunds reduce the linked Staff Account receivable. RMS Charge refunds must be completed in RMS/R2S first, then recorded with the external reference, reason, and Manager Access approval. Open Deposit amounts are restored through cancellation or void and are not issued as a generic refund tender.
 
@@ -178,6 +184,8 @@ Gift card load receipts list the sold gift card number under the gift-card line 
 When staff open the loaded customer's profile from Register and save updated contact details, the selected customer shown in Register refreshes immediately.
 
 When Register search opens a parent product with variations, Riverside shows the full variation matrix for that parent. Barcode scans still add the exact scanned variation directly.
+
+For a product whose variations have different prices, the Register search result shows the lowest-to-highest price range. Riverside must finish loading every available variation before opening the size picker. If that lookup fails, no item is added; keep the search result open and use it to retry.
 
 ---
 

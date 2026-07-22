@@ -344,6 +344,10 @@ export default function CustomersWorkspace({
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [_tableFocus, _setTableFocus] = useState(false);
   const [browseLoadFailed, setBrowseLoadFailed] = useState(false);
+  const browseRequestRef = useRef(0);
+  const browseAbortRef = useRef<AbortController | null>(null);
+  const loadMoreRequestRef = useRef(0);
+  const loadMoreAbortRef = useRef<AbortController | null>(null);
 
   const startSaleFromBrowseRow = useCallback(
     (row: CustomerBrowseRow) => {
@@ -446,11 +450,11 @@ export default function CustomersWorkspace({
   );
 
   const fetchBrowsePage = useCallback(
-    async (offset: number): Promise<CustomerBrowseRow[]> => {
+    async (offset: number, signal?: AbortSignal): Promise<CustomerBrowseRow[]> => {
       if (!canRequestCustomerData) return [];
       const res = await fetch(
         `${baseUrl}/api/customers/browse?${buildBrowseParams(offset).toString()}`,
-        { headers: apiAuth() },
+        { headers: apiAuth(), signal },
       );
       if (!res.ok) throw new Error("browse failed");
       return (await res.json()) as CustomerBrowseRow[];
@@ -479,6 +483,8 @@ export default function CustomersWorkspace({
       groupFilterCode,
     ],
   );
+  const browseFiltersKeyRef = useRef(browseFiltersKey);
+  browseFiltersKeyRef.current = browseFiltersKey;
 
   useEffect(() => {
     if (!canRequestCustomerData) {
@@ -505,7 +511,17 @@ export default function CustomersWorkspace({
 
   const loadFirstPage = useCallback(
     async (clearList: boolean) => {
+      const requestId = ++browseRequestRef.current;
+      browseAbortRef.current?.abort();
+      loadMoreRequestRef.current += 1;
+      loadMoreAbortRef.current?.abort();
+      loadMoreAbortRef.current = null;
+      setLoadingMore(false);
+      const controller = new AbortController();
+      browseAbortRef.current = controller;
       if (!canRequestCustomerData) {
+        controller.abort();
+        if (browseAbortRef.current === controller) browseAbortRef.current = null;
         setRows([]);
         setHasMore(false);
         setBrowseLoadFailed(false);
@@ -519,17 +535,23 @@ export default function CustomersWorkspace({
       setLoading(true);
       setBrowseLoadFailed(false);
       try {
-        const data = await fetchBrowsePage(0);
+        const data = await fetchBrowsePage(0, controller.signal);
+        if (requestId !== browseRequestRef.current) return;
         setRows(data);
         setHasMore(data.length === BROWSE_PAGE_SIZE);
         setBrowseLoadFailed(false);
-      } catch {
-        setRows([]);
-        setHasMore(false);
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        if (requestId !== browseRequestRef.current) return;
+        if (clearList) {
+          setRows([]);
+          setHasMore(false);
+        }
         setBrowseLoadFailed(true);
         toast("Customer browse is temporarily unavailable. Please retry.", "error");
       } finally {
-        setLoading(false);
+        if (requestId === browseRequestRef.current) setLoading(false);
+        if (browseAbortRef.current === controller) browseAbortRef.current = null;
       }
     },
     [canRequestCustomerData, fetchBrowsePage, toast],
@@ -538,6 +560,13 @@ export default function CustomersWorkspace({
   useEffect(() => {
     void loadFirstPage(true);
   }, [browseFiltersKey, loadFirstPage]);
+
+  useEffect(() => () => {
+    browseRequestRef.current += 1;
+    loadMoreRequestRef.current += 1;
+    browseAbortRef.current?.abort();
+    loadMoreAbortRef.current?.abort();
+  }, []);
 
   const fetchPipelineStats = useCallback(async () => {
     if (!canRequestCustomerData) return;
@@ -564,17 +593,33 @@ export default function CustomersWorkspace({
 
   const loadMore = useCallback(async () => {
     if (!hasMore || loadingMore || loading) return;
+    const requestId = ++loadMoreRequestRef.current;
+    loadMoreAbortRef.current?.abort();
+    const controller = new AbortController();
+    loadMoreAbortRef.current = controller;
+    const filtersKey = browseFiltersKey;
+    const offset = rows.length;
     setLoadingMore(true);
     try {
-      const data = await fetchBrowsePage(rows.length);
-      setRows((prev) => [...prev, ...data]);
+      const data = await fetchBrowsePage(offset, controller.signal);
+      if (
+        requestId !== loadMoreRequestRef.current ||
+        filtersKey !== browseFiltersKeyRef.current
+      ) return;
+      setRows((prev) => {
+        const existing = new Set(prev.map((row) => row.id));
+        return [...prev, ...data.filter((row) => !existing.has(row.id))];
+      });
       setHasMore(data.length === BROWSE_PAGE_SIZE);
-    } catch {
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      if (requestId !== loadMoreRequestRef.current) return;
       toast("Could not load more customers.", "error");
     } finally {
-      setLoadingMore(false);
+      if (requestId === loadMoreRequestRef.current) setLoadingMore(false);
+      if (loadMoreAbortRef.current === controller) loadMoreAbortRef.current = null;
     }
-  }, [hasMore, loadingMore, loading, rows.length, fetchBrowsePage, toast]);
+  }, [browseFiltersKey, hasMore, loadingMore, loading, rows.length, fetchBrowsePage, toast]);
 
   const toggleSelect = (id: string) => {
     setSelected((prev) => {

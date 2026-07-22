@@ -523,6 +523,25 @@ function checkCounterpointImportRunKindSchemaParity() {
   );
 }
 
+function checkNotificationQueuePartialConflictInference() {
+  const file = "migrations/145_notification_queue_partial_conflict_inference.sql";
+  const migration = read(file);
+  const functions = [
+    "queue_order_ready_notification",
+    "queue_alteration_ready_notification",
+    "queue_appointment_confirmation_notification",
+  ];
+  const inferencePattern = /ON CONFLICT\s*\(entity_type, entity_id, kind, status\)\s*WHERE status IN \('pending', 'scheduled'\)\s*DO NOTHING/g;
+  const inferenceCount = (migration.match(inferencePattern) ?? []).length;
+  assert(
+    functions.every((name) => migration.includes(`CREATE OR REPLACE FUNCTION ${name}(`)) &&
+      inferenceCount === functions.length,
+    "Notification queue functions infer the active-row partial unique index",
+    file,
+    "Every active notification enqueue function must repeat the partial-index predicate in ON CONFLICT.",
+  );
+}
+
 function checkCounterpointBridgeGuiIncrementalUpdateAction() {
   const bridgeGuiFile = "deployment/counterpoint-bridge-gui/src/App.tsx";
   const bridgeGui = read(bridgeGuiFile);
@@ -1195,6 +1214,7 @@ checkPrintRoutingManifest();
 checkCounterpointBridgeQueryTesterEntityParity();
 checkCounterpointSyncStagingVisibility();
 checkCounterpointImportRunKindSchemaParity();
+checkNotificationQueuePartialConflictInference();
 checkCounterpointBridgeGuiIncrementalUpdateAction();
 checkCounterpointBridgeGuiUpdateWiring();
 checkCounterpointBridgeDeploymentPackaging();

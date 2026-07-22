@@ -70,18 +70,30 @@ impl JobWorker {
 
         tokio::spawn(async move {
             while *running.read().await {
+                // Reserve capacity before moving a Redis job into the processing list. Claiming
+                // first can make an unstarted job look stale while every handler is occupied.
+                let permit = match timeout(
+                    Duration::from_secs(20),
+                    job_semaphore.clone().acquire_owned(),
+                )
+                .await
+                {
+                    Ok(Ok(permit)) => permit,
+                    Ok(Err(_)) => {
+                        warn!("Semaphore closed, stopping worker");
+                        break;
+                    }
+                    Err(_) => {
+                        // All handlers are busy, but the worker loop itself is responsive.
+                        crate::api::health::WorkerHealth::mark_heartbeat("job_queue").await;
+                        continue;
+                    }
+                };
+
                 // Try to dequeue a job first
                 match queue.dequeue().await {
                     Ok(Some(job)) => {
-                        // Now try to acquire semaphore for this job
-                        let permit = match job_semaphore.clone().acquire_owned().await {
-                            Ok(permit) => permit,
-                            Err(_) => {
-                                warn!("Semaphore closed, stopping worker");
-                                break;
-                            }
-                        };
-
+                        crate::api::health::WorkerHealth::mark_heartbeat("job_queue").await;
                         let job_id = job.id;
                         let worker_id = worker_id.clone();
                         let queue = queue.clone();
@@ -101,10 +113,13 @@ impl JobWorker {
                         });
                     }
                     Ok(None) => {
+                        crate::api::health::WorkerHealth::mark_heartbeat("job_queue").await;
+                        drop(permit);
                         // No jobs available, wait before next poll
                         tokio::time::sleep(poll_interval).await;
                     }
                     Err(e) => {
+                        drop(permit);
                         error!(worker_id = %worker_id, error = %e, "Failed to dequeue job");
                         tokio::time::sleep(Duration::from_secs(10)).await;
                     }

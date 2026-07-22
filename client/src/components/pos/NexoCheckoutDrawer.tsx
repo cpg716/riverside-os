@@ -533,11 +533,13 @@ export interface NexoCheckoutDrawerProps {
   customerTaxExempt?: boolean;
   customerTaxExemptId?: string | null;
   originalHelcimTransactionIdForRefund?: string | number | null;
+  refundTransactionId?: string | null;
   returnOnlyRefundMode?: boolean;
   deferCardRefund?: boolean;
   authoritativeDepositCents?: number;
   profileBlocksCheckout: boolean;
   onOpenProfileGate: () => void;
+  onCheckoutIdentityHoldChange?: (held: boolean) => void;
   busy: boolean;
   onFinalize: (
     lines: AppliedPaymentLine[],
@@ -583,11 +585,13 @@ export default function NexoCheckoutDrawer({
   customerTaxExempt = false,
   customerTaxExemptId = null,
   originalHelcimTransactionIdForRefund = null,
+  refundTransactionId = null,
   returnOnlyRefundMode = false,
   deferCardRefund = false,
   authoritativeDepositCents = 0,
   profileBlocksCheckout,
   onOpenProfileGate,
+  onCheckoutIdentityHoldChange,
   busy,
   onFinalize,
   allowStoreCredit = false,
@@ -651,6 +655,24 @@ export default function NexoCheckoutDrawer({
   const [selectedTerminalKey, setSelectedTerminalKey] = useState<"terminal_1" | "terminal_2" | "">("");
   const [terminalPickerOpen, setTerminalPickerOpen] = useState(false);
   const [terminalOverrideConfirmed, setTerminalOverrideConfirmed] = useState(false);
+
+  useEffect(() => {
+    const hasProviderPayment = applied.some(isApprovedProviderPayment);
+    onCheckoutIdentityHoldChange?.(
+      isOpen ||
+        helcimAttempt != null ||
+        helcimUnverifiedNotice != null ||
+        manualCardHandoffUrl != null ||
+        hasProviderPayment,
+    );
+  }, [
+    applied,
+    helcimAttempt,
+    helcimUnverifiedNotice,
+    isOpen,
+    manualCardHandoffUrl,
+    onCheckoutIdentityHoldChange,
+  ]);
 
   const [isTaxExempt, setIsTaxExempt] = useState(false);
   const [taxExemptReason, setTaxExemptReason] = useState("Out of State");
@@ -4489,6 +4511,39 @@ export default function NexoCheckoutDrawer({
           const approvalCode = offlineCardApprovalCode.trim();
           const last4 = offlineCardLast4.replace(/\D/g, "");
           const reason = offlineCardReason.trim();
+          const transactionId = refundTransactionId?.trim();
+          if (!transactionId || !registerSessionId) {
+            toast("The original Transaction Record or Register session is missing.", "error");
+            return false;
+          }
+          const approvalRes = await fetch(`${baseUrl}/api/staff/verify-pin`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...mergedPosStaffHeaders(backofficeHeaders),
+            },
+            body: JSON.stringify({
+              pin,
+              staff_id: managerId,
+              authorize_action: "manual_external_card_refund_authorization",
+              authorize_metadata: {
+                transaction_id: transactionId,
+                register_session_id: registerSessionId,
+                amount: centsToFixed2(Math.abs(amountCents)),
+                external_refund_reference: approvalCode,
+                manager_reason: reason,
+                card_last4: last4,
+              },
+            }),
+          });
+          const approvalPayload = (await approvalRes.json().catch(() => ({}))) as {
+            error?: string;
+            manager_approval_reference?: string;
+          };
+          if (!approvalRes.ok || !approvalPayload.manager_approval_reference) {
+            toast(approvalPayload.error ?? "Manager Access was not approved.", "error");
+            return false;
+          }
           setApplied((prev) => [
             ...prev,
             {
@@ -4502,7 +4557,7 @@ export default function NexoCheckoutDrawer({
                 external_transaction_type: "manual_card_refund",
                 external_refund_reference: approvalCode,
                 manager_staff_id: managerId,
-                manager_pin: pin,
+                manager_approval_reference: approvalPayload.manager_approval_reference,
                 manager_reason: reason,
                 card_last4: last4,
               },

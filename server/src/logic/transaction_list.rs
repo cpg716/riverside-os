@@ -12,6 +12,36 @@ use uuid::Uuid;
 use crate::logic::wedding_party_display::SQL_PARTY_TRACKING_LABEL_WP;
 use crate::models::DbOrderStatus;
 
+fn literal_ilike_pattern(value: &str) -> String {
+    let escaped = value
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_");
+    format!("%{escaped}%")
+}
+
+fn phone_like_pattern(value: &str) -> Option<String> {
+    let phone_like = value.chars().all(|c| {
+        c.is_ascii_digit()
+            || c.is_ascii_whitespace()
+            || matches!(c, '+' | '-' | '(' | ')' | '.' | '/')
+    });
+    let digits = value
+        .chars()
+        .filter(|c| c.is_ascii_digit())
+        .collect::<String>();
+    (phone_like && digits.len() >= 7).then(|| format!("%{digits}%"))
+}
+
+fn uses_order_search_index(
+    order_record_scope: bool,
+    default_order_scope: bool,
+    is_order_kind_filter: bool,
+    is_layaway_filter: bool,
+) -> bool {
+    !is_layaway_filter && (order_record_scope || default_order_scope || is_order_kind_filter)
+}
+
 #[derive(Debug, Serialize, FromRow)]
 pub struct FulfillmentItem {
     pub fulfillment_order_id: Uuid,
@@ -234,13 +264,61 @@ pub async fn query_paged_transactions(
         "oi.id IS NOT NULL"
     };
 
-    let meili_transaction_ids: Option<Vec<Uuid>> = if let Some(st) = search_trim {
+    let use_order_index = uses_order_search_index(
+        order_record_scope,
+        default_order_scope,
+        is_order_kind_filter,
+        is_layaway_filter,
+    );
+    let mut meili_transaction_ids: Option<Vec<Uuid>> = if let Some(st) = search_trim {
         if let Some(c) = meilisearch {
             let open_only =
                 matches!(status_scope, Some("open")) || (status_scope.is_none() && !q.show_closed);
-            match crate::logic::meilisearch_search::order_search_ids(c, st, open_only).await {
-                Ok(ids) if !ids.is_empty() => Some(ids),
-                Ok(_) => None,
+            let search_result = if use_order_index {
+                crate::logic::meilisearch_search::order_search_ids(c, st, open_only).await
+            } else {
+                crate::logic::meilisearch_search::transaction_search_ids(c, st, open_only).await
+            };
+            let index_name = if use_order_index {
+                crate::logic::meilisearch_client::INDEX_ORDERS
+            } else {
+                crate::logic::meilisearch_client::INDEX_TRANSACTIONS
+            };
+            match search_result {
+                Ok(ids)
+                    if crate::logic::meilisearch_search::candidate_ids_may_be_truncated(
+                        index_name,
+                        ids.len(),
+                    ) =>
+                {
+                    tracing::warn!(
+                        candidate_count = ids.len(),
+                        index = index_name,
+                        "Meilisearch transaction candidate cap reached; using PostgreSQL for complete pagination"
+                    );
+                    None
+                }
+                Ok(ids)
+                    if !crate::logic::meilisearch_search::index_results_are_authoritative(
+                        pool, c, index_name,
+                    )
+                    .await =>
+                {
+                    tracing::warn!(
+                        index = index_name,
+                        "Meilisearch transaction index health is not authoritative; using PostgreSQL ILIKE"
+                    );
+                    None
+                }
+                Ok(ids) if ids.is_empty() => Some(Vec::new()),
+                Ok(ids) if !crate::logic::meilisearch_search::candidate_ids_are_unique(&ids) => {
+                    tracing::warn!(
+                        index = index_name,
+                        "Meilisearch transaction candidate IDs are invalid or duplicated; using PostgreSQL ILIKE"
+                    );
+                    None
+                }
+                Ok(ids) => Some(ids),
                 Err(e) => {
                     tracing::warn!(
                         error = %e,
@@ -255,6 +333,21 @@ pub async fn query_paged_transactions(
     } else {
         None
     };
+    if let Some(ids) = meili_transaction_ids.as_ref().filter(|ids| !ids.is_empty()) {
+        let valid = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*)::bigint FROM transactions WHERE id = ANY($1)",
+        )
+        .bind(ids)
+        .fetch_one(pool)
+        .await?;
+        if valid != ids.len() as i64 {
+            tracing::warn!(
+                query = search_trim.unwrap_or_default(),
+                "Meilisearch transaction hits did not hydrate; using PostgreSQL"
+            );
+            meili_transaction_ids = None;
+        }
+    }
 
     let mut qb = sqlx::QueryBuilder::<sqlx::Postgres>::new(format!(
         r#"
@@ -524,7 +617,8 @@ pub async fn query_paged_transactions(
         }
     } else if let Some(search) = &q.search {
         if !search.trim().is_empty() {
-            let s = format!("%{}%", search.trim());
+            let s = literal_ilike_pattern(search.trim());
+            let phone = phone_like_pattern(search.trim());
             qb.push(" AND (o.id::text ILIKE ");
             qb.push_bind(s.clone());
             qb.push(" OR o.display_id ILIKE ");
@@ -538,6 +632,20 @@ pub async fn query_paged_transactions(
             qb.push(" OR c.first_name ILIKE ");
             qb.push_bind(s.clone());
             qb.push(" OR c.last_name ILIKE ");
+            qb.push_bind(s.clone());
+            qb.push(
+                " OR CONCAT(COALESCE(c.first_name, ''), ' ', COALESCE(c.last_name, '')) ILIKE ",
+            );
+            qb.push_bind(s.clone());
+            qb.push(" OR COALESCE(c.customer_code, '') ILIKE ");
+            qb.push_bind(s.clone());
+            qb.push(" OR COALESCE(c.phone, '') ILIKE ");
+            qb.push_bind(s.clone());
+            if let Some(phone) = phone {
+                qb.push(" OR regexp_replace(COALESCE(c.phone, ''), '[^0-9]', '', 'g') LIKE ");
+                qb.push_bind(phone);
+            }
+            qb.push(" OR COALESCE(c.email, '') ILIKE ");
             qb.push_bind(s.clone());
             qb.push(" OR wp.party_name ILIKE ");
             qb.push_bind(s.clone());
@@ -606,7 +714,7 @@ pub async fn query_paged_transactions(
         qb.push(" HAVING (o.counterpoint_doc_ref IS NOT NULL OR o.wedding_member_id IS NOT NULL OR BOOL_OR(oi.fulfillment::text IN ('special_order', 'custom', 'wedding_order')) = true) ");
     }
 
-    qb.push(" ORDER BY o.booked_at DESC ");
+    qb.push(" ORDER BY o.booked_at DESC, o.id DESC ");
 
     qb.push(" LIMIT ");
     qb.push_bind(q.limit.unwrap_or(50));
@@ -688,7 +796,10 @@ pub async fn query_paged_transactions(
 
 #[cfg(test)]
 mod tests {
-    use super::{kind_filter_having_clause, lifecycle_filter_status, order_kind_from_flags};
+    use super::{
+        kind_filter_having_clause, lifecycle_filter_status, literal_ilike_pattern,
+        order_kind_from_flags, phone_like_pattern, uses_order_search_index,
+    };
     use uuid::Uuid;
 
     #[test]
@@ -740,6 +851,29 @@ mod tests {
             Some("ready_for_pickup")
         );
         assert_eq!(lifecycle_filter_status("not_real"), None);
+    }
+
+    #[test]
+    fn all_financial_records_use_the_transaction_search_index() {
+        assert!(!uses_order_search_index(false, false, false, false));
+        assert!(uses_order_search_index(true, false, false, false));
+        assert!(uses_order_search_index(false, true, false, false));
+        assert!(!uses_order_search_index(false, true, false, true));
+    }
+
+    #[test]
+    fn transaction_sql_fallback_escapes_like_wildcards() {
+        assert_eq!(literal_ilike_pattern(r"TXN_%"), r"%TXN\_\%%");
+    }
+
+    #[test]
+    fn transaction_phone_matching_requires_a_complete_phone_query() {
+        assert_eq!(
+            phone_like_pattern("(413) 555-1212"),
+            Some("%4135551212%".into())
+        );
+        assert_eq!(phone_like_pattern("SEEMAN-071926"), None);
+        assert_eq!(phone_like_pattern("555-121"), None);
     }
 }
 

@@ -44,6 +44,12 @@ Riverside OS includes a resilient background job processing system built on Redi
 - **Worker Pool**: Configurable concurrent job processing
 - **Graceful Shutdown**: Safe worker termination
 
+An idle worker's blocking Redis dequeue returns at least every 20 seconds. Each successful poll
+refreshes the readiness heartbeat; failed or disconnected polls do not. This keeps healthy idle
+workers ready while allowing `/api/ready` to detect a stalled queue worker within 60 seconds.
+Workers reserve a handler slot before moving a job into Redis's processing list, so saturation
+cannot age an unstarted job into stale recovery or create duplicate execution.
+
 ---
 
 ## Job Types

@@ -71,11 +71,17 @@ test.describe("production performance budgets", () => {
     const searchButton = page.getByRole("button", { name: /open universal search/i });
     await searchButton.click();
     const search = page.getByRole("combobox", { name: /universal search/i });
+    const responsePromise = page.waitForResponse(
+      (response) => response.url().includes("/api/search/universal?") && response.request().method() === "GET",
+    );
     const started = Date.now();
-    await search.fill("suit");
-    await expect(page.getByText(/Search results|No matches|unavailable/i).first()).toBeVisible({
-      timeout: 5_000,
-    });
-    expect(Date.now() - started).toBeLessThan(3_000);
+    await search.fill(`zz-perf-no-match-${Date.now()}`);
+    const response = await responsePromise;
+    const body = (await response.json()) as { query?: string; sources_failed?: string[] };
+    expect(response.status(), JSON.stringify(body.sources_failed ?? [])).toBe(200);
+    expect(body.query).toContain("zz-perf-no-match-");
+    expect(Date.now() - started).toBeLessThan(2_000); // includes the 220 ms input debounce
+    await expect(page.getByText(/^Working…$/)).toBeHidden({ timeout: 2_000 });
+    await expect(page.getByRole("listbox", { name: /search results/i })).toBeVisible();
   });
 });

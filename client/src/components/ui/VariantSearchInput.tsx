@@ -40,16 +40,25 @@ export default function VariantSearchInput({
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<VariantSearchResult[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const requestRef = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
 
   const performSearch = useCallback(async (q: string) => {
     if (q.trim().length < 2) {
       setResults([]);
       return;
     }
+    const requestId = ++requestRef.current;
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
     setLoading(true);
+    setError(null);
+    setResults([]);
     try {
       const params = new URLSearchParams({
         search: q,
@@ -60,24 +69,33 @@ export default function VariantSearchInput({
       if (!productId) params.set("parent_rank_first", "true");
       const res = await fetch(
         `${baseUrl}/api/products/control-board?${params.toString()}`,
-        { headers: mergedPosStaffHeaders(backofficeHeaders) }
+        { headers: mergedPosStaffHeaders(backofficeHeaders), signal: controller.signal }
       );
-      if (res.ok) {
-        const data = await res.json() as { rows: VariantSearchResult[] };
-        setResults(data.rows || []);
-      }
+      if (!res.ok) throw new Error(`Product search failed with status ${res.status}`);
+      const data = await res.json() as { rows: VariantSearchResult[] };
+      if (requestId !== requestRef.current) return;
+      setResults(data.rows || []);
     } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
+      if (requestId !== requestRef.current) return;
       console.error("Variant search failed", err);
+      setError("Product search is unavailable. Try again.");
     } finally {
-      setLoading(false);
+      if (requestId === requestRef.current) setLoading(false);
+      if (abortRef.current === controller) abortRef.current = null;
     }
   }, [baseUrl, backofficeHeaders, expandParentMatches, productId]);
 
   useEffect(() => {
+    requestRef.current += 1;
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setLoading(false);
+    setError(null);
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (!query.trim()) {
+    if (query.trim().length < 2) {
       setResults([]);
-      setIsOpen(false);
+      setIsOpen(query.trim().length > 0);
       return;
     }
     setIsOpen(true);
@@ -88,6 +106,11 @@ export default function VariantSearchInput({
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, [query, performSearch]);
+
+  useEffect(() => () => {
+    requestRef.current += 1;
+    abortRef.current?.abort();
+  }, []);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -116,10 +139,12 @@ export default function VariantSearchInput({
         />
       </div>
 
-      {isOpen && (results.length > 0 || loading) && (
+      {isOpen && query.trim().length >= 2 && (
         <div className="absolute z-50 mt-1 w-full max-h-72 overflow-y-auto rounded-xl border border-app-border bg-app-surface shadow-2xl animate-in fade-in slide-in-from-top-2 duration-200">
-          {loading && results.length === 0 ? (
+          {loading ? (
             <div className="p-4 text-center text-xs text-app-text-muted">Searching…</div>
+          ) : error ? (
+            <div className="p-4 text-center text-xs font-semibold text-app-danger">{error}</div>
           ) : results.length > 0 ? (
             <ul className="py-1">
               {results.map((r) => (

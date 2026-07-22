@@ -159,7 +159,7 @@ async fn list_gift_cards(
     );
 
     if let Some(search) = search {
-        let like = format!("%{search}%");
+        let like = crate::logic::search_patterns::literal_contains_pattern(search);
         qb.push(" AND (gc.code ILIKE ");
         qb.push_bind(like.clone());
         qb.push(" OR c.first_name ILIKE ");
@@ -167,9 +167,9 @@ async fn list_gift_cards(
         qb.push(" OR c.last_name ILIKE ");
         qb.push_bind(like.clone());
         qb.push(" OR COALESCE(gc.notes, '') ILIKE ");
-        qb.push_bind(like);
+        qb.push_bind(like.clone());
         qb.push(" OR COALESCE(gc.promo_event_name, '') ILIKE ");
-        qb.push_bind(format!("%{search}%"));
+        qb.push_bind(like);
         qb.push(") ");
     }
 
@@ -188,9 +188,13 @@ async fn list_gift_cards(
     }
 
     match sort {
-        "recent_activity" => qb.push(" ORDER BY gc.created_at DESC, gc.current_balance DESC "),
-        "balance_desc" => qb.push(" ORDER BY gc.current_balance DESC, gc.created_at DESC "),
-        _ => qb.push(" ORDER BY gc.created_at DESC "),
+        "recent_activity" => {
+            qb.push(" ORDER BY gc.created_at DESC, gc.current_balance DESC, gc.id DESC ")
+        }
+        "balance_desc" => {
+            qb.push(" ORDER BY gc.current_balance DESC, gc.created_at DESC, gc.id DESC ")
+        }
+        _ => qb.push(" ORDER BY gc.created_at DESC, gc.id DESC "),
     };
 
     qb.push(" LIMIT ");

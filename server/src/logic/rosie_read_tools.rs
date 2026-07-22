@@ -1015,7 +1015,7 @@ async fn search_customers(
         ));
     }
     let limit = limit_from_args(args, def.max_rows);
-    let pattern = format!("%{}%", query.replace('\\', "\\\\").replace('%', "\\%"));
+    let pattern = crate::logic::search_patterns::literal_contains_pattern(&query);
     let rows: Vec<CustomerSearchRow> = sqlx::query_as(
         r#"
         SELECT id, customer_code, first_name, last_name,
@@ -1028,7 +1028,7 @@ async fn search_customers(
            OR customer_code ILIKE $1 ESCAPE '\'
            OR email ILIKE $1 ESCAPE '\'
            OR phone ILIKE $1 ESCAPE '\'
-        ORDER BY last_name ASC, first_name ASC
+        ORDER BY last_name ASC, first_name ASC, id ASC
         LIMIT $2
         "#,
     )
@@ -1075,7 +1075,7 @@ async fn search_weddings(
         ));
     }
     let limit = limit_from_args(args, def.max_rows);
-    let pattern = format!("%{}%", query.replace('\\', "\\\\").replace('%', "\\%"));
+    let pattern = crate::logic::search_patterns::literal_contains_pattern(&query);
     let rows: Vec<WeddingSearchRow> = sqlx::query_as(
         r#"
         SELECT id AS wedding_id,
@@ -1095,7 +1095,7 @@ async fn search_weddings(
               OR venue ILIKE $1 ESCAPE '\'
               OR salesperson ILIKE $1 ESCAPE '\'
           )
-        ORDER BY event_date ASC, groom_name ASC
+        ORDER BY event_date ASC, groom_name ASC, id ASC
         LIMIT $2
         "#,
     )
@@ -1144,7 +1144,7 @@ async fn search_vendors(
         ));
     }
     let limit = limit_from_args(args, def.max_rows);
-    let pattern = format!("%{}%", query.replace('\\', "\\\\").replace('%', "\\%"));
+    let pattern = crate::logic::search_patterns::literal_contains_pattern(&query);
     let rows: Vec<VendorSearchRow> = sqlx::query_as(
         r#"
         SELECT id AS vendor_id,
@@ -1158,7 +1158,7 @@ async fn search_vendors(
         WHERE name ILIKE $1 ESCAPE '\'
            OR vendor_code ILIKE $1 ESCAPE '\'
            OR account_number ILIKE $1 ESCAPE '\'
-        ORDER BY is_active DESC, name ASC
+        ORDER BY is_active DESC, name ASC, id ASC
         LIMIT $2
         "#,
     )
@@ -1295,7 +1295,7 @@ async fn inventory_availability(
         ));
     }
     let limit = limit_from_args(args, def.max_rows);
-    let pattern = format!("%{}%", query.replace('\\', "\\\\").replace('%', "\\%"));
+    let pattern = crate::logic::search_patterns::literal_contains_pattern(&query);
     let rows: Vec<InventoryAvailabilityRow> = sqlx::query_as(
         r#"
         SELECT pv.id AS variant_id, p.id AS product_id, pv.sku, p.name AS product_name,
@@ -1314,7 +1314,7 @@ async fn inventory_availability(
               OR pv.vendor_upc ILIKE $1 ESCAPE '\'
               OR pv.variation_values::text ILIKE $1 ESCAPE '\'
           )
-        ORDER BY available_stock DESC, p.name ASC, pv.sku ASC
+        ORDER BY available_stock DESC, p.name ASC, pv.sku ASC, pv.id ASC
         LIMIT $2
         "#,
     )
@@ -1383,7 +1383,7 @@ async fn product_sales_by_query(
     }
     let (from, to) = bounded_date_range(args, 30)?;
     let limit = limit_from_args(args, def.max_rows);
-    let pattern = format!("%{}%", query.replace('\\', "\\\\").replace('%', "\\%"));
+    let pattern = crate::logic::search_patterns::literal_contains_pattern(&query);
     let rows: Vec<ProductSalesByQueryRow> = sqlx::query_as(
         r#"
         SELECT tl.product_id,
@@ -1408,7 +1408,8 @@ async fn product_sales_by_query(
               OR pv.variation_values::text ILIKE $3 ESCAPE '\'
           )
         GROUP BY tl.product_id, tl.variant_id, pv.sku, p.name, pv.variation_label
-        ORDER BY units_sold DESC, transaction_count DESC, p.name ASC
+        ORDER BY units_sold DESC, transaction_count DESC, p.name ASC,
+                 tl.product_id ASC NULLS LAST, tl.variant_id ASC NULLS LAST
         LIMIT $4
         "#,
     )

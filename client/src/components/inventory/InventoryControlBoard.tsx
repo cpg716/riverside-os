@@ -507,6 +507,8 @@ export default function InventoryControlBoard({
   const [boardRefreshError, setBoardRefreshError] = useState<string | null>(null);
   const [boardLoadMoreError, setBoardLoadMoreError] = useState<string | null>(null);
   const [boardLastLoadedAt, setBoardLastLoadedAt] = useState<string | null>(null);
+  const boardRequestRef = useRef(0);
+  const boardAbortRef = useRef<AbortController | null>(null);
 
   const adjustSummary = adjustRow ? stockRiskSummary(adjustRow) : null;
   const quickDecrementWarnings = adjustRow
@@ -575,6 +577,11 @@ export default function InventoryControlBoard({
   }, [baseUrl, apiAuth]);
 
   const refreshBoard = useCallback(async () => {
+    const requestId = ++boardRequestRef.current;
+    boardAbortRef.current?.abort();
+    const controller = new AbortController();
+    boardAbortRef.current = controller;
+    setBoardLoadingMore(false);
     const params = new URLSearchParams();
     if (debouncedSearch) {
       params.set("search", debouncedSearch);
@@ -597,10 +604,11 @@ export default function InventoryControlBoard({
     try {
       const boardRes = await fetch(
         apiUrl(baseUrl, `/api/inventory/control-board?${params.toString()}`),
-        { headers: apiAuth() },
+        { headers: apiAuth(), signal: controller.signal },
       );
       if (boardRes.ok) {
         const data = (await boardRes.json()) as BoardResponse;
+        if (requestId !== boardRequestRef.current) return;
         setRows(data.rows);
         setBoardHasMore(data.rows.length === boardPageLimit);
         setBoardRefreshError(null);
@@ -608,14 +616,18 @@ export default function InventoryControlBoard({
         setBoardLastLoadedAt(new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }));
         // Global stats handled by parent workspace
       } else {
+        if (requestId !== boardRequestRef.current) return;
         setBoardRefreshError("Could not refresh inventory.");
         toast("Inventory lookup is temporarily unavailable. Showing last synced results.", "error");
       }
-    } catch {
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      if (requestId !== boardRequestRef.current) return;
       setBoardRefreshError("Could not refresh inventory.");
       toast("Inventory lookup is temporarily unavailable. Showing last synced results.", "error");
     } finally {
-      setBoardRefreshing(false);
+      if (requestId === boardRequestRef.current) setBoardRefreshing(false);
+      if (boardAbortRef.current === controller) boardAbortRef.current = null;
     }
   }, [
     baseUrl,
@@ -650,8 +662,17 @@ export default function InventoryControlBoard({
     void refreshBoard();
   }, [refreshBoard]);
 
+  useEffect(() => () => {
+    boardRequestRef.current += 1;
+    boardAbortRef.current?.abort();
+  }, []);
+
   const loadMoreBoard = useCallback(async () => {
     if (!boardHasMore || boardLoadingMore || boardRefreshing) return;
+    const requestId = ++boardRequestRef.current;
+    boardAbortRef.current?.abort();
+    const controller = new AbortController();
+    boardAbortRef.current = controller;
     const params = new URLSearchParams();
     if (debouncedSearch) {
       params.set("search", debouncedSearch);
@@ -674,22 +695,31 @@ export default function InventoryControlBoard({
     try {
       const boardRes = await fetch(
         apiUrl(baseUrl, `/api/inventory/control-board?${params.toString()}`),
-        { headers: apiAuth() },
+        { headers: apiAuth(), signal: controller.signal },
       );
       if (!boardRes.ok) {
+        if (requestId !== boardRequestRef.current) return;
         setBoardLoadMoreError("Could not load more inventory.");
         toast("Could not load more inventory right now. Please try again.", "error");
         return;
       }
       const data = (await boardRes.json()) as BoardResponse;
-      setRows((prev) => [...prev, ...data.rows]);
+      if (requestId !== boardRequestRef.current) return;
+      setRows((prev) => {
+        const existing = new Set(prev.map((row) => row.variant_id));
+        return [...prev, ...data.rows.filter((row) => !existing.has(row.variant_id))];
+      });
       setBoardHasMore(data.rows.length === boardPageLimit);
       setBoardLoadMoreError(null);
-    } catch {
+      setBoardLastLoadedAt(new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }));
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      if (requestId !== boardRequestRef.current) return;
       setBoardLoadMoreError("Could not load more inventory.");
       toast("Could not load more inventory right now. Please try again.", "error");
     } finally {
-      setBoardLoadingMore(false);
+      if (requestId === boardRequestRef.current) setBoardLoadingMore(false);
+      if (boardAbortRef.current === controller) boardAbortRef.current = null;
     }
   }, [
     boardHasMore,

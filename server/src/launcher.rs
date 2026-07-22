@@ -373,6 +373,7 @@ async fn launch_server_inner(
     server_log_ring: ServerLogRing,
     ready_tx: Option<oneshot::Sender<Result<LaunchReady, String>>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    crate::api::health::initialize_uptime();
     let mut ready_tx = ready_tx;
     let result: Result<(), Box<dyn std::error::Error>> = async {
     tracing::info!("Unified Engine: Connecting to PostgreSQL...");
@@ -598,7 +599,6 @@ async fn launch_server_inner(
             let worker = crate::jobs::JobWorker::new(queue, registry, worker_config);
             tokio::spawn(async move {
                 tracing::info!("Initializing background JobWorker...");
-                crate::api::health::WorkerHealth::mark_heartbeat("job_queue").await;
                 if let Err(e) = worker.start().await {
                     tracing::error!(error = %e, "Failed to start background JobWorker");
                 } else {
@@ -1220,6 +1220,9 @@ async fn start_backup_worker(state: AppState) -> Result<(), anyhow::Error> {
     sched.add(backup_checker).await?;
 
     sched.start().await?;
+    // Readiness tracks whether the scheduler itself is alive, not whether today's scheduled
+    // backup minute has arrived yet.
+    crate::api::health::WorkerHealth::mark_heartbeat("backup").await;
     Ok(())
 }
 

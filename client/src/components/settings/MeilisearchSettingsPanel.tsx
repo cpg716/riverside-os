@@ -17,6 +17,10 @@ type MeilisearchSyncRow = {
   row_count: number;
   error_message: string | null;
   document_count?: number | null;
+  count_parity?: boolean | null;
+  recent_enough?: boolean;
+  search_ready?: boolean;
+  health_message?: string;
   latest_task?: {
     uid: number;
     status: string;
@@ -37,6 +41,7 @@ type MeilisearchStatusResponse = {
   connection_error?: string | null;
   indices: MeilisearchSyncRow[];
   is_indexing: boolean;
+  full_rebuild_current?: boolean;
 };
 
 function latestAttemptDateLabel(rows: MeilisearchSyncRow[]) {
@@ -153,6 +158,12 @@ export default function MeilisearchSettingsPanel() {
 
   const meiliConnectionReady =
     meiliConfigured === true && meiliConnectionOk === true;
+  const searchableIndices = meiliIndices.filter(
+    (index) => index.index_name !== "ros_reindex_run",
+  );
+  const allIndicesReady =
+    searchableIndices.length > 0 &&
+    searchableIndices.every((index) => index.search_ready === true);
 
   return (
     <div className="space-y-10">
@@ -283,12 +294,12 @@ export default function MeilisearchSettingsPanel() {
                 </p>
                 <div className="flex items-center gap-2">
                   <div
-                    className={`h-2 w-2 rounded-full ${isIndexing ? "bg-app-success animate-pulse" : meiliConnectionReady && meiliIndices.every((i) => i.is_success) ? "bg-app-success" : "bg-app-danger"} shadow-[0_0_8px_color-mix(in_srgb,var(--app-success)_60%,transparent)]`}
+                    className={`h-2 w-2 rounded-full ${isIndexing ? "bg-app-success animate-pulse" : meiliConnectionReady && allIndicesReady ? "bg-app-success" : "bg-app-danger"} shadow-[0_0_8px_color-mix(in_srgb,var(--app-success)_60%,transparent)]`}
                   />
                   <span className="text-sm font-black text-app-text">
                     {isIndexing
                       ? "Updating..."
-                      : meiliConnectionReady && meiliIndices.every((i) => i.is_success)
+                      : meiliConnectionReady && allIndicesReady
                         ? "All Healthy"
                         : "Action Required"}
                   </span>
@@ -314,13 +325,8 @@ export default function MeilisearchSettingsPanel() {
                 </p>
                 <span className="text-sm font-black text-app-text">
                   {
-                    meiliIndices.filter(
-                      (i) =>
-                        i.last_success_at &&
-                        new Date().getTime() -
-                          new Date(i.last_success_at).getTime() >
-                          86400000,
-                    ).length
+                    searchableIndices.filter((index) => index.search_ready !== true)
+                      .length
                   }{" "}
                   <span className="text-[10px] opacity-60">areas</span>
                 </span>
@@ -361,19 +367,13 @@ export default function MeilisearchSettingsPanel() {
                   last_success_at: null,
                   last_attempt_at: null,
                   error_message: "Search area has not been refreshed yet.",
+                  count_parity: null,
+                  recent_enough: false,
+                  search_ready: false,
+                  health_message: "Search area has not been refreshed yet.",
                 };
 
-                const isStale =
-                  idx.last_success_at &&
-                  new Date().getTime() -
-                    new Date(idx.last_success_at).getTime() >
-                    86400000;
                 const hasRun = idx.last_success_at !== null;
-                const isLocalIndexing =
-                  isIndexing && (!hasRun || idx.is_success);
-                if (isLocalIndexing) {
-                  console.debug("Meilisearch is currently indexing locally.");
-                }
 
                 // User-friendly display names
                 const displayLabel =
@@ -400,7 +400,7 @@ export default function MeilisearchSettingsPanel() {
                 return (
                   <div
                     key={idx.index_name}
-                    className={`ui-metric-cell p-4 ${isIndexing ? "ui-tint-success animate-pulse-subtle" : idx.is_success ? (isStale ? "ui-tint-warning" : "ui-tint-success") : "ui-tint-danger"} transition-all group relative overflow-hidden`}
+                    className={`ui-metric-cell p-4 ${isIndexing ? "ui-tint-success animate-pulse-subtle" : idx.search_ready ? "ui-tint-success" : idx.is_success ? "ui-tint-warning" : "ui-tint-danger"} transition-all group relative overflow-hidden`}
                   >
                     <div className="flex items-center justify-between gap-3 mb-2">
                       <div className="flex flex-col min-w-0">
@@ -425,12 +425,10 @@ export default function MeilisearchSettingsPanel() {
                       </div>
                       {isIndexing ? (
                         <RefreshCw className="h-4 w-4 text-app-success animate-spin opacity-50" />
+                      ) : idx.search_ready ? (
+                        <CheckCircle2 className="h-4 w-4 text-app-success" />
                       ) : idx.is_success ? (
-                        isStale ? (
-                          <History className="h-4 w-4 text-app-warning animate-pulse" />
-                        ) : (
-                          <CheckCircle2 className="h-4 w-4 text-app-success" />
-                        )
+                        <History className="h-4 w-4 text-app-warning" />
                       ) : (
                         <div className="h-4 w-4 flex items-center justify-center rounded-full bg-app-danger/10">
                           <Info className="h-3 w-3 text-app-danger" />
@@ -440,7 +438,7 @@ export default function MeilisearchSettingsPanel() {
                     <div className="flex flex-col gap-1.5 mt-3">
                       <div className="flex justify-between items-center text-[11px]">
                           <span className="text-app-text-muted font-bold">
-                          Store rows
+                          SQL rows at rebuild
                         </span>
                         <span className="text-app-text font-black">
                           {idx.row_count.toLocaleString()}
@@ -487,15 +485,15 @@ export default function MeilisearchSettingsPanel() {
                           {idx.error_message}
                         </div>
                       )}
-                      {!isIndexing && idx.latest_failed_task?.error && (
+                      {!isIndexing && !idx.search_ready && idx.latest_failed_task?.error && (
                         <div className="mt-2 text-[8px] font-bold text-app-danger bg-app-danger/10 p-2 rounded-lg border border-app-danger/10 break-words leading-tight">
                           Support details for job #{idx.latest_failed_task.uid}:{" "}
                           {idx.latest_failed_task.error}
                         </div>
                       )}
-                      {idx.is_success && isStale && (
-                        <div className="mt-2 text-[8px] font-black uppercase tracking-[0.05em] text-app-warning bg-app-warning/10 p-2 rounded-lg border border-app-warning/10">
-                          Needs refresh (24h+)
+                      {!isIndexing && !idx.search_ready && idx.health_message && (
+                        <div className="mt-2 text-[8px] font-bold text-app-warning bg-app-warning/10 p-2 rounded-lg border border-app-warning/10 leading-tight">
+                          {idx.health_message}
                         </div>
                       )}
                     </div>

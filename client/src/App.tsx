@@ -1569,11 +1569,9 @@ function AppShell({
             pendingWeddingPosLink={pendingWeddingPosLink}
             clearPendingWeddingPosLink={clearPendingWeddingPosLink}
             onSessionOpened={handleSessionOpened}
-            showCloseModal={showCloseModal}
             setShowCloseModal={setShowCloseModal}
             handleSessionClosed={handleSessionClosed}
             refreshOpenSessionMeta={refreshOpenSessionMeta}
-            onRegisterReconcilingBegun={onRegisterReconcilingBegun}
             onRegisterTransactionCommitted={triggerDashboardRefresh}
             onOpenWeddingParty={(partyId: string) => navigateWedding(partyId)}
             pendingWmPartyId={pendingWmPartyId}

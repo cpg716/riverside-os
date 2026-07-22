@@ -203,38 +203,19 @@ FROM (
 #### Resource Utilization
 ```rust
 pub struct SystemMetrics {
-    pub cpu_usage_percent: f64,
-    pub memory_usage_mb: u64,
-    pub memory_usage_percent: f64,
-    pub disk_usage_mb: u64,
-    pub disk_usage_percent: f64,
-    pub network_bytes_sent: u64,
-    pub network_bytes_received: u64,
-    pub uptime_seconds: u64,
+    pub cpu_usage_percent: Option<f64>,
+    pub process_rss_mb: Option<u64>,
+    pub process_rss_percent_of_host_memory: Option<f64>,
+    pub disk_usage_mb: Option<u64>,
+    pub disk_usage_percent: Option<f64>,
+    pub network_bytes_sent: Option<u64>,
+    pub network_bytes_received: Option<u64>,
+    pub uptime_seconds: Option<u64>,
     pub load_average: Option<f64>,
 }
 ```
 
-**Collection Methods**:
-```rust
-// CPU usage (would use sysinfo crate in production)
-async fn get_cpu_usage() -> f64 {
-    // Placeholder implementation
-    45.0
-}
-
-// Memory usage
-async fn get_memory_usage() -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
-    // Would read from /proc/meminfo or use sysinfo
-    Ok(2048) // 2GB
-}
-
-// Disk usage
-async fn get_disk_usage() -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
-    // Would use sysinfo or statvfs
-    Ok(51200) // 50GB
-}
-```
+Linux process resident memory comes from `/proc/self/status` and is published as `process_memory_rss_mb`, not as host-wide system memory. Its optional percentage is explicitly the process RSS divided by detected host memory. Unsupported host metrics are absent; they are never filled with placeholder zeroes.
 
 ### Database Metrics
 
@@ -244,14 +225,17 @@ pub struct DatabaseMetrics {
     pub active_connections: u32,
     pub idle_connections: u32,
     pub total_connections: u32,
-    pub connection_utilization_percent: f64,
-    pub query_duration_avg_ms: f64,
-    pub slow_queries_count: u64,
+    pub max_connections: u32,
+    pub connection_utilization_percent: Option<f64>,
+    pub query_duration_avg_ms: Option<f64>,
+    pub slow_queries_count: Option<u64>,
     pub database_size_mb: u64,
     pub wal_size_mb: u64,
     pub cache_hit_ratio: f64,
 }
 ```
+
+Connection utilization is active connections divided by sqlx's configured pool maximum, not the number of connections currently opened. If the configured maximum is unavailable or zero, utilization is absent.
 
 **Database Queries**:
 ```sql
@@ -290,16 +274,18 @@ WHERE datname = current_database();
 #### HTTP Performance
 ```rust
 pub struct ApiMetrics {
-    pub requests_per_second: f64,
-    pub average_response_time_ms: f64,
-    pub p95_response_time_ms: f64,
-    pub p99_response_time_ms: f64,
-    pub error_rate_percent: f64,
+    pub requests_per_second: Option<f64>,
+    pub average_response_time_ms: Option<f64>,
+    pub p95_response_time_ms: Option<f64>,
+    pub p99_response_time_ms: Option<f64>,
+    pub error_rate_percent: Option<f64>,
     pub status_codes: HashMap<String, u64>,
     pub endpoints_by_latency: HashMap<String, f64>,
     pub active_connections: u32,
 }
 ```
+
+Request rate requires at least two samples with a positive observed time span. A single request or samples with identical timestamps produce no rate instead of an artificial 1 ms denominator.
 
 **Middleware Integration**:
 ```rust
@@ -331,8 +317,8 @@ pub async fn metrics_middleware(
 #### Redis Performance
 ```rust
 pub struct CacheMetrics {
-    pub hit_rate_percent: f64,
-    pub miss_rate_percent: f64,
+    pub hit_rate_percent: Option<f64>,
+    pub miss_rate_percent: Option<f64>,
     pub total_operations: u64,
     pub memory_usage_mb: u64,
     pub evicted_keys: u64,
@@ -340,6 +326,8 @@ pub struct CacheMetrics {
     pub connected_clients: u32,
 }
 ```
+
+The Redis snapshot is accepted only when all required `INFO` fields are present and numeric. A missing or malformed field makes the snapshot unavailable. Zero cache lookups leave hit and miss rates absent because no percentage has been observed.
 
 **Redis Commands**:
 ```bash
@@ -361,12 +349,14 @@ pub struct JobMetrics {
     pub jobs_dequeued: u64,
     pub jobs_completed: u64,
     pub jobs_failed: u64,
-    pub average_processing_time_seconds: f64,
+    pub average_processing_time_seconds: Option<f64>,
     pub pending_jobs: u64,
     pub processing_jobs: u64,
     pub dead_letter_jobs: u64,
 }
 ```
+
+Queue depth and lifecycle totals come from Redis queue statistics. Average processing time remains absent until the queue exposes observed durations; Riverside OS does not publish a fabricated zero-second average.
 
 ---
 
@@ -377,12 +367,16 @@ pub struct JobMetrics {
 ```rust
 pub struct MetricRegistry {
     metrics: HashMap<String, Vec<MetricValue>>,
+    counter_totals: HashMap<MetricSeriesKey, f64>,
     config: MetricsConfig,
 }
 
 impl MetricRegistry {
     pub fn record_counter(&mut self, name: &str, value: f64, tags: HashMap<String, String>) {
-        self.record_metric(name, value, tags, MetricType::Counter);
+        // `value` is a non-negative increment. The retained sample is the
+        // process-lifetime cumulative total for this exact tag series.
+        let total = self.counter_total(name, &tags) + value;
+        self.record_metric(name, total, tags, MetricType::Counter);
     }
     
     pub fn record_gauge(&mut self, name: &str, value: f64, tags: HashMap<String, String>) {
@@ -399,6 +393,8 @@ impl MetricRegistry {
 }
 ```
 
+Counter accumulation is isolated by the complete canonical tag set. Snapshot totals such as today's sales, Redis lifecycle totals, and queue depths are gauges; only event increments use counter semantics.
+
 ### Metrics Collector
 
 ```rust
@@ -408,45 +404,22 @@ pub struct MetricsCollector {
     db_pool: PgPool,
     cache: Option<CacheService>,
     is_running: Arc<RwLock<bool>>,
+    dropped_request_samples: Arc<AtomicU64>,
 }
 
 impl MetricsCollector {
-    pub async fn start(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let registry = self.registry.clone();
-        let config = self.config.clone();
-        let db_pool = self.db_pool.clone();
-        let cache = self.cache.clone();
-        let is_running = self.is_running.clone();
-        
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(config.collection_interval);
-            
-            while *is_running.read().await {
-                interval.tick().await;
-                
-                // Collect business metrics
-                if config.enable_business_metrics {
-                    if let Err(e) = BusinessMetrics::collect(&db_pool, &mut registry.write().await).await {
-                        error!("Failed to collect business metrics: {}", e);
-                    }
-                }
-                
-                // Collect technical metrics
-                if config.enable_technical_metrics {
-                    if let Err(e) = TechnicalMetrics::collect(&db_pool, cache.as_ref(), &mut registry.write().await).await {
-                        error!("Failed to collect technical metrics: {}", e);
-                    }
-                }
-                
-                // Cleanup old metrics
-                registry.write().await.cleanup_old_metrics(config.retention_period);
-            }
-        });
-        
-        Ok(())
-    }
+    // Database, Redis, and queue collection runs outside the registry lock.
+    // Completed, finite snapshots are recorded under one short write lock.
+    // Each collector has a bounded deadline.
+    pub async fn start(&self) -> Result<(), Box<dyn Error + Send + Sync>>;
+
+    // Request completion never waits for the metrics registry. Busy samples are
+    // counted and reported by the next collection cycle.
+    pub fn try_record_request(&self, method: &str, path: &str, status: u16, duration_ms: f64);
 }
 ```
+
+Technical values are nullable/absent when the platform or integration cannot provide evidence. Redis and job-queue metrics are omitted when those sources are disabled, unavailable, or time out. PostgreSQL statement-duration and slow-query fields are omitted when `pg_stat_statements` is unavailable. The registry rejects `NaN`, infinity, and invalid timer samples, so exporters never turn unavailable telemetry into zero or a non-finite number.
 
 ### Configuration
 
@@ -481,87 +454,7 @@ impl Default for MetricsConfig {
 
 ### Prometheus Exporter
 
-```rust
-#[derive(Debug, Clone)]
-pub struct PrometheusExporter {
-    namespace: String,
-    subsystem: Option<String>,
-}
-
-#[async_trait]
-impl MetricsExporter for PrometheusExporter {
-    async fn export(&self, registry: &MetricRegistry) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-        let mut output = String::new();
-        let metrics = registry.get_all_metrics();
-
-        for (metric_name, values) in metrics {
-            if values.is_empty() {
-                continue;
-            }
-
-            let sanitized_name = self.sanitize_metric_name(metric_name);
-            let full_name = self.format_metric_name(&sanitized_name);
-
-            // Export metric type
-            if let Some(latest_value) = values.last() {
-                let metric_type = match latest_value.metric_type {
-                    MetricType::Counter => "counter",
-                    MetricType::Gauge => "gauge",
-                    MetricType::Histogram => "histogram",
-                    MetricType::Timer => "histogram",
-                };
-
-                output.push_str(&format!("# TYPE {} {}\n", full_name, metric_type));
-
-                // For histograms, export buckets
-                if matches!(latest_value.metric_type, MetricType::Histogram | MetricType::Timer) {
-                    let mut sorted_values: Vec<f64> = values.iter().map(|v| v.value).collect();
-                    sorted_values.sort_by(|a, b| a.partial_cmp(b).unwrap());
-
-                    let buckets = vec![0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, f64::INFINITY];
-
-                    for bucket in &buckets {
-                        let count = sorted_values.iter().filter(|&&v| v <= *bucket).count() as f64;
-                        output.push_str(&format!(
-                            "{}_bucket{} {}\n",
-                            full_name,
-                            self.format_tags(&latest_value.tags),
-                            count
-                        ));
-                    }
-
-                    // Export sum and count
-                    let sum: f64 = values.iter().map(|v| v.value).sum();
-                    let count = values.len() as f64;
-
-                    output.push_str(&format!(
-                        "{}_sum{} {}\n",
-                        full_name,
-                        self.format_tags(&latest_value.tags),
-                        sum
-                    ));
-                    output.push_str(&format!(
-                        "{}_count{} {}\n",
-                        full_name,
-                        self.format_tags(&latest_value.tags),
-                        count
-                    ));
-                } else {
-                    // For counters and gauges
-                    output.push_str(&format!(
-                        "{}{} {}\n",
-                        full_name,
-                        self.format_tags(&latest_value.tags),
-                        latest_value.value
-                    ));
-                }
-            }
-        }
-
-        Ok(output)
-    }
-}
-```
+The Prometheus exporter groups every metric by its complete canonical tag set. It emits the latest gauge and cumulative counter for each series independently. Histogram and timer samples remain isolated per tag series and include cumulative `_bucket` lines with an explicit `le` label, plus `_sum` and `_count`. Millisecond-suffixed histograms use millisecond boundaries; timers use second boundaries. Metric names, label names, and label values are sanitized and escaped according to the Prometheus text format.
 
 **Example Output**:
 ```

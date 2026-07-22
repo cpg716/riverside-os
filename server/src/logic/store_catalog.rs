@@ -55,6 +55,17 @@ pub async fn list_store_products(
     if let Some(raw_q) = trimmed_q {
         if let Some(client) = meilisearch {
             match crate::logic::meilisearch_search::store_product_search_ids(client, raw_q).await {
+                Ok(ids)
+                    if crate::logic::meilisearch_search::candidate_ids_may_be_truncated(
+                        crate::logic::meilisearch_client::INDEX_STORE_PRODUCTS,
+                        ids.len(),
+                    ) =>
+                {
+                    tracing::warn!(
+                        candidate_count = ids.len(),
+                        "Meilisearch store candidate cap reached; using PostgreSQL for complete pagination"
+                    );
+                }
                 Ok(ids) if !ids.is_empty() => {
                     return sqlx::query_as::<_, StoreProductSummary>(
                         r#"

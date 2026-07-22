@@ -39,7 +39,17 @@ Cash refunds processed before close are recorded as negative cash activity and r
 
 If a card terminal outcome blocks close, use **Review** in the closing workflow or **POS → Payments** to record the outcome before continuing.
 
-If **Checkout recovery** appears, do not close the register yet. This means Riverside OS has a checkout that needs manager review, such as an offline sale waiting to sync, an online checkout where the server result was not confirmed, or a payment that posted before pickup could be completed. Confirm the transaction, pickup, or recovery item before retrying or closing.
+If **Checkout recovery** appears, Riverside OS has durable work that needs review: an offline sale waiting to sync, an online checkout whose server result was not confirmed, a paid pickup follow-up, an exchange replacement waiting for its return settlement, or a receipt retry. Register #1 also waits for every linked workstation to acknowledge its local checkout queue after reconciliation begins. The close panel reports local, Main Hub, and linked-workstation evidence separately; it never treats a missing acknowledgement as an empty queue.
+
+Use **Manager Recover Sales** for saved offline or unconfirmed checkout payloads. The manager enters an identity, Access PIN, and a reason of at least 12 characters. Riverside replays the original Register session, checkout identity, full sale snapshot, and payment fingerprint. An altered payload or a checkout identity from another session is rejected instead of creating a second Transaction Record.
+
+For a paid order follow-up, complete every named shipping, pickup, or alteration step in **Orders** or **Alterations** first. Then select **Verify completed follow-up** and complete Manager Access. Riverside checks the recorded Transaction Record, line, shipment, pickup, and alteration evidence before resolving the recovery record. The approval does not perform missing work or treat it as complete.
+
+Use **Complete Exchange Settlement** for a saved exchange replacement whose original return settlement did not finish. This requires Manager Access, a reason of at least 12 characters, and the currently authenticated Register session. Riverside locks the exact Main Hub recovery record, derives all amounts and return details from its saved server snapshot, verifies the replacement checkout identity and the original exchange-credit tender against the origin Register session, then records any new relief or refund movement in the current Register session. It refreshes the reconciliation totals after completion. If a linked provider card refund was intentionally deferred, the close panel keeps its exact remaining amount visible and directs staff to finish it from the original Transaction Record; it does not claim that provider refund completed. A legacy or altered record without complete server provenance remains visible and is rejected instead of moving money.
+
+If the business must close before every recovery record is resolved, the Z-Report step offers **Manager Force Z-Close**. This requires the same audited Manager approval and reason. Force-close preserves and lists every unresolved recovery record in the Z-Report audit snapshot; it does not dismiss the record or claim the work completed. A recovered sale posted after close is recorded as a post-close supplement tied to the original Register session.
+
+The separate **Prior or other till-group recovery** panel uses Staff Access with **Register Reports** permission to find open recovery outside the till group being closed. Those records are informational for the current Z-close and never become current close blockers. Saved checkouts can be replayed with Manager Access and remain tied to their original Register session. Exchange settlement records use the Manager completion workflow above and post new ledger movements only to the current Register session. Paid follow-up records use evidence verification. Receipt-print records are informational and must be handled through Print Recovery; they are never treated as missing sales or checkout replay. If the Main Hub, Staff Access, or permission check fails, the panel says the global list is unavailable; it never reports an authoritative empty list.
 
 ## ✨ Register close explainer
 
@@ -60,7 +70,7 @@ Upon closing, a professional, full-page **Z-Audit Report** is generated.
 
 ## Recovery and escalation
 
-The final pending business-day close is final for the till group. If cash, card, gift card, pickup completion, checkout recovery, or RMS/R2S totals do not match expected evidence, stop before closing and review the daily sales and terminal reports. A manager should decide whether the variance is explained, needs a note, or should block close until support/accounting reviews it.
+The final pending business-day close is final for the till group. If cash, card, gift card, pickup completion, checkout recovery, or RMS/R2S totals do not match expected evidence, stop before closing and review the daily sales and terminal reports. A manager should normally recover the work first. Use audited force-close only when delaying the till close would be worse than carrying an explicitly listed recovery item into accounting follow-up.
 
 
 ## Tips

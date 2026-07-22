@@ -1478,8 +1478,10 @@ mod tests {
             gift_card_code: None,
             manager_staff_id: None,
             manager_pin: None,
+            manager_approval_reference: None,
             manager_reason: None,
             external_refund_reference: None,
+            card_last4: None,
             return_lines: Vec::new(),
         };
 
@@ -1802,6 +1804,136 @@ mod tests {
         assert_eq!(amount, Decimal::new(875, 2));
         assert_eq!(ledger_balance, balance_after);
         assert_eq!(reason, "transaction_void_reversal");
+
+        tx.rollback().await.expect("rollback transaction");
+    }
+
+    #[tokio::test]
+    async fn booking_event_trigger_allows_line_and_parent_transaction_deletes() {
+        let Ok(database_url) = std::env::var("DATABASE_URL") else {
+            return;
+        };
+        let mut conn = sqlx::PgConnection::connect(&database_url)
+            .await
+            .expect("connect test database");
+        let mut tx = conn.begin().await.expect("begin transaction");
+
+        let transaction_id = Uuid::new_v4();
+        let transaction_line_id = Uuid::new_v4();
+        let product_id: Uuid = sqlx::query_scalar("SELECT id FROM products LIMIT 1")
+            .fetch_one(&mut *tx)
+            .await
+            .expect("existing product");
+        sqlx::query(
+            r#"
+            INSERT INTO transactions (
+                id, total_price, balance_due, display_id, checkout_client_id
+            ) VALUES ($1, 50.00, 50.00, $2, $3)
+            "#,
+        )
+        .bind(transaction_id)
+        .bind(format!("TXN-DELETE-{}", transaction_id.simple()))
+        .bind(Uuid::new_v4())
+        .execute(&mut *tx)
+        .await
+        .expect("insert line-deletion test transaction");
+        sqlx::query(
+            r#"
+            INSERT INTO transaction_lines (
+                id, transaction_id, product_id, fulfillment, quantity, unit_price, unit_cost,
+                state_tax, local_tax
+            ) VALUES ($1, $2, $3, 'special_order', 2, 25.00, 10.00, 1.00, 0.50)
+            "#,
+        )
+        .bind(transaction_line_id)
+        .bind(transaction_id)
+        .bind(product_id)
+        .execute(&mut *tx)
+        .await
+        .expect("insert line-deletion test line");
+
+        sqlx::query("DELETE FROM transaction_lines WHERE id = $1")
+            .bind(transaction_line_id)
+            .execute(&mut *tx)
+            .await
+            .expect("deleting a line should retain a booking adjustment");
+
+        let (event_line_id, subtotal_delta, tax_delta, deleted_line_id): (
+            Option<Uuid>,
+            Decimal,
+            Decimal,
+            Option<String>,
+        ) = sqlx::query_as(
+            r#"
+            SELECT
+                transaction_line_id,
+                subtotal_delta,
+                tax_delta,
+                metadata->>'deleted_transaction_line_id'
+            FROM transaction_line_booking_events
+            WHERE transaction_id = $1
+              AND event_kind = 'line_deleted'
+            "#,
+        )
+        .bind(transaction_id)
+        .fetch_one(&mut *tx)
+        .await
+        .expect("load line-deletion booking event");
+        assert_eq!(event_line_id, None);
+        assert_eq!(subtotal_delta, Decimal::new(-5000, 2));
+        assert_eq!(tax_delta, Decimal::new(-300, 2));
+        assert_eq!(deleted_line_id, Some(transaction_line_id.to_string()));
+
+        let parent_transaction_id = Uuid::new_v4();
+        let parent_transaction_line_id = Uuid::new_v4();
+        sqlx::query(
+            r#"
+            INSERT INTO transactions (
+                id, total_price, balance_due, display_id, checkout_client_id
+            ) VALUES ($1, 25.00, 25.00, $2, $3)
+            "#,
+        )
+        .bind(parent_transaction_id)
+        .bind(format!(
+            "TXN-PARENT-DELETE-{}",
+            parent_transaction_id.simple()
+        ))
+        .bind(Uuid::new_v4())
+        .execute(&mut *tx)
+        .await
+        .expect("insert parent-deletion test transaction");
+        sqlx::query(
+            r#"
+            INSERT INTO transaction_lines (
+                id, transaction_id, product_id, fulfillment, quantity, unit_price, unit_cost
+            ) VALUES ($1, $2, $3, 'special_order', 1, 25.00, 10.00)
+            "#,
+        )
+        .bind(parent_transaction_line_id)
+        .bind(parent_transaction_id)
+        .bind(product_id)
+        .execute(&mut *tx)
+        .await
+        .expect("insert parent-deletion test line");
+
+        sqlx::query("DELETE FROM transactions WHERE id = $1")
+            .bind(parent_transaction_id)
+            .execute(&mut *tx)
+            .await
+            .expect("deleting a transaction should cascade through its lines and events");
+
+        let remaining_parent_rows: i64 = sqlx::query_scalar(
+            r#"
+            SELECT
+                (SELECT COUNT(*) FROM transaction_lines WHERE transaction_id = $1)
+                + (SELECT COUNT(*) FROM transaction_line_booking_events WHERE transaction_id = $1)
+            "#,
+        )
+        .bind(parent_transaction_id)
+        .fetch_one(&mut *tx)
+        .await
+        .expect("count parent-deletion remnants");
+        assert_eq!(remaining_parent_rows, 0);
 
         tx.rollback().await.expect("rollback transaction");
     }
@@ -2158,12 +2290,17 @@ pub struct ProcessRefundRequest {
     /// Optional: 4-digit PIN of the manager authorizing a legacy manual refund override.
     #[serde(default)]
     pub manager_pin: Option<String>,
+    /// Server-issued audit reference for a pre-authorized manual external card refund.
+    #[serde(default)]
+    pub manager_approval_reference: Option<Uuid>,
     /// Optional: Reason for the legacy manual refund override.
     #[serde(default)]
     pub manager_reason: Option<String>,
     /// Required for manual card refunds processed outside ROS, such as Helcim dashboard refunds.
     #[serde(default)]
     pub external_refund_reference: Option<String>,
+    #[serde(default)]
+    pub card_last4: Option<String>,
     /// Optional staged return lines to record atomically with the refund.
     #[serde(default)]
     pub return_lines: Vec<TransactionReturnLineBody>,
@@ -2198,6 +2335,16 @@ pub struct ExchangeSettlementRequest {
     /// Card refund completed by the provider workflow immediately after this settlement.
     #[serde(default)]
     pub deferred_card_refund_amount: Option<Decimal>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ExchangeSettlementRecoveryRequest {
+    /// The currently authenticated, open Register session that will own any
+    /// new refund or relief ledger movements created by the recovery.
+    pub posting_session_id: Uuid,
+    pub manager_staff_id: Uuid,
+    pub manager_pin: String,
+    pub reason: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -2280,6 +2427,10 @@ pub fn router() -> Router<AppState> {
         .route(
             "/{transaction_id}/exchange-settlement",
             post(process_exchange_settlement),
+        )
+        .route(
+            "/exchange-settlement-recovery/{client_job_key}",
+            post(process_exchange_settlement_recovery),
         )
         .route("/{transaction_id}/returns", post(post_transaction_returns))
         .route(
@@ -5592,24 +5743,12 @@ async fn process_refund(
 
         if cards.is_empty() || manual_external_card_refund {
             // Check if this is a governed manual legacy refund override.
-            if let (Some(m_id), Some(m_pin)) = (body.manager_staff_id, body.manager_pin.as_deref())
-            {
-                let manager = authenticate_manager_approval(
-                    &state,
-                    m_id,
-                    m_pin,
-                    if manual_external_card_refund {
-                        "Manager Access approval permission required for manual external card refund"
-                    } else {
-                        "Manager Access approval permission required for legacy manual refund"
-                    },
-                )
-                .await?;
-
+            if let Some(m_id) = body.manager_staff_id {
                 let reason = body
                     .manager_reason
                     .as_deref()
-                    .filter(|s| !s.trim().is_empty())
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
                     .ok_or_else(|| {
                         TransactionError::InvalidPayload(
                             if manual_external_card_refund {
@@ -5631,6 +5770,82 @@ async fn process_refund(
                                 .to_string(),
                         )
                     })?;
+                let card_last4 = body.card_last4.as_deref().map(str::trim).filter(|value| {
+                    value.len() == 4 && value.chars().all(|ch| ch.is_ascii_digit())
+                });
+                let manager_approval_reference = if manual_external_card_refund {
+                    Some(body.manager_approval_reference.ok_or_else(|| {
+                        TransactionError::InvalidPayload(
+                            "server-issued Manager Access approval reference is required for manual external card refund"
+                                .to_string(),
+                        )
+                    })?)
+                } else {
+                    None
+                };
+                let manager_id = if let Some(approval_reference) = manager_approval_reference {
+                    let card_last4 = card_last4.ok_or_else(|| {
+                        TransactionError::InvalidPayload(
+                            "card last 4 digits are required for manual external card refund"
+                                .to_string(),
+                        )
+                    })?;
+                    let approved: bool = sqlx::query_scalar(
+                        r#"
+                        SELECT EXISTS(
+                            SELECT 1
+                            FROM staff_access_log approval
+                            WHERE approval.id = $1
+                              AND approval.staff_id = $2
+                              AND approval.event_kind = 'manual_external_card_refund_authorization'
+                              AND approval.created_at >= CURRENT_TIMESTAMP - INTERVAL '30 minutes'
+                              AND approval.metadata->>'transaction_id' = $3::text
+                              AND approval.metadata->>'register_session_id' = $4::text
+                              AND approval.metadata->>'amount' = $5
+                              AND approval.metadata->>'external_refund_reference' = $6
+                              AND approval.metadata->>'manager_reason' = $7
+                              AND approval.metadata->>'card_last4' = $8
+                              AND NOT EXISTS (
+                                  SELECT 1
+                                  FROM payment_transactions used
+                                  WHERE used.metadata->>'manager_approval_reference' = $1::text
+                              )
+                        )
+                        "#,
+                    )
+                    .bind(approval_reference)
+                    .bind(m_id)
+                    .bind(transaction_id)
+                    .bind(body.session_id)
+                    .bind(format!("{exact_refund_amount:.2}"))
+                    .bind(external_refund_reference)
+                    .bind(reason)
+                    .bind(card_last4)
+                    .fetch_one(&mut *tx)
+                    .await?;
+                    if !approved {
+                        return Err(TransactionError::InvalidPayload(
+                            "Manager Access approval reference is expired, already used, or does not match this refund"
+                                .to_string(),
+                        ));
+                    }
+                    m_id
+                } else {
+                    let manager_pin = body.manager_pin.as_deref().ok_or_else(|| {
+                        TransactionError::InvalidPayload(
+                            "Manager Access PIN is required for legacy manual refund override"
+                                .to_string(),
+                        )
+                    })?;
+                    authenticate_manager_approval(
+                        &state,
+                        m_id,
+                        manager_pin,
+                        "Manager Access approval permission required for legacy manual refund",
+                    )
+                    .await?
+                    .id
+                };
                 let refund_record_kind = if manual_external_card_refund {
                     "external_card_refund"
                 } else {
@@ -5648,20 +5863,25 @@ async fn process_refund(
                     "manual_legacy_refund"
                 };
 
-                // Log the audit event.
-                crate::auth::pins::log_staff_access(
-                    &state.db,
-                    manager.id,
-                    staff_access_action,
-                    json!({
-                        "transaction_id": transaction_id,
-                        "refund_queue_id": refund.id,
-                        "amount_cents": (exact_refund_amount * Decimal::from(100)).to_i64(),
-                        "authorizing_manager_id": manager.id,
-                        "reason": reason,
-                        "external_refund_reference": external_refund_reference,
-                    }),
+                // Record completion in the same database transaction as the refund.
+                sqlx::query(
+                    r#"
+                    INSERT INTO staff_access_log (staff_id, event_kind, metadata)
+                    VALUES ($1, $2, $3)
+                    "#,
                 )
+                .bind(manager_id)
+                .bind(staff_access_action)
+                .bind(json!({
+                    "transaction_id": transaction_id,
+                    "refund_queue_id": refund.id,
+                    "amount_cents": (exact_refund_amount * Decimal::from(100)).to_i64(),
+                    "authorizing_manager_id": manager_id,
+                    "manager_approval_reference": manager_approval_reference,
+                    "reason": reason,
+                    "external_refund_reference": external_refund_reference,
+                }))
+                .execute(&mut *tx)
                 .await?;
 
                 // Create a real negative external-card payment. The supplied reference is
@@ -5685,9 +5905,11 @@ async fn process_refund(
                     "kind": refund_record_kind,
                     "manual_terminal_confirmation": true,
                     "requires_operator_terminal_action": true,
-                    "authorizing_manager_id": manager.id,
+                    "authorizing_manager_id": manager_id,
+                    "manager_approval_reference": manager_approval_reference,
                     "reason": reason,
                     "external_refund_reference": external_refund_reference,
+                    "card_last4": card_last4,
                     "external_refund_processor": "external_card",
                     "refund_event_id": refund_event_id,
                     "transaction_id": transaction_id,
@@ -5777,9 +5999,11 @@ async fn process_refund(
                         "amount": exact_refund_amount,
                         "cash_tender_amount": cash_tender_amount,
                         "cash_rounding_adjustment": cash_rounding_adjustment,
-                        "authorizing_manager_id": manager.id,
+                        "authorizing_manager_id": manager_id,
+                        "manager_approval_reference": manager_approval_reference,
                         "reason": reason,
                         "external_refund_reference": external_refund_reference,
+                        "card_last4": card_last4,
                         "external_refund_processor": "external_card",
                         "refund_event_id": refund_event_id,
                     }),
@@ -6635,6 +6859,538 @@ async fn process_exchange_settlement(
         .await
         .map_err(map_perm_err)?;
 
+    execute_exchange_settlement(
+        &state,
+        ExchangeSettlementSource::Direct {
+            transaction_id,
+            body,
+            actor_staff_id: staff.id,
+        },
+    )
+    .await
+}
+
+async fn process_exchange_settlement_recovery(
+    State(state): State<AppState>,
+    Path(client_job_key): Path<String>,
+    headers: HeaderMap,
+    Json(body): Json<ExchangeSettlementRecoveryRequest>,
+) -> Result<Json<serde_json::Value>, TransactionError> {
+    middleware::require_pos_register_session_for_checkout(
+        &state,
+        &headers,
+        body.posting_session_id,
+    )
+    .await
+    .map_err(map_perm_err)?;
+
+    let reason = body.reason.trim();
+    if !(12..=500).contains(&reason.chars().count()) {
+        return Err(TransactionError::InvalidPayload(
+            "recovery reason must be between 12 and 500 characters".to_string(),
+        ));
+    }
+    let manager_pin = body.manager_pin.trim();
+    if manager_pin.is_empty() {
+        return Err(TransactionError::InvalidPayload(
+            "manager_pin is required".to_string(),
+        ));
+    }
+    let manager =
+        pins::authenticate_staff_by_id(&state.db, body.manager_staff_id, Some(manager_pin))
+            .await
+            .map_err(|_| {
+                TransactionError::Unauthorized(
+                    "valid Manager Access staff and Access PIN required".to_string(),
+                )
+            })?;
+    let effective = effective_permissions_for_staff(&state.db, manager.id, manager.role)
+        .await
+        .map_err(TransactionError::Database)?;
+    if !staff_can_approve_manager_access(&effective, manager.role)
+        || !staff_has_permission(&effective, ORDERS_REFUND_PROCESS)
+    {
+        return Err(TransactionError::Forbidden(
+            "Manager Access with refund permission is required".to_string(),
+        ));
+    }
+
+    execute_exchange_settlement(
+        &state,
+        ExchangeSettlementSource::Recovery {
+            client_job_key,
+            posting_session_id: body.posting_session_id,
+            manager_staff_id: manager.id,
+            manager_reason: reason.to_string(),
+        },
+    )
+    .await
+}
+
+enum ExchangeSettlementSource {
+    Direct {
+        transaction_id: Uuid,
+        body: ExchangeSettlementRequest,
+        actor_staff_id: Uuid,
+    },
+    Recovery {
+        client_job_key: String,
+        posting_session_id: Uuid,
+        manager_staff_id: Uuid,
+        manager_reason: String,
+    },
+}
+
+struct ExchangeSettlementRecoveryAudit {
+    client_job_key: String,
+    manager_reason: String,
+    origin_session_id: Uuid,
+    posting_session_id: Uuid,
+}
+
+async fn deferred_card_refund_due_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    transaction_id: Uuid,
+    planned_deferred_amount: Decimal,
+) -> Result<Decimal, TransactionError> {
+    if planned_deferred_amount <= Decimal::ZERO {
+        return Ok(Decimal::ZERO);
+    }
+    let outstanding: Option<Decimal> = sqlx::query_scalar(
+        r#"
+        SELECT GREATEST(amount_due - amount_refunded, 0)::numeric(14,2)
+        FROM transaction_refund_queue
+        WHERE transaction_id = $1 AND is_open = TRUE
+        ORDER BY created_at DESC
+        LIMIT 1
+        "#,
+    )
+    .bind(transaction_id)
+    .fetch_optional(&mut **tx)
+    .await?;
+    let outstanding = outstanding.unwrap_or(Decimal::ZERO);
+    Ok(if outstanding < planned_deferred_amount {
+        outstanding
+    } else {
+        planned_deferred_amount
+    })
+}
+
+async fn resolve_exchange_recovery_job_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    original_transaction_id: Uuid,
+    replacement_transaction_id: Uuid,
+    actor_staff_id: Uuid,
+    direct_resolution_note: &str,
+    recovery_audit: Option<&ExchangeSettlementRecoveryAudit>,
+) -> Result<(), TransactionError> {
+    let resolution_note = recovery_audit
+        .map(|audit| format!("Manager recovery: {}", audit.manager_reason))
+        .unwrap_or_else(|| direct_resolution_note.to_string());
+    let resolved = if let Some(audit) = recovery_audit {
+        sqlx::query(
+            r#"
+            UPDATE operational_recovery_job
+            SET status = 'resolved', resolved_at = now(), resolved_by_staff_id = $2,
+                resolution_note = $3, last_seen_at = now()
+            WHERE client_job_key = $1
+              AND kind = 'exchange_settlement'
+              AND status IN ('pending', 'blocked')
+            "#,
+        )
+        .bind(&audit.client_job_key)
+        .bind(actor_staff_id)
+        .bind(&resolution_note)
+        .execute(&mut **tx)
+        .await?
+    } else {
+        sqlx::query(
+            r#"
+            UPDATE operational_recovery_job
+            SET status = 'resolved', resolved_at = now(), resolved_by_staff_id = $2,
+                resolution_note = $3, last_seen_at = now()
+            WHERE kind = 'exchange_settlement'
+              AND transaction_id = $1
+              AND status IN ('pending', 'blocked')
+            "#,
+        )
+        .bind(replacement_transaction_id)
+        .bind(actor_staff_id)
+        .bind(&resolution_note)
+        .execute(&mut **tx)
+        .await?
+    };
+
+    if recovery_audit.is_some() && resolved.rows_affected() != 1 {
+        return Err(TransactionError::InvalidPayload(
+            "the locked exchange recovery job changed before it could be resolved".to_string(),
+        ));
+    }
+
+    if let Some(audit) = recovery_audit {
+        sqlx::query(
+            r#"
+            INSERT INTO staff_access_log (
+                staff_id, event_kind, metadata, idempotency_key
+            )
+            VALUES ($1, 'register_exchange_settlement_recovery', $2, $3)
+            ON CONFLICT (idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING
+            "#,
+        )
+        .bind(actor_staff_id)
+        .bind(json!({
+            "client_job_key": audit.client_job_key,
+            "manager_reason": audit.manager_reason,
+            "original_transaction_id": original_transaction_id,
+            "replacement_transaction_id": replacement_transaction_id,
+            "origin_session_id": audit.origin_session_id,
+            "posting_session_id": audit.posting_session_id,
+        }))
+        .bind(format!(
+            "register-exchange-settlement-recovery:{}",
+            audit.client_job_key
+        ))
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    Ok(())
+}
+
+async fn execute_exchange_settlement(
+    state: &AppState,
+    source: ExchangeSettlementSource,
+) -> Result<Json<serde_json::Value>, TransactionError> {
+    let mut tx = state.db.begin().await?;
+    // Register close takes session locks before reading recovery jobs. Preserve
+    // that order here so settlement recovery cannot deadlock with Z-close.
+    let (posting_session_to_lock, recovery_may_post_during_reconciliation) = match &source {
+        ExchangeSettlementSource::Direct { body, .. } => (body.session_id, false),
+        ExchangeSettlementSource::Recovery {
+            posting_session_id, ..
+        } => (*posting_session_id, true),
+    };
+    let posting_session_open: Option<bool> = sqlx::query_scalar(
+        r#"
+        SELECT is_open = TRUE
+           AND (
+               lifecycle_status = 'open'
+               OR ($2 AND lifecycle_status = 'reconciling')
+           )
+        FROM register_sessions
+        WHERE id = $1
+        FOR UPDATE
+        "#,
+    )
+    .bind(posting_session_to_lock)
+    .bind(recovery_may_post_during_reconciliation)
+    .fetch_optional(&mut *tx)
+    .await?;
+    if posting_session_open != Some(true) {
+        return Err(TransactionError::InvalidPayload(
+            "posting Register session is not open".to_string(),
+        ));
+    }
+
+    let (
+        transaction_id,
+        body,
+        origin_session_id,
+        posting_session_id,
+        actor_staff_id,
+        recovery_audit,
+        recovery_already_resolved,
+    ) = match source {
+        ExchangeSettlementSource::Direct {
+            transaction_id,
+            body,
+            actor_staff_id,
+        } => {
+            let session_id = body.session_id;
+            (
+                transaction_id,
+                body,
+                session_id,
+                session_id,
+                actor_staff_id,
+                None,
+                false,
+            )
+        }
+        ExchangeSettlementSource::Recovery {
+            client_job_key,
+            posting_session_id,
+            manager_staff_id,
+            manager_reason,
+        } => {
+            let locked_job: Option<(
+                Option<Uuid>,
+                Option<Uuid>,
+                Option<Uuid>,
+                serde_json::Value,
+                String,
+            )> = sqlx::query_as(
+                r#"
+                    SELECT register_session_id, transaction_id, checkout_client_id, payload, status
+                    FROM operational_recovery_job
+                    WHERE client_job_key = $1
+                      AND kind = 'exchange_settlement'
+                      AND status IN ('pending', 'blocked', 'resolved')
+                    FOR UPDATE
+                    "#,
+            )
+            .bind(&client_job_key)
+            .fetch_optional(&mut *tx)
+            .await?;
+            let Some((
+                job_origin_session_id,
+                job_replacement_transaction_id,
+                job_checkout_client_id,
+                payload,
+                job_status,
+            )) = locked_job
+            else {
+                return Err(TransactionError::InvalidPayload(
+                    "the exchange recovery job is no longer open".to_string(),
+                ));
+            };
+            let job_origin_session_id = job_origin_session_id.ok_or_else(|| {
+                TransactionError::InvalidPayload(
+                    "the exchange recovery job is missing its origin Register session".to_string(),
+                )
+            })?;
+            let job_replacement_transaction_id =
+                job_replacement_transaction_id.ok_or_else(|| {
+                    TransactionError::InvalidPayload(
+                        "the exchange recovery job is missing its replacement transaction"
+                            .to_string(),
+                    )
+                })?;
+            let job_checkout_client_id = job_checkout_client_id.ok_or_else(|| {
+                TransactionError::InvalidPayload(
+                    "the exchange recovery job has no server checkout identity".to_string(),
+                )
+            })?;
+            if client_job_key != format!("exchange:{job_checkout_client_id}") {
+                return Err(TransactionError::InvalidPayload(
+                    "the exchange recovery job key does not match its server checkout identity"
+                        .to_string(),
+                ));
+            }
+            let payload_original_transaction_id: Uuid = payload
+                .get("original_transaction_id")
+                .cloned()
+                .ok_or_else(|| {
+                    TransactionError::InvalidPayload(
+                        "the exchange recovery job is missing its original transaction".to_string(),
+                    )
+                })
+                .and_then(|value| {
+                    serde_json::from_value(value).map_err(|_| {
+                        TransactionError::InvalidPayload(
+                            "the exchange recovery job has an invalid original transaction"
+                                .to_string(),
+                        )
+                    })
+                })?;
+            let payload_replacement_transaction_id: Uuid = payload
+                .get("replacement_transaction_id")
+                .cloned()
+                .ok_or_else(|| {
+                    TransactionError::InvalidPayload(
+                        "the exchange recovery job is missing its replacement transaction"
+                            .to_string(),
+                    )
+                })
+                .and_then(|value| {
+                    serde_json::from_value(value).map_err(|_| {
+                        TransactionError::InvalidPayload(
+                            "the exchange recovery job has an invalid replacement transaction"
+                                .to_string(),
+                        )
+                    })
+                })?;
+            let payload_exchange_credit_amount: Decimal = payload
+                .get("exchange_credit_amount")
+                .cloned()
+                .ok_or_else(|| {
+                    TransactionError::InvalidPayload(
+                        "the exchange recovery job is missing its exchange credit amount"
+                            .to_string(),
+                    )
+                })
+                .and_then(|value| {
+                    serde_json::from_value(value).map_err(|_| {
+                        TransactionError::InvalidPayload(
+                            "the exchange recovery job has an invalid exchange credit amount"
+                                .to_string(),
+                        )
+                    })
+                })?;
+            let settlement_request =
+                payload.get("settlement_request").cloned().ok_or_else(|| {
+                    TransactionError::InvalidPayload(
+                        "the exchange recovery job is missing its immutable settlement request"
+                            .to_string(),
+                    )
+                })?;
+            let settlement_body: ExchangeSettlementRequest =
+                serde_json::from_value(settlement_request).map_err(|_| {
+                    TransactionError::InvalidPayload(
+                        "the exchange recovery job has an invalid immutable settlement request"
+                            .to_string(),
+                    )
+                })?;
+
+            if payload_replacement_transaction_id != job_replacement_transaction_id
+                || settlement_body.replacement_transaction_id != job_replacement_transaction_id
+                || payload_exchange_credit_amount != settlement_body.exchange_credit_amount
+                || settlement_body.session_id != job_origin_session_id
+            {
+                return Err(TransactionError::InvalidPayload(
+                    "the exchange recovery job identity or financial snapshot is inconsistent"
+                        .to_string(),
+                ));
+            }
+
+            let replacement_provenance: Option<(Option<Uuid>, Option<String>, Option<String>)> =
+                sqlx::query_as(
+                    r#"
+                SELECT
+                    checkout_client_id,
+                    checkout_request_fingerprint,
+                    checkout_payment_fingerprint
+                FROM transactions
+                WHERE id = $1
+                "#,
+                )
+                .bind(job_replacement_transaction_id)
+                .fetch_optional(&mut *tx)
+                .await?;
+            let Some((
+                replacement_checkout_client_id,
+                replacement_request_fingerprint,
+                replacement_payment_fingerprint,
+            )) = replacement_provenance
+            else {
+                return Err(TransactionError::InvalidPayload(
+                    "the exchange recovery replacement transaction was not found".to_string(),
+                ));
+            };
+            if replacement_checkout_client_id != Some(job_checkout_client_id)
+                || replacement_request_fingerprint
+                    .as_deref()
+                    .map(str::is_empty)
+                    .unwrap_or(true)
+                || replacement_payment_fingerprint
+                    .as_deref()
+                    .map(str::is_empty)
+                    .unwrap_or(true)
+            {
+                return Err(TransactionError::InvalidPayload(
+                    "the exchange recovery job lacks provable server checkout provenance"
+                        .to_string(),
+                ));
+            }
+
+            (
+                payload_original_transaction_id,
+                settlement_body,
+                job_origin_session_id,
+                posting_session_id,
+                manager_staff_id,
+                Some(ExchangeSettlementRecoveryAudit {
+                    client_job_key,
+                    manager_reason,
+                    origin_session_id: job_origin_session_id,
+                    posting_session_id,
+                }),
+                job_status == "resolved",
+            )
+        }
+    };
+
+    if recovery_already_resolved {
+        let audit = recovery_audit.as_ref().ok_or_else(|| {
+            TransactionError::InvalidPayload(
+                "resolved exchange recovery is missing its audit context".to_string(),
+            )
+        })?;
+        let audit_matches: bool = sqlx::query_scalar(
+            r#"
+            SELECT EXISTS (
+                SELECT 1
+                FROM staff_access_log
+                WHERE event_kind = 'register_exchange_settlement_recovery'
+                  AND idempotency_key = $1
+                  AND metadata->>'client_job_key' = $2
+                  AND metadata->>'original_transaction_id' = $3
+                  AND metadata->>'replacement_transaction_id' = $4
+                  AND metadata->>'origin_session_id' = $5
+                  AND metadata->>'posting_session_id' = $6
+            )
+            "#,
+        )
+        .bind(format!(
+            "register-exchange-settlement-recovery:{}",
+            audit.client_job_key
+        ))
+        .bind(&audit.client_job_key)
+        .bind(transaction_id.to_string())
+        .bind(body.replacement_transaction_id.to_string())
+        .bind(origin_session_id.to_string())
+        .bind(posting_session_id.to_string())
+        .fetch_one(&mut *tx)
+        .await?;
+        if !audit_matches {
+            return Err(TransactionError::InvalidPayload(
+                "resolved exchange recovery does not match this posting Register audit".to_string(),
+            ));
+        }
+        let exchange_group_id: Option<Uuid> = sqlx::query_scalar(
+            r#"
+            SELECT NULLIF(metadata->>'exchange_group_id', '')::uuid
+            FROM transaction_activity_log
+            WHERE transaction_id = $1
+              AND event_kind = 'exchange_settled'
+              AND metadata->>'replacement_transaction_id' = $2
+            ORDER BY created_at DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(transaction_id)
+        .bind(body.replacement_transaction_id.to_string())
+        .fetch_optional(&mut *tx)
+        .await?;
+        let exchange_group_id = exchange_group_id.ok_or_else(|| {
+            TransactionError::InvalidPayload(
+                "resolved exchange recovery is missing its settlement audit".to_string(),
+            )
+        })?;
+        let deferred_card_refund_amount = body
+            .deferred_card_refund_amount
+            .unwrap_or(Decimal::ZERO)
+            .round_dp(2);
+        let deferred_card_refund_due_amount =
+            deferred_card_refund_due_in_tx(&mut tx, transaction_id, deferred_card_refund_amount)
+                .await?;
+        let refund_remainder_amount = body
+            .refund_remainder
+            .as_ref()
+            .map(|remainder| remainder.amount.round_dp(2))
+            .unwrap_or(Decimal::ZERO);
+        tx.commit().await?;
+        return Ok(Json(json!({
+            "status": "ok",
+            "exchange_group_id": exchange_group_id,
+            "exchange_credit_amount": body.exchange_credit_amount,
+            "refund_remainder_amount": refund_remainder_amount,
+            "deferred_card_refund_amount": deferred_card_refund_amount,
+            "deferred_card_refund_due_amount": deferred_card_refund_due_amount,
+            "idempotent_replay": true,
+        })));
+    }
+
     if body.replacement_transaction_id == transaction_id {
         return Err(TransactionError::InvalidPayload(
             "replacement transaction must differ from the return transaction".to_string(),
@@ -6705,24 +7461,6 @@ async fn process_exchange_settlement(
     validate_return_line_financial_total(&body.return_lines, total_return_credit.round_dp(2))?;
     let refund_event_id = Uuid::new_v4();
 
-    let mut tx = state.db.begin().await?;
-    let session_open: Option<bool> = sqlx::query_scalar(
-        r#"
-        SELECT lifecycle_status = 'open'
-        FROM register_sessions
-        WHERE id = $1
-        FOR UPDATE
-        "#,
-    )
-    .bind(body.session_id)
-    .fetch_optional(&mut *tx)
-    .await?;
-    if session_open != Some(true) {
-        return Err(TransactionError::InvalidPayload(
-            "register session is not open".to_string(),
-        ));
-    }
-
     // The replacement checkout is committed before this settlement request.
     // If the response is lost, the register retries the same settlement. Lock
     // the original transaction before checking the audit row so concurrent
@@ -6753,12 +7491,26 @@ async fn process_exchange_settlement(
     .fetch_optional(&mut *tx)
     .await?;
     if let Some(exchange_group_id) = settled_exchange_group {
+        let deferred_card_refund_due_amount =
+            deferred_card_refund_due_in_tx(&mut tx, transaction_id, deferred_card_refund_amount)
+                .await?;
+        resolve_exchange_recovery_job_in_tx(
+            &mut tx,
+            transaction_id,
+            body.replacement_transaction_id,
+            actor_staff_id,
+            "Exchange settlement confirmed by idempotent replay",
+            recovery_audit.as_ref(),
+        )
+        .await?;
         tx.commit().await?;
         return Ok(Json(json!({
             "status": "ok",
             "exchange_group_id": exchange_group_id,
             "exchange_credit_amount": body.exchange_credit_amount,
             "refund_remainder_amount": refund_remainder_amount,
+            "deferred_card_refund_amount": deferred_card_refund_amount,
+            "deferred_card_refund_due_amount": deferred_card_refund_due_amount,
             "idempotent_replay": true,
         })));
     }
@@ -6767,13 +7519,13 @@ async fn process_exchange_settlement(
         let return_inputs = return_line_inputs_from_body(
             &body.return_lines,
             "exchange",
-            Some(body.session_id),
+            Some(posting_session_id),
             refund_event_id,
         );
         transaction_returns::apply_transaction_returns_in_tx(
             &mut tx,
             transaction_id,
-            Some(staff.id),
+            Some(actor_staff_id),
             return_inputs,
         )
         .await
@@ -6917,6 +7669,19 @@ async fn process_exchange_settlement(
         )
         .await?;
 
+        let deferred_card_refund_due_amount =
+            deferred_card_refund_due_in_tx(&mut tx, transaction_id, deferred_card_refund_amount)
+                .await?;
+        resolve_exchange_recovery_job_in_tx(
+            &mut tx,
+            transaction_id,
+            body.replacement_transaction_id,
+            actor_staff_id,
+            "Exchange settlement completed",
+            recovery_audit.as_ref(),
+        )
+        .await?;
+
         tx.commit().await?;
 
         tracing::info!(
@@ -6930,6 +7695,8 @@ async fn process_exchange_settlement(
             "exchange_group_id": exchange_group_id,
             "exchange_credit_amount": body.exchange_credit_amount,
             "refund_remainder_amount": refund_remainder_amount,
+            "deferred_card_refund_amount": deferred_card_refund_amount,
+            "deferred_card_refund_due_amount": deferred_card_refund_due_amount,
         })));
     }
 
@@ -6944,17 +7711,19 @@ async fn process_exchange_settlement(
             WHERE pa.target_transaction_id = $1
               AND pt.session_id = $2
               AND LOWER(pt.payment_method) = 'exchange_credit'
+              AND pa.metadata->>'original_transaction_id' = $3
               AND pa.amount_allocated > 0
             "#,
         )
         .bind(body.replacement_transaction_id)
-        .bind(body.session_id)
+        .bind(origin_session_id)
+        .bind(transaction_id.to_string())
         .fetch_one(&mut *tx)
         .await?;
-        if applied_exchange_credit < body.exchange_credit_amount {
+        if applied_exchange_credit != body.exchange_credit_amount {
             return Err(TransactionError::InvalidPayload(format!(
-                "replacement transaction is missing ${} of exchange credit tender",
-                body.exchange_credit_amount
+                "replacement transaction exchange credit tender does not exactly match ${}",
+                body.exchange_credit_amount,
             )));
         }
     }
@@ -7003,7 +7772,7 @@ async fn process_exchange_settlement(
             RETURNING id
             "#,
         )
-        .bind(body.session_id)
+        .bind(posting_session_id)
         .bind(refund.customer_id)
         .bind(DbTransactionCategory::RetailSale)
         .bind(-body.exchange_credit_amount)
@@ -7061,7 +7830,7 @@ async fn process_exchange_settlement(
                 code,
                 refund_remainder_amount,
                 transaction_id,
-                body.session_id,
+                posting_session_id,
             )
             .await
             .map_err(|e| match e {
@@ -7153,7 +7922,7 @@ async fn process_exchange_settlement(
             RETURNING id
             "#,
         )
-        .bind(body.session_id)
+        .bind(posting_session_id)
         .bind(refund.customer_id)
         .bind(DbTransactionCategory::RetailSale)
         .bind(remainder.payment_method.trim())
@@ -7282,6 +8051,19 @@ async fn process_exchange_settlement(
     )
     .await?;
 
+    let deferred_card_refund_due_amount =
+        deferred_card_refund_due_in_tx(&mut tx, transaction_id, deferred_card_refund_amount)
+            .await?;
+    resolve_exchange_recovery_job_in_tx(
+        &mut tx,
+        transaction_id,
+        body.replacement_transaction_id,
+        actor_staff_id,
+        "Exchange settlement completed",
+        recovery_audit.as_ref(),
+    )
+    .await?;
+
     tx.commit().await?;
 
     tracing::info!(
@@ -7297,6 +8079,8 @@ async fn process_exchange_settlement(
         "exchange_group_id": exchange_group_id,
         "exchange_credit_amount": body.exchange_credit_amount,
         "refund_remainder_amount": refund_remainder_amount,
+        "deferred_card_refund_amount": deferred_card_refund_amount,
+        "deferred_card_refund_due_amount": deferred_card_refund_due_amount,
     })))
 }
 
@@ -9568,6 +10352,11 @@ async fn checkout(
     headers: HeaderMap,
     Json(payload): Json<CheckoutRequest>,
 ) -> Result<Json<CheckoutResponse>, TransactionError> {
+    if payload.checkout_client_id.is_none() {
+        return Err(TransactionError::InvalidPayload(
+            "Register checkout requires a non-null checkout_client_id".to_string(),
+        ));
+    }
     middleware::require_pos_register_session_for_checkout(&state, &headers, payload.session_id)
         .await
         .map_err(|(status, axum::Json(v))| {

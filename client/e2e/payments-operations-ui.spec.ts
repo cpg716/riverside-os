@@ -259,8 +259,8 @@ test.describe.serial("Payments Operations workspace smoke", () => {
     await expect(page.getByLabel("From")).toBeVisible();
     await page.getByPlaceholder("Reference, QBO deposit, or bank reference").fill(seed.sourceReference);
     await page.getByRole("button", { name: "Apply", exact: true }).click();
-    await expect(page.getByText("Actual Bank Deposit").first()).toBeVisible();
-    await expect(page.getByText("Expected Deposit").first()).toBeVisible();
+    await expect(page.getByText("Page Actual Deposits").first()).toBeVisible();
+    await expect(page.getByText("Page Expected Deposits").first()).toBeVisible();
     await expect(page.getByText(seed.sourceReference)).toBeVisible();
     await page.getByText(seed.sourceReference).click();
     await expect(page.getByRole("dialog")).toContainText("Actual Bank Deposit");
@@ -282,7 +282,7 @@ test.describe.serial("Payments Operations workspace smoke", () => {
 
     const bodyText = await page.locator("body").innerText();
     expect(bodyText).not.toMatch(/\bwebhook\b|\bpayload\b|\bidempotency\b|settlement item/i);
-    expect(consoleErrors).toEqual([]);
     expect(failedApiResponses).toEqual([]);
+    expect(consoleErrors).toEqual([]);
   });
 });

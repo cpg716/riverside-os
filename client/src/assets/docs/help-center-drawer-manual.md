@@ -102,6 +102,7 @@ Use **Speech On** only when it is appropriate for ROSIE to speak aloud at the st
 ## What to Watch For
 
 - If a manual cannot load, use search or try again later.
+- If the live Help catalog is offline, Riverside may show bundled manuals only from the manual list last authorized for the current signed-in viewer during this app session. If no authorized list is cached, Help stays unavailable instead of exposing the full bundled library.
 - If ROSIE is unavailable, continue with the staff manual and visible workflow controls, and report ROSIE as a Host stack issue.
 - If a Suggested Action does not match the screen in front of you, follow the current workflow and ask a manager or support for help.
 - Do not paste passwords, Access PINs, card numbers, or private customer notes into ROSIE.

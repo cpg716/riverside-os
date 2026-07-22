@@ -20,7 +20,8 @@ use rust_decimal_macros::dec;
 
 use crate::api::AppState;
 use crate::auth::permissions::{
-    REGISTER_OPEN_DRAWER, REGISTER_REPORTS, REGISTER_SESSION_ATTACH, REGISTER_SHIFT_HANDOFF,
+    effective_permissions_for_staff, staff_can_approve_manager_access, REGISTER_OPEN_DRAWER,
+    REGISTER_REPORTS, REGISTER_SESSION_ATTACH, REGISTER_SHIFT_HANDOFF,
 };
 use crate::auth::pins::{self, is_valid_staff_credential, log_staff_access, AuthenticatedStaff};
 use crate::auth::pos_session;
@@ -51,6 +52,11 @@ pub enum SessionError {
     NotAuthorized(String),
     #[error("{0}")]
     Forbidden(String),
+    #[error("Register close is blocked by unresolved checkout recovery")]
+    CheckoutRecoveryBlocked {
+        recovery_job_keys: Vec<String>,
+        station_blockers: Vec<String>,
+    },
 }
 
 fn expected_cash_from_activity(
@@ -132,6 +138,19 @@ impl IntoResponse for SessionError {
             SessionError::Forbidden(m) => {
                 (StatusCode::FORBIDDEN, Json(json!({ "error": m }))).into_response()
             }
+            SessionError::CheckoutRecoveryBlocked {
+                recovery_job_keys,
+                station_blockers,
+            } => (
+                StatusCode::CONFLICT,
+                Json(json!({
+                    "error": "checkout_recovery_blocks_close",
+                    "message": "Every linked workstation must acknowledge an empty checkout queue, and all server recovery jobs must be resolved before Z-close.",
+                    "recovery_job_keys": recovery_job_keys,
+                    "station_blockers": station_blockers,
+                })),
+            )
+                .into_response(),
         }
     }
 }
@@ -458,6 +477,14 @@ pub struct CloseSessionRequest {
     pub cash_deposit_amount: Option<Decimal>,
     pub closing_notes: Option<String>,
     pub closing_comments: Option<String>,
+    #[serde(default)]
+    pub force_unresolved_recovery: bool,
+    #[serde(default)]
+    pub manager_staff_id: Option<Uuid>,
+    #[serde(default)]
+    pub manager_pin: Option<String>,
+    #[serde(default)]
+    pub manager_reason: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -812,6 +839,32 @@ async fn try_authenticated_staff_headers(
     middleware::require_authenticated_staff_headers(state, headers)
         .await
         .ok()
+}
+
+async fn authenticate_register_close_manager(
+    state: &AppState,
+    staff_id: Option<Uuid>,
+    pin: Option<&str>,
+) -> Result<AuthenticatedStaff, SessionError> {
+    let staff_id = staff_id.ok_or_else(|| {
+        SessionError::Forbidden(
+            "Manager Access requires selecting an approving staff member".to_string(),
+        )
+    })?;
+    let pin = pin
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| SessionError::Forbidden("Manager Access PIN is required".to_string()))?;
+    let manager = pins::authenticate_staff_by_id(&state.db, staff_id, Some(pin))
+        .await
+        .map_err(|_| SessionError::Forbidden("Manager Access was not approved".to_string()))?;
+    let effective = effective_permissions_for_staff(&state.db, manager.id, manager.role).await?;
+    if !staff_can_approve_manager_access(&effective, manager.role) {
+        return Err(SessionError::Forbidden(
+            "manager.approval permission required".to_string(),
+        ));
+    }
+    Ok(manager)
 }
 
 async fn post_shift_primary(
@@ -2192,23 +2245,39 @@ async fn begin_reconcile(
     .ok_or(SessionError::SessionNotFound)?;
 
     if !body.active {
+        let mut tx = state.db.begin().await?;
         sqlx::query(
             r#"
             UPDATE register_sessions
-            SET lifecycle_status = 'open'
+            SET lifecycle_status = 'open', reconcile_started_at = NULL
             WHERE till_close_group_id = $1 AND is_open = true AND lifecycle_status = 'reconciling'
             "#,
         )
         .bind(till_gid)
-        .execute(&state.db)
+        .execute(&mut *tx)
         .await?;
+        sqlx::query(
+            r#"
+            DELETE FROM register_station_close_acknowledgement
+            WHERE register_session_id IN (
+                SELECT id
+                FROM register_sessions
+                WHERE till_close_group_id = $1 AND is_open = true
+            )
+            "#,
+        )
+        .bind(till_gid)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
         return Ok(Json(json!({ "status": "open" })));
     }
 
     let res = sqlx::query(
         r#"
         UPDATE register_sessions
-        SET lifecycle_status = 'reconciling'
+        SET lifecycle_status = 'reconciling',
+            reconcile_started_at = COALESCE(reconcile_started_at, now())
         WHERE till_close_group_id = $1 AND is_open = true AND lifecycle_status = 'open'
         "#,
     )
@@ -2427,7 +2496,7 @@ async fn close_session(
     }
 
     let till_gid = claim.till_close_group_id;
-    let close_actor_id = closer_from_headers
+    let mut close_actor_id = closer_from_headers
         .or(claim.shift_primary_staff_id)
         .unwrap_or(claim.opened_by);
 
@@ -2443,6 +2512,109 @@ async fn close_session(
     .bind(till_gid)
     .fetch_all(&mut *tx)
     .await?;
+
+    let recovery_job_keys: Vec<String> = sqlx::query_scalar(
+        r#"
+        SELECT client_job_key
+        FROM operational_recovery_job
+        WHERE register_session_id = ANY($1)
+          AND status IN ('pending', 'blocked')
+        ORDER BY first_seen_at
+        "#,
+    )
+    .bind(&group_ids)
+    .fetch_all(&mut *tx)
+    .await?;
+    let station_rows: Vec<(
+        i16,
+        String,
+        i32,
+        i32,
+        Option<DateTime<Utc>>,
+        Option<DateTime<Utc>>,
+    )> = sqlx::query_as(
+        r#"
+        SELECT
+            rs.register_lane,
+            token.station_key,
+            COALESCE(ack.pending_checkout_count, 0),
+            COALESCE(ack.blocked_checkout_count, 0),
+            ack.acknowledged_at,
+            rs.reconcile_started_at
+        FROM register_session_station_tokens token
+        INNER JOIN register_sessions rs ON rs.id = token.register_session_id
+        LEFT JOIN register_station_close_acknowledgement ack
+          ON ack.register_session_id = token.register_session_id
+         AND ack.station_key = token.station_key
+        WHERE rs.id = ANY($1)
+        ORDER BY rs.register_lane, token.station_key
+        "#,
+    )
+    .bind(&group_ids)
+    .fetch_all(&mut *tx)
+    .await?;
+    let station_blockers: Vec<String> = station_rows
+        .iter()
+        .filter_map(
+            |(lane, station_key, pending, blocked, acknowledged_at, reconcile_started_at)| {
+                let fresh = acknowledged_at
+                    .zip(*reconcile_started_at)
+                    .is_some_and(|(acknowledged, started)| acknowledged >= started);
+                if fresh && *pending == 0 && *blocked == 0 {
+                    return None;
+                }
+                let suffix = station_key
+                    .chars()
+                    .rev()
+                    .take(8)
+                    .collect::<String>()
+                    .chars()
+                    .rev()
+                    .collect::<String>();
+                Some(format!(
+                    "Register #{lane} workstation {suffix}: {} pending, {} blocked, acknowledgement {}",
+                    pending,
+                    blocked,
+                    if fresh { "current" } else { "missing" }
+                ))
+            },
+        )
+        .collect();
+    let has_recovery_blockers = !recovery_job_keys.is_empty() || !station_blockers.is_empty();
+    let forced_recovery_close = if has_recovery_blockers {
+        if !payload.force_unresolved_recovery {
+            let _ = tx.rollback().await;
+            return Err(SessionError::CheckoutRecoveryBlocked {
+                recovery_job_keys,
+                station_blockers,
+            });
+        }
+        let reason = payload
+            .manager_reason
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| value.chars().count() >= 12)
+            .ok_or_else(|| {
+                SessionError::InvalidPayload(
+                    "Manager force-close reason must be at least 12 characters".to_string(),
+                )
+            })?;
+        let manager = authenticate_register_close_manager(
+            &state,
+            payload.manager_staff_id,
+            payload.manager_pin.as_deref(),
+        )
+        .await?;
+        close_actor_id = manager.id;
+        Some(json!({
+            "approved_by_staff_id": manager.id,
+            "reason": reason,
+            "recovery_job_keys": recovery_job_keys,
+            "station_blockers": station_blockers,
+        }))
+    } else {
+        None
+    };
 
     let recon = build_reconciliation(&state.db, session_id, "z_report").await?;
     let primary_id = recon.session_id;
@@ -2567,8 +2739,33 @@ async fn close_session(
         "override_summary": recon.override_summary,
         "closing_notes": notes_trimmed,
         "closing_comments": payload.closing_comments.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()),
+        "forced_recovery_close": forced_recovery_close,
         "closed_at": Utc::now(),
     });
+
+    if let Some(force_audit) = forced_recovery_close.as_ref() {
+        sqlx::query(
+            r#"
+            INSERT INTO staff_access_log (
+                staff_id, event_kind, metadata, idempotency_key
+            )
+            VALUES ($1, 'register_close_recovery_force', $2, $3)
+            ON CONFLICT (idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING
+            "#,
+        )
+        .bind(close_actor_id)
+        .bind(json!({
+            "session_id": session_id,
+            "till_close_group_id": till_gid,
+            "business_date": business_date,
+            "force": force_audit,
+        }))
+        .bind(format!(
+            "register-close-recovery-force:{till_gid}:{business_date}"
+        ))
+        .execute(&mut *tx)
+        .await?;
+    }
 
     sqlx::query(
         r#"
@@ -2612,8 +2809,21 @@ async fn close_session(
         sqlx::query(
             r#"
             UPDATE register_sessions
-            SET lifecycle_status = 'open'
+            SET lifecycle_status = 'open', reconcile_started_at = NULL
             WHERE till_close_group_id = $1 AND is_open = true
+            "#,
+        )
+        .bind(till_gid)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            r#"
+            DELETE FROM register_station_close_acknowledgement
+            WHERE register_session_id IN (
+                SELECT id
+                FROM register_sessions
+                WHERE till_close_group_id = $1 AND is_open = true
+            )
             "#,
         )
         .bind(till_gid)
@@ -2639,7 +2849,7 @@ async fn close_session(
         let snapshot_till = till_gid;
         let snapshot_primary = primary_id;
         tokio::spawn(async move {
-            match crate::logic::register_day_activity::fetch_register_day_summary(
+            match crate::logic::register_day_activity::fetch_complete_register_day_summary(
                 &snapshot_pool,
                 None,
                 Some(business_date),
@@ -2661,10 +2871,20 @@ async fn close_session(
                     .await
                     {
                         tracing::error!(%error, %business_date, "register business-day snapshot save failed");
+                        let _ = crate::logic::notifications::broadcast_system_alert(
+                            &snapshot_pool,
+                            &format!("Register EOD snapshot save failed after business-day close ({business_date}): {error}. No partial snapshot was saved."),
+                        )
+                        .await;
                     }
                 }
                 Err(error) => {
                     tracing::error!(%error, %business_date, "register business-day snapshot build failed");
+                    let _ = crate::logic::notifications::broadcast_system_alert(
+                        &snapshot_pool,
+                        &format!("Register EOD summary build failed after business-day close ({business_date}): {error}. No partial snapshot was saved."),
+                    )
+                    .await;
                 }
             }
             if let Err(error) = crate::logic::qbo_journal::ensure_pending_daily_journal(
@@ -2776,7 +2996,7 @@ async fn close_session(
         {
             tracing::warn!(error = %e, store_local_date = %local_date, "register close store-day weather capture failed");
         }
-        match crate::logic::register_day_activity::fetch_register_day_summary(
+        match crate::logic::register_day_activity::fetch_complete_register_day_summary(
             &snapshot_pool,
             None,
             Some(local_date),
@@ -2800,7 +3020,7 @@ async fn close_session(
                     tracing::error!(error = %e, "register EOD snapshot: save");
                     let _ = crate::logic::notifications::broadcast_system_alert(
                         &snapshot_pool,
-                        &format!("Register EOD snapshot save failed after Z-close ({local_date}): {e}. Report data may be incomplete."),
+                        &format!("Register EOD snapshot save failed after Z-close ({local_date}): {e}. No partial snapshot was saved."),
                     ).await;
                 } else {
                     tracing::info!(
@@ -2813,7 +3033,7 @@ async fn close_session(
                 tracing::error!(error = %e, "register EOD snapshot: build summary");
                 let _ = crate::logic::notifications::broadcast_system_alert(
                     &snapshot_pool,
-                    &format!("Register EOD summary build failed after Z-close ({local_date}): {e}. Report data may be incomplete."),
+                    &format!("Register EOD summary build failed after Z-close ({local_date}): {e}. No partial snapshot was saved."),
                 ).await;
             }
         }

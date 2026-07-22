@@ -11,7 +11,7 @@ pub use exporters::{JsonExporter, MetricsExporter, PrometheusExporter};
 pub use technical_metrics::{TechnicalKpi, TechnicalMetrics};
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -22,7 +22,7 @@ pub struct MetricValue {
     pub metric_type: MetricType,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MetricType {
     Counter,
     Gauge,
@@ -50,19 +50,57 @@ pub enum AggregationType {
 #[derive(Debug, Clone)]
 pub struct MetricRegistry {
     metrics: HashMap<String, Vec<MetricValue>>,
+    counter_totals: HashMap<MetricSeriesKey, f64>,
     config: MetricsConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct MetricSeriesKey {
+    name: String,
+    tags: Vec<(String, String)>,
+}
+
+impl MetricSeriesKey {
+    fn new(name: &str, tags: &HashMap<String, String>) -> Self {
+        let mut tags = tags
+            .iter()
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect::<Vec<_>>();
+        tags.sort_unstable();
+        Self {
+            name: name.to_string(),
+            tags,
+        }
+    }
 }
 
 impl MetricRegistry {
     pub fn new(config: MetricsConfig) -> Self {
         Self {
             metrics: HashMap::new(),
+            counter_totals: HashMap::new(),
             config,
         }
     }
 
     pub fn record_counter(&mut self, name: &str, value: f64, tags: HashMap<String, String>) {
-        self.record_metric(name, value, tags, MetricType::Counter);
+        if !value.is_finite() || value.is_sign_negative() {
+            tracing::warn!(metric = name, "Discarded invalid counter increment");
+            return;
+        }
+        if !self.accepts_metric_type(name, MetricType::Counter) {
+            return;
+        }
+
+        let key = MetricSeriesKey::new(name, &tags);
+        let total = self.counter_totals.entry(key).or_insert(0.0);
+        let updated = *total + value;
+        if !updated.is_finite() {
+            tracing::warn!(metric = name, "Discarded counter increment that overflowed");
+            return;
+        }
+        *total = updated;
+        self.record_metric(name, updated, tags, MetricType::Counter);
     }
 
     pub fn record_gauge(&mut self, name: &str, value: f64, tags: HashMap<String, String>) {
@@ -84,6 +122,14 @@ impl MetricRegistry {
         tags: HashMap<String, String>,
         metric_type: MetricType,
     ) {
+        if !value.is_finite() {
+            tracing::warn!(metric = name, "Discarded non-finite metric sample");
+            return;
+        }
+        if !self.accepts_metric_type(name, metric_type) {
+            return;
+        }
+
         let metric = MetricValue {
             value,
             timestamp: chrono::Utc::now(),
@@ -116,14 +162,21 @@ impl MetricRegistry {
         let values = self.metrics.get(name)?;
 
         let aggregated = match aggregation {
+            Some(AggregationType::Sum) if values.is_empty() => None,
             Some(AggregationType::Sum) => Some(values.iter().map(|v| v.value).sum()),
             Some(AggregationType::Average) => {
-                let sum: f64 = values.iter().map(|v| v.value).sum();
-                Some(sum / values.len() as f64)
+                if values.is_empty() {
+                    None
+                } else {
+                    let sum: f64 = values.iter().map(|v| v.value).sum();
+                    Some(sum / values.len() as f64)
+                }
             }
+            Some(AggregationType::Min) if values.is_empty() => None,
             Some(AggregationType::Min) => {
                 Some(values.iter().map(|v| v.value).fold(f64::INFINITY, f64::min))
             }
+            Some(AggregationType::Max) if values.is_empty() => None,
             Some(AggregationType::Max) => Some(
                 values
                     .iter()
@@ -162,6 +215,36 @@ impl MetricRegistry {
 
         for values in self.metrics.values_mut() {
             values.retain(|v| v.timestamp > cutoff);
+        }
+
+        let active_counter_series = self
+            .metrics
+            .iter()
+            .flat_map(|(name, values)| {
+                values
+                    .iter()
+                    .filter(|value| value.metric_type == MetricType::Counter)
+                    .map(|value| MetricSeriesKey::new(name, &value.tags))
+            })
+            .collect::<HashSet<_>>();
+        self.counter_totals
+            .retain(|series, _| active_counter_series.contains(series));
+    }
+
+    fn accepts_metric_type(&self, name: &str, metric_type: MetricType) -> bool {
+        let Some(existing) = self.metrics.get(name).and_then(|values| values.last()) else {
+            return true;
+        };
+        if existing.metric_type == metric_type {
+            true
+        } else {
+            tracing::warn!(
+                metric = name,
+                existing_type = ?existing.metric_type,
+                attempted_type = ?metric_type,
+                "Discarded metric sample with conflicting type"
+            );
+            false
         }
     }
 }
@@ -215,5 +298,40 @@ mod tests {
             .expect("snapshot should exist");
 
         assert_eq!(snapshot.aggregated, Some(1.5));
+        assert_eq!(snapshot.values.len(), 2);
+    }
+
+    #[test]
+    fn counters_are_cumulative_per_tag_series() {
+        let mut config = MetricsConfig::default();
+        config.max_values_per_metric = 1;
+        let mut registry = MetricRegistry::new(config);
+        let mut tags = HashMap::new();
+        tags.insert("route".to_string(), "/api/register".to_string());
+
+        registry.record_counter("requests_total", 1.0, tags.clone());
+        registry.record_counter("requests_total", 2.0, tags);
+
+        let values = registry
+            .get_metric("requests_total")
+            .expect("counter should be retained");
+        assert_eq!(values.len(), 1);
+        assert_eq!(values[0].value, 3.0);
+    }
+
+    #[test]
+    fn counters_reject_negative_increments_and_type_changes() {
+        let mut registry = MetricRegistry::new(MetricsConfig::default());
+
+        registry.record_counter("requests_total", -1.0, HashMap::new());
+        assert!(registry.get_metric("requests_total").is_none());
+
+        registry.record_gauge("queue_depth", 2.0, HashMap::new());
+        registry.record_counter("queue_depth", 1.0, HashMap::new());
+        let values = registry
+            .get_metric("queue_depth")
+            .expect("gauge should be retained");
+        assert_eq!(values.len(), 1);
+        assert_eq!(values[0].value, 2.0);
     }
 }

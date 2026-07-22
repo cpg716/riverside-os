@@ -25,7 +25,9 @@ impl Default for JobQueueConfig {
                 .unwrap_or_else(|_| "redis://localhost:6379".to_string()),
             queue_name: "riverside_jobs".to_string(),
             processing_timeout: Duration::from_secs(300), // 5 minutes
-            visibility_timeout: Duration::from_secs(120), // 2 minutes
+            // BRPOPLPUSH uses this as its blocking dequeue timeout. Keep it comfortably below
+            // the 60-second readiness heartbeat window so an idle, healthy worker stays ready.
+            visibility_timeout: Duration::from_secs(20),
             max_retries: 3,
             dead_letter_queue: "riverside_jobs_dead".to_string(),
         }

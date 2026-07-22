@@ -39,12 +39,13 @@ Use Reports to find sales, register, finance, customer, wedding, inventory, staf
 2. Use the search box: "Search reports by task, question, or keyword".
 3. Search with plain terms such as pickup, balance, tax, cash, drawer, slow stock, weather, appointments, no-show, or open orders.
 4. Review the matching category section and choose a report tile.
-5. Use From, To, Basis, and Group by when those controls appear.
-6. For **Best Sellers**, use **Product View** for parent products and **Variation View** for individual SKUs.
-7. Use Refresh after changing filters.
-8. Use **View Report** from the loaded report header to review table, summary, or no-row report results inside ROS. Use **Print Report** to send that report to the configured Reports printer.
-9. Use CSV when the loaded report includes table rows.
-10. If View Report or Print Report cannot open the report path, Riverside shows an error so staff can check station printer setup or support can review the workstation state instead of assuming the button worked.
+5. **Register Day Summary** opens on **Today**. Riverside retrieves every activity page for the selected range before displaying, printing, or exporting it, up to the stated 100,000-row audited limit. Narrow the range if that explicit limit is reached.
+6. Use From, To, Basis, and Group by when those controls appear.
+7. For **Best Sellers**, use **Product View** for parent products and **Variation View** for individual SKUs.
+8. Use Refresh after changing filters.
+9. Use **View Report** from the loaded report header to review table, summary, or no-row report results inside ROS. Use **Print Report** to send that report to the configured Reports printer.
+10. Use CSV when the loaded report includes table rows.
+11. If View Report or Print Report cannot open the report path, Riverside shows an error so staff can check station printer setup or support can review the workstation state instead of assuming the button worked.
 
 ## Operational detail
 
@@ -63,6 +64,7 @@ Use Reports when the store needs a repeatable answer with the same filters, basi
 - **Best Sellers** can group by parent product or by variation/SKU, depending on whether staff need the broad product winner or the exact size/color/SKU winner.
 - **Wedding Program Profit** is Admin-only and shows the free-groom suit program by wedding party and selected date basis, including paid wedding members, free-suit promo members, discounts, cost, profit, and margin.
 - **Negative Items from Transactions** is the period report for researching sale, pickup, or shipping recognition movements that drove SKU stock below zero. Use it after the transaction is complete; negative stock is an inventory follow-up, not a reason to block a customer sale or pickup.
+- Register summary counts remain counts, money remains currency, weather is rounded for staff reading, and structured payment/item detail is shown as readable text rather than raw JSON or internal UUIDs.
 
 ## What happens next
 

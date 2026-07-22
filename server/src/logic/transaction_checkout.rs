@@ -5,6 +5,7 @@ use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use sqlx::{Error as SqlxError, PgPool};
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
@@ -66,18 +67,23 @@ pub enum CheckoutRecoverySource {
         target_transaction_id: Uuid,
         target_display_id: String,
     },
+    OfflineCheckout {
+        recovery_client_job_key: String,
+    },
 }
 
 #[derive(Debug, Clone)]
 pub struct CheckoutRecoveryContext {
     pub source: CheckoutRecoverySource,
-    pub payment_provider_attempt_id: Uuid,
+    pub payment_provider_attempt_id: Option<Uuid>,
     pub authorized_by_staff_id: Uuid,
     pub approved_at: DateTime<Utc>,
     pub note: String,
+    pub allow_closed_session: bool,
+    pub require_checkout_binding: bool,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct CheckoutItem {
     #[serde(default)]
     pub client_line_id: Option<String>,
@@ -120,7 +126,7 @@ pub struct CheckoutItem {
     pub order_lifecycle_status: Option<DbOrderItemLifecycleStatus>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct CheckoutAlterationIntake {
     pub intake_id: String,
     pub alteration_line_client_id: String,
@@ -152,13 +158,13 @@ pub struct CheckoutAlterationIntake {
     pub notes: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct WeddingDisbursement {
     pub wedding_member_id: Uuid,
     pub amount: Decimal,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct BelowCostApproval {
     pub approved_by_staff_id: Uuid,
     #[serde(default)]
@@ -167,13 +173,13 @@ pub struct BelowCostApproval {
     pub line_signature: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct BackdateApproval {
     pub approved_by_staff_id: Uuid,
     pub reason: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct CheckoutOrderPayment {
     pub client_line_id: String,
     pub target_transaction_id: Uuid,
@@ -184,12 +190,12 @@ pub struct CheckoutOrderPayment {
     pub projected_balance_after: Decimal,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct CheckoutShippingLink {
     pub target_transaction_id: Uuid,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct CheckoutRequest {
     pub session_id: Uuid,
     pub operator_staff_id: Uuid,
@@ -259,9 +265,14 @@ pub struct CheckoutRequest {
     pub final_cash_due: Option<Decimal>,
     #[serde(default)]
     pub is_processing: bool,
+    /// Exchange settlement intent persisted in the same transaction as the
+    /// replacement checkout. The settlement API remains the financial source
+    /// of truth; this snapshot provides a durable, Z-close-blocking recovery.
+    #[serde(default)]
+    pub exchange_settlement: Option<Value>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct CheckoutPaymentSplit {
     pub payment_method: String,
     pub amount: Decimal,
@@ -275,6 +286,200 @@ pub struct CheckoutPaymentSplit {
     pub check_number: Option<String>,
     #[serde(default)]
     pub metadata: Option<serde_json::Value>,
+}
+
+fn sha256_json<T: Serialize>(value: &T) -> Result<String, CheckoutError> {
+    let encoded = serde_json::to_vec(value).map_err(|error| {
+        CheckoutError::InvalidPayload(format!(
+            "checkout request could not be fingerprinted: {error}"
+        ))
+    })?;
+    Ok(hex::encode(Sha256::digest(encoded)))
+}
+
+pub(crate) fn checkout_request_fingerprints(
+    payload: &CheckoutRequest,
+) -> Result<(String, String), CheckoutError> {
+    let mut request_value = serde_json::to_value(payload).map_err(|error| {
+        CheckoutError::InvalidPayload(format!(
+            "checkout request could not be fingerprinted: {error}"
+        ))
+    })?;
+    strip_sensitive_payment_metadata(&mut request_value);
+    let request_fingerprint = sha256_json(&request_value)?;
+    let mut payment_value = json!({
+        "session_id": payload.session_id,
+        "checkout_client_id": payload.checkout_client_id,
+        "payment_method": payload.payment_method,
+        "total_price": payload.total_price,
+        "amount_paid": payload.amount_paid,
+        "payment_splits": payload.payment_splits,
+        "rounding_adjustment": payload.rounding_adjustment,
+        "final_cash_due": payload.final_cash_due,
+    });
+    strip_sensitive_payment_metadata(&mut payment_value);
+    let payment_fingerprint = sha256_json(&payment_value)?;
+    Ok((request_fingerprint, payment_fingerprint))
+}
+
+fn checkout_processing_intent_fingerprint(
+    payload: &CheckoutRequest,
+) -> Result<String, CheckoutError> {
+    let mut intent = json!({
+        "session_id": payload.session_id,
+        "operator_staff_id": payload.operator_staff_id,
+        "primary_salesperson_id": payload.primary_salesperson_id,
+        "customer_id": payload.customer_id,
+        "wedding_member_id": payload.wedding_member_id,
+        "total_price": payload.total_price,
+        "items": payload.items,
+        "alteration_intakes": payload.alteration_intakes,
+        "actor_name": payload.actor_name,
+        "wedding_disbursements": payload.wedding_disbursements,
+        "order_payments": payload.order_payments,
+        "below_cost_approval": payload.below_cost_approval,
+        "checkout_client_id": payload.checkout_client_id,
+        "booked_at_local": payload.booked_at_local,
+        "backdate_approval": payload.backdate_approval,
+        "shipping_rate_quote_id": payload.shipping_rate_quote_id,
+        "shipping_links": payload.shipping_links,
+        "fulfillment_mode": payload.fulfillment_mode,
+        "ship_to": payload.ship_to,
+        "target_transaction_id": payload.target_transaction_id,
+        "is_rush": payload.is_rush,
+        "need_by_date": payload.need_by_date,
+        "is_tax_exempt": payload.is_tax_exempt,
+        "tax_exempt_reason": payload.tax_exempt_reason,
+        "exchange_settlement": payload.exchange_settlement,
+    });
+    strip_sensitive_payment_metadata(&mut intent);
+    sha256_json(&intent)
+}
+
+fn validate_processing_intent_fingerprint(
+    payload: &CheckoutRequest,
+    stored_session_id: Option<Uuid>,
+    stored_processing_fingerprint: Option<&str>,
+    processing_fingerprint: &str,
+) -> Result<(), CheckoutError> {
+    if stored_session_id != Some(payload.session_id) {
+        return Err(CheckoutError::InvalidPayload(
+            "checkout identity belongs to a different register session".to_string(),
+        ));
+    }
+    if stored_processing_fingerprint != Some(processing_fingerprint) {
+        return Err(CheckoutError::InvalidPayload(
+            "processing checkout identity was already used with different sale details; recover the original checkout instead of changing it"
+                .to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_checkout_replay_fingerprints(
+    payload: &CheckoutRequest,
+    stored_session_id: Option<Uuid>,
+    stored_request_fingerprint: Option<&str>,
+    stored_payment_fingerprint: Option<&str>,
+    request_fingerprint: &str,
+    payment_fingerprint: &str,
+) -> Result<(), CheckoutError> {
+    if stored_session_id != Some(payload.session_id) {
+        return Err(CheckoutError::InvalidPayload(
+            "checkout identity belongs to a different register session".to_string(),
+        ));
+    }
+    if stored_request_fingerprint != Some(request_fingerprint)
+        || stored_payment_fingerprint != Some(payment_fingerprint)
+    {
+        return Err(CheckoutError::InvalidPayload(
+            "checkout identity was already used with different sale or payment details; recover the original checkout instead of recording another sale"
+                .to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_exchange_checkout_intent(
+    payload: &CheckoutRequest,
+    payment_splits: &[ResolvedPaymentSplit],
+) -> Result<Option<(Uuid, Decimal)>, CheckoutError> {
+    let Some(intent) = payload.exchange_settlement.as_ref() else {
+        if payment_splits
+            .iter()
+            .any(|split| split.method.trim().eq_ignore_ascii_case("exchange_credit"))
+        {
+            return Err(CheckoutError::InvalidPayload(
+                "exchange credit tender requires a matching exchange settlement intent".to_string(),
+            ));
+        }
+        return Ok(None);
+    };
+    payload.checkout_client_id.ok_or_else(|| {
+        CheckoutError::InvalidPayload(
+            "exchange replacement checkout requires a checkout identity".to_string(),
+        )
+    })?;
+    let object = intent.as_object().ok_or_else(|| {
+        CheckoutError::InvalidPayload("exchange settlement intent must be an object".to_string())
+    })?;
+    let original_transaction_id = object
+        .get("original_transaction_id")
+        .and_then(Value::as_str)
+        .and_then(|value| Uuid::parse_str(value.trim()).ok())
+        .ok_or_else(|| {
+            CheckoutError::InvalidPayload(
+                "exchange settlement intent requires original_transaction_id".to_string(),
+            )
+        })?;
+    let exchange_credit_amount: Decimal = serde_json::from_value(
+        object
+            .get("exchange_credit_amount")
+            .cloned()
+            .ok_or_else(|| {
+                CheckoutError::InvalidPayload(
+                    "exchange settlement intent requires exchange_credit_amount".to_string(),
+                )
+            })?,
+    )
+    .map_err(|_| {
+        CheckoutError::InvalidPayload("exchange settlement credit amount is invalid".to_string())
+    })?;
+    if exchange_credit_amount < Decimal::ZERO {
+        return Err(CheckoutError::InvalidPayload(
+            "exchange settlement credit amount cannot be negative".to_string(),
+        ));
+    }
+
+    let original_transaction_id_text = original_transaction_id.to_string();
+    let matching_credit: Decimal = payment_splits
+        .iter()
+        .filter(|split| split.method.trim().eq_ignore_ascii_case("exchange_credit"))
+        .map(|split| {
+            let linked_original =
+                metadata_optional_text(&split.metadata, "original_transaction_id");
+            if linked_original.as_deref() != Some(original_transaction_id_text.as_str()) {
+                return Err(CheckoutError::InvalidPayload(
+                    "exchange credit tender does not identify the staged return transaction"
+                        .to_string(),
+                ));
+            }
+            Ok(split.amount)
+        })
+        .collect::<Result<Vec<_>, CheckoutError>>()?
+        .into_iter()
+        .sum::<Decimal>()
+        .round_dp(2);
+    if matching_credit != exchange_credit_amount.round_dp(2) {
+        return Err(CheckoutError::InvalidPayload(
+            "exchange settlement intent does not match the replacement sale exchange-credit tender"
+                .to_string(),
+        ));
+    }
+    Ok(Some((
+        original_transaction_id,
+        exchange_credit_amount.round_dp(2),
+    )))
 }
 
 #[derive(Debug, Serialize)]
@@ -383,6 +588,51 @@ pub struct ResolvedPaymentSplit {
     pub net_amount: Decimal,
     pub card_brand: Option<String>,
     pub card_last4: Option<String>,
+}
+
+fn strip_sensitive_payment_metadata(value: &mut Value) {
+    match value {
+        Value::Object(object) => {
+            object.retain(|key, _| !crate::auth::pins::is_sensitive_pin_metadata_key(key));
+            for nested in object.values_mut() {
+                strip_sensitive_payment_metadata(nested);
+            }
+        }
+        Value::Array(values) => {
+            for nested in values {
+                strip_sensitive_payment_metadata(nested);
+            }
+        }
+        Value::String(encoded) => {
+            let Ok(mut decoded) = serde_json::from_str::<Value>(encoded) else {
+                return;
+            };
+            if !matches!(decoded, Value::Object(_) | Value::Array(_)) {
+                return;
+            }
+            let original = decoded.clone();
+            strip_sensitive_payment_metadata(&mut decoded);
+            if decoded != original {
+                if let Ok(sanitized) = serde_json::to_string(&decoded) {
+                    *encoded = sanitized;
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn strip_sensitive_checkout_request(payload: &mut CheckoutRequest) {
+    if let Some(splits) = payload.payment_splits.as_mut() {
+        for split in splits {
+            if let Some(metadata) = split.metadata.as_mut() {
+                strip_sensitive_payment_metadata(metadata);
+            }
+        }
+    }
+    if let Some(exchange_settlement) = payload.exchange_settlement.as_mut() {
+        strip_sensitive_payment_metadata(exchange_settlement);
+    }
 }
 
 fn metadata_required_text(
@@ -2187,6 +2437,85 @@ async fn execute_checkout_internal(
     recovery: Option<CheckoutRecoveryContext>,
 ) -> Result<CheckoutDone, CheckoutError> {
     let checkout_started = Instant::now();
+    strip_sensitive_checkout_request(&mut payload);
+    let (checkout_request_fingerprint, checkout_payment_fingerprint) =
+        checkout_request_fingerprints(&payload)?;
+    let checkout_processing_intent_fingerprint = checkout_processing_intent_fingerprint(&payload)?;
+
+    // A provider response can be lost after the database commit. Resolve an
+    // exact replay before provider-reference uniqueness checks so the Register
+    // reports the already committed transaction truthfully. Never accept a
+    // checkout_client_id by itself: the register session, full request, and
+    // payment fingerprint must all match the committed sale.
+    if let Some(checkout_client_id) = payload.checkout_client_id {
+        let existing: Option<(
+            Uuid,
+            String,
+            DbOrderStatus,
+            Option<Uuid>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        )> = sqlx::query_as(
+            r#"
+            SELECT id, display_id, status, register_session_id,
+                   checkout_request_fingerprint, checkout_payment_fingerprint,
+                   checkout_processing_intent_fingerprint
+            FROM transactions
+            WHERE checkout_client_id = $1
+            "#,
+        )
+        .bind(checkout_client_id)
+        .fetch_optional(pool)
+        .await?;
+
+        if let Some((
+            transaction_id,
+            display_id,
+            status,
+            register_session_id,
+            request_hash,
+            payment_hash,
+            processing_hash,
+        )) = existing
+        {
+            if status == DbOrderStatus::Processing {
+                validate_processing_intent_fingerprint(
+                    &payload,
+                    register_session_id,
+                    processing_hash.as_deref(),
+                    &checkout_processing_intent_fingerprint,
+                )?;
+            } else {
+                validate_checkout_replay_fingerprints(
+                    &payload,
+                    register_session_id,
+                    request_hash.as_deref(),
+                    payment_hash.as_deref(),
+                    &checkout_request_fingerprint,
+                    &checkout_payment_fingerprint,
+                )?;
+            }
+            if status != DbOrderStatus::Processing || payload.is_processing {
+                if status == DbOrderStatus::Processing {
+                    validate_checkout_replay_fingerprints(
+                        &payload,
+                        register_session_id,
+                        request_hash.as_deref(),
+                        payment_hash.as_deref(),
+                        &checkout_request_fingerprint,
+                        &checkout_payment_fingerprint,
+                    )?;
+                }
+                tracing::info!(%transaction_id, "checkout exact idempotent replay");
+                return Ok(CheckoutDone::Idempotent {
+                    transaction_id,
+                    display_id,
+                });
+            }
+        }
+    }
+
     let has_wedding_disbursements = payload
         .wedding_disbursements
         .as_ref()
@@ -2808,6 +3137,10 @@ async fn execute_checkout_internal(
     };
 
     let (mut payment_splits, payment_activity_label) = resolve_payment_splits(&payload)?;
+    let exchange_checkout_intent = validate_exchange_checkout_intent(&payload, &payment_splits)?;
+    for split in &mut payment_splits {
+        strip_sensitive_payment_metadata(&mut split.metadata);
+    }
 
     let has_rms_charge = payment_splits
         .iter()
@@ -2976,12 +3309,19 @@ async fn execute_checkout_internal(
         pool,
         payload.session_id,
         payload.checkout_client_id,
-        recovery.is_none(),
+        recovery
+            .as_ref()
+            .map(|context| context.require_checkout_binding)
+            .unwrap_or(true),
         &payment_splits,
     )
     .await?;
 
-    if recovery.is_none() {
+    if recovery
+        .as_ref()
+        .map(|context| context.require_checkout_binding)
+        .unwrap_or(true)
+    {
         reject_unattached_helcim_attempt(
             pool,
             payload.session_id,
@@ -3294,18 +3634,97 @@ async fn execute_checkout_internal(
 
     let mut tx = pool.begin().await?;
 
+    // Lock the Register session before re-reading checkout_client_id. This
+    // serializes checkout completion with other sales and Z-close so a waiter
+    // cannot retain a stale `processing` status after another request commits.
+    let session_state: Option<(bool, String, i16)> = sqlx::query_as(
+        r#"
+        SELECT is_open, lifecycle_status, register_lane
+        FROM register_sessions
+        WHERE id = $1
+        FOR UPDATE
+        "#,
+    )
+    .bind(payload.session_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    let Some((session_is_open, session_lifecycle, register_lane)) = session_state else {
+        return Err(CheckoutError::InvalidPayload(
+            "Register session is invalid. Open or join an active Register, then retry; no sale was recorded."
+                .to_string(),
+        ));
+    };
+    let recovery_allows_closed_session = recovery
+        .as_ref()
+        .map(|context| context.allow_closed_session)
+        .unwrap_or(false);
+    if !recovery_allows_closed_session && (!session_is_open || session_lifecycle.as_str() != "open")
+    {
+        let message = if session_is_open && session_lifecycle == "reconciling" {
+            format!(
+                "Register #{register_lane} is waiting for Z-close. Finish the close or choose Restore Register for Selling in Register Settings, then retry; no sale was recorded."
+            )
+        } else {
+            format!(
+                "Register #{register_lane} is closed. Open or join an active Register, then retry; no sale was recorded."
+            )
+        };
+        return Err(CheckoutError::InvalidPayload(message));
+    }
+
     let mut transaction_id = Uuid::new_v4();
     let mut transaction_display_id = String::new();
     let mut is_completing_processing = false;
 
     if let Some(cid) = payload.checkout_client_id {
-        let existing: Option<(Uuid, String, DbOrderStatus)> = sqlx::query_as(
-            "SELECT id, display_id, status FROM transactions WHERE checkout_client_id = $1",
+        let existing: Option<(
+            Uuid,
+            String,
+            DbOrderStatus,
+            Option<Uuid>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        )> = sqlx::query_as(
+            r#"
+            SELECT id, display_id, status, register_session_id,
+                   checkout_request_fingerprint, checkout_payment_fingerprint,
+                   checkout_processing_intent_fingerprint
+            FROM transactions
+            WHERE checkout_client_id = $1
+            "#,
         )
         .bind(cid)
         .fetch_optional(&mut *tx)
         .await?;
-        if let Some((tid, d_id, status)) = existing {
+        if let Some((
+            tid,
+            d_id,
+            status,
+            register_session_id,
+            request_hash,
+            payment_hash,
+            processing_hash,
+        )) = existing
+        {
+            if status == DbOrderStatus::Processing {
+                validate_processing_intent_fingerprint(
+                    &payload,
+                    register_session_id,
+                    processing_hash.as_deref(),
+                    &checkout_processing_intent_fingerprint,
+                )?;
+            } else {
+                validate_checkout_replay_fingerprints(
+                    &payload,
+                    register_session_id,
+                    request_hash.as_deref(),
+                    payment_hash.as_deref(),
+                    &checkout_request_fingerprint,
+                    &checkout_payment_fingerprint,
+                )?;
+            }
             if status != DbOrderStatus::Processing {
                 tx.commit().await?;
                 tracing::info!(transaction_id = %tid, "checkout idempotent replay");
@@ -3315,6 +3734,14 @@ async fn execute_checkout_internal(
                 });
             } else {
                 if payload.is_processing {
+                    validate_checkout_replay_fingerprints(
+                        &payload,
+                        register_session_id,
+                        request_hash.as_deref(),
+                        payment_hash.as_deref(),
+                        &checkout_request_fingerprint,
+                        &checkout_payment_fingerprint,
+                    )?;
                     tx.commit().await?;
                     tracing::info!(transaction_id = %tid, "checkout idempotent processing replay");
                     return Ok(CheckoutDone::Completed {
@@ -3335,29 +3762,6 @@ async fn execute_checkout_internal(
                 }
             }
         }
-    }
-
-    let session_ok: Option<Uuid> = sqlx::query_scalar(
-        r#"
-        SELECT id
-        FROM register_sessions
-        WHERE id = $1
-          AND (
-            (is_open = true AND lifecycle_status = 'open')
-            OR $2::boolean = true
-          )
-        FOR UPDATE
-        "#,
-    )
-    .bind(payload.session_id)
-    .bind(recovery.is_some())
-    .fetch_optional(&mut *tx)
-    .await?;
-
-    if session_ok.is_none() {
-        return Err(CheckoutError::InvalidPayload(
-            "Register session is not open or invalid".to_string(),
-        ));
     }
 
     let mut linked_shipping_targets: Vec<(Uuid, String)> = Vec::new();
@@ -3530,7 +3934,9 @@ async fn execute_checkout_internal(
             SET status = $1::order_status,
                 amount_paid = $2,
                 balance_due = $3,
-                fulfilled_at = CASE WHEN $1::order_status = 'fulfilled'::order_status THEN CURRENT_TIMESTAMP ELSE NULL END
+                fulfilled_at = CASE WHEN $1::order_status = 'fulfilled'::order_status THEN CURRENT_TIMESTAMP ELSE NULL END,
+                checkout_request_fingerprint = $5,
+                checkout_payment_fingerprint = $6
             WHERE id = $4
             "#,
         )
@@ -3538,6 +3944,8 @@ async fn execute_checkout_internal(
         .bind(amount_toward_order)
         .bind(balance_due)
         .bind(transaction_id)
+        .bind(&checkout_request_fingerprint)
+        .bind(&checkout_payment_fingerprint)
         .execute(&mut *tx)
         .await?;
 
@@ -3559,7 +3967,9 @@ async fn execute_checkout_internal(
                 is_employee_purchase, is_rush, need_by_date,
                 is_tax_exempt, tax_exempt_reason, register_session_id,
                 rounding_adjustment, final_cash_due, metadata,
-                status, fulfilled_at
+                status, fulfilled_at,
+                checkout_request_fingerprint, checkout_payment_fingerprint,
+                checkout_processing_intent_fingerprint
             )
             VALUES (
                 $1, $2, $3, $4, $5, $6, $7,
@@ -3570,7 +3980,8 @@ async fn execute_checkout_internal(
                 $15, $16, $17, $18, $19, $20,
                 $21, $22, $23,
                 $24::order_status,
-                CASE WHEN $24::order_status = 'fulfilled'::order_status THEN CURRENT_TIMESTAMP ELSE NULL END
+                CASE WHEN $24::order_status = 'fulfilled'::order_status THEN CURRENT_TIMESTAMP ELSE NULL END,
+                $25, $26, $27
             )
             RETURNING id, display_id
             "#,
@@ -3599,6 +4010,9 @@ async fn execute_checkout_internal(
         .bind(payload.final_cash_due)
         .bind(&transaction_financing_metadata)
         .bind(insert_status)
+        .bind(&checkout_request_fingerprint)
+        .bind(&checkout_payment_fingerprint)
+        .bind(&checkout_processing_intent_fingerprint)
         .fetch_one(&mut *tx)
         .await;
 
@@ -3611,12 +4025,52 @@ async fn execute_checkout_internal(
                     return Err(CheckoutError::Database(SqlxError::Database(db_err)));
                 };
                 tx.rollback().await?;
-                let r: (Uuid, String) = sqlx::query_as(
-                    "SELECT id, display_id FROM transactions WHERE checkout_client_id = $1",
+                let r: (
+                    Uuid,
+                    String,
+                    DbOrderStatus,
+                    Option<Uuid>,
+                    Option<String>,
+                    Option<String>,
+                    Option<String>,
+                ) = sqlx::query_as(
+                    r#"
+                    SELECT id, display_id, status, register_session_id,
+                           checkout_request_fingerprint, checkout_payment_fingerprint,
+                           checkout_processing_intent_fingerprint
+                    FROM transactions
+                    WHERE checkout_client_id = $1
+                    "#,
                 )
                 .bind(cid)
                 .fetch_one(pool)
                 .await?;
+                if r.2 == DbOrderStatus::Processing {
+                    validate_processing_intent_fingerprint(
+                        &payload,
+                        r.3,
+                        r.6.as_deref(),
+                        &checkout_processing_intent_fingerprint,
+                    )?;
+                    if !payload.is_processing {
+                        return Box::pin(execute_checkout_internal(
+                            pool,
+                            http,
+                            global_employee_markup,
+                            payload,
+                            recovery,
+                        ))
+                        .await;
+                    }
+                }
+                validate_checkout_replay_fingerprints(
+                    &payload,
+                    r.3,
+                    r.4.as_deref(),
+                    r.5.as_deref(),
+                    &checkout_request_fingerprint,
+                    &checkout_payment_fingerprint,
+                )?;
                 tracing::info!(transaction_id = %r.0, "checkout idempotent replay after checkout_client_id race");
                 return Ok(CheckoutDone::Idempotent {
                     transaction_id: r.0,
@@ -3626,6 +4080,77 @@ async fn execute_checkout_internal(
             Err(e) => return Err(e.into()),
         }
     };
+
+    if let Some((original_transaction_id, exchange_credit_amount)) = exchange_checkout_intent {
+        if original_transaction_id == transaction_id {
+            return Err(CheckoutError::InvalidPayload(
+                "exchange replacement transaction must differ from the original transaction"
+                    .to_string(),
+            ));
+        }
+        let checkout_client_id = payload.checkout_client_id.ok_or_else(|| {
+            CheckoutError::InvalidPayload(
+                "exchange replacement checkout requires a checkout identity".to_string(),
+            )
+        })?;
+        let mut settlement_request = payload
+            .exchange_settlement
+            .clone()
+            .unwrap_or_else(|| json!({}));
+        let settlement_object = settlement_request.as_object_mut().ok_or_else(|| {
+            CheckoutError::InvalidPayload(
+                "exchange settlement intent must be an object".to_string(),
+            )
+        })?;
+        settlement_object.insert("session_id".to_string(), json!(payload.session_id));
+        settlement_object.insert(
+            "replacement_transaction_id".to_string(),
+            json!(transaction_id),
+        );
+
+        let recovery_job_key: Option<String> = sqlx::query_scalar(
+            r#"
+            INSERT INTO operational_recovery_job (
+                client_job_key, kind, status, register_session_id,
+                transaction_id, checkout_client_id, label, payload, last_error
+            )
+            VALUES ($1, 'exchange_settlement', 'blocked', $2, $3, $4, $5, $6, $7)
+            ON CONFLICT (client_job_key) DO UPDATE SET
+                register_session_id = EXCLUDED.register_session_id,
+                transaction_id = EXCLUDED.transaction_id,
+                checkout_client_id = EXCLUDED.checkout_client_id,
+                label = EXCLUDED.label,
+                payload = EXCLUDED.payload,
+                last_error = EXCLUDED.last_error,
+                last_seen_at = now()
+            WHERE operational_recovery_job.kind = 'exchange_settlement'
+              AND operational_recovery_job.status IN ('pending', 'blocked')
+            RETURNING client_job_key
+            "#,
+        )
+        .bind(format!("exchange:{checkout_client_id}"))
+        .bind(payload.session_id)
+        .bind(transaction_id)
+        .bind(checkout_client_id)
+        .bind(format!(
+            "Exchange settlement for {transaction_display_id}"
+        ))
+        .bind(json!({
+            "original_transaction_id": original_transaction_id,
+            "replacement_transaction_id": transaction_id,
+            "exchange_credit_amount": exchange_credit_amount,
+            "settlement_request": settlement_request,
+        }))
+        .bind("Replacement transaction committed; exchange return settlement must complete before Z-close")
+        .fetch_optional(&mut *tx)
+        .await?;
+        if recovery_job_key.is_none() {
+            return Err(CheckoutError::InvalidPayload(
+                "exchange recovery identity collides with a closed or unrelated recovery record"
+                    .to_string(),
+            ));
+        }
+    }
 
     let mut alteration_order_ids = Vec::new();
     let mut negative_stock_alerts: Vec<String> = Vec::new();
@@ -4742,11 +5267,22 @@ async fn execute_checkout_internal(
             .fetch_one(&mut *tx)
             .await?;
 
-            if recovery.is_some() && split.payment_provider.as_deref() == Some("helcim") {
+            if recovery
+                .as_ref()
+                .and_then(|context| context.payment_provider_attempt_id)
+                .is_some()
+                && split.payment_provider.as_deref() == Some("helcim")
+            {
                 let recovery_match_type = match recovery.as_ref().map(|context| &context.source) {
                     Some(CheckoutRecoverySource::ParkedSale { .. }) => "recovered_parked_sale",
                     Some(CheckoutRecoverySource::ExistingOrderPayment { .. }) => {
                         "recovered_order_payment"
+                    }
+                    Some(CheckoutRecoverySource::OfflineCheckout { .. }) => {
+                        return Err(CheckoutError::InvalidPayload(
+                            "offline checkout recovery cannot attach a Helcim recovery payment"
+                                .to_string(),
+                        ));
                     }
                     None => unreachable!("recovery context is required"),
                 };
@@ -5208,6 +5744,7 @@ async fn execute_checkout_internal(
             "approved_at": context.approved_at,
             "original_operator_staff_id": payload.operator_staff_id,
             "authorized_by_staff_id": context.authorized_by_staff_id,
+            "register_session_was_closed": !session_is_open,
             "note": context.note,
         });
         match &context.source {
@@ -5278,24 +5815,46 @@ async fn execute_checkout_internal(
                 .execute(&mut *tx)
                 .await?;
             }
+            CheckoutRecoverySource::OfflineCheckout {
+                recovery_client_job_key,
+            } => {
+                recovery_metadata["recovery_kind"] = json!("offline_checkout");
+                recovery_metadata["recovery_client_job_key"] = json!(recovery_client_job_key);
+                sqlx::query(
+                    r#"
+                    INSERT INTO transaction_activity_log (
+                        transaction_id, customer_id, event_kind, summary, metadata
+                    )
+                    VALUES ($1, $2, 'checkout_recovered', $3, $4)
+                    "#,
+                )
+                .bind(transaction_id)
+                .bind(payload.customer_id)
+                .bind("Manager recovered an unacknowledged Register checkout")
+                .bind(&recovery_metadata)
+                .execute(&mut *tx)
+                .await?;
+            }
         }
 
-        sqlx::query(
-            r#"
-            INSERT INTO helcim_terminal_recovery_actions (
-                source_kind, source_id, action, note, actor_staff_id, metadata
+        if let Some(payment_provider_attempt_id) = context.payment_provider_attempt_id {
+            sqlx::query(
+                r#"
+                INSERT INTO helcim_terminal_recovery_actions (
+                    source_kind, source_id, action, note, actor_staff_id, metadata
+                )
+                VALUES (
+                    'payment_provider_attempt', $1, 'recovered_transaction', $2, $3, $4
+                )
+                "#,
             )
-            VALUES (
-                'payment_provider_attempt', $1, 'recovered_transaction', $2, $3, $4
-            )
-            "#,
-        )
-        .bind(context.payment_provider_attempt_id)
-        .bind(&context.note)
-        .bind(context.authorized_by_staff_id)
-        .bind(recovery_metadata)
-        .execute(&mut *tx)
-        .await?;
+            .bind(payment_provider_attempt_id)
+            .bind(&context.note)
+            .bind(context.authorized_by_staff_id)
+            .bind(recovery_metadata)
+            .execute(&mut *tx)
+            .await?;
+        }
     }
 
     let operator_staff_id = payload.operator_staff_id;
@@ -5618,16 +6177,20 @@ where
 #[cfg(test)]
 mod tests {
     use super::{
-        build_payment_allocation_plan, checkout_total_matches, evaluate_combo_incentives,
+        build_payment_allocation_plan, checkout_processing_intent_fingerprint,
+        checkout_request_fingerprints, checkout_total_matches, evaluate_combo_incentives,
         execute_checkout, fetch_variant_pos_line_kind, helcim_attempt_comparison_cents,
         helcim_checkout_references, is_fee_only_shipping_quote, parse_combo_reward_amount,
-        payment_effective_date, resolve_payment_splits, validate_checkout_alteration_intakes,
-        validate_checkout_item_quantity, validate_helcim_attempt_checkout_binding,
+        payment_effective_date, resolve_payment_splits, strip_sensitive_checkout_request,
+        strip_sensitive_payment_metadata, validate_checkout_alteration_intakes,
+        validate_checkout_item_quantity, validate_checkout_replay_fingerprints,
+        validate_exchange_checkout_intent, validate_helcim_attempt_checkout_binding,
         validate_open_deposit_scope, validate_order_payment_against_target,
-        validate_order_payment_shape, validate_wedding_disbursement_against_balance,
-        CheckoutAlterationIntake, CheckoutDone, CheckoutItem, CheckoutOrderPayment,
-        CheckoutPaymentSplit, CheckoutRequest, ExistingOrderPaymentTarget, ResolvedOrderPayment,
-        ResolvedPaymentSplit, WeddingDisbursement,
+        validate_order_payment_shape, validate_processing_intent_fingerprint,
+        validate_wedding_disbursement_against_balance, CheckoutAlterationIntake, CheckoutDone,
+        CheckoutItem, CheckoutOrderPayment, CheckoutPaymentSplit, CheckoutRequest,
+        ExistingOrderPaymentTarget, ResolvedOrderPayment, ResolvedPaymentSplit,
+        WeddingDisbursement,
     };
     use crate::logic::customer_open_deposit;
     use crate::logic::customers::{insert_customer, CustomerCreatedSource, InsertCustomerParams};
@@ -5636,7 +6199,7 @@ mod tests {
     use chrono::NaiveDate;
     use rust_decimal::Decimal;
     use rust_decimal_macros::dec;
-    use serde_json::json;
+    use serde_json::{json, Value};
     use sqlx::{Connection, PgPool};
     use std::sync::Arc;
     use tokio::sync::Mutex;
@@ -5706,6 +6269,7 @@ mod tests {
             rounding_adjustment: None,
             final_cash_due: None,
             is_processing: false,
+            exchange_settlement: None,
         }
     }
 
@@ -5743,6 +6307,292 @@ mod tests {
             check_number: None,
             metadata: None,
         }
+    }
+
+    #[test]
+    fn checkout_replay_requires_exact_session_request_and_payment_fingerprints() {
+        let mut payload = checkout_request_for_split_validation(
+            dec!(100.00),
+            dec!(100.00),
+            vec![cash_split(dec!(100.00))],
+        );
+        payload.checkout_client_id = Some(Uuid::new_v4());
+
+        let (request_fingerprint, payment_fingerprint) =
+            checkout_request_fingerprints(&payload).expect("fingerprint checkout");
+        let repeated = checkout_request_fingerprints(&payload).expect("repeat fingerprint");
+        assert_eq!(
+            (request_fingerprint.clone(), payment_fingerprint.clone()),
+            repeated
+        );
+        assert_eq!(request_fingerprint.len(), 64);
+        assert_eq!(payment_fingerprint.len(), 64);
+        validate_checkout_replay_fingerprints(
+            &payload,
+            Some(payload.session_id),
+            Some(&request_fingerprint),
+            Some(&payment_fingerprint),
+            &request_fingerprint,
+            &payment_fingerprint,
+        )
+        .expect("exact checkout replay");
+
+        payload.payment_splits.as_mut().expect("payment splits")[0].metadata =
+            Some(json!({ "provider_transaction_id": "changed-reference" }));
+        let (changed_request, changed_payment) =
+            checkout_request_fingerprints(&payload).expect("changed fingerprint");
+        assert_ne!(request_fingerprint, changed_request);
+        assert_ne!(payment_fingerprint, changed_payment);
+        let error = validate_checkout_replay_fingerprints(
+            &payload,
+            Some(payload.session_id),
+            Some(&request_fingerprint),
+            Some(&payment_fingerprint),
+            &changed_request,
+            &changed_payment,
+        )
+        .expect_err("changed checkout replay must fail");
+        assert!(error
+            .to_string()
+            .contains("different sale or payment details"));
+
+        let error = validate_checkout_replay_fingerprints(
+            &payload,
+            Some(Uuid::new_v4()),
+            Some(&changed_request),
+            Some(&changed_payment),
+            &changed_request,
+            &changed_payment,
+        )
+        .expect_err("cross-session replay must fail");
+        assert!(error.to_string().contains("different register session"));
+    }
+
+    #[test]
+    fn processing_completion_keeps_immutable_intent_but_rejects_sale_changes() {
+        let mut initial = checkout_request_for_split_validation(
+            dec!(100.00),
+            Decimal::ZERO,
+            vec![cash_split(Decimal::ZERO)],
+        );
+        initial.checkout_client_id = Some(Uuid::new_v4());
+        initial.is_processing = true;
+        let stored = checkout_processing_intent_fingerprint(&initial).expect("initial intent");
+
+        let mut completion: CheckoutRequest =
+            serde_json::from_value(serde_json::to_value(&initial).expect("serialize checkout"))
+                .expect("clone checkout");
+        completion.is_processing = false;
+        completion.amount_paid = dec!(100.00);
+        completion.payment_splits = Some(vec![cash_split(dec!(100.00))]);
+        let completing =
+            checkout_processing_intent_fingerprint(&completion).expect("completion intent");
+        assert_eq!(stored, completing);
+        validate_processing_intent_fingerprint(
+            &completion,
+            Some(initial.session_id),
+            Some(&stored),
+            &completing,
+        )
+        .expect("stable processing completion");
+
+        completion.total_price = dec!(101.00);
+        let changed_total =
+            checkout_processing_intent_fingerprint(&completion).expect("changed total intent");
+        assert!(validate_processing_intent_fingerprint(
+            &completion,
+            Some(initial.session_id),
+            Some(&stored),
+            &changed_total,
+        )
+        .is_err());
+
+        completion.total_price = dec!(100.00);
+        completion.items[0].quantity = 2;
+        let changed_items =
+            checkout_processing_intent_fingerprint(&completion).expect("changed items intent");
+        assert!(validate_processing_intent_fingerprint(
+            &completion,
+            Some(initial.session_id),
+            Some(&stored),
+            &changed_items,
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn checkout_transaction_locks_register_session_before_processing_identity_reread() {
+        let source = include_str!("transaction_checkout.rs");
+        let transaction_scope = source
+            .split_once("let mut tx = pool.begin().await?;")
+            .expect("checkout transaction boundary")
+            .1;
+        let session_lock = transaction_scope
+            .find("FROM register_sessions\n        WHERE id = $1\n        FOR UPDATE")
+            .expect("Register session row lock");
+        let recovery_override = transaction_scope
+            .find("context.allow_closed_session")
+            .expect("recovery closed-session policy");
+        let checkout_identity_reread = transaction_scope
+            .find("FROM transactions\n            WHERE checkout_client_id = $1")
+            .expect("in-transaction checkout identity re-read");
+
+        assert!(
+            session_lock < recovery_override && recovery_override < checkout_identity_reread,
+            "Register session lock and lifecycle validation must precede the in-transaction checkout identity re-read"
+        );
+    }
+
+    #[test]
+    fn checkout_fingerprints_never_include_sensitive_pin_metadata() {
+        let mut first = checkout_request_for_split_validation(
+            dec!(100.00),
+            dec!(100.00),
+            vec![cash_split(dec!(100.00))],
+        );
+        first.payment_splits.as_mut().expect("splits")[0].metadata = Some(json!({
+            "manager_pin": "1234",
+            "x-riverside-staff-pin": "1234",
+            "encoded_approval": r#"{"accessPin":"1234","reason":"approved"}"#,
+            "manager_staff_id": Uuid::nil()
+        }));
+        first.exchange_settlement = Some(json!({
+            "manager_pin": "1234",
+            "x-riverside-staff-pin": "1234",
+            "reason": "safe"
+        }));
+        let mut second: CheckoutRequest =
+            serde_json::from_value(serde_json::to_value(&first).expect("serialize checkout"))
+                .expect("clone checkout");
+        second.payment_splits.as_mut().expect("splits")[0].metadata = Some(json!({
+            "manager_pin": "9876",
+            "x-riverside-staff-pin": "9876",
+            "encoded_approval": r#"{"accessPin":"9876","reason":"approved"}"#,
+            "manager_staff_id": Uuid::nil()
+        }));
+        second.exchange_settlement = Some(json!({
+            "manager_pin": "9876",
+            "x-riverside-staff-pin": "9876",
+            "reason": "safe"
+        }));
+
+        assert_eq!(
+            checkout_request_fingerprints(&first).expect("first fingerprint"),
+            checkout_request_fingerprints(&second).expect("second fingerprint")
+        );
+        strip_sensitive_checkout_request(&mut first);
+        assert!(first.payment_splits.as_ref().expect("splits")[0]
+            .metadata
+            .as_ref()
+            .expect("metadata")
+            .get("manager_pin")
+            .is_none());
+        assert!(first.payment_splits.as_ref().expect("splits")[0]
+            .metadata
+            .as_ref()
+            .expect("metadata")
+            .get("x-riverside-staff-pin")
+            .is_none());
+        assert_eq!(first.exchange_settlement, Some(json!({ "reason": "safe" })));
+    }
+
+    #[test]
+    fn exchange_replacement_intent_must_match_exchange_credit_tender() {
+        let original_transaction_id = Uuid::new_v4();
+        let mut exchange_credit = cash_split(dec!(40.00));
+        exchange_credit.payment_method = "exchange_credit".to_string();
+        exchange_credit.metadata = Some(json!({
+            "original_transaction_id": original_transaction_id,
+        }));
+        let mut payload = checkout_request_for_split_validation(
+            dec!(100.00),
+            dec!(100.00),
+            vec![exchange_credit, cash_split(dec!(60.00))],
+        );
+        payload.checkout_client_id = Some(Uuid::new_v4());
+        payload.exchange_settlement = Some(json!({
+            "original_transaction_id": original_transaction_id,
+            "exchange_credit_amount": "40.00",
+        }));
+        let (splits, _) = resolve_payment_splits(&payload).expect("resolve exchange tenders");
+
+        assert_eq!(
+            validate_exchange_checkout_intent(&payload, &splits).expect("matching exchange intent"),
+            Some((original_transaction_id, dec!(40.00)))
+        );
+
+        payload.exchange_settlement = Some(json!({
+            "original_transaction_id": original_transaction_id,
+            "exchange_credit_amount": "39.99",
+        }));
+        let error = validate_exchange_checkout_intent(&payload, &splits)
+            .expect_err("mismatched exchange credit must fail");
+        assert!(error
+            .to_string()
+            .contains("does not match the replacement sale exchange-credit tender"));
+
+        payload.exchange_settlement = None;
+        let error = validate_exchange_checkout_intent(&payload, &splits)
+            .expect_err("unbound exchange credit must fail");
+        assert!(error
+            .to_string()
+            .contains("requires a matching exchange settlement intent"));
+    }
+
+    #[test]
+    fn sensitive_pin_fields_are_removed_from_payment_metadata() {
+        let unchanged_encoded = r#"{ "reason": "keeps original formatting" }"#;
+        let mut metadata = json!({
+            "manager_pin": "1234",
+            "manager_staff_id": Uuid::new_v4(),
+            "nested": { "accessPin": "9999", "reason": "approved" },
+            "items": [{ "pin": "0000", "x-riverside-staff-pin": "1111", "reference": "safe" }],
+            "encoded_object": r#"{"manager_pin":"2222","reason":"approved"}"#,
+            "encoded_array": r#"[{"accessPin":"3333","reference":"safe"}]"#,
+            "encoded_nested": r#"{"payload":"{\"x-riverside-staff-pin\":\"4444\",\"reference\":\"safe\"}"}"#,
+            "unchanged_encoded": unchanged_encoded,
+            "encoded_scalar": "1234",
+        });
+        strip_sensitive_payment_metadata(&mut metadata);
+
+        assert!(metadata.get("manager_pin").is_none());
+        assert!(metadata["nested"].get("accessPin").is_none());
+        assert!(metadata["items"][0].get("pin").is_none());
+        assert!(metadata["items"][0].get("x-riverside-staff-pin").is_none());
+        assert!(metadata.get("manager_staff_id").is_some());
+        assert_eq!(metadata["nested"]["reason"], "approved");
+        let encoded_object: Value = serde_json::from_str(
+            metadata["encoded_object"]
+                .as_str()
+                .expect("encoded object remains a JSON string"),
+        )
+        .expect("decode scrubbed object");
+        assert!(encoded_object.get("manager_pin").is_none());
+        assert_eq!(encoded_object["reason"], "approved");
+        let encoded_array: Value = serde_json::from_str(
+            metadata["encoded_array"]
+                .as_str()
+                .expect("encoded array remains a JSON string"),
+        )
+        .expect("decode scrubbed array");
+        assert!(encoded_array[0].get("accessPin").is_none());
+        assert_eq!(encoded_array[0]["reference"], "safe");
+        let encoded_nested: Value = serde_json::from_str(
+            metadata["encoded_nested"]
+                .as_str()
+                .expect("encoded nested object remains a JSON string"),
+        )
+        .expect("decode scrubbed nested object");
+        let nested_payload: Value = serde_json::from_str(
+            encoded_nested["payload"]
+                .as_str()
+                .expect("nested payload remains a JSON string"),
+        )
+        .expect("decode scrubbed nested payload");
+        assert!(nested_payload.get("x-riverside-staff-pin").is_none());
+        assert_eq!(nested_payload["reference"], "safe");
+        assert_eq!(metadata["unchanged_encoded"], unchanged_encoded);
+        assert_eq!(metadata["encoded_scalar"], "1234");
     }
 
     #[test]
@@ -7013,6 +7863,7 @@ mod tests {
             rounding_adjustment: None,
             final_cash_due: None,
             is_processing: false,
+            exchange_settlement: None,
         };
 
         let err = execute_checkout(&pool, &reqwest::Client::new(), Decimal::ZERO, payload)
@@ -7229,6 +8080,7 @@ mod tests {
             rounding_adjustment: None,
             final_cash_due: None,
             is_processing: false,
+            exchange_settlement: None,
         };
 
         let result = execute_checkout(&pool, &reqwest::Client::new(), Decimal::ZERO, payload).await;
@@ -7555,6 +8407,7 @@ mod tests {
             rounding_adjustment: None,
             final_cash_due: None,
             is_processing: false,
+            exchange_settlement: None,
         };
 
         let order_transaction_id =
@@ -7624,6 +8477,7 @@ mod tests {
             rounding_adjustment: None,
             final_cash_due: None,
             is_processing: false,
+            exchange_settlement: None,
         };
 
         let group_pay_transaction_id = match execute_checkout(
@@ -7967,6 +8821,7 @@ mod tests {
             rounding_adjustment: None,
             final_cash_due: None,
             is_processing: false,
+            exchange_settlement: None,
         };
 
         let group_pay_transaction_id = match execute_checkout(
@@ -8249,6 +9104,7 @@ mod tests {
             rounding_adjustment: None,
             final_cash_due: None,
             is_processing: false,
+            exchange_settlement: None,
         };
 
         let redemption_transaction_id = match execute_checkout(

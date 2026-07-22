@@ -3187,6 +3187,10 @@ pub struct MeilisearchSyncRow {
     pub row_count: i64,
     pub error_message: Option<String>,
     pub document_count: Option<usize>,
+    pub count_parity: Option<bool>,
+    pub recent_enough: bool,
+    pub search_ready: bool,
+    pub health_message: String,
     pub latest_task: Option<MeilisearchTaskSummary>,
     pub latest_failed_task: Option<MeilisearchTaskSummary>,
 }
@@ -3198,6 +3202,7 @@ pub struct MeilisearchStatusResponse {
     pub connection_error: Option<String>,
     pub indices: Vec<MeilisearchSyncRow>,
     pub is_indexing: bool,
+    pub full_rebuild_current: bool,
 }
 
 fn meili_connection_error_message(e: &meilisearch_sdk::errors::Error) -> String {
@@ -3237,44 +3242,6 @@ fn meili_task_summary(task: &meilisearch_sdk::tasks::Task) -> MeilisearchTaskSum
             error: Some(content.error.to_string()),
         },
     }
-}
-
-async fn meili_document_counts_from_env() -> HashMap<String, usize> {
-    let Some(url) = std::env::var("RIVERSIDE_MEILISEARCH_URL")
-        .ok()
-        .map(|s| s.trim().trim_end_matches('/').to_string())
-        .filter(|s| !s.is_empty())
-    else {
-        return HashMap::new();
-    };
-    let key = std::env::var("RIVERSIDE_MEILISEARCH_API_KEY")
-        .ok()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty());
-
-    let http = reqwest::Client::new();
-    let mut req = http.get(format!("{url}/stats"));
-    if let Some(key) = key {
-        req = req.bearer_auth(key);
-    }
-
-    let Ok(resp) = req.send().await else {
-        return HashMap::new();
-    };
-    let Ok(body) = resp.json::<Value>().await else {
-        return HashMap::new();
-    };
-    let Some(indexes) = body.get("indexes").and_then(Value::as_object) else {
-        return HashMap::new();
-    };
-
-    indexes
-        .iter()
-        .filter_map(|(uid, stats)| {
-            let count = stats.get("numberOfDocuments")?.as_u64()?;
-            Some((uid.clone(), count as usize))
-        })
-        .collect()
 }
 
 async fn get_meilisearch_status(
@@ -3325,11 +3292,11 @@ async fn get_meilisearch_status(
         .clone()
         .or_else(crate::logic::meilisearch_client::meilisearch_from_env);
 
-    let is_indexing = if let Some(client) = &meilisearch_client {
+    let mut is_indexing = false;
+    if let Some(client) = &meilisearch_client {
         match client.get_tasks().await {
             Ok(tasks) => {
-                doc_counts = meili_document_counts_from_env().await;
-                let is_indexing = tasks.results.iter().any(|t| {
+                is_indexing = tasks.results.iter().any(|t| {
                     matches!(
                         t,
                         meilisearch_sdk::tasks::Task::Enqueued { .. }
@@ -3347,29 +3314,101 @@ async fn get_meilisearch_status(
                         }
                     }
                 }
-                is_indexing
             }
             Err(e) => {
                 connection_error = Some(meili_connection_error_message(&e));
-                false
             }
         }
-    } else {
-        false
-    };
+        if connection_error.is_none() {
+            match client.get_stats().await {
+                Ok(stats) => {
+                    for (index_name, index_stats) in stats.indexes {
+                        is_indexing |= index_stats.is_indexing;
+                        doc_counts.insert(index_name, index_stats.number_of_documents);
+                    }
+                }
+                Err(e) => connection_error = Some(meili_connection_error_message(&e)),
+            }
+        }
+    }
+
+    let configured = meilisearch_client.is_some();
+    let connection_ok = configured && connection_error.is_none();
+    let cutoff = chrono::Utc::now() - chrono::Duration::hours(36);
+    let rebuild_sync = sync_by_index.get("ros_reindex_run");
+    let full_rebuild_current = rebuild_sync.is_some_and(|row| {
+        row.is_success
+            && row
+                .last_success_at
+                .is_some_and(|last_success| last_success >= cutoff)
+    });
 
     let indices = tracked_indices
         .into_iter()
         .map(|index_name| {
             let sync = sync_by_index.get(&index_name);
+            let last_success_at = sync.and_then(|row| row.last_success_at);
+            let recent_enough = last_success_at.is_some_and(|last_success| last_success >= cutoff);
+            let row_count = sync.map(|row| row.row_count).unwrap_or(0);
+            let document_count = doc_counts.get(&index_name).copied();
+            let count_parity = (index_name != "ros_reindex_run")
+                .then(|| document_count.map(|count| count == row_count.max(0) as usize))
+                .flatten();
+            let sync_success = sync.map(|row| row.is_success).unwrap_or(false);
+            let latest_task_failed = latest_by_index
+                .get(&index_name)
+                .is_some_and(|task| task.status == "failed");
+            let search_ready = if index_name == "ros_reindex_run" {
+                connection_ok && !is_indexing && full_rebuild_current
+            } else {
+                connection_ok
+                    && !is_indexing
+                    && sync_success
+                    && recent_enough
+                    && full_rebuild_current
+                    && count_parity == Some(true)
+                    && !latest_task_failed
+            };
+            let health_message = if !configured {
+                "Search service is not configured.".to_string()
+            } else if !connection_ok {
+                "Live search service status is unavailable.".to_string()
+            } else if is_indexing {
+                "Search index update is still processing.".to_string()
+            } else if !sync_success {
+                sync.and_then(|row| row.error_message.clone())
+                    .unwrap_or_else(|| "No successful index build is recorded.".to_string())
+            } else if latest_task_failed {
+                latest_by_index
+                    .get(&index_name)
+                    .and_then(|task| task.error.clone())
+                    .unwrap_or_else(|| "The latest search update failed.".to_string())
+            } else if !recent_enough || !full_rebuild_current {
+                "The last successful full rebuild is older than 36 hours.".to_string()
+            } else if index_name != "ros_reindex_run" && document_count.is_none() {
+                "Live document count is unavailable.".to_string()
+            } else if count_parity == Some(false) {
+                format!(
+                    "Count mismatch: PostgreSQL snapshot {row_count}, live search {}.",
+                    document_count.unwrap_or(0)
+                )
+            } else if index_name == "ros_reindex_run" {
+                "Full search rebuild is current.".to_string()
+            } else {
+                "Search index is current and count-verified.".to_string()
+            };
             MeilisearchSyncRow {
                 index_name: index_name.clone(),
-                last_success_at: sync.and_then(|row| row.last_success_at),
+                last_success_at,
                 last_attempt_at: sync.map(|row| row.last_attempt_at),
-                is_success: sync.map(|row| row.is_success).unwrap_or(false),
-                row_count: sync.map(|row| row.row_count).unwrap_or(0),
+                is_success: sync_success,
+                row_count,
                 error_message: sync.and_then(|row| row.error_message.clone()),
-                document_count: doc_counts.get(&index_name).copied(),
+                document_count,
+                count_parity,
+                recent_enough,
+                search_ready,
+                health_message,
                 latest_task: latest_by_index.get(&index_name).cloned(),
                 latest_failed_task: latest_failed_by_index.get(&index_name).cloned(),
             }
@@ -3377,11 +3416,12 @@ async fn get_meilisearch_status(
         .collect();
 
     Ok(Json(MeilisearchStatusResponse {
-        configured: meilisearch_client.is_some(),
-        connection_ok: meilisearch_client.is_some() && connection_error.is_none(),
+        configured,
+        connection_ok,
         connection_error,
         indices,
         is_indexing,
+        full_rebuild_current,
     }))
 }
 

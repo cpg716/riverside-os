@@ -37,6 +37,7 @@ import { openPrintableHtml } from "../../lib/browserPrint";
 
 const WEDDINGS_ICON = getAppIcon("weddings");
 const ORDERS_ICON = getAppIcon("orders");
+const ORDERS_PAGE_SIZE = 100;
 
 function cn(...inputs: (string | undefined | null | boolean)[]) {
   return twMerge(clsx(inputs));
@@ -72,6 +73,19 @@ interface TransactionRow {
   counterpoint_ticket_ref?: string | null;
   counterpoint_customer_code?: string | null;
 }
+
+type RefundManagerApproval =
+  | {
+      kind: "manual_external_card";
+      managerStaffId: string;
+      managerApprovalReference: string;
+      sessionId: string;
+    }
+  | {
+      kind: "rms";
+      managerStaffId: string;
+      managerPin: string;
+    };
 
 interface OrderItem {
   order_item_id: string;
@@ -479,7 +493,8 @@ async function openBespokeOrdersPrint(opts: {
     })
     .join("");
 
-  await openPrintableHtml(`<!DOCTYPE html><html><head><title>${escapePrintHtml(opts.title)}</title>
+  await openPrintableHtml(
+    `<!DOCTYPE html><html><head><title>${escapePrintHtml(opts.title)}</title>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@500;700;800;900&display=swap');
     @page { size: letter portrait; margin: 0.35in; }
@@ -532,11 +547,14 @@ async function openBespokeOrdersPrint(opts: {
     </header>
     <p class="subtitle">${escapePrintHtml(opts.subtitle)}</p>
     ${orderCards || `<section class="order-card muted">No records found</section>`}
-  </body></html>`, opts.title, {
-    filename: `riverside-orders-${opts.title.replace(/[^a-z0-9]+/gi, "-")}.html`,
-    width: 1100,
-    height: 950,
-  });
+  </body></html>`,
+    opts.title,
+    {
+      filename: `riverside-orders-${opts.title.replace(/[^a-z0-9]+/gi, "-")}.html`,
+      width: 1100,
+      height: 950,
+    },
+  );
 }
 
 type OrderViewPreset = "open" | "all" | "closed" | "cancelled";
@@ -550,7 +568,11 @@ type FulfillmentKind =
   | "layaway";
 
 interface OrderRowActions {
-  onOpenInRegister?: (orderId: string, forPickup?: boolean, returnLineId?: string) => void;
+  onOpenInRegister?: (
+    orderId: string,
+    forPickup?: boolean,
+    returnLineId?: string,
+  ) => void;
   onAttachToWedding: () => void;
   onCancel: () => void;
   onReturnAll: () => void;
@@ -1020,7 +1042,11 @@ export default function OrdersWorkspace({
   refreshSignal = 0,
 }: {
   activeSection?: string;
-  onOpenInRegister?: (orderId: string, forPickup?: boolean, returnLineId?: string) => void;
+  onOpenInRegister?: (
+    orderId: string,
+    forPickup?: boolean,
+    returnLineId?: string,
+  ) => void;
   /** When set, selects this order in the list and opens detail (e.g. from CRM hub). */
   deepLinkTxnId?: string | null;
   onDeepLinkTxnConsumed?: () => void;
@@ -1053,7 +1079,7 @@ export default function OrdersWorkspace({
   const [audit, setAudit] = useState<TransactionDrawerAudit[]>([]);
   const [page, setPage] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
-  const limit = 5000; // High-volume non-paginated limit for operational focus
+  const limit = ORDERS_PAGE_SIZE;
 
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
   const [returnConfirmOpen, setReturnConfirmOpen] = useState(false);
@@ -1066,6 +1092,7 @@ export default function OrdersWorkspace({
   const [refundGiftCode, setRefundGiftCode] = useState("");
   const [refundCheckNumber, setRefundCheckNumber] = useState("");
   const [refundExternalReference, setRefundExternalReference] = useState("");
+  const [refundCardLast4, setRefundCardLast4] = useState("");
   const [refundManagerReason, setRefundManagerReason] = useState("");
   const [refundManagerAccessOpen, setRefundManagerAccessOpen] = useState(false);
   const [refundBusy, setRefundBusy] = useState(false);
@@ -1077,13 +1104,17 @@ export default function OrdersWorkspace({
     [onOpenInRegister],
   );
   const [registerRequiredOpen, setRegisterRequiredOpen] = useState(false);
-  useShellBackdropLayer(refundModalOpen || registerRequiredOpen || refundManagerAccessOpen);
+  useShellBackdropLayer(
+    refundModalOpen || registerRequiredOpen || refundManagerAccessOpen,
+  );
   // exchangeOtherId removed
   const [returnQtyDraft, setReturnQtyDraft] = useState<Record<string, string>>(
     {},
   );
   const [attachWeddingModalOpen, setAttachWeddingModalOpen] = useState(false);
   const detailRequestSeqRef = useRef(0);
+  const transactionsRequestSeqRef = useRef(0);
+  const transactionsAbortRef = useRef<AbortController | null>(null);
 
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -1137,6 +1168,10 @@ export default function OrdersWorkspace({
   }, [baseUrl, backofficeHeaders]);
 
   const loadTransactions = useCallback(async () => {
+    const requestSeq = ++transactionsRequestSeqRef.current;
+    transactionsAbortRef.current?.abort();
+    const controller = new AbortController();
+    transactionsAbortRef.current = controller;
     setTransactionsLoading(true);
     setTransactionsLoadError(null);
     const params = new URLSearchParams();
@@ -1163,22 +1198,31 @@ export default function OrdersWorkspace({
         `${baseUrl}/api/transactions?${params.toString()}`,
         {
           headers: backofficeHeaders(),
+          signal: controller.signal,
         },
       );
       if (!res.ok) {
         throw new Error("transactions_load_failed");
       }
       const data = await res.json();
+      if (requestSeq !== transactionsRequestSeqRef.current) return;
       setTransactionRows(Array.isArray(data.items) ? data.items : []);
       setTotalCount(
         typeof data.total_count === "number" ? data.total_count : 0,
       );
-    } catch {
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      if (requestSeq !== transactionsRequestSeqRef.current) return;
       setTransactionsLoadError(
         "Orders could not load right now. Try again in a moment.",
       );
     } finally {
-      setTransactionsLoading(false);
+      if (requestSeq === transactionsRequestSeqRef.current) {
+        setTransactionsLoading(false);
+      }
+      if (transactionsAbortRef.current === controller) {
+        transactionsAbortRef.current = null;
+      }
     }
   }, [
     baseUrl,
@@ -1189,10 +1233,19 @@ export default function OrdersWorkspace({
     paymentFilter,
     salespersonFilter,
     lifecycleFilter,
+    limit,
     dateFrom,
     dateTo,
     viewPreset,
   ]);
+
+  useEffect(
+    () => () => {
+      transactionsRequestSeqRef.current += 1;
+      transactionsAbortRef.current?.abort();
+    },
+    [],
+  );
 
   const loadDetail = useCallback(
     async (id: string) => {
@@ -1651,20 +1704,66 @@ export default function OrdersWorkspace({
 
   // linkExchange logic removed for build stabilization
 
-  const submitProcessRefund = async (managerApproval?: { managerStaffId: string; managerPin: string }) => {
+  const getCurrentRefundSessionId = async (): Promise<string | null> => {
+    const cur = await fetch(`${baseUrl}/api/sessions/current`, {
+      headers: mergedPosStaffHeaders(backofficeHeaders),
+    });
+    if (cur.status === 409) {
+      toast(
+        "More than one register is open. Choose which register to use when prompted, then try again.",
+        "error",
+      );
+      return null;
+    }
+    if (!cur.ok) {
+      setRegisterRequiredOpen(true);
+      return null;
+    }
+    const session = (await cur.json()) as { session_id: string };
+    return session.session_id;
+  };
+
+  const submitProcessRefund = async (
+    managerApproval?: RefundManagerApproval,
+  ) => {
     if (!refundTargetOrderId || !canRefund) return;
-    const manualHelcimRefund = refundMethod === "card_terminal_manual";
-    const rmsRefund = refundMethod === "on_account_rms" || refundMethod === "on_account_rms90";
-    const externallyCompletedRefund = manualHelcimRefund || rmsRefund;
-    if (externallyCompletedRefund && !managerApproval) {
+    const manualExternalCardRefund = refundMethod === "card_terminal_manual";
+    const rmsRefund =
+      refundMethod === "on_account_rms" || refundMethod === "on_account_rms90";
+    const externallyCompletedRefund = manualExternalCardRefund || rmsRefund;
+    const amountCents = parseMoneyToCents(refundAmountStr.trim());
+    const cardLast4 = refundCardLast4.replace(/\D/g, "");
+    if (amountCents <= 0) {
+      toast("Enter a valid refund amount", "error");
+      return;
+    }
+    if (manualExternalCardRefund && !/^\d{4}$/.test(cardLast4)) {
+      toast(
+        "Enter the card's last four digits before recording the refund.",
+        "error",
+      );
+      return;
+    }
+    const hasRequiredManagerApproval = manualExternalCardRefund
+      ? managerApproval?.kind === "manual_external_card"
+      : rmsRefund
+        ? managerApproval?.kind === "rms"
+        : true;
+    if (externallyCompletedRefund && !hasRequiredManagerApproval) {
       if (!refundExternalReference.trim()) {
-        toast(rmsRefund
-          ? "Enter the RMS Charge refund reference before recording the refund."
-          : "Enter the external card refund reference before recording the refund.", "error");
+        toast(
+          rmsRefund
+            ? "Enter the RMS Charge refund reference before recording the refund."
+            : "Enter the external card refund reference before recording the refund.",
+          "error",
+        );
         return;
       }
       if (!refundManagerReason.trim()) {
-        toast("Enter the Manager Access reason before recording the backend refund.", "error");
+        toast(
+          "Enter the Manager Access reason before recording the backend refund.",
+          "error",
+        );
         return;
       }
       setRefundManagerAccessOpen(true);
@@ -1672,30 +1771,15 @@ export default function OrdersWorkspace({
     }
     setRefundBusy(true);
     try {
-      const cur = await fetch(`${baseUrl}/api/sessions/current`, {
-        headers: mergedPosStaffHeaders(backofficeHeaders),
-      });
-      if (cur.status === 409) {
-        toast(
-          "More than one register is open. Choose which register to use when prompted, then try again.",
-          "error",
-        );
-        return;
-      }
-      if (!cur.ok) {
-        setRegisterRequiredOpen(true);
-        return;
-      }
-      const sess = (await cur.json()) as { session_id: string };
-      const amtCents = parseMoneyToCents(refundAmountStr.trim());
-      if (amtCents <= 0) {
-        toast("Enter a valid refund amount", "error");
-        return;
-      }
+      const sessionId =
+        managerApproval?.kind === "manual_external_card"
+          ? managerApproval.sessionId
+          : await getCurrentRefundSessionId();
+      if (!sessionId) return;
       const body: Record<string, unknown> = {
-        session_id: sess.session_id,
+        session_id: sessionId,
         payment_method: refundMethod.trim(),
-        amount: centsToFixed2(amtCents),
+        amount: centsToFixed2(amountCents),
       };
       if (refundMethod === "check") {
         if (!refundCheckNumber.trim()) {
@@ -1709,9 +1793,18 @@ export default function OrdersWorkspace({
       }
       if (externallyCompletedRefund && managerApproval) {
         body.manager_staff_id = managerApproval.managerStaffId;
-        body.manager_pin = managerApproval.managerPin;
         body.manager_reason = refundManagerReason.trim();
         body.external_refund_reference = refundExternalReference.trim();
+      }
+      if (
+        manualExternalCardRefund &&
+        managerApproval?.kind === "manual_external_card"
+      ) {
+        body.manager_approval_reference =
+          managerApproval.managerApprovalReference;
+        body.card_last4 = cardLast4;
+      } else if (rmsRefund && managerApproval?.kind === "rms") {
+        body.manager_pin = managerApproval.managerPin;
       }
       const res = await fetch(
         `${baseUrl}/api/transactions/${refundTargetOrderId}/refunds/process`,
@@ -1723,13 +1816,17 @@ export default function OrdersWorkspace({
       );
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as { error?: string };
-        toast(body.error ?? "Refund failed. Check the amount and try again.", "error");
+        toast(
+          body.error ?? "Refund failed. Check the amount and try again.",
+          "error",
+        );
         return;
       }
       toast("Refund completed.", "success");
       setRefundModalOpen(false);
       setRefundManagerAccessOpen(false);
       setRefundExternalReference("");
+      setRefundCardLast4("");
       setRefundManagerReason("");
       setRefundCheckNumber("");
       if (detail?.transaction_id === refundTargetOrderId)
@@ -1947,6 +2044,7 @@ export default function OrdersWorkspace({
       </div>
     );
   };
+  const totalPages = Math.max(1, Math.ceil(totalCount / limit));
 
   return (
     <div className="ui-page flex flex-1 flex-col bg-transparent p-0">
@@ -2337,6 +2435,36 @@ export default function OrdersWorkspace({
 
               {renderTransactionListState("desktop")}
             </div>
+            <div className="flex flex-col gap-2 border-t border-app-border bg-app-surface-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-xs font-bold text-app-text-muted">
+                Showing {totalCount === 0 ? 0 : page * limit + 1}–
+                {Math.min((page + 1) * limit, totalCount)} of {totalCount}{" "}
+                matching orders
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className="ui-btn-secondary min-h-9 px-3 text-xs disabled:opacity-40"
+                  disabled={page === 0 || transactionsLoading}
+                  onClick={() => setPage((current) => Math.max(0, current - 1))}
+                >
+                  Previous
+                </button>
+                <span className="text-xs font-black text-app-text-muted">
+                  Page {page + 1} of {totalPages}
+                </span>
+                <button
+                  type="button"
+                  className="ui-btn-secondary min-h-9 px-3 text-xs disabled:opacity-40"
+                  disabled={page + 1 >= totalPages || transactionsLoading}
+                  onClick={() =>
+                    setPage((current) => Math.min(totalPages - 1, current + 1))
+                  }
+                >
+                  Next
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -2393,6 +2521,7 @@ export default function OrdersWorkspace({
         onClose={() => {
           setRefundModalOpen(false);
           setRefundManagerAccessOpen(false);
+          setRefundCardLast4("");
         }}
         onSubmit={() => void submitProcessRefund()}
         busy={refundBusy}
@@ -2406,6 +2535,8 @@ export default function OrdersWorkspace({
         setCheckNumber={setRefundCheckNumber}
         externalRefundReference={refundExternalReference}
         setExternalRefundReference={setRefundExternalReference}
+        cardLast4={refundCardLast4}
+        setCardLast4={setRefundCardLast4}
         managerReason={refundManagerReason}
         setManagerReason={setRefundManagerReason}
       />
@@ -2413,11 +2544,70 @@ export default function OrdersWorkspace({
         isOpen={refundManagerAccessOpen}
         onClose={() => setRefundManagerAccessOpen(false)}
         title="Manager Access"
-        message={refundMethod === "on_account_rms" || refundMethod === "on_account_rms90"
-          ? "Record this only after the refund was completed in RMS/R2S. The external reference and Manager Access approval will be saved to the financial and RMS audit trails."
-          : "Record this only after the refund was processed in the Helcim backend. The Helcim reference and Manager Access approval will be saved to the register audit trail."}
+        message={
+          refundMethod === "on_account_rms" ||
+          refundMethod === "on_account_rms90"
+            ? "Record this only after the refund was completed in RMS/R2S. The external reference and Manager Access approval will be saved to the financial and RMS audit trails."
+            : "Record this only after the refund was completed in the external card system. The external reference, card last four, and Manager Access approval will be saved to the register audit trail."
+        }
         onApprove={async (pin, managerId) => {
-          await submitProcessRefund({ managerStaffId: managerId, managerPin: pin });
+          const rmsRefund =
+            refundMethod === "on_account_rms" ||
+            refundMethod === "on_account_rms90";
+          if (rmsRefund) {
+            await submitProcessRefund({
+              kind: "rms",
+              managerStaffId: managerId,
+              managerPin: pin,
+            });
+            return false;
+          }
+          if (!refundTargetOrderId) return false;
+          const amountCents = parseMoneyToCents(refundAmountStr.trim());
+          const cardLast4 = refundCardLast4.replace(/\D/g, "");
+          if (amountCents <= 0 || !/^\d{4}$/.test(cardLast4)) return false;
+          const sessionId = await getCurrentRefundSessionId();
+          if (!sessionId) return false;
+          const approvalRes = await fetch(`${baseUrl}/api/staff/verify-pin`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...mergedPosStaffHeaders(backofficeHeaders),
+            },
+            body: JSON.stringify({
+              pin,
+              staff_id: managerId,
+              authorize_action: "manual_external_card_refund_authorization",
+              authorize_metadata: {
+                transaction_id: refundTargetOrderId,
+                register_session_id: sessionId,
+                amount: centsToFixed2(amountCents),
+                external_refund_reference: refundExternalReference.trim(),
+                manager_reason: refundManagerReason.trim(),
+                card_last4: cardLast4,
+              },
+            }),
+          });
+          const approvalPayload = (await approvalRes
+            .json()
+            .catch(() => ({}))) as {
+            error?: string;
+            manager_approval_reference?: string;
+          };
+          if (!approvalRes.ok || !approvalPayload.manager_approval_reference) {
+            toast(
+              approvalPayload.error ?? "Manager Access was not approved.",
+              "error",
+            );
+            return false;
+          }
+          await submitProcessRefund({
+            kind: "manual_external_card",
+            managerStaffId: managerId,
+            managerApprovalReference:
+              approvalPayload.manager_approval_reference,
+            sessionId,
+          });
           return false;
         }}
       />
@@ -2445,6 +2635,7 @@ export default function OrdersWorkspace({
             openInRegisterAndClose(orderId, false, lineId),
           onProcessRefund: () => {
             setRefundExternalReference("");
+            setRefundCardLast4("");
             setRefundManagerReason("");
             setRefundManagerAccessOpen(false);
             setRefundModalOpen(true);

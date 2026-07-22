@@ -1,5 +1,9 @@
 import { expect, type APIRequestContext, type Page } from "@playwright/test";
-import { ensurePosRegisterSessionOpen, ensurePosSaleCashierSignedIn, enterPosShell } from "./openPosRegister";
+import {
+  ensurePosRegisterSessionOpen,
+  ensurePosSaleCashierSignedIn,
+  enterPosShell,
+} from "./openPosRegister";
 import { openBackofficeSidebarTab } from "./backofficeSignIn";
 
 export function apiBase(): string {
@@ -133,7 +137,7 @@ export async function ensureSessionAuth(
       headers: {
         ...staffHeaders(code),
         "Content-Type": "application/json",
-      "x-riverside-station-key": "station-e2e",
+        "x-riverside-station-key": "station-e2e",
       },
       data: {
         cashier_code: staffCode(code),
@@ -152,14 +156,17 @@ export async function ensureSessionAuth(
     };
   }
 
-  const tokenRes = await request.post(`${apiBase()}/api/sessions/${sessionId}/attach`, {
-    headers: {
-      ...staffHeaders(code),
-      "Content-Type": "application/json",
-      "x-riverside-station-key": "station-e2e",
+  const tokenRes = await request.post(
+    `${apiBase()}/api/sessions/${sessionId}/attach`,
+    {
+      headers: {
+        ...staffHeaders(code),
+        "Content-Type": "application/json",
+        "x-riverside-station-key": "station-e2e",
+      },
+      failOnStatusCode: false,
     },
-    failOnStatusCode: false,
-  });
+  );
   expect(tokenRes.status()).toBe(200);
   const tokenBody = (await tokenRes.json()) as { pos_api_token?: string };
   return {
@@ -186,14 +193,17 @@ export async function resetOpenRegisterSessions(request: APIRequestContext) {
   const sessionId = (primary.session_id || primary.id || "").trim();
   if (!sessionId) return;
 
-  const tokenRes = await request.post(`${apiBase()}/api/sessions/${sessionId}/attach`, {
-    headers: {
-      ...staffHeaders(),
-      "Content-Type": "application/json",
-      "x-riverside-station-key": "station-e2e",
+  const tokenRes = await request.post(
+    `${apiBase()}/api/sessions/${sessionId}/attach`,
+    {
+      headers: {
+        ...staffHeaders(),
+        "Content-Type": "application/json",
+        "x-riverside-station-key": "station-e2e",
+      },
+      failOnStatusCode: false,
     },
-    failOnStatusCode: false,
-  });
+  );
   if (tokenRes.status() !== 200) {
     const bodyText = await tokenRes.text();
     throw new Error(
@@ -202,24 +212,73 @@ export async function resetOpenRegisterSessions(request: APIRequestContext) {
   }
   const tokenBody = (await tokenRes.json()) as { pos_api_token?: string };
   const token = tokenBody.pos_api_token?.trim() || "";
-  const reconRes = await request.get(`${apiBase()}/api/sessions/${sessionId}/reconciliation`, {
-    headers: {
-      "x-riverside-pos-session-id": sessionId,
-      "x-riverside-pos-session-token": token,
-      "x-riverside-station-key": "station-e2e",
+  const posHeaders = {
+    "x-riverside-pos-session-id": sessionId,
+    "x-riverside-pos-session-token": token,
+    "x-riverside-station-key": "station-e2e",
+  };
+  const beginRes = await request.post(
+    `${apiBase()}/api/sessions/${sessionId}/begin-reconcile`,
+    {
+      headers: {
+        ...posHeaders,
+        "Content-Type": "application/json",
+      },
+      data: { active: true },
+      failOnStatusCode: false,
     },
-    failOnStatusCode: false,
-  });
+  );
+  if (beginRes.status() !== 200) {
+    const bodyText = await beginRes.text();
+    throw new Error(
+      `Failed to begin reconciliation for open register session ${sessionId} during E2E reset (status ${beginRes.status()}): ${bodyText || "<empty body>"}`,
+    );
+  }
+  const acknowledgementRes = await request.post(
+    `${apiBase()}/api/recovery/station-close-status`,
+    {
+      headers: {
+        ...posHeaders,
+        "Content-Type": "application/json",
+      },
+      data: {
+        pending_checkout_count: 0,
+        blocked_checkout_count: 0,
+      },
+      failOnStatusCode: false,
+    },
+  );
+  if (acknowledgementRes.status() !== 200) {
+    const bodyText = await acknowledgementRes.text();
+    throw new Error(
+      `Failed to acknowledge the E2E workstation for open register session ${sessionId} during reset (status ${acknowledgementRes.status()}): ${bodyText || "<empty body>"}`,
+    );
+  }
+  const reconRes = await request.get(
+    `${apiBase()}/api/sessions/${sessionId}/reconciliation`,
+    {
+      headers: posHeaders,
+      failOnStatusCode: false,
+    },
+  );
   if (reconRes.status() !== 200) {
     const bodyText = await reconRes.text();
     throw new Error(
       `Failed to read open register session ${sessionId} during E2E reset (status ${reconRes.status()}): ${bodyText || "<empty body>"}`,
     );
   }
-  const reconciliation = (await reconRes.json()) as { expected_cash: string };
-  const expectedCash = reconciliation.expected_cash.trim();
+  const reconciliation = (await reconRes.json()) as {
+    expected_cash: string;
+    physical_expected_cash?: string;
+  };
+  const expectedCash = (
+    reconciliation.physical_expected_cash ?? reconciliation.expected_cash
+  ).trim();
   const actualCash = expectedCash.startsWith("-") ? "0.00" : expectedCash;
-  const closeRes = await request.post(`${apiBase()}/api/sessions/${sessionId}/close`, {
+  const managerStaffId = await verifyStaffId(request);
+  const closeRes = await request.post(
+    `${apiBase()}/api/sessions/${sessionId}/close`,
+    {
       headers: {
         "Content-Type": "application/json",
         "x-riverside-pos-session-id": sessionId,
@@ -228,15 +287,23 @@ export async function resetOpenRegisterSessions(request: APIRequestContext) {
       },
       data: {
         actual_cash: actualCash,
-        closing_notes: actualCash === expectedCash
-          ? "E2E RMS permissions reset"
-          : "E2E RMS permissions reset; negative expected cash clamped to zero",
-        closing_comments: actualCash === expectedCash
-          ? "E2E RMS permissions reset"
-          : "E2E RMS permissions reset; negative expected cash clamped to zero",
+        closing_notes:
+          actualCash === expectedCash
+            ? "E2E RMS permissions reset"
+            : "E2E RMS permissions reset; negative expected cash clamped to zero",
+        closing_comments:
+          actualCash === expectedCash
+            ? "E2E RMS permissions reset"
+            : "E2E RMS permissions reset; negative expected cash clamped to zero",
+        force_unresolved_recovery: true,
+        manager_staff_id: managerStaffId,
+        manager_pin: staffCode(),
+        manager_reason:
+          "E2E cleanup closes stale workstation sessions between isolated specs",
       },
       failOnStatusCode: false,
-    });
+    },
+  );
   if (closeRes.status() !== 200) {
     const bodyText = await closeRes.text();
     throw new Error(
@@ -245,10 +312,7 @@ export async function resetOpenRegisterSessions(request: APIRequestContext) {
   }
 }
 
-export async function verifyStaffId(
-  request: APIRequestContext,
-  code?: string,
-) {
+export async function verifyStaffId(request: APIRequestContext, code?: string) {
   const res = await request.post(`${apiBase()}/api/staff/verify-cashier-code`, {
     headers: { "Content-Type": "application/json" },
     data: {
@@ -270,27 +334,36 @@ export async function seedRmsFixture(
   const safeCustomerLabel = customerLabel?.trim()
     ? customerLabel.trim().slice(0, 32)
     : null;
-  const res = await request.post(`${apiBase()}/api/test-support/rms/seed-fixture`, {
-    headers: {
-      ...staffHeaders(),
-      "Content-Type": "application/json",
-      "x-riverside-station-key": "station-e2e",
+  const res = await request.post(
+    `${apiBase()}/api/test-support/rms/seed-fixture`,
+    {
+      headers: {
+        ...staffHeaders(),
+        "Content-Type": "application/json",
+        "x-riverside-station-key": "station-e2e",
+      },
+      data: {
+        fixture,
+        customer_label: safeCustomerLabel,
+      },
+      failOnStatusCode: false,
     },
-    data: {
-      fixture,
-      customer_label: safeCustomerLabel,
-    },
-    failOnStatusCode: false,
-  });
+  );
   if (res.status() !== 200) {
     const bodyText = await res.text();
     throw new Error(
       `Failed to seed RMS fixture "${fixture}" (status ${res.status()}): ${bodyText || "<empty body>"}`,
     );
   }
-  const raw = (await res.json()) as Omit<SeedFixtureResponse, "linked_accounts"> & {
+  const raw = (await res.json()) as Omit<
+    SeedFixtureResponse,
+    "linked_accounts"
+  > & {
     linked_accounts: Array<
-      Omit<SeedFixtureResponse["linked_accounts"][number], "rms_customer_id" | "rms_account_id"> & {
+      Omit<
+        SeedFixtureResponse["linked_accounts"][number],
+        "rms_customer_id" | "rms_account_id"
+      > & {
         corecredit_customer_id: string;
         corecredit_account_id: string;
       }
@@ -315,18 +388,21 @@ export async function prepareRmsRecord(
   mode: string,
   recordId: string,
 ) {
-  const res = await request.post(`${apiBase()}/api/test-support/rms/prepare-record`, {
-    headers: {
-      ...staffHeaders(),
-      "Content-Type": "application/json",
-      "x-riverside-station-key": "station-e2e",
+  const res = await request.post(
+    `${apiBase()}/api/test-support/rms/prepare-record`,
+    {
+      headers: {
+        ...staffHeaders(),
+        "Content-Type": "application/json",
+        "x-riverside-station-key": "station-e2e",
+      },
+      data: {
+        mode,
+        record_id: recordId,
+      },
+      failOnStatusCode: false,
     },
-    data: {
-      mode,
-      record_id: recordId,
-    },
-    failOnStatusCode: false,
-  });
+  );
   if (res.status() !== 200) {
     const bodyText = await res.text();
     throw new Error(
@@ -340,10 +416,13 @@ export async function getTransactionArtifacts(
   request: APIRequestContext,
   transactionId: string,
 ): Promise<TransactionArtifacts> {
-  const res = await request.get(`${apiBase()}/api/test-support/rms/transaction/${transactionId}`, {
-    headers: staffHeaders(),
-    failOnStatusCode: false,
-  });
+  const res = await request.get(
+    `${apiBase()}/api/test-support/rms/transaction/${transactionId}`,
+    {
+      headers: staffHeaders(),
+      failOnStatusCode: false,
+    },
+  );
   if (res.status() !== 200) {
     const bodyText = await res.text();
     throw new Error(
@@ -374,15 +453,21 @@ export async function checkoutFinancedSale(
     programCode: "standard" | "rms90";
     referenceNumber?: string;
   },
-): Promise<{ response: Awaited<ReturnType<APIRequestContext["post"]>>; body?: CheckoutResponse }> {
+): Promise<{
+  response: Awaited<ReturnType<APIRequestContext["post"]>>;
+  body?: CheckoutResponse;
+}> {
   const { sessionId, sessionToken } = await ensureSessionAuth(request);
   const operatorStaffId = await verifyStaffId(request);
   const account =
     options.programCode === "rms90"
-      ? options.fixture.linked_accounts.find((row) => row.program_group?.toLowerCase().includes("90"))
+      ? options.fixture.linked_accounts.find((row) =>
+          row.program_group?.toLowerCase().includes("90"),
+        )
       : options.fixture.linked_accounts[0];
   expect(account).toBeTruthy();
-  const paymentMethod = options.programCode === "rms90" ? "on_account_rms90" : "on_account_rms";
+  const paymentMethod =
+    options.programCode === "rms90" ? "on_account_rms90" : "on_account_rms";
   const checkoutClientId = crypto.randomUUID();
   const res = await request.post(`${apiBase()}/api/transactions/checkout`, {
     headers: {
@@ -407,7 +492,8 @@ export async function checkoutFinancedSale(
           metadata: {
             tender_family: "rms_charge",
             program_code: options.programCode,
-            program_label: options.programCode === "rms90" ? "RMS 90" : "Standard",
+            program_label:
+              options.programCode === "rms90" ? "RMS 90" : "Standard",
             masked_account: account?.masked_account,
             linked_rms_customer_id: account?.rms_customer_id,
             linked_rms_account_id: account?.rms_account_id,
@@ -495,7 +581,10 @@ export async function checkoutRmsPaymentCollection(
   });
   return {
     response: res,
-    body: res.status() === 200 ? ((await res.json()) as CheckoutResponse) : undefined,
+    body:
+      res.status() === 200
+        ? ((await res.json()) as CheckoutResponse)
+        : undefined,
   };
 }
 
@@ -533,7 +622,9 @@ export async function openCustomersRmsWorkspace(page: Page) {
   });
   await openBackofficeSidebarTab(page, "customers");
   await page.getByRole("button", { name: /^RMS Charge$/i }).click();
-  await expect(page.getByText(/RMS Charge/i).first()).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText(/RMS Charge/i).first()).toBeVisible({
+    timeout: 15_000,
+  });
 }
 
 export async function openPosRmsWorkspace(page: Page) {
@@ -545,15 +636,21 @@ export async function openPosRmsWorkspace(page: Page) {
     await enterPosShell(page);
   }
   await ensurePosRegisterSessionOpen(page);
-  const cashierDialog = page.getByRole("dialog", { name: /sign-in for this sale/i });
+  const cashierDialog = page.getByRole("dialog", {
+    name: /sign-in for this sale/i,
+  });
   if (await cashierDialog.isVisible().catch(() => false)) {
     await ensurePosSaleCashierSignedIn(page);
   }
   const customersButton = posNav.getByRole("button", { name: /^Customers$/i });
   await customersButton.click({ force: true });
 
-  const rmsSubsectionButton = posNav.getByRole("button", { name: /^RMS Charge$/i }).first();
+  const rmsSubsectionButton = posNav
+    .getByRole("button", { name: /^RMS Charge$/i })
+    .first();
   await expect(rmsSubsectionButton).toBeVisible({ timeout: 10_000 });
   await rmsSubsectionButton.click({ force: true });
-  await expect(page.getByText(/Slim RMS Charge Workspace/i)).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText(/Slim RMS Charge Workspace/i)).toBeVisible({
+    timeout: 15_000,
+  });
 }

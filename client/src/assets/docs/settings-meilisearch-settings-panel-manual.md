@@ -42,7 +42,7 @@ Use this panel when inventory, customer, wedding, order, transaction, alteration
 
 1. Open Settings, then Meilisearch.
 2. Use Refresh to reload the health view. This does not rebuild any index.
-3. Review row counts, last sync times, and any stale warnings.
+3. Review the PostgreSQL rebuild count, live search item count, count parity, rebuild time, and the exact reason for any warning.
 4. Use Rebuild all indices after a restore, Meilisearch wipe, or major import if search results are stale.
 
 ## What to watch for
@@ -51,14 +51,15 @@ Use this panel when inventory, customer, wedding, order, transaction, alteration
 - Refresh only reloads this dashboard. It does not push new data into Meilisearch.
 - Rebuild all indices pushes PostgreSQL records into Meilisearch and refreshes row counts.
 - If the panel says the saved API key was rejected, enter the current Meilisearch API key and save credentials. Restart the API if the rejection remains after saving.
-- A stale warning means the dashboard has not recorded a successful rebuild or incremental update for that index in more than 24 hours.
-- Stale can be normal for a quiet module with no recent writes. It needs follow-up when search results look wrong, the store just restored/imported data, or staff changed records in that module and the timestamp did not move.
+- **Search ready** means the search service is reachable, no index job is still running, the latest full rebuild is no more than 36 hours old, and the live document count matches the PostgreSQL count captured by that rebuild.
+- A warning names the fact that could not be verified: an old rebuild, a count mismatch, a failed or processing job, an unavailable live count, or a connection failure. Refresh rechecks those facts; it does not repair them.
+- Normal incremental changes can make the stored rebuild count differ until the next automatic daily rebuild. Riverside safely confirms empty searches through PostgreSQL while parity is not verified. Rebuild manually when staff need the warning cleared immediately or results remain wrong.
 - Back Office Orders are indexed as `ros_orders`; financial Transactions are indexed as `ros_transactions`. Orders should match unfulfilled Special, Custom, and Wedding order work in the Orders workspace, while Transactions includes all checkout records.
 - Normal record changes update their affected documents through server-side write hooks. A full rebuild is the repair path when those hooks were missed or the search service was offline.
 
 ## What happens next
 
-After a successful rebuild, the panel should show current timestamps and updated row counts for the active indices.
+After a successful rebuild, each active index should show matching PostgreSQL and live search counts plus a current, count-verified status.
 
 ## Related workflows
 

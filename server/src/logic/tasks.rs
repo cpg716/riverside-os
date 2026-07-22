@@ -759,6 +759,17 @@ pub async fn list_task_history(
     let mut search_ids: Option<Vec<Uuid>> = None;
     if let (Some(m), Some(q)) = (meili, search_text.as_ref()) {
         match crate::logic::meilisearch_search::task_search_ids(m, q).await {
+            Ok(ids)
+                if crate::logic::meilisearch_search::candidate_ids_may_be_truncated(
+                    crate::logic::meilisearch_client::INDEX_TASKS,
+                    ids.len(),
+                ) =>
+            {
+                tracing::warn!(
+                    candidate_count = ids.len(),
+                    "Meilisearch task candidate cap reached; using PostgreSQL for complete pagination"
+                );
+            }
             Ok(ids) if !ids.is_empty() => search_ids = Some(ids),
             Ok(_) => {}
             Err(e) => {
@@ -767,6 +778,21 @@ pub async fn list_task_history(
                     "Meilisearch task search failed; using PostgreSQL ILIKE"
                 );
             }
+        }
+    }
+
+    if let Some(ids) = search_ids.as_ref() {
+        let valid = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*)::bigint FROM task_instance WHERE id = ANY($1)",
+        )
+        .bind(ids)
+        .fetch_one(pool)
+        .await?;
+        if valid != ids.len() as i64 {
+            tracing::warn!(
+                "Meilisearch task history hits did not hydrate completely; using PostgreSQL"
+            );
+            search_ids = None;
         }
     }
 
@@ -807,7 +833,8 @@ pub async fn list_task_history(
         .fetch_all(pool)
         .await?
     } else {
-        let q = search_text.map(|s| format!("%{}%", s.to_lowercase()));
+        let q = search_text
+            .map(|s| crate::logic::search_patterns::literal_contains_pattern(&s.to_lowercase()));
         sqlx::query_as::<_, TaskHistoryRow>(
             r#"
             SELECT
@@ -838,7 +865,7 @@ pub async fn list_task_history(
                 OR LOWER(s.full_name) LIKE $2
                 OR LOWER(COALESCE(assigner.full_name, '')) LIKE $2
               ))
-            ORDER BY ti.completed_at DESC NULLS LAST, ti.materialized_at DESC
+            ORDER BY ti.completed_at DESC NULLS LAST, ti.materialized_at DESC, ti.id DESC
             LIMIT $3 OFFSET $4
             "#,
         )

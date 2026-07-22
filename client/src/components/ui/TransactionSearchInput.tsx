@@ -45,34 +45,59 @@ export default function TransactionSearchInput({
   const [query, setQuery] = useState(initialQuery);
   const [results, setResults] = useState<TransactionSearchResult[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const requestRef = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
+  const suppressNextSearchRef = useRef(false);
 
   const performSearch = useCallback(async (q: string) => {
     if (q.trim().length < 1) {
       setResults([]);
       return;
     }
+    const requestId = ++requestRef.current;
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
     setLoading(true);
+    setError(null);
+    setResults([]);
     try {
       // Use the standard transactions listing with search param
       const res = await fetch(
         `${baseUrl}/api/transactions?search=${encodeURIComponent(q)}&limit=10`,
-        { headers: mergedPosStaffHeaders(backofficeHeaders) }
+        { headers: mergedPosStaffHeaders(backofficeHeaders), signal: controller.signal }
       );
-      if (res.ok) {
-        const data = await res.json() as PagedTransactionsResponse;
-        setResults(data.items || []);
-      }
+      if (!res.ok) throw new Error(`Transaction search failed with status ${res.status}`);
+      const data = await res.json() as PagedTransactionsResponse;
+      if (requestId !== requestRef.current) return;
+      setResults(data.items || []);
     } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
+      if (requestId !== requestRef.current) return;
       console.error("Transaction search failed", err);
+      setError("Transaction search is unavailable. Try again.");
     } finally {
-      setLoading(false);
+      if (requestId === requestRef.current) setLoading(false);
+      if (abortRef.current === controller) abortRef.current = null;
     }
   }, [baseUrl, backofficeHeaders]);
 
   useEffect(() => {
+    requestRef.current += 1;
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setLoading(false);
+    setError(null);
+    if (suppressNextSearchRef.current) {
+      suppressNextSearchRef.current = false;
+      setResults([]);
+      setIsOpen(false);
+      return;
+    }
     if (debounceRef.current) clearTimeout(debounceRef.current);
     if (!query.trim()) {
       setResults([]);
@@ -87,6 +112,11 @@ export default function TransactionSearchInput({
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, [query, performSearch]);
+
+  useEffect(() => () => {
+    requestRef.current += 1;
+    abortRef.current?.abort();
+  }, []);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -116,10 +146,12 @@ export default function TransactionSearchInput({
         />
       </div>
 
-      {isOpen && (results.length > 0 || loading) && (
+      {isOpen && query.trim().length >= 1 && (
         <div className="absolute z-50 mt-1 w-full max-h-80 overflow-y-auto rounded-xl border border-app-border bg-app-surface shadow-2xl animate-in fade-in slide-in-from-top-2 duration-200 ring-1 ring-black/5 border-b border-app-border/10">
-          {loading && results.length === 0 ? (
+          {loading ? (
             <div className="p-4 text-center text-xs text-app-text-muted">Scanning records…</div>
+          ) : error ? (
+            <div className="p-4 text-center text-xs font-semibold text-app-danger">{error}</div>
           ) : results.length > 0 ? (
             <ul className="py-1">
               {results.map((o) => (
@@ -128,7 +160,9 @@ export default function TransactionSearchInput({
                     type="button"
                     onClick={() => {
                       onSelect(o);
-                      setQuery(o.customer_name ?? o.transaction_id.slice(0, 8));
+                      const selectedLabel = o.customer_name ?? o.transaction_id.slice(0, 8);
+                      suppressNextSearchRef.current = selectedLabel !== query;
+                      setQuery(selectedLabel);
                       setResults([]);
                       setIsOpen(false);
                     }}

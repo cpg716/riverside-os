@@ -1,4 +1,5 @@
 import { expect, test, type APIResponse } from "@playwright/test";
+import { resetOpenRegisterSessions } from "./helpers/rmsCharge";
 
 function apiBase(): string {
   const raw =
@@ -32,7 +33,8 @@ function requireOrSkip(condition: boolean, message: string): void {
 }
 
 function parseMoneyToCents(value: string | number): number {
-  const normalized = typeof value === "number" ? value.toFixed(2) : String(value).trim();
+  const normalized =
+    typeof value === "number" ? value.toFixed(2) : String(value).trim();
   const negative = normalized.startsWith("-");
   const unsigned = negative ? normalized.slice(1) : normalized;
   const [wholeRaw, fracRaw = ""] = unsigned.split(".");
@@ -117,6 +119,7 @@ type HelcimAttemptResponse = {
   provider_payment_id?: string | null;
   provider_transaction_id?: string | null;
   selected_terminal_key?: string | null;
+  checkoutClientId: string;
 };
 
 type TransactionDetailResponse = {
@@ -131,11 +134,41 @@ type TransactionDetailResponse = {
 
 type ReconciliationResponse = {
   expected_cash: string;
+  physical_expected_cash: string;
+  qbo_activity_date: string;
+  pending_business_dates: string[];
   unresolved_helcim_attempts: Array<{
     id: string;
     review_reason: string;
   }>;
 };
+
+async function assignTransactionDate(
+  request: Parameters<typeof test>[0]["request"],
+  transactionId: string,
+  activityDate: string,
+): Promise<void> {
+  const response = await request.post(
+    `${apiBase()}/api/test-support/qbo/assign-transaction-date`,
+    {
+      headers: {
+        ...adminHeaders(),
+        "Content-Type": "application/json",
+        "x-riverside-station-key": "station-e2e",
+      },
+      data: { transaction_id: transactionId, activity_date: activityDate },
+      failOnStatusCode: false,
+    },
+  );
+  const bodyText = await response.text();
+  expect(response.status(), bodyText.slice(0, 1000)).toBe(200);
+}
+
+function addIsoDays(value: string, days: number): string {
+  const date = new Date(`${value}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
 
 type RegisterSessionHistoryRow = {
   id: string;
@@ -199,18 +232,21 @@ async function issuePosToken(
   request: Parameters<typeof test>[0]["request"],
   sessionId: string,
 ): Promise<string> {
-  const res = await request.post(`${apiBase()}/api/sessions/${sessionId}/pos-api-token`, {
-    headers: {
-      ...adminHeaders(),
-      "Content-Type": "application/json",
-      "x-riverside-station-key": "station-e2e",
+  const res = await request.post(
+    `${apiBase()}/api/sessions/${sessionId}/pos-api-token`,
+    {
+      headers: {
+        ...adminHeaders(),
+        "Content-Type": "application/json",
+        "x-riverside-station-key": "station-e2e",
+      },
+      data: {
+        cashier_code: e2eAdminCode(),
+        pin: e2eAdminCode(),
+      },
+      failOnStatusCode: false,
     },
-    data: {
-      cashier_code: e2eAdminCode(),
-      pin: e2eAdminCode(),
-    },
-    failOnStatusCode: false,
-  });
+  );
   expect(res.status()).toBe(200);
   const body = (await res.json()) as { pos_api_token?: string };
   expect(body.pos_api_token).toBeTruthy();
@@ -222,14 +258,17 @@ async function fetchReconciliation(
   sessionId: string,
   sessionToken: string,
 ): Promise<ReconciliationResponse> {
-  const res = await request.get(`${apiBase()}/api/sessions/${sessionId}/reconciliation`, {
-    headers: {
-      "x-riverside-pos-session-id": sessionId,
-      "x-riverside-pos-session-token": sessionToken,
-      "x-riverside-station-key": "station-e2e",
+  const res = await request.get(
+    `${apiBase()}/api/sessions/${sessionId}/reconciliation`,
+    {
+      headers: {
+        "x-riverside-pos-session-id": sessionId,
+        "x-riverside-pos-session-token": sessionToken,
+        "x-riverside-station-key": "station-e2e",
+      },
+      failOnStatusCode: false,
     },
-    failOnStatusCode: false,
-  });
+  );
   expect(res.status()).toBe(200);
   return (await res.json()) as ReconciliationResponse;
 }
@@ -238,18 +277,61 @@ async function beginReconcile(
   request: Parameters<typeof test>[0]["request"],
   sessionId: string,
 ): Promise<void> {
-  const res = await request.post(`${apiBase()}/api/sessions/${sessionId}/begin-reconcile`, {
-    headers: {
-      ...adminHeaders(),
-      "Content-Type": "application/json",
-      "x-riverside-station-key": "station-e2e",
+  const res = await request.post(
+    `${apiBase()}/api/sessions/${sessionId}/begin-reconcile`,
+    {
+      headers: {
+        ...adminHeaders(),
+        "Content-Type": "application/json",
+        "x-riverside-station-key": "station-e2e",
+      },
+      data: {
+        active: true,
+      },
+      failOnStatusCode: false,
     },
-    data: {
-      active: true,
-    },
-    failOnStatusCode: false,
-  });
+  );
   expect(res.status()).toBe(200);
+}
+
+async function prepareGroupForClose(
+  request: Parameters<typeof test>[0]["request"],
+  primarySessionId: string,
+  primarySessionToken: string,
+): Promise<void> {
+  await beginReconcile(request, primarySessionId);
+  const rows = await listOpenSessions(request);
+  const primary = rows.find((row) => row.session_id === primarySessionId);
+  expect(primary).toBeTruthy();
+  const group = rows.filter(
+    (row) => row.till_close_group_id === primary?.till_close_group_id,
+  );
+  for (const session of group) {
+    const token =
+      session.session_id === primarySessionId
+        ? primarySessionToken
+        : await issuePosToken(request, session.session_id);
+    const acknowledgement = await request.post(
+      `${apiBase()}/api/recovery/station-close-status`,
+      {
+        headers: {
+          "Content-Type": "application/json",
+          "x-riverside-pos-session-id": session.session_id,
+          "x-riverside-pos-session-token": token,
+          "x-riverside-station-key": "station-e2e",
+        },
+        data: {
+          pending_checkout_count: 0,
+          blocked_checkout_count: 0,
+        },
+        failOnStatusCode: false,
+      },
+    );
+    const acknowledgementText = await acknowledgement.text();
+    expect(acknowledgement.status(), acknowledgementText.slice(0, 1000)).toBe(
+      200,
+    );
+  }
 }
 
 async function closeRegisterGroup(
@@ -257,21 +339,25 @@ async function closeRegisterGroup(
   sessionId: string,
   sessionToken: string,
 ): Promise<void> {
+  await prepareGroupForClose(request, sessionId, sessionToken);
   const recon = await fetchReconciliation(request, sessionId, sessionToken);
-  const res = await request.post(`${apiBase()}/api/sessions/${sessionId}/close`, {
-    headers: {
-      "Content-Type": "application/json",
-      "x-riverside-pos-session-id": sessionId,
-      "x-riverside-pos-session-token": sessionToken,
-      "x-riverside-station-key": "station-e2e",
+  const res = await request.post(
+    `${apiBase()}/api/sessions/${sessionId}/close`,
+    {
+      headers: {
+        "Content-Type": "application/json",
+        "x-riverside-pos-session-id": sessionId,
+        "x-riverside-pos-session-token": sessionToken,
+        "x-riverside-station-key": "station-e2e",
+      },
+      data: {
+        actual_cash: recon.expected_cash,
+        closing_notes: "E2E exact-cash cleanup close",
+        closing_comments: null,
+      },
+      failOnStatusCode: false,
     },
-    data: {
-      actual_cash: recon.expected_cash,
-      closing_notes: "E2E exact-cash cleanup close",
-      closing_comments: null,
-    },
-    failOnStatusCode: false,
-  });
+  );
   expect(res.status()).toBe(200);
 }
 
@@ -281,25 +367,39 @@ async function startHelcimPurchaseOrSkip(
   sessionToken: string,
   amountCents: number,
 ): Promise<HelcimAttemptResponse> {
-  const res = await request.post(`${apiBase()}/api/payments/providers/helcim/purchase`, {
-    headers: {
-      "Content-Type": "application/json",
-      "x-riverside-pos-session-id": sessionId,
-      "x-riverside-pos-session-token": sessionToken,
-      "x-riverside-station-key": "station-e2e",
+  const checkoutClientId = crypto.randomUUID();
+  const res = await request.post(
+    `${apiBase()}/api/payments/providers/helcim/purchase`,
+    {
+      headers: {
+        "Content-Type": "application/json",
+        "x-riverside-pos-session-id": sessionId,
+        "x-riverside-pos-session-token": sessionToken,
+        "x-riverside-station-key": "station-e2e",
+      },
+      data: {
+        amount_cents: amountCents,
+        currency: "usd",
+        selected_terminal_key: "terminal_1",
+        checkout_client_id: checkoutClientId,
+      },
+      failOnStatusCode: false,
     },
-    data: {
-      amount_cents: amountCents,
-      currency: "usd",
-      selected_terminal_key: "terminal_1",
-    },
-    failOnStatusCode: false,
-  });
+  );
   const bodyText = await res.text();
   if (res.status() !== 200) {
-    test.skip(true, `Helcim simulator is not available for this environment: ${bodyText.slice(0, 300)}`);
+    test.skip(
+      true,
+      `Helcim simulator is not available for this environment: ${bodyText.slice(0, 300)}`,
+    );
   }
-  const attempt = JSON.parse(bodyText) as HelcimAttemptResponse;
+  const attempt = {
+    ...(JSON.parse(bodyText) as Omit<
+      HelcimAttemptResponse,
+      "checkoutClientId"
+    >),
+    checkoutClientId,
+  };
   expect(attempt.id).toBeTruthy();
   expect(attempt.status).toBe("pending");
   return attempt;
@@ -309,17 +409,17 @@ async function simulateHelcimAttempt(
   request: Parameters<typeof test>[0]["request"],
   sessionId: string,
   sessionToken: string,
-  attemptId: string,
+  attempt: HelcimAttemptResponse,
   outcome: "approve" | "decline" | "cancel",
 ): Promise<HelcimAttemptResponse> {
   const res = await request.post(
-    `${apiBase()}/api/payments/providers/helcim/attempts/${attemptId}/simulate`,
+    `${apiBase()}/api/payments/providers/helcim/attempts/${attempt.id}/simulate`,
     {
       headers: {
         "Content-Type": "application/json",
         "x-riverside-pos-session-id": sessionId,
         "x-riverside-pos-session-token": sessionToken,
-      "x-riverside-station-key": "station-e2e",
+        "x-riverside-station-key": "station-e2e",
       },
       data: { outcome },
       failOnStatusCode: false,
@@ -327,7 +427,13 @@ async function simulateHelcimAttempt(
   );
   const bodyText = await res.text();
   expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
-  return JSON.parse(bodyText) as HelcimAttemptResponse;
+  return {
+    ...(JSON.parse(bodyText) as Omit<
+      HelcimAttemptResponse,
+      "checkoutClientId"
+    >),
+    checkoutClientId: attempt.checkoutClientId,
+  };
 }
 
 async function releaseHelcimAttemptAsStaff(
@@ -368,6 +474,7 @@ async function postCheckoutWithApprovedHelcimAttempt(
       payment_method: "card_terminal",
       total_price: "108.75",
       amount_paid: "108.75",
+      checkout_client_id: attempt.checkoutClientId,
       payment_splits: [
         {
           payment_method: "card_terminal",
@@ -442,6 +549,7 @@ async function checkoutWithCash(
       payment_method: "cash",
       total_price: "108.75",
       amount_paid: "108.75",
+      checkout_client_id: crypto.randomUUID(),
       items: [
         {
           product_id: product.productId,
@@ -476,7 +584,7 @@ async function fetchTransactionDetail(
         ...adminHeaders(),
         "x-riverside-pos-session-id": sessionId,
         "x-riverside-pos-session-token": sessionToken,
-      "x-riverside-station-key": "station-e2e",
+        "x-riverside-station-key": "station-e2e",
       },
       failOnStatusCode: false,
     },
@@ -501,7 +609,7 @@ async function createReturnQueue(
         "Content-Type": "application/json",
         "x-riverside-pos-session-id": sessionId,
         "x-riverside-pos-session-token": sessionToken,
-      "x-riverside-station-key": "station-e2e",
+        "x-riverside-station-key": "station-e2e",
       },
       data: {
         lines: [
@@ -524,21 +632,25 @@ async function closeRegisterGroupWithNote(
   sessionId: string,
   sessionToken: string,
 ): Promise<{ status: number; bodyText: string }> {
+  await prepareGroupForClose(request, sessionId, sessionToken);
   const recon = await fetchReconciliation(request, sessionId, sessionToken);
-  const res = await request.post(`${apiBase()}/api/sessions/${sessionId}/close`, {
-    headers: {
-      "Content-Type": "application/json",
-      "x-riverside-pos-session-id": sessionId,
-      "x-riverside-pos-session-token": sessionToken,
-      "x-riverside-station-key": "station-e2e",
+  const res = await request.post(
+    `${apiBase()}/api/sessions/${sessionId}/close`,
+    {
+      headers: {
+        "Content-Type": "application/json",
+        "x-riverside-pos-session-id": sessionId,
+        "x-riverside-pos-session-token": sessionToken,
+        "x-riverside-station-key": "station-e2e",
+      },
+      data: {
+        actual_cash: recon.expected_cash,
+        closing_notes: "Concurrent refund/register-close certification",
+        closing_comments: null,
+      },
+      failOnStatusCode: false,
     },
-    data: {
-      actual_cash: recon.expected_cash,
-      closing_notes: "Concurrent refund/register-close certification",
-      closing_comments: null,
-    },
-    failOnStatusCode: false,
-  });
+  );
   return { status: res.status(), bodyText: await res.text() };
 }
 
@@ -548,30 +660,29 @@ async function processCashRefund(
   sessionId: string,
   amount: string,
 ): Promise<{ status: number; bodyText: string }> {
-  const res = await request.post(`${apiBase()}/api/transactions/${transactionId}/refunds/process`, {
-    headers: {
-      ...adminHeaders(),
-      "Content-Type": "application/json",
-      "x-riverside-station-key": "station-e2e",
+  const res = await request.post(
+    `${apiBase()}/api/transactions/${transactionId}/refunds/process`,
+    {
+      headers: {
+        ...adminHeaders(),
+        "Content-Type": "application/json",
+        "x-riverside-station-key": "station-e2e",
+      },
+      data: {
+        session_id: sessionId,
+        payment_method: "cash",
+        amount,
+      },
+      failOnStatusCode: false,
     },
-    data: {
-      session_id: sessionId,
-      payment_method: "cash",
-      amount,
-    },
-    failOnStatusCode: false,
-  });
+  );
   return { status: res.status(), bodyText: await res.text() };
 }
 
 async function closeAnyExistingOpenGroup(
   request: Parameters<typeof test>[0]["request"],
 ): Promise<void> {
-  const open = await listOpenSessions(request);
-  const primary = open.find((row) => row.register_lane === 1);
-  if (!primary) return;
-  const token = await issuePosToken(request, primary.session_id);
-  await closeRegisterGroup(request, primary.session_id, token);
+  await resetOpenRegisterSessions(request);
 }
 
 async function openFreshPrimarySession(
@@ -677,6 +788,11 @@ test.describe("Register close / reconciliation", () => {
     await closeAnyExistingOpenGroup(request);
 
     const opened = await openFreshPrimarySession(request);
+    await prepareGroupForClose(
+      request,
+      opened.session_id,
+      opened.pos_api_token ?? "",
+    );
     const recon = await fetchReconciliation(
       request,
       opened.session_id,
@@ -692,7 +808,7 @@ test.describe("Register close / reconciliation", () => {
           "Content-Type": "application/json",
           "x-riverside-pos-session-id": opened.session_id,
           "x-riverside-pos-session-token": opened.pos_api_token ?? "",
-      "x-riverside-station-key": "station-e2e",
+          "x-riverside-station-key": "station-e2e",
         },
         data: {
           actual_cash: shortBySix,
@@ -715,11 +831,12 @@ test.describe("Register close / reconciliation", () => {
           "Content-Type": "application/json",
           "x-riverside-pos-session-id": opened.session_id,
           "x-riverside-pos-session-token": opened.pos_api_token ?? "",
-      "x-riverside-station-key": "station-e2e",
+          "x-riverside-station-key": "station-e2e",
         },
         data: {
           actual_cash: shortBySix,
-          closing_notes: "Customer cash recount found drawer short during reconciliation.",
+          closing_notes:
+            "Customer cash recount found drawer short during reconciliation.",
           closing_comments: null,
         },
         failOnStatusCode: false,
@@ -728,7 +845,121 @@ test.describe("Register close / reconciliation", () => {
     expect(withNotes.status()).toBe(200);
   });
 
-  test("pending Helcim terminal attempt does not block Z-close", async ({ request }) => {
+  test("partial business-day close requires a fresh reconciliation and workstation acknowledgement", async ({
+    request,
+  }) => {
+    await closeAnyExistingOpenGroup(request);
+
+    const operatorStaffId = await verifyAdminStaffId(request);
+    const opened = await openFreshPrimarySession(request);
+    const product = await createDeterministicProduct(request, operatorStaffId);
+    const firstCheckout = await checkoutWithCash(
+      request,
+      opened.session_id,
+      opened.pos_api_token ?? "",
+      operatorStaffId,
+      product,
+    );
+    const initialReconciliation = await fetchReconciliation(
+      request,
+      opened.session_id,
+      opened.pos_api_token ?? "",
+    );
+    const yesterday = addIsoDays(initialReconciliation.qbo_activity_date, -1);
+    await assignTransactionDate(
+      request,
+      firstCheckout.transaction_id,
+      yesterday,
+    );
+    await checkoutWithCash(
+      request,
+      opened.session_id,
+      opened.pos_api_token ?? "",
+      operatorStaffId,
+      product,
+    );
+
+    const closeCurrentBusinessDate = async () => {
+      const reconciliation = await fetchReconciliation(
+        request,
+        opened.session_id,
+        opened.pos_api_token ?? "",
+      );
+      const response = await request.post(
+        `${apiBase()}/api/sessions/${opened.session_id}/close`,
+        {
+          headers: {
+            "Content-Type": "application/json",
+            "x-riverside-pos-session-id": opened.session_id,
+            "x-riverside-pos-session-token": opened.pos_api_token ?? "",
+            "x-riverside-station-key": "station-e2e",
+          },
+          data: {
+            actual_cash: reconciliation.physical_expected_cash,
+            closing_notes:
+              "E2E exact physical drawer count across pending business days",
+            closing_comments: null,
+          },
+          failOnStatusCode: false,
+        },
+      );
+      return { response, reconciliation, bodyText: await response.text() };
+    };
+
+    await prepareGroupForClose(
+      request,
+      opened.session_id,
+      opened.pos_api_token ?? "",
+    );
+    const firstClose = await closeCurrentBusinessDate();
+    expect(firstClose.reconciliation.pending_business_dates).toHaveLength(2);
+    expect(
+      firstClose.response.status(),
+      firstClose.bodyText.slice(0, 1000),
+    ).toBe(200);
+    expect(JSON.parse(firstClose.bodyText)).toMatchObject({
+      status: "business_day_closed",
+      till_group_closed: false,
+    });
+
+    const openAfterPartial = await listOpenSessions(request);
+    const primaryAfterPartial = openAfterPartial.find(
+      (row) => row.session_id === opened.session_id,
+    );
+    const groupAfterPartial = openAfterPartial.filter(
+      (row) =>
+        row.till_close_group_id === primaryAfterPartial?.till_close_group_id,
+    );
+    expect(
+      groupAfterPartial.every((row) => row.lifecycle_status === "open"),
+    ).toBeTruthy();
+
+    const staleClose = await closeCurrentBusinessDate();
+    expect(
+      staleClose.response.status(),
+      staleClose.bodyText.slice(0, 1000),
+    ).toBe(409);
+    expect(staleClose.bodyText).toMatch(/acknowledgement missing/i);
+
+    await prepareGroupForClose(
+      request,
+      opened.session_id,
+      opened.pos_api_token ?? "",
+    );
+    const finalClose = await closeCurrentBusinessDate();
+    expect(finalClose.reconciliation.pending_business_dates).toHaveLength(1);
+    expect(
+      finalClose.response.status(),
+      finalClose.bodyText.slice(0, 1000),
+    ).toBe(200);
+    expect(JSON.parse(finalClose.bodyText)).toMatchObject({
+      till_group_closed: true,
+    });
+  });
+
+  test("pending Helcim terminal attempt does not block Z-close", async ({
+    request,
+  }) => {
     await closeAnyExistingOpenGroup(request);
 
     const opened = await openFreshPrimarySession(request);
@@ -739,7 +970,11 @@ test.describe("Register close / reconciliation", () => {
       10875,
     );
 
-    await closeRegisterGroup(request, opened.session_id, opened.pos_api_token ?? "");
+    await closeRegisterGroup(
+      request,
+      opened.session_id,
+      opened.pos_api_token ?? "",
+    );
     await releaseHelcimAttemptAsStaff(request, attempt.id);
   });
 
@@ -759,7 +994,7 @@ test.describe("Register close / reconciliation", () => {
       request,
       opened.session_id,
       opened.pos_api_token ?? "",
-      pendingAttempt.id,
+      pendingAttempt,
       "approve",
     );
     expect(approvedAttempt.status).toBe("approved");
@@ -775,7 +1010,11 @@ test.describe("Register close / reconciliation", () => {
         review_reason: "approved_not_recorded",
       }),
     );
-    await closeRegisterGroup(request, opened.session_id, opened.pos_api_token ?? "");
+    await closeRegisterGroup(
+      request,
+      opened.session_id,
+      opened.pos_api_token ?? "",
+    );
   });
 
   test("approved Helcim attempt cannot be used twice", async ({ request }) => {
@@ -794,7 +1033,7 @@ test.describe("Register close / reconciliation", () => {
       request,
       opened.session_id,
       opened.pos_api_token ?? "",
-      pendingAttempt.id,
+      pendingAttempt,
       "approve",
     );
 
@@ -813,13 +1052,17 @@ test.describe("Register close / reconciliation", () => {
       opened.pos_api_token ?? "",
       operatorStaffId,
       product,
-      approvedAttempt,
+      { ...approvedAttempt, checkoutClientId: crypto.randomUUID() },
     );
     const duplicateBody = await duplicateCheckout.text();
     expect(duplicateCheckout.status(), duplicateBody.slice(0, 1000)).toBe(400);
-    expect(duplicateBody).toMatch(/already been used/i);
+    expect(duplicateBody).toMatch(/different sale|already been used/i);
 
-    await closeRegisterGroup(request, opened.session_id, opened.pos_api_token ?? "");
+    await closeRegisterGroup(
+      request,
+      opened.session_id,
+      opened.pos_api_token ?? "",
+    );
   });
 
   test("concurrent refund and register close serialize on register session state", async ({
@@ -854,14 +1097,21 @@ test.describe("Register close / reconciliation", () => {
       sessionToken,
     );
 
-    const closePromise = closeRegisterGroupWithNote(request, opened.session_id, sessionToken);
+    const closePromise = closeRegisterGroupWithNote(
+      request,
+      opened.session_id,
+      sessionToken,
+    );
     const refundPromise = processCashRefund(
       request,
       checkout.transaction_id,
       opened.session_id,
       "108.75",
     );
-    const [closeResult, refundResult] = await Promise.all([closePromise, refundPromise]);
+    const [closeResult, refundResult] = await Promise.all([
+      closePromise,
+      refundPromise,
+    ]);
 
     expect(closeResult.status, closeResult.bodyText.slice(0, 1000)).toBe(200);
     if (refundResult.status !== 200) {
@@ -875,7 +1125,9 @@ test.describe("Register close / reconciliation", () => {
       "1.00",
     );
     expect(afterCloseRefund.status).toBe(400);
-    expect(afterCloseRefund.bodyText).toMatch(/register session is not open|no open refund/i);
+    expect(afterCloseRefund.bodyText).toMatch(
+      /register session is not open|no open refund/i,
+    );
   });
 
   test("historical Z session list stays unified to Register #1 for a till-close group", async ({
@@ -889,7 +1141,9 @@ test.describe("Register close / reconciliation", () => {
     const openGroup = openRows.filter(
       (row) => row.till_close_group_id === openRows[0]?.till_close_group_id,
     );
-    expect(openGroup.map((row) => row.register_lane).sort()).toEqual([1, 2, 3, 4]);
+    expect(openGroup.map((row) => row.register_lane).sort()).toEqual([
+      1, 2, 3, 4,
+    ]);
 
     const primary = openGroup.find((row) => row.register_lane === 1);
     const satellite = openGroup.find((row) => row.register_lane === 2);
@@ -898,40 +1152,47 @@ test.describe("Register close / reconciliation", () => {
     expect(satellite?.session_id).toBeTruthy();
     expect(tertiary?.session_id).toBeTruthy();
 
-    const lane2Token = await issuePosToken(request, satellite?.session_id ?? "");
+    const lane2Token = await issuePosToken(
+      request,
+      satellite?.session_id ?? "",
+    );
     const product = await createDeterministicProduct(request, operatorStaffId);
 
-    const checkoutRes = await request.post(`${apiBase()}/api/transactions/checkout`, {
-      headers: {
-        "Content-Type": "application/json",
-        "x-riverside-pos-session-id": satellite?.session_id ?? "",
-        "x-riverside-pos-session-token": lane2Token,
-      "x-riverside-station-key": "station-e2e",
+    const checkoutRes = await request.post(
+      `${apiBase()}/api/transactions/checkout`,
+      {
+        headers: {
+          "Content-Type": "application/json",
+          "x-riverside-pos-session-id": satellite?.session_id ?? "",
+          "x-riverside-pos-session-token": lane2Token,
+          "x-riverside-station-key": "station-e2e",
+        },
+        data: {
+          session_id: satellite?.session_id,
+          operator_staff_id: operatorStaffId,
+          primary_salesperson_id: operatorStaffId,
+          customer_id: null,
+          payment_method: "cash",
+          total_price: "108.75",
+          amount_paid: "108.75",
+          checkout_client_id: crypto.randomUUID(),
+          items: [
+            {
+              product_id: product.productId,
+              variant_id: product.variantId,
+              fulfillment: "takeaway",
+              quantity: 1,
+              unit_price: "100.00",
+              unit_cost: "40.00",
+              state_tax: "4.00",
+              local_tax: "4.75",
+              salesperson_id: operatorStaffId,
+            },
+          ],
+        },
+        failOnStatusCode: false,
       },
-      data: {
-        session_id: satellite?.session_id,
-        operator_staff_id: operatorStaffId,
-        primary_salesperson_id: operatorStaffId,
-        customer_id: null,
-        payment_method: "cash",
-        total_price: "108.75",
-        amount_paid: "108.75",
-        items: [
-          {
-            product_id: product.productId,
-            variant_id: product.variantId,
-            fulfillment: "takeaway",
-            quantity: 1,
-            unit_price: "100.00",
-            unit_cost: "40.00",
-            state_tax: "4.00",
-            local_tax: "4.75",
-            salesperson_id: operatorStaffId,
-          },
-        ],
-      },
-      failOnStatusCode: false,
-    });
+    );
     expect(checkoutRes.status()).toBe(200);
     const checkout = (await checkoutRes.json()) as CheckoutResponse;
 
@@ -941,7 +1202,7 @@ test.describe("Register close / reconciliation", () => {
         headers: {
           "x-riverside-pos-session-id": satellite?.session_id ?? "",
           "x-riverside-pos-session-token": lane2Token,
-      "x-riverside-station-key": "station-e2e",
+          "x-riverside-station-key": "station-e2e",
         },
         failOnStatusCode: false,
       },
@@ -955,10 +1216,13 @@ test.describe("Register close / reconciliation", () => {
       opened.pos_api_token ?? "",
     );
 
-    const historyRes = await request.get(`${apiBase()}/api/insights/register-sessions?limit=10`, {
-      headers: adminHeaders(),
-      failOnStatusCode: false,
-    });
+    const historyRes = await request.get(
+      `${apiBase()}/api/insights/register-sessions?limit=10`,
+      {
+        headers: adminHeaders(),
+        failOnStatusCode: false,
+      },
+    );
     expect(historyRes.status()).toBe(200);
     const history = (await historyRes.json()) as RegisterSessionHistoryRow[];
     const primaryHistory = history.find(
@@ -971,10 +1235,14 @@ test.describe("Register close / reconciliation", () => {
       .toFixed(2);
     expect(primaryHistory?.total_sales).toBe(expectedNetSales);
     expect(
-      history.some((row) => row.z_report_json?.session_id === satellite?.session_id),
+      history.some(
+        (row) => row.z_report_json?.session_id === satellite?.session_id,
+      ),
     ).toBeFalsy();
     expect(
-      history.some((row) => row.z_report_json?.session_id === tertiary?.session_id),
+      history.some(
+        (row) => row.z_report_json?.session_id === tertiary?.session_id,
+      ),
     ).toBeFalsy();
   });
 
@@ -985,12 +1253,18 @@ test.describe("Register close / reconciliation", () => {
 
     const opened = await openFreshPrimarySession(request);
     const openRows = await listOpenSessions(request);
-    const primaryRow = openRows.find((row) => row.session_id === opened.session_id);
+    const primaryRow = openRows.find(
+      (row) => row.session_id === opened.session_id,
+    );
     const openGroup = openRows.filter(
       (row) => row.till_close_group_id === primaryRow?.till_close_group_id,
     );
-    expect(openGroup.map((row) => row.register_lane).sort()).toEqual([1, 2, 3, 4]);
-    expect(openGroup.every((row) => row.lifecycle_status === "open")).toBeTruthy();
+    expect(openGroup.map((row) => row.register_lane).sort()).toEqual([
+      1, 2, 3, 4,
+    ]);
+    expect(
+      openGroup.every((row) => row.lifecycle_status === "open"),
+    ).toBeTruthy();
 
     await beginReconcile(request, opened.session_id);
 
@@ -998,8 +1272,12 @@ test.describe("Register close / reconciliation", () => {
     const reconcilingGroup = reconcilingRows.filter(
       (row) => row.till_close_group_id === openGroup[0]?.till_close_group_id,
     );
-    expect(reconcilingGroup.map((row) => row.register_lane).sort()).toEqual([1, 2, 3, 4]);
-    expect(reconcilingGroup.every((row) => row.lifecycle_status === "reconciling")).toBeTruthy();
+    expect(reconcilingGroup.map((row) => row.register_lane).sort()).toEqual([
+      1, 2, 3, 4,
+    ]);
+    expect(
+      reconcilingGroup.every((row) => row.lifecycle_status === "reconciling"),
+    ).toBeTruthy();
 
     await closeRegisterGroup(
       request,

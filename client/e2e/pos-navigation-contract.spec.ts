@@ -104,6 +104,26 @@ test("POS navigation uses the narrowed POS-native section contract", async ({ pa
   ).toHaveCount(0);
 });
 
+test("Close Register opens one End of Shift dialog", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await openClickablePosRail(page);
+
+  const closeRegister = page.getByRole("button", {
+    name: "Close Register",
+    exact: true,
+  });
+  await expect(closeRegister).toBeVisible({ timeout: 20_000 });
+  await closeRegister.click();
+
+  const endOfShift = page.getByRole("dialog", {
+    name: "End of Shift",
+    exact: true,
+  });
+  await expect(endOfShift).toHaveCount(1);
+  await endOfShift.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(endOfShift).toHaveCount(0);
+});
+
 test("rapid POS rail tab changes stay in POS mode and land on the final tab", async ({
   page,
 }) => {

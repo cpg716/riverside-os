@@ -789,10 +789,7 @@ async fn get_diagnostics(
 
     let server = ServerDiagnostics {
         version: env!("CARGO_PKG_VERSION").to_string(),
-        uptime_seconds: std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs(), // Simplified; real uptime would need start tracking
+        uptime_seconds: crate::api::health::uptime_seconds(),
         rust_version: {
             let v = rustc_version_runtime::version();
             format!("{}.{}.{}", v.major, v.minor, v.patch)
@@ -802,13 +799,24 @@ async fn get_diagnostics(
     // Database diagnostics
     let db_diag = match check_db_diagnostics(&state.db).await {
         Ok(d) => d,
-        Err(_) => DatabaseDiagnostics {
-            connected: false,
-            pool_size: 0,
-            active_connections: 0,
-            idle_connections: 0,
-            migration_count: 0,
-        },
+        Err(error) => {
+            record_server_api_error(
+                &state,
+                "/api/ops/diagnostics",
+                "ROS Dev Center diagnostics could not verify the database",
+                &error,
+            )
+            .await;
+            tracing::error!(%error, "ROS Dev Center database diagnostics failed");
+            return Err((
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({
+                    "error": "Database diagnostics are unavailable. No zero values were substituted.",
+                    "generated_at": chrono::Utc::now().to_rfc3339(),
+                })),
+            )
+                .into_response());
+        }
     };
 
     // Parse server log ring for errors and warnings (keep scan small for local LLM)
@@ -855,20 +863,10 @@ async fn check_db_diagnostics(pool: &sqlx::PgPool) -> Result<DatabaseDiagnostics
     let idle = pool.num_idle() as u32;
     let active = pool_size.saturating_sub(idle);
 
-    let migration_table_exists: bool = sqlx::query_scalar(
-        "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = '_sqlx_migrations')",
-    )
-    .fetch_one(pool)
-    .await
-    .unwrap_or(false);
-    let migration_count: i64 = if migration_table_exists {
-        sqlx::query_scalar("SELECT COUNT(*) FROM _sqlx_migrations")
+    let migration_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM public.ros_schema_migrations")
             .fetch_one(pool)
-            .await
-            .unwrap_or(0)
-    } else {
-        0
-    };
+            .await?;
 
     Ok(DatabaseDiagnostics {
         connected: true,

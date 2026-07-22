@@ -1,5 +1,5 @@
 import { getBaseUrl } from "../../lib/apiConfig";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { 
   Search, 
@@ -79,28 +79,43 @@ export default function WeddingLookupDrawer({
   const [search, setSearch] = useState("");
   const [parties, setParties] = useState<WeddingParty[]>([]);
   const [loading, setLoading] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
   const [selectedParty, setSelectedParty] = useState<WeddingParty | null>(null);
   const [groupPayMode, setGroupPayMode] = useState(false);
   const [selectedMemberIds, setSelectedMemberIds] = useState<Set<string>>(new Set());
   const [groupPayAmounts, setGroupPayAmounts] = useState<Record<string, string>>({});
   const [financials, setFinancials] = useState<Record<string, { balance_due: string }>>({});
+  const [financialsLoading, setFinancialsLoading] = useState(false);
+  const [financialsError, setFinancialsError] = useState<string | null>(null);
+  const partyRequestRef = useRef(0);
+  const partyAbortRef = useRef<AbortController | null>(null);
+  const financialRequestRef = useRef(0);
+  const financialAbortRef = useRef<AbortController | null>(null);
 
   const baseUrl = getBaseUrl();
 
   const fetchParties = useCallback(async (query: string) => {
-    if (!query || query.length < 2) {
+    const normalizedQuery = query.trim();
+    if (normalizedQuery.length < 2) {
       setParties([]);
       return;
     }
+    const requestId = ++partyRequestRef.current;
+    partyAbortRef.current?.abort();
+    const controller = new AbortController();
+    partyAbortRef.current = controller;
     setLoading(true);
+    setSearchError(null);
+    setParties([]);
     try {
-      const res = await fetch(`${baseUrl}/api/weddings/parties?search=${encodeURIComponent(query)}&limit=20`, {
+      const res = await fetch(`${baseUrl}/api/weddings/parties?search=${encodeURIComponent(normalizedQuery)}&limit=20`, {
         headers: posHeaders(),
+        signal: controller.signal,
       });
-      if (res.ok) {
-        const data = await res.json();
-        const rows = Array.isArray(data.data) ? data.data : [];
-        const mapped = rows
+      if (!res.ok) throw new Error(`Wedding search failed with status ${res.status}`);
+      const data = await res.json();
+      const rows = Array.isArray(data.data) ? data.data : [];
+      const mapped = rows
           .map((item: unknown) => {
             const { party, members } = splitWeddingPartyWithMembers(item);
             if (!party?.id) return null;
@@ -134,36 +149,60 @@ export default function WeddingLookupDrawer({
             };
           })
           .filter(Boolean) as WeddingParty[];
-        setParties(mapped);
-      }
+      if (requestId !== partyRequestRef.current) return;
+      setParties(mapped);
     } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
+      if (requestId !== partyRequestRef.current) return;
       console.error("Failed to fetch wedding parties", err);
+      setSearchError("Wedding party search is unavailable. Try again.");
     } finally {
-      setLoading(false);
+      if (requestId === partyRequestRef.current) setLoading(false);
+      if (partyAbortRef.current === controller) partyAbortRef.current = null;
     }
   }, [baseUrl, posHeaders]);
 
   const fetchFinancials = useCallback(async (partyId: string) => {
+    const requestId = ++financialRequestRef.current;
+    financialAbortRef.current?.abort();
+    const controller = new AbortController();
+    financialAbortRef.current = controller;
+    setFinancials({});
+    setFinancialsLoading(true);
+    setFinancialsError(null);
     try {
       const res = await fetch(`${baseUrl}/api/weddings/parties/${partyId}/financial-context`, {
         headers: posHeaders(),
+        signal: controller.signal,
       });
-      if (res.ok) {
-        const data = await res.json() as { members: Array<{ wedding_member_id: string; balance_due: string }> };
-        const map: Record<string, { balance_due: string }> = {};
-        data.members.forEach((m) => {
-          map[m.wedding_member_id] = { balance_due: m.balance_due };
-        });
-        setFinancials(map);
-      }
+      if (!res.ok) throw new Error(`Financial context failed with status ${res.status}`);
+      const data = await res.json() as { members: Array<{ wedding_member_id: string; balance_due: string }> };
+      if (requestId !== financialRequestRef.current) return;
+      const map: Record<string, { balance_due: string }> = {};
+      data.members.forEach((m) => {
+        map[m.wedding_member_id] = { balance_due: m.balance_due };
+      });
+      setFinancials(map);
     } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
+      if (requestId !== financialRequestRef.current) return;
       console.error("Failed to fetch financials", err);
+      setFinancialsError("Member balances are unavailable. Retry before entering Group Pay.");
+    } finally {
+      if (requestId === financialRequestRef.current) setFinancialsLoading(false);
+      if (financialAbortRef.current === controller) financialAbortRef.current = null;
     }
   }, [baseUrl, posHeaders]);
 
   useEffect(() => {
+    partyRequestRef.current += 1;
+    partyAbortRef.current?.abort();
+    partyAbortRef.current = null;
+    setLoading(false);
+    setSearchError(null);
     const t = setTimeout(() => {
-      if (search.trim()) fetchParties(search);
+      if (search.trim().length >= 2) fetchParties(search);
+      else setParties([]);
     }, 300);
     return () => clearTimeout(t);
   }, [search, fetchParties]);
@@ -172,6 +211,12 @@ export default function WeddingLookupDrawer({
     if (selectedParty) {
       fetchFinancials(selectedParty.id);
     } else {
+      financialRequestRef.current += 1;
+      financialAbortRef.current?.abort();
+      financialAbortRef.current = null;
+      setFinancials({});
+      setFinancialsLoading(false);
+      setFinancialsError(null);
       setGroupPayMode(false);
       setSelectedMemberIds(new Set());
       setGroupPayAmounts({});
@@ -187,6 +232,13 @@ export default function WeddingLookupDrawer({
       setGroupPayAmounts({});
     }
   }, [isOpen]);
+
+  useEffect(() => () => {
+    partyRequestRef.current += 1;
+    financialRequestRef.current += 1;
+    partyAbortRef.current?.abort();
+    financialAbortRef.current?.abort();
+  }, []);
 
   const toggleMember = (id: string) => {
     const next = new Set(selectedMemberIds);
@@ -238,6 +290,8 @@ export default function WeddingLookupDrawer({
         0,
       ) ?? 0;
   const canSubmitGroupPay =
+    !financialsLoading &&
+    !financialsError &&
     selectedMemberIds.size > 0 &&
     Boolean(selectedParty?.members
       .filter((m) => selectedMemberIds.has(m.id))
@@ -354,7 +408,14 @@ export default function WeddingLookupDrawer({
                   <div className="flex h-32 items-center justify-center text-app-text-muted">
                     <div className="animate-spin h-5 w-5 border-2 border-app-accent border-t-transparent rounded-full" />
                   </div>
-                ) : search.length >= 2 ? (
+                ) : searchError ? (
+                  <div className="space-y-3 py-12 text-center text-app-danger">
+                    <p className="text-xs font-bold">{searchError}</p>
+                    <button type="button" className="ui-btn-secondary" onClick={() => void fetchParties(search)}>
+                      Try again
+                    </button>
+                  </div>
+                ) : search.trim().length >= 2 ? (
                   <div className="py-12 text-center text-app-text-muted">
                     <p className="text-xs font-bold uppercase tracking-widest">No parties found</p>
                   </div>
@@ -368,6 +429,14 @@ export default function WeddingLookupDrawer({
             </div>
           ) : (
             <div className="space-y-3 pb-32">
+              {financialsError ? (
+                <div className="rounded-2xl border border-app-danger/20 bg-app-danger/10 p-3 text-xs font-semibold text-app-danger">
+                  <p>{financialsError}</p>
+                  <button type="button" className="mt-2 underline" onClick={() => void fetchFinancials(selectedParty.id)}>
+                    Retry balances
+                  </button>
+                </div>
+              ) : null}
               <div className="flex items-center justify-between px-2 mb-4">
                  <span className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">Party Members ({selectedParty.members.length})</span>
                  <button 
@@ -421,12 +490,14 @@ export default function WeddingLookupDrawer({
                           <p className="mb-1 text-[10px] font-black uppercase leading-none text-app-text-disabled">Current Balance</p>
                           <p
                             className={`text-sm font-black italic tracking-tighter ${
-                              parseMoneyToCents(balance) > 0
+                              financialsLoading || financialsError
+                                ? "text-app-text-muted"
+                                : parseMoneyToCents(balance) > 0
                                 ? "text-app-danger"
                                 : "text-app-success"
                             }`}
                           >
-                            ${balance}
+                            {financialsLoading ? "Loading…" : financialsError ? "Unavailable" : `$${balance}`}
                           </p>
                         </div>
                       )}
@@ -436,7 +507,7 @@ export default function WeddingLookupDrawer({
                       <StatusPill active={member.measured} label="Measured" />
                       <StatusPill active={member.suit_ordered} label="Ordered" />
                       <StatusPill
-                        active={parseMoneyToCents(balance) <= 0}
+                        active={!financialsLoading && !financialsError && parseMoneyToCents(balance) <= 0}
                         label="Paid"
                       />
                     </div>

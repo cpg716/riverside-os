@@ -20,11 +20,11 @@
 
 1. Confirm the **correct** drawer/session is active (profile shows expected cashier).
 2. POS → **Reports**.
-3. View **Daily Sales** to see a chronological timeline of activity. Use **Booked** when comparing what was rung during the drawer/session, and **Completed** when reviewing recognized takeaway and pickup activity. Daily Sales also lists **Pickups Today** separately with the customer, Transaction Record, and picked-up items so pickup work is visible without counting it as a new sale. **Check numbers** are displayed next to the payment method for all check transactions.
+3. View **Daily Sales** to see a chronological timeline of activity. Use **Booked** when comparing what was rung during the drawer/session, and **Completed** when reviewing recognized takeaway and pickup activity. Search covers the full selected date range by customer, contact detail, Customer #, Transaction number, tender, item, or SKU. The screen states the exact activity-record match count and offers **Load more audited activity** when another page exists. An activity record may be a sale, payment, or another audited event; do not read that count as unique transactions. Daily Sales also lists **Pickups Today** separately with the customer, Transaction Record, and picked-up items so pickup work is visible without counting it as a new sale. **Check numbers** are displayed next to the payment method for all check transactions.
 4. Review the Daily quick-look boxes for the operating totals: Transactions, subtotal before tax, tax, cash, Credit Card Total, deposits, new orders, picked-up orders, RMS payments, RMS charge, merchandise subtotal, new appointments, new layaways, picked-up dollars, and discounts. Dollar boxes that summarize grouped work include the count in parentheses.
 5. For payment-only activity, use **Receipt** to open the standard Transaction Record receipt showing the payment application, customer, Customer #, phone, totals, and remaining balance. RMS Charge payments show as **RMS Payment** activity, not retail merchandise.
 6. For a completed-sale mistake that must be reversed, use **Void** only with Manager Access. Read the impact list before confirming; the original Transaction Record remains visible and the refund workflow may still need completion.
-7. **Review or Print Audit**: Tap **View** to open the professional full-page Daily Sales document inside ROS, or **Print** to send it to the configured Reports printer.
+7. **Review, Print, or Export Audit**: These actions retrieve every matching activity page before producing the document or CSV. If Register activity changes during that retrieval, Riverside outputs nothing and asks staff to retry instead of mixing two moments into one report. With a search filter, printouts label the all-activity **Period Summary** separately from the filtered audit detail and mark detail-derived boxes as **Filtered**. CSV totals use integer cents. A detail-derived quick-look box shows an em dash while its source rows are still incomplete; do not read that as zero. The screen stops at 2,000 loaded detail rows and generated output stops at 20,000 combined activity and pickup rows; narrow the range or search when ROS reports the limit.
 
 ### Train a new hire on tender types
 
@@ -38,6 +38,7 @@
 2. Confirm **no open carts** before trusting session totals.
 3. Follow **Z / close** on **Register #1**. If card review blocks close, use the close-drawer **Review** action or **POS → Payments** to record the terminal outcome before finalizing.
 4. The final Z-report includes cash/check review, all supported tender methods, a Credit Card Total that includes CC/Card Reader, Card Manual, Card Not Present, saved-card, and card-credit/refund entries, per-register Cash Total / CC Total, the Quick Look business boxes, transaction detail, pickups for the day, and QBO journal-entry preview. Hosted HelcimPay.js entries are labeled **Card Not Present**; only externally recorded/manual card entries are labeled **Card Manual**. It does not include non-sale inventory activity.
+5. Riverside freezes every audited activity and pickup page after close. If it cannot prove that the set is complete, it saves no partial EOD snapshot and raises an operational alert; the completed drawer close itself is not rolled back.
 
 ## Helping a coworker
 
@@ -72,4 +73,4 @@
 - [../STAFF_PERMISSIONS.md](../STAFF_PERMISSIONS.md)
 - [../TILL_GROUP_AND_REGISTER_OPEN.md](../TILL_GROUP_AND_REGISTER_OPEN.md)
 
-**Last reviewed:** 2026-07-17
+**Last reviewed:** 2026-07-21

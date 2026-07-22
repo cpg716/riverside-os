@@ -5,7 +5,8 @@ use chrono_tz::Tz;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
-use std::collections::HashMap;
+use std::cmp::Ordering;
+use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -20,6 +21,13 @@ pub enum RegisterDayActivityError {
     Serde(#[from] serde_json::Error),
     #[error(transparent)]
     Db(#[from] sqlx::Error),
+}
+
+const EOD_SNAPSHOT_PAGE_SIZE: i64 = 500;
+const EOD_SNAPSHOT_MAX_ROWS: i64 = 100_000;
+
+fn incomplete_snapshot(reason: impl Into<String>) -> RegisterDayActivityError {
+    RegisterDayActivityError::InvalidRange(format!("EOD snapshot is incomplete: {}", reason.into()))
 }
 
 fn money_label(d: Decimal) -> String {
@@ -65,6 +73,33 @@ fn parse_activity_payments(value: Option<serde_json::Value>) -> Vec<RegisterActi
             })
         })
         .collect()
+}
+
+fn payment_activity_id(is_refund: bool, payment_id: Uuid, allocation_id: Uuid) -> String {
+    format!(
+        "{}:{payment_id}:{allocation_id}",
+        if is_refund { "refund" } else { "payment" }
+    )
+}
+
+fn activity_tiebreaker(activity: &RegisterActivityItem) -> (u8, Uuid) {
+    if let Some(allocation_id) = activity.payment_allocation_id {
+        (1, allocation_id)
+    } else if let Some(transaction_id) = activity.transaction_id {
+        (0, transaction_id)
+    } else if let Some(payment_id) = activity.payment_id {
+        (1, payment_id)
+    } else {
+        (2, Uuid::nil())
+    }
+}
+
+fn compare_activity_desc(left: &RegisterActivityItem, right: &RegisterActivityItem) -> Ordering {
+    right
+        .occurred_at
+        .cmp(&left.occurred_at)
+        .then_with(|| activity_tiebreaker(left).cmp(&activity_tiebreaker(right)))
+        .then_with(|| left.id.cmp(&right.id))
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -218,7 +253,20 @@ pub struct RegisterDaySummary {
     pub weather_days: Vec<RegisterDayWeatherSummary>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub weather_summary: Option<String>,
+    /// Number of activity rows matching the selected date range and search text.
+    #[serde(default)]
+    pub activity_total_count: i64,
+    /// Zero-based offset of the returned activity page.
+    #[serde(default)]
+    pub activity_offset: i64,
+    /// True when more matching activity rows are available after this page.
+    #[serde(default)]
+    pub activities_has_more: bool,
     pub activities: Vec<RegisterActivityItem>,
+    #[serde(default)]
+    pub pickups_total_count: i64,
+    #[serde(default)]
+    pub pickups_has_more: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pickups_today: Vec<RegisterActivityItem>,
 }
@@ -253,11 +301,24 @@ struct WeatherRow {
 
 fn weather_summary_label(weather_days: &[RegisterDayWeatherSummary]) -> Option<String> {
     weather_days.first().map(|day| {
+        let high = format_weather_value(&day.temp_high, 0);
+        let low = format_weather_value(&day.temp_low, 0);
+        let precipitation = format_weather_value(&day.precipitation_inches, 2);
         format!(
             "{}: {} (high {}°, low {}°, precip {} in)",
-            day.date, day.condition, day.temp_high, day.temp_low, day.precipitation_inches
+            day.date, day.condition, high, low, precipitation
         )
     })
+}
+
+fn format_weather_value(value: &str, decimal_places: usize) -> String {
+    value
+        .trim()
+        .parse::<f64>()
+        .ok()
+        .filter(|number| number.is_finite())
+        .map(|number| format!("{number:.decimal_places$}"))
+        .unwrap_or_else(|| "Unavailable".to_string())
 }
 
 async fn fetch_register_day_weather(
@@ -345,9 +406,11 @@ async fn fetch_register_day_weather(
             Some(RegisterDayWeatherSummary {
                 date: row.weather_date,
                 condition,
-                temp_high: row.temp_high.unwrap_or_else(|| "0".to_string()),
-                temp_low: row.temp_low.unwrap_or_else(|| "0".to_string()),
-                precipitation_inches: row.precipitation_inches.unwrap_or_else(|| "0".to_string()),
+                temp_high: row.temp_high.unwrap_or_else(|| "Unavailable".to_string()),
+                temp_low: row.temp_low.unwrap_or_else(|| "Unavailable".to_string()),
+                precipitation_inches: row
+                    .precipitation_inches
+                    .unwrap_or_else(|| "Unavailable".to_string()),
                 source: row.source.unwrap_or_else(|| "Weather snapshot".to_string()),
             })
         })
@@ -459,6 +522,7 @@ pub async fn save_eod_snapshot(
     primary_register_session_id: Uuid,
     summary: &RegisterDaySummary,
 ) -> Result<(), RegisterDayActivityError> {
+    ensure_complete_eod_snapshot(summary)?;
     let summary_json = serde_json::to_value(summary).map_err(RegisterDayActivityError::Serde)?;
     sqlx::query(
         r#"
@@ -480,6 +544,48 @@ pub async fn save_eod_snapshot(
     .bind(summary_json)
     .execute(pool)
     .await?;
+    Ok(())
+}
+
+fn ensure_complete_eod_snapshot(
+    summary: &RegisterDaySummary,
+) -> Result<(), RegisterDayActivityError> {
+    ensure_complete_eod_counts(
+        summary.activity_offset,
+        summary.activity_total_count,
+        summary.activities.len(),
+        summary.activities_has_more,
+        summary.pickups_total_count,
+        summary.pickups_today.len(),
+        summary.pickups_has_more,
+    )
+    .map_err(incomplete_snapshot)
+}
+
+fn ensure_complete_eod_counts(
+    activity_offset: i64,
+    activity_total_count: i64,
+    activity_rows: usize,
+    activities_has_more: bool,
+    pickups_total_count: i64,
+    pickup_rows: usize,
+    pickups_has_more: bool,
+) -> Result<(), String> {
+    if activity_offset != 0 {
+        return Err(format!(
+            "activity offset must be zero (got {activity_offset})"
+        ));
+    }
+    if activities_has_more || activity_rows as i64 != activity_total_count {
+        return Err(format!(
+            "activity rows {activity_rows} of {activity_total_count}"
+        ));
+    }
+    if pickups_has_more || pickup_rows as i64 != pickups_total_count {
+        return Err(format!(
+            "pickup rows {pickup_rows} of {pickups_total_count}"
+        ));
+    }
     Ok(())
 }
 
@@ -603,6 +709,150 @@ pub async fn fetch_register_day_summary(
     register_session_id: Option<Uuid>,
     basis: ReportBasis,
 ) -> Result<RegisterDaySummary, RegisterDayActivityError> {
+    fetch_register_day_summary_page(
+        pool,
+        preset,
+        from,
+        to,
+        register_session_id,
+        basis,
+        ActivityPageOptions::default(),
+    )
+    .await
+}
+
+/// Build the complete, unfiltered day summary used by the durable Z-close snapshot.
+/// Interactive report callers should use `fetch_register_day_summary_page` instead.
+pub async fn fetch_complete_register_day_summary(
+    pool: &PgPool,
+    preset: Option<String>,
+    from: Option<NaiveDate>,
+    to: Option<NaiveDate>,
+    register_session_id: Option<Uuid>,
+    basis: ReportBasis,
+) -> Result<RegisterDaySummary, RegisterDayActivityError> {
+    let mut summary = fetch_register_day_summary_page(
+        pool,
+        preset.clone(),
+        from,
+        to,
+        register_session_id,
+        basis,
+        ActivityPageOptions {
+            limit: EOD_SNAPSHOT_PAGE_SIZE,
+            offset: 0,
+            search: None,
+        },
+    )
+    .await?;
+
+    let expected_activity_total = summary.activity_total_count;
+    let expected_pickup_total = summary.pickups_total_count;
+    let largest_total = expected_activity_total.max(expected_pickup_total);
+    if largest_total > EOD_SNAPSHOT_MAX_ROWS {
+        return Err(incomplete_snapshot(format!(
+            "row count {largest_total} exceeds the audited snapshot limit of {EOD_SNAPSHOT_MAX_ROWS}"
+        )));
+    }
+
+    let mut offset = EOD_SNAPSHOT_PAGE_SIZE;
+    while offset < largest_total {
+        let mut page = fetch_register_day_summary_page(
+            pool,
+            preset.clone(),
+            from,
+            to,
+            register_session_id,
+            basis,
+            ActivityPageOptions {
+                limit: EOD_SNAPSHOT_PAGE_SIZE,
+                offset,
+                search: None,
+            },
+        )
+        .await?;
+        if page.activity_total_count != expected_activity_total
+            || page.pickups_total_count != expected_pickup_total
+        {
+            return Err(incomplete_snapshot(
+                "source totals changed while the snapshot was being captured; retry is required"
+                    .to_string(),
+            ));
+        }
+        summary.activities.append(&mut page.activities);
+        summary.pickups_today.append(&mut page.pickups_today);
+        offset = offset.saturating_add(EOD_SNAPSHOT_PAGE_SIZE);
+    }
+
+    let activity_ids = summary
+        .activities
+        .iter()
+        .map(|activity| activity.id.as_str())
+        .collect::<HashSet<_>>();
+    if activity_ids.len() != summary.activities.len() {
+        return Err(incomplete_snapshot(
+            "duplicate activity identity was detected while paging".to_string(),
+        ));
+    }
+    let pickup_ids = summary
+        .pickups_today
+        .iter()
+        .map(|activity| activity.id.as_str())
+        .collect::<HashSet<_>>();
+    if pickup_ids.len() != summary.pickups_today.len() {
+        return Err(incomplete_snapshot(
+            "duplicate pickup identity was detected while paging".to_string(),
+        ));
+    }
+
+    summary.activity_offset = 0;
+    summary.activities_has_more = false;
+    summary.pickups_has_more = false;
+    ensure_complete_eod_snapshot(&summary)?;
+    Ok(summary)
+}
+
+#[derive(Debug, Clone)]
+pub struct ActivityPageOptions {
+    pub limit: i64,
+    pub offset: i64,
+    pub search: Option<String>,
+}
+
+impl Default for ActivityPageOptions {
+    fn default() -> Self {
+        Self {
+            limit: 200,
+            offset: 0,
+            search: None,
+        }
+    }
+}
+
+fn activity_search_pattern(search: Option<&str>) -> Option<String> {
+    let search = search.map(str::trim).filter(|value| !value.is_empty())?;
+    let escaped = search
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_");
+    Some(format!("%{escaped}%"))
+}
+
+pub async fn fetch_register_day_summary_page(
+    pool: &PgPool,
+    preset: Option<String>,
+    from: Option<NaiveDate>,
+    to: Option<NaiveDate>,
+    register_session_id: Option<Uuid>,
+    basis: ReportBasis,
+    page: ActivityPageOptions,
+) -> Result<RegisterDaySummary, RegisterDayActivityError> {
+    let activity_limit = page.limit.clamp(1, 500);
+    let activity_offset = page.offset.max(0);
+    let source_limit = activity_offset
+        .saturating_add(activity_limit)
+        .saturating_add(1);
+    let activity_search = activity_search_pattern(page.search.as_deref());
     let tz_name = receipt_timezone(pool).await?;
     let tz = effective_tz(Some(tz_name.clone()));
 
@@ -970,6 +1220,7 @@ pub async fn fetch_register_day_summary(
     // --- Activity feed (merge in Rust) ---
     #[derive(sqlx::FromRow)]
     struct SaleAct {
+        matched_count: i64,
         transaction_id: Uuid,
         short_id: Option<String>,
         booked_at: chrono::DateTime<Utc>,
@@ -1002,6 +1253,7 @@ pub async fn fetch_register_day_summary(
 
     #[derive(sqlx::FromRow)]
     struct PaymentAct {
+        matched_count: i64,
         payment_id: Uuid,
         payment_allocation_id: Uuid,
         target_transaction_id: Option<Uuid>,
@@ -1086,9 +1338,18 @@ pub async fn fetch_register_day_summary(
             ), 0)::numeric(14,2)"#
             .to_string(),
     };
+    let sales_payment_date_filter = match basis {
+        ReportBasis::Booked => {
+            r#"
+                  AND COALESCE(pt.effective_date, (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date) >= ($1 AT TIME ZONE reporting.effective_store_timezone())::date
+                  AND COALESCE(pt.effective_date, (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date) < ($2 AT TIME ZONE reporting.effective_store_timezone())::date"#
+        }
+        ReportBasis::Completed => "",
+    };
     let sales_sql = format!(
         r#"
         SELECT
+            COUNT(*) OVER()::bigint AS matched_count,
             o.id AS transaction_id,
             COALESCE(NULLIF(TRIM(o.display_id), ''), o.counterpoint_doc_ref, o.counterpoint_ticket_ref, o.id::text) AS short_id,
             {sale_ts} AS booked_at,
@@ -1129,8 +1390,7 @@ pub async fn fetch_register_day_summary(
                 INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
                 WHERE pa.target_transaction_id = o.id
                   AND pt.status = 'success'
-                  AND COALESCE(pt.effective_date, (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date) >= ($1 AT TIME ZONE reporting.effective_store_timezone())::date
-                  AND COALESCE(pt.effective_date, (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date) < ($2 AT TIME ZONE reporting.effective_store_timezone())::date
+                  {sales_payment_date_filter}
             ) AS pay,
             (
                 SELECT jsonb_agg(
@@ -1162,8 +1422,7 @@ pub async fn fetch_register_day_summary(
                     INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
                     WHERE pa.target_transaction_id = o.id
                       AND pt.status = 'success'
-                      AND COALESCE(pt.effective_date, (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date) >= ($1 AT TIME ZONE reporting.effective_store_timezone())::date
-                      AND COALESCE(pt.effective_date, (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date) < ($2 AT TIME ZONE reporting.effective_store_timezone())::date
+                      {sales_payment_date_filter}
                     GROUP BY 1
                 ) payment_parts
             ) AS payments_json,
@@ -1226,7 +1485,7 @@ pub async fn fetch_register_day_summary(
                     'fulfillment', oix.fulfillment::text,
                     'is_internal', COALESCE(oix.is_internal, false),
                     'line_kind', COALESCE(NULLIF(TRIM(px.pos_line_kind), ''), NULLIF(TRIM(oix.custom_item_type), ''))
-                ))
+                ) ORDER BY oix.id)
                 FROM transaction_lines oix
                 INNER JOIN products px ON px.id = oix.product_id
                 INNER JOIN product_variants pvx ON pvx.id = oix.variant_id
@@ -1249,16 +1508,37 @@ pub async fn fetch_register_day_summary(
               FROM transaction_lines tl_activity
               WHERE tl_activity.transaction_id = o.id
           )
+          AND (
+              $4::text IS NULL
+              OR COALESCE(NULLIF(TRIM(o.display_id), ''), o.counterpoint_doc_ref, o.counterpoint_ticket_ref, o.id::text) ILIKE $4 ESCAPE '\'
+              OR COALESCE(c.customer_code, '') ILIKE $4 ESCAPE '\'
+              OR COALESCE(c.first_name, '') ILIKE $4 ESCAPE '\'
+              OR COALESCE(c.last_name, '') ILIKE $4 ESCAPE '\'
+              OR CONCAT_WS(' ', c.first_name, c.last_name) ILIKE $4 ESCAPE '\'
+              OR COALESCE(c.phone, '') ILIKE $4 ESCAPE '\'
+              OR COALESCE(c.email, '') ILIKE $4 ESCAPE '\'
+              OR COALESCE(wp.party_name, '') ILIKE $4 ESCAPE '\'
+              OR EXISTS (
+                  SELECT 1
+                  FROM transaction_lines tl_search
+                  INNER JOIN products p_search ON p_search.id = tl_search.product_id
+                  INNER JOIN product_variants pv_search ON pv_search.id = tl_search.variant_id
+                  WHERE tl_search.transaction_id = o.id
+                    AND (p_search.name ILIKE $4 ESCAPE '\' OR pv_search.sku ILIKE $4 ESCAPE '\')
+              )
+          )
         {order_session_filter}
         GROUP BY o.id, {sale_group_by}, o.created_at, o.counterpoint_doc_ref, o.total_price, o.balance_due, wp.id, wp.party_name, c.id, c.first_name, c.last_name, c.customer_code, c.phone, c.email, o.sale_channel::text
-        ORDER BY {sale_order_by}
-        LIMIT 120
+        ORDER BY {sale_order_by}, o.id ASC
+        LIMIT $5
         "#
     );
     let sales: Vec<SaleAct> = sqlx::query_as(&sales_sql)
         .bind(start_utc)
         .bind(end_utc)
         .bind(register_session_id)
+        .bind(activity_search.clone())
+        .bind(source_limit)
         .fetch_all(pool)
         .await?;
 
@@ -1294,6 +1574,7 @@ pub async fn fetch_register_day_summary(
     let pickups_today_sql = format!(
         r#"
         SELECT
+            COUNT(*) OVER()::bigint AS matched_count,
             o.id AS transaction_id,
             COALESCE(NULLIF(TRIM(o.display_id), ''), o.counterpoint_doc_ref, o.counterpoint_ticket_ref, o.id::text) AS short_id,
             MAX(tl.fulfilled_at) AS booked_at,
@@ -1364,21 +1645,43 @@ pub async fn fetch_register_day_summary(
           AND tl.fulfilled_at >= $1
           AND tl.fulfilled_at < $2
           AND ($3::uuid IS NULL OR o.register_session_id = $3)
+          AND (
+              $4::text IS NULL
+              OR COALESCE(NULLIF(TRIM(o.display_id), ''), o.counterpoint_doc_ref, o.counterpoint_ticket_ref, o.id::text) ILIKE $4 ESCAPE '\'
+              OR COALESCE(c.customer_code, '') ILIKE $4 ESCAPE '\'
+              OR COALESCE(c.first_name, '') ILIKE $4 ESCAPE '\'
+              OR COALESCE(c.last_name, '') ILIKE $4 ESCAPE '\'
+              OR CONCAT_WS(' ', c.first_name, c.last_name) ILIKE $4 ESCAPE '\'
+              OR COALESCE(c.phone, '') ILIKE $4 ESCAPE '\'
+              OR COALESCE(c.email, '') ILIKE $4 ESCAPE '\'
+              OR COALESCE(wp.party_name, '') ILIKE $4 ESCAPE '\'
+              OR EXISTS (
+                  SELECT 1
+                  FROM transaction_lines tl_search
+                  INNER JOIN products p_search ON p_search.id = tl_search.product_id
+                  INNER JOIN product_variants pv_search ON pv_search.id = tl_search.variant_id
+                  WHERE tl_search.transaction_id = o.id
+                    AND (p_search.name ILIKE $4 ESCAPE '\' OR pv_search.sku ILIKE $4 ESCAPE '\')
+              )
+          )
         GROUP BY o.id, o.created_at, o.counterpoint_doc_ref, o.total_price, o.balance_due, wp.id, wp.party_name, c.id, c.first_name, c.last_name, c.customer_code, c.phone, c.email, o.sale_channel::text
-        ORDER BY MAX(tl.fulfilled_at) DESC
-        LIMIT 80
+        ORDER BY MAX(tl.fulfilled_at) DESC, o.id ASC
+        LIMIT $5
         "#,
     );
     let pickups_today: Vec<SaleAct> = sqlx::query_as(&pickups_today_sql)
         .bind(start_utc)
         .bind(end_utc)
         .bind(register_session_id)
+        .bind(activity_search.clone())
+        .bind(source_limit)
         .fetch_all(pool)
         .await?;
 
     let payments: Vec<PaymentAct> = sqlx::query_as(
         r#"
         SELECT
+            COUNT(*) OVER()::bigint AS matched_count,
             pt.id AS payment_id,
             pa.id AS payment_allocation_id,
             pa.target_transaction_id,
@@ -1447,6 +1750,25 @@ pub async fn fetch_register_day_summary(
           AND COALESCE(pt.effective_date, (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date) < ($2 AT TIME ZONE reporting.effective_store_timezone())::date
           AND pt.status = 'success'
           AND ($3::uuid IS NULL OR pt.session_id = $3)
+          AND (
+              $4::text IS NULL
+              OR COALESCE(NULLIF(TRIM(o.display_id), ''), o.counterpoint_doc_ref, o.counterpoint_ticket_ref, o.id::text) ILIKE $4 ESCAPE '\'
+              OR COALESCE(c.customer_code, '') ILIKE $4 ESCAPE '\'
+              OR COALESCE(c.first_name, '') ILIKE $4 ESCAPE '\'
+              OR COALESCE(c.last_name, '') ILIKE $4 ESCAPE '\'
+              OR CONCAT_WS(' ', c.first_name, c.last_name) ILIKE $4 ESCAPE '\'
+              OR COALESCE(c.phone, '') ILIKE $4 ESCAPE '\'
+              OR COALESCE(c.email, '') ILIKE $4 ESCAPE '\'
+              OR COALESCE(pt.payment_method, '') ILIKE $4 ESCAPE '\'
+              OR EXISTS (
+                  SELECT 1
+                  FROM transaction_lines tl_search
+                  INNER JOIN products p_search ON p_search.id = tl_search.product_id
+                  INNER JOIN product_variants pv_search ON pv_search.id = tl_search.variant_id
+                  WHERE tl_search.transaction_id = o.id
+                    AND (p_search.name ILIKE $4 ESCAPE '\' OR pv_search.sku ILIKE $4 ESCAPE '\')
+              )
+          )
           AND NOT (
               COALESCE(o.business_date, (o.booked_at AT TIME ZONE reporting.effective_store_timezone())::date) >= ($1 AT TIME ZONE reporting.effective_store_timezone())::date
               AND COALESCE(o.business_date, (o.booked_at AT TIME ZONE reporting.effective_store_timezone())::date) < ($2 AT TIME ZONE reporting.effective_store_timezone())::date
@@ -1484,15 +1806,25 @@ pub async fn fetch_register_day_summary(
                     WHERE checkout_line.transaction_id = checkout_o.id
                 )
           )
-        ORDER BY pt.created_at DESC
-        LIMIT 120
+        ORDER BY pt.created_at DESC, pa.id ASC, pt.id ASC
+        LIMIT $5
         "#,
     )
     .bind(start_utc)
     .bind(end_utc)
     .bind(register_session_id)
+    .bind(activity_search.clone())
+    .bind(source_limit)
     .fetch_all(pool)
     .await?;
+
+    let sales_matched_count = sales.first().map(|row| row.matched_count).unwrap_or(0);
+    let payments_matched_count = payments.first().map(|row| row.matched_count).unwrap_or(0);
+    let pickups_total_count = pickups_today
+        .first()
+        .map(|row| row.matched_count)
+        .unwrap_or(0);
+    let activity_total_count = sales_matched_count.saturating_add(payments_matched_count);
 
     let mut activities: Vec<RegisterActivityItem> = Vec::new();
 
@@ -1693,11 +2025,7 @@ pub async fn fetch_register_day_summary(
                 });
 
         activities.push(RegisterActivityItem {
-            id: format!(
-                "{}:{}",
-                if is_refund { "refund" } else { "payment" },
-                p.payment_id
-            ),
+            id: payment_activity_id(is_refund, p.payment_id, p.payment_allocation_id),
             kind: if is_refund {
                 "refund".to_string()
             } else {
@@ -1751,8 +2079,14 @@ pub async fn fetch_register_day_summary(
         });
     }
 
-    activities.sort_by(|x, y| y.occurred_at.cmp(&x.occurred_at));
-    activities.truncate(200);
+    activities.sort_by(compare_activity_desc);
+    let activities = activities
+        .into_iter()
+        .skip(activity_offset as usize)
+        .take(activity_limit as usize)
+        .collect::<Vec<_>>();
+    let activities_has_more =
+        activity_total_count > activity_offset.saturating_add(activities.len() as i64);
 
     let pickups_today = pickups_today
         .into_iter()
@@ -1816,7 +2150,11 @@ pub async fn fetch_register_day_summary(
                 imported_at: None,
             }
         })
-        .collect();
+        .skip(activity_offset as usize)
+        .take(activity_limit as usize)
+        .collect::<Vec<_>>();
+    let pickups_has_more =
+        pickups_total_count > activity_offset.saturating_add(pickups_today.len() as i64);
 
     Ok(RegisterDaySummary {
         timezone: tz_name,
@@ -1848,14 +2186,25 @@ pub async fn fetch_register_day_summary(
         deposits_collected: money_label(deposits_collected),
         weather_days,
         weather_summary,
+        activity_total_count,
+        activity_offset,
+        activities_has_more,
         activities,
+        pickups_total_count,
+        pickups_has_more,
         pickups_today,
     })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::reporting_tender_label;
+    use super::{
+        activity_search_pattern, compare_activity_desc, ensure_complete_eod_counts,
+        format_weather_value, payment_activity_id, reporting_tender_label, RegisterActivityItem,
+    };
+    use chrono::{TimeZone, Utc};
+    use serde_json::json;
+    use uuid::Uuid;
 
     #[test]
     fn reporting_tender_labels_preserve_card_entry_type() {
@@ -1866,5 +2215,84 @@ mod tests {
             "Card Not Present"
         );
         assert_eq!(reporting_tender_label("cnp"), "Card Not Present");
+    }
+
+    #[test]
+    fn activity_search_escapes_sql_wildcards() {
+        assert_eq!(
+            activity_search_pattern(Some(r#"TXN_50%\sale"#)),
+            Some(r#"%TXN\_50\%\\sale%"#.to_string())
+        );
+        assert_eq!(activity_search_pattern(Some("   ")), None);
+    }
+
+    #[test]
+    fn weather_values_are_staff_readable_and_truthful() {
+        assert_eq!(format_weather_value("72.6000", 0), "73");
+        assert_eq!(format_weather_value("0.12789", 2), "0.13");
+        assert_eq!(format_weather_value("not-recorded", 2), "Unavailable");
+    }
+
+    #[test]
+    fn payment_activity_identity_includes_the_allocation() {
+        let payment_id = Uuid::parse_str("00000000-0000-0000-0000-000000000010").unwrap();
+        let first_allocation = Uuid::parse_str("00000000-0000-0000-0000-000000000011").unwrap();
+        let second_allocation = Uuid::parse_str("00000000-0000-0000-0000-000000000012").unwrap();
+
+        assert_ne!(
+            payment_activity_id(false, payment_id, first_allocation),
+            payment_activity_id(false, payment_id, second_allocation)
+        );
+    }
+
+    #[test]
+    fn merged_activity_order_has_stable_tiebreakers() {
+        let occurred_at = Utc.with_ymd_and_hms(2026, 7, 21, 12, 0, 0).unwrap();
+        let transaction_one = Uuid::parse_str("00000000-0000-0000-0000-000000000001").unwrap();
+        let transaction_two = Uuid::parse_str("00000000-0000-0000-0000-000000000002").unwrap();
+        let payment_id = Uuid::parse_str("00000000-0000-0000-0000-000000000003").unwrap();
+        let allocation_id = Uuid::parse_str("00000000-0000-0000-0000-000000000004").unwrap();
+        let mut rows: Vec<RegisterActivityItem> = vec![
+            serde_json::from_value(json!({
+                "id": "payment:3:4",
+                "kind": "payment",
+                "occurred_at": occurred_at,
+                "title": "Payment",
+                "payment_id": payment_id,
+                "payment_allocation_id": allocation_id
+            }))
+            .unwrap(),
+            serde_json::from_value(json!({
+                "id": "sale:2",
+                "kind": "sale",
+                "occurred_at": occurred_at,
+                "title": "Sale",
+                "transaction_id": transaction_two
+            }))
+            .unwrap(),
+            serde_json::from_value(json!({
+                "id": "sale:1",
+                "kind": "sale",
+                "occurred_at": occurred_at,
+                "title": "Sale",
+                "transaction_id": transaction_one
+            }))
+            .unwrap(),
+        ];
+
+        rows.sort_by(compare_activity_desc);
+
+        assert_eq!(
+            rows.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(),
+            vec!["sale:1", "sale:2", "payment:3:4"]
+        );
+    }
+
+    #[test]
+    fn eod_snapshot_rejects_partial_page_contracts() {
+        assert!(ensure_complete_eod_counts(0, 2, 2, false, 1, 1, false).is_ok());
+        assert!(ensure_complete_eod_counts(0, 2, 1, true, 1, 1, false).is_err());
+        assert!(ensure_complete_eod_counts(500, 2, 2, false, 1, 1, false).is_err());
+        assert!(ensure_complete_eod_counts(0, 2, 2, false, 1, 0, false).is_err());
     }
 }

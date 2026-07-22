@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Calendar, ChevronLeft, ChevronRight, Printer, Plus, Clock, User, Trash, Scissors, Ruler, ShoppingBag, Search, X } from 'lucide-react';
 import { getBaseUrl } from '../../lib/apiConfig';
 import { weddingApi } from '../../lib/weddingApi';
@@ -159,9 +159,14 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
   const [searchResults, setSearchResults] = useState<Appointment[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [searchFailed, setSearchFailed] = useState(false);
+  const [searchLoading, setSearchLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const searchRequestRef = useRef(0);
+  const searchAbortRef = useRef<AbortController | null>(null);
+  const appointmentsRequestRef = useRef(0);
 
   const fetchAppointments = useCallback(async () => {
+    const requestId = ++appointmentsRequestRef.current;
     try {
       let startStr, endStr;
       const start = new Date(selectedDate);
@@ -186,9 +191,11 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
         to: endStr,
         headers: wmHeaders,
       });
+      if (requestId !== appointmentsRequestRef.current) return;
       setAppointments(data);
       setLoadError(null);
     } catch (err) {
+      if (requestId !== appointmentsRequestRef.current) return;
       console.error("Failed to fetch appointments:", err);
       setLoadError("Appointments could not refresh. Check the connection and try again.");
     }
@@ -200,31 +207,52 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
       setSearchFailed(false);
       return;
     }
+    const requestId = ++searchRequestRef.current;
+    searchAbortRef.current?.abort();
+    const controller = new AbortController();
+    searchAbortRef.current = controller;
+    setSearchLoading(true);
+    setSearchFailed(false);
+    setSearchResults([]);
     try {
       const res = await fetch(`${baseUrl}/api/weddings/appointments/search?q=${encodeURIComponent(q.trim())}`, {
         headers: wmHeaders,
+        signal: controller.signal,
       });
-      if (res.ok) {
-        const rows = (await res.json()) as Record<string, unknown>[];
-        setSearchResults(rows.map(normalizeAppointmentRow));
-        setSearchFailed(false);
-        return;
-      }
+      if (!res.ok) throw new Error(`Appointment search failed with status ${res.status}`);
+      const rows = (await res.json()) as Record<string, unknown>[];
+      if (requestId !== searchRequestRef.current) return;
+      setSearchResults(rows.map(normalizeAppointmentRow));
+      setSearchFailed(false);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      if (requestId !== searchRequestRef.current) return;
       setSearchResults([]);
       setSearchFailed(true);
-    } catch {
-      setSearchResults([]);
-      setSearchFailed(true);
+    } finally {
+      if (requestId === searchRequestRef.current) setSearchLoading(false);
+      if (searchAbortRef.current === controller) searchAbortRef.current = null;
     }
   }, [wmHeaders]);
 
   useEffect(() => {
+    searchRequestRef.current += 1;
+    searchAbortRef.current?.abort();
+    searchAbortRef.current = null;
+    setSearchLoading(false);
+    setSearchFailed(false);
     const t = setTimeout(() => {
       if (searchQuery) void runSearch(searchQuery);
       else setSearchResults([]);
     }, 300);
     return () => clearTimeout(t);
   }, [searchQuery, runSearch]);
+
+  useEffect(() => () => {
+    searchRequestRef.current += 1;
+    appointmentsRequestRef.current += 1;
+    searchAbortRef.current?.abort();
+  }, []);
 
   useEffect(() => {
     fetchAppointments();
@@ -536,7 +564,11 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
                     <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Search Results</span>
                     <button onClick={() => setIsSearching(false)} className="text-app-text-muted hover:text-app-text"><X size={14}/></button>
                   </div>
-                  {searchFailed ? (
+                  {searchLoading ? (
+                    <p className="p-4 text-center text-xs font-semibold text-app-text-muted">
+                      Searching appointments…
+                    </p>
+                  ) : searchFailed ? (
                     <p className="rounded-xl border border-app-warning/30 bg-app-warning/10 p-4 text-center text-xs font-semibold text-app-warning">
                       Appointment search is unavailable right now.
                     </p>

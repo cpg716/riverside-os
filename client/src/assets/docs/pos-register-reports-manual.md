@@ -32,9 +32,10 @@ Daily Sales payment totals use the same store-local effective business-date wind
 1. Open **POS → Reports** while the register session is still active.
 2. Review **Booked** for what was rung during the drawer/session and **Completed** for recognized revenue and pickup activity.
 3. Open individual entries when you need receipt or tender detail. Click the customer name or Customer # to open CustomerHub for that customer.
-4. Use **Void** on a completed sale only after a manager confirms the transaction, reason, tender reversal, and inventory impact.
-5. Use **View** to review the full-page Daily Sales report inside ROS, or **Print** when the shift needs a professional audit printout.
-6. Open **Z-Reports** to see which linked lanes are still open, which drawer is already reconciling, and whether Register #1 still needs to finish the shared close.
+4. Search by customer name, phone, email, Customer #, Transaction number, payment method, item name, or SKU. Search runs against the full selected date range, not only the rows currently visible. Use **Load more audited activity** when the result count is larger than the current page.
+5. Use **Void** on a completed sale only after a manager confirms the transaction, reason, tender reversal, and inventory impact.
+6. Use **View**, **Print**, or **Export** to prepare the complete matching activity set. Riverside loads every audited page before producing the output; it never labels the first page as a complete report. If Register activity changes while those pages are loading, Riverside produces nothing and asks you to retry instead of creating a mixed-time report. For stability, the screen stops at 2,000 loaded detail rows and generated output stops at 20,000 combined activity and pickup rows. Narrow the date range or search when ROS reports that limit.
+7. Open **Z-Reports** to see which linked lanes are still open, which drawer is already reconciling, and whether Register #1 still needs to finish the shared close.
 
 ## Daily Sales Activity
 The **Daily Sales** view shows a chronological timeline of every transaction. Each sale row shows its `TXN-` transaction number so the screen, printout, receipt, and payment records can be reconciled against the same reference. Counterpoint-imported rows keep the Counterpoint transaction time as the activity time and show **Imported at** only as secondary import context. Tap an entry to view the full receipt or reprint it. Merchandise **Subtotal** and **Net Sales** exclude shipping, alteration-service charges, and gift-card loads. Daily Sales reports show shipping and alterations as separate totals, and gift-card loads as separate count/amount activity. Gift-card loads are recorded as liability activity until redeemed; redemption is recorded as a tender and does not turn the original load into merchandise revenue. Use this for:
@@ -43,6 +44,8 @@ The **Daily Sales** view shows a chronological timeline of every transaction. Ea
 - Monitoring mid-shift velocity without closing the drawer.
 - Confirming whether the activity was **Takeaway**, **Pickup**, **Special Order**, **Custom Order**, **Wedding Order**, **Layaway**, or mixed fulfillment.
 - Reviewing split tenders as separate payment lines with amount labels instead of a single collapsed method list.
+
+The result line states how many matching activity records and pickups are loaded out of the exact server-reported count. An activity record may be a sale, payment, or another audited event, so it is not labeled as a transaction count. Detail-derived dashboard boxes show an em dash while more source rows remain; this means the value is not yet complete, not zero. Load the remaining activity or use the complete View, Print, or Export output.
 
 ## Void a completed sale
 
@@ -66,13 +69,17 @@ You can now generate a professional, full-page **Daily Sales Report** that inclu
 - Administrative Counterpoint price repairs are excluded from Booked Sales; they do not represent new customer transactions or tender collected.
 - **Card entry labels**: Hosted HelcimPay.js entries print as **Card Not Present**, while **Card Manual** is reserved for externally recorded/manual card activity.
 - **Per-Transaction Subtotal Before Tax**: Each transaction card separates subtotal before tax, tax collected, and total before showing payments or balance.
-- **Transaction Audit**: A complete list of all `TXN-` transaction numbers and amounts.
+- **Transaction Audit**: A complete list of all matching `TXN-` transaction numbers, payment-only activity, and amounts. Payment rows without merchandise lines remain present in CSV exports.
+- **Truthful filter scope**: When search is active, the printed **Period Summary** is fetched separately and labeled as all activity in the selected period. The transaction and pickup sections state the exact filter, and detail-derived boxes are labeled **Filtered** so they cannot be mistaken for full-period totals.
+- **Cents-safe CSV totals**: Export totals are summed as integer cents, including rows whose displayed amount contains a dollar sign or thousands separator.
 - **Activity Cards**: Printed activity mirrors the on-screen grouped list with customer context, fulfillment chips, line items, payment/pickup context, and amount details.
 - **Reporting Station**: The report header identifies the assigned printer for accountability.
 
 To review the report first, tap **View**. In the desktop app, the preview opens inside ROS instead of a browser tab. To print, tap **Print** from the report screen or from the in-app preview. Daily Sales prints through the configured Reports printer so the activity cards, customer context, pickup rows, line items, and totals stay on office paper instead of the receipt printer.
 
 Z-Reports also use the same contract in the desktop app. Each row and printed report shows its store-local **business date**, which may differ from the morning it was closed. **Open Report** opens the Z-report inside ROS for review, with each sale row labeled by its `TXN-` transaction number. ROS never combines multiple business dates; missed days appear as separate reports and must be closed oldest first. The Z-report quick-look boxes include daily business counts and amounts such as New Vendor Invoices from Back Office receiving, New Orders, Orders Picked Up, Credit Card Total, RMS Payments, RMS Charge, appointments, alterations, new wedding parties, shipping, and discounts. **Close & Print Z-Report** and preview **Print** send the report to the configured Reports printer. If a report prints as raw text instead of the formatted layout, check that the workstation is using the current build and rerun the report print.
+
+After close, Riverside freezes the complete audited activity and pickup set for that business date. It never saves the first page as though it were the full EOD snapshot. If every page cannot be verified, the drawer still closes, no partial snapshot is saved, and Riverside raises an operational alert for support follow-up.
 
 Cash refunds processed before close appear as negative cash activity. They reduce Cash Sales (Gross), Expected Cash, and the amount available for deposit; any difference between the resulting expected cash and the physical count remains an over/short variance to explain.
 

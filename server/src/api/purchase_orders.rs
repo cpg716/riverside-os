@@ -1624,7 +1624,8 @@ async fn list_receiving_events(
         .q
         .as_deref()
         .map(str::trim)
-        .filter(|value| !value.is_empty());
+        .filter(|value| !value.is_empty())
+        .map(crate::logic::search_patterns::literal_contains_pattern);
     let rows = sqlx::query_as::<_, ReceivingEventSummary>(
         r#"
         SELECT
@@ -1650,9 +1651,9 @@ async fn list_receiving_events(
           AND ($3::timestamptz IS NULL OR re.received_at < ($3::date + INTERVAL '1 day'))
           AND (
               $4::text IS NULL
-              OR po.po_number ILIKE '%' || $4 || '%'
-              OR re.invoice_number ILIKE '%' || $4 || '%'
-              OR v.name ILIKE '%' || $4 || '%'
+              OR po.po_number ILIKE $4 ESCAPE '\'
+              OR re.invoice_number ILIKE $4 ESCAPE '\'
+              OR v.name ILIKE $4 ESCAPE '\'
               OR EXISTS (
                   SELECT 1
                   FROM inventory_transactions it2
@@ -1661,13 +1662,13 @@ async fn list_receiving_events(
                   WHERE it2.reference_table = 'receiving_events'
                     AND it2.reference_id = re.id
                     AND (
-                        pv.sku ILIKE '%' || $4 || '%'
-                        OR p.name ILIKE '%' || $4 || '%'
+                        pv.sku ILIKE $4 ESCAPE '\'
+                        OR p.name ILIKE $4 ESCAPE '\'
                     )
               )
           )
         GROUP BY re.id, po.po_number, po.vendor_id, v.name, s.full_name
-        ORDER BY re.received_at DESC
+        ORDER BY re.received_at DESC, re.id DESC
         LIMIT 250
         "#,
     )

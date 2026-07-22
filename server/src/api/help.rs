@@ -3972,7 +3972,8 @@ async fn search_help(
         })));
     };
 
-    match help_search_hits(client, query, q.limit).await {
+    let requested_limit = q.limit.clamp(1, 100);
+    match help_search_hits(client, query, 100).await {
         Ok(rows) => {
             let hits: Vec<HelpSearchHitOut> = rows
                 .into_iter()
@@ -3985,6 +3986,7 @@ async fn search_help(
                     )
                 })
                 .map(map_hit)
+                .take(requested_limit)
                 .collect();
             Ok(Json(serde_json::json!({
                 "hits": hits,

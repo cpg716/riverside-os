@@ -69,6 +69,7 @@ Use **Show diagnostics** only when you need the detailed reference counters. The
 
 - A true empty result means the current filters returned no matching inventory.
 - A failed load should show a degraded state rather than pretending the inventory is empty.
+- The last-checked time applies to the loaded inventory page. New searches and filter changes supersede older requests, so only the newest result is shown.
 - Do not treat readiness counts as automatic changes. Staff still review and apply fixes deliberately.
 
 ## Related workflows

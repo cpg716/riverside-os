@@ -237,6 +237,54 @@ function cleanHelpMarkdownForDisplay(markdown: string): string {
     .trim();
 }
 
+const HELP_VISIBLE_MANUAL_CACHE_PREFIX = "ros.help.visible-manuals.v1:";
+
+function helpViewerCacheKey(headers: Record<string, string>): string | null {
+  const staffCode = headers["x-riverside-staff-code"]?.trim().toUpperCase();
+  if (staffCode) return `${HELP_VISIBLE_MANUAL_CACHE_PREFIX}staff:${staffCode}`;
+  const posSessionId = headers["x-riverside-pos-session-id"]?.trim();
+  if (posSessionId) return `${HELP_VISIBLE_MANUAL_CACHE_PREFIX}pos:${posSessionId}`;
+  return null;
+}
+
+function writeVisibleManualCache(
+  key: string | null,
+  manuals: HelpManualListEntry[],
+): void {
+  if (!key) return;
+  try {
+    sessionStorage.setItem(key, JSON.stringify(manuals));
+  } catch {
+    // Help remains available online if the browser declines session storage.
+  }
+}
+
+function readVisibleManualCache(key: string | null): HelpManualListEntry[] {
+  if (!key) return [];
+  try {
+    const parsed = JSON.parse(sessionStorage.getItem(key) ?? "[]") as unknown;
+    if (!Array.isArray(parsed)) return [];
+    const bundledIds = new Set(
+      HELP_MANUALS.filter((manual) => !isDraftHelpMarkdown(manual.markdown)).map(
+        (manual) => manual.id,
+      ),
+    );
+    return parsed.filter((entry): entry is HelpManualListEntry => {
+      if (!entry || typeof entry !== "object") return false;
+      const candidate = entry as Partial<HelpManualListEntry>;
+      return (
+        typeof candidate.id === "string" &&
+        bundledIds.has(candidate.id) &&
+        typeof candidate.title === "string" &&
+        typeof candidate.summary === "string" &&
+        typeof candidate.order === "number"
+      );
+    });
+  } catch {
+    return [];
+  }
+}
+
 function extractText(node: unknown): string {
   if (node == null || typeof node === "boolean") return "";
   if (typeof node === "string" || typeof node === "number") return String(node);
@@ -837,7 +885,9 @@ export default function HelpCenterDrawer({
   } | null>(null);
 
   const [manualList, setManualList] = useState<HelpManualListEntry[] | null>(null);
-  const [helpListSource, setHelpListSource] = useState<"api" | "static">("static");
+  const [helpListSource, setHelpListSource] = useState<
+    "api" | "authorized-cache" | "unavailable"
+  >("unavailable");
   const [markdownById, setMarkdownById] = useState<Record<string, string>>({});
   const [detailLoading, setDetailLoading] = useState(false);
   const [fullGuideBusy, setFullGuideBusy] = useState(false);
@@ -869,7 +919,7 @@ export default function HelpCenterDrawer({
     if (!isOpen) {
       setManualList(null);
       setMarkdownById({});
-      setHelpListSource("static");
+      setHelpListSource("unavailable");
       setDrawerMode("browse");
       setRosieSettings(loadLocalRosieSettings());
       setRosieMessages([]);
@@ -892,27 +942,22 @@ export default function HelpCenterDrawer({
     setDrawerMode(openMode);
     let cancelled = false;
     void (async () => {
+      const authHeaders = apiAuth() as Record<string, string>;
+      const cacheKey = helpViewerCacheKey(authHeaders);
       try {
-        const res = await fetch(`${baseUrl}/api/help/manuals`, { headers: apiAuth() });
+        const res = await fetch(`${baseUrl}/api/help/manuals`, { headers: authHeaders });
         if (!res.ok) throw new Error("help manuals");
         const j = (await res.json()) as { manuals?: HelpManualListEntry[] };
-        const list = j.manuals ?? [];
+        const list = orderHelpManuals(j.manuals ?? []);
         if (cancelled) return;
-        if (list.length === 0) throw new Error("empty");
-        setManualList(orderHelpManuals(list));
+        writeVisibleManualCache(cacheKey, list);
+        setManualList(list);
         setHelpListSource("api");
       } catch {
         if (cancelled) return;
-        const fallback = [...HELP_MANUALS]
-          .filter((m) => !isDraftHelpMarkdown(m.markdown))
-          .map((m) => ({
-            id: m.id,
-            title: m.title,
-            summary: m.summary ?? "",
-            order: 100,
-          }));
-        setManualList(orderHelpManuals(fallback));
-        setHelpListSource("static");
+        const cached = orderHelpManuals(readVisibleManualCache(cacheKey));
+        setManualList(cached);
+        setHelpListSource(cached.length > 0 ? "authorized-cache" : "unavailable");
       }
     })();
     return () => {
@@ -948,14 +993,12 @@ export default function HelpCenterDrawer({
   }, [rosieBusy]);
 
   useEffect(() => {
-    if (!manualList?.length) return;
+    if (!manualList?.length) {
+      if (manualList) setActiveManualId("");
+      return;
+    }
     if (!manualList.some((m) => m.id === activeManualId)) {
-      // Keep the bundled "Start Here" guide as the stable default even when
-      // an older Help API catalog has not indexed it yet. The detail request
-      // already falls back to the bundled manual in that case.
-      if (activeManualId !== HELP_MANUALS[0]?.id) {
-        setActiveManualId(manualList[0].id);
-      }
+      setActiveManualId(manualList[0].id);
     }
   }, [manualList, activeManualId]);
 
@@ -1046,9 +1089,10 @@ export default function HelpCenterDrawer({
   }, [effectiveList]);
   const activeEntry = effectiveList.find((x) => x.id === activeManualId);
   const activeTitle =
-    activeEntry?.title ?? helpManualById(activeManualId)?.title ?? activeManualId;
+    activeEntry?.title ?? activeManualId;
   const activeDisplayTitle = formatHelpDisplayTitle(activeTitle);
   const displayMarkdown = useMemo(() => {
+    if (!activeEntry) return "";
     if (helpListSource === "api") {
       const c = markdownById[activeManualId];
       if (c) return cleanHelpMarkdownForDisplay(c);
@@ -1056,7 +1100,7 @@ export default function HelpCenterDrawer({
     }
     const m = helpManualById(activeManualId);
     return m ? cleanHelpMarkdownForDisplay(stripYamlFrontMatter(m.markdown)) : "";
-  }, [helpListSource, markdownById, activeManualId]);
+  }, [activeEntry, helpListSource, markdownById, activeManualId]);
 
   const { activeManual, toc } = useMemo(() => {
     const manual =
@@ -1800,9 +1844,14 @@ export default function HelpCenterDrawer({
           {manualList === null && isOpen ? (
             <p className="text-xs text-app-text-muted">Loading manuals…</p>
           ) : null}
-          {helpListSource === "static" && manualList !== null ? (
+          {helpListSource === "authorized-cache" && manualList !== null ? (
             <p className="rounded-xl border border-app-warning/20 bg-app-warning/10 px-3 py-2 text-xs font-medium text-app-warning">
-              Using bundled manuals because the live help catalog is unavailable.
+              Live Help is unavailable. Showing only the on-device manuals last authorized for this signed-in viewer.
+            </p>
+          ) : null}
+          {helpListSource === "unavailable" && manualList !== null ? (
+            <p className="rounded-xl border border-app-warning/20 bg-app-warning/10 px-3 py-2 text-xs font-medium text-app-warning">
+              Live Help is unavailable and no authorized on-device manual list is cached for this signed-in viewer.
             </p>
           ) : null}
           {helpListSource === "api" && detailLoading && !displayMarkdown ? (

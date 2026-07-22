@@ -68,6 +68,13 @@ export function PosSearchResultList({
             group.length,
             Number(item.total_variant_count ?? 0) || group.length,
           );
+          const minPrice = Number(item.retail_price_min ?? item.standard_retail_price);
+          const maxPrice = Number(item.retail_price_max ?? item.standard_retail_price);
+          const priceLabel = variationCount > 1 && !isExactSku
+            ? Number.isFinite(minPrice) && Number.isFinite(maxPrice) && minPrice !== maxPrice
+              ? `$${minPrice.toFixed(2)} – $${maxPrice.toFixed(2)}`
+              : `$${(Number.isFinite(minPrice) ? minPrice : 0).toFixed(2)}`
+            : `$${Number(item.standard_retail_price || 0).toFixed(2)}`;
 
           return (
             <button
@@ -145,7 +152,7 @@ export function PosSearchResultList({
               </div>
               <div className="shrink-0 text-right">
                 <p className="text-lg font-black tabular-nums text-app-text sm:text-xl">
-                  ${item.standard_retail_price}
+                  {priceLabel}
                 </p>
                 <div className="mt-1 flex items-center justify-end font-black text-app-accent">
                   <span className="text-xs uppercase tracking-wide">

@@ -135,6 +135,8 @@ pub struct VerifyCashierResponse {
     pub role: DbStaffRole,
     pub avatar_key: String,
     pub avatar_photo_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub manager_approval_reference: Option<Uuid>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1161,6 +1163,7 @@ async fn verify_cashier_code(
         role: staff.role,
         avatar_key: staff.avatar_key,
         avatar_photo_url: staff.avatar_photo_url,
+        manager_approval_reference: None,
     }))
 }
 
@@ -1187,6 +1190,7 @@ pub async fn legacy_verify_pin(
             .map_err(|_| StaffApiError::InvalidCode)?
     };
 
+    let mut manager_approval_reference = None;
     if let Some(action) = body.authorize_action {
         if body.staff_id.is_none() {
             return Err(StaffApiError::InvalidPayload(
@@ -1222,7 +1226,8 @@ pub async fn legacy_verify_pin(
                 "approval_method": "staff_id_access_pin",
             }),
         };
-        let _ = pins::log_staff_access(&state.db, staff.id, &action, meta).await;
+        manager_approval_reference =
+            Some(pins::log_staff_access_with_id(&state.db, staff.id, &action, meta).await?);
     }
 
     Ok(Json(VerifyCashierResponse {
@@ -1231,6 +1236,7 @@ pub async fn legacy_verify_pin(
         role: staff.role,
         avatar_key: staff.avatar_key,
         avatar_photo_url: staff.avatar_photo_url,
+        manager_approval_reference,
     }))
 }
 

@@ -59,6 +59,7 @@ Alteration labor added through the alteration intake workflow is non-taxable. Ch
 - **Charge Notes**: This queue displays the "Alteration Charge Note" from the intake, but it does not collect payment. All financial transactions must happen at the Register.
 - **Order-linked pickup**: Only alterations marked **Ready** are included when an order is loaded for Register pickup. In Work or Verify Completed alterations remain in the tailoring queue.
 - **Due Dates**: Red dates indicate the job is overdue. Contact the customer if a delay is expected.
+- Large queues load in bounded groups. Select **Load more alteration records** until Riverside reports that all matching records are loaded before treating the visible counts as the full filtered queue.
 
 ## What happens next
 

@@ -577,31 +577,27 @@ export function useCartActions({
     );
 
     if (totalVariantCount > 1 && !exactSkuMatch) {
-       setSearchResults([]);
        void (async () => {
-         const fallbackRows = siblings.length > 0 ? siblings : [item];
-         const fallbackVariants = fallbackRows.map(s => ({
-           variant_id: s.variant_id,
-           sku: s.sku,
-           variation_label: s.variation_label || "Standard",
-           stock_on_hand: s.stock_on_hand || 0,
-           retail_price: String(s.standard_retail_price),
-         }));
          try {
-           const res = await fetch(
-             `${baseUrl}/api/products/control-board?product_id=${encodeURIComponent(item.product_id)}&limit=50000&include_hidden=true&pos_size_filter=true`,
-             { headers: apiAuth() },
-           );
-           if (!res.ok) {
-             setActiveVariationSelection({
-               product_id: item.product_id,
-               name: item.name,
-               variants: fallbackVariants,
-             });
-             return;
+           const pageSize = 250;
+           const maxVariants = 5_000;
+           if (totalVariantCount > maxVariants) {
+             throw new Error("Product has too many variations to load safely");
            }
-           const data = (await res.json()) as { rows?: Array<Record<string, unknown>> };
-           const rows = Array.isArray(data.rows) ? data.rows : [];
+           const rows: Array<Record<string, unknown>> = [];
+           for (let offset = 0; offset < totalVariantCount; offset += pageSize) {
+             const res = await fetch(
+               `${baseUrl}/api/products/control-board?product_id=${encodeURIComponent(item.product_id)}&limit=${pageSize}&offset=${offset}&include_hidden=true&pos_size_filter=true`,
+               { headers: apiAuth() },
+             );
+             if (!res.ok) {
+               throw new Error(`Variation search failed with status ${res.status}`);
+             }
+             const data = (await res.json()) as { rows?: Array<Record<string, unknown>> };
+             const pageRows = Array.isArray(data.rows) ? data.rows : [];
+             rows.push(...pageRows);
+             if (pageRows.length < pageSize) break;
+           }
            const fullVariants = rows.map((row) => ({
              variant_id: String(row.variant_id ?? ""),
              sku: String(row.sku ?? ""),
@@ -611,19 +607,23 @@ export function useCartActions({
                  : "Standard",
              stock_on_hand: Number(row.stock_on_hand ?? 0),
              retail_price: String(row.retail_price ?? 0),
-           }));
+           })).filter((variant) => variant.variant_id && variant.sku);
+           const uniqueVariants = Array.from(
+             new Map(fullVariants.map((variant) => [variant.variant_id, variant])).values(),
+           );
+           if (uniqueVariants.length < totalVariantCount) {
+             throw new Error(
+               `Only ${uniqueVariants.length} of ${totalVariantCount} variations loaded`,
+             );
+           }
+           setSearchResults([]);
            setActiveVariationSelection({
              product_id: item.product_id,
              name: item.name,
-             variants: fullVariants.length > 0 ? fullVariants : fallbackVariants,
+             variants: uniqueVariants,
            });
          } catch {
-           setActiveVariationSelection({
-             product_id: item.product_id,
-             name: item.name,
-             variants: fallbackVariants,
-           });
-           toast("Could not load every variation for this product. Search results are still available.", "error");
+           toast("Could not load every variation for this product. Try again; no item was added.", "error");
          }
        })();
     } else {

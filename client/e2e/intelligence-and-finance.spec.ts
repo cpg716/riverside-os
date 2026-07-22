@@ -177,7 +177,11 @@ test.describe("Optional Data-Dependent Diagnostics", () => {
       "No products in database to test intelligence drill-down",
     );
 
-    const variantId = boardJson.rows[0].variant_id;
+    const controlRow = boardJson.rows[0];
+    expect(controlRow).toHaveProperty("retail_price_min");
+    expect(controlRow).toHaveProperty("retail_price_max");
+
+    const variantId = controlRow.variant_id;
     const res = await request.get(`${apiBase()}/api/inventory/intelligence/${variantId}`, {
       headers: adminHeaders(),
       failOnStatusCode: false,

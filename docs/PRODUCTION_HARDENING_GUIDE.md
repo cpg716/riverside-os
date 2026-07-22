@@ -38,7 +38,7 @@ Riverside OS provides three health check endpoints for orchestration and monitor
 pub async fn health() -> Result<Json<HealthResponse>, StatusCode>
 
 // Readiness check - verifies dependencies are ready
-pub async fn ready(State(state): State<AppState>) -> Result<Json<ReadyResponse>, StatusCode>
+pub async fn ready(State(state): State<AppState>) -> Response
 
 // Liveness check - simple alive status
 pub async fn live() -> Result<Json<serde_json::Value>, StatusCode>
@@ -72,10 +72,18 @@ pub async fn live() -> Result<Json<serde_json::Value>, StatusCode>
     "notification_worker": true,
     "email_worker": true,
     "podium_worker": true,
-    "weather_worker": true
-  }
+    "weather_worker": true,
+    "job_queue_worker": true,
+    "metrics_worker": true,
+    "redis_configured": false,
+    "redis_connected": false,
+    "job_queue_enabled": true
+  },
+  "unavailable_components": []
 }
 ```
+
+`status` is `ready` only when every reported component is healthy. A non-critical worker or optional configured Redis outage returns `degraded` with the exact component names while keeping HTTP 200 so Register connectivity is not blocked. A database failure, or an enabled job queue whose worker is unhealthy, returns `not_ready` with HTTP 503. The job-queue heartbeat is refreshed only after a successful queue poll and expires after 60 seconds, so a stopped or disconnected worker cannot remain ready indefinitely. The blocking Redis dequeue returns at least every 20 seconds when idle, leaving time to refresh that heartbeat without false readiness failures. Handler capacity is reserved before a job moves into the processing list, preventing saturation from aging an unstarted job into stale recovery. Pool and worker failures are never replaced with healthy-looking zero values.
 
 ### Kubernetes Configuration
 
@@ -429,7 +437,7 @@ println!("Failed: {}", stats.failed);
 
 ### Overview
 
-Enterprise-grade metrics collection system with business KPIs, technical metrics, and multiple export formats.
+Metrics collection for measured business and technical KPIs with multiple export formats. Production enables only collectors backed by real runtime sources.
 
 ### Core Components
 
@@ -469,10 +477,8 @@ Enterprise-grade metrics collection system with business KPIs, technical metrics
 ### Technical Metrics
 
 #### System Metrics
-- CPU, memory, disk usage
-- Network I/O statistics
-- System load average
-- Uptime tracking
+- Memory, load average, and uptime where the host exposes a measured value
+- CPU, disk, or network fields are omitted when no supported telemetry source exists; unsupported values are never published as zero
 
 #### Database Metrics
 - Connection pool utilization
@@ -511,6 +517,8 @@ collector.start().await?;
 // Get metrics snapshot
 let snapshot = collector.get_metrics_snapshot().await;
 ```
+
+Collection performs PostgreSQL, Redis, and queue awaits before taking the registry write lock. The lock is held only while recording the completed snapshot and cleaning retained samples. HTTP response middleware uses a non-blocking registry write; when the registry is busy it returns the response immediately and increments `metrics_request_samples_dropped` for the next collection cycle. Collection calls have bounded deadlines, and non-finite metric samples are discarded rather than exported.
 
 ### Export Formats
 

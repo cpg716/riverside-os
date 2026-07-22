@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Icon from '../components/Icon';
 import logo from '../../../assets/images/riverside_logo.jpg';
 
@@ -30,6 +30,7 @@ const Dashboard = ({ initialPartyId = null, onInitialPartyConsumed }) => {
     const [selectedParty, setSelectedParty] = useState(null);
 
     const [loading, setLoading] = useState(true);
+    const [loadError, setLoadError] = useState(null);
     const [activeTab, setActiveTab] = useState('parties');
     const [dateFilter, setDateFilter] = useState('next-90');
     const [currentPage, setCurrentPage] = useState(1);
@@ -63,6 +64,8 @@ const Dashboard = ({ initialPartyId = null, onInitialPartyConsumed }) => {
 
     const [isConnected, setIsConnected] = useState(socket.connected);
     const [lastUpdated, setLastUpdated] = useState(new Date());
+    const partiesRequestRef = useRef(0);
+    const fetchPartiesRef = useRef(() => Promise.resolve());
 
     // Open a specific party when launched from Customers / global search (ROS deep link).
     useEffect(() => {
@@ -89,7 +92,6 @@ const Dashboard = ({ initialPartyId = null, onInitialPartyConsumed }) => {
 
     // Initial Fetch & Socket Listener
     useEffect(() => {
-        fetchParties();
         fetchSalespeople();
 
         const onConnect = () => setIsConnected(true);
@@ -97,8 +99,7 @@ const Dashboard = ({ initialPartyId = null, onInitialPartyConsumed }) => {
         const onPartiesUpdated = (data) => {
             // Ignore updates initiated by this client to prevent race conditions
             if (data && data.senderId === socket.id) return;
-            fetchParties();
-            setLastUpdated(new Date());
+            void fetchPartiesRef.current();
         };
 
         socket.on('connect', onConnect);
@@ -125,16 +126,20 @@ const Dashboard = ({ initialPartyId = null, onInitialPartyConsumed }) => {
 
     // Refetch when filters change - MOVED BEFORE CONDITIONAL RETURNS
     useEffect(() => {
-        fetchParties();
+        void fetchPartiesRef.current();
     }, [currentPage, debouncedSearchTerm, dateFilter, salespersonFilter, showDeleted]);
 
     // Auto-Refresh every 10 minutes - MOVED BEFORE CONDITIONAL RETURNS
     useEffect(() => {
         const interval = setInterval(() => {
-            fetchParties();
+            void fetchPartiesRef.current();
         }, 600000); // 10 minutes
         return () => clearInterval(interval);
-    }, [currentPage, debouncedSearchTerm, dateFilter, salespersonFilter, showDeleted]);
+    }, []);
+
+    useEffect(() => () => {
+        partiesRequestRef.current += 1;
+    }, []);
 
     // Render Order Dashboard - NOW AFTER ALL HOOKS
     if (showOrderDashboard) {
@@ -162,6 +167,7 @@ const Dashboard = ({ initialPartyId = null, onInitialPartyConsumed }) => {
     const salespersonFilterId = salespeople.find((sp) => sp.full_name === salespersonFilter)?.id || '';
 
     const fetchParties = async () => {
+        const requestId = ++partiesRequestRef.current;
         setLoading(true);
         try {
             let startDate, endDate;
@@ -190,6 +196,7 @@ const Dashboard = ({ initialPartyId = null, onInitialPartyConsumed }) => {
             });
 
             // Handle both old (array) and new (object) formats for safety
+            if (requestId !== partiesRequestRef.current) return;
             if (Array.isArray(res)) {
                 setParties(res);
                 setTotalPages(1);
@@ -200,13 +207,18 @@ const Dashboard = ({ initialPartyId = null, onInitialPartyConsumed }) => {
                 setTotalParties(res.pagination.total);
                 setCurrentPage(res.pagination.page);
             }
+            setLoadError(null);
+            setLastUpdated(new Date());
 
         } catch (err) {
+            if (requestId !== partiesRequestRef.current) return;
             console.error("Failed to fetch parties:", err);
+            setLoadError("Wedding parties could not refresh. Showing the last loaded list.");
         } finally {
-            setLoading(false);
+            if (requestId === partiesRequestRef.current) setLoading(false);
         }
     };
+    fetchPartiesRef.current = fetchParties;
 
     // Filter Logic - Now handled by backend, but we keep sorting here if needed
     // or just use the backend order. Backend sorts by date ASC.
@@ -311,8 +323,8 @@ const Dashboard = ({ initialPartyId = null, onInitialPartyConsumed }) => {
                                 <div className="flex items-center gap-2 mt-1">
                                     <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`}></div>
                                     <p className="text-[10px] font-bold text-app-text-muted uppercase tracking-widest leading-none">
-                                        {isConnected ? 'System Online' : 'System Offline (Reconnecting...)'}
-                                        {isConnected && ` • Updated ${lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
+                                        {isConnected ? 'Live updates connected' : 'Live updates reconnecting'}
+                                        {loadError ? ' • Party list refresh unavailable' : ` • Data checked ${lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
                                     </p>
                                 </div>
                             </div>
@@ -552,6 +564,15 @@ const Dashboard = ({ initialPartyId = null, onInitialPartyConsumed }) => {
                                     </h3>
                                     <span className="text-sm font-bold text-app-text-muted bg-app-surface px-3 py-1 rounded-full border border-app-border shadow-sm whitespace-nowrap">{totalParties} Parties</span>
                                 </div>
+
+                                {loadError && (
+                                    <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm font-semibold text-red-700">
+                                        <span>{loadError}</span>
+                                        <button type="button" className="underline" onClick={() => void fetchPartiesRef.current()}>
+                                            Retry
+                                        </button>
+                                    </div>
+                                )}
 
                                 <PartyList
                                     parties={filteredParties}

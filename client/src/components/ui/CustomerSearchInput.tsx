@@ -35,40 +35,65 @@ export default function CustomerSearchInput({
   const [query, setQuery] = useState(effectiveInitial);
   const [results, setResults] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const requestRef = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
+  const suppressNextSearchRef = useRef(false);
 
   const performSearch = useCallback(async (q: string) => {
     if (q.trim().length < 2) {
       setResults([]);
       return;
     }
+    const requestId = ++requestRef.current;
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
     setLoading(true);
+    setError(null);
+    setResults([]);
     try {
       const res = await fetch(
         `${baseUrl}/api/customers/browse?q=${encodeURIComponent(q)}&limit=20`,
-        { headers: mergedPosStaffHeaders(backofficeHeaders) }
+        { headers: mergedPosStaffHeaders(backofficeHeaders), signal: controller.signal }
       );
-      if (res.ok) {
-        const data = await res.json() as Customer[];
-        const filtered = Array.isArray(data) 
-          ? (excludeCustomerId ? data.filter(c => c.id !== excludeCustomerId) : data)
-          : [];
-        setResults(filtered);
-      }
+      if (!res.ok) throw new Error(`Customer search failed with status ${res.status}`);
+      const data = await res.json() as Customer[];
+      if (requestId !== requestRef.current) return;
+      const filtered = Array.isArray(data)
+        ? (excludeCustomerId ? data.filter(c => c.id !== excludeCustomerId) : data)
+        : [];
+      setResults(filtered);
     } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
+      if (requestId !== requestRef.current) return;
       console.error("Customer search failed", err);
+      setError("Customer search is unavailable. Try again.");
     } finally {
-      setLoading(false);
+      if (requestId === requestRef.current) setLoading(false);
+      if (abortRef.current === controller) abortRef.current = null;
     }
   }, [baseUrl, backofficeHeaders, excludeCustomerId]);
 
   useEffect(() => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (!query.trim()) {
+    requestRef.current += 1;
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setLoading(false);
+    setError(null);
+    if (suppressNextSearchRef.current) {
+      suppressNextSearchRef.current = false;
       setResults([]);
       setIsOpen(false);
+      return;
+    }
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (query.trim().length < 2) {
+      setResults([]);
+      setIsOpen(query.trim().length > 0);
       return;
     }
     setIsOpen(true);
@@ -79,6 +104,11 @@ export default function CustomerSearchInput({
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, [query, performSearch]);
+
+  useEffect(() => () => {
+    requestRef.current += 1;
+    abortRef.current?.abort();
+  }, []);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -108,10 +138,12 @@ export default function CustomerSearchInput({
         />
       </div>
 
-      {isOpen && (results.length > 0 || loading) && (
+      {isOpen && query.trim().length >= 2 && (
         <div className="absolute z-50 mt-1 w-full max-h-72 overflow-y-auto rounded-xl border border-app-border bg-app-surface shadow-2xl animate-in fade-in slide-in-from-top-2 duration-200">
-          {loading && results.length === 0 ? (
+          {loading ? (
             <div className="p-4 text-center text-xs text-app-text-muted">Searching…</div>
+          ) : error ? (
+            <div className="p-4 text-center text-xs font-semibold text-app-danger">{error}</div>
           ) : results.length > 0 ? (
             <ul className="py-1">
               {results.map((c) => (
@@ -120,11 +152,11 @@ export default function CustomerSearchInput({
                     type="button"
 	                    onClick={() => {
 	                      onSelect(c);
-	                      setQuery(
-	                        showSelectedLabel
-	                          ? `${c.first_name} ${c.last_name}`.trim() || c.customer_code || ""
-	                          : "",
-	                      );
+	                      const selectedLabel = showSelectedLabel
+	                        ? `${c.first_name} ${c.last_name}`.trim() || c.customer_code || ""
+	                        : "";
+	                      suppressNextSearchRef.current = selectedLabel !== query;
+	                      setQuery(selectedLabel);
 	                      setResults([]);
 	                      setIsOpen(false);
 	                    }}

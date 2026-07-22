@@ -22,6 +22,7 @@ import {
   enqueueCheckout,
 } from "../lib/offlineQueue";
 import { playPosScanError } from "../lib/posAudio";
+import { isRegisterReconciliationLocked } from "../lib/serverRecovery";
 
 interface UseCartCheckoutProps {
   sessionId: string;
@@ -69,6 +70,7 @@ interface CheckoutExecutionOverrides {
   clearAfterCheckout?: boolean;
   emitSaleCompleted?: boolean;
   showSuccessToast?: boolean;
+  exchangeSettlement?: CheckoutPayload["exchange_settlement"];
 }
 
 export function buildCheckoutPaymentSplits(
@@ -222,6 +224,13 @@ export function useCartCheckout({
     options?: PosOrderOptions,
     execution?: CheckoutExecutionOverrides,
   ) => {
+    if (isRegisterReconciliationLocked(sessionId)) {
+      toast(
+        "This workstation has acknowledged Z-close reconciliation. Finish or cancel Register #1 reconciliation before starting another sale.",
+        "error",
+      );
+      return null;
+    }
     const checkoutLines = execution?.linesOverride ?? lines;
     const checkoutTotals = execution?.totalsOverride ?? totals;
     if (!op?.staffId?.trim()) {
@@ -576,6 +585,7 @@ export function useCartCheckout({
         tax_exempt_reason: ledgerSignals.isTaxExempt ? (ledgerSignals.taxExemptReason ?? "Other") : undefined,
         rounding_adjustment: optionalCentsField(ledgerSignals.roundingAdjustmentCents),
         final_cash_due: optionalCentsField(ledgerSignals.finalCashDueCents),
+        exchange_settlement: execution?.exchangeSettlement,
         items: payloadSaleLines
           .map((l) => {
             const unitCents = parseMoneyToCents(l.standard_retail_price);
@@ -746,7 +756,7 @@ export function useCartCheckout({
       }
       const shippingReleaseOrderIds = posShipping?.linked_order_ids ?? [];
       if (shippingReleaseOrderIds.length > 0) {
-        const releaseFailures: string[] = [];
+        const releaseFailures: Array<{ transactionId: string; message: string }> = [];
         for (const orderId of shippingReleaseOrderIds) {
           try {
             const shipRes = await fetch(`${baseUrl}/api/transactions/${orderId}/ship`, {
@@ -760,18 +770,29 @@ export function useCartCheckout({
             });
             if (!shipRes.ok) {
               const body = await shipRes.json().catch(() => ({})) as { error?: string };
-              releaseFailures.push(body.error ?? `Transaction Record ${orderId} could not be marked shipped.`);
+              releaseFailures.push({
+                transactionId: orderId,
+                message: body.error ?? `Transaction Record ${orderId} could not be marked shipped.`,
+              });
             }
           } catch {
-            releaseFailures.push(`Transaction Record ${orderId} shipping release failed after payment.`);
+            releaseFailures.push({
+              transactionId: orderId,
+              message: `Transaction Record ${orderId} shipping release failed after payment.`,
+            });
           }
         }
         if (releaseFailures.length > 0) {
-          const message = releaseFailures.join(" ");
+          const message = releaseFailures.map((failure) => failure.message).join(" ");
           await recordBlockedCheckoutRecovery(payload, 0, message, {
             recoveryKind: "pickup_after_payment",
             recoveryKey: data.transaction_id,
             recoveryTransactionId: data.transaction_id,
+            recoverySteps: releaseFailures.map((failure) => ({
+              kind: "ship_transaction" as const,
+              transaction_id: failure.transactionId,
+              transaction_line_ids: [],
+            })),
             authHeaders: apiAuth(),
           });
           toast("Shipping fee saved, but one or more linked orders were not marked shipped. Review checkout recovery before closing.", "error");
@@ -787,9 +808,10 @@ export function useCartCheckout({
         );
         try {
           const pickupResults = [];
-          for (const selection of pickupTransactions.length > 0
+          const recoveryPickupSelections = pickupTransactions.length > 0
             ? pickupTransactions
-            : [{ transactionId: pickupTransactionId, lineIds: deliveredItemIds }]) {
+            : [{ transactionId: pickupTransactionId, lineIds: deliveredItemIds }];
+          for (const selection of recoveryPickupSelections) {
             pickupResults.push(
               await completePickupWithOptionalPaymentOverride(
                 selection.transactionId,
@@ -809,6 +831,7 @@ export function useCartCheckout({
             for (const warning of pickupResult.warnings) if (warning.trim()) toast(warning, "info");
             toast("Pickup completed successfully.", "success");
             const alterationPickupFailures: string[] = [];
+            const alterationPickupFailureIds: string[] = [];
             for (const alterationId of pickupAlterationIds) {
               try {
                 const alterationPickupRes = await fetch(`${baseUrl}/api/alterations/${alterationId}/pickup`, {
@@ -817,11 +840,13 @@ export function useCartCheckout({
                 });
                 if (!alterationPickupRes.ok) {
                   const body = await alterationPickupRes.json().catch(() => ({})) as { error?: string };
+                  alterationPickupFailureIds.push(alterationId);
                   alterationPickupFailures.push(
                     body.error ?? `Ready alteration ${alterationId} could not be marked picked up.`,
                   );
                 }
               } catch {
+                alterationPickupFailureIds.push(alterationId);
                 alterationPickupFailures.push(
                   `Ready alteration ${alterationId} pickup update failed after order pickup.`,
                 );
@@ -831,8 +856,12 @@ export function useCartCheckout({
               const message = alterationPickupFailures.join(" ");
               await recordBlockedCheckoutRecovery(payload, 0, message, {
                 recoveryKind: "pickup_after_payment",
-                recoveryKey: pickupTransactionId,
+                recoveryKey: `${pickupTransactionId}:alterations`,
                 recoveryTransactionId: pickupTransactionId,
+                recoverySteps: alterationPickupFailureIds.map((alterationId) => ({
+                  kind: "alteration_pickup" as const,
+                  alteration_id: alterationId,
+                })),
                 authHeaders: apiAuth(),
               });
               toast("Pickup saved, but alteration pickup recovery needs review before closing.", "error");
@@ -846,6 +875,11 @@ export function useCartCheckout({
               recoveryKind: "pickup_after_payment",
               recoveryKey: pickupTransactionId,
               recoveryTransactionId: pickupTransactionId,
+              recoverySteps: recoveryPickupSelections.map((selection) => ({
+                kind: "pickup_transaction" as const,
+                transaction_id: selection.transactionId,
+                transaction_line_ids: selection.lineIds,
+              })),
               authHeaders: apiAuth(),
             });
             toast(`Payment saved, but pickup is not complete. ${pickupResult.message}`, "error");
@@ -856,6 +890,14 @@ export function useCartCheckout({
             recoveryKind: "pickup_after_payment",
             recoveryKey: pickupTransactionId,
             recoveryTransactionId: pickupTransactionId,
+            recoverySteps: (pickupTransactions.length > 0
+              ? pickupTransactions
+              : [{ transactionId: pickupTransactionId, lineIds: deliveredItemIds }]
+            ).map((selection) => ({
+              kind: "pickup_transaction" as const,
+              transaction_id: selection.transactionId,
+              transaction_line_ids: selection.lineIds,
+            })),
             authHeaders: apiAuth(),
           });
           toast("Payment saved, but pickup is not complete. Review checkout recovery before closing.", "error");

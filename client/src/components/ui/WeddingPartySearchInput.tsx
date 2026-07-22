@@ -41,33 +41,58 @@ export default function WeddingPartySearchInput({
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<WeddingPartySearchResult[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const requestRef = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
+  const suppressNextSearchRef = useRef(false);
 
   const performSearch = useCallback(async (q: string) => {
     if (q.trim().length < 1) {
       setResults([]);
       return;
     }
+    const requestId = ++requestRef.current;
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
     setLoading(true);
+    setError(null);
+    setResults([]);
     try {
       const res = await fetch(
         `${baseUrl}/api/weddings/parties?search=${encodeURIComponent(q)}&limit=10`,
-        { headers: mergedPosStaffHeaders(backofficeHeaders) }
+        { headers: mergedPosStaffHeaders(backofficeHeaders), signal: controller.signal }
       );
-      if (res.ok) {
-        const data = await res.json() as PaginatedParties;
-        setResults(data.data.map(d => d.party));
-      }
+      if (!res.ok) throw new Error(`Wedding party search failed with status ${res.status}`);
+      const data = await res.json() as PaginatedParties;
+      if (requestId !== requestRef.current) return;
+      setResults(data.data.map(d => d.party));
     } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
+      if (requestId !== requestRef.current) return;
       console.error("Wedding party search failed", err);
+      setError("Wedding party search is unavailable. Try again.");
     } finally {
-      setLoading(false);
+      if (requestId === requestRef.current) setLoading(false);
+      if (abortRef.current === controller) abortRef.current = null;
     }
   }, [baseUrl, backofficeHeaders]);
 
   useEffect(() => {
+    requestRef.current += 1;
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setLoading(false);
+    setError(null);
+    if (suppressNextSearchRef.current) {
+      suppressNextSearchRef.current = false;
+      setResults([]);
+      setIsOpen(false);
+      return;
+    }
     if (debounceRef.current) clearTimeout(debounceRef.current);
     if (!query.trim()) {
       setResults([]);
@@ -82,6 +107,11 @@ export default function WeddingPartySearchInput({
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, [query, performSearch]);
+
+  useEffect(() => () => {
+    requestRef.current += 1;
+    abortRef.current?.abort();
+  }, []);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -111,10 +141,12 @@ export default function WeddingPartySearchInput({
         />
       </div>
 
-      {isOpen && (results.length > 0 || loading) && (
+      {isOpen && query.trim().length >= 1 && (
         <div className="absolute z-50 mt-1 w-full max-h-60 overflow-y-auto rounded-xl border border-app-border bg-app-surface shadow-2xl animate-in fade-in slide-in-from-top-2 duration-200 ring-1 ring-black/5">
-          {loading && results.length === 0 ? (
+          {loading ? (
             <div className="p-4 text-center text-xs text-app-text-muted">Searching parties…</div>
+          ) : error ? (
+            <div className="p-4 text-center text-xs font-semibold text-app-danger">{error}</div>
           ) : results.length > 0 ? (
             <ul className="py-1">
               {results.map((p) => (
@@ -123,7 +155,9 @@ export default function WeddingPartySearchInput({
                     type="button"
                     onClick={() => {
                       onSelect(p);
-                      setQuery(p.party_name || p.groom_name);
+                      const selectedLabel = p.party_name || p.groom_name;
+                      suppressNextSearchRef.current = selectedLabel !== query;
+                      setQuery(selectedLabel);
                       setResults([]);
                       setIsOpen(false);
                     }}

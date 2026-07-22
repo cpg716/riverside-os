@@ -19,14 +19,18 @@ import { requestRosieSearchIntent, type RosieSearchShortcutId } from "../../lib/
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
 import { useBodyScrollLock } from "../../hooks/useBodyScrollLock";
 import type { SidebarTabId } from "./sidebarSections";
-import { fetchWithTimeout } from "../../lib/api";
 
 function cn(...inputs: Array<string | false | null | undefined>) {
   return twMerge(clsx(inputs));
 }
 
+function hasSearchableTerm(value: string): boolean {
+  return /[\p{L}\p{N}]/u.test(value);
+}
+
 const baseUrl = getBaseUrl();
 const GLOBAL_SEARCH_PRODUCT_CAP = 8;
+const GLOBAL_SEARCH_TIMEOUT_MS = 5_000;
 
 interface ControlBoardRow {
   variant_id: string;
@@ -487,6 +491,7 @@ export default function GlobalCommandSearch({
   const [backendShortcutIds, setBackendShortcutIds] = useState<SearchShortcutIntent[]>([]);
   const [rosieShortcutIds, setRosieShortcutIds] = useState<SearchShortcutIntent[]>([]);
   const [failedSources, setFailedSources] = useState<string[]>([]);
+  const [searchTimedOut, setSearchTimedOut] = useState(false);
   const [highlightIndex, setHighlightIndex] = useState(-1);
   const [commandHintVisible, setCommandHintVisible] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -506,9 +511,7 @@ export default function GlobalCommandSearch({
     [backofficeHeaders],
   );
 
-  const resetSearch = useCallback(() => {
-    setQuery("");
-    setHighlightIndex(-1);
+  const clearSearchResults = useCallback(() => {
     setCustomers([]);
     setSkuHit(null);
     setProducts([]);
@@ -519,9 +522,20 @@ export default function GlobalCommandSearch({
     setHelpHits([]);
     setOperationalHits([]);
     setBackendShortcutIds([]);
+    setRosieShortcutIds([]);
     setFailedSources([]);
-    setLoading(false);
+    setSearchTimedOut(false);
   }, []);
+
+  const resetSearch = useCallback(() => {
+    activeSearchQueryRef.current = "";
+    searchAbortRef.current?.abort();
+    searchAbortRef.current = null;
+    setQuery("");
+    setHighlightIndex(-1);
+    clearSearchResults();
+    setLoading(false);
+  }, [clearSearchResults]);
 
   const closePalette = useCallback(() => {
     setOpen(false);
@@ -534,6 +548,8 @@ export default function GlobalCommandSearch({
   });
 
   const isPosVariant = variant === "pos";
+  const trimmedQuery = query.trim();
+  const queryIsSearchable = trimmedQuery.length >= 2 && hasSearchableTerm(trimmedQuery);
   const shortcuts = useMemo(
     () =>
       mergeSearchShortcuts(
@@ -728,23 +744,9 @@ export default function GlobalCommandSearch({
 
   const runSearch = useCallback(async (raw: string) => {
     const q = raw.trim();
-    const clearResults = () => {
-      setCustomers([]);
-      setSkuHit(null);
-      setProducts([]);
-      setOrders([]);
-      setShipments([]);
-      setWeddings([]);
-      setAlterations([]);
-      setHelpHits([]);
-      setOperationalHits([]);
-      setBackendShortcutIds([]);
-      setRosieShortcutIds([]);
-      setFailedSources([]);
-    };
 
-    if (q.length < 2) {
-      clearResults();
+    if (q.length < 2 || !hasSearchableTerm(q)) {
+      clearSearchResults();
       setLoading(false);
       return;
     }
@@ -754,13 +756,19 @@ export default function GlobalCommandSearch({
     const abortController = new AbortController();
     searchAbortRef.current = abortController;
     setLoading(true);
-    clearResults();
+    clearSearchResults();
+    let timedOut = false;
+    const timeoutId = globalThis.setTimeout(() => {
+      timedOut = true;
+      abortController.abort();
+    }, GLOBAL_SEARCH_TIMEOUT_MS);
 
     try {
-      const res = await fetchWithTimeout(
+      const res = await fetch(
         `${baseUrl}/api/search/universal?q=${encodeURIComponent(q)}&limit=8`,
         { headers: apiAuth(), signal: abortController.signal },
       );
+      globalThis.clearTimeout(timeoutId);
       if (!res.ok) throw new Error("Universal search failed");
       const data = (await res.json()) as UniversalSearchResponse;
       if (activeSearchQueryRef.current === q) {
@@ -770,7 +778,7 @@ export default function GlobalCommandSearch({
         setOrders(data.orders ?? []);
         setShipments(data.shipments ?? []);
         setWeddings(data.weddings ?? []);
-        setAlterations((data.alterations ?? []).filter((row) => row.status !== "picked_up"));
+        setAlterations(data.alterations ?? []);
         setHelpHits(data.help_hits ?? []);
         setOperationalHits(data.operational_hits ?? []);
         setBackendShortcutIds((data.shortcuts ?? []).map((shortcut) => shortcut.intent));
@@ -787,6 +795,7 @@ export default function GlobalCommandSearch({
             return;
           }
         }
+        setLoading(false);
       }
 
       if (q.length >= 3 && activeSearchQueryRef.current === q) {
@@ -810,17 +819,25 @@ export default function GlobalCommandSearch({
         }
       }
     } catch (error) {
-      if (error instanceof DOMException && error.name === "AbortError") return;
+      if (error instanceof DOMException && error.name === "AbortError") {
+        if (timedOut && activeSearchQueryRef.current === q) {
+          setSearchTimedOut(true);
+          setFailedSources(["Universal Search"]);
+          setLoading(false);
+        }
+        return;
+      }
       if (activeSearchQueryRef.current === q) {
         setFailedSources(["Universal Search"]);
       }
     } finally {
+      globalThis.clearTimeout(timeoutId);
       if (activeSearchQueryRef.current === q) {
         setLoading(false);
       }
       if (searchAbortRef.current === abortController) searchAbortRef.current = null;
     }
-  }, [apiAuth, closePalette]);
+  }, [apiAuth, clearSearchResults, closePalette]);
 
   const openPalette = useCallback((seed = "") => {
     setOpen(true);
@@ -830,19 +847,8 @@ export default function GlobalCommandSearch({
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (!open || query.trim().length < 2) {
-      setCustomers([]);
-      setSkuHit(null);
-      setProducts([]);
-      setOrders([]);
-      setShipments([]);
-      setWeddings([]);
-      setAlterations([]);
-      setHelpHits([]);
-      setOperationalHits([]);
-      setBackendShortcutIds([]);
-      setRosieShortcutIds([]);
-      setFailedSources([]);
+    if (!open || query.trim().length < 2 || !hasSearchableTerm(query)) {
+      clearSearchResults();
       setLoading(false);
       return;
     }
@@ -852,7 +858,7 @@ export default function GlobalCommandSearch({
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [open, query, runSearch]);
+  }, [clearSearchResults, open, query, runSearch]);
 
   useEffect(() => {
     if (!open) return;
@@ -1145,12 +1151,20 @@ export default function GlobalCommandSearch({
                   ref={inputRef}
                   type="search"
                   value={query}
-                  onChange={(e) => setQuery(e.target.value)}
+                  onChange={(e) => {
+                    const nextQuery = e.target.value;
+                    activeSearchQueryRef.current = nextQuery.trim();
+                    searchAbortRef.current?.abort();
+                    searchAbortRef.current = null;
+                    setLoading(false);
+                    clearSearchResults();
+                    setQuery(nextQuery);
+                  }}
                   onKeyDown={onSearchKeyDown}
                   placeholder="Search customers, Transaction Records, orders, inventory, weddings…"
                   className="ui-input w-full rounded-2xl border-transparent bg-app-surface-2 py-4 pl-12 pr-4 text-sm font-medium focus:border-app-accent/40 focus:bg-app-surface"
                   aria-autocomplete="list"
-                  aria-expanded={query.trim().length >= 2}
+                  aria-expanded={queryIsSearchable}
                   aria-controls="global-command-search-results"
                   role="combobox"
                   aria-label="Universal search"
@@ -1184,12 +1198,12 @@ export default function GlobalCommandSearch({
               aria-label="Search results"
               className="min-h-0 flex-1 overflow-auto px-3 py-3 sm:px-4"
             >
-              {failedSources.length > 0 && query.trim().length >= 2 && !loading ? (
+              {failedSources.length > 0 && queryIsSearchable && !loading ? (
                 <div className="mb-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs font-semibold text-amber-800 dark:text-amber-100">
                   Some search sources did not respond: {failedSources.join(", ")}. Results shown may be incomplete.
                 </div>
               ) : null}
-              {query.trim().length < 2 ? (
+              {trimmedQuery.length < 2 ? (
                 <div className="flex h-full min-h-[18rem] flex-col items-center justify-center rounded-[24px] border border-dashed border-app-border/70 bg-app-surface-2/60 px-6 text-center">
                   <Search size={40} className="mb-4 text-app-text-muted/70" aria-hidden />
                   <p className="text-sm font-black uppercase tracking-widest text-app-text">
@@ -1197,6 +1211,16 @@ export default function GlobalCommandSearch({
                   </p>
                   <p className="mt-2 max-w-lg text-sm font-medium text-app-text-muted">
                     Use this to jump between customers, Transaction Records, open orders, inventory, weddings, shipments, and alterations when you know the person, SKU, code, or party name but not the section.
+                  </p>
+                </div>
+              ) : !queryIsSearchable ? (
+                <div className="flex h-full min-h-[18rem] flex-col items-center justify-center rounded-[24px] bg-app-surface-2/60 px-6 text-center">
+                  <Search size={40} className="mb-4 text-app-text-muted/70" aria-hidden />
+                  <p className="text-sm font-black uppercase tracking-widest text-app-text">
+                    Add a letter or number
+                  </p>
+                  <p className="mt-2 max-w-lg text-sm font-medium text-app-text-muted">
+                    Punctuation alone cannot identify a Riverside record.
                   </p>
                 </div>
               ) : loading ? (
@@ -1211,17 +1235,23 @@ export default function GlobalCommandSearch({
                 <div className="flex h-full min-h-[18rem] flex-col items-center justify-center rounded-[24px] bg-app-surface-2/60 px-6 text-center">
                   <Search size={40} className="mb-4 text-app-text-muted/70" aria-hidden />
                   <p className="text-sm font-black uppercase tracking-widest text-app-text">
-                    {failedSources.length > 0 ? "Search incomplete" : "No matches found"}
+                    {searchTimedOut
+                      ? "Search timed out"
+                      : failedSources.length > 0
+                        ? "Search incomplete"
+                        : "No matches found"}
                   </p>
                   <p className="mt-2 max-w-lg text-sm font-medium text-app-text-muted">
-                    {failedSources.length > 0
-                      ? "Try again before treating this as no match. Some lookup sources did not respond."
-                      : "Try a broader name, Transaction Record #, order number, SKU, wedding party name, or shipment tracking value."}
+                    {searchTimedOut
+                      ? "The Main Hub did not answer in time. Try again before treating this as no match."
+                      : failedSources.length > 0
+                        ? "Try again before treating this as no match. Some lookup sources did not respond."
+                        : "Try a broader name, Transaction Record #, order number, SKU, wedding party name, or shipment tracking value."}
                   </p>
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {onSearchOpenWeddingPartyCustomers ? (
+                  {onSearchOpenWeddingPartyCustomers && weddingEntries.length > 0 ? (
                     <div className="rounded-2xl border border-app-border/70 bg-app-surface-2/70 px-3 py-2.5">
                       <button
                         type="button"

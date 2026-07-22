@@ -34,7 +34,10 @@ async function closeStaffDropdownIfOpen(
     await dialog.click({ position: { x: 24, y: 24 } }).catch(() => {});
   }
   if (await dropdownOpen()) {
-    await dialog.getByText(/select your name/i).click().catch(() => {});
+    await dialog
+      .getByText(/select your name/i)
+      .click()
+      .catch(() => {});
   }
   if (await dropdownOpen()) {
     await page.mouse.click(8, 8).catch(() => {});
@@ -51,34 +54,42 @@ async function closeStaffDropdownIfOpen(
 async function selectFirstStaffMember(dialog: Locator): Promise<void> {
   const page = dialog.page();
   const preferredName = e2eBackofficeStaffName();
-  
+
   // Use the new test-id for the selector button if available
   const selectorButton = dialog.getByTestId("staff-selector-button");
-  
+
   await expect(selectorButton).toBeVisible({ timeout: 15_000 });
   await selectorButton.scrollIntoViewIfNeeded();
 
-  const currentLabel = ((await selectorButton.textContent().catch(() => "")) ?? "")
+  const currentLabel = (
+    (await selectorButton.textContent().catch(() => "")) ?? ""
+  )
     .replace(/\s+/g, " ")
     .trim();
   const selectionRequired =
     /select staff member|select\.\.\.|select your name/i.test(currentLabel) ||
-    (await dialog.getByText(/please select a staff member first/i).isVisible().catch(() => false));
+    (await dialog
+      .getByText(/please select a staff member first/i)
+      .isVisible()
+      .catch(() => false));
 
-  if (!selectionRequired && currentLabel.match(new RegExp(preferredName, "i"))) {
+  if (
+    !selectionRequired &&
+    currentLabel.match(new RegExp(preferredName, "i"))
+  ) {
     return;
   }
 
   // Click to open dropdown
   await selectorButton.click();
-  
+
   const dropdown = page.getByTestId("staff-selector-dropdown");
   await expect(dropdown).toBeVisible({ timeout: 10_000 });
 
   const preferredOption = dropdown.getByRole("button", {
     name: new RegExp(preferredName, "i"),
   });
-  
+
   if (await preferredOption.isVisible().catch(() => false)) {
     await preferredOption.click();
   } else {
@@ -98,25 +109,59 @@ async function waitForPosRegisterPanel(page: Page): Promise<void> {
   }
   await expect(shell).toBeVisible({ timeout: 20_000 });
 
-  if ((await shell.getAttribute("data-pos-active-tab").catch(() => null)) !== "register") {
+  if (
+    (await shell
+      .getAttribute("data-register-session-ready")
+      .catch(() => null)) === "true" &&
+    (await shell.getAttribute("data-pos-active-tab").catch(() => null)) ===
+      "pos-dashboard"
+  ) {
+    await expect
+      .poll(
+        () =>
+          page.evaluate(() =>
+            Object.keys(window.sessionStorage).some((key) =>
+              key.startsWith("ros.pos.landed."),
+            ),
+          ),
+        {
+          timeout: 20_000,
+          message: "POS dashboard never finished its one-time Register landing",
+        },
+      )
+      .toBeTruthy();
+  }
+
+  if (
+    (await shell.getAttribute("data-pos-active-tab").catch(() => null)) !==
+    "register"
+  ) {
     const registerPanel = page.getByTestId("pos-register-panel");
     await expect
       .poll(
         async () => {
-          if ((await shell.getAttribute("data-pos-active-tab").catch(() => null)) === "register") {
+          if (
+            (await shell
+              .getAttribute("data-pos-active-tab")
+              .catch(() => null)) === "register"
+          ) {
             return true;
           }
           if (await registerPanel.isVisible().catch(() => false)) {
             return true;
           }
 
-          const dashboardRegisterButton = page.getByRole("button", {
-            name: /go to register|open register/i,
-          });
+          const dashboardRegisterButton = page.getByTestId(
+            "pos-dashboard-open-matrix",
+          );
           if (await dashboardRegisterButton.isVisible().catch(() => false)) {
-            await dashboardRegisterButton.click({ force: true }).catch(() => {});
+            await dashboardRegisterButton
+              .click({ force: true })
+              .catch(() => {});
             return (
-              (await shell.getAttribute("data-pos-active-tab").catch(() => null)) === "register" ||
+              (await shell
+                .getAttribute("data-pos-active-tab")
+                .catch(() => null)) === "register" ||
               (await registerPanel.isVisible().catch(() => false))
             );
           }
@@ -133,7 +178,9 @@ async function waitForPosRegisterPanel(page: Page): Promise<void> {
           if (!(await target.isEnabled().catch(() => false))) return false;
           await target.click({ force: true }).catch(() => {});
           return (
-            (await shell.getAttribute("data-pos-active-tab").catch(() => null)) === "register" ||
+            (await shell
+              .getAttribute("data-pos-active-tab")
+              .catch(() => null)) === "register" ||
             (await registerPanel.isVisible().catch(() => false))
           );
         },
@@ -191,9 +238,13 @@ async function fillOpeningFloatIfPresent(
     if (await cartShell.isVisible().catch(() => false)) {
       return;
     }
-    const value = await floatInput.inputValue({ timeout: 1_000 }).catch(() => "");
+    const value = await floatInput
+      .inputValue({ timeout: 1_000 })
+      .catch(() => "");
     if (!value.trim()) {
-      throw new Error("Opening float input was visible but not ready to accept a value.");
+      throw new Error(
+        "Opening float input was visible but not ready to accept a value.",
+      );
     }
   });
 }
@@ -205,7 +256,9 @@ export async function ensurePosRegisterSessionOpen(
   },
 ): Promise<void> {
   // 1. Wait for initial bootstrap to clear
-  await expect(page.getByText(/loading riverside pos/i)).toBeHidden({ timeout: 20_000 });
+  await expect(page.getByText(/loading riverside pos/i)).toBeHidden({
+    timeout: 20_000,
+  });
 
   const registerPanel = page.getByTestId("pos-register-panel");
   const posNav = page.getByRole("navigation", { name: "POS Navigation" });
@@ -215,7 +268,9 @@ export async function ensurePosRegisterSessionOpen(
   const registerNavButton = posNav.getByRole("button", { name: /^register$/i });
   if (!(await registerPanel.isVisible().catch(() => false))) {
     if (await goToRegisterButton.isVisible().catch(() => false)) {
-      await goToRegisterButton.evaluate((button: HTMLButtonElement) => button.click());
+      await goToRegisterButton.evaluate((button: HTMLButtonElement) =>
+        button.click(),
+      );
     } else if (await registerNavButton.isVisible().catch(() => false)) {
       await registerNavButton.click();
     }
@@ -236,9 +291,12 @@ export async function ensurePosRegisterSessionOpen(
       async () => {
         if (await cartShell.isVisible().catch(() => false)) return "cart";
         if (await registerDialog.isVisible().catch(() => false)) return "pin";
-        if (await openPrimaryRegisterButton.isVisible().catch(() => false)) return "primary-gate";
+        if (await openPrimaryRegisterButton.isVisible().catch(() => false))
+          return "primary-gate";
         if (await goToRegisterButton.isVisible().catch(() => false)) {
-          await goToRegisterButton.evaluate((button: HTMLButtonElement) => button.click());
+          await goToRegisterButton.evaluate((button: HTMLButtonElement) =>
+            button.click(),
+          );
           return "waiting";
         }
         if (
@@ -298,7 +356,9 @@ export async function ensurePosRegisterSessionOpen(
     }
   }
 
-  const laneSelect = registerDialog.getByLabel(/terminal #|physical register number/i);
+  const laneSelect = registerDialog.getByLabel(
+    /terminal #|physical register number/i,
+  );
   if (await laneSelect.isVisible().catch(() => false)) {
     await laneSelect.selectOption("1", { timeout: 3_000 }).catch(() => {});
   }
@@ -343,26 +403,38 @@ export async function ensurePosSaleCashierSignedIn(page: Page): Promise<void> {
   await expect
     .poll(
       async () =>
-        ((await cartShell.getAttribute("data-register-ready").catch(() => null)) === "true") ||
+        (await cartShell
+          .getAttribute("data-register-ready")
+          .catch(() => null)) === "true" ||
         (await cashierDlg.isVisible().catch(() => false)),
       { timeout: 20_000 },
     )
     .toBeTruthy();
 
-  if ((await cartShell.getAttribute("data-register-ready").catch(() => null)) === "true") {
+  if (
+    (await cartShell.getAttribute("data-register-ready").catch(() => null)) ===
+    "true"
+  ) {
     return;
   }
 
   await expect
     .poll(
       async () =>
-        ((await cashierDlg.getAttribute("data-roster-ready").catch(() => null)) === "true") ||
-        ((await cashierDlg.getAttribute("data-pin-entry-ready").catch(() => null)) === "true"),
+        (await cashierDlg
+          .getAttribute("data-roster-ready")
+          .catch(() => null)) === "true" ||
+        (await cashierDlg
+          .getAttribute("data-pin-entry-ready")
+          .catch(() => null)) === "true",
       { timeout: 15_000 },
     )
     .toBeTruthy();
 
-  if ((await cashierDlg.getAttribute("data-roster-ready").catch(() => null)) === "true") {
+  if (
+    (await cashierDlg.getAttribute("data-roster-ready").catch(() => null)) ===
+    "true"
+  ) {
     await selectFirstStaffMember(cashierDlg);
   }
 
@@ -378,7 +450,9 @@ export async function ensurePosSaleCashierSignedIn(page: Page): Promise<void> {
   for (const [index, digit] of Array.from(code).entries()) {
     if (
       !(await cashierDlg.isVisible().catch(() => false)) ||
-      ((await cartShell.getAttribute("data-register-ready").catch(() => null)) === "true")
+      (await cartShell
+        .getAttribute("data-register-ready")
+        .catch(() => null)) === "true"
     ) {
       break;
     }
@@ -386,8 +460,11 @@ export async function ensurePosSaleCashierSignedIn(page: Page): Promise<void> {
     const expectedLength = String(index + 1);
     const entryAdvanced = async () =>
       !(await cashierDlg.isVisible().catch(() => false)) ||
-      ((await cartShell.getAttribute("data-register-ready").catch(() => null)) === "true") ||
-      ((await cashierDlg.getAttribute("data-pin-length").catch(() => null)) === expectedLength);
+      (await cartShell
+        .getAttribute("data-register-ready")
+        .catch(() => null)) === "true" ||
+      (await cashierDlg.getAttribute("data-pin-length").catch(() => null)) ===
+        expectedLength;
     const clickRegistered = await expect
       .poll(entryAdvanced, { timeout: 1_000 })
       .toBeTruthy()
@@ -398,28 +475,34 @@ export async function ensurePosSaleCashierSignedIn(page: Page): Promise<void> {
     if (
       !clickRegistered &&
       (await cashierDlg.isVisible().catch(() => false)) &&
-      ((await cartShell.getAttribute("data-register-ready").catch(() => null)) !== "true")
+      (await cartShell
+        .getAttribute("data-register-ready")
+        .catch(() => null)) !== "true"
     ) {
       await page.keyboard.press(digit);
     }
-    await expect
-      .poll(entryAdvanced, { timeout: 5_000 })
-      .toBeTruthy();
+    await expect.poll(entryAdvanced, { timeout: 5_000 }).toBeTruthy();
   }
 
   await expect
     .poll(
       async () =>
         !(await cashierDlg.isVisible().catch(() => false)) ||
-        ((await cartShell.getAttribute("data-register-ready").catch(() => null)) === "true"),
+        (await cartShell
+          .getAttribute("data-register-ready")
+          .catch(() => null)) === "true",
       { timeout: 20_000 },
     )
     .toBeTruthy();
   if (
     (await cashierDlg.isVisible().catch(() => false)) &&
-    ((await cartShell.getAttribute("data-register-ready").catch(() => null)) === "true")
+    (await cartShell.getAttribute("data-register-ready").catch(() => null)) ===
+      "true"
   ) {
-    await cashierDlg.getByRole("button", { name: /^cancel$/i }).click().catch(() => {});
+    await cashierDlg
+      .getByRole("button", { name: /^cancel$/i })
+      .click()
+      .catch(() => {});
   }
   await expect(cashierDlg).toBeHidden({ timeout: 5_000 });
   await waitForRegisterReady(page);

@@ -9,7 +9,7 @@ use opendal::{
 use ring::aead::{self, Aad, LessSafeKey, UnboundKey};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use sqlx::{PgPool, Row};
+use sqlx::{postgres::PgConnectOptions, PgPool, Row};
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -488,6 +488,7 @@ impl BackupManager {
     }
 
     async fn write_backup_with_docker(&self, output_path: &Path) -> Result<bool> {
+        let database_name = docker_backup_database_name(&self.database_url)?;
         let docker_out = Command::new("docker")
             .arg("exec")
             .arg("riverside-os-db")
@@ -496,7 +497,8 @@ impl BackupManager {
             .arg("postgres")
             .arg("-F")
             .arg("c")
-            .arg("riverside_os")
+            .arg("--dbname")
+            .arg(&database_name)
             .output()
             .await;
 
@@ -924,6 +926,40 @@ fn pg_dump_command_path() -> String {
         .unwrap_or_else(|| "pg_dump".to_string())
 }
 
+fn docker_backup_database_name(database_url: &str) -> Result<String> {
+    let parsed_url = url::Url::parse(database_url).map_err(|_| {
+        anyhow::anyhow!("Docker backup fallback requires a valid PostgreSQL database URL")
+    })?;
+    if !matches!(parsed_url.scheme(), "postgres" | "postgresql") {
+        return Err(anyhow::anyhow!(
+            "Docker backup fallback requires a valid PostgreSQL database URL"
+        ));
+    }
+
+    let has_explicit_database = !parsed_url.path().trim_start_matches('/').is_empty()
+        || parsed_url
+            .query_pairs()
+            .any(|(key, value)| key == "dbname" && !value.is_empty());
+    if !has_explicit_database {
+        return Err(anyhow::anyhow!(
+            "Docker backup fallback requires DATABASE_URL to include an explicit database name"
+        ));
+    }
+
+    let options = database_url.parse::<PgConnectOptions>().map_err(|_| {
+        anyhow::anyhow!("Docker backup fallback requires a valid PostgreSQL database URL")
+    })?;
+    options
+        .get_database()
+        .filter(|database| !database.is_empty())
+        .map(ToOwned::to_owned)
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "Docker backup fallback requires DATABASE_URL to include an explicit database name"
+            )
+        })
+}
+
 fn docker_backup_fallback_allowed() -> bool {
     let strict_production = std::env::var("RIVERSIDE_STRICT_PRODUCTION")
         .map(|value| {
@@ -1137,6 +1173,31 @@ impl Drop for RestoreTemp {
 mod tests {
     use super::*;
     use std::fs::File;
+
+    #[test]
+    fn docker_backup_uses_explicit_e2e_database_name() {
+        assert_eq!(
+            docker_backup_database_name(
+                "postgresql://postgres:password@localhost:5433/riverside_os_e2e"
+            )
+            .expect("database name"),
+            "riverside_os_e2e"
+        );
+    }
+
+    #[test]
+    fn docker_backup_rejects_invalid_database_url() {
+        let error = docker_backup_database_name("not a database url")
+            .expect_err("invalid database URL must fail");
+        assert!(error.to_string().contains("valid PostgreSQL database URL"));
+    }
+
+    #[test]
+    fn docker_backup_rejects_database_url_without_database_name() {
+        let error = docker_backup_database_name("postgresql://postgres:password@localhost:5433")
+            .expect_err("missing database name must fail");
+        assert!(error.to_string().contains("explicit database name"));
+    }
 
     #[test]
     fn listed_backup_path_rejects_path_traversal() {

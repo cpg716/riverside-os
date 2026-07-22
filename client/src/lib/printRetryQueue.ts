@@ -29,13 +29,33 @@ const PRINT_RETRY_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const PRINT_RETRY_MAX_ITEMS = 50;
 const PRINT_RETRY_MAX_ATTEMPTS = 5;
 let lastServerHydrateAt = 0;
+const printServerOperations = new Map<string, Promise<boolean>>();
+const printJobsBeingResolved = new Set<string>();
 
 function printServerKey(id: string): string {
   return `print:${id}`;
 }
 
-async function mirrorPrintJob(item: FailedPrintJob): Promise<void> {
-  await mirrorRecoveryJob({
+function queuePrintServerOperation(
+  id: string,
+  operation: () => Promise<boolean>,
+): Promise<boolean> {
+  const previous = printServerOperations.get(id) ?? Promise.resolve(true);
+  const current = previous
+    .catch(() => false)
+    .then(operation)
+    .catch(() => false);
+  printServerOperations.set(id, current);
+  void current.finally(() => {
+    if (printServerOperations.get(id) === current) {
+      printServerOperations.delete(id);
+    }
+  });
+  return current;
+}
+
+async function mirrorPrintRecovery(item: FailedPrintJob): Promise<boolean> {
+  const mirrored = await mirrorRecoveryJob({
     client_job_key: printServerKey(item.id),
     kind: "receipt_print",
     status: "blocked",
@@ -46,6 +66,56 @@ async function mirrorPrintJob(item: FailedPrintJob): Promise<void> {
     last_error: "Receipt print did not complete",
     attempt_count: item.attempts,
   });
+  return mirrored !== null;
+}
+
+async function mirrorPrintJob(item: FailedPrintJob): Promise<boolean> {
+  if (printJobsBeingResolved.has(item.id)) return false;
+  return queuePrintServerOperation(item.id, () => mirrorPrintRecovery(item));
+}
+
+async function resolveMirroredPrintJob(
+  item: FailedPrintJob,
+  status: "resolved" | "dismissed",
+  resolutionNote: string,
+): Promise<boolean> {
+  printJobsBeingResolved.add(item.id);
+  try {
+    // Serialize a final idempotent mirror ahead of PATCH. This both establishes
+    // a record when an earlier POST was lost and ensures no earlier POST can
+    // arrive after a successful resolution.
+    await queuePrintServerOperation(item.id, () => mirrorPrintRecovery(item));
+    return await queuePrintServerOperation(item.id, () =>
+      resolveRecoveryJob(printServerKey(item.id), status, resolutionNote),
+    );
+  } finally {
+    printJobsBeingResolved.delete(item.id);
+  }
+}
+
+async function removePrintJobAfterConfirmedResolution(
+  item: FailedPrintJob,
+  status: "resolved" | "dismissed",
+  resolutionNote: string,
+): Promise<boolean> {
+  const resolved = await resolveMirroredPrintJob(item, status, resolutionNote);
+  if (!resolved) return false;
+  await printStore.removeItem(item.id);
+  return true;
+}
+
+function schedulePrintJobRetirement(
+  item: FailedPrintJob,
+  resolutionNote: string,
+): void {
+  if (printJobsBeingResolved.has(item.id)) return;
+  void removePrintJobAfterConfirmedResolution(item, "dismissed", resolutionNote)
+    .then((removed) => {
+      if (removed) window.dispatchEvent(new Event("print_queue_changed"));
+    })
+    .catch(() => {
+      // Keep the local recovery visible; a later queue read retries retirement.
+    });
 }
 
 async function hydratePrintJobsFromServer(): Promise<void> {
@@ -67,6 +137,7 @@ async function hydratePrintJobsFromServer(): Promise<void> {
     ) {
       continue;
     }
+    if (printJobsBeingResolved.has(item.id)) continue;
     const existing = await printStore.getItem<FailedPrintJob>(item.id);
     if (!existing) await printStore.setItem(item.id, item as FailedPrintJob);
   }
@@ -87,16 +158,13 @@ async function pruneFailedPrintJobs(): Promise<void> {
 
   for (const key of keys) {
     const item = await printStore.getItem<FailedPrintJob>(key);
-    if (!item || isRetiredPrintJob(item, now)) {
+    if (!item) {
       await printStore.removeItem(key);
-      if (item) {
-        void resolveRecoveryJob(
-          printServerKey(item.id),
-          "dismissed",
-          "Print retry expired",
-        );
-      }
       changed = true;
+      continue;
+    }
+    if (isRetiredPrintJob(item, now)) {
+      schedulePrintJobRetirement(item, "Print retry expired");
       continue;
     }
     active.push(item);
@@ -107,13 +175,7 @@ async function pruneFailedPrintJobs(): Promise<void> {
     .slice(PRINT_RETRY_MAX_ITEMS);
 
   for (const item of overflow) {
-    await printStore.removeItem(item.id);
-    void resolveRecoveryJob(
-      printServerKey(item.id),
-      "dismissed",
-      "Print retry queue limit reached",
-    );
-    changed = true;
+    schedulePrintJobRetirement(item, "Print retry queue limit reached");
   }
 
   if (changed) {
@@ -121,7 +183,9 @@ async function pruneFailedPrintJobs(): Promise<void> {
   }
 }
 
-export async function enqueueFailedPrint(job: Omit<FailedPrintJob, "id" | "timestamp" | "attempts">): Promise<string> {
+export async function enqueueFailedPrint(
+  job: Omit<FailedPrintJob, "id" | "timestamp" | "attempts">,
+): Promise<string> {
   await pruneFailedPrintJobs();
   const id = crypto.randomUUID();
   const item: FailedPrintJob = {
@@ -146,14 +210,26 @@ export async function getFailedPrintJobs(): Promise<FailedPrintJob[]> {
   const items: FailedPrintJob[] = [];
   for (const key of keys) {
     const item = await printStore.getItem<FailedPrintJob>(key);
-    if (item && !isRetiredPrintJob(item)) items.push(item);
+    // If Main Hub cannot confirm retirement/resolution, keep the local evidence
+    // visible so staff can retry or dismiss it once connectivity is restored.
+    if (item) items.push(item);
   }
   return items.sort((a, b) => b.timestamp - a.timestamp);
 }
 
 export async function removeFailedPrintJob(id: string): Promise<void> {
-  await printStore.removeItem(id);
-  void resolveRecoveryJob(printServerKey(id), "resolved", "Receipt print recovery cleared");
+  const item = await printStore.getItem<FailedPrintJob>(id);
+  if (!item) return;
+  const resolved = await removePrintJobAfterConfirmedResolution(
+    item,
+    "resolved",
+    "Receipt print recovery cleared",
+  );
+  if (!resolved) {
+    throw new Error(
+      "Main Hub could not confirm clearing this receipt recovery. It remains in Retry Failed Prints.",
+    );
+  }
   window.dispatchEvent(new Event("print_queue_changed"));
 }
 

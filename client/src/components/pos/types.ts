@@ -10,6 +10,10 @@ export interface ResolvedSkuItem {
   name: string;
   variation_label?: string | null;
   standard_retail_price: string | number;
+  /** Lowest effective price across the searchable variants of a parent product. */
+  retail_price_min?: string | number;
+  /** Highest effective price across the searchable variants of a parent product. */
+  retail_price_max?: string | number;
   employee_price?: string | number;
   unit_cost: string | number;
   spiff_amount?: string | number;
@@ -186,6 +190,28 @@ export interface AppliedPaymentLine {
   };
 }
 
+export interface ExchangeReturnHandoffLine {
+  transaction_line_id: string;
+  product_id: string;
+  variant_id: string;
+  sku: string;
+  product_name: string;
+  variation_label?: string | null;
+  quantity: number;
+  unit_price_cents: number;
+  unit_cost: string | number;
+  state_tax_cents?: number;
+  local_tax_cents?: number;
+  tax_cents: number;
+  reason?: "refund" | "exchange";
+  restock?: boolean | null;
+  refund_subtotal_cents?: number;
+  refund_state_tax_cents?: number;
+  refund_local_tax_cents?: number;
+  refund_total_cents?: number;
+  original_helcim_transaction_id_for_refund?: string | null;
+}
+
 export type AppliedPayment = AppliedPaymentLine;
 
 export interface CheckoutOperatorContext {
@@ -284,6 +310,31 @@ export interface CheckoutPayload {
   tax_exempt_reason?: string;
   rounding_adjustment?: string;
   final_cash_due?: string;
+  /** Durable exchange settlement intent committed with the replacement sale. */
+  exchange_settlement?: {
+    original_transaction_id: string;
+    exchange_credit_amount: string;
+    deferred_card_refund_amount?: string;
+    return_lines: Array<{
+      transaction_line_id: string;
+      quantity: number;
+      reason: string;
+      restock?: boolean;
+      refund_subtotal: string;
+      refund_state_tax: string;
+      refund_local_tax: string;
+      refund_total: string;
+    }>;
+    refund_remainder?: {
+      payment_method: string;
+      amount: string;
+      tender_amount: string;
+      rounding_adjustment: string;
+      final_cash_due?: string;
+      check_number?: string | number | boolean | null;
+      gift_card_code?: string;
+    };
+  };
 }
 
 export type ActiveDiscountEvent = {

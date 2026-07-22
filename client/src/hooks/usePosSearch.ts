@@ -3,6 +3,12 @@ import { type RmsPaymentLineMeta } from "../components/pos/types";
 import { type SearchResult } from "../components/pos/cart/PosSearchResultList";
 import { fetchWithTimeout } from "../lib/api";
 
+const POS_SEARCH_TIMEOUT_MS = 5_000;
+
+function hasSearchableTerm(query: string): boolean {
+  return /[\p{L}\p{N}]/u.test(query);
+}
+
 function shouldAttemptExactSkuScan(query: string): boolean {
   return /\d/.test(query) || /^[a-z]{1,6}[-_/]/i.test(query);
 }
@@ -51,12 +57,13 @@ export function usePosSearch({
     const requestId = ++searchRequestRef.current;
     const isCurrent = () => requestId === searchRequestRef.current;
     searchAbortRef.current?.abort();
-    const abortController = new AbortController();
-    searchAbortRef.current = abortController;
-    if (q.length < 2) {
+    if (q.length < 2 || !hasSearchableTerm(q)) {
+      searchAbortRef.current = null;
       setSearchResults([]);
       return [];
     }
+    const abortController = new AbortController();
+    searchAbortRef.current = abortController;
 
     const feeShortcut = q.toUpperCase();
     if (feeShortcut === "ALTERATION" || feeShortcut === "ALTERATIONS") {
@@ -73,7 +80,7 @@ export function usePosSearch({
         stock_on_hand: 0,
         vendor_sku: "",
       }];
-      setSearchResults(results);
+      if (isCurrent()) setSearchResults(results);
       return results;
     }
 
@@ -91,7 +98,7 @@ export function usePosSearch({
         stock_on_hand: 0,
         vendor_sku: "",
       }];
-      setSearchResults(results);
+      if (isCurrent()) setSearchResults(results);
       return results;
     }
 
@@ -138,6 +145,7 @@ export function usePosSearch({
             vendor_sku: "",
           },
         ];
+        if (!isCurrent()) return [];
         setSearchResults(results);
         return results;
       } catch (error) {
@@ -156,10 +164,14 @@ export function usePosSearch({
     // surface as noisy 404s while staff are searching customers or product names.
     if (shouldAttemptExactSkuScan(q)) {
       requests.push(
-        fetchWithTimeout(`${baseUrl}/api/inventory/scan/${encodeURIComponent(q)}`, {
-          headers: apiAuth(),
-          signal: abortController.signal,
-        }).then(async (res) => {
+        fetchWithTimeout(
+          `${baseUrl}/api/inventory/scan/${encodeURIComponent(q)}`,
+          {
+            headers: apiAuth(),
+            signal: abortController.signal,
+          },
+          POS_SEARCH_TIMEOUT_MS,
+        ).then(async (res) => {
           if (res.ok) {
             const r = (await res.json()) as Partial<SearchResult>;
             const sku = typeof r.sku === "string" ? r.sku : String(r.sku ?? "");
@@ -179,6 +191,8 @@ export function usePosSearch({
             });
           } else if (exactSkuOnly && res.status === 404) {
             toast(`SKU NOT FOUND: ${q}`, "error");
+          } else if (res.status !== 404) {
+            throw new Error(`SKU scan failed with status ${res.status}`);
           }
         }),
       );
@@ -187,13 +201,23 @@ export function usePosSearch({
     if (exactSkuOnly) {
       try {
         await Promise.all(requests);
+        if (!isCurrent()) return [];
         setSearchResults(collected);
         return collected;
       } catch (e) {
+        if (e instanceof DOMException && e.name === "AbortError") {
+          if (abortController.signal.aborted || !isCurrent()) return [];
+          setSearchResults([]);
+          toast("SKU lookup timed out. Check the Main Hub connection and try again.", "error");
+          return [];
+        }
+        if (!isCurrent()) return [];
         console.error("POS SKU Scan Error", e);
         setSearchResults([]);
         toast(`SKU NOT FOUND: ${q}`, "error");
         return [];
+      } finally {
+        if (searchAbortRef.current === abortController) searchAbortRef.current = null;
       }
     }
 
@@ -205,40 +229,44 @@ export function usePosSearch({
           headers: apiAuth(),
           signal: abortController.signal,
         },
+        POS_SEARCH_TIMEOUT_MS,
       ).then(async (res) => {
-        if (res.ok) {
-          const data = (await res.json()) as Array<Record<string, unknown>>;
-          const mapped = (data || []).map((r) => {
-            const sku = String(r.sku ?? "");
-            const name = String(r.product_name ?? r.name ?? sku).trim() || sku;
-            return {
-              product_id: String(r.product_id ?? ""),
-              variant_id: String(r.variant_id ?? ""),
-              sku,
-              name,
-              variation_label:
-                typeof r.variation_label === "string" ? r.variation_label : null,
-              standard_retail_price: r.retail_price || 0,
-              unit_cost: r.cost_price || 0,
-              stock_on_hand: r.stock_on_hand || 0,
-              state_tax: r.state_tax || 0,
-              local_tax: r.local_tax || 0,
-              tax_category: r.tax_category as "clothing" | "footwear" | "other",
-              vendor_sku: (r.vendor_sku as string) || "",
-              primary_vendor_name:
-                typeof r.primary_vendor_name === "string"
-                  ? r.primary_vendor_name
-                  : null,
-              total_variant_count: Number(r.total_variant_count ?? 1),
-            };
-          });
-          collected.push(...(mapped as SearchResult[]));
+        if (!res.ok) {
+          throw new Error(`Product search failed with status ${res.status}`);
         }
+        const data = (await res.json()) as Array<Record<string, unknown>>;
+        const mapped = (data || []).map((r) => {
+          const sku = String(r.sku ?? "");
+          const name = String(r.product_name ?? r.name ?? sku).trim() || sku;
+          return {
+            product_id: String(r.product_id ?? ""),
+            variant_id: String(r.variant_id ?? ""),
+            sku,
+            name,
+            variation_label:
+              typeof r.variation_label === "string" ? r.variation_label : null,
+            standard_retail_price: r.retail_price || 0,
+            retail_price_min: r.retail_price_min ?? r.retail_price ?? 0,
+            retail_price_max: r.retail_price_max ?? r.retail_price ?? 0,
+            unit_cost: r.cost_price || 0,
+            stock_on_hand: r.stock_on_hand || 0,
+            state_tax: r.state_tax || 0,
+            local_tax: r.local_tax || 0,
+            tax_category: r.tax_category as "clothing" | "footwear" | "other",
+            vendor_sku: (r.vendor_sku as string) || "",
+            primary_vendor_name:
+              typeof r.primary_vendor_name === "string"
+                ? r.primary_vendor_name
+                : null,
+            total_variant_count: Number(r.total_variant_count ?? 1),
+          };
+        });
+        collected.push(...(mapped as SearchResult[]));
       }),
     );
 
     try {
-      await Promise.all(requests);
+      const settled = await Promise.allSettled(requests);
       if (!isCurrent()) return [];
       const seen = new Set<string>();
       const finalResults = collected.filter((it) => {
@@ -247,6 +275,27 @@ export function usePosSearch({
         return true;
       });
       setSearchResults(finalResults);
+      const failures = settled.filter(
+        (result): result is PromiseRejectedResult => result.status === "rejected",
+      );
+      if (failures.length > 0) {
+        const timedOut = failures.some(
+          ({ reason }) => reason instanceof DOMException && reason.name === "AbortError",
+        );
+        if (finalResults.length > 0) {
+          toast(
+            `${timedOut ? "A product search source timed out" : "A product search source failed"}. Showing verified matches; retry for complete results.`,
+            "info",
+          );
+        } else {
+          toast(
+            timedOut
+              ? "Product search timed out. Check the Main Hub connection and try again."
+              : "Product search failed. Check the Main Hub connection and try again.",
+            "error",
+          );
+        }
+      }
       return finalResults;
     } catch (e) {
       if (e instanceof DOMException && e.name === "AbortError") return [];
@@ -260,7 +309,10 @@ export function usePosSearch({
   }, [baseUrl, apiAuth, rmsPaymentMeta, setRmsPaymentMeta, toast]);
 
   useEffect(() => {
-    if (search.trim().length < 2) {
+    if (search.trim().length < 2 || !hasSearchableTerm(search)) {
+      searchRequestRef.current += 1;
+      searchAbortRef.current?.abort();
+      searchAbortRef.current = null;
       setSearchResults([]);
       if (searchDebounceRef.current) {
         clearTimeout(searchDebounceRef.current);
@@ -278,6 +330,12 @@ export function usePosSearch({
       if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
     };
   }, [search, runSearch]);
+
+  useEffect(() => () => {
+    searchRequestRef.current += 1;
+    searchAbortRef.current?.abort();
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+  }, []);
 
   const groupedSearchResults = useMemo(() => {
     const groups: Record<string, SearchResult[]> = {};

@@ -1,5 +1,5 @@
 import { getBaseUrl } from "../../lib/apiConfig";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Package,
   Search,
@@ -143,7 +143,12 @@ export default function ProcurementHub({ onAddItemToCart }: ProcurementHubProps)
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [lastLoadedAt, setLastLoadedAt] = useState<Date | null>(null);
+  const [retryNonce, setRetryNonce] = useState(0);
   const [pickerProduct, setPickerProduct] = useState<Product | null>(null);
+  const requestRef = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
 
   const baseUrl = getBaseUrl();
 
@@ -166,7 +171,7 @@ export default function ProcurementHub({ onAddItemToCart }: ProcurementHubProps)
   }, [products, pickerProduct]);
 
   const fetchPage = useCallback(
-    async (offset: number, append: boolean) => {
+    async (offset: number, signal: AbortSignal): Promise<BoardRow[]> => {
       const params = new URLSearchParams();
       const q = search.trim();
       if (q.length >= 2) params.set("search", q);
@@ -174,55 +179,85 @@ export default function ProcurementHub({ onAddItemToCart }: ProcurementHubProps)
       params.set("offset", String(offset));
       const res = await fetch(
         `${baseUrl}/api/products/control-board?${params.toString()}`,
-        { headers: apiAuth() },
+        { headers: apiAuth(), signal },
       );
       if (!res.ok) throw new Error("fetch failed");
       const data = (await res.json()) as { rows: BoardRow[] };
-      const rows = data.rows ?? [];
-      if (append) {
-        setBoardRows((prev) => [...prev, ...rows]);
-      } else {
-        setBoardRows(rows);
-      }
-      setHasMore(rows.length === PAGE_SIZE);
+      return data.rows ?? [];
     },
     [baseUrl, search, apiAuth],
   );
 
   useEffect(() => {
     const t = search.trim();
+    const requestId = ++requestRef.current;
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setLoading(false);
+    setLoadingMore(false);
+    setLoadError(null);
+    setBoardRows([]);
+    setHasMore(false);
+    setLastLoadedAt(null);
     if (t.length === 1) {
-      setBoardRows([]);
-      setHasMore(false);
       return;
     }
     const run = async () => {
+      const controller = new AbortController();
+      abortRef.current = controller;
       setLoading(true);
       try {
-        await fetchPage(0, false);
+        const rows = await fetchPage(0, controller.signal);
+        if (requestId !== requestRef.current) return;
+        setBoardRows(rows);
+        setHasMore(rows.length === PAGE_SIZE);
+        setLastLoadedAt(new Date());
       } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        if (requestId !== requestRef.current) return;
         console.error("Procurement fetch error", err);
-        setBoardRows([]);
-        setHasMore(false);
+        setLoadError("Stock search is unavailable. Check the Main Hub connection and retry.");
       } finally {
-        setLoading(false);
+        if (requestId === requestRef.current) setLoading(false);
+        if (abortRef.current === controller) abortRef.current = null;
       }
     };
     const timer = setTimeout(() => void run(), 300);
     return () => clearTimeout(timer);
-  }, [fetchPage, search]);
+  }, [fetchPage, retryNonce, search]);
 
   const loadMore = useCallback(async () => {
     if (!hasMore || loadingMore || loading) return;
+    const requestId = ++requestRef.current;
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
     setLoadingMore(true);
+    setLoadError(null);
     try {
-      await fetchPage(boardRows.length, true);
+      const rows = await fetchPage(boardRows.length, controller.signal);
+      if (requestId !== requestRef.current) return;
+      setBoardRows((current) => {
+        const existing = new Set(current.map((row) => row.variant_id));
+        return [...current, ...rows.filter((row) => !existing.has(row.variant_id))];
+      });
+      setHasMore(rows.length === PAGE_SIZE);
+      setLastLoadedAt(new Date());
     } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
+      if (requestId !== requestRef.current) return;
       console.error("Procurement load more error", err);
+      setLoadError("More stock records could not load. Retry to continue.");
     } finally {
-      setLoadingMore(false);
+      if (requestId === requestRef.current) setLoadingMore(false);
+      if (abortRef.current === controller) abortRef.current = null;
     }
   }, [hasMore, loadingMore, loading, fetchPage, boardRows.length]);
+
+  useEffect(() => () => {
+    requestRef.current += 1;
+    abortRef.current?.abort();
+  }, []);
 
   const openPicker = (p: Product) => {
     if (p.variants.length === 1) {
@@ -248,9 +283,17 @@ export default function ProcurementHub({ onAddItemToCart }: ProcurementHubProps)
                 Search products and stock
               </p>
             </div>
-            <div className="ui-status-ok ui-pill flex shrink-0 items-center gap-1.5 px-3 py-2">
+            <div className={`${loadError ? "ui-status-warn" : lastLoadedAt ? "ui-status-ok" : "ui-status-info"} ui-pill flex shrink-0 items-center gap-1.5 px-3 py-2`}>
               <TrendingUp size={14} className="shrink-0" aria-hidden />
-              <span className="text-[11px] font-bold sm:text-xs">Stock live</span>
+              <span className="text-[11px] font-bold sm:text-xs">
+                {loadError
+                  ? "Stock unavailable"
+                  : loading
+                    ? "Refreshing stock…"
+                    : lastLoadedAt
+                      ? `Stock checked ${lastLoadedAt.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
+                      : "Stock not loaded"}
+              </span>
             </div>
           </header>
 
@@ -272,6 +315,14 @@ export default function ProcurementHub({ onAddItemToCart }: ProcurementHubProps)
 
           <div className="min-h-0 flex-1 overflow-visible lg:overflow-y-auto no-scrollbar">
             <div className="flex flex-col gap-3 pb-4">
+              {loadError ? (
+                <div className="rounded-2xl border border-app-danger/20 bg-app-danger/10 p-4 text-sm font-semibold text-app-danger">
+                  <p>{loadError}</p>
+                  <button type="button" className="mt-2 underline" onClick={() => setRetryNonce((value) => value + 1)}>
+                    Retry stock search
+                  </button>
+                </div>
+              ) : null}
               {products.map((product) => {
                 const { variantCount, priceLabel, stockTotal } =
                   summarizeProduct(product);
@@ -327,7 +378,7 @@ export default function ProcurementHub({ onAddItemToCart }: ProcurementHubProps)
                 </button>
               ) : null}
 
-              {products.length === 0 && !loading && (
+              {products.length === 0 && !loading && !loadError && (
                 <div className="flex min-h-[10rem] flex-col items-center justify-center rounded-2xl border border-dashed border-app-border px-4 text-center">
                   <Search className="mb-2 opacity-20" size={32} aria-hidden />
                   <p className="text-sm font-bold text-app-text-muted">

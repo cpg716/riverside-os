@@ -1,5 +1,5 @@
 import { getBaseUrl } from "../../lib/apiConfig";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
@@ -12,7 +12,10 @@ import {
   ChevronRight,
   RefreshCw,
   User,
+  ChevronLeft,
 } from "lucide-react";
+
+const LAYAWAY_PAGE_SIZE = 50;
 
 interface LayawayRow {
   transaction_id: string;
@@ -54,19 +57,27 @@ export default function LayawayWorkspace({
 
   const [tab, setTab] = useState<"open" | "history">("open");
   const [query, setQuery] = useState("");
+  const [appliedQuery, setAppliedQuery] = useState("");
+  const [page, setPage] = useState(0);
   const [loading, setLoading] = useState(false);
   const [items, setItems] = useState<LayawayRow[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const requestRef = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
 
   const baseUrl = getBaseUrl();
 
   const loadLayaways = useCallback(async () => {
+    const requestId = ++requestRef.current;
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
     setLoading(true);
     setError(null);
     try {
       const showClosed = tab === "history";
-      const q = query.trim();
+      const q = appliedQuery.trim();
 
       const params = new URLSearchParams();
       params.set("kind_filter", "layaway");
@@ -74,25 +85,38 @@ export default function LayawayWorkspace({
       if (q) params.set("search", q);
       if (registerSessionId) params.set("register_session_id", registerSessionId);
       if (customerId) params.set("customer_id", customerId);
-      params.set("limit", "50");
+      params.set("limit", String(LAYAWAY_PAGE_SIZE));
+      params.set("offset", String(page * LAYAWAY_PAGE_SIZE));
 
       const res = await fetch(`${baseUrl}/api/transactions?${params.toString()}`, {
         headers: apiAuth() as Record<string, string>,
+        signal: controller.signal,
       });
       if (!res.ok) throw new Error("Could not load layaways");
       const data = (await res.json()) as LayawayListResponse;
+      if (requestId !== requestRef.current) return;
       setItems(data.items);
       setTotalCount(data.total_count);
     } catch (e) {
+      if (e instanceof DOMException && e.name === "AbortError") return;
+      if (requestId !== requestRef.current) return;
       setError(e instanceof Error ? e.message : "Failed to load");
     } finally {
-      setLoading(false);
+      if (requestId === requestRef.current) setLoading(false);
+      if (abortRef.current === controller) abortRef.current = null;
     }
-  }, [apiAuth, baseUrl, tab, query, registerSessionId, customerId]);
+  }, [apiAuth, appliedQuery, baseUrl, customerId, page, registerSessionId, tab]);
 
   useEffect(() => {
     void loadLayaways();
   }, [loadLayaways]);
+
+  useEffect(() => () => {
+    requestRef.current += 1;
+    abortRef.current?.abort();
+  }, []);
+
+  const totalPages = Math.max(1, Math.ceil(totalCount / LAYAWAY_PAGE_SIZE));
 
   const getDaysOld = (bookedAt: string) => {
     const booked = new Date(bookedAt);
@@ -119,7 +143,7 @@ export default function LayawayWorkspace({
           <div className="flex gap-1 rounded-xl bg-app-surface-2 p-1">
             <button
               type="button"
-              onClick={() => setTab("open")}
+              onClick={() => { setPage(0); setTab("open"); }}
               className={`flex min-h-11 flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 text-[10px] font-black uppercase tracking-wide transition-all sm:flex-none sm:px-4 sm:text-xs ${
                 tab === "open"
                   ? "bg-app-surface text-app-accent shadow-sm"
@@ -131,7 +155,7 @@ export default function LayawayWorkspace({
             </button>
             <button
               type="button"
-              onClick={() => setTab("history")}
+              onClick={() => { setPage(0); setTab("history"); }}
               className={`flex min-h-11 flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 text-[10px] font-black uppercase tracking-wide transition-all sm:flex-none sm:px-4 sm:text-xs ${
                 tab === "history"
                   ? "bg-app-surface text-app-accent shadow-sm"
@@ -145,7 +169,11 @@ export default function LayawayWorkspace({
         </div>
 
         <form 
-            onSubmit={(e) => { e.preventDefault(); void loadLayaways(); }}
+            onSubmit={(e) => {
+              e.preventDefault();
+              setPage(0);
+              setAppliedQuery(query.trim());
+            }}
             className="flex flex-col gap-2 sm:flex-row"
         >
           <div className="group relative flex-1">
@@ -272,15 +300,34 @@ export default function LayawayWorkspace({
       <div className="shrink-0 border-t border-app-border bg-app-surface-2 px-4 py-3 sm:px-6">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-xs font-bold text-app-text-muted">
-                Showing {items.length} of {totalCount} matching layaways
+                Showing {totalCount === 0 ? 0 : page * LAYAWAY_PAGE_SIZE + 1}–{Math.min((page + 1) * LAYAWAY_PAGE_SIZE, totalCount)} of {totalCount} matching layaways
             </p>
-            <button 
-                onClick={() => void loadLayaways()}
-                className="flex items-center gap-1.5 text-xs font-black uppercase tracking-widest text-app-accent hover:underline"
-            >
-                <RefreshCw className={`h-3 w-3 ${loading ? 'animate-spin' : ''}`} />
-                Refresh List
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setPage((current) => Math.max(0, current - 1))}
+                disabled={page === 0 || loading}
+                className="ui-btn-secondary min-h-9 px-3 text-xs disabled:opacity-40"
+              >
+                <ChevronLeft className="h-3.5 w-3.5" /> Previous
+              </button>
+              <span className="text-xs font-bold text-app-text-muted">Page {page + 1} of {totalPages}</span>
+              <button
+                type="button"
+                onClick={() => setPage((current) => Math.min(totalPages - 1, current + 1))}
+                disabled={page + 1 >= totalPages || loading}
+                className="ui-btn-secondary min-h-9 px-3 text-xs disabled:opacity-40"
+              >
+                Next <ChevronRight className="h-3.5 w-3.5" />
+              </button>
+              <button
+                  onClick={() => void loadLayaways()}
+                  className="flex items-center gap-1.5 text-xs font-black uppercase tracking-widest text-app-accent hover:underline"
+              >
+                  <RefreshCw className={`h-3 w-3 ${loading ? 'animate-spin' : ''}`} />
+                  Refresh List
+              </button>
+            </div>
         </div>
       </div>
     </div>

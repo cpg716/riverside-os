@@ -84,12 +84,7 @@ pub enum BusinessKpi {
 }
 
 impl BusinessMetrics {
-    pub async fn collect(
-        pool: &PgPool,
-        registry: &mut MetricRegistry,
-    ) -> Result<Self, sqlx::Error> {
-        let start_time = std::time::Instant::now();
-
+    pub async fn collect(pool: &PgPool) -> Result<Self, sqlx::Error> {
         // Collect sales metrics
         let sales_metrics = Self::collect_sales_metrics(pool).await?;
 
@@ -105,24 +100,6 @@ impl BusinessMetrics {
         // Collect financial metrics
         let financial_metrics = Self::collect_financial_metrics(pool).await?;
 
-        // Record metrics to registry
-        Self::record_metrics_to_registry(
-            &sales_metrics,
-            &customer_metrics,
-            &inventory_metrics,
-            &order_metrics,
-            &financial_metrics,
-            registry,
-        )
-        .await;
-
-        let collection_time = start_time.elapsed();
-        registry.record_timer(
-            "business_metrics_collection_duration",
-            collection_time,
-            HashMap::new(),
-        );
-
         Ok(BusinessMetrics {
             sales_metrics,
             customer_metrics,
@@ -130,6 +107,17 @@ impl BusinessMetrics {
             order_metrics,
             financial_metrics,
         })
+    }
+
+    pub fn record_to_registry(&self, registry: &mut MetricRegistry) {
+        Self::record_metrics_to_registry(
+            &self.sales_metrics,
+            &self.customer_metrics,
+            &self.inventory_metrics,
+            &self.order_metrics,
+            &self.financial_metrics,
+            registry,
+        );
     }
 
     async fn collect_sales_metrics(pool: &PgPool) -> Result<SalesMetrics, sqlx::Error> {
@@ -589,7 +577,7 @@ impl BusinessMetrics {
         })
     }
 
-    async fn record_metrics_to_registry(
+    fn record_metrics_to_registry(
         sales: &SalesMetrics,
         customer: &CustomerMetrics,
         inventory: &InventoryMetrics,
@@ -603,7 +591,7 @@ impl BusinessMetrics {
             sales.total_revenue_today.to_string().parse().unwrap_or(0.0),
             HashMap::new(),
         );
-        registry.record_counter(
+        registry.record_gauge(
             "sales_transactions_today",
             sales.total_transactions_today as f64,
             HashMap::new(),
@@ -619,7 +607,7 @@ impl BusinessMetrics {
         );
 
         // Customer metrics
-        registry.record_counter(
+        registry.record_gauge(
             "customers_new_today",
             customer.new_customers_today as f64,
             HashMap::new(),
@@ -662,8 +650,8 @@ impl BusinessMetrics {
         );
 
         // Order metrics
-        registry.record_counter("orders_today", orders.orders_today as f64, HashMap::new());
-        registry.record_counter(
+        registry.record_gauge("orders_today", orders.orders_today as f64, HashMap::new());
+        registry.record_gauge(
             "orders_fulfilled_today",
             orders.orders_fulfilled_today as f64,
             HashMap::new(),

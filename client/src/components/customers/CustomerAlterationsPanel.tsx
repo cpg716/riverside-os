@@ -19,6 +19,7 @@ import { openPrintableHtml } from "../../lib/browserPrint";
 import { printReceiptPayload } from "../../lib/receiptPrint";
 
 const baseUrl = getBaseUrl();
+const ALTERATIONS_PAGE_SIZE = 200;
 
 type AlterationRow = {
   id: string;
@@ -237,6 +238,9 @@ export default function CustomerAlterationsPanel({
   const rowRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [rows, setRows] = useState<AlterationRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState<string>("all");
   const [dueFilter, setDueFilter] = useState<string>("all");
@@ -247,6 +251,8 @@ export default function CustomerAlterationsPanel({
   const [compactQueue, setCompactQueue] = useState(false);
   const [selectedScheduleDate, setSelectedScheduleDate] = useState(() => dateInputValue(new Date()));
   const [scheduleDayCapacity, setScheduleDayCapacity] = useState<AlterationCapacityDay | null>(null);
+  const requestRef = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -256,26 +262,88 @@ export default function CustomerAlterationsPanel({
   }, [search]);
 
   const load = useCallback(async () => {
+    const requestId = ++requestRef.current;
+    abortRef.current?.abort();
+    setLoadingMore(false);
+    const controller = new AbortController();
+    abortRef.current = controller;
     setLoading(true);
+    setLoadError(null);
     try {
       const params = new URLSearchParams();
       if (customerId) params.set("customer_id", customerId);
       if (debouncedSearch) params.set("search", debouncedSearch);
+      params.set("limit", String(ALTERATIONS_PAGE_SIZE));
+      params.set("offset", "0");
       const suffix = params.toString() ? `?${params.toString()}` : "";
-      const res = await fetch(`${baseUrl}/api/alterations${suffix}`, { headers: apiAuth() });
+      const res = await fetch(`${baseUrl}/api/alterations${suffix}`, {
+        headers: apiAuth(),
+        signal: controller.signal,
+      });
       if (!res.ok) throw new Error("load");
-      setRows((await res.json()) as AlterationRow[]);
-    } catch {
+      const data = (await res.json()) as AlterationRow[];
+      if (requestId !== requestRef.current) return;
+      setRows(data);
+      setHasMore(data.length === ALTERATIONS_PAGE_SIZE);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      if (requestId !== requestRef.current) return;
       toast("Could not load alterations.", "error");
       setRows([]);
+      setHasMore(false);
+      setLoadError("Alterations are unavailable. Try again.");
     } finally {
-      setLoading(false);
+      if (requestId === requestRef.current) setLoading(false);
+      if (abortRef.current === controller) abortRef.current = null;
     }
   }, [apiAuth, customerId, debouncedSearch, toast]);
+
+  const loadMore = useCallback(async () => {
+    if (!hasMore || loading || loadingMore) return;
+    const requestId = ++requestRef.current;
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setLoadingMore(true);
+    setLoadError(null);
+    try {
+      const params = new URLSearchParams({
+        limit: String(ALTERATIONS_PAGE_SIZE),
+        offset: String(rows.length),
+      });
+      if (customerId) params.set("customer_id", customerId);
+      if (debouncedSearch) params.set("search", debouncedSearch);
+      const res = await fetch(`${baseUrl}/api/alterations?${params.toString()}`, {
+        headers: apiAuth(),
+        signal: controller.signal,
+      });
+      if (!res.ok) throw new Error("load more");
+      const data = (await res.json()) as AlterationRow[];
+      if (requestId !== requestRef.current) return;
+      setRows((current) => {
+        const existing = new Set(current.map((row) => row.id));
+        return [...current, ...data.filter((row) => !existing.has(row.id))];
+      });
+      setHasMore(data.length === ALTERATIONS_PAGE_SIZE);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      if (requestId !== requestRef.current) return;
+      setLoadError("More alteration records could not load. Retry to continue.");
+      toast("Could not load more alterations.", "error");
+    } finally {
+      if (requestId === requestRef.current) setLoadingMore(false);
+      if (abortRef.current === controller) abortRef.current = null;
+    }
+  }, [apiAuth, customerId, debouncedSearch, hasMore, loading, loadingMore, rows.length, toast]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => () => {
+    requestRef.current += 1;
+    abortRef.current?.abort();
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -900,7 +968,7 @@ export default function CustomerAlterationsPanel({
               </p>
             </div>
             <span className="rounded-full border border-app-border bg-app-surface-3 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-              {visibleRows.length} visible / {rows.length} loaded
+              {visibleRows.length} visible / {rows.length} loaded{hasMore ? " · more available" : ""}
             </span>
           </div>
         </div>
@@ -1099,6 +1167,14 @@ export default function CustomerAlterationsPanel({
                 <Loader2 size={32} className="animate-spin text-app-accent" />
                 <p className="text-xs font-black uppercase tracking-widest text-app-text-muted">Hydrating queue…</p>
               </div>
+            ) : loadError && rows.length === 0 ? (
+              <div className="flex flex-col items-center justify-center gap-4 py-24 text-center">
+                <AlertTriangle size={40} className="text-app-danger" />
+                <p className="text-sm font-black text-app-text">{loadError}</p>
+                <button type="button" onClick={() => void load()} className="ui-btn-secondary">
+                  Try again
+                </button>
+              </div>
             ) : visibleRows.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-24 gap-4 grayscale opacity-30">
                 <Package size={48} />
@@ -1162,6 +1238,26 @@ export default function CustomerAlterationsPanel({
               </>
               )
             )}
+            {!loading && rows.length > 0 ? (
+              <div className="mt-4 flex flex-col items-center gap-2 border-t border-app-border/50 pt-4">
+                {loadError ? <p className="text-xs font-bold text-app-danger">{loadError}</p> : null}
+                {hasMore ? (
+                  <button
+                    type="button"
+                    disabled={loadingMore}
+                    onClick={() => void loadMore()}
+                    className="ui-btn-secondary min-h-10 px-4 text-xs disabled:opacity-50"
+                  >
+                    {loadingMore ? <Loader2 size={15} className="animate-spin" /> : null}
+                    {loadingMore ? "Loading more…" : "Load more alteration records"}
+                  </button>
+                ) : (
+                  <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                    All matching alteration records are loaded
+                  </p>
+                )}
+              </div>
+            ) : null}
           </div>
         </section>
       </div>

@@ -143,4 +143,7 @@ pub const EMBEDDED_MIGRATIONS: &[(&str, &str)] = &[
     ("140_search_trigram_read_path_indexes.sql", include_str!("../../migrations/140_search_trigram_read_path_indexes.sql")),
     ("141_transaction_line_booking_events.sql", include_str!("../../migrations/141_transaction_line_booking_events.sql")),
     ("142_counterpoint_repair_reporting_guard.sql", include_str!("../../migrations/142_counterpoint_repair_reporting_guard.sql")),
+    ("143_register_financial_recovery_integrity.sql", include_str!("../../migrations/143_register_financial_recovery_integrity.sql")),
+    ("144_transaction_line_booking_event_delete_integrity.sql", include_str!("../../migrations/144_transaction_line_booking_event_delete_integrity.sql")),
+    ("145_notification_queue_partial_conflict_inference.sql", include_str!("../../migrations/145_notification_queue_partial_conflict_inference.sql")),
 ];

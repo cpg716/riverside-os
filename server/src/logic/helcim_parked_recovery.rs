@@ -531,6 +531,7 @@ pub async fn recover_paid_parked_sale(
         rounding_adjustment: None,
         final_cash_due: None,
         is_processing: false,
+        exchange_settlement: None,
     };
 
     execute_recovery_checkout(
@@ -542,10 +543,12 @@ pub async fn recover_paid_parked_sale(
             source: CheckoutRecoverySource::ParkedSale {
                 parked_sale_id: request.parked_sale_id,
             },
-            payment_provider_attempt_id: request.payment_provider_attempt_id,
+            payment_provider_attempt_id: Some(request.payment_provider_attempt_id),
             authorized_by_staff_id: request.authorized_by_staff_id,
             approved_at,
             note: note.to_string(),
+            allow_closed_session: true,
+            require_checkout_binding: false,
         },
     )
     .await
@@ -750,6 +753,7 @@ pub async fn recover_paid_order_payment(
         rounding_adjustment: None,
         final_cash_due: None,
         is_processing: false,
+        exchange_settlement: None,
     };
 
     execute_recovery_checkout(
@@ -762,10 +766,12 @@ pub async fn recover_paid_order_payment(
                 target_transaction_id,
                 target_display_id: live_display_id,
             },
-            payment_provider_attempt_id: request.payment_provider_attempt_id,
+            payment_provider_attempt_id: Some(request.payment_provider_attempt_id),
             authorized_by_staff_id: request.authorized_by_staff_id,
             approved_at,
             note: note.to_string(),
+            allow_closed_session: true,
+            require_checkout_binding: false,
         },
     )
     .await

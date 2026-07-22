@@ -105,6 +105,8 @@ Use **Cutover** when Riverside is taking over parties that were already active i
 - Do not manually move money between members; use the wedding payment and allocation flows.
 - Do not mark paper status cells complete without confirming the Riverside source record.
 - If readiness, Orders, Customer history, and Register disagree, stop and escalate before promising completion.
+- Wedding search and party lists distinguish an empty result from an unavailable refresh. The live-update connection indicator describes socket connectivity; the separate data-check time confirms when the party list actually refreshed.
+- Register Group Pay does not show a member as paid while balance context is unavailable. Retry balances before entering split deposits.
 
 ## What happens next
 

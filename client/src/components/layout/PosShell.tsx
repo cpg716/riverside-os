@@ -6,7 +6,6 @@ import {
   type PosTabId,
 } from "../pos/posSidebarSections";
 import Cart from "../pos/Cart";
-import CloseRegisterModal from "../pos/CloseRegisterModal";
 import RegisterShiftHandoffModal from "../pos/RegisterShiftHandoffModal";
 import RegisterOverlay from "../pos/RegisterOverlay";
 import RegisterReports from "../pos/RegisterReports";
@@ -81,11 +80,9 @@ interface PosShellProps {
   pendingWeddingPosLink: RosOpenRegisterFromWmDetail | null;
   clearPendingWeddingPosLink: () => void;
   onSessionOpened: (p: SessionOpenedPayload) => void;
-  showCloseModal: boolean;
   setShowCloseModal: (v: boolean) => void;
   handleSessionClosed: () => void;
   refreshOpenSessionMeta: () => Promise<void>;
-  onRegisterReconcilingBegun: () => void;
   onRegisterTransactionCommitted: () => void;
   onOpenWeddingParty?: (partyId: string) => void;
   refreshSignal: number;
@@ -121,11 +118,9 @@ export default function PosShell({
   pendingWeddingPosLink,
   clearPendingWeddingPosLink,
   onSessionOpened,
-  showCloseModal,
   setShowCloseModal,
   handleSessionClosed,
   refreshOpenSessionMeta,
-  onRegisterReconcilingBegun,
   onRegisterTransactionCommitted,
   onOpenWeddingParty,
   refreshSignal,
@@ -634,10 +629,6 @@ export default function PosShell({
           )}
         </div>
       </div>
-
-      {showCloseModal && sessionId && (registerLane === 1 || registerLane == null) && (
-        <CloseRegisterModal sessionId={sessionId} cashierName={cashierName} registerLane={registerLane} registerOrdinal={registerOrdinal} onReconcilingBegun={onRegisterReconcilingBegun} onCloseComplete={handleSessionClosed} onCancel={() => { setShowCloseModal(false); void refreshOpenSessionMeta(); }} />
-      )}
 
       {shiftHandoffOpen && sessionId ? (
         <RegisterShiftHandoffModal isOpen={shiftHandoffOpen} onClose={() => setShiftHandoffOpen(false)} sessionId={sessionId} onHandoffComplete={refreshOpenSessionMeta} />

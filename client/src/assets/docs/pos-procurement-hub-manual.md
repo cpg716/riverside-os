@@ -50,6 +50,7 @@ Use this workspace when you need to:
 - Receiving and printing tags are related but separate actions. Printing tags does not post inventory.
 - The receiving worksheet is the source for prefilled tag quantities.
 - Direct invoices and standard POs both flow through Receive Stock for the final receipt step.
+- The stock status chip reports when stock was actually checked. **Stock unavailable** means the current lookup failed; retry before treating an empty list or old count as current stock.
 
 ## What happens next
 

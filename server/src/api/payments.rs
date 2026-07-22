@@ -1123,6 +1123,8 @@ pub struct HelcimOperationsListQuery {
     pub match_status: Option<String>,
     #[serde(default)]
     pub limit: Option<i64>,
+    #[serde(default)]
+    pub offset: Option<i64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -3997,43 +3999,43 @@ async fn get_helcim_events_health(
     ) = if !live_terminal_webhooks_expected {
         (
             "not_required",
-            "Webhook delivery not required",
-            "Live Helcim terminal payments are not fully enabled, so webhook delivery is not required for this environment.",
-            "Finish Helcim terminal setup before treating webhook delivery as a launch gate.",
+            "Processor update delivery not required",
+            "Live Helcim terminal payments are not fully enabled, so automatic processor update delivery is not required for this environment.",
+            "Finish Helcim terminal setup before treating automatic update delivery as a launch gate.",
         )
     } else if !helcim_status.webhook_secret_configured {
         (
             "not_configured",
-            "Webhook signing secret missing",
-            "Live terminal payments are enabled, but ROS cannot verify Helcim webhook deliveries until the signing secret is saved.",
-            "Copy the verifier token from Helcim Webhooks into Settings -> Helcim Credentials.",
+            "Processor update verification is not configured",
+            "Live terminal payments are enabled, but ROS cannot verify automatic Helcim updates until the signing secret is saved.",
+            "Copy the verifier token from Helcim integration setup into Settings -> Helcim Credentials.",
         )
     } else if row.last_event_at.is_none() {
         (
             "not_receiving",
-            "No Helcim webhook deliveries received",
-            "ROS has a webhook signing secret, but this server has not recorded any Helcim cardTransaction or terminalCancel delivery.",
-            "In Helcim, set the public HTTPS delivery URL to /api/webhooks/card-events and enable cardTransaction plus terminalCancel.",
+            "No Helcim processor updates received",
+            "ROS has update verification configured, but this server has not recorded a Helcim card or terminal-cancellation update.",
+            "Follow the Helcim integration setup guide to configure the public update URL and card plus terminal-cancellation events.",
         )
     } else if row.failed_event_count > 0 {
         (
             "failed",
-            "Helcim webhook delivery needs review",
-            "ROS has received Helcim webhook deliveries, but at least one delivery failed processing.",
+            "Helcim processor update needs review",
+            "ROS has received Helcim processor updates, but at least one update failed processing.",
             "Open Payments Health, review the failed update, then replay only after the setup or data issue is corrected.",
         )
     } else if row.unmatched_event_count > 0 {
         (
             "unmatched",
-            "Helcim webhook received but not attached",
+            "Helcim update received but not attached",
             "ROS received signed Helcim events that could not be safely matched to a checkout attempt.",
             "Review Helcim Terminal Review before retrying or assuming the checkout is settled.",
         )
     } else {
         (
             "receiving",
-            "Helcim webhook delivery active",
-            "ROS has received signed Helcim webhook deliveries and has no failed or unmatched provider updates requiring review.",
+            "Helcim processor updates active",
+            "ROS has received verified Helcim processor updates and has no failed or unmatched updates requiring review.",
             "No action needed.",
         )
     };
@@ -6162,7 +6164,8 @@ async fn load_helcim_batch_rows(
         .map(parse_batch_identifier)
         .or_else(|| query.batch_id.as_deref().map(parse_batch_identifier))
         .unwrap_or((None, None));
-    let search = clean_filter(query.search.as_deref()).map(|value| format!("%{value}%"));
+    let search = clean_filter(query.search.as_deref())
+        .map(|value| crate::logic::search_patterns::literal_contains_pattern(&value));
     let rows = sqlx::query(
 	        r#"
         SELECT
@@ -6203,8 +6206,8 @@ async fn load_helcim_batch_rows(
 	          AND ($4::date IS NULL OR (COALESCE(batch.expected_deposit_at, batch.settled_at, batch.closed_at, batch.last_synced_at) AT TIME ZONE 'America/New_York')::date >= $4)
 	          AND ($5::date IS NULL OR (COALESCE(batch.expected_deposit_at, batch.settled_at, batch.closed_at, batch.last_synced_at) AT TIME ZONE 'America/New_York')::date <= $5)
 	          AND ($6::text IS NULL OR batch.id::text ILIKE $6 OR batch.provider_batch_id ILIKE $6 OR batch.raw_payload::text ILIKE $6)
-	        ORDER BY COALESCE(batch.expected_deposit_at, batch.settled_at, batch.closed_at, batch.last_synced_at) DESC
-	        LIMIT $7
+	        ORDER BY COALESCE(batch.expected_deposit_at, batch.settled_at, batch.closed_at, batch.last_synced_at) DESC, batch.id DESC
+	        LIMIT $7 OFFSET $8
 	        "#,
 	    )
 	    .bind(batch_uuid)
@@ -6214,6 +6217,7 @@ async fn load_helcim_batch_rows(
 	    .bind(query.date_to)
 	    .bind(search.as_deref())
 	    .bind(clamp_limit(query.limit, 100, 500))
+        .bind(query.offset.unwrap_or(0).max(0))
     .fetch_all(&state.db)
     .await
     .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?
@@ -6306,16 +6310,20 @@ async fn load_helcim_deposit_rows(
           AND ($3::date IS NULL OR (deposit.posted_at AT TIME ZONE 'America/New_York')::date >= $3)
           AND ($4::date IS NULL OR (deposit.posted_at AT TIME ZONE 'America/New_York')::date <= $4)
           AND ($5::text IS NULL OR deposit.source_reference ILIKE $5 OR deposit.qbo_deposit_id ILIKE $5 OR deposit.bank_feed_transaction_id ILIKE $5)
-        ORDER BY deposit.posted_at DESC, deposit.created_at DESC
-        LIMIT $6
+        ORDER BY deposit.posted_at DESC, deposit.created_at DESC, deposit.id DESC
+        LIMIT $6 OFFSET $7
         "#,
     )
     .bind(id)
     .bind(clean_filter(query.status.as_deref()))
     .bind(query.date_from)
     .bind(query.date_to)
-    .bind(clean_filter(query.search.as_deref()).map(|value| format!("%{value}%")))
+    .bind(
+        clean_filter(query.search.as_deref())
+            .map(|value| crate::logic::search_patterns::literal_contains_pattern(&value)),
+    )
     .bind(clamp_limit(query.limit, 100, 500))
+    .bind(query.offset.unwrap_or(0).max(0))
     .fetch_all(&state.db)
     .await
     .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?
@@ -6446,7 +6454,8 @@ async fn load_helcim_transaction_rows(
         .as_deref()
         .map(parse_batch_identifier)
         .unwrap_or((None, None));
-    let search = clean_filter(query.search.as_deref()).map(|value| format!("%{value}%"));
+    let search = clean_filter(query.search.as_deref())
+        .map(|value| crate::logic::search_patterns::literal_contains_pattern(&value));
     let rows = sqlx::query(
         r#"
         WITH helcim_rows AS (
@@ -6613,9 +6622,13 @@ async fn load_helcim_transaction_rows(
             OR provider_payment_id ILIKE $8
             OR payment_method ILIKE $8
             OR transaction_display_id ILIKE $8
-            OR customer_name ILIKE $8)
-        ORDER BY payment_date DESC
-        LIMIT $9
+            OR customer_name ILIKE $8
+            OR transaction_type ILIKE $8
+            OR provider_batch_id ILIKE $8
+            OR batch_status ILIKE $8
+            OR batch_id::text ILIKE $8)
+        ORDER BY payment_date DESC, payment_transaction_id DESC NULLS LAST, provider_transaction_id DESC NULLS LAST
+        LIMIT $9 OFFSET $10
         "#,
     )
     .bind(payment_id)
@@ -6627,6 +6640,7 @@ async fn load_helcim_transaction_rows(
     .bind(clean_filter(query.match_status.as_deref()))
     .bind(search.as_deref())
     .bind(clamp_limit(query.limit, 100, 500))
+    .bind(query.offset.unwrap_or(0).max(0))
     .fetch_all(&state.db)
     .await
     .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?
@@ -6731,7 +6745,7 @@ async fn load_helcim_reconciliation_items(
         ORDER BY
             CASE severity WHEN 'critical' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END,
             created_at DESC
-        LIMIT $9
+        LIMIT $9 OFFSET $10
         "#,
     )
     .bind(clean_filter(query.status.as_deref()))
@@ -6743,6 +6757,7 @@ async fn load_helcim_reconciliation_items(
     .bind(query.date_from)
     .bind(query.date_to)
     .bind(clamp_limit(query.limit, 100, 500))
+    .bind(query.offset.unwrap_or(0).max(0))
     .fetch_all(&state.db)
     .await
     .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?

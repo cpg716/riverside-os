@@ -6,6 +6,25 @@ import { printReportDocument } from "../../lib/reportPrint";
 import type { ReportPrintAction } from "../../lib/reportPrint";
 import { describePrinterTarget, resolvePrinterTarget } from "../../lib/printerBridge";
 
+export const REGISTER_REPORT_OUTPUT_ROW_LIMIT = 20_000;
+
+export function parseRegisterReportMoneyToCents(
+  value: string | number | null | undefined,
+): number {
+  if (typeof value !== "string") return parseMoneyToCents(value);
+  const trimmed = value.trim();
+  const isParenthesizedNegative = trimmed.startsWith("(") && trimmed.endsWith(")");
+  const normalized = trimmed.replaceAll("$", "").replaceAll(",", "").replace(/[()]/g, "");
+  return parseMoneyToCents(isParenthesizedNegative ? `-${normalized}` : normalized);
+}
+
+export function registerReportCombinedRowCount(
+  activityCount: number | null | undefined,
+  pickupCount: number | null | undefined,
+): number {
+  return Math.max(0, activityCount ?? 0) + Math.max(0, pickupCount ?? 0);
+}
+
 export interface ZReportTenderRow {
   payment_method: string;
   total_amount: string;
@@ -82,7 +101,7 @@ function escapeReportHtml(value: string): string {
 }
 
 function formatReportMoney(value: string | number): string {
-  const cents = typeof value === "number" ? value : parseMoneyToCents(String(value));
+  const cents = typeof value === "number" ? value : parseRegisterReportMoneyToCents(value);
   const sign = cents < 0 ? "-" : "";
   return `${sign}$${centsToFixed2(Math.abs(cents))}`;
 }
@@ -1345,6 +1364,8 @@ export async function openProfessionalZReportPrint(opts: {
 export async function openProfessionalDailySalesPrint(opts: {
   title: string;
   rangeLabel: string;
+  /** When set, period summary remains unfiltered and detail rows use this search filter. */
+  detailFilter?: string;
   action?: ReportPrintAction;
   summary: {
     sales_count: number;
@@ -1427,6 +1448,9 @@ export async function openProfessionalDailySalesPrint(opts: {
 
   const reportPrinter = reportPrinterName();
   const { summary, activities, pickupsToday = [] } = opts;
+  const detailFilter = opts.detailFilter?.trim() || null;
+  const detailScopeLabel = detailFilter ? `Filtered detail: ${detailFilter}` : "All activity detail";
+  const detailMetricPrefix = detailFilter ? "Filtered " : "";
 
   const groupedActivities = activities.reduce<Record<string, typeof activities>>((groups, row) => {
     const date = new Date(row.occurred_at).toLocaleDateString("en-US", {
@@ -1440,9 +1464,10 @@ export async function openProfessionalDailySalesPrint(opts: {
 
   const activityRows = Object.entries(groupedActivities)
     .map(([date, rows]) => {
-      const groupTotal = rows
-        .reduce((sum, row) => sum + (Number.parseFloat(row.sales_total || "0") || 0), 0)
-        .toFixed(2);
+      const groupTotalCents = rows.reduce(
+        (sum, row) => sum + parseRegisterReportMoneyToCents(row.sales_total),
+        0,
+      );
       const cards = rows.map((row) => {
       const tm = new Date(row.occurred_at).toLocaleString([], {
         month: "short",
@@ -1501,10 +1526,10 @@ export async function openProfessionalDailySalesPrint(opts: {
             ${row.tax_total ? `<div class="money-sub">Tax: ${formatReportMoney(row.tax_total)}</div>` : ""}
             <div class="money-sub">Transaction Total: ${row.transaction_total ? `$${row.transaction_total}` : "—"}</div>
             ${row.wedding_deposit_contributions ? `<div class="money-good">Wedding Deposits Placed: ${formatReportMoney(row.wedding_deposit_contributions)} for ${row.wedding_deposit_member_count ?? 0} member${row.wedding_deposit_member_count === 1 ? "" : "s"}</div>` : ""}
-            ${row.wedding_deposit_contributions ? `<div class="money-sub">Total Tender Collected: ${formatReportMoney(centsToFixed2(parseMoneyToCents(row.transaction_total ?? "0") + parseMoneyToCents(row.wedding_deposit_contributions)))}</div>` : ""}
+            ${row.wedding_deposit_contributions ? `<div class="money-sub">Total Tender Collected: ${formatReportMoney(parseRegisterReportMoneyToCents(row.transaction_total) + parseRegisterReportMoneyToCents(row.wedding_deposit_contributions))}</div>` : ""}
             ${paymentRows}
             ${row.deposits_paid ? `<div class="money-good">Paid: $${row.deposits_paid}</div>` : ""}
-            ${row.balance_due && parseFloat(row.balance_due) > 0 ? `<div class="money-due">Balance: $${row.balance_due}</div>` : ""}
+            ${row.balance_due && parseRegisterReportMoneyToCents(row.balance_due) > 0 ? `<div class="money-due">Balance: ${formatReportMoney(row.balance_due)}</div>` : ""}
           </div>
         </section>
       `;
@@ -1516,7 +1541,7 @@ export async function openProfessionalDailySalesPrint(opts: {
               <span class="group-date">${date}</span>
               <span class="group-count">(${rows.length} transaction${rows.length === 1 ? "" : "s"})</span>
             </div>
-            <div class="group-total"><span>Total:</span> $${groupTotal}</div>
+            <div class="group-total"><span>Total:</span> ${formatReportMoney(groupTotalCents)}</div>
           </div>
           ${cards}
         </section>
@@ -1556,21 +1581,20 @@ export async function openProfessionalDailySalesPrint(opts: {
     .join("");
 
   // Calculate grand total across all groups
-  const grandTotal = Object.values(groupedActivities)
+  const grandTotalCents = Object.values(groupedActivities)
     .flat()
-    .reduce((sum, row) => sum + (Number.parseFloat(row.sales_total || "0") || 0), 0)
-    .toFixed(2);
+    .reduce((sum, row) => sum + parseRegisterReportMoneyToCents(row.sales_total), 0);
   const creditCardTotalCents = activities.reduce((sum, row) => {
     return sum + (row.payments ?? []).reduce((paymentSum, payment) => {
       return isCreditCardTender(payment.method)
-        ? paymentSum + parseMoneyToCents(payment.amount_label)
+        ? paymentSum + parseRegisterReportMoneyToCents(payment.amount_label)
         : paymentSum;
     }, 0);
   }, 0);
   const rmsChargeTotalCents = activities.reduce((sum, row) => {
     return sum + (row.payments ?? []).reduce((paymentSum, payment) => {
       return isRmsChargeTender(payment.method)
-        ? paymentSum + parseMoneyToCents(payment.amount_label)
+        ? paymentSum + parseRegisterReportMoneyToCents(payment.amount_label)
         : paymentSum;
     }, 0);
   }, 0);
@@ -1588,11 +1612,15 @@ export async function openProfessionalDailySalesPrint(opts: {
     (row.items ?? []).some((item) => item.fulfillment === "layaway"),
   ).length;
   const pickupTotalCents = summary.pickup_total
-    ? parseMoneyToCents(summary.pickup_total)
-    : pickupsToday.reduce((sum, pickup) => sum + parseMoneyToCents(pickup.sales_total ?? pickup.transaction_total ?? "0"), 0);
+    ? parseRegisterReportMoneyToCents(summary.pickup_total)
+    : pickupsToday.reduce(
+        (sum, pickup) =>
+          sum + parseRegisterReportMoneyToCents(pickup.sales_total ?? pickup.transaction_total),
+        0,
+      );
   const pickupTotalCount = summary.pickup_total_count ?? pickupsToday.length;
   const discountTotalCents = summary.discount_total
-    ? parseMoneyToCents(summary.discount_total)
+    ? parseRegisterReportMoneyToCents(summary.discount_total)
     : activities.reduce((sum, row) => {
         const rowDiscount = (row.items ?? []).reduce((itemSum, item) => {
           const regularCents = parseMoneyToCents(item.reg_price || item.price);
@@ -1610,9 +1638,11 @@ export async function openProfessionalDailySalesPrint(opts: {
     "Daily Sales & Activity Report",
     `Generated: ${generatedAt}`,
     `Reporting Period: ${opts.rangeLabel}`,
+    `Period Summary Scope: All activity in reporting period`,
+    `Audit Detail Scope: ${detailScopeLabel}`,
     `Assigned Reports Printer: ${reportPrinter}`,
     "",
-    "SUMMARY",
+    "PERIOD SUMMARY (ALL ACTIVITY)",
     `Transactions: ${summary.sales_count}`,
     `Subtotal Before Tax: ${formatReportMoney(summary.sales_subtotal_no_tax)}`,
     `Tax Collected: ${formatReportMoney(summary.sales_tax_total)}`,
@@ -1620,19 +1650,21 @@ export async function openProfessionalDailySalesPrint(opts: {
     `Alterations Total: ${formatReportMoney(summary.alterations_total)}`,
     `Gift Card Loads: ${moneyWithCount(parseMoneyToCents(summary.gift_card_load_total), summary.gift_card_load_count)}`,
     `Cash Collected: ${formatReportMoney(summary.cash_collected)}`,
-    `Credit Card Total: ${moneyWithCount(creditCardTotalCents, creditCardPaymentCount)}`,
     `Deposits Taken: ${formatReportMoney(summary.deposits_collected)}`,
     `New Orders: ${summary.special_order_sale_count}`,
     `Orders Picked Up: ${summary.pickup_count}`,
-    `RMS Payments: ${formatReportMoney(rmsPaymentTotalCents)}`,
-    `RMS Charge: ${formatReportMoney(rmsChargeTotalCents)}`,
     `Merchandise Subtotal: ${formatReportMoney(summary.net_sales)}`,
     `New Appointments: ${summary.new_appointment_count ?? 0}`,
-    `New Layaways: ${newLayawayCount}`,
-    `Picked Up: ${moneyWithCount(pickupTotalCents, pickupTotalCount)}`,
-    `Discounts: ${moneyWithCount(discountTotalCents, discountCount)}`,
     "",
-    "TRANSACTION LIST",
+    detailFilter ? "FILTERED DETAIL METRICS" : "DETAIL METRICS",
+    `${detailMetricPrefix}Credit Card Total: ${moneyWithCount(creditCardTotalCents, creditCardPaymentCount)}`,
+    `${detailMetricPrefix}RMS Payments: ${formatReportMoney(rmsPaymentTotalCents)}`,
+    `${detailMetricPrefix}RMS Charge: ${formatReportMoney(rmsChargeTotalCents)}`,
+    `${detailMetricPrefix}New Layaways: ${newLayawayCount}`,
+    `${detailMetricPrefix}Picked Up: ${moneyWithCount(pickupTotalCents, pickupTotalCount)}`,
+    `${detailMetricPrefix}Discounts: ${moneyWithCount(discountTotalCents, discountCount)}`,
+    "",
+    detailFilter ? `FILTERED TRANSACTION LIST (${detailFilter})` : "TRANSACTION LIST",
     ...(activities.length > 0
       ? activities.flatMap((row) => {
           const customerInfo = [
@@ -1666,10 +1698,10 @@ export async function openProfessionalDailySalesPrint(opts: {
               ? `Wedding Deposits Placed: ${formatReportMoney(row.wedding_deposit_contributions)} for ${row.wedding_deposit_member_count ?? 0} members`
               : "",
             row.wedding_deposit_contributions
-              ? `Total Tender Collected: ${formatReportMoney(centsToFixed2(parseMoneyToCents(row.transaction_total ?? "0") + parseMoneyToCents(row.wedding_deposit_contributions)))}`
+              ? `Total Tender Collected: ${formatReportMoney(parseRegisterReportMoneyToCents(row.transaction_total) + parseRegisterReportMoneyToCents(row.wedding_deposit_contributions))}`
               : "",
             row.deposits_paid ? `Paid: ${formatReportMoney(row.deposits_paid)}` : "",
-            row.balance_due && Number.parseFloat(row.balance_due) > 0
+            row.balance_due && parseRegisterReportMoneyToCents(row.balance_due) > 0
               ? `Balance: ${formatReportMoney(row.balance_due)}`
               : "",
             row.fulfillment_label ? `Fulfillment: ${row.fulfillment_label}` : "",
@@ -1702,7 +1734,7 @@ export async function openProfessionalDailySalesPrint(opts: {
         })
       : ["No pickups recorded for this period."]),
     "",
-    `Grand Total: ${formatReportMoney(grandTotal)}`,
+    `${detailFilter ? "Filtered Detail Total" : "Grand Total"}: ${formatReportMoney(grandTotalCents)}`,
     `End of Summary Audit - Riverside Men's Shop - Generated: ${generatedAt}`,
   ];
 
@@ -1716,6 +1748,7 @@ export async function openProfessionalDailySalesPrint(opts: {
     .stat-card { border: 1px solid #e2e8f0; padding: 12px; border-radius: 12px; }
     .stat-label { font-size: 9px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 4px; }
     .stat-value { font-size: 16px; font-weight: 800; tabular-nums: true; }
+    .scope-note { background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 10px; color: #475569; margin-top: 18px; padding: 10px 12px; }
     .muted { color: #64748b; }
     .mono { font-family: 'JetBrains Mono', monospace; }
     .activity-group { margin-top: 18px; }
@@ -1761,6 +1794,12 @@ export async function openProfessionalDailySalesPrint(opts: {
     </div>
   </div>
 
+  <div class="scope-note">
+    <strong>Period Summary:</strong> all activity in ${escapeReportHtml(opts.rangeLabel)}.<br>
+    <strong>Audit Detail:</strong> ${escapeReportHtml(detailScopeLabel)}.
+  </div>
+
+  <h2>Period Summary (All Activity)</h2>
   <div class="stat-grid">
     <div class="stat-card">
       <p class="stat-label">Transactions</p>
@@ -1791,7 +1830,7 @@ export async function openProfessionalDailySalesPrint(opts: {
       <p class="stat-value" style="color:#047857">$${summary.cash_collected}</p>
     </div>
     <div class="stat-card">
-      <p class="stat-label">Credit Card Total</p>
+      <p class="stat-label">${detailMetricPrefix}Credit Card Total</p>
       <p class="stat-value">${moneyWithCount(creditCardTotalCents, creditCardPaymentCount)}</p>
     </div>
     <div class="stat-card" style="border-color:#10b981; background: #f0fdf4;">
@@ -1807,11 +1846,11 @@ export async function openProfessionalDailySalesPrint(opts: {
       <p class="stat-value">${summary.pickup_count}</p>
     </div>
     <div class="stat-card">
-      <p class="stat-label">RMS Payments</p>
+      <p class="stat-label">${detailMetricPrefix}RMS Payments</p>
       <p class="stat-value">${formatReportMoney(rmsPaymentTotalCents)}</p>
     </div>
     <div class="stat-card">
-      <p class="stat-label">RMS Charge</p>
+      <p class="stat-label">${detailMetricPrefix}RMS Charge</p>
       <p class="stat-value">${formatReportMoney(rmsChargeTotalCents)}</p>
     </div>
     <div class="stat-card" style="border-color:#0f172a; background: #f8fafc;">
@@ -1823,20 +1862,20 @@ export async function openProfessionalDailySalesPrint(opts: {
       <p class="stat-value">${summary.new_appointment_count ?? 0}</p>
     </div>
     <div class="stat-card">
-      <p class="stat-label">New Layaways</p>
+      <p class="stat-label">${detailMetricPrefix}New Layaways</p>
       <p class="stat-value">${newLayawayCount}</p>
     </div>
     <div class="stat-card">
-      <p class="stat-label">Picked Up $</p>
+      <p class="stat-label">${detailMetricPrefix}Picked Up $</p>
       <p class="stat-value">${moneyWithCount(pickupTotalCents, pickupTotalCount)}</p>
     </div>
     <div class="stat-card">
-      <p class="stat-label">Discounts</p>
+      <p class="stat-label">${detailMetricPrefix}Discounts</p>
       <p class="stat-value">${moneyWithCount(discountTotalCents, discountCount)}</p>
     </div>
   </div>
 
-  <h2>Transaction List</h2>
+  <h2>${detailFilter ? `Filtered Transaction List (${escapeReportHtml(detailFilter)})` : "Transaction List"}</h2>
   ${activityRows || "<div class='muted' style='padding:40px; text-align:center;'>No activity recorded for this period.</div>"}
 
   <h2>Pickups Today</h2>
@@ -1844,7 +1883,7 @@ export async function openProfessionalDailySalesPrint(opts: {
 
   ${activityRows ? `
   <div style="margin-top: 30px; border-top: 2px solid #e2e8f0; padding-top: 20px; text-align: right;">
-    <p style="font-size: 14px; font-weight: 800; color: #0f172a; margin: 0;">Grand Total: $${grandTotal}</p>
+    <p style="font-size: 14px; font-weight: 800; color: #0f172a; margin: 0;">${detailFilter ? "Filtered Detail Total" : "Grand Total"}: ${formatReportMoney(grandTotalCents)}</p>
   </div>
   ` : ""}
 

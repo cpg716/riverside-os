@@ -141,6 +141,14 @@ expected=(
   "135_reconcile_picked_up_order_status.sql"
   "136_restore_counterpoint_line_paid_prices.sql"
   "137_payment_dashboard_read_path_indexes.sql"
+  "138_register_payment_read_path_indexes.sql"
+  "139_transaction_return_financial_events.sql"
+  "140_search_trigram_read_path_indexes.sql"
+  "141_transaction_line_booking_events.sql"
+  "142_counterpoint_repair_reporting_guard.sql"
+  "143_register_financial_recovery_integrity.sql"
+  "144_transaction_line_booking_event_delete_integrity.sql"
+  "145_notification_queue_partial_conflict_inference.sql"
 )
 
 active=()
@@ -203,4 +211,4 @@ if rg -n "INSERT INTO (public\\.)?(staff\\b|staff_permission|store_settings|prod
 fi
 rm -f /tmp/ros_migration_seed_hits.$$
 
-echo "Migration layout OK: active baseline through 137."
+echo "Migration layout OK: active baseline through 145."

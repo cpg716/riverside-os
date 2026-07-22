@@ -86,6 +86,7 @@ pub mod rosie_provider_selection;
 pub mod rosie_read_tools;
 pub mod rosie_speech;
 pub mod sales_commission;
+pub mod search_patterns;
 pub mod shipment;
 pub mod shippo;
 pub mod staff_accounts;
