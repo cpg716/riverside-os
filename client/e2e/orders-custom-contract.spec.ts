@@ -817,6 +817,25 @@ test.describe("Orders custom vs special contract", () => {
       pricing.primary_vendor_id != null
         ? { id: pricing.primary_vendor_id, name: "Existing Vendor" }
         : await createVendor(request, "custom-order-contract");
+    if (pricing.primary_vendor_id == null) {
+      const linkVendorRes = await request.patch(
+        `${apiBase()}/api/products/${pricing.product_id}/model`,
+        {
+          headers: {
+            ...staffHeaders(),
+            "Content-Type": "application/json",
+            "x-riverside-station-key": "station-e2e",
+          },
+          data: { primary_vendor_id: vendor.id },
+          failOnStatusCode: false,
+        },
+      );
+      const linkVendorBody = await linkVendorRes.text();
+      expect(
+        linkVendorRes.ok(),
+        `link custom-order product to purchase-order vendor failed (${linkVendorRes.status()}): ${linkVendorBody.slice(0, 1000)}`,
+      ).toBeTruthy();
+    }
     const purchaseOrder = await createDraftPurchaseOrder(request, vendor.id);
     await addPurchaseOrderLine(request, purchaseOrder.id, pricing.variant_id, 100, "85.00");
     await submitPurchaseOrder(request, purchaseOrder.id);

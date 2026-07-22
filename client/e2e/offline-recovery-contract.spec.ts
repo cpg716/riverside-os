@@ -63,7 +63,11 @@ async function loadOfflineRecoveryHarness(page: Page): Promise<void> {
     const source = Array.from(
       html.matchAll(/<script[^>]*src="([^"]+)"/g),
       (match) => match[1],
-    ).find((candidate) => candidate.includes("queueRecoveryHarness"));
+    ).find(
+      (candidate) =>
+        candidate.includes("queueRecoveryHarness") ||
+        candidate.includes("e2e-queue-harness"),
+    );
     if (!source) {
       throw new Error("E2E queue harness module is missing from its page");
     }

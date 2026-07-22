@@ -57,6 +57,7 @@ type SessionListRow = {
   session_id?: string;
   id?: string;
   register_lane?: number;
+  till_close_group_id?: string;
   lifecycle_status?: string;
 };
 
@@ -216,26 +217,45 @@ export async function resetOpenRegisterSessions(request: APIRequestContext) {
   if (!primary) return;
   const sessionId = (primary.session_id || primary.id || "").trim();
   if (!sessionId) return;
-
-  const tokenRes = await request.post(
-    `${apiBase()}/api/sessions/${sessionId}/attach`,
-    {
-      headers: {
-        ...staffHeaders(),
-        "Content-Type": "application/json",
-        "x-riverside-station-key": "station-e2e",
-      },
-      failOnStatusCode: false,
-    },
-  );
-  if (tokenRes.status() !== 200) {
-    const bodyText = await tokenRes.text();
+  const tillCloseGroupId = primary.till_close_group_id?.trim();
+  if (!tillCloseGroupId) {
     throw new Error(
-      `Failed to attach to open register session ${sessionId} during E2E reset (status ${tokenRes.status()}): ${bodyText || "<empty body>"}`,
+      `Open register session ${sessionId} is missing its till close group during E2E reset`,
     );
   }
-  const tokenBody = (await tokenRes.json()) as { pos_api_token?: string };
-  const token = tokenBody.pos_api_token?.trim() || "";
+  const group = rows.filter(
+    (row) => row.till_close_group_id?.trim() === tillCloseGroupId,
+  );
+
+  const attachSession = async (openSessionId: string): Promise<string> => {
+    const tokenRes = await request.post(
+      `${apiBase()}/api/sessions/${openSessionId}/attach`,
+      {
+        headers: {
+          ...staffHeaders(),
+          "Content-Type": "application/json",
+          "x-riverside-station-key": "station-e2e",
+        },
+        failOnStatusCode: false,
+      },
+    );
+    if (tokenRes.status() !== 200) {
+      const bodyText = await tokenRes.text();
+      throw new Error(
+        `Failed to attach to open register session ${openSessionId} during E2E reset (status ${tokenRes.status()}): ${bodyText || "<empty body>"}`,
+      );
+    }
+    const tokenBody = (await tokenRes.json()) as { pos_api_token?: string };
+    const sessionToken = tokenBody.pos_api_token?.trim() || "";
+    if (!sessionToken) {
+      throw new Error(
+        `Attach did not return a POS session token for open register session ${openSessionId} during E2E reset`,
+      );
+    }
+    return sessionToken;
+  };
+
+  const token = await attachSession(sessionId);
   const posHeaders = {
     "x-riverside-pos-session-id": sessionId,
     "x-riverside-pos-session-token": token,
@@ -258,25 +278,39 @@ export async function resetOpenRegisterSessions(request: APIRequestContext) {
       `Failed to begin reconciliation for open register session ${sessionId} during E2E reset (status ${beginRes.status()}): ${bodyText || "<empty body>"}`,
     );
   }
-  const acknowledgementRes = await request.post(
-    `${apiBase()}/api/recovery/station-close-status`,
-    {
-      headers: {
-        ...posHeaders,
-        "Content-Type": "application/json",
+  for (const session of group) {
+    const groupSessionId = (session.session_id || session.id || "").trim();
+    if (!groupSessionId) {
+      throw new Error(
+        `Till close group ${tillCloseGroupId} contains a register session without an ID during E2E reset`,
+      );
+    }
+    const groupSessionToken =
+      groupSessionId === sessionId
+        ? token
+        : await attachSession(groupSessionId);
+    const acknowledgementRes = await request.post(
+      `${apiBase()}/api/recovery/station-close-status`,
+      {
+        headers: {
+          "Content-Type": "application/json",
+          "x-riverside-pos-session-id": groupSessionId,
+          "x-riverside-pos-session-token": groupSessionToken,
+          "x-riverside-station-key": "station-e2e",
+        },
+        data: {
+          pending_checkout_count: 0,
+          blocked_checkout_count: 0,
+        },
+        failOnStatusCode: false,
       },
-      data: {
-        pending_checkout_count: 0,
-        blocked_checkout_count: 0,
-      },
-      failOnStatusCode: false,
-    },
-  );
-  if (acknowledgementRes.status() !== 200) {
-    const bodyText = await acknowledgementRes.text();
-    throw new Error(
-      `Failed to acknowledge the E2E workstation for open register session ${sessionId} during reset (status ${acknowledgementRes.status()}): ${bodyText || "<empty body>"}`,
     );
+    if (acknowledgementRes.status() !== 200) {
+      const bodyText = await acknowledgementRes.text();
+      throw new Error(
+        `Failed to acknowledge the E2E workstation for open register session ${groupSessionId} during reset (status ${acknowledgementRes.status()}): ${bodyText || "<empty body>"}`,
+      );
+    }
   }
   const reconRes = await request.get(
     `${apiBase()}/api/sessions/${sessionId}/reconciliation`,
@@ -328,10 +362,19 @@ export async function resetOpenRegisterSessions(request: APIRequestContext) {
       failOnStatusCode: false,
     },
   );
+  const closeBodyText = await closeRes.text();
   if (closeRes.status() !== 200) {
-    const bodyText = await closeRes.text();
     throw new Error(
-      `Failed to close open register session ${sessionId} during E2E reset (status ${closeRes.status()}): ${bodyText || "<empty body>"}`,
+      `Failed to close open register session ${sessionId} during E2E reset (status ${closeRes.status()}): ${closeBodyText || "<empty body>"}`,
+    );
+  }
+  const closeBody = JSON.parse(closeBodyText) as Record<string, unknown>;
+  if (
+    "till_group_closed" in closeBody &&
+    closeBody.till_group_closed !== true
+  ) {
+    throw new Error(
+      `Register close left till group ${tillCloseGroupId} open during E2E reset: ${closeBodyText}`,
     );
   }
 }
