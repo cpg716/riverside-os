@@ -727,8 +727,6 @@ UPDATE transactions t
 SET total_price = r.total_price,
     amount_paid = GREATEST(0, r.amount_paid),
     balance_due = r.balance_due,
-    status = 'fulfilled'::order_status,
-    fulfilled_at = COALESCE(t.fulfilled_at, t.booked_at),
     metadata = COALESCE(t.metadata, '{}'::jsonb) || jsonb_build_object('counterpoint_financial_repair', '2026-07-07')
 FROM cp_transaction_repair r
 WHERE t.id = r.transaction_id
