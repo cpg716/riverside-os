@@ -729,6 +729,12 @@ export default function Cart({
 
   const clearCartAndAlterations = useCallback(() => {
     clearCart();
+    // A failed/provider-approved checkout must never contaminate the next sale.
+    // The provider attempt remains auditable in Payments Health; local tender
+    // state belongs only to the sale being cleared.
+    setCheckoutAppliedPayments([]);
+    setProviderCheckoutIdentityHeld(false);
+    setCheckoutDepositLedger("");
     setPendingReturnLineDrafts({});
     resetSaleDateTime();
     setPendingAlterationIntakes([]);
@@ -3117,10 +3123,6 @@ export default function Cart({
                 type="button"
                 disabled={lines.length === 0 && !selectedCustomer}
                 onClick={() => {
-                  if (approvedProviderPaymentInCheckout) {
-                    toast("This sale has an approved card payment. Record the sale instead of clearing it.", "error");
-                    return;
-                  }
                   setShowClearConfirm(true);
                 }}
                 className="ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border border-app-danger/60 bg-app-danger/10 px-2 text-center text-app-danger shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-danger hover:text-white disabled:cursor-not-allowed disabled:border-app-border disabled:bg-app-surface-3 disabled:text-app-text-muted disabled:opacity-80 disabled:shadow-none disabled:hover:bg-app-surface-3 disabled:hover:text-app-text-muted dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px]"
@@ -4783,11 +4785,6 @@ export default function Cart({
         isOpen={showClearConfirm}
         onClose={() => setShowClearConfirm(false)}
         onConfirm={() => {
-          if (approvedProviderPaymentInCheckout) {
-            setShowClearConfirm(false);
-            toast("This sale has an approved card payment and cannot be cleared.", "error");
-            return;
-          }
           clearCartAndAlterations();
           setShowClearConfirm(false);
           toast("Cart cleared", "info");
