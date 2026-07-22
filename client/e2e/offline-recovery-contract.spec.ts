@@ -36,6 +36,45 @@ type RecoveryPostBody = {
   last_error?: string;
 };
 
+type OfflineRecoveryHarness = {
+  dequeueCheckout: (id: string) => Promise<void>;
+  flushCheckoutQueue: (baseUrl: string) => Promise<void>;
+  syncCheckoutRecoveryWithServer: () => Promise<void>;
+  updateQueuedCheckout: (item: QueueItem) => Promise<void>;
+};
+
+declare global {
+  interface Window {
+    __RIVERSIDE_E2E_QUEUE_HARNESS__?: OfflineRecoveryHarness;
+  }
+}
+
+async function loadOfflineRecoveryHarness(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    if (window.__RIVERSIDE_E2E_QUEUE_HARNESS__) return;
+    const response = await fetch("/e2e-harness.html", { cache: "no-store" });
+    if (!response.ok) {
+      throw new Error(`E2E queue harness returned HTTP ${response.status}`);
+    }
+    const html = await response.text();
+    if (!html.includes('name="riverside-e2e-queue-harness"')) {
+      throw new Error("E2E queue harness is missing from the built SPA");
+    }
+    const source = html.match(/<script[^>]*src="([^"]+)"/)?.[1];
+    if (!source) {
+      throw new Error("E2E queue harness module is missing from its page");
+    }
+    const dynamicImport = new Function(
+      "specifier",
+      "return import(specifier)",
+    ) as (specifier: string) => Promise<unknown>;
+    await dynamicImport(new URL(source, window.location.origin).href);
+    if (!window.__RIVERSIDE_E2E_QUEUE_HARNESS__) {
+      throw new Error("E2E queue harness did not initialize");
+    }
+  });
+}
+
 function mirroredRecoveryJob(
   request: RecoveryPostBody,
   status: QueueStatus | "resolved" | "dismissed" = request.status,
@@ -270,9 +309,10 @@ test.describe("offline checkout recovery contract", () => {
         items: [],
       },
     };
+    await loadOfflineRecoveryHarness(page);
     const completion = page.evaluate(async (queuedItem) => {
-      const modulePath = "/src/lib/offlineQueue.ts";
-      const queue = await import(/* @vite-ignore */ modulePath);
+      const queue = window.__RIVERSIDE_E2E_QUEUE_HARNESS__;
+      if (!queue) throw new Error("E2E queue harness is unavailable");
       await queue.updateQueuedCheckout(queuedItem);
       await queue.dequeueCheckout(queuedItem.id);
     }, item);
@@ -327,9 +367,10 @@ test.describe("offline checkout recovery contract", () => {
         items: [],
       },
     };
+    await loadOfflineRecoveryHarness(page);
     await page.evaluate(async (queuedItem) => {
-      const modulePath = "/src/lib/offlineQueue.ts";
-      const queue = await import(/* @vite-ignore */ modulePath);
+      const queue = window.__RIVERSIDE_E2E_QUEUE_HARNESS__;
+      if (!queue) throw new Error("E2E queue harness is unavailable");
       await queue.updateQueuedCheckout(queuedItem);
       await queue.dequeueCheckout(queuedItem.id);
     }, item);
@@ -391,15 +432,16 @@ test.describe("offline checkout recovery contract", () => {
         items: [],
       },
     };
+    await loadOfflineRecoveryHarness(page);
     await page.evaluate(async (queuedItem) => {
-      const modulePath = "/src/lib/offlineQueue.ts";
-      const queue = await import(/* @vite-ignore */ modulePath);
+      const queue = window.__RIVERSIDE_E2E_QUEUE_HARNESS__;
+      if (!queue) throw new Error("E2E queue harness is unavailable");
       await queue.updateQueuedCheckout(queuedItem);
     }, item);
     await started;
     await page.evaluate(async (queuedItem) => {
-      const modulePath = "/src/lib/offlineQueue.ts";
-      const queue = await import(/* @vite-ignore */ modulePath);
+      const queue = window.__RIVERSIDE_E2E_QUEUE_HARNESS__;
+      if (!queue) throw new Error("E2E queue harness is unavailable");
       await queue.updateQueuedCheckout({
         ...queuedItem,
         status: "blocked",
@@ -461,15 +503,20 @@ test.describe("offline checkout recovery contract", () => {
       checkoutPosts += 1;
       await route.fulfill({ status: 500, body: "unexpected replay" });
     });
-    await page.evaluate(() => window.dispatchEvent(new Event("online")));
+    await loadOfflineRecoveryHarness(page);
+    await page.evaluate(async () => {
+      const queue = window.__RIVERSIDE_E2E_QUEUE_HARNESS__;
+      if (!queue) throw new Error("E2E queue harness is unavailable");
+      await queue.syncCheckoutRecoveryWithServer();
+    });
     await expect
       .poll(() => getCheckoutQueueItem(page, id))
       .toMatchObject({
         status: "blocked",
       });
     await page.evaluate(async () => {
-      const modulePath = "/src/lib/offlineQueue.ts";
-      const queue = await import(/* @vite-ignore */ modulePath);
+      const queue = window.__RIVERSIDE_E2E_QUEUE_HARNESS__;
+      if (!queue) throw new Error("E2E queue harness is unavailable");
       await queue.flushCheckoutQueue(window.location.origin);
     });
     expect(checkoutPosts).toBe(0);
@@ -512,7 +559,12 @@ test.describe("offline checkout recovery contract", () => {
         body: JSON.stringify(mirroredRecoveryJob(body, "resolved")),
       });
     });
-    await page.evaluate(() => window.dispatchEvent(new Event("online")));
+    await loadOfflineRecoveryHarness(page);
+    await page.evaluate(async () => {
+      const queue = window.__RIVERSIDE_E2E_QUEUE_HARNESS__;
+      if (!queue) throw new Error("E2E queue harness is unavailable");
+      await queue.syncCheckoutRecoveryWithServer();
+    });
     await expect.poll(() => getCheckoutQueueItem(page, item.id)).toBeNull();
   });
 
@@ -565,9 +617,10 @@ test.describe("offline checkout recovery contract", () => {
         body: JSON.stringify(mirroredRecoveryJob(body)),
       });
     });
+    await loadOfflineRecoveryHarness(page);
     await page.evaluate(async () => {
-      const modulePath = "/src/lib/offlineQueue.ts";
-      const queue = await import(/* @vite-ignore */ modulePath);
+      const queue = window.__RIVERSIDE_E2E_QUEUE_HARNESS__;
+      if (!queue) throw new Error("E2E queue harness is unavailable");
       await Promise.all([
         queue.flushCheckoutQueue(window.location.origin),
         queue.flushCheckoutQueue(window.location.origin),

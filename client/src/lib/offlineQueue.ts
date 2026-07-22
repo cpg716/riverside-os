@@ -166,7 +166,7 @@ function mirrorQueuedCheckout(
   return request;
 }
 
-async function syncCheckoutRecoveryWithServer(): Promise<void> {
+export async function syncCheckoutRecoveryWithServer(): Promise<void> {
   const local = await getCheckoutQueue();
   const mirrorResults = await Promise.all(
     local.map(async (item) => ({

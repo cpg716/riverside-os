@@ -2,10 +2,27 @@ import { expect, test, type Page } from "@playwright/test";
 
 type PrintRemovalResult = { ok: true } | { ok: false; error: string };
 
+type PrintRecoveryHarness = {
+  enqueueFailedPrint: (job: {
+    transactionId: string;
+    label: string;
+    printableBase64: string;
+  }) => Promise<string>;
+  getFailedPrintJobs: () => Promise<Array<{ id: string }>>;
+  removeFailedPrintJob: (id: string) => Promise<void>;
+};
+
+declare global {
+  interface Window {
+    __RIVERSIDE_E2E_QUEUE_HARNESS__?: PrintRecoveryHarness;
+  }
+}
+
 async function preparePrintQueue(page: Page): Promise<void> {
-  // Keep the page same-origin for Vite module imports without mounting App.
-  // RegisterSessionBootstrap intentionally clears fabricated Register auth.
-  await page.goto("/manifest.json");
+  await page.goto("/e2e-harness.html");
+  await page.waitForFunction(() =>
+    Boolean(window.__RIVERSIDE_E2E_QUEUE_HARNESS__),
+  );
   await page.evaluate(() => {
     window.sessionStorage.setItem(
       "ros.posRegisterAuth.v1",
@@ -20,17 +37,8 @@ async function preparePrintQueue(page: Page): Promise<void> {
 
 async function enqueuePrint(page: Page): Promise<string> {
   return page.evaluate(async () => {
-    const dynamicImport = new Function(
-      "specifier",
-      "return import(specifier)",
-    ) as (specifier: string) => Promise<{
-      enqueueFailedPrint: (job: {
-        transactionId: string;
-        label: string;
-        printableBase64: string;
-      }) => Promise<string>;
-    }>;
-    const queue = await dynamicImport("/src/lib/printRetryQueue.ts");
+    const queue = window.__RIVERSIDE_E2E_QUEUE_HARNESS__;
+    if (!queue) throw new Error("E2E queue harness is unavailable");
     return queue.enqueueFailedPrint({
       transactionId: "22222222-2222-4222-8222-222222222222",
       label: "Receipt print recovery contract",
@@ -41,13 +49,8 @@ async function enqueuePrint(page: Page): Promise<string> {
 
 async function startPrintRemoval(page: Page, id: string): Promise<void> {
   await page.evaluate(async (printId) => {
-    const dynamicImport = new Function(
-      "specifier",
-      "return import(specifier)",
-    ) as (specifier: string) => Promise<{
-      removeFailedPrintJob: (id: string) => Promise<void>;
-    }>;
-    const queue = await dynamicImport("/src/lib/printRetryQueue.ts");
+    const queue = window.__RIVERSIDE_E2E_QUEUE_HARNESS__;
+    if (!queue) throw new Error("E2E queue harness is unavailable");
     const removal = queue
       .removeFailedPrintJob(printId)
       .then<PrintRemovalResult>(
@@ -72,13 +75,8 @@ async function finishPrintRemoval(page: Page): Promise<PrintRemovalResult> {
 
 async function queuedPrintIds(page: Page): Promise<string[]> {
   return page.evaluate(async () => {
-    const dynamicImport = new Function(
-      "specifier",
-      "return import(specifier)",
-    ) as (specifier: string) => Promise<{
-      getFailedPrintJobs: () => Promise<Array<{ id: string }>>;
-    }>;
-    const queue = await dynamicImport("/src/lib/printRetryQueue.ts");
+    const queue = window.__RIVERSIDE_E2E_QUEUE_HARNESS__;
+    if (!queue) throw new Error("E2E queue harness is unavailable");
     return (await queue.getFailedPrintJobs()).map((job) => job.id);
   });
 }

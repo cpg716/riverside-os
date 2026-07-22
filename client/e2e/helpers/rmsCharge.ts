@@ -57,6 +57,7 @@ type SessionListRow = {
   session_id?: string;
   id?: string;
   register_lane?: number;
+  lifecycle_status?: string;
 };
 
 type SessionOpenResponse = {
@@ -130,7 +131,8 @@ export async function ensureSessionAuth(
       `Failed to inspect open register sessions for ${staffCode(code)} (status ${listRes.status()}): ${bodyText || "<empty body>"}`,
     );
   }
-  let sessionId = (rows[0]?.session_id || rows[0]?.id || "").trim();
+  const session = rows[0];
+  let sessionId = (session?.session_id || session?.id || "").trim();
 
   if (!sessionId) {
     const openRes = await request.post(`${apiBase()}/api/sessions/open`, {
@@ -169,9 +171,31 @@ export async function ensureSessionAuth(
   );
   expect(tokenRes.status()).toBe(200);
   const tokenBody = (await tokenRes.json()) as { pos_api_token?: string };
+  const sessionToken = tokenBody.pos_api_token ?? "";
+  if (session?.lifecycle_status === "reconciling") {
+    const restoreRes = await request.post(
+      `${apiBase()}/api/sessions/${sessionId}/begin-reconcile`,
+      {
+        headers: {
+          "Content-Type": "application/json",
+          "x-riverside-pos-session-id": sessionId,
+          "x-riverside-pos-session-token": sessionToken,
+          "x-riverside-station-key": "station-e2e",
+        },
+        data: { active: false },
+        failOnStatusCode: false,
+      },
+    );
+    if (restoreRes.status() !== 200) {
+      const bodyText = await restoreRes.text();
+      throw new Error(
+        `Failed to restore reconciling register session ${sessionId} for E2E selling (status ${restoreRes.status()}): ${bodyText || "<empty body>"}`,
+      );
+    }
+  }
   return {
     sessionId,
-    sessionToken: tokenBody.pos_api_token ?? "",
+    sessionToken,
   };
 }
 

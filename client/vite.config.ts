@@ -199,6 +199,14 @@ export default defineConfig({
     // Main + lazy exceljs chunks exceed default 500 kB; intentional for this app.
     chunkSizeWarningLimit: 2500,
     rollupOptions: {
+      input: {
+        main: path.resolve(__dirname, "index.html"),
+        ...(process.env.VITE_E2E_TEST_HARNESS === "1"
+          ? {
+              "e2e-queue-harness": path.resolve(__dirname, "e2e-harness.html"),
+            }
+          : {}),
+      },
       output: {
         manualChunks: {
           vendor: ["react", "react-dom", "lucide-react"],

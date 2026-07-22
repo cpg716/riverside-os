@@ -902,25 +902,66 @@ async function processManualExternalCardRefund(
     sessionId: string;
     amount: string;
     managerStaffId: string;
-    managerPin: string;
     managerReason?: string;
     externalRefundReference?: string;
+    managerApprovalReference?: string;
+    cardLast4?: string;
   },
 ) {
-  return request.post(`${apiBase()}/api/transactions/${options.transactionId}/refunds/process`, {
+  return request.post(
+    `${apiBase()}/api/transactions/${options.transactionId}/refunds/process`,
+    {
+      headers: {
+        ...staffHeaders(),
+        "Content-Type": "application/json",
+        "x-riverside-station-key": "station-e2e",
+      },
+      data: {
+        session_id: options.sessionId,
+        payment_method: "card_terminal_manual",
+        amount: options.amount,
+        manager_staff_id: options.managerStaffId,
+        manager_reason: options.managerReason,
+        external_refund_reference: options.externalRefundReference,
+        manager_approval_reference: options.managerApprovalReference,
+        card_last4: options.cardLast4,
+      },
+      failOnStatusCode: false,
+    },
+  );
+}
+
+async function authorizeManualExternalCardRefund(
+  request: APIRequestContext,
+  options: {
+    transactionId: string;
+    sessionId: string;
+    amount: string;
+    managerStaffId: string;
+    managerPin: string;
+    managerReason: string;
+    externalRefundReference: string;
+    cardLast4: string;
+  },
+) {
+  return request.post(`${apiBase()}/api/staff/verify-pin`, {
     headers: {
       ...staffHeaders(),
       "Content-Type": "application/json",
       "x-riverside-station-key": "station-e2e",
     },
     data: {
-      session_id: options.sessionId,
-      payment_method: "card_terminal_manual",
-      amount: options.amount,
-      manager_staff_id: options.managerStaffId,
-      manager_pin: options.managerPin,
-      manager_reason: options.managerReason,
-      external_refund_reference: options.externalRefundReference,
+      staff_id: options.managerStaffId,
+      pin: options.managerPin,
+      authorize_action: "manual_external_card_refund_authorization",
+      authorize_metadata: {
+        transaction_id: options.transactionId,
+        register_session_id: options.sessionId,
+        amount: options.amount,
+        external_refund_reference: options.externalRefundReference,
+        manager_reason: options.managerReason,
+        card_last4: options.cardLast4,
+      },
     },
     failOnStatusCode: false,
   });
@@ -1306,26 +1347,26 @@ test.describe("QBO audit contract", () => {
     });
 
     const salesperson = await createSalespersonStaff(request);
-    const salespersonAttempt = await processManualExternalCardRefund(request, {
+    const cardLast4 = "4242";
+    const salespersonAttempt = await authorizeManualExternalCardRefund(request, {
       transactionId: checkout.transaction_id,
       sessionId,
       amount: returnedUnitTotal,
       managerStaffId: salesperson.id,
       managerPin: "1234",
       managerReason: "E2E salesperson denial for manual external card refund",
+      externalRefundReference: `E2E-SALESPERSON-DENIAL-${Date.now()}`,
+      cardLast4,
     });
     const salespersonAttemptText = await salespersonAttempt.text();
     expect(salespersonAttempt.status(), salespersonAttemptText.slice(0, 1000)).toBe(403);
-    expect(salespersonAttemptText).toContain(
-      "Manager Access approval permission required for manual external card refund",
-    );
+    expect(salespersonAttemptText).toContain("Forbidden");
 
     const missingReasonAttempt = await processManualExternalCardRefund(request, {
       transactionId: checkout.transaction_id,
       sessionId,
       amount: returnedUnitTotal,
       managerStaffId: operatorStaffId,
-      managerPin: staffCode(),
     });
     const missingReasonText = await missingReasonAttempt.text();
     expect(missingReasonAttempt.status(), missingReasonText.slice(0, 1000)).toBe(400);
@@ -1336,7 +1377,6 @@ test.describe("QBO audit contract", () => {
       sessionId,
       amount: returnedUnitTotal,
       managerStaffId: operatorStaffId,
-      managerPin: staffCode(),
       managerReason: "E2E missing external card reference",
     });
     const missingReferenceText = await missingReferenceAttempt.text();
@@ -1345,7 +1385,7 @@ test.describe("QBO audit contract", () => {
 
     const approvalReason = "E2E approved manual external card refund after processor confirmation";
     const externalRefundReference = `E2E-EXTERNAL-CARD-REF-${Date.now()}`;
-    const adminAttempt = await processManualExternalCardRefund(request, {
+    const approvalAttempt = await authorizeManualExternalCardRefund(request, {
       transactionId: checkout.transaction_id,
       sessionId,
       amount: returnedUnitTotal,
@@ -1353,6 +1393,24 @@ test.describe("QBO audit contract", () => {
       managerPin: staffCode(),
       managerReason: approvalReason,
       externalRefundReference,
+      cardLast4,
+    });
+    const approvalAttemptText = await approvalAttempt.text();
+    expect(approvalAttempt.status(), approvalAttemptText.slice(0, 1000)).toBe(200);
+    const approvalBody = JSON.parse(approvalAttemptText) as {
+      manager_approval_reference?: string;
+    };
+    expect(approvalBody.manager_approval_reference).toBeTruthy();
+
+    const adminAttempt = await processManualExternalCardRefund(request, {
+      transactionId: checkout.transaction_id,
+      sessionId,
+      amount: returnedUnitTotal,
+      managerStaffId: operatorStaffId,
+      managerReason: approvalReason,
+      externalRefundReference,
+      managerApprovalReference: approvalBody.manager_approval_reference,
+      cardLast4,
     });
     const adminAttemptText = await adminAttempt.text();
     expect(adminAttempt.status(), adminAttemptText.slice(0, 1000)).toBe(200);
