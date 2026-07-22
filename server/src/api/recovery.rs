@@ -112,6 +112,15 @@ struct ReplayCheckoutRecoveryRequest {
 }
 
 #[derive(Debug, Deserialize)]
+struct ExternalRecoveryResolutionRequest {
+    manager_staff_id: Uuid,
+    manager_pin: String,
+    reason: String,
+    target_transaction_display_id: String,
+    provider_transaction_id: String,
+}
+
+#[derive(Debug, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum PickupRecoveryStep {
     ShipTransaction {
@@ -153,6 +162,10 @@ pub fn router() -> Router<AppState> {
         .route(
             "/{client_job_key}/replay-checkout",
             post(replay_checkout_recovery_job),
+        )
+        .route(
+            "/{client_job_key}/resolve-external",
+            post(resolve_externally_reconciled_checkout),
         )
         .route(
             "/{client_job_key}/verify-follow-up",
@@ -730,6 +743,132 @@ async fn replay_checkout_recovery_job(
         "transaction_display_id": display_id,
         "post_close_recovery": post_close,
         "legacy_committed_without_replay": legacy_committed_without_replay,
+    })))
+}
+
+async fn resolve_externally_reconciled_checkout(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(client_job_key): Path<String>,
+    Json(request): Json<ExternalRecoveryResolutionRequest>,
+) -> Result<Json<Value>, RecoveryError> {
+    require_recovery_caller(&state, &headers).await?;
+    let reason = request.reason.trim();
+    if reason.chars().count() < 12 || reason.chars().count() > 500 {
+        return Err(RecoveryError::BadRequest(
+            "manager recovery reason must be between 12 and 500 characters".to_string(),
+        ));
+    }
+    let target_display_id = request.target_transaction_display_id.trim();
+    let provider_transaction_id = request.provider_transaction_id.trim();
+    if target_display_id.is_empty() || provider_transaction_id.is_empty() {
+        return Err(RecoveryError::BadRequest(
+            "target Transaction Record and provider transaction are required".to_string(),
+        ));
+    }
+    let manager = pins::authenticate_staff_by_id(
+        &state.db,
+        request.manager_staff_id,
+        Some(request.manager_pin.trim()),
+    )
+    .await
+    .map_err(|_| RecoveryError::Forbidden("Manager Access was not approved".to_string()))?;
+    let effective = effective_permissions_for_staff(&state.db, manager.id, manager.role).await?;
+    if !staff_can_approve_manager_access(&effective, manager.role) {
+        return Err(RecoveryError::Forbidden(
+            "manager.approval permission required".to_string(),
+        ));
+    }
+
+    let mut tx = state.db.begin().await?;
+    let job: Option<(String, String)> = sqlx::query_as(
+        r#"
+        SELECT kind, status
+        FROM operational_recovery_job
+        WHERE client_job_key = $1
+        FOR UPDATE
+        "#,
+    )
+    .bind(&client_job_key)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some((kind, status)) = job else {
+        return Err(RecoveryError::NotFound);
+    };
+    if kind != "checkout_unconfirmed" {
+        return Err(RecoveryError::BadRequest(
+            "only an unconfirmed checkout recovery can be externally reconciled".to_string(),
+        ));
+    }
+    if !matches!(status.as_str(), "pending" | "blocked") {
+        return Err(RecoveryError::BadRequest(
+            "checkout recovery job is already closed".to_string(),
+        ));
+    }
+
+    let transaction_id: Option<Uuid> = sqlx::query_scalar(
+        r#"
+        SELECT t.id
+        FROM transactions t
+        INNER JOIN payment_allocations pa ON pa.target_transaction_id = t.id
+        INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
+        WHERE t.display_id = $1
+          AND t.status = 'fulfilled'::order_status
+          AND t.amount_paid >= t.total_price
+          AND pa.amount_allocated > 0
+          AND pt.payment_provider = 'helcim'
+          AND pt.provider_transaction_id = $2
+        LIMIT 1
+        "#,
+    )
+    .bind(target_display_id)
+    .bind(provider_transaction_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some(transaction_id) = transaction_id else {
+        return Err(RecoveryError::BadRequest(
+            "the supplied Helcim approval is not matched to a fulfilled, fully paid Transaction Record".to_string(),
+        ));
+    };
+
+    let audit_idempotency_key =
+        format!("register-checkout-recovery-external:{client_job_key}:{transaction_id}");
+    let audit_metadata = json!({
+        "client_job_key": &client_job_key,
+        "transaction_id": transaction_id,
+        "transaction_display_id": target_display_id,
+        "provider_transaction_id": provider_transaction_id,
+        "resolution_path": "externally_reconciled_payment",
+    });
+    sqlx::query(
+        r#"
+        UPDATE operational_recovery_job
+        SET status = 'resolved', resolved_at = now(), resolved_by_staff_id = $2,
+            resolution_note = $3, transaction_id = $4, last_seen_at = now()
+        WHERE client_job_key = $1
+          AND status IN ('pending', 'blocked')
+        "#,
+    )
+    .bind(&client_job_key)
+    .bind(manager.id)
+    .bind(reason)
+    .bind(transaction_id)
+    .execute(&mut *tx)
+    .await?;
+    pins::log_staff_access_once(
+        &mut *tx,
+        manager.id,
+        "register_checkout_recovery_external_resolved",
+        audit_metadata,
+        &audit_idempotency_key,
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(Json(json!({
+        "status": "resolved",
+        "transaction_id": transaction_id,
+        "transaction_display_id": target_display_id,
+        "provider_transaction_id": provider_transaction_id,
     })))
 }
 
