@@ -98,6 +98,45 @@ test.describe("Register recovery history UI contracts", () => {
     expect(serverRecoverySource).toContain("manager_staff_id: approval.managerStaffId");
   });
 
+  test("existing-payment reconciliation requires exact server evidence and clears only its checkout", () => {
+    const helper = serverRecoverySource.slice(
+      serverRecoverySource.indexOf(
+        "export async function resolveExternallyReconciledCheckoutJob",
+      ),
+      serverRecoverySource.indexOf(
+        "/** Verify the recorded Orders/Alterations follow-up",
+      ),
+    );
+    expect(helper).toContain("/resolve-external");
+    expect(helper).toContain("target_transaction_display_id");
+    expect(helper).toContain("provider_transaction_id");
+    expect(helper).toContain("manager_staff_id: approval.managerStaffId");
+    expect(helper).toContain("manager_pin: approval.managerPin");
+    expect(helper).toContain("checkout_client_id");
+    expect(helper).toContain("register_session_id");
+    expect(helper).toContain(
+      "Keep the recovery record visible and contact support",
+    );
+
+    expect(closeRegisterSource).toContain("Match Existing Paid Transaction");
+    expect(closeRegisterSource).toContain("Manager Verify Exact Match");
+    expect(closeRegisterSource).toMatch(
+      /creates no new payment|No new charge or payment movement was created/,
+    );
+    expect(closeRegisterSource).toContain(
+      "recoveryKey: job.client_job_key",
+    );
+    expect(closeRegisterSource).toContain(
+      "checkoutClientId: result.checkoutClientId",
+    );
+    expect(closeRegisterSource).toContain(
+      "checkoutClientId: job.checkout_client_id ?? \"\"",
+    );
+    expect(closeRegisterSource).toContain(
+      "transactionId: result.transactionId",
+    );
+  });
+
   test("exchange recovery accepts only job identity, current posting session, and Manager approval", () => {
     const helper = serverRecoverySource.slice(
       serverRecoverySource.indexOf("export async function recoverExchangeSettlementJob"),

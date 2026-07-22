@@ -58,7 +58,11 @@ import PosShippingModal, {
 } from "./PosShippingModal";
 import type { WeddingMembership } from "./customerProfileTypes";
 import type { RosOpenRegisterFromWmDetail } from "../../lib/weddingPosBridge";
-import { newCartRowId, scanPayloadToResolvedItem } from "../../lib/posUtils";
+import {
+  newCartRowId,
+  newCheckoutClientId,
+  scanPayloadToResolvedItem,
+} from "../../lib/posUtils";
 import { customOrderItemTypeForSku, isCustomOrderSku } from "../../lib/customOrders";
 import CustomItemPromptModal from "./CustomItemPromptModal";
 import OrderLoadModal, { type CustomerOrder, type OrderItem, type PickupSelection } from "./OrderLoadModal";
@@ -68,6 +72,10 @@ import ManagerApprovalModal from "./ManagerApprovalModal";
 import PromptModal from "../ui/PromptModal";
 import PosSuitSwapWizard from "./PosSuitSwapWizard";
 import { hasApprovedProviderPayment } from "./paymentLineGuards";
+import {
+  CHECKOUT_RECOVERY_RESOLVED_EVENT,
+  type CheckoutRecoveryResolvedDetail,
+} from "../../lib/offlineQueue";
 
 export type { CheckoutPayload } from "./types";
 
@@ -434,6 +442,41 @@ export default function Cart({
   const [backdatePrompt, setBackdatePrompt] = useState<string | null>(null);
   const [pickupConfirmed, setPickupConfirmed] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const latestSaleCustomerIdRef = useRef<string | null>(null);
+  const latestProviderSaleLockRef = useRef({ approved: false, held: false });
+  latestSaleCustomerIdRef.current = selectedCustomer?.id ?? null;
+  latestProviderSaleLockRef.current = {
+    approved: approvedProviderPaymentInCheckout,
+    held: providerCheckoutIdentityHeld,
+  };
+  const canSelectCustomerForSale = useCallback(
+    (nextCustomerId: string | null): boolean => {
+      const currentCustomerId = latestSaleCustomerIdRef.current;
+      const providerLock = latestProviderSaleLockRef.current;
+      if (
+        currentCustomerId !== nextCustomerId &&
+        (providerLock.approved || providerLock.held)
+      ) {
+        toast(
+          providerLock.approved
+            ? "This checkout already has an approved card payment. Keep the current customer and record the sale, or use Clear Sale and Payments Health before choosing another customer."
+            : "A card workflow is active for this checkout. Finish or cancel it before changing customers; Riverside will not move that card attempt to another customer.",
+          "info",
+        );
+        return false;
+      }
+      return true;
+    },
+    [toast],
+  );
+  const selectCustomerForSale = useCallback(
+    (customer: Customer | null): boolean => {
+      if (!canSelectCustomerForSale(customer?.id ?? null)) return false;
+      setSelectedCustomer(customer);
+      return true;
+    },
+    [canSelectCustomerForSale],
+  );
   const isEmployeeSale = selectedCustomer?.employee_discount_eligible === true;
   const [activeWeddingMember, setActiveWeddingMember] = useState<WeddingMember | null>(null);
   const [activeWeddingPartyName, setActiveWeddingPartyName] = useState<string | null>(null);
@@ -616,6 +659,35 @@ export default function Cart({
     apiAuth,
   });
 
+  const latestParkedRecallStateRef = useRef({
+    lineCount: lines.length,
+    appliedPaymentCount: checkoutAppliedPayments.length,
+    providerCheckoutIdentityHeld,
+  });
+  latestParkedRecallStateRef.current = {
+    lineCount: lines.length,
+    appliedPaymentCount: checkoutAppliedPayments.length,
+    providerCheckoutIdentityHeld,
+  };
+  const canReplaceCurrentSaleWithParked = useCallback((): boolean => {
+    const currentSale = latestParkedRecallStateRef.current;
+    if (currentSale.lineCount > 0) {
+      toast("Clear or park the current sale before recalling another.", "error");
+      return false;
+    }
+    if (
+      currentSale.appliedPaymentCount > 0 ||
+      currentSale.providerCheckoutIdentityHeld
+    ) {
+      toast(
+        "Clear the current sale before recalling a parked sale. Riverside will not carry tender or card activity into the recalled sale.",
+        "info",
+      );
+      return false;
+    }
+    return true;
+  }, [toast]);
+
   const addFeeShortcut = useCallback(async (rawAmount: string) => {
     const amountCents = parseMoneyToCents(rawAmount);
     if (amountCents <= 0) {
@@ -769,6 +841,7 @@ export default function Cart({
   }, [resetSaleDateTime, selectedCustomerId]);
 
   const handleExchangeReturnHandoff = useCallback((args: ExchangeReturnHandoff) => {
+    if (!canSelectCustomerForSale(args.customer?.id ?? null)) return;
     onExchangeContinue({
       originalTransactionId: args.originalTransactionId,
       customer: args.customer,
@@ -868,6 +941,7 @@ export default function Cart({
       toast(`Return credit for ${receiptLabel} is in the cart. Add replacement items, then Pay to settle the exchange.`, "success");
     }
   }, [
+    canSelectCustomerForSale,
     onExchangeContinue,
     setLines,
     setSelectedLineKey,
@@ -1690,6 +1764,45 @@ export default function Cart({
     ensurePosTokenForSession,
     requestPickupPaymentOverride,
   });
+  const clearSaleForNextCheckout = useCallback(() => {
+    clearCartAndAlterations();
+    setCheckoutClientId(newCheckoutClientId());
+    setCheckoutDrawerOpen(false);
+  }, [clearCartAndAlterations, setCheckoutClientId]);
+  useEffect(() => {
+    const handleResolvedCheckoutRecovery = (rawEvent: Event) => {
+      const event = rawEvent as CustomEvent<CheckoutRecoveryResolvedDetail>;
+      const detail = event.detail;
+      if (
+        !detail ||
+        !detail.checkoutClientId ||
+        detail.checkoutClientId !== checkoutClientId ||
+        !detail.recoveryKey?.startsWith("checkout:") ||
+        (!detail.transactionId?.trim() && !detail.transactionDisplayId?.trim())
+      ) {
+        return;
+      }
+      clearSaleForNextCheckout();
+      toast(
+        "The recovered card payment is confirmed against its Transaction Record. This sale was cleared locally and the Register is ready for a new customer; provider evidence remains in Payments Health.",
+        "info",
+      );
+    };
+    window.addEventListener(
+      CHECKOUT_RECOVERY_RESOLVED_EVENT,
+      handleResolvedCheckoutRecovery,
+    );
+    return () => {
+      window.removeEventListener(
+        CHECKOUT_RECOVERY_RESOLVED_EVENT,
+        handleResolvedCheckoutRecovery,
+      );
+    };
+  }, [
+    checkoutClientId,
+    clearSaleForNextCheckout,
+    toast,
+  ]);
   useEffect(() => {
     if (checkoutTransactionId) {
       setLastTransactionId(checkoutTransactionId);
@@ -1718,6 +1831,7 @@ export default function Cart({
     apiAuth,
     selectedCustomer,
     lines,
+    canReplaceCurrentSale: canReplaceCurrentSaleWithParked,
     toast,
     ensurePosTokenForSession,
     resolveActorStaffId,
@@ -1891,7 +2005,7 @@ export default function Cart({
           const cRes = await fetch(`${baseUrl}/api/customers/${txn.customer_id}`, { headers: apiAuth() as Record<string, string> });
           if (cRes.ok) {
             const c = await cRes.json();
-            setSelectedCustomer({
+            if (!selectCustomerForSale({
               id: String(c.id),
               first_name: c.first_name,
               last_name: c.last_name,
@@ -1903,7 +2017,7 @@ export default function Cart({
               employee_discount_eligible: c.employee_discount_eligible,
               tax_exempt: c.tax_exempt,
               tax_exempt_id: c.tax_exempt_id,
-            });
+            })) return;
             setOrderLoadOpen(true);
           } else {
             toast("Could not load the customer for this transaction.", "error");
@@ -1915,7 +2029,7 @@ export default function Cart({
     } catch {
       toast("Failed to look up receipt barcode", "error");
     }
-  }, [baseUrl, apiAuth, toast, setSelectedCustomer]);
+  }, [baseUrl, apiAuth, toast, selectCustomerForSale]);
 
   // --- Staff PIN Verification Logic ---
   const [salePinBusy, setSalePinBusy] = useState(false);
@@ -2082,9 +2196,9 @@ export default function Cart({
 
   useEffect(() => {
     if (!initialCustomer) return;
-    setSelectedCustomer(initialCustomer);
+    selectCustomerForSale(initialCustomer);
     onInitialCustomerConsumed?.();
-  }, [initialCustomer, onInitialCustomerConsumed, setSelectedCustomer]);
+  }, [initialCustomer, onInitialCustomerConsumed, selectCustomerForSale]);
 
   const loadTransactionIntoRegister = useCallback(
     async (
@@ -2103,6 +2217,13 @@ export default function Cart({
       }
 
       const detail = (await res.json()) as HandoffOrderDetail;
+
+      if (
+        detail.customer &&
+        !canSelectCustomerForSale(detail.customer.id)
+      ) {
+        return false;
+      }
 
       if (forRefund) {
         if (!detail.customer) {
@@ -2307,6 +2428,7 @@ export default function Cart({
     [
       apiAuth,
       baseUrl,
+      canSelectCustomerForSale,
       setSelectedCustomer,
       toast,
       setLines,
@@ -2437,6 +2559,17 @@ export default function Cart({
     const link = initialWeddingPosLink;
     const wm = link.member;
     const partyName = link.partyName?.trim() || "Wedding party";
+    if (!selectCustomerForSale({
+      id: wm.customer_id,
+      customer_code: "",
+      first_name: wm.first_name,
+      last_name: wm.last_name,
+      email: wm.customer_email ?? null,
+      phone: wm.customer_phone ?? null,
+    })) {
+      onInitialWeddingPosLinkConsumed?.();
+      return;
+    }
 
     const run = async () => {
       try {
@@ -2445,7 +2578,7 @@ export default function Cart({
         });
         if (res.ok) {
           const c = (await res.json()) as Customer & { id: string };
-          setSelectedCustomer({
+          updateSelectedCustomerSnapshot({
             id: String(c.id),
             customer_code: c.customer_code ?? "",
             first_name: c.first_name,
@@ -2513,7 +2646,7 @@ export default function Cart({
     };
 
     void run();
-  }, [initialWeddingPosLink, baseUrl, onInitialWeddingPosLinkConsumed, apiAuth, toast, setLines, setSelectedCustomer, setActiveWeddingMember, setActiveWeddingPartyName]);
+  }, [initialWeddingPosLink, baseUrl, onInitialWeddingPosLinkConsumed, apiAuth, toast, setLines, setActiveWeddingMember, setActiveWeddingPartyName, selectCustomerForSale, updateSelectedCustomerSnapshot]);
 
   // --- Search Coordination ---
   const onSearchResultClick = (item: SearchResult) => {
@@ -3127,7 +3260,12 @@ export default function Cart({
               </button>
               <button
                 type="button"
-                disabled={lines.length === 0 && !selectedCustomer}
+                disabled={
+                  lines.length === 0 &&
+                  !selectedCustomer &&
+                  checkoutAppliedPayments.length === 0 &&
+                  !providerCheckoutIdentityHeld
+                }
                 onClick={() => {
                   setShowClearConfirm(true);
                 }}
@@ -3413,7 +3551,7 @@ export default function Cart({
           <CustomerSelector
             variant="posStrip"
             selectedCustomer={selectedCustomer}
-            onSelect={(c) => setSelectedCustomer(c)}
+            onSelect={selectCustomerForSale}
             onViewCustomer={() => {
               setCustomerProfileHubOpen(true);
             }}
@@ -3626,7 +3764,7 @@ export default function Cart({
                     type="button"
                     onClick={() => {
                       if (hasAccess) {
-                        clearCartAndAlterations();
+                        clearSaleForNextCheckout();
                         toast("Sale cleared.", "success");
                       } else {
                         setShowVoidAllConfirm(true);
@@ -3969,6 +4107,7 @@ export default function Cart({
       />
 
       <NexoCheckoutDrawer
+        key={`${checkoutClientId}:${selectedCustomer?.id ?? "no-customer"}`}
         isOpen={checkoutDrawerOpen}
         onClose={() => setCheckoutDrawerOpen(false)}
         registerSessionId={sessionId}
@@ -4211,8 +4350,7 @@ export default function Cart({
                 setLastReceiptExchangeReturnTransactionId(pendingReturnTender.originalTransactionId);
                 setLastReceiptTransactionLineIds([]);
                 setCheckoutTransactionId(replacementTransactionId);
-                clearCartAndAlterations();
-                setCheckoutDrawerOpen(false);
+                clearSaleForNextCheckout();
                 if (!cardRefundPending) {
                   toast(`Exchange settled for ${pendingReturnTender.receiptLabel}.`, "success");
                 }
@@ -4305,8 +4443,7 @@ export default function Cart({
                 pendingReturnTender.returnLines.map((line) => line.transaction_line_id),
               );
               setCheckoutTransactionId(pendingReturnTender.originalTransactionId);
-              clearCartAndAlterations();
-              setCheckoutDrawerOpen(false);
+              clearSaleForNextCheckout();
               toast(`Refund completed for ${pendingReturnTender.receiptLabel}.`, "success");
             } catch {
               toast("Refund failed. Check the API connection and try again.", "error");
@@ -4583,7 +4720,7 @@ export default function Cart({
         open={rmsPaymentOpen}
         onClose={() => setRmsPaymentOpen(false)}
         selectedCustomer={selectedCustomer}
-        onSelectCustomer={(c) => setSelectedCustomer(c)}
+        onSelectCustomer={selectCustomerForSale}
         onAddToCart={async (amountCents) => {
           if (!rmsPaymentMeta) return;
           addItem({
@@ -4606,7 +4743,7 @@ export default function Cart({
         open={staffAccountPaymentOpen}
         onClose={() => setStaffAccountPaymentOpen(false)}
         selectedCustomer={selectedCustomer}
-        onSelectCustomer={(c) => setSelectedCustomer(c)}
+        onSelectCustomer={selectCustomerForSale}
         onAddToCart={async (amountCents) => {
           if (!staffAccountPaymentMeta) return;
           addItem({
@@ -4680,11 +4817,10 @@ export default function Cart({
             setWeddingDrawerOpen(true);
           }}
           onStartSale={(c: Customer) => {
-            setSelectedCustomer(c);
-            setCustomerProfileHubOpen(false);
+            if (selectCustomerForSale(c)) setCustomerProfileHubOpen(false);
           }}
           onSwitchCustomer={(c: Customer) => {
-            setSelectedCustomer(c);
+            selectCustomerForSale(c);
           }}
           onCustomerUpdated={updateSelectedCustomerSnapshot}
           navigateAfterStartSale={false}
@@ -4791,12 +4927,22 @@ export default function Cart({
         isOpen={showClearConfirm}
         onClose={() => setShowClearConfirm(false)}
         onConfirm={() => {
-          clearCartAndAlterations();
+          const hadApprovedProviderPayment = approvedProviderPaymentInCheckout;
+          clearSaleForNextCheckout();
           setShowClearConfirm(false);
-          toast("Cart cleared", "info");
+          toast(
+            hadApprovedProviderPayment
+              ? "Sale cleared. The approved provider payment remains in Payments Health for audited recovery or refund."
+              : "Sale cleared. The Register is ready for a new checkout.",
+            "info",
+          );
         }}
         title="Clear Active Sale?"
-        message="Are you sure you want to completely clear this transaction? All items and customer data will be removed."
+        message={
+          approvedProviderPaymentInCheckout
+            ? "This clears the local cart, customer, and tender display so the Register can start a new checkout. It does not delete, move, retry, or refund the approved provider payment; that evidence remains in Payments Health."
+            : "This clears all sale-local items, customer details, tender inputs, and checkout-drawer state."
+        }
         confirmLabel="Yes, Clear Sale"
         variant="danger"
       />
@@ -4858,7 +5004,7 @@ export default function Cart({
               }),
             });
             if (res.ok) {
-              clearCartAndAlterations();
+              clearSaleForNextCheckout();
               setShowVoidAllConfirm(false);
               toast("All items voided", "success");
               return true;
@@ -4972,6 +5118,14 @@ export default function Cart({
             );
             return;
           }
+          if (!selectCustomerForSale({
+            id: m.customer_id,
+            customer_code: "",
+            first_name: m.first_name,
+            last_name: m.last_name,
+            email: m.customer_email ?? null,
+            phone: m.customer_phone ?? null,
+          })) return;
           setActiveWeddingMember(m);
           setActiveWeddingPartyName(partyName);
           setWeddingDrawerOpen(false);
@@ -4983,7 +5137,7 @@ export default function Cart({
             });
             if (res.ok) {
               const c = await res.json();
-              setSelectedCustomer(c);
+              updateSelectedCustomerSnapshot(c);
             }
           } catch (e) {
             console.warn("Could not auto-select customer for wedding member", e);
@@ -5337,6 +5491,7 @@ export default function Cart({
                   toast("Pickup items must belong to the same customer.", "error");
                   return false;
                 }
+                if (!canSelectCustomerForSale(firstCustomer.id)) return false;
                 setSelectedCustomer({
                   id: firstCustomer.id,
                   customer_code: firstCustomer.customer_code ?? "",

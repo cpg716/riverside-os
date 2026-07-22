@@ -121,6 +121,7 @@ Technical reference for engineers and leads: **[Parked sales and RMS charges](..
 1. Review **subtotal**, **tax**, and **balance due** with the customer.
 2. Tap **Pay** / **Complete Sale** (or equivalent green action). If the transaction requires Rush/Due Date details or special fulfillment, the **Transaction Review** screen appears before payment. If the customer wants delivery, use **Ship current sale** from the cart before payment so checkout has a valid quote and address snapshot. Riverside will stop the flow if no Salesperson is assigned.
 3. **Payment:** choose the method, enter the amount on the keypad, then **Add Payment** for each tender before completing the sale. Enter cash, card, gift card, or **Split Payment** tenders per training. Wait for **approved** state on card; do not hand back change until tender is confirmed on screen.
+    - The checkout drawer preserves an interrupted tender only for the same checkout and customer. A completed sale, **Clear Sale**, new checkout identity, or customer change resets its keypad, tender inputs, Card Not Present handoff, and approval display. Processor evidence from an interrupted prior sale remains in **Payments Health** and cannot become tender on the next sale.
     - **Physical Checks**: When a customer pays by check, select the **CHECK** tab and enter the **Check #** in the input field before pressing **Add Payment**.
     - **Store Credit**: attach the customer first, then select **STORE CREDIT**. Checkout shows the available customer Store Credit balance and blocks redemptions above that balance. Refunds to Store Credit add credit to the customer when the refund records successfully. Open the customer strip after a refund or redemption to review the Customer Hub Store Credit balance and recent ledger activity.
     - **Staff Account**: appears only when the attached customer is linked to an active Staff Account. Use it to put the employee purchase on their receivable balance. Employee purchases still pay the normal tax for the items sold.
@@ -183,6 +184,7 @@ Technical reference for engineers and leads: **[Parked sales and RMS charges](..
 | **Price override** blocked | Expected at cap | Manager with higher cap or admin |
 | **Complete Sale** disabled | Missing customer, missing Salesperson on sale lines, zero-total line, open modal, or (fulfillment items) need to pay balance **or** set deposit per on-screen hint | Read the hint; select a Salesperson if prompted; add payment and/or set deposit |
 | Card stuck on **connecting** | Wait full timeout once | Retry tender; if repeated, use fallback SOP (other lane / manual auth) |
+| Approved card remains in the ledger after a failed sale | Keep the original customer selected and use **Recover payment** if the Transaction Record is not complete. Do not run the card again. | Use **Clear Sale** to release the local Register, then review **Payments Health**. Clear Sale removes only the sale-local cart and tender display; the provider approval remains auditable. If the paid Transaction Record already exists, a manager can use **Close Register → Match Existing Paid Transaction** on the exact recovery item. |
 | **Balance due** wrong after discount | Remove and re-add discount | Manager reviews transaction lines |
 | Wrong item on ticket | **Before pay:** remove line, re-add | **After pay:** return/exchange flow — manager |
 
@@ -206,4 +208,4 @@ Technical reference for engineers and leads: **[Parked sales and RMS charges](..
 - [../SEARCH_AND_PAGINATION.md](../SEARCH_AND_PAGINATION.md)
 - [../WEDDING_GROUP_PAY_AND_RETURNS.md](../WEDDING_GROUP_PAY_AND_RETURNS.md)
 
-**Last reviewed:** 2026-07-17
+**Last reviewed:** 2026-07-22

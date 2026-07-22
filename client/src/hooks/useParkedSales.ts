@@ -28,6 +28,7 @@ interface UseParkedSalesProps {
   apiAuth: () => Record<string, string>;
   selectedCustomer: Customer | null;
   lines: CartLineItem[];
+  canReplaceCurrentSale: () => boolean;
   toast: (msg: string, type?: "success" | "error" | "info") => void;
   ensurePosTokenForSession: () => Promise<string | null>;
   resolveActorStaffId: () => Promise<string | null>;
@@ -51,6 +52,7 @@ export function useParkedSales({
   apiAuth,
   selectedCustomer,
   lines,
+  canReplaceCurrentSale,
   toast,
   ensurePosTokenForSession,
   resolveActorStaffId,
@@ -123,10 +125,7 @@ export function useParkedSales({
   }, [selectedCustomer?.id, sessionId, baseUrl, apiAuth, isReady]);
 
   const recallParkedSale = useCallback(async (parkId: string) => {
-    if (lines.length > 0) {
-      toast("Clear or park the current sale before recalling another.", "error");
-      return;
-    }
+    if (!canReplaceCurrentSale()) return;
     const tok = await ensurePosTokenForSession();
     if (!tok) {
       toast("Register session token missing. Join register first.", "error");
@@ -149,6 +148,10 @@ export function useParkedSales({
       }
     }
     if (!row) return;
+
+    // Authentication and refreshes above are asynchronous. Re-check the live
+    // sale boundary before mutating the audited parked-sale record.
+    if (!canReplaceCurrentSale()) return;
 
     try {
       await recallParkedSaleOnServer(baseUrl, sessionId, parkId, apiAuth, actor);
@@ -183,7 +186,8 @@ export function useParkedSales({
     setParkedCustomerPrompt(null);
     toast("Parked sale restored.", "success");
   }, [
-    lines.length, sessionId, parkedRows, toast, ensurePosTokenForSession, resolveActorStaffId, 
+    sessionId, parkedRows, toast, ensurePosTokenForSession, resolveActorStaffId,
+    canReplaceCurrentSale,
     baseUrl, apiAuth, setLines, setSelectedCustomer, setActiveWeddingMember, 
     setActiveWeddingPartyName, setDisbursementMembers, setPrimarySalespersonId, refreshParkedSales
   ]);

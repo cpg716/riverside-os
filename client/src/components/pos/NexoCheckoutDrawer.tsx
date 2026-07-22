@@ -136,6 +136,45 @@ interface HelcimPayInitializeResponse {
   handoff_url?: string | null;
 }
 
+interface HostedManualCardSaleContext {
+  requestId: string;
+  checkoutClientId: string;
+  customerId: string;
+  amountCents: number;
+  attemptId: string | null;
+}
+
+function hostedManualCardContextMatches(
+  context: HostedManualCardSaleContext | null,
+  attempt: HelcimAttempt,
+  checkoutClientId: string,
+  customerId: string,
+): boolean {
+  return Boolean(
+    context &&
+      context.attemptId === attempt.id &&
+      context.checkoutClientId === checkoutClientId &&
+      context.customerId === customerId &&
+      context.amountCents === attempt.amount_cents &&
+      attempt.checkout_client_id === checkoutClientId,
+  );
+}
+
+function bindHostedManualCardHandoff(
+  handoffUrl: string,
+  attempt: HelcimAttempt,
+  context: HostedManualCardSaleContext,
+): string {
+  const parsed = new URL(handoffUrl, window.location.href);
+  if (parsed.searchParams.get("attempt_id")?.trim() !== attempt.id) {
+    throw new Error(
+      "Helcim returned a Card Not Present link for a different attempt. Review Payments Health before retrying.",
+    );
+  }
+  parsed.searchParams.set("ros_cnp_request_id", context.requestId);
+  return parsed.toString();
+}
+
 function rmsSourceLabel(source?: string | null) {
   if (source === "linked_account") return "Linked RMS account";
   if (source === "account_list_import") return "Imported RMS account list";
@@ -660,6 +699,7 @@ export default function NexoCheckoutDrawer({
     const hasProviderPayment = applied.some(isApprovedProviderPayment);
     onCheckoutIdentityHoldChange?.(
       isOpen ||
+        helcimAttemptLoading ||
         helcimAttempt != null ||
         helcimUnverifiedNotice != null ||
         manualCardHandoffUrl != null ||
@@ -668,6 +708,7 @@ export default function NexoCheckoutDrawer({
   }, [
     applied,
     helcimAttempt,
+    helcimAttemptLoading,
     helcimUnverifiedNotice,
     isOpen,
     manualCardHandoffUrl,
@@ -827,6 +868,111 @@ export default function NexoCheckoutDrawer({
     method: "card_terminal" | "card_manual" | "card_credit";
     label: string;
   }>({ method: "card_terminal", label: "HELCIM CARD" });
+  const checkoutIdentity = checkoutClientId?.trim() ?? "";
+  const customerIdentity = customerId?.trim() ?? "";
+  const latestSaleIdentityRef = useRef({ checkoutClientId: checkoutIdentity, customerId: customerIdentity });
+  latestSaleIdentityRef.current = { checkoutClientId: checkoutIdentity, customerId: customerIdentity };
+  const previousSaleIdentityRef = useRef(latestSaleIdentityRef.current);
+  const activeHostedManualCardContextRef = useRef<HostedManualCardSaleContext | null>(null);
+
+  useEffect(() => {
+    const previous = previousSaleIdentityRef.current;
+    if (
+      previous.checkoutClientId === checkoutIdentity &&
+      previous.customerId === customerIdentity
+    ) {
+      return;
+    }
+    previousSaleIdentityRef.current = {
+      checkoutClientId: checkoutIdentity,
+      customerId: customerIdentity,
+    };
+
+    // Tender UI is scoped to one exact sale/customer. Clear it even while the
+    // drawer is closed so a late provider response cannot revive the prior
+    // sale. Provider attempts remain server-side for Payments Health review.
+    activeHostedManualCardContextRef.current = null;
+    setTab(
+      amountDueCents < 0
+        ? !hasOriginalHelcimRefundReference
+          ? "cash"
+          : "card_credit"
+        : rmsPaymentCollectionMode
+          ? "cash"
+          : "card_terminal",
+    );
+    setKeypad("");
+    setGiftCardCode("");
+    setGiftCardPreview(null);
+    setGiftCardPreviewError(null);
+    setGiftCardPreviewLoading(false);
+    setDonationNote("");
+    setCheckNumber("");
+    setRefundOriginalTransactionId(originalHelcimRefundReference);
+    setRefundOriginalCardPresentConfirmed(false);
+    setCardRefundRoute("api");
+    setOfflineCardApprovalCode("");
+    setOfflineCardLast4("");
+    setOfflineCardReason("");
+    setManualRefundApprovalOpen(false);
+    setPendingManualRefundCents(null);
+    setHelcimAttempt(null);
+    setHelcimUnverifiedNotice(null);
+    setHelcimAttemptLoading(false);
+    setManualCardHandoffUrl(null);
+    setHelcimCards([]);
+    setSelectedHelcimCardToken("");
+    setHelcimCardsLoading(false);
+    setStoreCreditBalanceCents(null);
+    setStoreCreditLoading(false);
+    setStoreCreditError(null);
+    const saleTerminalRoute = providerSettings?.helcim_terminal_routing?.registers.find(
+      (route) => route.register_lane === normalizeRegisterLane(activeRegisterLane),
+    );
+    setSelectedTerminalKey(
+      saleTerminalRoute?.choice_required
+        ? ""
+        : saleTerminalRoute?.default_terminal_key ?? "",
+    );
+    setTerminalPickerOpen(false);
+    setTerminalOverrideConfirmed(false);
+    setIsTaxExempt(customerTaxExempt);
+    setTaxExemptReason(
+      customerTaxExempt
+        ? customerTaxExemptReason(customerTaxExemptId)
+        : "Out of State",
+    );
+    setTaxExemptNote("");
+    setRmsResolve(null);
+    setRmsSelectedAccount(null);
+    setRmsPrograms([]);
+    setRmsSelectedProgramCode(null);
+    setRmsReferenceNumber("");
+    setRmsSummary(null);
+    setRmsLoading(false);
+    setRmsProgramPickerOpen(false);
+    setStaffAccount(null);
+    setStaffAccountLoading(false);
+    setStaffAccountError(null);
+    savedCardIdempotencyKeyRef.current = null;
+    pendingHelcimCentsRef.current = 0;
+    pendingHelcimTenderRef.current = {
+      method: "card_terminal",
+      label: "HELCIM CARD",
+    };
+  }, [
+    activeRegisterLane,
+    amountDueCents,
+    checkoutIdentity,
+    customerIdentity,
+    customerTaxExempt,
+    customerTaxExemptId,
+    hasOriginalHelcimRefundReference,
+    originalHelcimRefundReference,
+    providerSettings?.helcim_terminal_routing?.registers,
+    rmsPaymentCollectionMode,
+  ]);
+
   const registerLane = useMemo(() => normalizeRegisterLane(activeRegisterLane), [activeRegisterLane]);
   const registerLaneUnavailable = registerLane === null;
   const registerTerminalRoute = useMemo(
@@ -1077,6 +1223,7 @@ export default function NexoCheckoutDrawer({
       setOfflineCardApprovalCode("");
       setOfflineCardLast4("");
       setOfflineCardReason("");
+      activeHostedManualCardContextRef.current = null;
       setHelcimAttempt(null);
       savedCardIdempotencyKeyRef.current = null;
       setHelcimUnverifiedNotice(null);
@@ -1178,6 +1325,7 @@ export default function NexoCheckoutDrawer({
 
   const loadRmsProgramsAndSummary = useCallback(async (account: RmsChargeAccountChoice) => {
     if (!customerId) return;
+    const requestedCustomerIdentity = customerIdentity;
     const params = new URLSearchParams({
       customer_id: customerId,
       account_id: account.link_id,
@@ -1191,6 +1339,7 @@ export default function NexoCheckoutDrawer({
     if (!res.ok) {
       throw new Error(data.error ?? "Could not load RMS Charge programs.");
     }
+    if (latestSaleIdentityRef.current.customerId !== requestedCustomerIdentity) return;
     const programs = Array.isArray(data.programs) ? data.programs : [];
     const eligiblePrograms = programs.filter((program) => program.eligible);
     setRmsPrograms(programs);
@@ -1204,7 +1353,7 @@ export default function NexoCheckoutDrawer({
     });
     setRmsSelectedProgramCode(eligiblePrograms.length === 1 ? eligiblePrograms[0].program_code : null);
     setRmsProgramPickerOpen(!rmsPaymentCollectionMode && eligiblePrograms.length > 1);
-  }, [backofficeHeaders, baseUrl, customerId, rmsPaymentCollectionMode]);
+  }, [backofficeHeaders, baseUrl, customerId, customerIdentity, rmsPaymentCollectionMode]);
 
   const selectRmsAccount = useCallback(async (account: RmsChargeAccountChoice) => {
     setRmsSelectedAccount(account);
@@ -1230,6 +1379,9 @@ export default function NexoCheckoutDrawer({
       setStaffAccountError(null);
       return;
     }
+    const requestedCustomerIdentity = customerIdentity;
+    const requestStillMatchesCustomer = () =>
+      latestSaleIdentityRef.current.customerId === requestedCustomerIdentity;
     setStaffAccountLoading(true);
     setStaffAccountError(null);
     try {
@@ -1241,14 +1393,16 @@ export default function NexoCheckoutDrawer({
         throw new Error("Could not check Staff Account.");
       }
       const account = (await res.json()) as StaffAccountSummary | null;
+      if (!requestStillMatchesCustomer()) return;
       setStaffAccount(account);
     } catch (error) {
+      if (!requestStillMatchesCustomer()) return;
       setStaffAccount(null);
       setStaffAccountError(error instanceof Error ? error.message : "Could not check Staff Account.");
     } finally {
-      setStaffAccountLoading(false);
+      if (requestStillMatchesCustomer()) setStaffAccountLoading(false);
     }
-  }, [backofficeHeaders, baseUrl, customerId]);
+  }, [backofficeHeaders, baseUrl, customerId, customerIdentity]);
 
   const resolveRmsAccount = useCallback(async () => {
     if (!customerId) {
@@ -1267,6 +1421,9 @@ export default function NexoCheckoutDrawer({
       return;
     }
 
+    const requestedCustomerIdentity = customerIdentity;
+    const requestStillMatchesCustomer = () =>
+      latestSaleIdentityRef.current.customerId === requestedCustomerIdentity;
     setRmsLoading(true);
     try {
       const params = new URLSearchParams({ customer_id: customerId });
@@ -1279,6 +1436,7 @@ export default function NexoCheckoutDrawer({
       if (!res.ok) {
         throw new Error(resolved.error ?? "Could not check RMS Charge.");
       }
+      if (!requestStillMatchesCustomer()) return;
       setRmsResolve(resolved);
       setRmsSummary(resolved.summary ?? null);
       if (resolved.resolution_status === "selected" && resolved.selected_account) {
@@ -1291,6 +1449,7 @@ export default function NexoCheckoutDrawer({
         setRmsProgramPickerOpen(false);
       }
     } catch (error) {
+      if (!requestStillMatchesCustomer()) return;
       const message =
         error instanceof Error ? error.message : "Could not check RMS Charge";
       setRmsResolve({
@@ -1308,9 +1467,16 @@ export default function NexoCheckoutDrawer({
       setRmsProgramPickerOpen(false);
       toast(message, "error");
     } finally {
-      setRmsLoading(false);
+      if (requestStillMatchesCustomer()) setRmsLoading(false);
     }
-  }, [backofficeHeaders, baseUrl, customerId, loadRmsProgramsAndSummary, toast]);
+  }, [
+    backofficeHeaders,
+    baseUrl,
+    customerId,
+    customerIdentity,
+    loadRmsProgramsAndSummary,
+    toast,
+  ]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -1367,6 +1533,22 @@ export default function NexoCheckoutDrawer({
       method: "card_terminal" | "card_manual" | "card_saved" | "card_credit" = "card_terminal",
       label = "HELCIM CARD",
     ) => {
+      const hostedManual = isHostedManualHelcimAttempt(attempt);
+      if (
+        hostedManual &&
+        !hostedManualCardContextMatches(
+          activeHostedManualCardContextRef.current,
+          attempt,
+          checkoutIdentity,
+          customerIdentity,
+        )
+      ) {
+        toast(
+          "This Card Not Present approval is not the exact attempt for this sale and customer. It was not added; review it in Payments Health.",
+          "error",
+        );
+        return false;
+      }
       if (!checkoutClientId || attempt.checkout_client_id !== checkoutClientId) {
         setHelcimAttempt(null);
         setHelcimUnverifiedNotice(null);
@@ -1379,7 +1561,6 @@ export default function NexoCheckoutDrawer({
         );
         return false;
       }
-      const hostedManual = isHostedManualHelcimAttempt(attempt);
       const isRefundAttempt =
         method === "card_credit" ||
         attempt.raw_audit_reference?.startsWith("helcim:terminalRefund") === true;
@@ -1391,6 +1572,7 @@ export default function NexoCheckoutDrawer({
           : pendingHelcimCentsRef.current;
       if (amtCents === 0) return false;
       if (hasAppliedHelcimAttempt(applied, attempt)) {
+        if (hostedManual) activeHostedManualCardContextRef.current = null;
         setKeypad("");
         setHelcimAttempt(null);
         setHelcimUnverifiedNotice(null);
@@ -1431,6 +1613,7 @@ export default function NexoCheckoutDrawer({
         ];
       });
       setKeypad("");
+      if (hostedManual) activeHostedManualCardContextRef.current = null;
       setHelcimAttempt(null);
       setHelcimUnverifiedNotice(null);
       setManualCardHandoffUrl(null);
@@ -1438,7 +1621,14 @@ export default function NexoCheckoutDrawer({
       pendingHelcimTenderRef.current = { method: "card_terminal", label: "HELCIM CARD" };
       return true;
     },
-    [applied, checkoutClientId, setApplied, toast],
+    [
+      applied,
+      checkoutClientId,
+      checkoutIdentity,
+      customerIdentity,
+      setApplied,
+      toast,
+    ],
   );
 
   const applyHelcimAttemptUpdate = useCallback(
@@ -1446,6 +1636,21 @@ export default function NexoCheckoutDrawer({
       attempt: HelcimAttempt,
       options: { quietFinal?: boolean; attachApproved?: boolean } = {},
     ) => {
+      if (
+        isHostedManualHelcimAttempt(attempt) &&
+        !hostedManualCardContextMatches(
+          activeHostedManualCardContextRef.current,
+          attempt,
+          checkoutIdentity,
+          customerIdentity,
+        )
+      ) {
+        toast(
+          "A Card Not Present update for another sale, customer, or attempt was not attached. Review it in Payments Health.",
+          "error",
+        );
+        return;
+      }
       setHelcimAttempt(attempt);
       setHelcimUnverifiedNotice(null);
       if (attempt.status === "approved" || attempt.status === "captured") {
@@ -1485,11 +1690,25 @@ export default function NexoCheckoutDrawer({
         }
       }
     },
-    [addApprovedHelcimAttempt, checkoutClientId, toast],
+    [
+      addApprovedHelcimAttempt,
+      checkoutClientId,
+      checkoutIdentity,
+      customerIdentity,
+      toast,
+    ],
   );
 
   const loadHelcimCards = useCallback(async () => {
     const code = customerCode?.trim();
+    const requestedSaleIdentity = { ...latestSaleIdentityRef.current };
+    const requestStillMatchesSale = () => {
+      const latest = latestSaleIdentityRef.current;
+      return (
+        latest.checkoutClientId === requestedSaleIdentity.checkoutClientId &&
+        latest.customerId === requestedSaleIdentity.customerId
+      );
+    };
     if (!code) {
       setHelcimCards([]);
       setSelectedHelcimCardToken("");
@@ -1512,6 +1731,7 @@ export default function NexoCheckoutDrawer({
             : "Could not load Helcim cards.";
         throw new Error(message);
       }
+      if (!requestStillMatchesSale()) return;
       const customer = firstHelcimCustomers(body)[0];
       const cards = Array.isArray(customer?.cards) ? customer.cards : [];
       setHelcimCards(cards);
@@ -1520,12 +1740,13 @@ export default function NexoCheckoutDrawer({
         cards[0];
       setSelectedHelcimCardToken(defaultCard?.cardToken ?? "");
     } catch (error) {
+      if (!requestStillMatchesSale()) return;
       const message = error instanceof Error ? error.message : "Could not load Helcim cards.";
       setHelcimCards([]);
       setSelectedHelcimCardToken("");
       toast(message, "error");
     } finally {
-      setHelcimCardsLoading(false);
+      if (requestStillMatchesSale()) setHelcimCardsLoading(false);
     }
   }, [backofficeHeaders, baseUrl, customerCode, toast]);
 
@@ -1556,6 +1777,17 @@ export default function NexoCheckoutDrawer({
           throw new Error(body.error ?? "Could not check card status.");
         }
         const attempt = (await res.json()) as HelcimAttempt;
+        if (
+          isHostedManualHelcimAttempt(attempt) &&
+          !hostedManualCardContextMatches(
+            activeHostedManualCardContextRef.current,
+            attempt,
+            latestSaleIdentityRef.current.checkoutClientId,
+            latestSaleIdentityRef.current.customerId,
+          )
+        ) {
+          return attempt;
+        }
         applyHelcimAttemptUpdate(attempt, { attachApproved: options.attachApproved });
         if (attempt.status === "pending" && !options.quietPending) {
           toast(
@@ -1579,7 +1811,10 @@ export default function NexoCheckoutDrawer({
         toast(message, "error");
         return null;
       } finally {
-        setHelcimAttemptLoading(false);
+        const activeHostedContext = activeHostedManualCardContextRef.current;
+        if (!activeHostedContext || activeHostedContext.attemptId === attemptId) {
+          setHelcimAttemptLoading(false);
+        }
       }
     },
     [applyHelcimAttemptUpdate, backofficeHeaders, baseUrl, toast],
@@ -1595,12 +1830,20 @@ export default function NexoCheckoutDrawer({
             type?: string;
             outcome?: "approved" | "failed" | "canceled" | "unverified";
             attempt_id?: string;
+            cnp_request_id?: string;
           }
         | undefined;
+      const activeContext = activeHostedManualCardContextRef.current;
+      const latestSaleIdentity = latestSaleIdentityRef.current;
       if (
         data?.source !== "riverside-os" ||
         !["helcim-card-not-present-outcome", "helcim-card-not-present-approved"].includes(data.type ?? "") ||
-        data.attempt_id !== attemptId
+        data.attempt_id !== attemptId ||
+        !activeContext ||
+        activeContext.attemptId !== attemptId ||
+        data.cnp_request_id !== activeContext.requestId ||
+        latestSaleIdentity.checkoutClientId !== activeContext.checkoutClientId ||
+        latestSaleIdentity.customerId !== activeContext.customerId
       ) {
         return;
       }
@@ -1730,6 +1973,7 @@ export default function NexoCheckoutDrawer({
           : Math.abs(attempt.amount_cents)
         : absRemainingCents;
       const hostedManual = attempt ? isHostedManualHelcimAttempt(attempt) : false;
+      if (hostedManual) activeHostedManualCardContextRef.current = null;
       setHelcimAttempt(null);
       setHelcimUnverifiedNotice(null);
       setManualCardHandoffUrl(null);
@@ -1780,6 +2024,7 @@ export default function NexoCheckoutDrawer({
   }, [clearHelcimAttemptForRetry, toast]);
 
   const clearHelcimAttemptState = useCallback(() => {
+    activeHostedManualCardContextRef.current = null;
     setHelcimAttempt(null);
     setHelcimUnverifiedNotice(null);
     setManualCardHandoffUrl(null);
@@ -1790,6 +2035,9 @@ export default function NexoCheckoutDrawer({
 
   const forceExitPendingHelcimAttempt = useCallback(() => {
     if (helcimAttempt?.status !== "pending") return;
+    if (isHostedManualHelcimAttempt(helcimAttempt)) {
+      activeHostedManualCardContextRef.current = null;
+    }
     setHelcimAttempt(null);
     setManualCardHandoffUrl(null);
     setTerminalPickerOpen(false);
@@ -1802,7 +2050,7 @@ export default function NexoCheckoutDrawer({
     );
     void loadProviderSettings();
     toast("Secure card entry closed. Choose another tender or review Payments Health before retrying the card.", "info");
-  }, [helcimAttempt?.status, loadProviderSettings, remainingCents, toast]);
+  }, [helcimAttempt, loadProviderSettings, remainingCents, toast]);
 
   const releaseHelcimAttempt = useCallback(
     async (attemptId: string) => {
@@ -1975,6 +2223,28 @@ export default function NexoCheckoutDrawer({
 
   const startHostedManualCardPayment = useCallback(
     async (amtCents: number) => {
+      if (!checkoutIdentity) {
+        toast(
+          "Card Not Present needs an active sale identity. Clear Sale and start the sale again, or use another tender.",
+          "error",
+        );
+        return;
+      }
+      const requestContext: HostedManualCardSaleContext = {
+        requestId: newId(),
+        checkoutClientId: checkoutIdentity,
+        customerId: customerIdentity,
+        amountCents: amtCents,
+        attemptId: null,
+      };
+      activeHostedManualCardContextRef.current = requestContext;
+
+      // Never let an approval or iframe from the prior request render while a
+      // new CNP initialize call is in flight. This is local UI cleanup only;
+      // provider attempts remain auditable in Payments Health.
+      setHelcimAttempt(null);
+      setHelcimUnverifiedNotice(null);
+      setManualCardHandoffUrl(null);
       setHelcimAttemptLoading(true);
       pendingHelcimCentsRef.current = amtCents;
       pendingHelcimTenderRef.current = {
@@ -1992,7 +2262,7 @@ export default function NexoCheckoutDrawer({
             amount_cents: amtCents,
             currency: "usd",
             register_session_id: registerSessionId ?? undefined,
-            checkout_client_id: checkoutClientId ?? undefined,
+            checkout_client_id: requestContext.checkoutClientId,
             hide_existing_payment_details: true,
           }),
         });
@@ -2015,23 +2285,78 @@ export default function NexoCheckoutDrawer({
             "Card Not Present needs the public HTTPS ROS checkout URL configured before Helcim secure card entry can open.",
           );
         }
+        const latestSaleIdentity = latestSaleIdentityRef.current;
+        if (
+          activeHostedManualCardContextRef.current?.requestId !== requestContext.requestId ||
+          latestSaleIdentity.checkoutClientId !== requestContext.checkoutClientId ||
+          latestSaleIdentity.customerId !== requestContext.customerId
+        ) {
+          toast(
+            "A Card Not Present request completed for the prior sale and was not attached here. Review it in Payments Health.",
+            "info",
+          );
+          return;
+        }
+        if (
+          body.attempt.checkout_client_id !== requestContext.checkoutClientId ||
+          body.attempt.amount_cents !== requestContext.amountCents
+        ) {
+          throw new Error(
+            "Helcim returned Card Not Present details for a different sale or amount. Nothing was attached; review Payments Health before retrying.",
+          );
+        }
+        const boundContext: HostedManualCardSaleContext = {
+          ...requestContext,
+          attemptId: body.attempt.id,
+        };
+        const boundHandoffUrl = bindHostedManualCardHandoff(
+          body.handoff_url,
+          body.attempt,
+          boundContext,
+        );
+        activeHostedManualCardContextRef.current = boundContext;
         setHelcimAttempt(body.attempt);
         setHelcimUnverifiedNotice(null);
-        setManualCardHandoffUrl(body.handoff_url);
+        setManualCardHandoffUrl(boundHandoffUrl);
         setKeypad("");
         toast("Secure Card Not Present entry opened inside ROS.", "info");
       } catch (error) {
+        if (activeHostedManualCardContextRef.current?.requestId !== requestContext.requestId) {
+          return;
+        }
+        activeHostedManualCardContextRef.current = null;
         pendingHelcimCentsRef.current = 0;
         pendingHelcimTenderRef.current = { method: "card_terminal", label: "HELCIM CARD" };
         setManualCardHandoffUrl(null);
+        setHelcimAttemptLoading(false);
         toast(error instanceof Error ? error.message : "Could not start Card Not Present.", "error");
       } finally {
-        setHelcimAttemptLoading(false);
+        if (activeHostedManualCardContextRef.current?.requestId === requestContext.requestId) {
+          setHelcimAttemptLoading(false);
+        }
       }
     },
-    [backofficeHeaders, baseUrl, checkoutClientId, registerSessionId, toast],
+    [
+      backofficeHeaders,
+      baseUrl,
+      checkoutIdentity,
+      customerIdentity,
+      registerSessionId,
+      toast,
+    ],
   );
 
+  const currentManualCardHandoffUrl =
+    manualCardHandoffUrl &&
+    helcimAttempt &&
+    hostedManualCardContextMatches(
+      activeHostedManualCardContextRef.current,
+      helcimAttempt,
+      checkoutIdentity,
+      customerIdentity,
+    )
+      ? manualCardHandoffUrl
+      : null;
   const hostedManualAttemptActive =
     helcimAttempt?.raw_audit_reference === "helcim-pay-js";
   useEffect(() => {
@@ -2327,6 +2652,67 @@ export default function NexoCheckoutDrawer({
         toast("Helcim refunds are not enabled yet.", "error");
         return;
       }
+      if (helcimAttempt?.status === "pending") {
+        const attemptCheckoutIdentity = helcimAttempt.checkout_client_id?.trim() ?? "";
+        const hostedManual = isHostedManualHelcimAttempt(helcimAttempt);
+        const hostedContextIsCurrent =
+          !hostedManual ||
+          hostedManualCardContextMatches(
+            activeHostedManualCardContextRef.current,
+            helcimAttempt,
+            checkoutIdentity,
+            customerIdentity,
+          );
+        const pendingAttemptIsCurrent =
+          Boolean(checkoutIdentity) &&
+          attemptCheckoutIdentity === checkoutIdentity &&
+          hostedContextIsCurrent;
+        const pendingAttemptIsDemonstrablyStale =
+          Boolean(checkoutIdentity && attemptCheckoutIdentity) &&
+          (attemptCheckoutIdentity !== checkoutIdentity || !hostedContextIsCurrent);
+
+        if (pendingAttemptIsCurrent || !pendingAttemptIsDemonstrablyStale) {
+          toast(
+            "A card request for this sale is still waiting. Recover or cancel that attempt before starting another card payment.",
+            "error",
+          );
+          return;
+        }
+
+        if (activeHostedManualCardContextRef.current?.attemptId === helcimAttempt.id) {
+          activeHostedManualCardContextRef.current = null;
+        }
+        setHelcimAttempt(null);
+        setHelcimUnverifiedNotice(null);
+        setManualCardHandoffUrl(null);
+        pendingHelcimCentsRef.current = 0;
+        pendingHelcimTenderRef.current = {
+          method: "card_terminal",
+          label: "HELCIM CARD",
+        };
+        toast(
+          "The prior sale's pending card request was removed from this checkout only. It remains visible in Payments Health.",
+          "info",
+        );
+      }
+      if (
+        helcimAttempt &&
+        (helcimAttempt.status === "approved" || helcimAttempt.status === "captured") &&
+        !hasAppliedHelcimAttempt(applied, helcimAttempt)
+      ) {
+        const restored = addApprovedHelcimAttempt(
+          helcimAttempt,
+          pendingHelcimTenderRef.current.method,
+          pendingHelcimTenderRef.current.label,
+        );
+        if (restored) {
+          toast(
+            "The approved Helcim payment was restored. Record it before starting another card request.",
+            "error",
+          );
+          return;
+        }
+      }
       if (tab === "card_saved") {
         if (!customerCode?.trim()) {
           toast("Attach a customer before using Helcim saved cards.", "error");
@@ -2341,26 +2727,6 @@ export default function NexoCheckoutDrawer({
       }
       if (tab !== "card_terminal" && tab !== "card_credit") {
         toast("Use Helcim card reader, terminal refund, Card Not Present, or saved card.", "error");
-        return;
-      }
-      if (
-        helcimAttempt &&
-        (helcimAttempt.status === "approved" || helcimAttempt.status === "captured") &&
-        !hasAppliedHelcimAttempt(applied, helcimAttempt)
-      ) {
-        addApprovedHelcimAttempt(
-          helcimAttempt,
-          pendingHelcimTenderRef.current.method,
-          pendingHelcimTenderRef.current.label,
-        );
-        toast(
-          "The approved Helcim payment was restored. Record it before starting another card request.",
-          "error",
-        );
-        return;
-      }
-      if (helcimAttempt?.status === "pending") {
-        toast("A card outcome is still waiting.", "error");
         return;
       }
       if (helcimAttemptOutcomeUnverified) {
@@ -2723,7 +3089,7 @@ export default function NexoCheckoutDrawer({
     setDonationNote("");
     setCheckNumber("");
     setRmsReferenceNumber("");
-  }, [giftCardCode, donationNote, checkNumber, remainingCents, cashRounding.rounded, tab, offlineCardApprovalCode, offlineCardLast4, offlineCardReason, providerSettings, providerSettingsLoading, helcimAttempt, helcimAttemptOutcomeUnverified, clearHelcimAttemptState, registerLaneUnavailable, registerTerminalRoute, selectedTerminalKey, selectedTerminalConfigured, selectedTerminalInUseBy, selectedTerminalInUseByOtherRegister, selectedTerminalNeedsOverride, terminalOverrideConfirmed, registerLane, registerSessionId, refundOriginalTransactionId, refundOriginalCardPresentConfirmed, cardRefundRoute, deferCardRefund, baseUrl, backofficeHeaders, customerId, customerCode, checkoutClientId, toast, applied, setApplied, addApprovedHelcimAttempt, rmsSelectedAccount, rmsPrograms, rmsSelectedProgramCode, rmsReferenceNumber, rmsSummary, rmsResolve, rmsPaymentCollectionMode, chargeSavedHelcimCard, fetchGiftCardPreview, loadProviderSettings, processHelcimApiRefund, startHostedManualCardPayment, storeCreditBalanceCents, storeCreditError, storeCreditLoading, staffAccount]);
+  }, [giftCardCode, donationNote, checkNumber, remainingCents, cashRounding.rounded, tab, offlineCardApprovalCode, offlineCardLast4, offlineCardReason, providerSettings, providerSettingsLoading, helcimAttempt, helcimAttemptOutcomeUnverified, clearHelcimAttemptState, registerLaneUnavailable, registerTerminalRoute, selectedTerminalKey, selectedTerminalConfigured, selectedTerminalInUseBy, selectedTerminalInUseByOtherRegister, selectedTerminalNeedsOverride, terminalOverrideConfirmed, registerLane, registerSessionId, refundOriginalTransactionId, refundOriginalCardPresentConfirmed, cardRefundRoute, deferCardRefund, baseUrl, backofficeHeaders, customerId, customerCode, checkoutClientId, checkoutIdentity, customerIdentity, toast, applied, setApplied, addApprovedHelcimAttempt, rmsSelectedAccount, rmsPrograms, rmsSelectedProgramCode, rmsReferenceNumber, rmsSummary, rmsResolve, rmsPaymentCollectionMode, chargeSavedHelcimCard, fetchGiftCardPreview, loadProviderSettings, processHelcimApiRefund, startHostedManualCardPayment, storeCreditBalanceCents, storeCreditError, storeCreditLoading, staffAccount]);
 
   const removePaymentLine = async (line: AppliedPaymentLine) => {
     if (isApprovedProviderPayment(line)) {
@@ -2748,13 +3114,15 @@ export default function NexoCheckoutDrawer({
       (helcimAttempt.status === "approved" || helcimAttempt.status === "captured") &&
       !hasAppliedHelcimAttempt(applied, helcimAttempt)
     ) {
-      addApprovedHelcimAttempt(
+      const restored = addApprovedHelcimAttempt(
         helcimAttempt,
         pendingHelcimTenderRef.current.method,
         pendingHelcimTenderRef.current.label,
       );
-      toast("Helcim payment approved. Review the attached payment, then Record Sale.", "info");
-      return;
+      if (restored) {
+        toast("Helcim payment approved. Review the attached payment, then Record Sale.", "info");
+        return;
+      }
     }
     const depositCents = parseMoneyToCents(appliedDepositAmount.trim());
 
@@ -3200,7 +3568,7 @@ export default function NexoCheckoutDrawer({
           </div>
         )}
 
-        {manualCardHandoffUrl ? (
+        {currentManualCardHandoffUrl ? (
           <div className="absolute inset-0 z-[260] flex flex-col bg-zinc-950/80 backdrop-blur-sm">
             <div className="flex shrink-0 flex-col gap-3 border-b border-white/10 bg-zinc-950 px-4 py-3 text-white sm:flex-row sm:items-center sm:justify-between">
               <div>
@@ -3226,7 +3594,7 @@ export default function NexoCheckoutDrawer({
                 <button
                   type="button"
                   onClick={() => {
-                    void openManualCardHandoffUrl(manualCardHandoffUrl).catch((error) => {
+                    void openManualCardHandoffUrl(currentManualCardHandoffUrl).catch((error) => {
                       toast(
                         error instanceof Error
                           ? error.message
@@ -3272,8 +3640,9 @@ export default function NexoCheckoutDrawer({
             </div>
             <div className="min-h-0 flex-1 bg-white">
               <iframe
+                key={currentManualCardHandoffUrl}
                 title="Helcim Card Not Present secure entry"
-                src={manualCardHandoffUrl}
+                src={currentManualCardHandoffUrl}
                 className="h-full w-full border-0 bg-white"
                 allow="payment *"
                 referrerPolicy="strict-origin-when-cross-origin"

@@ -14,6 +14,10 @@ declare global {
 type HandoffState = "idle" | "loading" | "ready" | "approved" | "canceled" | "error";
 type HandoffOutcome = "approved" | "failed" | "canceled" | "unverified";
 
+interface HandoffSaleContext {
+  cnp_request_id: string;
+}
+
 interface HelcimPayMessage {
   eventName?: string;
   eventStatus?: "SUCCESS" | "ABORTED" | "HIDE" | string;
@@ -144,12 +148,17 @@ function hasHelcimPayIframe(): boolean {
   return document.getElementById("helcimPayIframe") instanceof HTMLIFrameElement;
 }
 
-function postHandoffOutcome(attemptId: string, outcome: HandoffOutcome) {
+function postHandoffOutcome(
+  attemptId: string,
+  outcome: HandoffOutcome,
+  saleContext: HandoffSaleContext,
+) {
   const message = {
     source: "riverside-os",
     type: "helcim-card-not-present-outcome",
     outcome,
     attempt_id: attemptId,
+    ...saleContext,
   };
   window.parent?.postMessage(message, "*");
   window.opener?.postMessage(message, "*");
@@ -165,6 +174,12 @@ export default function HelcimManualCardHandoff() {
   const params = useMemo(() => new URLSearchParams(window.location.search), []);
   const attemptId = params.get("attempt_id")?.trim() ?? "";
   const checkoutToken = params.get("checkout_token")?.trim() ?? "";
+  const saleContext = useMemo<HandoffSaleContext>(
+    () => ({
+      cnp_request_id: params.get("ros_cnp_request_id")?.trim() ?? "",
+    }),
+    [params],
+  );
   const eventName = checkoutToken ? `helcim-pay-js-${checkoutToken}` : "";
   const [state, setState] = useState<HandoffState>("idle");
   const [message, setMessage] = useState("Ready to open secure Card Not Present entry in Helcim.");
@@ -210,19 +225,19 @@ export default function HelcimManualCardHandoff() {
           // parent immediately so the authoritative attempt amount is posted
           // to the checkout ledger, while the visible Add Payment control
           // remains available as an idempotent recovery action.
-          postHandoffOutcome(attemptId, "approved");
+          postHandoffOutcome(attemptId, "approved", saleContext);
           return;
         }
         pendingApprovalRef.current = null;
         if (body.status === "canceled") {
           setState("canceled");
           setMessage("Card entry canceled. Return to the register or retry.");
-          postHandoffOutcome(attemptId, "canceled");
+          postHandoffOutcome(attemptId, "canceled", saleContext);
           return;
         }
         setState("error");
         setMessage(body.safe_message ?? body.error_message ?? "Helcim did not approve this payment.");
-        postHandoffOutcome(attemptId, "failed");
+        postHandoffOutcome(attemptId, "failed", saleContext);
       } catch (error) {
         setState("error");
         setMessage(
@@ -230,16 +245,21 @@ export default function HelcimManualCardHandoff() {
             error instanceof Error ? error.message : ""
           }`.trim(),
         );
-        postHandoffOutcome(attemptId, "unverified");
+        postHandoffOutcome(attemptId, "unverified", saleContext);
       } finally {
         confirmationInFlightRef.current = false;
       }
     },
-    [attemptId, baseUrl, checkoutToken],
+    [attemptId, baseUrl, checkoutToken, saleContext],
   );
 
   useEffect(() => {
-    if (!attemptId || !checkoutToken || !eventName) {
+    if (
+      !attemptId ||
+      !checkoutToken ||
+      !eventName ||
+      !saleContext.cnp_request_id
+    ) {
       setState("error");
       setShowDomainDiagnostic(false);
       setMessage("Card Not Present link is missing payment details. Start Card Not Present again from the register.");
@@ -279,7 +299,7 @@ export default function HelcimManualCardHandoff() {
         setState("error");
         setShowDomainDiagnostic(false);
         setMessage("Card declined. Return to the register and retry when ready.");
-        postHandoffOutcome(attemptId, "failed");
+        postHandoffOutcome(attemptId, "failed", saleContext);
         return;
       }
       if (data.eventStatus === "HIDE") {
@@ -287,7 +307,7 @@ export default function HelcimManualCardHandoff() {
         setState("canceled");
         setShowDomainDiagnostic(false);
         setMessage("Card entry canceled. Return to the register or retry.");
-        postHandoffOutcome(attemptId, "canceled");
+        postHandoffOutcome(attemptId, "canceled", saleContext);
         return;
       }
       if (data.eventStatus !== "SUCCESS") {
@@ -295,7 +315,7 @@ export default function HelcimManualCardHandoff() {
         setState("error");
         setShowDomainDiagnostic(false);
         setMessage("Helcim did not approve this payment.");
-        postHandoffOutcome(attemptId, "failed");
+        postHandoffOutcome(attemptId, "failed", saleContext);
         return;
       }
 
@@ -330,11 +350,16 @@ export default function HelcimManualCardHandoff() {
         diagnosticTimerRef.current = null;
       }
     };
-  }, [attemptId, checkoutToken, confirmApprovedPayment, eventName]);
+  }, [attemptId, checkoutToken, confirmApprovedPayment, eventName, saleContext]);
 
   const openHelcimEntry = useCallback(() => {
     if (state === "approved" || iframeLaunchedRef.current) return;
-    if (!attemptId || !checkoutToken || !eventName) {
+    if (
+      !attemptId ||
+      !checkoutToken ||
+      !eventName ||
+      !saleContext.cnp_request_id
+    ) {
       setState("error");
       setShowDomainDiagnostic(false);
       setMessage("Card Not Present link is missing payment details. Start Card Not Present again from the register.");
@@ -409,7 +434,7 @@ export default function HelcimManualCardHandoff() {
         setShowDomainDiagnostic(true);
         setMessage(error instanceof Error ? error.message : HELCIM_DOMAIN_ERROR_MESSAGE);
       });
-  }, [attemptId, checkoutToken, eventName, state]);
+  }, [attemptId, checkoutToken, eventName, saleContext, state]);
 
   const statusTone =
     state === "approved"
@@ -423,8 +448,8 @@ export default function HelcimManualCardHandoff() {
   const addPaymentToSale = useCallback(() => {
     if (state !== "approved") return;
     setMessage("Sending the approved payment to the register...");
-    postHandoffOutcome(attemptId, "approved");
-  }, [attemptId, state]);
+    postHandoffOutcome(attemptId, "approved", saleContext);
+  }, [attemptId, saleContext, state]);
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-app-bg px-6 py-10 text-app-text">
@@ -529,7 +554,7 @@ export default function HelcimManualCardHandoff() {
               onClick={() => {
                 setState("canceled");
                 setMessage("Card entry canceled. Return to the register or retry.");
-                postHandoffOutcome(attemptId, "canceled");
+                postHandoffOutcome(attemptId, "canceled", saleContext);
               }}
             >
               Cancel Card Entry

@@ -65,6 +65,16 @@ export interface CheckoutQueueSummary {
   blockedCount: number;
 }
 
+export const CHECKOUT_RECOVERY_RESOLVED_EVENT =
+  "riverside:checkout-recovery-resolved";
+
+export interface CheckoutRecoveryResolvedDetail {
+  checkoutClientId: string;
+  recoveryKey: string;
+  transactionId?: string;
+  transactionDisplayId?: string;
+}
+
 // Ensure the local instance is safely namespaced.
 const checkoutStore = localforage.createInstance({
   name: "RiversideOS",
@@ -193,8 +203,23 @@ export async function syncCheckoutRecoveryWithServer(
   for (const { item, job } of mirrorResults) {
     if (!job) continue;
     if (job.status === "resolved") {
-      await removeQueuedCheckout(item.id);
-      changed = true;
+      const checkoutClientId = validRecoveryUuid(item.payload.checkout_client_id);
+      const serverCheckoutClientId = validRecoveryUuid(job.checkout_client_id);
+      const transactionId = validRecoveryUuid(job.transaction_id);
+      const recoveryKey = checkoutServerKeyForItem(item);
+      if (
+        checkoutClientId &&
+        serverCheckoutClientId === checkoutClientId &&
+        transactionId &&
+        job.client_job_key === recoveryKey
+      ) {
+        await clearLocallyRecoveredCheckout(recoveryKey, {
+          checkoutClientId,
+          recoveryKey,
+          transactionId,
+        });
+        changed = true;
+      }
       continue;
     }
     if (job.status !== "pending" && job.status !== "blocked") continue;
@@ -209,25 +234,6 @@ export async function syncCheckoutRecoveryWithServer(
 
   const server = await listCurrentRegisterRecoveryJobsAuthoritative(liveAuthHeaders);
   if (server === null) return;
-
-  // A resolved provider checkout can remain only in the local IndexedDB queue
-  // when its original recovery identity no longer matches the server row. If
-  // Main Hub authoritatively reports no open recovery jobs for this Register,
-  // remove that stale online-unconfirmed blocker. Pickup follow-up records are
-  // intentionally retained because they represent separate fulfillment work.
-  if (server.length === 0) {
-    let removedStaleLocalBlocker = false;
-    for (const item of await getCheckoutQueue()) {
-      if (
-        item.status === "blocked" &&
-        item.recoveryKind === "online_unconfirmed"
-      ) {
-        await removeQueuedCheckout(item.id);
-        removedStaleLocalBlocker = true;
-      }
-    }
-    if (removedStaleLocalBlocker) changed = true;
-  }
   const localIds = new Set((await getCheckoutQueue()).map((item) => item.id));
   for (const job of server) {
     if (!matchesCheckoutQueueKind(job.kind)) continue;
@@ -455,13 +461,54 @@ export async function dequeueCheckout(id: string): Promise<void> {
 /** Clear the local mirror after the audited server recovery endpoint succeeds. */
 export async function clearLocallyRecoveredCheckout(
   clientJobKey: string,
+  evidence?: CheckoutRecoveryResolvedDetail,
 ): Promise<void> {
   const prefix = "checkout:";
   if (!clientJobKey.startsWith(prefix)) return;
-  const id = clientJobKey.slice(prefix.length);
+  const items = await getCheckoutQueue();
+  const item = items.find(
+    (candidate) => checkoutServerKeyForItem(candidate) === clientJobKey,
+  );
+  const fallbackId = clientJobKey.slice(prefix.length);
+  const id = item?.id ?? fallbackId;
   if (!id) return;
+  const itemCheckoutClientId = item
+    ? validRecoveryUuid(item.payload.checkout_client_id)
+    : undefined;
+  const evidenceCheckoutClientId = evidence
+    ? validRecoveryUuid(evidence.checkoutClientId)
+    : undefined;
+  const transactionId = evidence
+    ? validRecoveryUuid(evidence.transactionId)
+    : undefined;
+  const transactionDisplayId = evidence?.transactionDisplayId?.trim();
+  if (
+    evidence &&
+    (!itemCheckoutClientId ||
+      evidenceCheckoutClientId !== itemCheckoutClientId ||
+      evidence.recoveryKey !== clientJobKey ||
+      (!transactionId && !transactionDisplayId))
+  ) {
+    return;
+  }
+
   await removeQueuedCheckout(id);
   window.dispatchEvent(new Event("queue_changed"));
+
+  if (!item || !evidence || !itemCheckoutClientId) return;
+  window.dispatchEvent(
+    new CustomEvent<CheckoutRecoveryResolvedDetail>(
+      CHECKOUT_RECOVERY_RESOLVED_EVENT,
+      {
+        detail: {
+          checkoutClientId: itemCheckoutClientId,
+          recoveryKey: clientJobKey,
+          ...(transactionId ? { transactionId } : {}),
+          ...(transactionDisplayId ? { transactionDisplayId } : {}),
+        },
+      },
+    ),
+  );
 }
 
 export async function updateQueuedCheckout(

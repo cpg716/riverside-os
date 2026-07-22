@@ -5,6 +5,7 @@ use axum::{
     routing::{get, patch, post},
     Json, Router,
 };
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use uuid::Uuid;
@@ -118,6 +119,73 @@ struct ExternalRecoveryResolutionRequest {
     reason: String,
     target_transaction_display_id: String,
     provider_transaction_id: String,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct ExternalRecoveryJobEvidence {
+    kind: String,
+    status: String,
+    payload: Value,
+    register_session_id: Option<Uuid>,
+    transaction_id: Option<Uuid>,
+    checkout_client_id: Option<Uuid>,
+    resolved_by_staff_id: Option<Uuid>,
+    resolution_note: Option<String>,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct ExternalPaymentAttemptEvidence {
+    id: Uuid,
+    status: String,
+    amount_cents: i64,
+    currency: String,
+    register_session_id: Option<Uuid>,
+    staff_id: Option<Uuid>,
+    provider_payment_id: Option<String>,
+    provider_transaction_id: Option<String>,
+    error_code: Option<String>,
+    completed_at: Option<chrono::DateTime<chrono::Utc>>,
+    checkout_client_id: Option<Uuid>,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct ExternalTargetTransactionEvidence {
+    id: Uuid,
+    status: String,
+    customer_id: Option<Uuid>,
+    register_session_id: Option<Uuid>,
+    checkout_client_id: Option<Uuid>,
+    total_price: Decimal,
+    amount_paid: Decimal,
+    checkout_request_fingerprint: Option<String>,
+    checkout_payment_fingerprint: Option<String>,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct ExternalTargetPaymentEvidence {
+    id: Uuid,
+    session_id: Option<Uuid>,
+    payer_id: Option<Uuid>,
+    status: Option<String>,
+    amount: Decimal,
+    provider_payment_id: Option<String>,
+    provider_status: Option<String>,
+    provider_transaction_id: Option<String>,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct ExternalTargetPaymentAllocationEvidence {
+    target_transaction_id: Uuid,
+    amount_allocated: Decimal,
+}
+
+#[derive(Debug)]
+struct ExternalPayloadPaymentEvidence {
+    amount: Decimal,
+    provider_attempt_id: Option<Uuid>,
+    provider_payment_id: Option<String>,
+    provider_transaction_id: Option<String>,
+    provider_status: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -602,40 +670,147 @@ async fn replay_checkout_recovery_job(
     .bind(transaction_id)
     .fetch_one(&mut *tx)
     .await?;
-    let post_close = session_was_closed_during_checkout
+    let current_post_close = session_was_closed_during_checkout
         .unwrap_or_else(|| existing_post_close_evidence || session_closed_at.is_some());
     let audit_idempotency_key =
         format!("register-checkout-recovery:{client_job_key}:{transaction_id}");
+    let (
+        audit_staff_id,
+        audit_reason,
+        post_close,
+        audited_legacy_committed_without_replay,
+        idempotent_replay,
+    ) = match locked_status.as_str() {
+        "pending" | "blocked" => (
+            manager.id,
+            reason.to_string(),
+            current_post_close,
+            legacy_committed_without_replay,
+            false,
+        ),
+        "resolved" => {
+            if locked_transaction_id != Some(transaction_id) {
+                return Err(RecoveryError::BadRequest(
+                    "checkout recovery was resolved against a different Transaction Record"
+                        .to_string(),
+                ));
+            }
+            let original_manager_id = locked_resolved_by_staff_id.ok_or_else(|| {
+                RecoveryError::BadRequest(
+                    "resolved checkout recovery is missing its original Manager identity"
+                        .to_string(),
+                )
+            })?;
+            let original_reason = locked_resolution_note
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| {
+                    RecoveryError::BadRequest(
+                        "resolved checkout recovery is missing its original Manager reason"
+                            .to_string(),
+                    )
+                })?;
+            let original_audit_core = json!({
+                "client_job_key": &client_job_key,
+                "register_session_id": recovery_session_id,
+                "transaction_id": transaction_id,
+                "transaction_display_id": &display_id,
+                "reason": original_reason,
+            });
+            let original_audit_facts: Option<(Option<bool>, Option<bool>)> = sqlx::query_as(
+                r#"
+                SELECT
+                    CASE
+                        WHEN jsonb_typeof(metadata->'post_close') = 'boolean'
+                            THEN (metadata->>'post_close')::boolean
+                        ELSE NULL
+                    END,
+                    CASE
+                        WHEN jsonb_typeof(metadata->'legacy_committed_without_replay') = 'boolean'
+                            THEN (metadata->>'legacy_committed_without_replay')::boolean
+                        ELSE NULL
+                    END
+                FROM staff_access_log
+                WHERE idempotency_key = $1
+                  AND staff_id = $2
+                  AND event_kind = 'register_checkout_recovery'
+                  AND metadata @> $3
+                "#,
+            )
+            .bind(&audit_idempotency_key)
+            .bind(original_manager_id)
+            .bind(&original_audit_core)
+            .fetch_optional(&mut *tx)
+            .await?;
+            let Some((Some(original_post_close), Some(original_legacy_committed))) =
+                original_audit_facts
+            else {
+                return Err(RecoveryError::BadRequest(
+                    "resolved checkout recovery is missing its required exact Manager audit"
+                        .to_string(),
+                ));
+            };
+            if original_legacy_committed != legacy_committed_without_replay
+                || existing_post_close_evidence != original_post_close
+                || session_was_closed_during_checkout.is_some_and(|closed_during_checkout| {
+                    closed_during_checkout != original_post_close
+                })
+            {
+                return Err(RecoveryError::BadRequest(
+                    "resolved checkout recovery audit conflicts with its durable checkout evidence"
+                        .to_string(),
+                ));
+            }
+            (
+                original_manager_id,
+                original_reason.to_string(),
+                original_post_close,
+                original_legacy_committed,
+                true,
+            )
+        }
+        _ => {
+            return Err(RecoveryError::BadRequest(
+                "checkout recovery job is already closed".to_string(),
+            ));
+        }
+    };
     let audit_metadata = json!({
         "client_job_key": &client_job_key,
         "register_session_id": recovery_session_id,
         "transaction_id": transaction_id,
         "transaction_display_id": &display_id,
         "post_close": post_close,
-        "legacy_committed_without_replay": legacy_committed_without_replay,
-        "reason": reason,
+        "legacy_committed_without_replay": audited_legacy_committed_without_replay,
+        "reason": &audit_reason,
     });
 
-    match locked_status.as_str() {
-        "pending" | "blocked" => {
-            sqlx::query(
-                r#"
+    if !idempotent_replay {
+        let updated = sqlx::query(
+            r#"
                 UPDATE operational_recovery_job
                 SET status = 'resolved', resolved_at = now(), resolved_by_staff_id = $2,
                     resolution_note = $3, transaction_id = $4, last_seen_at = now()
                 WHERE client_job_key = $1
+                  AND status IN ('pending', 'blocked')
                 "#,
-            )
-            .bind(&client_job_key)
-            .bind(manager.id)
-            .bind(reason)
-            .bind(transaction_id)
-            .execute(&mut *tx)
-            .await?;
+        )
+        .bind(&client_job_key)
+        .bind(audit_staff_id)
+        .bind(&audit_reason)
+        .bind(transaction_id)
+        .execute(&mut *tx)
+        .await?;
+        if updated.rows_affected() != 1 {
+            return Err(RecoveryError::BadRequest(
+                "checkout recovery changed before audited finalization".to_string(),
+            ));
+        }
 
-            if post_close {
-                sqlx::query(
-                    r#"
+        if post_close {
+            sqlx::query(
+                r#"
                     INSERT INTO register_post_close_checkout_recovery (
                         recovery_client_job_key, register_session_id, transaction_id,
                         recovered_by_staff_id, manager_reason, metadata
@@ -643,46 +818,29 @@ async fn replay_checkout_recovery_job(
                     VALUES ($1, $2, $3, $4, $5, $6)
                     ON CONFLICT (recovery_client_job_key) DO NOTHING
                     "#,
-                )
-                .bind(&client_job_key)
-                .bind(recovery_session_id)
-                .bind(transaction_id)
-                .bind(manager.id)
-                .bind(reason)
-                .bind(json!({
-                    "kind": &kind,
-                    "transaction_display_id": &display_id,
-                    "original_closed_at": session_closed_at,
-                }))
-                .execute(&mut *tx)
-                .await?;
-            }
-
-            pins::log_staff_access_once(
-                &mut *tx,
-                manager.id,
-                "register_checkout_recovery",
-                audit_metadata.clone(),
-                &audit_idempotency_key,
             )
+            .bind(&client_job_key)
+            .bind(recovery_session_id)
+            .bind(transaction_id)
+            .bind(audit_staff_id)
+            .bind(&audit_reason)
+            .bind(json!({
+                "kind": &kind,
+                "transaction_display_id": &display_id,
+                "original_closed_at": session_closed_at,
+            }))
+            .execute(&mut *tx)
             .await?;
         }
-        "resolved" => {
-            if locked_transaction_id != Some(transaction_id)
-                || locked_resolved_by_staff_id != Some(manager.id)
-                || locked_resolution_note.as_deref() != Some(reason)
-            {
-                return Err(RecoveryError::BadRequest(
-                    "checkout recovery was resolved with different Manager approval evidence"
-                        .to_string(),
-                ));
-            }
-        }
-        _ => {
-            return Err(RecoveryError::BadRequest(
-                "checkout recovery job is already closed".to_string(),
-            ));
-        }
+
+        pins::log_staff_access_once(
+            &mut *tx,
+            audit_staff_id,
+            "register_checkout_recovery",
+            audit_metadata.clone(),
+            &audit_idempotency_key,
+        )
+        .await?;
     }
 
     let exact_audit_exists: bool = sqlx::query_scalar(
@@ -698,7 +856,7 @@ async fn replay_checkout_recovery_job(
         "#,
     )
     .bind(&audit_idempotency_key)
-    .bind(manager.id)
+    .bind(audit_staff_id)
     .bind(&audit_metadata)
     .fetch_one(&mut *tx)
     .await?;
@@ -724,8 +882,8 @@ async fn replay_checkout_recovery_job(
         .bind(&client_job_key)
         .bind(recovery_session_id)
         .bind(transaction_id)
-        .bind(manager.id)
-        .bind(reason)
+        .bind(audit_staff_id)
+        .bind(&audit_reason)
         .fetch_one(&mut *tx)
         .await?;
         if !exact_post_close_evidence_exists {
@@ -742,8 +900,75 @@ async fn replay_checkout_recovery_job(
         "transaction_id": transaction_id,
         "transaction_display_id": display_id,
         "post_close_recovery": post_close,
-        "legacy_committed_without_replay": legacy_committed_without_replay,
+        "legacy_committed_without_replay": audited_legacy_committed_without_replay,
+        "idempotent_replay": idempotent_replay,
     })))
+}
+
+fn external_recovery_blocked(detail: &str) -> RecoveryError {
+    RecoveryError::BadRequest(format!(
+        "Checkout recovery remains blocked: {detail}. Review the original sale and Helcim approval in Payments Health, then retry with the exact Transaction Record and provider transaction."
+    ))
+}
+
+fn external_payment_metadata_text(metadata: Option<&Value>, key: &str) -> Option<String> {
+    metadata
+        .and_then(|value| value.get(key))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn is_final_successful_helcim_status(status: &str) -> bool {
+    matches!(
+        status.trim().to_ascii_lowercase().as_str(),
+        "approved"
+            | "approval"
+            | "captured"
+            | "capture"
+            | "settled"
+            | "success"
+            | "succeeded"
+            | "completed"
+            | "complete"
+    )
+}
+
+fn external_payload_payment_evidence(
+    checkout: &CheckoutRequest,
+) -> Vec<ExternalPayloadPaymentEvidence> {
+    checkout
+        .payment_splits
+        .as_deref()
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|split| {
+            let metadata = split.metadata.as_ref();
+            let provider = external_payment_metadata_text(metadata, "payment_provider")
+                .or_else(|| external_payment_metadata_text(metadata, "provider"))?;
+            if !provider.eq_ignore_ascii_case("helcim") {
+                return None;
+            }
+            Some(ExternalPayloadPaymentEvidence {
+                amount: split.amount.round_dp(2),
+                provider_attempt_id: external_payment_metadata_text(
+                    metadata,
+                    "payment_provider_attempt_id",
+                )
+                .and_then(|value| Uuid::parse_str(&value).ok()),
+                provider_payment_id: external_payment_metadata_text(
+                    metadata,
+                    "provider_payment_id",
+                ),
+                provider_transaction_id: external_payment_metadata_text(
+                    metadata,
+                    "provider_transaction_id",
+                ),
+                provider_status: external_payment_metadata_text(metadata, "provider_status"),
+            })
+        })
+        .collect()
 }
 
 async fn resolve_externally_reconciled_checkout(
@@ -761,9 +986,14 @@ async fn resolve_externally_reconciled_checkout(
     }
     let target_display_id = request.target_transaction_display_id.trim();
     let provider_transaction_id = request.provider_transaction_id.trim();
-    if target_display_id.is_empty() || provider_transaction_id.is_empty() {
+    if target_display_id.is_empty()
+        || provider_transaction_id.is_empty()
+        || target_display_id.len() > 255
+        || provider_transaction_id.len() > 255
+    {
         return Err(RecoveryError::BadRequest(
-            "target Transaction Record and provider transaction are required".to_string(),
+            "target Transaction Record and provider transaction must contain 1 to 255 characters"
+                .to_string(),
         ));
     }
     let manager = pins::authenticate_staff_by_id(
@@ -781,9 +1011,10 @@ async fn resolve_externally_reconciled_checkout(
     }
 
     let mut tx = state.db.begin().await?;
-    let job: Option<(String, String)> = sqlx::query_as(
+    let job: Option<ExternalRecoveryJobEvidence> = sqlx::query_as(
         r#"
-        SELECT kind, status
+        SELECT kind, status, payload, register_session_id, transaction_id,
+               checkout_client_id, resolved_by_staff_id, resolution_note
         FROM operational_recovery_job
         WHERE client_job_key = $1
         FOR UPDATE
@@ -792,83 +1023,403 @@ async fn resolve_externally_reconciled_checkout(
     .bind(&client_job_key)
     .fetch_optional(&mut *tx)
     .await?;
-    let Some((kind, status)) = job else {
+    let Some(job) = job else {
         return Err(RecoveryError::NotFound);
     };
-    if kind != "checkout_unconfirmed" {
+    if job.kind != "checkout_unconfirmed" {
         return Err(RecoveryError::BadRequest(
             "only an unconfirmed checkout recovery can be externally reconciled".to_string(),
         ));
     }
-    if !matches!(status.as_str(), "pending" | "blocked") {
+    if !matches!(job.status.as_str(), "pending" | "blocked" | "resolved") {
         return Err(RecoveryError::BadRequest(
             "checkout recovery job is already closed".to_string(),
         ));
     }
 
-    let transaction_id: Option<Uuid> = sqlx::query_scalar(
+    let checkout: CheckoutRequest =
+        serde_json::from_value(job.payload.get("payload").cloned().ok_or_else(|| {
+            external_recovery_blocked("the immutable checkout payload is missing")
+        })?)
+        .map_err(|_| external_recovery_blocked("the immutable checkout payload is invalid"))?;
+    if job
+        .register_session_id
+        .is_some_and(|session_id| session_id != checkout.session_id)
+    {
+        return Err(external_recovery_blocked(
+            "the recovery job and immutable checkout payload identify different Register sessions",
+        ));
+    }
+    if job
+        .checkout_client_id
+        .is_some_and(|checkout_client_id| checkout.checkout_client_id != Some(checkout_client_id))
+    {
+        return Err(external_recovery_blocked(
+            "the recovery job and immutable checkout payload identify different checkouts",
+        ));
+    }
+    let recovery_session_id = job.register_session_id.unwrap_or(checkout.session_id);
+    let recovery_checkout_client_id = job.checkout_client_id.or(checkout.checkout_client_id);
+    let (request_fingerprint, payment_fingerprint) = checkout_request_fingerprints(&checkout)
+        .map_err(|_| external_recovery_blocked("the checkout evidence cannot be fingerprinted"))?;
+
+    let mut attempts: Vec<ExternalPaymentAttemptEvidence> = sqlx::query_as(
         r#"
-        SELECT t.id
-        FROM transactions t
-        INNER JOIN payment_allocations pa ON pa.target_transaction_id = t.id
-        INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
-        WHERE t.display_id = $1
-          AND t.status = 'fulfilled'::order_status
-          AND t.amount_paid >= t.total_price
-          AND pa.amount_allocated > 0
-          AND pt.payment_provider = 'helcim'
-          AND pt.provider_transaction_id = $2
-        LIMIT 1
+        SELECT id, status, amount_cents, currency, register_session_id, staff_id,
+               provider_payment_id, provider_transaction_id, error_code, completed_at,
+               checkout_client_id
+        FROM payment_provider_attempts
+        WHERE LOWER(BTRIM(provider)) = 'helcim'
+          AND provider_transaction_id = $1
+        ORDER BY created_at DESC
+        FOR UPDATE
+        "#,
+    )
+    .bind(provider_transaction_id)
+    .fetch_all(&mut *tx)
+    .await?;
+    if attempts.len() != 1 {
+        return Err(external_recovery_blocked(
+            "the provider transaction does not identify exactly one Helcim payment attempt",
+        ));
+    }
+    let attempt = attempts.pop().expect("one exact payment attempt");
+    if !matches!(attempt.status.as_str(), "approved" | "captured")
+        || attempt.completed_at.is_none()
+        || attempt.error_code.is_some()
+    {
+        return Err(external_recovery_blocked(
+            "the Helcim payment attempt is not a final successful approval",
+        ));
+    }
+    if !attempt.currency.trim().eq_ignore_ascii_case("usd") {
+        return Err(external_recovery_blocked(
+            "the Helcim payment attempt is not explicitly recorded in USD",
+        ));
+    }
+    if attempt.register_session_id != Some(recovery_session_id) {
+        return Err(external_recovery_blocked(
+            "the Helcim payment attempt belongs to a different or unknown Register session",
+        ));
+    }
+    if let Some(checkout_client_id) = recovery_checkout_client_id {
+        if attempt.checkout_client_id != Some(checkout_client_id) {
+            return Err(external_recovery_blocked(
+                "the Helcim payment attempt belongs to a different or unknown checkout",
+            ));
+        }
+    }
+    if attempt
+        .staff_id
+        .is_some_and(|staff_id| staff_id != checkout.operator_staff_id)
+    {
+        return Err(external_recovery_blocked(
+            "the Helcim payment attempt identifies a different sale operator",
+        ));
+    }
+
+    let matching_payload_payments = external_payload_payment_evidence(&checkout)
+        .into_iter()
+        .filter(|payment| {
+            payment.provider_transaction_id.as_deref() == Some(provider_transaction_id)
+                || payment.provider_attempt_id == Some(attempt.id)
+                || (payment.provider_payment_id.is_some()
+                    && payment.provider_payment_id == attempt.provider_payment_id)
+        })
+        .collect::<Vec<_>>();
+    if matching_payload_payments.len() != 1 {
+        return Err(external_recovery_blocked(
+            "the immutable checkout payload does not identify exactly one matching Helcim tender",
+        ));
+    }
+    let payload_payment = &matching_payload_payments[0];
+    if payload_payment
+        .provider_transaction_id
+        .as_deref()
+        .is_some_and(|value| value != provider_transaction_id)
+        || payload_payment
+            .provider_attempt_id
+            .is_some_and(|value| value != attempt.id)
+        || payload_payment
+            .provider_payment_id
+            .as_deref()
+            .is_some_and(|value| attempt.provider_payment_id.as_deref() != Some(value))
+        || payload_payment
+            .provider_status
+            .as_deref()
+            .is_some_and(|value| !is_final_successful_helcim_status(value))
+    {
+        return Err(external_recovery_blocked(
+            "the immutable checkout tender conflicts with the final Helcim approval",
+        ));
+    }
+    if payload_payment.amount <= Decimal::ZERO
+        || Decimal::new(attempt.amount_cents, 2) != payload_payment.amount
+    {
+        return Err(external_recovery_blocked(
+            "the immutable checkout tender amount does not match the Helcim approval",
+        ));
+    }
+
+    let target: Option<ExternalTargetTransactionEvidence> = sqlx::query_as(
+        r#"
+        SELECT id, status::text AS status, customer_id, register_session_id,
+               checkout_client_id, total_price, amount_paid,
+               checkout_request_fingerprint, checkout_payment_fingerprint
+        FROM transactions
+        WHERE display_id = $1
+        FOR UPDATE
         "#,
     )
     .bind(target_display_id)
-    .bind(provider_transaction_id)
     .fetch_optional(&mut *tx)
     .await?;
-    let Some(transaction_id) = transaction_id else {
-        return Err(RecoveryError::BadRequest(
-            "the supplied Helcim approval is not matched to a fulfilled, fully paid Transaction Record".to_string(),
+    let Some(target) = target else {
+        return Err(external_recovery_blocked(
+            "the target Transaction Record does not exist",
+        ));
+    };
+    if job.transaction_id.is_some_and(|value| value != target.id) {
+        return Err(external_recovery_blocked(
+            "the recovery job is already linked to a different Transaction Record",
+        ));
+    }
+    if !matches!(
+        target.status.as_str(),
+        "open" | "fulfilled" | "pending_measurement"
+    ) || target.total_price.round_dp(2) != checkout.total_price.round_dp(2)
+        || target.amount_paid.round_dp(2) != checkout.amount_paid.round_dp(2)
+    {
+        return Err(external_recovery_blocked(
+            "the target Transaction Record is not the exact committed checkout",
+        ));
+    }
+    if target.customer_id != checkout.customer_id {
+        return Err(external_recovery_blocked(
+            "the target Transaction Record belongs to a different customer",
+        ));
+    }
+    if target.register_session_id != Some(recovery_session_id) {
+        return Err(external_recovery_blocked(
+            "the target Transaction Record belongs to a different or unknown Register session",
+        ));
+    }
+    if let Some(checkout_client_id) = recovery_checkout_client_id {
+        if target.checkout_client_id != Some(checkout_client_id) {
+            return Err(external_recovery_blocked(
+                "the target Transaction Record belongs to a different or unknown checkout",
+            ));
+        }
+    }
+    let fingerprints_exact = match (
+        target.checkout_request_fingerprint.as_deref(),
+        target.checkout_payment_fingerprint.as_deref(),
+    ) {
+        (Some(stored_request), Some(stored_payment)) => {
+            if stored_request != request_fingerprint || stored_payment != payment_fingerprint {
+                return Err(external_recovery_blocked(
+                    "the target Transaction Record fingerprints do not match the immutable checkout",
+                ));
+            }
+            true
+        }
+        (None, None) => false,
+        _ => {
+            return Err(external_recovery_blocked(
+                "the target Transaction Record has incomplete checkout fingerprints",
+            ));
+        }
+    };
+    if recovery_checkout_client_id.is_none() && !fingerprints_exact {
+        return Err(external_recovery_blocked(
+            "legacy evidence lacks both an exact checkout identity and exact checkout fingerprints",
+        ));
+    }
+
+    let mut payments: Vec<ExternalTargetPaymentEvidence> = sqlx::query_as(
+        r#"
+        SELECT pt.id, pt.session_id, pt.payer_id, pt.status, pt.amount,
+               pt.provider_payment_id, pt.provider_status, pt.provider_transaction_id
+        FROM payment_transactions pt
+        WHERE LOWER(BTRIM(COALESCE(pt.payment_provider, ''))) = 'helcim'
+          AND pt.provider_transaction_id = $1
+        FOR UPDATE
+        "#,
+    )
+    .bind(provider_transaction_id)
+    .fetch_all(&mut *tx)
+    .await?;
+    if payments.len() != 1 {
+        return Err(external_recovery_blocked(
+            "the provider transaction does not identify exactly one normalized Helcim payment ledger row",
+        ));
+    }
+    let payment = payments.pop().expect("one exact target payment");
+    let mut allocations: Vec<ExternalTargetPaymentAllocationEvidence> = sqlx::query_as(
+        r#"
+        SELECT target_transaction_id, amount_allocated
+        FROM payment_allocations
+        WHERE transaction_id = $1
+        FOR UPDATE
+        "#,
+    )
+    .bind(payment.id)
+    .fetch_all(&mut *tx)
+    .await?;
+    if allocations.len() != 1 {
+        return Err(external_recovery_blocked(
+            "the matched Helcim payment ledger row does not have exactly one allocation",
+        ));
+    }
+    let allocation = allocations.pop().expect("one exact payment allocation");
+    if allocation.target_transaction_id != target.id {
+        return Err(external_recovery_blocked(
+            "the provider transaction is allocated to a different Transaction Record",
+        ));
+    }
+    if payment.status.as_deref() != Some("success")
+        || !payment
+            .provider_status
+            .as_deref()
+            .is_some_and(is_final_successful_helcim_status)
+    {
+        return Err(external_recovery_blocked(
+            "the matched payment ledger row is not in a final successful provider state",
+        ));
+    }
+    if payment.session_id != Some(recovery_session_id) || payment.payer_id != checkout.customer_id {
+        return Err(external_recovery_blocked(
+            "the matched payment ledger row belongs to a different Register session or customer",
+        ));
+    }
+    if payment.amount.round_dp(2) != payload_payment.amount
+        || allocation.amount_allocated.round_dp(2) != payload_payment.amount
+        || allocation.amount_allocated <= Decimal::ZERO
+    {
+        return Err(external_recovery_blocked(
+            "the matched payment ledger amount does not equal the immutable Helcim tender",
+        ));
+    }
+    if payment.provider_transaction_id.as_deref() != Some(provider_transaction_id)
+        || attempt.provider_transaction_id.as_deref() != Some(provider_transaction_id)
+        || attempt.provider_payment_id.is_some()
+            && payment.provider_payment_id != attempt.provider_payment_id
+    {
+        return Err(external_recovery_blocked(
+            "the matched payment ledger provider references conflict with the Helcim attempt",
         ));
     };
 
-    let audit_idempotency_key =
-        format!("register-checkout-recovery-external:{client_job_key}:{transaction_id}");
+    let audit_idempotency_key = format!(
+        "register-checkout-recovery-external:{client_job_key}:{}",
+        target.id
+    );
+    let (idempotent_replay, audit_staff_id, audit_reason) =
+        if matches!(job.status.as_str(), "pending" | "blocked") {
+            (false, manager.id, reason.to_string())
+        } else {
+            if job.transaction_id != Some(target.id) {
+                return Err(external_recovery_blocked(
+                    "the recovery job was resolved against a different Transaction Record",
+                ));
+            }
+            let original_manager_id = job.resolved_by_staff_id.ok_or_else(|| {
+                external_recovery_blocked(
+                    "the resolved recovery job is missing its original Manager identity",
+                )
+            })?;
+            let original_reason = job
+                .resolution_note
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| {
+                    external_recovery_blocked(
+                        "the resolved recovery job is missing its original Manager reason",
+                    )
+                })?;
+            (true, original_manager_id, original_reason.to_string())
+        };
     let audit_metadata = json!({
         "client_job_key": &client_job_key,
-        "transaction_id": transaction_id,
+        "transaction_id": target.id,
         "transaction_display_id": target_display_id,
+        "register_session_id": recovery_session_id,
+        "checkout_client_id": recovery_checkout_client_id,
+        "customer_id": checkout.customer_id,
+        "payment_transaction_id": payment.id,
+        "payment_provider_attempt_id": attempt.id,
+        "payment_amount": payload_payment.amount,
+        "currency": attempt.currency.trim().to_ascii_lowercase(),
+        "provider_payment_id": attempt.provider_payment_id,
         "provider_transaction_id": provider_transaction_id,
+        "checkout_request_fingerprint": request_fingerprint,
+        "checkout_payment_fingerprint": payment_fingerprint,
+        "target_fingerprints_verified": fingerprints_exact,
         "resolution_path": "externally_reconciled_payment",
+        "reason": &audit_reason,
     });
-    sqlx::query(
+    if !idempotent_replay {
+        let updated = sqlx::query(
+            r#"
+            UPDATE operational_recovery_job
+            SET status = 'resolved', resolved_at = now(), resolved_by_staff_id = $2,
+                resolution_note = $3, transaction_id = $4, last_seen_at = now()
+            WHERE client_job_key = $1
+              AND status IN ('pending', 'blocked')
+            "#,
+        )
+        .bind(&client_job_key)
+        .bind(audit_staff_id)
+        .bind(&audit_reason)
+        .bind(target.id)
+        .execute(&mut *tx)
+        .await?;
+        if updated.rows_affected() != 1 {
+            return Err(external_recovery_blocked(
+                "the recovery job changed before it could be resolved",
+            ));
+        }
+        pins::log_staff_access_once(
+            &mut *tx,
+            audit_staff_id,
+            "register_checkout_recovery_external_resolved",
+            audit_metadata.clone(),
+            &audit_idempotency_key,
+        )
+        .await?;
+    }
+    let exact_audit_exists: bool = sqlx::query_scalar(
         r#"
-        UPDATE operational_recovery_job
-        SET status = 'resolved', resolved_at = now(), resolved_by_staff_id = $2,
-            resolution_note = $3, transaction_id = $4, last_seen_at = now()
-        WHERE client_job_key = $1
-          AND status IN ('pending', 'blocked')
+        SELECT EXISTS(
+            SELECT 1
+            FROM staff_access_log
+            WHERE idempotency_key = $1
+              AND staff_id = $2
+              AND event_kind = 'register_checkout_recovery_external_resolved'
+              AND metadata @> $3
+        )
         "#,
     )
-    .bind(&client_job_key)
-    .bind(manager.id)
-    .bind(reason)
-    .bind(transaction_id)
-    .execute(&mut *tx)
+    .bind(&audit_idempotency_key)
+    .bind(audit_staff_id)
+    .bind(&audit_metadata)
+    .fetch_one(&mut *tx)
     .await?;
-    pins::log_staff_access_once(
-        &mut *tx,
-        manager.id,
-        "register_checkout_recovery_external_resolved",
-        audit_metadata,
-        &audit_idempotency_key,
-    )
-    .await?;
+    if !exact_audit_exists {
+        return Err(external_recovery_blocked(
+            "the exact Manager audit evidence could not be verified",
+        ));
+    }
     tx.commit().await?;
     Ok(Json(json!({
         "status": "resolved",
-        "transaction_id": transaction_id,
+        "transaction_id": target.id,
         "transaction_display_id": target_display_id,
+        "register_session_id": recovery_session_id,
+        "checkout_client_id": recovery_checkout_client_id,
         "provider_transaction_id": provider_transaction_id,
+        "idempotent_replay": idempotent_replay,
     })))
 }
 

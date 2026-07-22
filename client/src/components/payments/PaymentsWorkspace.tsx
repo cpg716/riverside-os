@@ -3157,7 +3157,7 @@ function HelcimRecoveryActionPanel({
       { value: "noted", label: "Add Note" },
     ];
     const resolutionActions: Array<{ value: HelcimTerminalRecoveryActionName; label: string }> = [
-      { value: "resolved_no_action", label: "Resolved: No ROS Action" },
+      { value: "resolved_no_action", label: "Reviewed: No ROS Action" },
       { value: "provider_charge_confirmed", label: "Provider Charge Confirmed" },
       { value: "duplicate_suspected", label: "Duplicate Suspected" },
       { value: "refund_required", label: "Refund Required" },
@@ -3192,7 +3192,10 @@ function HelcimRecoveryActionPanel({
           {actions.slice(0, 4).map((action) => (
             <div key={action.id} className="rounded-md border border-app-border bg-app-surface-2 p-2">
               <div className="text-xs font-black text-app-text">
-                {staffLabel(action.action)} · {shortDateTime(action.created_at)}
+                {action.action === "resolved_no_action"
+                  ? "Reviewed: No ROS Action"
+                  : staffLabel(action.action)}{" "}
+                · {shortDateTime(action.created_at)}
               </div>
               {action.note ? <div className="mt-1 text-xs font-semibold text-app-text-muted">{action.note}</div> : null}
             </div>

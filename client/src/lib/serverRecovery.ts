@@ -456,6 +456,82 @@ export async function replayGlobalCheckoutRecoveryJob(
   };
 }
 
+/**
+ * Resolve an unconfirmed checkout only after Payments Health and the target
+ * Transaction Record prove that the original Helcim approval was already
+ * recorded elsewhere. This never creates, moves, or retries a payment.
+ */
+export async function resolveExternallyReconciledCheckoutJob(
+  clientJobKey: string,
+  evidence: {
+    targetTransactionDisplayId: string;
+    providerTransactionId: string;
+  },
+  approval: { managerStaffId: string; managerPin: string; reason: string },
+  staffHeaders: HeadersInit,
+): Promise<{
+  transactionId: string;
+  displayId: string;
+  providerTransactionId: string;
+  checkoutClientId: string;
+  registerSessionId: string;
+}> {
+  const context = staffRecoveryRequestContext(staffHeaders);
+  let response: Response;
+  try {
+    response = await fetch(
+      `${context.baseUrl}/api/recovery/${encodeURIComponent(clientJobKey)}/resolve-external`,
+      {
+        method: "POST",
+        headers: { ...context.headers, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          manager_staff_id: approval.managerStaffId,
+          manager_pin: approval.managerPin,
+          reason: approval.reason,
+          target_transaction_display_id: evidence.targetTransactionDisplayId,
+          provider_transaction_id: evidence.providerTransactionId,
+        }),
+      },
+    );
+  } catch {
+    throw new Error(
+      "Main Hub is unavailable for exact checkout reconciliation.",
+    );
+  }
+  const body = (await response.json().catch(() => ({}))) as {
+    error?: string;
+    transaction_id?: string;
+    transaction_display_id?: string;
+    provider_transaction_id?: string;
+    checkout_client_id?: string;
+    register_session_id?: string;
+  };
+  if (!response.ok) {
+    throw new Error(
+      body.error?.trim() ||
+        `Exact checkout reconciliation failed (${response.status}).`,
+    );
+  }
+  if (
+    !body.transaction_id?.trim() ||
+    !body.transaction_display_id?.trim() ||
+    !body.provider_transaction_id?.trim() ||
+    !body.checkout_client_id?.trim() ||
+    !body.register_session_id?.trim()
+  ) {
+    throw new Error(
+      "Main Hub resolved the recovery without returning its exact checkout evidence. Keep the recovery record visible and contact support.",
+    );
+  }
+  return {
+    transactionId: body.transaction_id,
+    displayId: body.transaction_display_id,
+    providerTransactionId: body.provider_transaction_id,
+    checkoutClientId: body.checkout_client_id,
+    registerSessionId: body.register_session_id,
+  };
+}
+
 /** Verify the recorded Orders/Alterations follow-up before resolving a paid-pickup job. */
 export async function verifyGlobalRecoveryFollowUp(
   clientJobKey: string,

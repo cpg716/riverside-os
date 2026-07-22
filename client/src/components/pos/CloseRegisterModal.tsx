@@ -23,6 +23,7 @@ import {
   replayCheckoutRecoveryJob,
   replayGlobalCheckoutRecoveryJob,
   reportStationCloseStatus,
+  resolveExternallyReconciledCheckoutJob,
   verifyGlobalRecoveryFollowUp,
   type ServerRecoveryJob,
 } from "../../lib/serverRecovery";
@@ -259,6 +260,8 @@ type HelcimCloseReviewAction =
 type RecoveryManagerMode =
   | "replay_current"
   | "replay_historical"
+  | "reconcile_external_current"
+  | "reconcile_external_historical"
   | "settle_current_exchange"
   | "settle_historical_exchange"
   | "verify_current_follow_up"
@@ -276,9 +279,15 @@ interface RecoveryManagerApproval {
   reason: string;
 }
 
+interface ExternalRecoveryDraft {
+  clientJobKey: string;
+  targetTransactionDisplayId: string;
+  providerTransactionId: string;
+}
+
 const HELCIM_CLOSE_REVIEW_ACTIONS: { value: HelcimCloseReviewAction; label: string }[] = [
   { value: "reviewed", label: "Reviewed" },
-  { value: "resolved_no_action", label: "No charge / no action" },
+  { value: "resolved_no_action", label: "Reviewed: no ROS action" },
   { value: "provider_charge_confirmed", label: "Charge confirmed" },
   { value: "duplicate_suspected", label: "Duplicate suspected" },
   { value: "refund_required", label: "Refund needed" },
@@ -417,6 +426,29 @@ function recoveryReasonLength(value: string): number {
   return Array.from(value.trim()).length;
 }
 
+function recoveryProviderTransactionId(job: ServerRecoveryJob): string {
+  if (!job.payload || typeof job.payload !== "object") return "";
+  const wrapper = job.payload as Record<string, unknown>;
+  const checkout =
+    wrapper.payload && typeof wrapper.payload === "object"
+      ? (wrapper.payload as Record<string, unknown>)
+      : null;
+  const paymentSplits = checkout?.payment_splits;
+  if (!Array.isArray(paymentSplits)) return "";
+  for (const split of paymentSplits) {
+    if (!split || typeof split !== "object") continue;
+    const metadata = (split as Record<string, unknown>).metadata;
+    if (!metadata || typeof metadata !== "object") continue;
+    const providerTransactionId = (metadata as Record<string, unknown>)[
+      "provider_transaction_id"
+    ];
+    if (typeof providerTransactionId === "string" && providerTransactionId.trim()) {
+      return providerTransactionId.trim();
+    }
+  }
+  return "";
+}
+
 export default function CloseRegisterModal({
   sessionId,
   cashierName = null,
@@ -512,6 +544,8 @@ export default function CloseRegisterModal({
   const [recoveryManagerMode, setRecoveryManagerMode] = useState<RecoveryManagerMode | null>(null);
   const [recoveryManagerJobKeys, setRecoveryManagerJobKeys] = useState<string[]>([]);
   const [recoveryManagerReason, setRecoveryManagerReason] = useState("");
+  const [externalRecoveryDraft, setExternalRecoveryDraft] =
+    useState<ExternalRecoveryDraft | null>(null);
   const [exchangeProviderRefundNotice, setExchangeProviderRefundNotice] = useState<string | null>(null);
   const [closeRecoveryBlock, setCloseRecoveryBlock] = useState<CloseRecoveryBlockDetails | null>(null);
 
@@ -1018,6 +1052,9 @@ export default function CloseRegisterModal({
   const replayableRecoveryJobs = serverRecoveryJobs.filter(
     (job) => job.kind === "checkout_offline" || job.kind === "checkout_unconfirmed",
   );
+  const currentExternalRecoveryJobs = serverRecoveryJobs.filter(
+    (job) => job.kind === "checkout_unconfirmed",
+  );
   const currentPickupFollowUpJobs = serverRecoveryJobs.filter(
     (job) => job.kind === "pickup_after_payment",
   );
@@ -1031,6 +1068,9 @@ export default function CloseRegisterModal({
   const historicalReplayableRecoveryJobs = historicalRecoveryJobs.filter(
     (job) => job.kind === "checkout_offline" || job.kind === "checkout_unconfirmed",
   );
+  const historicalExternalRecoveryJobs = historicalRecoveryJobs.filter(
+    (job) => job.kind === "checkout_unconfirmed",
+  );
   const historicalPickupFollowUpJobs = historicalRecoveryJobs.filter(
     (job) => job.kind === "pickup_after_payment",
   );
@@ -1043,6 +1083,23 @@ export default function CloseRegisterModal({
     jobs: ServerRecoveryJob[] = [],
   ) => {
     setRecoveryManagerJobKeys(jobs.map((job) => job.client_job_key));
+    setRecoveryManagerMode(mode);
+  };
+
+  const selectExternalRecovery = (job: ServerRecoveryJob) => {
+    setExternalRecoveryDraft({
+      clientJobKey: job.client_job_key,
+      targetTransactionDisplayId: "",
+      providerTransactionId: recoveryProviderTransactionId(job),
+    });
+  };
+
+  const openExternalRecoveryApproval = (
+    mode: "reconcile_external_current" | "reconcile_external_historical",
+    job: ServerRecoveryJob,
+  ) => {
+    if (externalRecoveryDraft?.clientJobKey !== job.client_job_key) return;
+    setRecoveryManagerJobKeys([job.client_job_key]);
     setRecoveryManagerMode(mode);
   };
 
@@ -1066,6 +1123,59 @@ export default function CloseRegisterModal({
       managerPin: pin,
       reason,
     };
+    if (
+      recoveryManagerMode === "reconcile_external_current" ||
+      recoveryManagerMode === "reconcile_external_historical"
+    ) {
+      const isHistorical = recoveryManagerMode === "reconcile_external_historical";
+      const jobs = isHistorical
+        ? historicalExternalRecoveryJobs
+        : currentExternalRecoveryJobs;
+      const selectedKeys = new Set(recoveryManagerJobKeys);
+      const selectedJobs = jobs.filter((job) => selectedKeys.has(job.client_job_key));
+      if (
+        recoveryManagerJobKeys.length !== 1 ||
+        selectedJobs.length !== 1 ||
+        externalRecoveryDraft?.clientJobKey !== selectedJobs[0]?.client_job_key
+      ) {
+        throw new Error(
+          "The unconfirmed checkout changed. Close this approval and review the current recovery record again.",
+        );
+      }
+      const targetTransactionDisplayId =
+        externalRecoveryDraft.targetTransactionDisplayId.trim().toUpperCase();
+      const providerTransactionId = externalRecoveryDraft.providerTransactionId.trim();
+      if (!targetTransactionDisplayId || !providerTransactionId) {
+        throw new Error(
+          "Enter the exact Transaction Record and Helcim provider transaction before approval.",
+        );
+      }
+      const job = selectedJobs[0];
+      const result = await resolveExternallyReconciledCheckoutJob(
+        job.client_job_key,
+        { targetTransactionDisplayId, providerTransactionId },
+        approval,
+        backofficeHeaders(),
+      );
+      await clearLocallyRecoveredCheckout(job.client_job_key, {
+        checkoutClientId: result.checkoutClientId,
+        recoveryKey: job.client_job_key,
+        transactionId: result.transactionId,
+        transactionDisplayId: result.displayId,
+      });
+      await Promise.all([
+        refreshOfflineQueueSummary(),
+        refreshGlobalRecoveryJobs().catch(() => []),
+        refreshReconciliation(),
+      ]);
+      setExternalRecoveryDraft(null);
+      setCloseRecoveryBlock(null);
+      toast(
+        `${result.displayId} was already paid and is now linked to the exact checkout recovery. No new charge or payment movement was created.`,
+        "success",
+      );
+      return true;
+    }
     if (
       recoveryManagerMode === "settle_current_exchange" ||
       recoveryManagerMode === "settle_historical_exchange"
@@ -1227,7 +1337,12 @@ export default function CloseRegisterModal({
               backofficeHeaders(),
             )
           : await replayCheckoutRecoveryJob(job.client_job_key, approval);
-        await clearLocallyRecoveredCheckout(job.client_job_key);
+        await clearLocallyRecoveredCheckout(job.client_job_key, {
+          checkoutClientId: job.checkout_client_id ?? "",
+          recoveryKey: job.client_job_key,
+          transactionId: result.transactionId,
+          transactionDisplayId: result.displayId,
+        });
         recovered += 1;
         if (result.postClose) postClose += 1;
       }
@@ -1253,6 +1368,9 @@ export default function CloseRegisterModal({
   };
 
   const renderRecoveryManagerModal = () => {
+    const isExternalReconciliation =
+      recoveryManagerMode === "reconcile_external_current" ||
+      recoveryManagerMode === "reconcile_external_historical";
     const isFollowUpVerification =
       recoveryManagerMode === "verify_current_follow_up" ||
       recoveryManagerMode === "verify_historical_follow_up";
@@ -1262,6 +1380,8 @@ export default function CloseRegisterModal({
     const title =
       recoveryManagerMode === "force_close"
         ? "Force Z-Close"
+        : isExternalReconciliation
+          ? "Confirm Existing Paid Transaction"
         : isExchangeSettlement
           ? "Complete Exchange Settlement"
           : isFollowUpVerification
@@ -1270,6 +1390,8 @@ export default function CloseRegisterModal({
     const message =
       recoveryManagerMode === "force_close"
         ? "Authorize an audited Z-close while preserving every unresolved recovery record for follow-up. This does not dismiss, alter, or hide the outstanding work."
+        : isExternalReconciliation
+          ? "Authorize resolution only after the named Transaction Record, checkout identity, customer, amount, Register session, currency, and final Helcim provider transaction all match the immutable recovery evidence. Riverside does not create, move, retry, or refund a payment in this step."
         : isExchangeSettlement
           ? "Authorize completion from the locked Main Hub exchange record. Riverside verifies the original exchange-credit tender against its origin Register session and records any new relief or refund movement in this current Register session. No financial amount comes from this approval screen."
           : isFollowUpVerification
@@ -1336,6 +1458,100 @@ export default function CloseRegisterModal({
     );
   };
 
+  const renderExternalReconciliation = (
+    job: ServerRecoveryJob,
+    isHistorical: boolean,
+  ) => {
+    if (job.kind !== "checkout_unconfirmed") return null;
+    const selected = externalRecoveryDraft?.clientJobKey === job.client_job_key;
+    if (!selected) {
+      return (
+        <button
+          type="button"
+          disabled={loading}
+          onClick={() => selectExternalRecovery(job)}
+          className="mt-2 rounded-lg border border-app-warning/30 bg-app-surface px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-warning disabled:opacity-50"
+        >
+          Match Existing Paid Transaction
+        </button>
+      );
+    }
+    const targetReady = externalRecoveryDraft.targetTransactionDisplayId.trim().length > 0;
+    const providerReady = externalRecoveryDraft.providerTransactionId.trim().length > 0;
+    return (
+      <div className="mt-2 rounded-xl border border-app-warning/30 bg-app-surface/90 p-3">
+        <p className="font-black text-app-text">Exact existing-payment evidence</p>
+        <p className="mt-1 font-semibold">
+          Use only when Payments Health and the completed Transaction Record show the same customer,
+          amount, Register session, checkout identity, currency, and final Helcim provider transaction.
+          Riverside verifies those facts before closing this recovery and creates no new payment.
+        </p>
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+            Transaction Record
+            <input
+              value={externalRecoveryDraft.targetTransactionDisplayId}
+              onChange={(event) =>
+                setExternalRecoveryDraft((current) =>
+                  current
+                    ? { ...current, targetTransactionDisplayId: event.target.value }
+                    : current,
+                )
+              }
+              maxLength={32}
+              placeholder="TXN-000000"
+              className="ui-input mt-1 w-full px-3 py-2 font-mono text-xs normal-case tracking-normal"
+            />
+          </label>
+          <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+            Helcim provider transaction
+            <input
+              value={externalRecoveryDraft.providerTransactionId}
+              onChange={(event) =>
+                setExternalRecoveryDraft((current) =>
+                  current ? { ...current, providerTransactionId: event.target.value } : current,
+                )
+              }
+              maxLength={128}
+              placeholder="Provider transaction number"
+              className="ui-input mt-1 w-full px-3 py-2 font-mono text-xs normal-case tracking-normal"
+            />
+          </label>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={
+              loading ||
+              !targetReady ||
+              !providerReady ||
+              recoveryReasonLength(recoveryManagerReason) < 12
+            }
+            onClick={() =>
+              openExternalRecoveryApproval(
+                isHistorical
+                  ? "reconcile_external_historical"
+                  : "reconcile_external_current",
+                job,
+              )
+            }
+            className="ui-btn-primary px-3 py-2 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+          >
+            Manager Verify Exact Match
+          </button>
+          <button
+            type="button"
+            disabled={loading}
+            onClick={() => setExternalRecoveryDraft(null)}
+            className="ui-btn-secondary px-3 py-2 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    );
+  };
+
   const renderOfflineQueueBlocker = () => {
     const hasRecoveryBlocker =
       offlineQueueSummary.totalCount > 0 ||
@@ -1382,6 +1598,30 @@ export default function CloseRegisterModal({
             These records remain fully visible after a forced Z-close.
           </p>
         ) : null}
+        {currentExternalRecoveryJobs.map((job) => (
+          <div
+            key={job.client_job_key}
+            className="mt-2 rounded-xl border border-app-warning/25 bg-app-warning/10 p-2"
+          >
+            <p className="font-black text-app-text">
+              {job.label?.trim() || recoveryKindLabel(job.kind)} · {job.status}
+            </p>
+            <p className="mt-1 break-all font-mono text-[10px]">
+              Recovery key: {job.client_job_key}
+            </p>
+            <p className="mt-1 font-semibold">
+              Try exact replay first. If the payment was already reconciled into a completed
+              Transaction Record, use the verified existing-payment path below instead of recording
+              another sale or card charge.
+            </p>
+            {job.last_error?.trim() ? (
+              <p className="mt-1 font-semibold text-app-danger">
+                Last recorded issue: {job.last_error}
+              </p>
+            ) : null}
+            {renderExternalReconciliation(job, false)}
+          </div>
+        ))}
         {currentPickupFollowUpJobs.map((job) => {
           const steps = recoveryStepDescriptions(job);
           return (
@@ -1594,6 +1834,7 @@ export default function CloseRegisterModal({
                       Last recorded issue: {job.last_error}
                     </p>
                   ) : null}
+                  {renderExternalReconciliation(job, true)}
                 </div>
               );
             })}

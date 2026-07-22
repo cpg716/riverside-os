@@ -82,7 +82,11 @@ type CheckoutPayload = {
   payment_method: string;
   total_price: string;
   amount_paid: string;
-  payment_splits: Array<{ payment_method: string; amount: string }>;
+  payment_splits: Array<{
+    payment_method: string;
+    amount: string;
+    metadata?: Record<string, unknown>;
+  }>;
   checkout_client_id: string;
   is_tax_exempt: boolean;
   tax_exempt_reason: string;
@@ -244,6 +248,416 @@ async function upsertRecovery(
 }
 
 test.describe.configure({ mode: "serial" });
+
+test("external checkout recovery requires exact final payment evidence and commits one audit", async ({
+  request,
+}) => {
+  test.setTimeout(120_000);
+  const { sessionId, sessionToken } = await ensureOpenPrimarySession(request);
+  const managerStaffId = await verifyStaffId(request);
+  const fixture = await seedRmsFixture(
+    request,
+    "standard_only",
+    `External Recovery ${Date.now()}`,
+  );
+  const wrongFixture = await seedRmsFixture(
+    request,
+    "standard_only",
+    `External Recovery Wrong ${Date.now()}`,
+  );
+  const checkoutClientId = crypto.randomUUID();
+  const providerTransactionId = `e2e-external-${crypto.randomUUID()}`;
+  const providerPaymentId = `e2e-payment-${crypto.randomUUID()}`;
+  const attemptId = crypto.randomUUID();
+  const recoveryKey = `e2e-external-recovery-${crypto.randomUUID()}`;
+  const reason = "E2E exact externally reconciled Helcim approval";
+  const totalCents = Math.round(Number(fixture.product.unit_price) * 100);
+  const paymentAmount = (Math.max(1, Math.floor(totalCents / 2)) / 100).toFixed(
+    2,
+  );
+  const payload = checkoutPayload(
+    fixture,
+    sessionId,
+    managerStaffId,
+    checkoutClientId,
+  );
+  payload.payment_method = "card_terminal";
+  payload.amount_paid = paymentAmount;
+  payload.items[0] = { ...payload.items[0], fulfillment: "special_order" };
+  payload.payment_splits = [
+    {
+      payment_method: "card_terminal",
+      amount: paymentAmount,
+      metadata: {
+        payment_provider: "helcim",
+        payment_provider_attempt_id: attemptId,
+        provider_payment_id: providerPaymentId,
+        provider_transaction_id: providerTransactionId,
+        provider_status: "approved",
+      },
+    },
+  ];
+  runSql(`
+    INSERT INTO payment_provider_attempts (
+      id, provider, status, amount_cents, currency, register_session_id,
+      staff_id, idempotency_key, provider_payment_id, provider_transaction_id,
+      raw_audit_reference, completed_at, checkout_client_id
+    ) VALUES (
+      ${sqlLiteral(attemptId)}::uuid,
+      'helcim',
+      'approved',
+      ROUND(${sqlLiteral(paymentAmount)}::numeric * 100)::bigint,
+      'usd',
+      ${sqlLiteral(sessionId)}::uuid,
+      ${sqlLiteral(managerStaffId)}::uuid,
+      ${sqlLiteral(`external-recovery:${attemptId}`)},
+      ${sqlLiteral(providerPaymentId)},
+      ${sqlLiteral(providerTransactionId)},
+      ${sqlLiteral(`helcim:cardPurchase:${providerTransactionId}`)},
+      now(),
+      ${sqlLiteral(checkoutClientId)}::uuid
+    );
+  `);
+  const transactionId = await recordCheckout(request, payload, sessionToken);
+  const transactionDisplayId = runSql(`
+    SELECT display_id FROM transactions WHERE id = ${sqlLiteral(transactionId)}::uuid;
+  `);
+  const wrongClientId = crypto.randomUUID();
+  const wrongTransactionId = await recordCheckout(
+    request,
+    checkoutPayload(wrongFixture, sessionId, managerStaffId, wrongClientId),
+    sessionToken,
+  );
+  const wrongTransactionDisplayId = runSql(`
+    SELECT display_id FROM transactions WHERE id = ${sqlLiteral(wrongTransactionId)}::uuid;
+  `);
+  await upsertRecovery(request, sessionId, sessionToken, {
+    client_job_key: recoveryKey,
+    kind: "checkout_unconfirmed",
+    status: "blocked",
+    register_session_id: sessionId,
+    checkout_client_id: checkoutClientId,
+    label: "E2E exact external checkout recovery",
+    payload: { payload },
+  });
+
+  const resolveExternal = (
+    clientJobKey = recoveryKey,
+    targetDisplayId = transactionDisplayId,
+    managerReason = reason,
+  ) =>
+    request.post(
+      `${apiBase()}/api/recovery/${encodeURIComponent(clientJobKey)}/resolve-external`,
+      {
+        headers: { ...staffHeaders(), "Content-Type": "application/json" },
+        data: {
+          manager_staff_id: managerStaffId,
+          manager_pin: staffCode(),
+          reason: managerReason,
+          target_transaction_display_id: targetDisplayId,
+          provider_transaction_id: providerTransactionId,
+        },
+        failOnStatusCode: false,
+      },
+    );
+
+  const duplicatePaymentId = crypto.randomUUID();
+  runSql(`
+    INSERT INTO payment_transactions (
+      id, session_id, payer_id, payment_method, amount, status,
+      payment_provider, provider_payment_id, provider_status,
+      provider_transaction_id
+    ) VALUES (
+      ${sqlLiteral(duplicatePaymentId)}::uuid,
+      ${sqlLiteral(sessionId)}::uuid,
+      ${sqlLiteral(wrongFixture.customer.id)}::uuid,
+      'card_terminal',
+      ${sqlLiteral(paymentAmount)}::numeric,
+      'success',
+      'HELCIM',
+      ${sqlLiteral(providerPaymentId)},
+      'approved',
+      ${sqlLiteral(providerTransactionId)}
+    );
+  `);
+  try {
+    const duplicateProviderReference = await resolveExternal();
+    const duplicateProviderReferenceText =
+      await duplicateProviderReference.text();
+    expect(
+      duplicateProviderReference.status(),
+      duplicateProviderReferenceText,
+    ).toBe(400);
+    expect(duplicateProviderReferenceText).toContain(
+      "exactly one normalized Helcim payment ledger row",
+    );
+  } finally {
+    runSql(`
+      DELETE FROM payment_transactions
+      WHERE id = ${sqlLiteral(duplicatePaymentId)}::uuid;
+    `);
+  }
+
+  const wrongTarget = await resolveExternal(
+    recoveryKey,
+    wrongTransactionDisplayId,
+  );
+  const wrongTargetText = await wrongTarget.text();
+  expect(wrongTarget.status(), wrongTargetText).toBe(400);
+  expect(wrongTargetText).toContain("Checkout recovery remains blocked");
+
+  const mismatchedRecoveryKey = `e2e-external-mismatch-${crypto.randomUUID()}`;
+  await upsertRecovery(request, sessionId, sessionToken, {
+    client_job_key: mismatchedRecoveryKey,
+    kind: "checkout_unconfirmed",
+    status: "blocked",
+    register_session_id: sessionId,
+    checkout_client_id: checkoutClientId,
+    label: "E2E mismatched external checkout recovery",
+    payload: { payload },
+  });
+  runSql(`
+    UPDATE operational_recovery_job
+    SET checkout_client_id = ${sqlLiteral(crypto.randomUUID())}::uuid
+    WHERE client_job_key = ${sqlLiteral(mismatchedRecoveryKey)};
+  `);
+  const wrongJob = await resolveExternal(mismatchedRecoveryKey);
+  const wrongJobText = await wrongJob.text();
+  expect(wrongJob.status(), wrongJobText).toBe(400);
+  expect(wrongJobText).toContain("identify different checkouts");
+  runSql(`
+    DELETE FROM operational_recovery_job
+    WHERE client_job_key = ${sqlLiteral(mismatchedRecoveryKey)};
+  `);
+
+  const targetIdentityEvidence = selectJson<{
+    register_session_id: string;
+    checkout_client_id: string;
+    checkout_request_fingerprint: string;
+    checkout_payment_fingerprint: string;
+  }>(`
+    SELECT json_build_object(
+      'register_session_id', register_session_id,
+      'checkout_client_id', checkout_client_id,
+      'checkout_request_fingerprint', checkout_request_fingerprint,
+      'checkout_payment_fingerprint', checkout_payment_fingerprint
+    )::text
+    FROM transactions
+    WHERE id = ${sqlLiteral(transactionId)}::uuid;
+  `);
+  expect(targetIdentityEvidence).toMatchObject({
+    register_session_id: sessionId,
+    checkout_client_id: checkoutClientId,
+    checkout_request_fingerprint: expect.any(String),
+    checkout_payment_fingerprint: expect.any(String),
+  });
+  runSql(`
+    UPDATE transactions
+    SET register_session_id = NULL,
+        checkout_client_id = NULL,
+        checkout_request_fingerprint = NULL,
+        checkout_payment_fingerprint = NULL
+    WHERE id = ${sqlLiteral(transactionId)}::uuid;
+  `);
+  try {
+    const missingTargetEvidence = await resolveExternal();
+    const missingTargetEvidenceText = await missingTargetEvidence.text();
+    expect(
+      missingTargetEvidence.status(),
+      missingTargetEvidenceText,
+    ).toBe(400);
+    expect(missingTargetEvidenceText).toContain(
+      "different or unknown Register session",
+    );
+
+    runSql(`
+      UPDATE transactions
+      SET register_session_id = ${sqlLiteral(sessionId)}::uuid
+      WHERE id = ${sqlLiteral(transactionId)}::uuid;
+    `);
+    const missingCheckoutEvidence = await resolveExternal();
+    const missingCheckoutEvidenceText = await missingCheckoutEvidence.text();
+    expect(
+      missingCheckoutEvidence.status(),
+      missingCheckoutEvidenceText,
+    ).toBe(400);
+    expect(missingCheckoutEvidenceText).toContain(
+      "different or unknown checkout",
+    );
+  } finally {
+    runSql(`
+      UPDATE transactions
+      SET register_session_id = ${sqlLiteral(targetIdentityEvidence.register_session_id)}::uuid,
+          checkout_client_id = ${sqlLiteral(targetIdentityEvidence.checkout_client_id)}::uuid,
+          checkout_request_fingerprint = ${sqlLiteral(targetIdentityEvidence.checkout_request_fingerprint)},
+          checkout_payment_fingerprint = ${sqlLiteral(targetIdentityEvidence.checkout_payment_fingerprint)}
+      WHERE id = ${sqlLiteral(transactionId)}::uuid;
+    `);
+  }
+
+  expect(
+    selectJson<{ status: string; total_price: string; amount_paid: string }>(`
+      SELECT json_build_object(
+        'status', status::text,
+        'total_price', total_price::text,
+        'amount_paid', amount_paid::text
+      )::text
+      FROM transactions
+      WHERE id = ${sqlLiteral(transactionId)}::uuid;
+    `),
+  ).toEqual({
+    status: "open",
+    total_price: fixture.product.unit_price,
+    amount_paid: paymentAmount,
+  });
+
+  runSql(`
+    UPDATE transactions
+    SET status = 'processing'::order_status
+    WHERE id = ${sqlLiteral(transactionId)}::uuid;
+  `);
+  try {
+    const processing = await resolveExternal();
+    const processingText = await processing.text();
+    expect(processing.status(), processingText).toBe(400);
+    expect(processingText).toContain("not the exact committed checkout");
+  } finally {
+    runSql(`
+      UPDATE transactions
+      SET status = 'open'::order_status
+      WHERE id = ${sqlLiteral(transactionId)}::uuid;
+    `);
+  }
+
+  runSql(`
+    UPDATE payment_transactions
+    SET status = 'pending', provider_status = 'pending'
+    WHERE provider_transaction_id = ${sqlLiteral(providerTransactionId)};
+  `);
+  try {
+    const nonFinal = await resolveExternal();
+    const nonFinalText = await nonFinal.text();
+    expect(nonFinal.status(), nonFinalText).toBe(400);
+    expect(nonFinalText).toContain("not in a final successful provider state");
+  } finally {
+    runSql(`
+      UPDATE payment_transactions
+      SET status = 'success', provider_status = 'approved'
+      WHERE provider_transaction_id = ${sqlLiteral(providerTransactionId)};
+    `);
+  }
+
+  const removeAuditFailure = installAuditFailureTrigger(
+    "register_checkout_recovery_external_resolved",
+    recoveryKey,
+  );
+  try {
+    const failedAudit = await resolveExternal();
+    expect(failedAudit.status(), await failedAudit.text()).toBe(500);
+    expect(
+      selectJson<{
+        status: string;
+        transaction_id: string | null;
+        audit_count: number;
+      }>(`
+        SELECT json_build_object(
+          'status', job.status,
+          'transaction_id', job.transaction_id,
+          'audit_count', (
+            SELECT COUNT(*) FROM staff_access_log
+            WHERE idempotency_key = ${sqlLiteral(`register-checkout-recovery-external:${recoveryKey}:${transactionId}`)}
+          )
+        )::text
+        FROM operational_recovery_job job
+        WHERE client_job_key = ${sqlLiteral(recoveryKey)};
+      `),
+    ).toEqual({ status: "blocked", transaction_id: null, audit_count: 0 });
+  } finally {
+    removeAuditFailure();
+  }
+
+  const resolved = await resolveExternal();
+  const resolvedText = await resolved.text();
+  expect(resolved.status(), resolvedText).toBe(200);
+  expect(JSON.parse(resolvedText)).toMatchObject({
+    status: "resolved",
+    transaction_id: transactionId,
+    transaction_display_id: transactionDisplayId,
+    register_session_id: sessionId,
+    checkout_client_id: checkoutClientId,
+    provider_transaction_id: providerTransactionId,
+    idempotent_replay: false,
+  });
+  expect(
+    selectJson<{
+      status: string;
+      transaction_id: string;
+      audit_count: number;
+      audit_register_session_id: string;
+      audit_checkout_client_id: string;
+    }>(`
+      SELECT json_build_object(
+        'status', job.status,
+        'transaction_id', job.transaction_id,
+        'audit_count', (
+          SELECT COUNT(*) FROM staff_access_log
+          WHERE idempotency_key = ${sqlLiteral(`register-checkout-recovery-external:${recoveryKey}:${transactionId}`)}
+        ),
+        'audit_register_session_id', (
+          SELECT metadata->>'register_session_id' FROM staff_access_log
+          WHERE idempotency_key = ${sqlLiteral(`register-checkout-recovery-external:${recoveryKey}:${transactionId}`)}
+        ),
+        'audit_checkout_client_id', (
+          SELECT metadata->>'checkout_client_id' FROM staff_access_log
+          WHERE idempotency_key = ${sqlLiteral(`register-checkout-recovery-external:${recoveryKey}:${transactionId}`)}
+        )
+      )::text
+      FROM operational_recovery_job job
+      WHERE client_job_key = ${sqlLiteral(recoveryKey)};
+    `),
+  ).toEqual({
+    status: "resolved",
+    transaction_id: transactionId,
+    audit_count: 1,
+    audit_register_session_id: sessionId,
+    audit_checkout_client_id: checkoutClientId,
+  });
+
+  const retried = await resolveExternal(
+    recoveryKey,
+    transactionDisplayId,
+    "E2E retry after the original response was lost",
+  );
+  const retriedText = await retried.text();
+  expect(retried.status(), retriedText).toBe(200);
+  expect(JSON.parse(retriedText)).toMatchObject({
+    transaction_id: transactionId,
+    register_session_id: sessionId,
+    checkout_client_id: checkoutClientId,
+    idempotent_replay: true,
+  });
+  expect(
+    selectJson<{
+      audit_count: number;
+      audit_reason: string;
+      job_reason: string;
+    }>(`
+      SELECT json_build_object(
+        'audit_count', (
+          SELECT COUNT(*) FROM staff_access_log
+          WHERE idempotency_key = ${sqlLiteral(`register-checkout-recovery-external:${recoveryKey}:${transactionId}`)}
+        ),
+        'audit_reason', (
+          SELECT metadata->>'reason' FROM staff_access_log
+          WHERE idempotency_key = ${sqlLiteral(`register-checkout-recovery-external:${recoveryKey}:${transactionId}`)}
+        ),
+        'job_reason', resolution_note
+      )::text
+      FROM operational_recovery_job
+      WHERE client_job_key = ${sqlLiteral(recoveryKey)};
+    `),
+  ).toEqual({ audit_count: 1, audit_reason: reason, job_reason: reason });
+});
 
 test("Register recovery remains session-scoped, identity-exact, verifiable, and recoverable after force-close", async ({
   request,
@@ -632,6 +1046,47 @@ test("Register recovery remains session-scoped, identity-exact, verifiable, and 
     `),
   ).toBe("1");
 
+  const replayCheckoutRequestFor = (jobKey: string, managerReason: string) =>
+    request.post(
+      `${apiBase()}/api/recovery/${encodeURIComponent(jobKey)}/replay-checkout`,
+      {
+        headers: { ...staffHeaders(), "Content-Type": "application/json" },
+        data: {
+          manager_staff_id: managerStaffId,
+          manager_pin: staffCode(),
+          reason: managerReason,
+        },
+        failOnStatusCode: false,
+      },
+    );
+  const preCloseReplayKey = `e2e-pre-close-replay-${crypto.randomUUID()}`;
+  const preCloseReplayReason =
+    "E2E exact idempotent recovery while the Register remains open";
+  await upsertRecovery(request, sessionId, sessionToken, {
+    client_job_key: preCloseReplayKey,
+    kind: "checkout_unconfirmed",
+    status: "blocked",
+    register_session_id: sessionId,
+    transaction_id: firstTransactionId,
+    checkout_client_id: firstClientId,
+    label: "E2E pre-close replay retains its original audit facts",
+    payload: { payload: firstPayload },
+  });
+  const preCloseResolution = await replayCheckoutRequestFor(
+    preCloseReplayKey,
+    preCloseReplayReason,
+  );
+  const preCloseResolutionText = await preCloseResolution.text();
+  expect(
+    preCloseResolution.status(),
+    preCloseResolutionText.slice(0, 1000),
+  ).toBe(200);
+  expect(JSON.parse(preCloseResolutionText)).toMatchObject({
+    transaction_id: firstTransactionId,
+    post_close_recovery: false,
+    idempotent_replay: false,
+  });
+
   const replayClientId = crypto.randomUUID();
   const replayPayload = checkoutPayload(
     replayFixture,
@@ -735,20 +1190,100 @@ test("Register recovery remains session-scoped, identity-exact, verifiable, and 
 
   const replayReason =
     "E2E exact concurrent recovery after audited force-close";
-  const replayRequestFor = (jobKey: string) =>
-    request.post(
-      `${apiBase()}/api/recovery/${encodeURIComponent(jobKey)}/replay-checkout`,
-      {
-        headers: { ...staffHeaders(), "Content-Type": "application/json" },
-        data: {
-          manager_staff_id: managerStaffId,
-          manager_pin: staffCode(),
-          reason: replayReason,
-        },
-        failOnStatusCode: false,
-      },
-    );
+  const replayRequestFor = (jobKey: string, managerReason = replayReason) =>
+    replayCheckoutRequestFor(jobKey, managerReason);
   const replayRequest = () => replayRequestFor(replayKey);
+
+  const preCloseAuditKey = `register-checkout-recovery:${preCloseReplayKey}:${firstTransactionId}`;
+  runSql(`
+    UPDATE staff_access_log
+    SET metadata = jsonb_set(
+      metadata,
+      '{legacy_committed_without_replay}',
+      'true'::jsonb
+    )
+    WHERE idempotency_key = ${sqlLiteral(preCloseAuditKey)};
+  `);
+  const contradictoryLegacyRetry = await replayRequestFor(
+    preCloseReplayKey,
+    "E2E retry rejects a contradictory legacy checkout audit flag",
+  );
+  const contradictoryLegacyRetryText = await contradictoryLegacyRetry.text();
+  expect(contradictoryLegacyRetry.status(), contradictoryLegacyRetryText).toBe(
+    400,
+  );
+  expect(contradictoryLegacyRetryText).toContain(
+    "conflicts with its durable checkout evidence",
+  );
+  runSql(`
+    UPDATE staff_access_log
+    SET metadata = jsonb_set(
+      metadata,
+      '{legacy_committed_without_replay}',
+      'false'::jsonb
+    )
+    WHERE idempotency_key = ${sqlLiteral(preCloseAuditKey)};
+    INSERT INTO register_post_close_checkout_recovery (
+      recovery_client_job_key, register_session_id, transaction_id,
+      recovered_by_staff_id, manager_reason, metadata
+    ) VALUES (
+      ${sqlLiteral(preCloseReplayKey)},
+      ${sqlLiteral(sessionId)}::uuid,
+      ${sqlLiteral(firstTransactionId)}::uuid,
+      ${sqlLiteral(managerStaffId)}::uuid,
+      'E2E deliberately contradictory post-close evidence',
+      '{}'::jsonb
+    );
+  `);
+  try {
+    const contradictoryPostCloseRetry = await replayRequestFor(
+      preCloseReplayKey,
+      "E2E retry rejects contradictory post-close recovery evidence",
+    );
+    const contradictoryPostCloseRetryText =
+      await contradictoryPostCloseRetry.text();
+    expect(
+      contradictoryPostCloseRetry.status(),
+      contradictoryPostCloseRetryText,
+    ).toBe(400);
+    expect(contradictoryPostCloseRetryText).toContain(
+      "conflicts with its durable checkout evidence",
+    );
+  } finally {
+    runSql(`
+      DELETE FROM register_post_close_checkout_recovery
+      WHERE recovery_client_job_key = ${sqlLiteral(preCloseReplayKey)};
+    `);
+  }
+
+  const preCloseLostResponseRetry = await replayRequestFor(
+    preCloseReplayKey,
+    "E2E retry after the original pre-close recovery response was lost",
+  );
+  const preCloseLostResponseRetryText = await preCloseLostResponseRetry.text();
+  expect(
+    preCloseLostResponseRetry.status(),
+    preCloseLostResponseRetryText.slice(0, 1000),
+  ).toBe(200);
+  expect(JSON.parse(preCloseLostResponseRetryText)).toMatchObject({
+    transaction_id: firstTransactionId,
+    post_close_recovery: false,
+    idempotent_replay: true,
+  });
+  expect(
+    selectJson<{ post_close_count: number; audit_count: number }>(`
+      SELECT json_build_object(
+        'post_close_count', (
+          SELECT COUNT(*) FROM register_post_close_checkout_recovery
+          WHERE recovery_client_job_key = ${sqlLiteral(preCloseReplayKey)}
+        ),
+        'audit_count', (
+          SELECT COUNT(*) FROM staff_access_log
+          WHERE idempotency_key = ${sqlLiteral(`register-checkout-recovery:${preCloseReplayKey}:${firstTransactionId}`)}
+        )
+      )::text;
+    `),
+  ).toEqual({ post_close_count: 0, audit_count: 1 });
 
   const removeCheckoutAuditFailure = installAuditFailureTrigger(
     "register_checkout_recovery",
@@ -864,6 +1399,26 @@ test("Register recovery remains session-scoped, identity-exact, verifiable, and 
       WHERE job.client_job_key = ${sqlLiteral(replayKey)};
     `),
   ).toEqual({ status: "resolved", post_close_count: 1, audit_count: 1 });
+
+  const lostResponseRetry = await replayRequestFor(
+    replayKey,
+    "E2E retry after the replay response was lost",
+  );
+  const lostResponseRetryText = await lostResponseRetry.text();
+  expect(lostResponseRetry.status(), lostResponseRetryText.slice(0, 1000)).toBe(
+    200,
+  );
+  expect(JSON.parse(lostResponseRetryText)).toMatchObject({
+    transaction_id: committedReplayTransactionId,
+    post_close_recovery: true,
+    idempotent_replay: true,
+  });
+  expect(
+    runSql(`
+      SELECT COUNT(*) FROM staff_access_log
+      WHERE idempotency_key = ${sqlLiteral(`register-checkout-recovery:${replayKey}:${committedReplayTransactionId}`)};
+    `),
+  ).toBe("1");
 
   const duplicateReplay = await replayRequestFor(duplicateReplayKey);
   const duplicateReplayText = await duplicateReplay.text();

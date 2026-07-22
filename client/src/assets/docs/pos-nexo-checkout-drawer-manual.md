@@ -4,7 +4,7 @@ title: "Checkout & Payment"
 order: 1061
 summary: "Collect payment, monitor Helcim card status, and complete a sale from the POS checkout drawer."
 source: client/src/components/pos/NexoCheckoutDrawer.tsx
-last_scanned: 2026-05-10
+last_scanned: 2026-07-22
 tags: pos, checkout, helcim, card, payment, receipt
 status: approved
 ---
@@ -38,6 +38,7 @@ Choose the tender type on the left, then collect the amount in the center panel.
 - **Card Not Present** is for phone orders. It opens the public HTTPS ROS handoff page; select **Open Helcim Card Entry** on that page to render the secure HelcimPay.js card form. After Helcim approves, ROS automatically attaches the validated approval amount as a **CARD NOT PRESENT** tender; verify it appears in the register ledger before recording the sale. The approval screen's **Add Payment to Sale** button remains available as an idempotent recovery action if the handoff was interrupted. Use **Cancel Card Entry** on the handoff or the drawer's cancel control before approval when the customer stops; the drawer returns to the ledger so you can retry or cancel the pending attempt.
 - If Helcim shows **Successful** but ROS cannot attach the approval immediately, keep the handoff open and select **Retry Approval** or **Recover payment** in ROS. ROS preserves the original Helcim response for verification and retries the attach without charging the card again. ROS also retries a transient checkout-recording failure with the same idempotent checkout reference. Do not enter a manual payment or charge the card again while ROS is recovering the approved attempt.
 - While the checkout drawer is open—or any card approval, staged tender, or recovery handoff still exists—Riverside preserves the checkout identity, tender ledger, and staged return lines across a Register refresh. An exact retry can return the already committed Transaction Record even after the original response was lost. Reusing that identity with a different session, sale, or payment snapshot is rejected and sent to recovery instead of being reported as a successful duplicate.
+- That preservation ends at the sale boundary. Completing the sale, using **Clear Sale**, changing to a new checkout identity, or selecting a different customer resets every sale-local drawer input and Card Not Present handoff. A late approval from the prior checkout cannot attach to the new sale; its processor evidence remains in **Payments Health** for audited recovery or refund.
 - ROS will not record a sale when an approved Helcim attempt for that checkout is still unattached. Attach the approved card tender first, or use **Payments Health** to recover or refund the approval; this prevents an apparently completed sale from being saved with a zero ROS payment.
 - Riverside does not ask staff to enter a Helcim invoice number for Card Not Present. ROS records the approved Helcim attempt returned by the secure handoff.
 - Helcim may ask for billing ZIP and street address during Card Not Present entry. Those fields are controlled by Helcim's hosted verification form, not by ROS.

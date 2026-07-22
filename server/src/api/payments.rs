@@ -4201,12 +4201,7 @@ async fn get_helcim_events_health(
                   OR pt.metadata->>'payment_provider_attempt_id' = ppa.id::text
                 )
           )
-          AND NOT EXISTS (
-              SELECT 1
-              FROM helcim_terminal_recovery_actions hra
-              WHERE hra.source_kind = 'payment_provider_attempt'
-                AND hra.source_id = ppa.id
-          )
+          -- Audit/recovery notes do not establish ledger attachment and must not suppress review.
         ORDER BY
             CASE
                 WHEN ppa.status = 'pending' THEN 0
@@ -4260,12 +4255,7 @@ async fn get_helcim_events_health(
                 AND btx.provider_transaction_id = helcim_event_log.provider_transaction_id
                 AND btx.payment_transaction_id IS NOT NULL
           )
-          AND NOT EXISTS (
-              SELECT 1
-              FROM helcim_terminal_recovery_actions hra
-              WHERE hra.source_kind = 'helcim_event'
-                AND hra.source_id = helcim_event_log.id
-          )
+          -- Audit/recovery notes do not establish ledger attachment and must not suppress review.
         ORDER BY received_at DESC
         LIMIT 25
         "#,
@@ -11216,6 +11206,27 @@ async fn load_helcim_attempt_row(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn terminal_review_keeps_unmatched_rows_visible_after_audit_actions() {
+        let source = include_str!("payments.rs");
+        let health_scope = source
+            .split_once("async fn get_helcim_events_health(")
+            .expect("Helcim health handler")
+            .1
+            .split_once("async fn replay_helcim_event(")
+            .expect("end of Helcim health handler")
+            .0;
+
+        assert!(
+            !health_scope.contains("FROM helcim_terminal_recovery_actions hra"),
+            "audit/recovery action rows must not hide unmatched attempts or events"
+        );
+        assert!(
+            health_scope.contains("load_helcim_terminal_recovery_actions"),
+            "visible review rows must still include their audit/recovery history"
+        );
+    }
 
     #[test]
     fn processor_financial_match_requires_final_status_and_payment_direction() {

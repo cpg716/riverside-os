@@ -528,15 +528,17 @@ test.describe("offline checkout recovery contract", () => {
   test("an authoritative resolved mirror clears crash-left local evidence", async ({
     page,
   }) => {
-    await signInToBackOffice(page);
+    await page.goto("/e2e-harness.html");
     await clearCheckoutQueue(page);
     await setRecoveryPosAuth(page);
+    const checkoutClientId = crypto.randomUUID();
+    const transactionId = crypto.randomUUID();
     const item: QueueItem = {
       id: crypto.randomUUID(),
       timestamp: Date.now(),
       status: "blocked",
       payload: {
-        checkout_client_id: crypto.randomUUID(),
+        checkout_client_id: checkoutClientId,
         session_id: "11111111-1111-4111-8111-111111111111",
         operator_staff_id: crypto.randomUUID(),
         payment_method: "cash",
@@ -546,6 +548,7 @@ test.describe("offline checkout recovery contract", () => {
       },
     };
     await putCheckoutQueueItem(page, item);
+    let includeTransactionEvidence = false;
     await page.route("**/api/recovery", async (route) => {
       if (route.request().method() === "GET") {
         await route.fulfill({
@@ -559,7 +562,12 @@ test.describe("offline checkout recovery contract", () => {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify(mirroredRecoveryJob(body, "resolved")),
+        body: JSON.stringify({
+          ...mirroredRecoveryJob(body, "resolved"),
+          ...(includeTransactionEvidence
+            ? { transaction_id: transactionId }
+            : {}),
+        }),
       });
     });
     await loadOfflineRecoveryHarness(page);
@@ -568,7 +576,90 @@ test.describe("offline checkout recovery contract", () => {
       if (!queue) throw new Error("E2E queue harness is unavailable");
       await queue.syncCheckoutRecoveryWithServer();
     });
+    await expect.poll(() => getCheckoutQueueItem(page, item.id)).toMatchObject({
+      id: item.id,
+      status: "blocked",
+    });
+
+    includeTransactionEvidence = true;
+    const resolvedEvent = page.evaluate(
+      (eventName) =>
+        new Promise<Record<string, string>>((resolve) => {
+          window.addEventListener(
+            eventName,
+            (event) =>
+              resolve(
+                (event as CustomEvent<Record<string, string>>).detail,
+              ),
+            { once: true },
+          );
+        }),
+      "riverside:checkout-recovery-resolved",
+    );
+    await page.evaluate(async () => {
+      const queue = window.__RIVERSIDE_E2E_QUEUE_HARNESS__;
+      if (!queue) throw new Error("E2E queue harness is unavailable");
+      await queue.syncCheckoutRecoveryWithServer();
+    });
     await expect.poll(() => getCheckoutQueueItem(page, item.id)).toBeNull();
+    await expect(resolvedEvent).resolves.toMatchObject({
+      checkoutClientId,
+      recoveryKey: `checkout:${item.id}`,
+      transactionId,
+    });
+  });
+
+  test("an empty open list never erases an unconfirmed checkout whose mirror failed", async ({
+    page,
+  }) => {
+    await page.goto("/e2e-harness.html");
+    await clearCheckoutQueue(page);
+    await setRecoveryPosAuth(page);
+    const item = {
+      id: `recovery:online_unconfirmed:${crypto.randomUUID()}`,
+      timestamp: Date.now(),
+      status: "blocked" as const,
+      recoveryKind: "online_unconfirmed",
+      recoveryKey: crypto.randomUUID(),
+      lastErrorMessage: "Checkout outcome is still unknown",
+      payload: {
+        checkout_client_id: crypto.randomUUID(),
+        session_id: "11111111-1111-4111-8111-111111111111",
+        operator_staff_id: crypto.randomUUID(),
+        payment_method: "card_terminal",
+        total_price: "141.38",
+        amount_paid: "141.38",
+        items: [],
+      },
+    };
+    await putCheckoutQueueItem(page, item);
+    await page.route("**/api/recovery", async (route) => {
+      if (route.request().method() === "GET") {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: "[]",
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 409,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "Recovery identity was not accepted" }),
+      });
+    });
+    await loadOfflineRecoveryHarness(page);
+    await page.evaluate(async () => {
+      const queue = window.__RIVERSIDE_E2E_QUEUE_HARNESS__;
+      if (!queue) throw new Error("E2E queue harness is unavailable");
+      await queue.syncCheckoutRecoveryWithServer();
+    });
+    await expect.poll(() => getCheckoutQueueItem(page, item.id)).toMatchObject({
+      id: item.id,
+      status: "blocked",
+      recoveryKind: "online_unconfirmed",
+      lastErrorMessage: "Checkout outcome is still unknown",
+    });
   });
 
   test("concurrent flush triggers share one checkout replay", async ({
