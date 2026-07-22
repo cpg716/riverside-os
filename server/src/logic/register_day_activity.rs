@@ -4,7 +4,7 @@ use chrono::{Datelike, Duration, NaiveDate, TimeZone, Utc};
 use chrono_tz::Tz;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
+use sqlx::{PgConnection, PgPool};
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
@@ -321,8 +321,8 @@ fn format_weather_value(value: &str, decimal_places: usize) -> String {
         .unwrap_or_else(|| "Unavailable".to_string())
 }
 
-async fn fetch_register_day_weather(
-    pool: &PgPool,
+async fn fetch_register_day_weather_on_connection(
+    connection: &mut PgConnection,
     from_l: NaiveDate,
     to_l: NaiveDate,
     tz_name: &str,
@@ -393,7 +393,7 @@ async fn fetch_register_day_weather(
     .bind(from_l)
     .bind(to_l)
     .bind(tz_name)
-    .fetch_all(pool)
+    .fetch_all(&mut *connection)
     .await?;
 
     Ok(weather_rows
@@ -431,6 +431,19 @@ async fn receipt_timezone(pool: &PgPool) -> Result<String, sqlx::Error> {
         r#"SELECT receipt_config->>'timezone' FROM store_settings WHERE id = 1"#,
     )
     .fetch_optional(pool)
+    .await?
+    .flatten();
+    let tz = effective_tz(tz_raw);
+    Ok(tz.name().to_string())
+}
+
+async fn receipt_timezone_on_connection(
+    connection: &mut PgConnection,
+) -> Result<String, sqlx::Error> {
+    let tz_raw: Option<String> = sqlx::query_scalar(
+        r#"SELECT receipt_config->>'timezone' FROM store_settings WHERE id = 1"#,
+    )
+    .fetch_optional(&mut *connection)
     .await?
     .flatten();
     let tz = effective_tz(tz_raw);
@@ -721,18 +734,49 @@ pub async fn fetch_register_day_summary(
     .await
 }
 
-/// Build the complete, unfiltered day summary used by the durable Z-close snapshot.
-/// Interactive report callers should use `fetch_register_day_summary_page` instead.
-pub async fn fetch_complete_register_day_summary(
+pub const REGISTER_REPORT_OUTPUT_MAX_ROWS: i64 = 20_000;
+
+async fn set_repeatable_read_only(connection: &mut PgConnection) -> Result<(), sqlx::Error> {
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+        .execute(&mut *connection)
+        .await?;
+    Ok(())
+}
+
+fn validate_complete_row_bounds(
+    activity_total: i64,
+    pickup_total: i64,
+    combined_row_limit: Option<i64>,
+) -> Result<i64, RegisterDayActivityError> {
+    let largest_total = activity_total.max(pickup_total);
+    if largest_total > EOD_SNAPSHOT_MAX_ROWS {
+        return Err(incomplete_snapshot(format!(
+            "row count {largest_total} exceeds the audited snapshot limit of {EOD_SNAPSHOT_MAX_ROWS}"
+        )));
+    }
+    let combined_total = activity_total.saturating_add(pickup_total);
+    if combined_row_limit.is_some_and(|limit| combined_total > limit) {
+        return Err(RegisterDayActivityError::InvalidRange(format!(
+            "This Register report contains {combined_total} detail rows, above the {REGISTER_REPORT_OUTPUT_MAX_ROWS}-row audited output limit. Narrow the date range or search."
+        )));
+    }
+    Ok(largest_total)
+}
+
+async fn fetch_complete_register_day_summary_bounded(
     pool: &PgPool,
     preset: Option<String>,
     from: Option<NaiveDate>,
     to: Option<NaiveDate>,
     register_session_id: Option<Uuid>,
     basis: ReportBasis,
+    search: Option<String>,
+    combined_row_limit: Option<i64>,
 ) -> Result<RegisterDaySummary, RegisterDayActivityError> {
-    let mut summary = fetch_register_day_summary_page(
-        pool,
+    let mut transaction = pool.begin().await?;
+    set_repeatable_read_only(&mut transaction).await?;
+    let mut summary = fetch_register_day_summary_page_on_connection(
+        &mut transaction,
         preset.clone(),
         from,
         to,
@@ -741,33 +785,34 @@ pub async fn fetch_complete_register_day_summary(
         ActivityPageOptions {
             limit: EOD_SNAPSHOT_PAGE_SIZE,
             offset: 0,
-            search: None,
+            search: search.clone(),
         },
     )
     .await?;
 
     let expected_activity_total = summary.activity_total_count;
     let expected_pickup_total = summary.pickups_total_count;
-    let largest_total = expected_activity_total.max(expected_pickup_total);
-    if largest_total > EOD_SNAPSHOT_MAX_ROWS {
-        return Err(incomplete_snapshot(format!(
-            "row count {largest_total} exceeds the audited snapshot limit of {EOD_SNAPSHOT_MAX_ROWS}"
-        )));
-    }
+    let largest_total = validate_complete_row_bounds(
+        expected_activity_total,
+        expected_pickup_total,
+        combined_row_limit,
+    )?;
 
+    let resolved_from = summary.from_local;
+    let resolved_to = summary.to_local;
     let mut offset = EOD_SNAPSHOT_PAGE_SIZE;
     while offset < largest_total {
-        let mut page = fetch_register_day_summary_page(
-            pool,
-            preset.clone(),
-            from,
-            to,
+        let mut page = fetch_register_day_summary_page_on_connection(
+            &mut transaction,
+            None,
+            Some(resolved_from),
+            Some(resolved_to),
             register_session_id,
             basis,
             ActivityPageOptions {
                 limit: EOD_SNAPSHOT_PAGE_SIZE,
                 offset,
-                search: None,
+                search: search.clone(),
             },
         )
         .await?;
@@ -809,6 +854,81 @@ pub async fn fetch_complete_register_day_summary(
     summary.activities_has_more = false;
     summary.pickups_has_more = false;
     ensure_complete_eod_snapshot(&summary)?;
+    transaction.commit().await?;
+    Ok(summary)
+}
+
+/// Build the complete, unfiltered day summary used by the durable Z-close snapshot.
+/// All aggregates and detail pages share one repeatable-read database snapshot.
+pub async fn fetch_complete_register_day_summary(
+    pool: &PgPool,
+    preset: Option<String>,
+    from: Option<NaiveDate>,
+    to: Option<NaiveDate>,
+    register_session_id: Option<Uuid>,
+    basis: ReportBasis,
+) -> Result<RegisterDaySummary, RegisterDayActivityError> {
+    fetch_complete_register_day_summary_bounded(
+        pool,
+        preset,
+        from,
+        to,
+        register_session_id,
+        basis,
+        None,
+        None,
+    )
+    .await
+}
+
+/// Build one complete print/CSV payload inside a repeatable-read snapshot. The combined detail
+/// cap bounds response size and keeps a broad report from consuming unbounded server/client memory.
+pub async fn fetch_complete_register_day_summary_for_output(
+    pool: &PgPool,
+    preset: Option<String>,
+    from: Option<NaiveDate>,
+    to: Option<NaiveDate>,
+    register_session_id: Option<Uuid>,
+    basis: ReportBasis,
+    search: Option<String>,
+) -> Result<RegisterDaySummary, RegisterDayActivityError> {
+    fetch_complete_register_day_summary_bounded(
+        pool,
+        preset,
+        from,
+        to,
+        register_session_id,
+        basis,
+        search,
+        Some(REGISTER_REPORT_OUTPUT_MAX_ROWS),
+    )
+    .await
+}
+
+/// Fetch one interactive page from a single repeatable-read snapshot so its aggregates, counts,
+/// activities, and pickups cannot describe different committed database states.
+pub async fn fetch_register_day_summary_page(
+    pool: &PgPool,
+    preset: Option<String>,
+    from: Option<NaiveDate>,
+    to: Option<NaiveDate>,
+    register_session_id: Option<Uuid>,
+    basis: ReportBasis,
+    page: ActivityPageOptions,
+) -> Result<RegisterDaySummary, RegisterDayActivityError> {
+    let mut transaction = pool.begin().await?;
+    set_repeatable_read_only(&mut transaction).await?;
+    let summary = fetch_register_day_summary_page_on_connection(
+        &mut transaction,
+        preset,
+        from,
+        to,
+        register_session_id,
+        basis,
+        page,
+    )
+    .await?;
+    transaction.commit().await?;
     Ok(summary)
 }
 
@@ -838,8 +958,8 @@ fn activity_search_pattern(search: Option<&str>) -> Option<String> {
     Some(format!("%{escaped}%"))
 }
 
-pub async fn fetch_register_day_summary_page(
-    pool: &PgPool,
+async fn fetch_register_day_summary_page_on_connection(
+    connection: &mut PgConnection,
     preset: Option<String>,
     from: Option<NaiveDate>,
     to: Option<NaiveDate>,
@@ -853,7 +973,7 @@ pub async fn fetch_register_day_summary_page(
         .saturating_add(activity_limit)
         .saturating_add(1);
     let activity_search = activity_search_pattern(page.search.as_deref());
-    let tz_name = receipt_timezone(pool).await?;
+    let tz_name = receipt_timezone_on_connection(&mut *connection).await?;
     let tz = effective_tz(Some(tz_name.clone()));
 
     let preset_ref = preset.as_deref();
@@ -928,7 +1048,7 @@ pub async fn fetch_register_day_summary_page(
         .bind(start_utc)
         .bind(end_utc)
         .bind(register_session_id)
-        .fetch_one(pool)
+        .fetch_one(&mut *connection)
         .await?;
 
     let sales_count = row.0;
@@ -957,7 +1077,7 @@ pub async fn fetch_register_day_summary_page(
     .bind(start_utc)
     .bind(end_utc)
     .bind(register_session_id)
-    .fetch_one(pool)
+    .fetch_one(&mut *connection)
     .await?;
 
     let subtotal = row.1.unwrap_or(Decimal::ZERO) - return_adjustments.0;
@@ -976,7 +1096,7 @@ pub async fn fetch_register_day_summary_page(
         .bind(start_utc)
         .bind(end_utc)
         .bind(register_session_id)
-        .fetch_one(pool)
+        .fetch_one(&mut *connection)
         .await?;
 
     let alterations_sql = format!(
@@ -1005,7 +1125,7 @@ pub async fn fetch_register_day_summary_page(
         .bind(start_utc)
         .bind(end_utc)
         .bind(register_session_id)
-        .fetch_one(pool)
+        .fetch_one(&mut *connection)
         .await?;
 
     let gift_card_sql = format!(
@@ -1025,7 +1145,7 @@ pub async fn fetch_register_day_summary_page(
         .bind(start_utc)
         .bind(end_utc)
         .bind(register_session_id)
-        .fetch_one(pool)
+        .fetch_one(&mut *connection)
         .await?;
 
     // Booked mode: pickups completed in range (fulfillment date). Completed mode: same as sale_count (orders completed in range).
@@ -1050,7 +1170,7 @@ pub async fn fetch_register_day_summary_page(
             .bind(start_utc)
             .bind(end_utc)
             .bind(register_session_id)
-            .fetch_one(pool)
+            .fetch_one(&mut *connection)
             .await?;
         pickup_row.0
     } else {
@@ -1077,7 +1197,7 @@ pub async fn fetch_register_day_summary_page(
         .bind(start_utc)
         .bind(end_utc)
         .bind(register_session_id)
-        .fetch_one(pool)
+        .fetch_one(&mut *connection)
         .await?;
     let special_order_sale_count = special_row.0;
 
@@ -1095,7 +1215,7 @@ pub async fn fetch_register_day_summary_page(
         .bind(start_utc)
         .bind(end_utc)
         .bind(register_session_id)
-        .fetch_one(pool)
+        .fetch_one(&mut *connection)
         .await?;
     let merchant_fees = merchant_fees_total.0;
 
@@ -1110,7 +1230,7 @@ pub async fn fetch_register_day_summary_page(
     .bind(&tz_name)
     .bind(from_l)
     .bind(to_l)
-    .fetch_one(pool)
+    .fetch_one(&mut *connection)
     .await?;
     let appointment_count = appt_row.0;
 
@@ -1125,7 +1245,7 @@ pub async fn fetch_register_day_summary_page(
     .bind(&tz_name)
     .bind(from_l)
     .bind(to_l)
-    .fetch_one(pool)
+    .fetch_one(&mut *connection)
     .await?;
     let new_appointment_count = new_appt_row.0;
 
@@ -1141,7 +1261,7 @@ pub async fn fetch_register_day_summary_page(
     .bind(&tz_name)
     .bind(from_l)
     .bind(to_l)
-    .fetch_one(pool)
+    .fetch_one(&mut *connection)
     .await?;
     let new_invoice_count = new_invoice_row.0;
 
@@ -1156,11 +1276,12 @@ pub async fn fetch_register_day_summary_page(
     .bind(&tz_name)
     .bind(from_l)
     .bind(to_l)
-    .fetch_one(pool)
+    .fetch_one(&mut *connection)
     .await?;
     let new_wedding_parties_count = wed_row.0;
 
-    let weather_days = fetch_register_day_weather(pool, from_l, to_l, &tz_name).await?;
+    let weather_days =
+        fetch_register_day_weather_on_connection(&mut *connection, from_l, to_l, &tz_name).await?;
     let weather_summary = weather_summary_label(&weather_days);
 
     // --- Cash and Deposits Dashboard Metrics ---
@@ -1178,7 +1299,7 @@ pub async fn fetch_register_day_summary_page(
     .bind(start_utc)
     .bind(end_utc)
     .bind(register_session_id)
-    .fetch_one(pool)
+    .fetch_one(&mut *connection)
     .await?;
     let cash_collected = cash_row.0.unwrap_or(Decimal::ZERO);
 
@@ -1213,7 +1334,7 @@ pub async fn fetch_register_day_summary_page(
     .bind(start_utc)
     .bind(end_utc)
     .bind(register_session_id)
-    .fetch_one(pool)
+    .fetch_one(&mut *connection)
     .await?;
     let deposits_collected = deposit_row.0.unwrap_or(Decimal::ZERO);
 
@@ -1539,7 +1660,7 @@ pub async fn fetch_register_day_summary_page(
         .bind(register_session_id)
         .bind(activity_search.clone())
         .bind(source_limit)
-        .fetch_all(pool)
+        .fetch_all(&mut *connection)
         .await?;
 
     let sale_transaction_ids = sales
@@ -1563,7 +1684,7 @@ pub async fn fetch_register_day_summary_page(
             "#,
         )
         .bind(&sale_transaction_ids)
-        .fetch_all(pool)
+        .fetch_all(&mut *connection)
         .await?
     };
     let wedding_contributions = wedding_contribution_rows
@@ -1675,7 +1796,7 @@ pub async fn fetch_register_day_summary_page(
         .bind(register_session_id)
         .bind(activity_search.clone())
         .bind(source_limit)
-        .fetch_all(pool)
+        .fetch_all(&mut *connection)
         .await?;
 
     let payments: Vec<PaymentAct> = sqlx::query_as(
@@ -1815,7 +1936,7 @@ pub async fn fetch_register_day_summary_page(
     .bind(register_session_id)
     .bind(activity_search.clone())
     .bind(source_limit)
-    .fetch_all(pool)
+    .fetch_all(&mut *connection)
     .await?;
 
     let sales_matched_count = sales.first().map(|row| row.matched_count).unwrap_or(0);
@@ -2200,7 +2321,8 @@ pub async fn fetch_register_day_summary_page(
 mod tests {
     use super::{
         activity_search_pattern, compare_activity_desc, ensure_complete_eod_counts,
-        format_weather_value, payment_activity_id, reporting_tender_label, RegisterActivityItem,
+        format_weather_value, payment_activity_id, reporting_tender_label,
+        validate_complete_row_bounds, RegisterActivityItem, REGISTER_REPORT_OUTPUT_MAX_ROWS,
     };
     use chrono::{TimeZone, Utc};
     use serde_json::json;
@@ -2294,5 +2416,19 @@ mod tests {
         assert!(ensure_complete_eod_counts(0, 2, 1, true, 1, 1, false).is_err());
         assert!(ensure_complete_eod_counts(500, 2, 2, false, 1, 1, false).is_err());
         assert!(ensure_complete_eod_counts(0, 2, 2, false, 1, 0, false).is_err());
+    }
+
+    #[test]
+    fn complete_register_output_enforces_one_combined_detail_cap() {
+        assert_eq!(
+            validate_complete_row_bounds(12_000, 8_000, Some(REGISTER_REPORT_OUTPUT_MAX_ROWS))
+                .unwrap(),
+            12_000
+        );
+        assert!(
+            validate_complete_row_bounds(12_000, 8_001, Some(REGISTER_REPORT_OUTPUT_MAX_ROWS))
+                .is_err()
+        );
+        assert!(validate_complete_row_bounds(100_001, 0, None).is_err());
     }
 }

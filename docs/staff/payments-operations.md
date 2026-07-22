@@ -42,6 +42,10 @@ Cards show:
 
 If Helcim has not provided a value, ROS shows **Fee not ready** or **Net not ready**. Do not treat a missing fee or net as `$0.00`. Fee/net readiness is a tracking signal, not a reason by itself to stop daily payment review.
 
+When Helcim supplies explicit fee or net values, **Sync Batches** promotes them only when one row from the current sync uniquely links by provider transaction ID and its gross amount, USD currency, final status, and purchase/refund/reverse direction agree with Riverside. **Sync Fees** applies the same exact-ID, amount, USD currency, final-status, and direction checks to the individual provider response. Component-specific metadata records the sync run or verified response evidence and provider source. Missing, duplicate, historical-only, or conflicting evidence opens a review issue or verification failure and leaves the payment ledger unchanged. Riverside never estimates a missing fee. A value marked **Unavailable from provider** is separate from **Ready to sync**; scheduled retries are paced to avoid repeatedly hitting Helcim rate limits, while an authorized manual fee sync can request a fresh check.
+
+Automatic Helcim deposit links require current USD evidence and either an explicit provider deposit/net amount or a complete net total from every current successful batch transaction. Helcim **net sales** is sales activity, not bank-deposit evidence. If a later sync loses complete net evidence, changes away from USD, or otherwise no longer supports the automatic link, Riverside preserves the prior value for review, marks the deposit **Needs review**, unlinks the batch, and records the before/after state in the deposit audit history. A later verified snapshot can relink it with another audit event.
+
 If there are no card payments yet, the tab shows **No payments yet today**. Run sync later after card activity begins.
 
 ## POS Payments

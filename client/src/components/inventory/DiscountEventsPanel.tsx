@@ -46,6 +46,27 @@ interface VarRow {
   product_name: string;
 }
 
+interface ExactVariantScanResult {
+  product_id: string;
+  variant_id: string;
+  sku: string;
+  name: string;
+  variation_label?: string | null;
+  standard_retail_price?: string | number;
+  unit_cost?: string | number;
+  resolution_kind?:
+    | "variant_id"
+    | "sku"
+    | "barcode"
+    | "barcode_alias"
+    | "catalog_handle"
+    | "product_name";
+}
+
+type VariantCodeLookup =
+  | { kind: "exact"; variant: VariantSearchResult }
+  | { kind: "ambiguous" | "name_only" | "not_found" | "unavailable" };
+
 interface UsageSummaryRow {
   event_id: string;
   event_name: string;
@@ -494,24 +515,65 @@ export default function DiscountEventsPanel() {
   };
 
   const lookupVariantByCode = useCallback(
-    async (code: string): Promise<VariantSearchResult | null> => {
+    async (code: string): Promise<VariantCodeLookup> => {
       const trimmed = code.trim();
-      if (trimmed.length < 2) return null;
+      if (trimmed.length < 2) return { kind: "not_found" };
       try {
+        const headers = backofficeHeaders();
+        const scanRes = await fetch(
+          `${baseUrl}/api/inventory/scan/${encodeURIComponent(trimmed)}`,
+          { headers },
+        );
+        if (scanRes.ok) {
+          const exact = (await scanRes.json()) as ExactVariantScanResult;
+          const exactIdentifierMatch =
+            exact.resolution_kind != null
+              ? exact.resolution_kind !== "product_name"
+              : exact.sku.toLowerCase() === trimmed.toLowerCase();
+          if (!exactIdentifierMatch) return { kind: "name_only" };
+          return {
+            kind: "exact",
+            variant: {
+              product_id: exact.product_id,
+              variant_id: exact.variant_id,
+              sku: exact.sku,
+              product_name: exact.name,
+              variation_label: exact.variation_label,
+              retail_price: exact.standard_retail_price,
+              cost_price: exact.unit_cost,
+            },
+          };
+        }
+        if (scanRes.status === 400) return { kind: "ambiguous" };
+        if (scanRes.status !== 404) return { kind: "unavailable" };
+
+        // Fuzzy search remains available through the explicit picker. The scan-to-add
+        // action accepts only a literal identifier match and never a ranked first row.
         const res = await fetch(
           `${baseUrl}/api/products/control-board?search=${encodeURIComponent(trimmed)}&limit=8`,
-          { headers: backofficeHeaders() },
+          { headers },
         );
-        if (!res.ok) return null;
+        if (!res.ok) return { kind: "unavailable" };
         const data = (await res.json()) as { rows?: VariantSearchResult[] };
         const rows = Array.isArray(data.rows) ? data.rows : [];
-        return (
-          rows.find((row) => row.sku.toLowerCase() === trimmed.toLowerCase()) ??
-          rows[0] ??
-          null
+        const normalized = trimmed.toLowerCase();
+        const exactMatches = rows.filter(
+          (row) =>
+            row.sku.toLowerCase() === normalized ||
+            row.barcode?.toLowerCase() === normalized ||
+            row.vendor_upc?.toLowerCase() === normalized ||
+            row.catalog_handle?.toLowerCase() === normalized,
         );
+        const uniqueMatches = [
+          ...new Map(exactMatches.map((row) => [row.variant_id, row])).values(),
+        ];
+        if (uniqueMatches.length > 1) return { kind: "ambiguous" };
+        if (uniqueMatches.length === 1) {
+          return { kind: "exact", variant: uniqueMatches[0] };
+        }
+        return { kind: rows.length > 0 ? "name_only" : "not_found" };
       } catch {
-        return null;
+        return { kind: "unavailable" };
       }
     },
     [backofficeHeaders],
@@ -523,13 +585,27 @@ export default function DiscountEventsPanel() {
     if (!code) return;
     setBusyScan(true);
     try {
-      const variant = await lookupVariantByCode(code);
-      if (!variant) {
+      const lookup = await lookupVariantByCode(code);
+      if (lookup.kind === "unavailable") {
+        toast("Item lookup is unavailable. Nothing was added to the promotion.", "error");
+        return;
+      }
+      if (lookup.kind === "ambiguous") {
+        toast("That identifier matches multiple variations. Use the product picker; nothing was added.", "error");
+        return;
+      }
+      if (lookup.kind === "name_only") {
+        toast("Similar items were found, but not one unique exact identifier. Use the product picker.", "info");
+        return;
+      }
+      if (lookup.kind === "not_found") {
         toast(`SKU ${code} was not found.`, "error");
         return;
       }
-      await addVariant(variant);
-      setScanSku("");
+      if (lookup.kind === "exact") {
+        await addVariant(lookup.variant);
+        setScanSku("");
+      }
     } finally {
       setBusyScan(false);
       scanInputRef.current?.focus();

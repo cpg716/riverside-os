@@ -150,6 +150,22 @@ The only active migration files in `migrations/` are:
 | `131_repair_counterpoint_historical_paid_amounts.sql` | Repairs historical Counterpoint paid amounts |
 | `132_reliability_read_path_indexes.sql` | Adds reliability indexes for payment, history, and wedding reads |
 | `133_qbo_backdated_sale_clearing.sql` | Adds QBO clearing support for manager-approved backdated sales |
+| `134_customer_merge_history_pointer.sql` | Preserves customer-history pointers through reviewed merges |
+| `135_reconcile_picked_up_order_status.sql` | Reconciles picked-up fulfillment evidence with Transaction status |
+| `136_restore_counterpoint_line_paid_prices.sql` | Restores source charged prices on exact Counterpoint line matches |
+| `137_payment_dashboard_read_path_indexes.sql` | Adds Payments dashboard read-path indexes |
+| `138_register_payment_read_path_indexes.sql` | Adds Register payment and reconciliation read-path indexes |
+| `139_transaction_return_financial_events.sql` | Adds exact return/refund financial event evidence |
+| `140_search_trigram_read_path_indexes.sql` | Adds guarded PostgreSQL fallback-search indexes |
+| `141_transaction_line_booking_events.sql` | Adds append-only line booking/amendment events for Booked reporting |
+| `142_counterpoint_repair_reporting_guard.sql` | Excludes administrative Counterpoint price repairs from Booked Sales |
+| `143_register_financial_recovery_integrity.sql` | Adds durable Register recovery and checkout fingerprint evidence |
+| `144_transaction_line_booking_event_delete_integrity.sql` | Preserves deletion evidence without violating transaction-line foreign keys |
+| `145_notification_queue_partial_conflict_inference.sql` | Restores idempotent active notification enqueueing |
+| `146_counterpoint_financial_integrity_manifest.sql` | Adds read-only Counterpoint financial/date integrity views and reviewed booking-date repair audit evidence |
+| `147_verified_backup_evidence.sql` | Separates catalog-verified local backup evidence from legacy scheduler success |
+| `148_receiving_identifier_lookup_indexes.sql` | Adds normalized catalog-number and vendor-UPC indexes for authoritative Receiving scan resolution |
+| `149_verified_backup_artifact_identity.sql` | Binds verified-backup readiness evidence to the exact archive size and SHA-256 identity |
 
 Historical migration files live under `migrations/legacy_prelaunch_history/`. They are not applied by the normal migration scripts.
 

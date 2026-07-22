@@ -1050,7 +1050,9 @@ mod tests {
 
     #[tokio::test]
     async fn refund_credit_records_refunded_event_and_returns_visibility_details() {
-        let Some(database_url) = std::env::var("DATABASE_URL").ok() else {
+        let Ok(database_url) =
+            std::env::var("TEST_DATABASE_URL").or_else(|_| std::env::var("DATABASE_URL"))
+        else {
             return;
         };
         let mut conn = sqlx::PgConnection::connect(&database_url)
@@ -1060,14 +1062,36 @@ mod tests {
 
         let card_id = Uuid::new_v4();
         let code = format!("GC-REFUND-{}", Uuid::new_v4().simple());
-        let transaction_id: Uuid = sqlx::query_scalar("SELECT id FROM transactions LIMIT 1")
-            .fetch_one(&mut *tx)
-            .await
-            .expect("existing transaction");
-        let session_id: Uuid = sqlx::query_scalar("SELECT id FROM register_sessions LIMIT 1")
-            .fetch_one(&mut *tx)
-            .await
-            .expect("existing register session");
+        let session_id = Uuid::new_v4();
+        sqlx::query(
+            r#"
+            INSERT INTO register_sessions (
+                id, opening_float, is_open, lifecycle_status, register_lane, till_close_group_id
+            )
+            VALUES ($1, 0.00, FALSE, 'closed', 99, $2)
+            "#,
+        )
+        .bind(session_id)
+        .bind(Uuid::new_v4())
+        .execute(&mut *tx)
+        .await
+        .expect("insert gift card refund test register session");
+
+        let transaction_id = Uuid::new_v4();
+        sqlx::query(
+            r#"
+            INSERT INTO transactions (
+                id, display_id, total_price, amount_paid, balance_due, register_session_id
+            )
+            VALUES ($1, $2, 0.00, 0.00, 0.00, $3)
+            "#,
+        )
+        .bind(transaction_id)
+        .bind(format!("TXN-GC-REFUND-{}", transaction_id.simple()))
+        .bind(session_id)
+        .execute(&mut *tx)
+        .await
+        .expect("insert gift card refund test transaction");
         sqlx::query(
             r#"
             INSERT INTO gift_cards

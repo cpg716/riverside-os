@@ -39,11 +39,11 @@ Use Reports to find sales, register, finance, customer, wedding, inventory, staf
 2. Use the search box: "Search reports by task, question, or keyword".
 3. Search with plain terms such as pickup, balance, tax, cash, drawer, slow stock, weather, appointments, no-show, or open orders.
 4. Review the matching category section and choose a report tile.
-5. **Register Day Summary** opens on **Today**. Riverside retrieves every activity page for the selected range before displaying, printing, or exporting it, up to the stated 100,000-row audited limit. Narrow the range if that explicit limit is reached.
+5. **Register Day Summary** opens on **Today**. Riverside displays the summary and first audited activity page as soon as they are ready. Use **Load next audited page** for more detail. The interactive view stops at 2,000 rows for stability and never labels a partial page as the complete activity set; narrow the date range when that limit is reached.
 6. Use From, To, Basis, and Group by when those controls appear.
 7. For **Best Sellers**, use **Product View** for parent products and **Variation View** for individual SKUs.
 8. Use Refresh after changing filters.
-9. Use **View Report** from the loaded report header to review table, summary, or no-row report results inside ROS. Use **Print Report** to send that report to the configured Reports printer.
+9. Use **View Report** from the loaded report header to review table, summary, or no-row report results inside ROS. For **Register Day Summary**, View and Print request one read-only database snapshot containing the complete audited activity and pickup sections before opening output. If the combined detail exceeds the 20,000-row output limit or the response is incomplete, Riverside produces nothing and asks you to refresh or narrow the date range. Use **Print Report** to send the completed report to the configured Reports printer.
 10. Use CSV when the loaded report includes table rows.
 11. If View Report or Print Report cannot open the report path, Riverside shows an error so staff can check station printer setup or support can review the workstation state instead of assuming the button worked.
 
@@ -65,6 +65,9 @@ Use Reports when the store needs a repeatable answer with the same filters, basi
 - **Wedding Program Profit** is Admin-only and shows the free-groom suit program by wedding party and selected date basis, including paid wedding members, free-suit promo members, discounts, cost, profit, and margin.
 - **Negative Items from Transactions** is the period report for researching sale, pickup, or shipping recognition movements that drove SKU stock below zero. Use it after the transaction is complete; negative stock is an inventory follow-up, not a reason to block a customer sale or pickup.
 - Register summary counts remain counts, money remains currency, weather is rounded for staff reading, and structured payment/item detail is shown as readable text rather than raw JSON or internal UUIDs.
+- Register summary detail displays activity records and pickup records as separate audited sections. The progress line reports each section's loaded and total counts, so hidden pickup rows never consume the screen limit without being shown.
+- **Returns, Exchanges & Refunds** separates returned merchandise and tax, the refund obligation, posted refund payments, and the amount still owed. **Refund Due** and **Refund Remaining** come from the refund queue; **Refund Paid** appears on the posted refund-payment row. Return-line and queue rows do not duplicate posted payments.
+- **Returns, Exchanges & Refunds** loads every stable audited page before it shows the table or charts or enables print/CSV output. The green completeness line gives the row count and snapshot time. If the data changes during paging, a page repeats, or the range exceeds 20,000 rows, Riverside shows an error and displays no partial chart or table; narrow the date range and retry.
 
 ## What happens next
 

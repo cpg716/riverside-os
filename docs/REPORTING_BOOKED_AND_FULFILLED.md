@@ -9,12 +9,14 @@ Riverside OS uses two time axes for revenue-style analytics:
 
 **Single source in SQL:** `reporting.order_recognition_at(transaction_id, ...)` (baseline migration **106**, active migration layout in `migrations/001` / `007` / `019`). Server-side dynamic SQL must stay aligned with **`server/src/logic/report_basis.rs`** (`ORDER_RECOGNITION_TS_SQL`, `transaction_date_filter_sql`, `transaction_recognition_tax_filter_sql`).
 
+Completed-basis range filters evaluate the recognition expression once against one half-open PostgreSQL timestamp range. Do not expand that predicate into separate null, lower-bound, and upper-bound copies: shipment recognition contains correlated evidence lookups, and repeated evaluation materially slows Daily Sales and other fulfilled-basis reports without changing the answer.
+
 ## API (`GET /api/insights/*`)
 
 Back Office -> Reports exposes these curated report tiles through staff-facing names and a local search box. Staff can search by task or question (for example **tax**, **pickup**, **balance**, **slow stock**, or **What sold best last month?**) without changing the underlying basis rules below.
 
 - **`sales-pivot`** — Query **`basis`**: `booked` / `sale` / `booking` vs `fulfilled` / `pickup` / `fulfillment`. Fulfilled uses fulfillment filter + fulfilled date for **`group_by=date`**.
-- **`register-day-activity`** — Query **`basis`**: `booked` (default) vs `fulfilled`. Fulfilled timeline uses fulfillment timestamp. Z-close EOD snapshots remain **booked** only. Interactive responses are paged; the post-close snapshot follows every page, verifies stable totals and unique row identities, and refuses to persist a partial set.
+- **`register-day-activity`** — Query **`basis`**: `booked` (default) vs `fulfilled`. Fulfilled timeline uses fulfillment timestamp. Z-close EOD snapshots remain **booked** only. Every interactive response is calculated in one read-only repeatable-read transaction. Complete View/Print/CSV output (up to 20,000 combined detail rows) and the post-close snapshot hold one database snapshot across all internal pages, verify exact totals and unique row identities, and refuse to expose or persist a partial set.
 - **`register-override-mix`** — Optional **`basis`** + `from` / `to` (flattened): fulfilled = fulfillment window.
 - **`nys-tax-audit`** — **Fulfillment only** (no `basis`): lines are included when the order’s fulfillment instant falls in `from` / `to`.
 - **`commission-ledger`** — **Unpaid** = open lines with **booked** date in range (pipeline). **Earned in period** = append-only commission events with **fulfillment/recognition** instant in range.
@@ -31,6 +33,16 @@ Current reporting schema:
 - **`reporting.loyalty_customer_snapshot`** — Per-customer loyalty stats (Earnings vs Redemptions vs Balance).
 - **`reporting.loyalty_daily_velocity`** — Daily earn vs burn velocity charts.
 - **`reporting.transaction_status_integrity`** — Exception view for mismatches between `transactions.status`, line fulfillment state, and missing fulfillment timestamps. Check this before trusting a disputed receipt, loyalty balance, commission window, QBO staging row, or fulfilled-revenue report.
+- **`reporting.counterpoint_import_financial_integrity`** — Read-only comparison of each imported Counterpoint Transaction header, current line total, stored paid amount, allocated tenders, booking timestamps, and audit evidence. Critical differences require source review; the view never chooses a replacement financial value.
+- **`reporting.counterpoint_booking_date_repair_manifest`** — Dry-run list of imported current-line and initial-booking timestamps that differ from the retained Counterpoint Transaction booking time. The guarded repair uses this exact manifest and cannot update transaction headers, payments, allocations, or tender amounts.
+
+Counterpoint ticket ingest must explicitly copy `transactions.booked_at` into every imported `transaction_lines.booked_at`. Relying on the line column's `now()` default records the import day as a false booked sale, so a missing or malformed source timestamp is an import exception instead of a current-time fallback. Existing mismatches are repaired only through the reviewed manifest path, which retains before/after evidence and leaves ambiguous or orphaned booking events for manual review. Rerunning an imported source suppresses the synthetic line-deletion event and marks the superseded initial event as excluded audit history before the source-dated replacement is inserted.
+
+The Returns, Exchanges & Refunds report separates three ledgers instead of summing the same obligation repeatedly: returned-item rows describe merchandise and tax, refund-queue rows show due and remaining liability, and only successfully posted negative payment rows show value actually refunded. Failed, declined, voided, cancelled, or error provider movements never count as refund paid.
+
+That report is an audited paged response, ordered by activity time and stable row identity. Each page carries the same as-of timestamp, total count, and full-dataset fingerprint. The Reports workspace verifies those values and rejects duplicate or missing rows before rendering charts, a table, print output, or CSV. Ranges above 20,000 rows fail closed and must be narrowed; the former silent 1,000-row cutoff is not used.
+
+Lane-scoped Register Day requests require the query's `register_session_id` to match a valid POS session secret. A staff caller without that matching secret must hold `register.reports`; an open session UUID by itself grants no report access.
 
 **`metabase_ro`:** `GRANT SELECT` on ALL TABLES IN SCHEMA reporting.
 

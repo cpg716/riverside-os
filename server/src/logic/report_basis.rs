@@ -66,7 +66,7 @@ pub fn order_date_filter_sql(basis: ReportBasis) -> String {
                 .to_string()
         }
         ReportBasis::Completed => format!(
-            "o.status::text <> 'cancelled' AND ({ts}) IS NOT NULL AND ({ts}) >= $1 AND ({ts}) < $2",
+            "o.status::text <> 'cancelled' AND tstzrange($1, $2, '[)') @> ({ts})",
             ts = ORDER_RECOGNITION_TS_SQL.trim()
         ),
     }
@@ -85,5 +85,18 @@ pub fn parse_report_basis(raw: &str) -> Result<ReportBasis, String> {
         other => Err(format!(
             "basis must be 'booked' or 'completed' (got '{other}'; aliases: sale, pickup)"
         )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{order_date_filter_sql, ReportBasis, ORDER_RECOGNITION_TS_SQL};
+
+    #[test]
+    fn completed_filter_evaluates_recognition_expression_once() {
+        let filter = order_date_filter_sql(ReportBasis::Completed);
+        assert_eq!(filter.matches(ORDER_RECOGNITION_TS_SQL.trim()).count(), 1);
+        assert!(filter.contains("tstzrange($1, $2, '[)') @>"));
+        assert!(!filter.contains("IS NOT NULL"));
     }
 }

@@ -1,7 +1,10 @@
 [CmdletBinding()]
-param()
+param(
+  [string]$ConfigPath = ""
+)
 
 $ErrorActionPreference = "Stop"
+$requestedConfigPath = $ConfigPath
 
 function Test-Admin {
   $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -9,18 +12,61 @@ function Test-Admin {
 }
 
 if (-not (Test-Admin)) {
-  Start-Process powershell.exe -Verb RunAs -ArgumentList @(
+  $elevationArguments = @(
     "-NoProfile",
     "-ExecutionPolicy",
     "Bypass",
     "-File",
     "`"$PSCommandPath`""
   )
+  if (-not [string]::IsNullOrWhiteSpace($requestedConfigPath)) {
+    $elevationArguments += @("-ConfigPath", "`"$requestedConfigPath`"")
+  }
+  Start-Process powershell.exe -Verb RunAs -ArgumentList $elevationArguments
   exit
 }
 
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
+
+function Get-ConfiguredInstallRoot([string]$CandidateConfigPath) {
+  if ([string]::IsNullOrWhiteSpace($CandidateConfigPath) -or -not (Test-Path $CandidateConfigPath)) {
+    return $null
+  }
+  try {
+    $candidateConfig = Get-Content $CandidateConfigPath -Raw | ConvertFrom-Json
+    $candidateInstallRoot = "$($candidateConfig.server.installRoot)".Trim()
+    if ($candidateInstallRoot) {
+      return $candidateInstallRoot
+    }
+  } catch {
+    return $null
+  }
+  return $null
+}
+
+function Resolve-DeploymentConfigPath(
+  [string]$PackageConfigPath,
+  [string]$ExampleConfigPath,
+  [string]$RequestedConfigPath
+) {
+  if (-not [string]::IsNullOrWhiteSpace($RequestedConfigPath)) {
+    return [System.IO.Path]::GetFullPath($RequestedConfigPath)
+  }
+
+  $installRoot = Get-ConfiguredInstallRoot $PackageConfigPath
+  if (-not $installRoot) {
+    $installRoot = Get-ConfiguredInstallRoot $ExampleConfigPath
+  }
+  if (-not $installRoot) {
+    $installRoot = "C:\RiversideOS"
+  }
+  $installedConfigPath = Join-Path $installRoot "riverside-deployment.config.json"
+  if (Test-Path $installedConfigPath) {
+    return $installedConfigPath
+  }
+  return $PackageConfigPath
+}
 
 $ScriptRoot = $PSScriptRoot
 if ([string]::IsNullOrWhiteSpace($ScriptRoot)) {
@@ -35,7 +81,8 @@ if (-not $ScriptRoot) {
 }
 $packageRoot = $ScriptRoot
 $configExamplePath = Join-Path $packageRoot "riverside-deployment.config.example.json"
-$configPath = Join-Path $packageRoot "riverside-deployment.config.json"
+$packageConfigPath = Join-Path $packageRoot "riverside-deployment.config.json"
+$configPath = Resolve-DeploymentConfigPath $packageConfigPath $configExamplePath $requestedConfigPath
 $packageManifestPath = Join-Path $packageRoot "deployment-package.manifest.json"
 $managerLogPath = Join-Path $packageRoot "deployment-manager.log"
 
@@ -568,18 +615,30 @@ function Save-FormToConfig {
 
   $config.server.database.appPassword = $appPasswordText.Text
   $config.server.storeCustomerJwtSecret = $secretText.Text
+  $installRoot = "$($config.server.installRoot)".Trim()
+  if (-not $installRoot) {
+    $installRoot = "C:\RiversideOS"
+    $config.server.installRoot = $installRoot
+  }
+  $configuredBackupDir = Get-ConfigEnvironmentValue $config.server.environment "RIVERSIDE_BACKUP_DIR"
+  if (-not $configuredBackupDir.Trim()) {
+    Set-ConfigEnvironmentValue $config "RIVERSIDE_BACKUP_DIR" (Join-Path $installRoot "backups")
+    Add-Log "Configured the durable Main Hub backup directory."
+  }
+  $configuredRepoRoot = Get-ConfigEnvironmentValue $config.server.environment "RIVERSIDE_REPO_ROOT"
+  if (-not $configuredRepoRoot.Trim()) {
+    Set-ConfigEnvironmentValue $config "RIVERSIDE_REPO_ROOT" (Join-Path $installRoot "release")
+  }
   $counterpointSyncToken = Get-ConfigEnvironmentValue $config.server.environment "COUNTERPOINT_SYNC_TOKEN"
   if (Test-PlaceholderSecret $counterpointSyncToken -or $counterpointSyncToken.Length -lt 32) {
     $counterpointSyncToken = New-RiversideSecret 48
     Set-ConfigEnvironmentValue $config "COUNTERPOINT_SYNC_TOKEN" $counterpointSyncToken
     Add-Log "Generated Counterpoint bridge sync token."
   }
-  $helcimApiToken = Get-ConfigEnvironmentValue $config.server.environment "HELCIM_API_TOKEN"
-  $helcimTerminal1 = Get-ConfigEnvironmentValue $config.server.environment "HELCIM_TERMINAL_1_DEVICE_CODE"
-  $helcimTerminal2 = Get-ConfigEnvironmentValue $config.server.environment "HELCIM_TERMINAL_2_DEVICE_CODE"
-  if ((Test-PlaceholderSecret $helcimApiToken) -or (Test-PlaceholderSecret $helcimTerminal1) -or (Test-PlaceholderSecret $helcimTerminal2)) {
-    $config.server.strictProduction = $false
-    Add-Log "Strict production startup disabled until Helcim API token and Terminal 1/2 device codes are configured."
+  if ([bool]$config.server.strictProduction) {
+    Add-Log "Production safeguards remain enabled by the installed deployment config."
+  } else {
+    Add-Log "Warning: production safeguards are disabled in the deployment config. Production go-live signoff remains blocked until System Audit prerequisites pass and strictProduction is explicitly enabled."
   }
 
   if ($serverRadio.Checked) {

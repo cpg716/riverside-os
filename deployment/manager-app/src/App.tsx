@@ -161,22 +161,30 @@ export default function App() {
   };
 
   const buildMainHubConfig = (targetRole = role) => {
-    const newConfig = { ...config };
-    if (!newConfig.server) newConfig.server = {};
-    if (!newConfig.server.database) newConfig.server.database = {};
-    if (!newConfig.register) newConfig.register = {};
+    const newConfig = {
+      ...config,
+      server: {
+        ...(config.server ?? {}),
+        database: { ...(config.server?.database ?? {}) },
+        environment: { ...(config.server?.environment ?? {}) },
+      },
+      register: { ...(config.register ?? {}) },
+    };
     if (!newConfig.server.installRoot) newConfig.server.installRoot = 'C:\\RiversideOS';
     newConfig.server.environmentMode = 'production';
+    if (typeof newConfig.server.strictProduction !== 'boolean') {
+      newConfig.server.strictProduction = false;
+    }
     if (!newConfig.server.httpBind) newConfig.server.httpBind = '0.0.0.0:3000';
     if (!newConfig.server.firewallRuleName) newConfig.server.firewallRuleName = 'Riverside OS Server';
     if (!newConfig.server.corsOrigins || !newConfig.server.corsOrigins.length) {
       newConfig.server.corsOrigins = ['http://tauri.localhost', 'https://tauri.localhost'];
     }
-    if (!newConfig.server.environment) {
-      newConfig.server.environment = {
-        RIVERSIDE_BACKUP_DIR: 'C:\\RiversideOS\\backups',
-        RIVERSIDE_REPO_ROOT: 'C:\\RiversideOS\\release',
-      };
+    if (!newConfig.server.environment.RIVERSIDE_BACKUP_DIR?.trim()) {
+      newConfig.server.environment.RIVERSIDE_BACKUP_DIR = newConfig.server.installRoot + '\\backups';
+    }
+    if (!newConfig.server.environment.RIVERSIDE_REPO_ROOT?.trim()) {
+      newConfig.server.environment.RIVERSIDE_REPO_ROOT = newConfig.server.installRoot + '\\release';
     }
     newConfig.server.database.adminPassword = dbPassword;
     if (targetRole === 'main-hub') {
@@ -744,6 +752,17 @@ export default function App() {
 
           {/* Active Maintenance Tab Workspace */}
           <div className="glass-panel p-6 min-h-[250px]">
+            {config?.server?.environmentMode === 'production' && config?.server?.strictProduction !== true && (
+              <div className="mb-6 flex items-start gap-3 rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-950">
+                <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+                <div>
+                  <p className="text-sm font-bold">Production safeguards are disabled</p>
+                  <p className="mt-1 text-xs leading-5 text-amber-800">
+                    Riverside can continue serving staff, but production go-live signoff is blocked. Run System Audit and verify an absolute backup directory, current migrations, exact browser origins, integration encryption, live payment credentials, search, and the deployed web bundle before setting <code>server.strictProduction</code> to <code>true</code> in the installed deployment config and updating the Main Hub.
+                  </p>
+                </div>
+              </div>
+            )}
             {maintenanceTab === 'status' && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* Left column: Server Control */}

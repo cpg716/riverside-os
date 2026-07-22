@@ -55,6 +55,8 @@ pub fn run() {
             app_updates::check_app_update,
             #[cfg(desktop)]
             app_updates::install_app_update,
+            #[cfg(desktop)]
+            app_updates::read_app_update_telemetry,
             unified_server::start_unified_server,
             unified_server::start_installed_windows_server,
             unified_server::restart_installed_windows_server,

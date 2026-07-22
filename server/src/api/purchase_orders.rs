@@ -9,7 +9,7 @@ use rust_decimal::Decimal;
 use rust_decimal::RoundingStrategy;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use sqlx::FromRow;
+use sqlx::{FromRow, PgConnection};
 use std::fmt::Write as _;
 use thiserror::Error;
 use uuid::Uuid;
@@ -122,15 +122,18 @@ struct EditablePoContext {
     po_kind: String,
 }
 
-async fn ensure_active_vendor_exists(
-    pool: &sqlx::PgPool,
+async fn ensure_active_vendor_exists<'e, E>(
+    executor: E,
     vendor_id: Uuid,
-) -> Result<(), PurchaseOrderError> {
+) -> Result<(), PurchaseOrderError>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
     let exists: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM vendors WHERE id = $1 AND is_active = TRUE)",
     )
     .bind(vendor_id)
-    .fetch_one(pool)
+    .fetch_one(executor)
     .await?;
 
     if !exists {
@@ -143,7 +146,7 @@ async fn ensure_active_vendor_exists(
 }
 
 async fn load_editable_po_context(
-    pool: &sqlx::PgPool,
+    connection: &mut PgConnection,
     po_id: Uuid,
 ) -> Result<EditablePoContext, PurchaseOrderError> {
     let context = sqlx::query_as::<_, EditablePoContext>(
@@ -151,10 +154,11 @@ async fn load_editable_po_context(
         SELECT vendor_id, status::text AS status, po_kind
         FROM purchase_orders
         WHERE id = $1
+        FOR UPDATE
         "#,
     )
     .bind(po_id)
-    .fetch_optional(pool)
+    .fetch_optional(&mut *connection)
     .await?
     .ok_or(PurchaseOrderError::NotFound)?;
 
@@ -172,25 +176,32 @@ async fn load_editable_po_context(
 }
 
 async fn validate_po_line_vendor_linkage(
-    pool: &sqlx::PgPool,
+    connection: &mut PgConnection,
     vendor_id: Uuid,
     variant_id: Uuid,
 ) -> Result<(), PurchaseOrderError> {
     #[derive(Debug, FromRow)]
     struct VariantVendorRow {
         sku: String,
-        product_id: Uuid,
         primary_vendor_id: Option<Uuid>,
         primary_vendor_name: Option<String>,
+        pos_line_kind: Option<String>,
+        is_secondary_vendor: bool,
     }
 
     let variant = sqlx::query_as::<_, VariantVendorRow>(
         r#"
         SELECT
             pv.sku,
-            p.id AS product_id,
             p.primary_vendor_id,
-            v.name AS primary_vendor_name
+            v.name AS primary_vendor_name,
+            p.pos_line_kind,
+            EXISTS (
+                SELECT 1
+                FROM product_secondary_vendors secondary
+                WHERE secondary.product_id = p.id
+                  AND secondary.vendor_id = $2
+            ) AS is_secondary_vendor
         FROM product_variants pv
         INNER JOIN products p ON p.id = pv.product_id
         LEFT JOIN vendors v ON v.id = p.primary_vendor_id
@@ -198,40 +209,32 @@ async fn validate_po_line_vendor_linkage(
         "#,
     )
     .bind(variant_id)
-    .fetch_optional(pool)
+    .bind(vendor_id)
+    .fetch_optional(&mut *connection)
     .await?
     .ok_or_else(|| PurchaseOrderError::InvalidPayload("variant_id not found".to_string()))?;
 
-    if let Some(primary_vendor_id) = variant.primary_vendor_id {
-        let is_secondary_vendor: bool = sqlx::query_scalar(
-            r#"
-            SELECT EXISTS(
-                SELECT 1
-                FROM product_secondary_vendors
-                WHERE product_id = $1
-                  AND vendor_id = $2
-            )
-            "#,
-        )
-        .bind(variant.product_id)
-        .bind(vendor_id)
-        .fetch_one(pool)
-        .await?;
-        if primary_vendor_id != vendor_id && !is_secondary_vendor {
-            let mut message = format!(
-                "sku {} is linked to a different primary or secondary vendor",
-                variant.sku.trim()
-            );
-            if let Some(name) = variant
-                .primary_vendor_name
-                .as_deref()
-                .map(str::trim)
-                .filter(|name| !name.is_empty())
-            {
-                let _ = write!(&mut message, " ({name})");
-            }
-            return Err(PurchaseOrderError::InvalidPayload(message));
+    if variant.pos_line_kind.is_some() {
+        return Err(PurchaseOrderError::InvalidPayload(format!(
+            "sku {} is a non-stock POS line and cannot be added to receiving",
+            variant.sku.trim()
+        )));
+    }
+
+    if variant.primary_vendor_id != Some(vendor_id) && !variant.is_secondary_vendor {
+        let mut message = format!(
+            "sku {} is not linked to this purchase-order vendor",
+            variant.sku.trim()
+        );
+        if let Some(name) = variant
+            .primary_vendor_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+        {
+            let _ = write!(&mut message, " (primary vendor: {name})");
         }
+        return Err(PurchaseOrderError::InvalidPayload(message));
     }
 
     Ok(())
@@ -495,28 +498,52 @@ async fn add_po_line(
         ));
     }
 
-    let po_context = load_editable_po_context(&state.db, po_id).await?;
+    let mut tx = state.db.begin().await?;
+    let po_context = load_editable_po_context(&mut tx, po_id).await?;
     if po_context.po_kind != "standard" && po_context.po_kind != "direct_invoice" {
         return Err(PurchaseOrderError::InvalidPayload(
             "purchase order kind is not supported for line entry".to_string(),
         ));
     }
-    validate_po_line_vendor_linkage(&state.db, po_context.vendor_id, payload.variant_id).await?;
+    validate_po_line_vendor_linkage(&mut tx, po_context.vendor_id, payload.variant_id).await?;
 
-    sqlx::query(
+    let duplicate_line_id: Option<Uuid> = sqlx::query_scalar(
+        r#"
+        SELECT id
+        FROM purchase_order_lines
+        WHERE purchase_order_id = $1
+          AND variant_id = $2
+        ORDER BY created_at, id
+        LIMIT 1
+        "#,
+    )
+    .bind(po_id)
+    .bind(payload.variant_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    if duplicate_line_id.is_some() {
+        return Err(PurchaseOrderError::InvalidPayload(
+            "This variation is already on the purchase order; update its existing line instead."
+                .to_string(),
+        ));
+    }
+
+    let line_id: Uuid = sqlx::query_scalar(
         r#"
         INSERT INTO purchase_order_lines (purchase_order_id, variant_id, quantity_ordered, unit_cost)
         VALUES ($1, $2, $3, $4)
+        RETURNING id
         "#,
     )
     .bind(po_id)
     .bind(payload.variant_id)
     .bind(payload.quantity_ordered)
     .bind(payload.unit_cost)
-    .execute(&state.db)
+    .fetch_one(&mut *tx)
     .await?;
+    tx.commit().await?;
 
-    Ok(Json(json!({ "status": "line_added" })))
+    Ok(Json(json!({ "status": "line_added", "line_id": line_id })))
 }
 
 async fn update_po_line(
@@ -742,45 +769,47 @@ mod tests {
     use uuid::Uuid;
 
     async fn connect_test_db() -> PgPool {
-        let _ =
-            dotenvy::from_filename(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(".env"));
         let database_url = std::env::var("TEST_DATABASE_URL")
-            .or_else(|_| std::env::var("DATABASE_URL"))
-            .expect("TEST_DATABASE_URL or DATABASE_URL must be set for DB-backed tests");
+            .expect("TEST_DATABASE_URL must name an isolated migrated test database");
         PgPool::connect(&database_url)
             .await
             .expect("connect test database")
     }
 
     #[tokio::test]
+    #[ignore = "requires an isolated migrated test database"]
     async fn ensure_active_vendor_exists_rejects_inactive_vendor() {
         let pool = connect_test_db().await;
+        let mut tx = pool.begin().await.expect("begin vendor existence test");
 
         let vendor_id = Uuid::new_v4();
         sqlx::query("INSERT INTO vendors (id, name, is_active) VALUES ($1, $2, false)")
             .bind(vendor_id)
             .bind(format!("Inactive Vendor {}", Uuid::new_v4().simple()))
-            .execute(&pool)
+            .execute(&mut *tx)
             .await
             .expect("insert vendor");
 
         assert!(matches!(
-            ensure_active_vendor_exists(&pool, vendor_id).await,
+            ensure_active_vendor_exists(&mut *tx, vendor_id).await,
             Err(PurchaseOrderError::InvalidPayload(message))
             if message == "vendor_id not found or inactive"
         ));
+        tx.rollback().await.expect("rollback vendor existence test");
     }
 
     #[tokio::test]
+    #[ignore = "requires an isolated migrated test database"]
     async fn load_editable_po_context_rejects_cancelled_purchase_orders() {
         let pool = connect_test_db().await;
+        let mut tx = pool.begin().await.expect("begin PO context test");
 
         let vendor_id = Uuid::new_v4();
         let po_id = Uuid::new_v4();
         sqlx::query("INSERT INTO vendors (id, name, is_active) VALUES ($1, $2, true)")
             .bind(vendor_id)
             .bind(format!("PO Context Vendor {}", Uuid::new_v4().simple()))
-            .execute(&pool)
+            .execute(&mut *tx)
             .await
             .expect("insert vendor");
 
@@ -790,20 +819,23 @@ mod tests {
         .bind(po_id)
         .bind(format!("PO-CTX-{}", Uuid::new_v4().simple()))
         .bind(vendor_id)
-        .execute(&pool)
+        .execute(&mut *tx)
         .await
         .expect("insert po");
 
         assert!(matches!(
-            load_editable_po_context(&pool, po_id).await,
+            load_editable_po_context(&mut tx, po_id).await,
             Err(PurchaseOrderError::InvalidPayload(message))
             if message == "purchase order lines can only be changed before the document is closed or cancelled"
         ));
+        tx.rollback().await.expect("rollback PO context test");
     }
 
     #[tokio::test]
+    #[ignore = "requires an isolated migrated test database"]
     async fn validate_po_line_vendor_linkage_rejects_variant_from_different_primary_vendor() {
         let pool = connect_test_db().await;
+        let mut tx = pool.begin().await.expect("begin PO vendor linkage test");
 
         let po_vendor_id = Uuid::new_v4();
         let product_vendor_id = Uuid::new_v4();
@@ -821,7 +853,7 @@ mod tests {
         .bind(format!("PO Vendor {}", Uuid::new_v4().simple()))
         .bind(product_vendor_id)
         .bind(format!("Primary Vendor {}", Uuid::new_v4().simple()))
-        .execute(&pool)
+        .execute(&mut *tx)
         .await
         .expect("insert vendors");
 
@@ -836,7 +868,7 @@ mod tests {
         .bind(Decimal::new(10000, 2))
         .bind(Decimal::new(4000, 2))
         .bind(product_vendor_id)
-        .execute(&pool)
+        .execute(&mut *tx)
         .await
         .expect("insert product");
 
@@ -849,17 +881,114 @@ mod tests {
         .bind(variant_id)
         .bind(product_id)
         .bind(&sku)
-        .execute(&pool)
+        .execute(&mut *tx)
         .await
         .expect("insert variant");
 
         assert!(matches!(
-            validate_po_line_vendor_linkage(&pool, po_vendor_id, variant_id).await,
+            validate_po_line_vendor_linkage(&mut tx, po_vendor_id, variant_id).await,
             Err(PurchaseOrderError::InvalidPayload(message))
             if message.starts_with(&format!(
-                "sku {sku} is linked to a different primary or secondary vendor"
+                "sku {sku} is not linked to this purchase-order vendor"
             ))
         ));
+        tx.rollback()
+            .await
+            .expect("rollback PO vendor linkage test");
+    }
+
+    #[tokio::test]
+    #[ignore = "requires an isolated migrated test database"]
+    async fn validate_po_line_vendor_linkage_allows_secondary_and_rejects_unlinked_or_non_stock() {
+        let pool = connect_test_db().await;
+        let mut tx = pool
+            .begin()
+            .await
+            .expect("begin PO vendor linkage coverage test");
+        let suffix = Uuid::new_v4().simple().to_string();
+        let po_vendor_id = Uuid::new_v4();
+        let other_vendor_id = Uuid::new_v4();
+        let product_ids = [Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4()];
+        let variant_ids = [Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4()];
+
+        sqlx::query(
+            r#"
+            INSERT INTO vendors (id, name, is_active)
+            VALUES ($1, $2, TRUE), ($3, $4, TRUE)
+            "#,
+        )
+        .bind(po_vendor_id)
+        .bind(format!("PO Guard Vendor {suffix}"))
+        .bind(other_vendor_id)
+        .bind(format!("PO Guard Other Vendor {suffix}"))
+        .execute(&mut *tx)
+        .await
+        .expect("insert PO guard vendors");
+
+        for (index, product_id) in product_ids.iter().copied().enumerate() {
+            let primary_vendor_id = match index {
+                0 => Some(other_vendor_id),
+                1 => None,
+                _ => Some(po_vendor_id),
+            };
+            let pos_line_kind = (index == 2).then_some("rms_charge_payment");
+            sqlx::query(
+                r#"
+                INSERT INTO products (
+                    id, name, base_retail_price, base_cost, primary_vendor_id, is_active,
+                    pos_line_kind
+                )
+                VALUES ($1, $2, 100.00, 40.00, $3, TRUE, $4)
+                "#,
+            )
+            .bind(product_id)
+            .bind(format!("PO Guard Product {index} {suffix}"))
+            .bind(primary_vendor_id)
+            .bind(pos_line_kind)
+            .execute(&mut *tx)
+            .await
+            .expect("insert PO guard product");
+
+            sqlx::query(
+                r#"
+                INSERT INTO product_variants (id, product_id, sku, variation_values)
+                VALUES ($1, $2, $3, '{}'::jsonb)
+                "#,
+            )
+            .bind(variant_ids[index])
+            .bind(product_id)
+            .bind(format!("PO-GUARD-{index}-{suffix}"))
+            .execute(&mut *tx)
+            .await
+            .expect("insert PO guard variation");
+        }
+
+        sqlx::query(
+            "INSERT INTO product_secondary_vendors (product_id, vendor_id) VALUES ($1, $2)",
+        )
+        .bind(product_ids[0])
+        .bind(po_vendor_id)
+        .execute(&mut *tx)
+        .await
+        .expect("link secondary vendor");
+
+        validate_po_line_vendor_linkage(&mut tx, po_vendor_id, variant_ids[0])
+            .await
+            .expect("secondary-vendor product is valid");
+        assert!(matches!(
+            validate_po_line_vendor_linkage(&mut tx, po_vendor_id, variant_ids[1]).await,
+            Err(PurchaseOrderError::InvalidPayload(message))
+                if message.contains("not linked to this purchase-order vendor")
+        ));
+        assert!(matches!(
+            validate_po_line_vendor_linkage(&mut tx, po_vendor_id, variant_ids[2]).await,
+            Err(PurchaseOrderError::InvalidPayload(message))
+                if message.contains("non-stock POS line")
+        ));
+
+        tx.rollback()
+            .await
+            .expect("rollback PO vendor linkage coverage test");
     }
 }
 

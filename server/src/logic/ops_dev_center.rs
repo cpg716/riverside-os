@@ -1,7 +1,7 @@
 #![allow(clippy::all)]
 //! ROS Dev Center v1 domain logic (ops health, stations, alerts, actions, bug overlays).
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::Duration as StdDuration;
 
@@ -45,6 +45,212 @@ pub struct IntegrationHealthItem {
     pub updated_at: Option<DateTime<Utc>>,
 }
 
+const INTEGRATION_HEARTBEAT_FRESHNESS_MINUTES: i64 = 5;
+const COUNTERPOINT_SYNC_FRESHNESS_HOURS: i64 = 72;
+
+fn bound_client_reported_timestamp(
+    timestamp: Option<DateTime<Utc>>,
+    received_at: DateTime<Utc>,
+) -> Option<DateTime<Utc>> {
+    timestamp.map(|value| value.min(received_at))
+}
+
+fn confirmed_client_install_timestamp(
+    timestamp: Option<DateTime<Utc>>,
+    meta: &Value,
+    received_at: DateTime<Utc>,
+) -> Option<DateTime<Utc>> {
+    let is_confirmed = meta
+        .get("app_update_install_observation")
+        .and_then(|observation| observation.get("status"))
+        .and_then(Value::as_str)
+        == Some("confirmed");
+    is_confirmed
+        .then(|| bound_client_reported_timestamp(timestamp, received_at))
+        .flatten()
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+struct IntegrationStateRow {
+    source: String,
+    status: String,
+    last_failure_at: Option<DateTime<Utc>>,
+    last_success_at: Option<DateTime<Utc>>,
+    detail: Option<String>,
+    updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+struct CounterpointSyncHealthRow {
+    entity: String,
+    last_ok_at: Option<DateTime<Utc>>,
+    last_error: Option<String>,
+    updated_at: DateTime<Utc>,
+}
+
+fn counterpoint_sync_health_item(
+    rows: &[CounterpointSyncHealthRow],
+    now: DateTime<Utc>,
+) -> IntegrationHealthItem {
+    let stale_threshold = now - Duration::hours(COUNTERPOINT_SYNC_FRESHNESS_HOURS);
+    let future_tolerance = now + Duration::minutes(5);
+    let issues = rows
+        .iter()
+        .filter_map(|row| {
+            if row
+                .last_error
+                .as_deref()
+                .map(str::trim)
+                .is_some_and(|error| !error.is_empty())
+            {
+                return Some(format!("{} (error)", row.entity));
+            }
+            match row.last_ok_at {
+                None => Some(format!("{} (never succeeded)", row.entity)),
+                Some(ok) if ok > future_tolerance => {
+                    Some(format!("{} (invalid future success time)", row.entity))
+                }
+                Some(ok) if ok < stale_threshold => Some(format!("{} (stale)", row.entity)),
+                _ => None,
+            }
+        })
+        .collect::<Vec<_>>();
+
+    let (status, severity, detail) = if rows.is_empty() {
+        (
+            "degraded",
+            "warning",
+            "Unknown: no Counterpoint sync history is recorded, so sync health is not proven."
+                .to_string(),
+        )
+    } else if issues.is_empty() {
+        (
+            "healthy",
+            "info",
+            format!(
+                "Every recorded Counterpoint entity has succeeded within {COUNTERPOINT_SYNC_FRESHNESS_HOURS} hours."
+            ),
+        )
+    } else {
+        ("degraded", "warning", issues.join(", "))
+    };
+
+    IntegrationHealthItem {
+        key: "counterpoint_sync".to_string(),
+        title: "Counterpoint sync".to_string(),
+        status: status.to_string(),
+        severity: severity.to_string(),
+        detail,
+        last_success_at: rows.iter().filter_map(|row| row.last_ok_at).max(),
+        last_failure_at: rows
+            .iter()
+            .filter(|row| {
+                row.last_error
+                    .as_deref()
+                    .map(str::trim)
+                    .is_some_and(|error| !error.is_empty())
+            })
+            .map(|row| row.updated_at)
+            .max(),
+        updated_at: rows.iter().map(|row| row.updated_at).max(),
+    }
+}
+
+fn meilisearch_health_item(
+    configured: bool,
+    state: Option<&IntegrationStateRow>,
+    proof: Option<&crate::logic::meilisearch_search::FullReindexProof>,
+    now: DateTime<Utc>,
+) -> IntegrationHealthItem {
+    if !configured {
+        return IntegrationHealthItem {
+            key: "meilisearch".to_string(),
+            title: "Meilisearch".to_string(),
+            status: "disabled".to_string(),
+            severity: "warning".to_string(),
+            detail: "Not configured; authoritative PostgreSQL fallback search is active."
+                .to_string(),
+            last_success_at: None,
+            last_failure_at: None,
+            updated_at: state.map(|row| row.updated_at),
+        };
+    }
+
+    let heartbeat_cutoff = now - Duration::minutes(INTEGRATION_HEARTBEAT_FRESHNESS_MINUTES);
+    let recorded_status = state
+        .map(|row| row.status.trim().to_ascii_uppercase())
+        .unwrap_or_default();
+    let heartbeat_is_fresh = state.is_some_and(|row| {
+        row.updated_at >= heartbeat_cutoff && row.updated_at <= now + Duration::minutes(5)
+    });
+    let proof_is_fresh = proof.is_some_and(|value| value.is_fresh());
+
+    let (status, severity, detail) = if recorded_status == "WARNING" && heartbeat_is_fresh {
+        (
+            "failed",
+            "critical",
+            state.and_then(|row| row.detail.clone()).unwrap_or_else(|| {
+                "The current Meilisearch reachability probe failed.".to_string()
+            }),
+        )
+    } else if state.is_none() {
+        (
+            "degraded",
+            "warning",
+            "Meilisearch is configured, but no reachability heartbeat has been recorded. Search uses PostgreSQL until current proof exists."
+                .to_string(),
+        )
+    } else if !heartbeat_is_fresh {
+        (
+            "degraded",
+            "warning",
+            format!(
+                "The last Meilisearch heartbeat is stale or future-dated. {}",
+                proof
+                    .map(|value| value.detail.as_str())
+                    .unwrap_or("Full-rebuild freshness proof is unavailable.")
+            ),
+        )
+    } else if recorded_status != "GOOD" || !proof_is_fresh {
+        (
+            "degraded",
+            "warning",
+            format!(
+                "Meilisearch is configured but not fully proven healthy. {}",
+                proof
+                    .map(|value| value.detail.as_str())
+                    .or_else(|| state.and_then(|row| row.detail.as_deref()))
+                    .unwrap_or("Full-rebuild freshness proof is unavailable.")
+            ),
+        )
+    } else {
+        (
+            "healthy",
+            "info",
+            proof
+                .map(|value| format!("Meilisearch is reachable. {}", value.detail))
+                .unwrap_or_else(|| "Meilisearch is reachable and freshly rebuilt.".to_string()),
+        )
+    };
+
+    IntegrationHealthItem {
+        key: "meilisearch".to_string(),
+        title: "Meilisearch".to_string(),
+        status: status.to_string(),
+        severity: severity.to_string(),
+        detail,
+        last_success_at: proof.and_then(|value| value.last_success_at),
+        last_failure_at: state.and_then(|row| row.last_failure_at).or_else(|| {
+            proof.and_then(|value| {
+                (value.status == crate::logic::meilisearch_search::FullReindexProofStatus::Failed)
+                    .then_some(value.last_attempt_at)
+                    .flatten()
+            })
+        }),
+        updated_at: state.map(|row| row.updated_at),
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct StationHeartbeatIn {
     pub station_key: String,
@@ -77,6 +283,7 @@ pub struct StationRow {
     pub last_sync_at: Option<DateTime<Utc>>,
     pub last_update_check_at: Option<DateTime<Utc>>,
     pub last_update_install_at: Option<DateTime<Utc>>,
+    pub client_timestamp_source: String,
     pub last_seen_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub online: bool,
@@ -432,6 +639,58 @@ fn nonempty_env(key: &str) -> Option<String> {
         .ok()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
+}
+
+fn environment_mode_diagnostic(environment_mode: &str) -> RuntimeDiagnosticItem {
+    let normalized = environment_mode.trim().to_ascii_lowercase();
+    let normalized = if normalized.is_empty() {
+        "development".to_string()
+    } else {
+        normalized
+    };
+    RuntimeDiagnosticItem {
+        key: "environment_mode".to_string(),
+        label: "Environment Mode".to_string(),
+        value: normalized.clone(),
+        detail: format!("RIVERSIDE_MODE reports this server as {normalized}."),
+        severity: if normalized == "production" {
+            "info".to_string()
+        } else {
+            "warning".to_string()
+        },
+    }
+}
+
+fn production_safeguards_diagnostic(
+    environment_mode: &str,
+    strict_production: bool,
+) -> RuntimeDiagnosticItem {
+    let production_mode = environment_mode.trim().eq_ignore_ascii_case("production");
+    RuntimeDiagnosticItem {
+        key: "production_safeguards".to_string(),
+        label: "Production Safeguards".to_string(),
+        value: if strict_production {
+            "Enabled".to_string()
+        } else {
+            "Disabled".to_string()
+        },
+        detail: if strict_production {
+            "Strict production startup guards and configuration enforcement are active.".to_string()
+        } else if production_mode {
+            "The server is in production mode, but strict startup safeguards are disabled. Staff operations remain available; production go-live signoff is blocked until prerequisites are verified and safeguards are explicitly enabled."
+                .to_string()
+        } else {
+            "Strict production startup safeguards are not enabled for this non-production runtime."
+                .to_string()
+        },
+        severity: if strict_production {
+            "info".to_string()
+        } else if production_mode {
+            "critical".to_string()
+        } else {
+            "warning".to_string()
+        },
+    }
 }
 
 fn env_i64_range(key: &str, default: i64, min: i64, max: i64) -> i64 {
@@ -907,6 +1166,9 @@ pub async fn runtime_diagnostics_snapshot(
     meilisearch_configured: bool,
 ) -> Result<RuntimeDiagnosticsSnapshot, sqlx::Error> {
     let strict_production = env_truthy("RIVERSIDE_STRICT_PRODUCTION");
+    let environment_mode =
+        nonempty_env("RIVERSIDE_MODE").unwrap_or_else(|| "development".to_string());
+    let cors_policy = crate::runtime_config::effective_cors_policy_from_env();
 
     let helcim_token = nonempty_env("HELCIM_API_TOKEN");
     let helcim_terminal_1_device = nonempty_env("HELCIM_TERMINAL_1_DEVICE_CODE");
@@ -1052,12 +1314,12 @@ pub async fn runtime_diagnostics_snapshot(
     };
 
     let search_value = if meilisearch_configured {
-        "Live search".to_string()
+        "Meilisearch configured".to_string()
     } else {
         "Bundled fallback".to_string()
     };
     let search_detail = if meilisearch_configured {
-        "Help and related search surfaces have Meilisearch available.".to_string()
+        "A Meilisearch client is configured. Use Search Settings for live reachability, rebuild age, and count-parity proof.".to_string()
     } else {
         "Meilisearch is unavailable, so bundled/manual fallback behavior is active where supported."
             .to_string()
@@ -1083,6 +1345,7 @@ pub async fn runtime_diagnostics_snapshot(
     };
     let weather_severity = if weather_live { "info" } else { "warning" };
     let backup_dir = crate::logic::backups::backup_directory_info(strict_production);
+    let backup_tooling_ready = crate::logic::backups::backup_tooling_available();
     let backup_dir_detail = if backup_dir.configured {
         "Local backups use the explicit RIVERSIDE_BACKUP_DIR path.".to_string()
     } else if strict_production {
@@ -1097,23 +1360,42 @@ pub async fn runtime_diagnostics_snapshot(
     Ok(RuntimeDiagnosticsSnapshot {
         generated_at: Utc::now(),
         items: vec![
+            environment_mode_diagnostic(&environment_mode),
+            production_safeguards_diagnostic(&environment_mode, strict_production),
             RuntimeDiagnosticItem {
-                key: "environment_mode".to_string(),
-                label: "Environment Mode".to_string(),
-                value: if strict_production {
-                    "Strict production".to_string()
+                key: "cors_mode".to_string(),
+                label: "Browser Origin Policy".to_string(),
+                value: if cors_policy.uses_wildcard() {
+                    "Wildcard".to_string()
                 } else {
-                    "Development".to_string()
+                    format!("Allowlist ({})", cors_policy.header_values.len())
                 },
-                detail: if strict_production {
-                    "Production startup guards and config enforcement are active.".to_string()
+                detail: if cors_policy.uses_wildcard() {
+                    if cors_policy.configured_origin_count > 0 {
+                        format!(
+                            "All {} configured RIVERSIDE_CORS_ORIGINS entries are invalid exact browser origins, so the effective non-strict policy is development wildcard CORS.",
+                            cors_policy.configured_origin_count
+                        )
+                    } else {
+                        "No browser origin allowlist is configured; development wildcard CORS is active."
+                            .to_string()
+                    }
+                } else if cors_policy.invalid_origin_count > 0 {
+                    format!(
+                        "Browser access uses {} valid exact http/https origins; {} invalid configured entries were ignored by the same policy used at server launch.",
+                        cors_policy.header_values.len(),
+                        cors_policy.invalid_origin_count
+                    )
                 } else {
-                    "Local/runtime development defaults remain permissive.".to_string()
+                    "Browser access is restricted to the configured RIVERSIDE_CORS_ORIGINS entries."
+                        .to_string()
                 },
-                severity: if strict_production {
-                    "info".to_string()
-                } else {
+                severity: if cors_policy.uses_wildcard()
+                    || cors_policy.invalid_origin_count > 0
+                {
                     "warning".to_string()
+                } else {
+                    "info".to_string()
                 },
             },
             RuntimeDiagnosticItem {
@@ -1157,6 +1439,27 @@ pub async fn runtime_diagnostics_snapshot(
                 value: backup_dir.path,
                 detail: backup_dir_detail,
                 severity: if backup_dir.configured {
+                    "info".to_string()
+                } else {
+                    "warning".to_string()
+                },
+            },
+            RuntimeDiagnosticItem {
+                key: "backup_tooling".to_string(),
+                label: "Backup Verification Tools".to_string(),
+                value: if backup_tooling_ready {
+                    "Ready".to_string()
+                } else {
+                    "Unavailable".to_string()
+                },
+                detail: if backup_tooling_ready {
+                    "pg_dump and pg_restore were resolved for backup creation and archive verification."
+                        .to_string()
+                } else {
+                    "Install PostgreSQL client tools or set RIVERSIDE_PG_DUMP_PATH and RIVERSIDE_PG_RESTORE_PATH."
+                        .to_string()
+                },
+                severity: if backup_tooling_ready {
                     "info".to_string()
                 } else {
                     "warning".to_string()
@@ -1615,6 +1918,13 @@ pub async fn upsert_station_heartbeat(
         ));
     }
 
+    let received_at = Utc::now();
+    let last_sync_at = bound_client_reported_timestamp(body.last_sync_at, received_at);
+    let last_update_check_at =
+        bound_client_reported_timestamp(body.last_update_check_at, received_at);
+    let last_update_install_at =
+        confirmed_client_install_timestamp(body.last_update_install_at, &body.meta, received_at);
+
     sqlx::query(
         r#"
         INSERT INTO ops_station_heartbeat (
@@ -1632,7 +1942,10 @@ pub async fn upsert_station_heartbeat(
             lan_ip = EXCLUDED.lan_ip,
             last_sync_at = EXCLUDED.last_sync_at,
             last_update_check_at = EXCLUDED.last_update_check_at,
-            last_update_install_at = EXCLUDED.last_update_install_at,
+            last_update_install_at = COALESCE(
+                EXCLUDED.last_update_install_at,
+                ops_station_heartbeat.last_update_install_at
+            ),
             meta = EXCLUDED.meta,
             last_seen_at = NOW(),
             updated_at = NOW()
@@ -1644,9 +1957,9 @@ pub async fn upsert_station_heartbeat(
     .bind(body.git_sha.as_deref())
     .bind(body.tailscale_node.as_deref())
     .bind(body.lan_ip.as_deref())
-    .bind(body.last_sync_at)
-    .bind(body.last_update_check_at)
-    .bind(body.last_update_install_at)
+    .bind(last_sync_at)
+    .bind(last_update_check_at)
+    .bind(last_update_install_at)
     .bind(&body.meta)
     .execute(pool)
     .await?;
@@ -1688,6 +2001,7 @@ pub async fn list_stations(pool: &PgPool) -> Result<Vec<StationRow>, sqlx::Error
             last_sync_at,
             last_update_check_at,
             last_update_install_at,
+            'sync_check_client_reported_future_bounded_install_native_confirmed'::text AS client_timestamp_source,
             last_seen_at,
             updated_at,
             (last_seen_at >= $1) AS online,
@@ -2045,20 +2359,12 @@ pub async fn collect_integrations(
     pool: &PgPool,
     meilisearch_configured: bool,
 ) -> Result<Vec<IntegrationHealthItem>, sqlx::Error> {
-    #[derive(sqlx::FromRow)]
-    struct IntegrationStateRow {
-        source: String,
-        last_failure_at: Option<DateTime<Utc>>,
-        last_success_at: Option<DateTime<Utc>>,
-        detail: Option<String>,
-        updated_at: DateTime<Utc>,
-    }
-
     let mut items: Vec<IntegrationHealthItem> = Vec::new();
 
     let states = sqlx::query_as::<_, IntegrationStateRow>(
         r#"
-        SELECT source, last_failure_at, last_success_at, detail, updated_at
+        SELECT source, COALESCE(status, '') AS status,
+               last_failure_at, last_success_at, detail, updated_at
         FROM integration_alert_state
         ORDER BY source
         "#,
@@ -2066,16 +2372,19 @@ pub async fn collect_integrations(
     .fetch_all(pool)
     .await?;
 
-    for s in states {
+    for s in states.iter().filter(|row| row.source != "meilisearch") {
         let failed = match (s.last_failure_at, s.last_success_at) {
             (Some(f), Some(ok)) => f > ok,
             (Some(_), None) => true,
             _ => false,
         };
-        let (status, severity) = if failed {
-            ("failed", "critical")
-        } else {
-            ("healthy", "info")
+        let recorded_status = s.status.trim().to_ascii_uppercase();
+        let (status, severity) = match recorded_status.as_str() {
+            "WARNING" => ("failed", "critical"),
+            "CAUTION" => ("disabled", "info"),
+            "GOOD" => ("healthy", "info"),
+            _ if failed => ("failed", "critical"),
+            _ => ("healthy", "info"),
         };
 
         let title = match s.source.as_str() {
@@ -2086,26 +2395,18 @@ pub async fn collect_integrations(
         .to_string();
 
         items.push(IntegrationHealthItem {
-            key: s.source,
+            key: s.source.clone(),
             title,
             status: status.to_string(),
             severity: severity.to_string(),
-            detail: s.detail.unwrap_or_default(),
+            detail: s.detail.clone().unwrap_or_default(),
             last_success_at: s.last_success_at,
             last_failure_at: s.last_failure_at,
             updated_at: Some(s.updated_at),
         });
     }
 
-    #[derive(sqlx::FromRow)]
-    struct CounterpointRow {
-        entity: String,
-        last_ok_at: Option<DateTime<Utc>>,
-        last_error: Option<String>,
-        updated_at: DateTime<Utc>,
-    }
-
-    let cp_rows = sqlx::query_as::<_, CounterpointRow>(
+    let cp_rows = sqlx::query_as::<_, CounterpointSyncHealthRow>(
         r#"
         SELECT entity, last_ok_at, last_error, updated_at
         FROM counterpoint_sync_runs
@@ -2116,81 +2417,19 @@ pub async fn collect_integrations(
     .await?;
 
     let now = Utc::now();
-    let stale_threshold = now - Duration::hours(72);
-    let mut cp_failed = false;
-    let cp_detail: String;
-    if cp_rows.is_empty() {
-        cp_detail = "No Counterpoint sync runs recorded yet".to_string();
+    items.push(counterpoint_sync_health_item(&cp_rows, now));
+
+    let meilisearch_proof = if meilisearch_configured {
+        Some(crate::logic::meilisearch_search::full_reindex_proof(pool).await?)
     } else {
-        let stale_entities: Vec<String> = cp_rows
-            .iter()
-            .filter_map(|r| {
-                if r.last_error
-                    .as_deref()
-                    .map(|x| !x.trim().is_empty())
-                    .unwrap_or(false)
-                {
-                    return Some(format!("{} (error)", r.entity));
-                }
-                match r.last_ok_at {
-                    Some(ok) if ok < stale_threshold => Some(format!("{} (stale)", r.entity)),
-                    None => {
-                        if r.updated_at < stale_threshold {
-                            None
-                        } else {
-                            Some(format!("{} (never succeeded)", r.entity))
-                        }
-                    }
-                    _ => None,
-                }
-            })
-            .collect();
-        cp_failed = !stale_entities.is_empty();
-        if cp_failed {
-            cp_detail = stale_entities.join(", ");
-        } else {
-            cp_detail = "All Counterpoint entities recently healthy".to_string();
-        }
-    }
-
-    items.push(IntegrationHealthItem {
-        key: "counterpoint_sync".to_string(),
-        title: "Counterpoint sync".to_string(),
-        status: if cp_failed { "degraded" } else { "healthy" }.to_string(),
-        severity: if cp_failed {
-            "warning".to_string()
-        } else {
-            "info".to_string()
-        },
-        detail: cp_detail,
-        last_success_at: cp_rows.iter().filter_map(|r| r.last_ok_at).max(),
-        last_failure_at: None,
-        updated_at: cp_rows.first().map(|r| r.updated_at),
-    });
-
-    items.push(IntegrationHealthItem {
-        key: "meilisearch".to_string(),
-        title: "Meilisearch".to_string(),
-        status: if meilisearch_configured {
-            "healthy"
-        } else {
-            "disabled"
-        }
-        .to_string(),
-        severity: if meilisearch_configured {
-            "info".to_string()
-        } else {
-            "warning".to_string()
-        },
-        detail: if meilisearch_configured {
-            "Configured".to_string()
-        } else {
-            "Not configured (fallback search path active)".to_string()
-        },
-        last_success_at: None,
-        last_failure_at: None,
-        updated_at: None,
-    });
+        None
+    };
+    items.push(meilisearch_health_item(
+        meilisearch_configured,
+        states.iter().find(|row| row.source == "meilisearch"),
+        meilisearch_proof.as_ref(),
+        now,
+    ));
 
     Ok(items)
 }
@@ -2205,34 +2444,75 @@ pub async fn evaluate_alerts_from_health(
     let mut opened_signals: Vec<OpenAlertSignal> = Vec::new();
     let mut station_open_dedupes: Vec<String> = Vec::new();
 
-    let backup_last_ok: Option<DateTime<Utc>> =
-        sqlx::query_scalar("SELECT last_local_success_at FROM store_backup_health WHERE id = 1")
-            .fetch_optional(pool)
-            .await?
-            .flatten();
+    let backup_health: Option<(
+        Option<DateTime<Utc>>,
+        Option<String>,
+        Option<String>,
+        Option<DateTime<Utc>>,
+        Option<String>,
+    )> = sqlx::query_as(
+        r#"
+        SELECT last_local_verified_at, last_local_verified_filename,
+               last_local_verification_method, last_local_failure_at,
+               last_local_failure_detail
+        FROM store_backup_health
+        WHERE id = 1
+        "#,
+    )
+    .fetch_optional(pool)
+    .await?;
+    let (
+        backup_last_verified,
+        backup_verified_filename,
+        backup_verification_method,
+        backup_last_failure,
+        backup_failure_detail,
+    ) = backup_health.unwrap_or((None, None, None, None, None));
+    let backup_failure_is_current = backup_last_failure
+        .is_some_and(|failure| backup_last_verified.is_none_or(|verified| failure > verified));
+    let backup_is_overdue = backup_last_verified
+        .map(|verified| verified < Utc::now() - Duration::hours(overdue_hours))
+        .unwrap_or(true);
+    let backup_unhealthy = backup_failure_is_current || backup_is_overdue;
 
-    let backup_is_overdue = backup_last_ok
-        .map(|last_ok| last_ok < Utc::now() - Duration::hours(overdue_hours))
-        .unwrap_or(false);
-
-    if let Some(last_ok) = backup_last_ok {
-        if backup_is_overdue {
-            let body = format!("Last successful local backup is older than {overdue_hours} hours.");
-            if let Some(signal) = upsert_open_alert(
-                pool,
-                "backup_overdue",
-                "backup_overdue",
-                "Database backup overdue",
-                &body,
-                json!({ "last_local_success_at": last_ok.to_rfc3339(), "threshold_hours": overdue_hours }),
+    if backup_unhealthy {
+        let body = if backup_failure_is_current {
+            let detail = backup_failure_detail
+                .as_deref()
+                .map(str::trim)
+                .filter(|detail| !detail.is_empty())
+                .unwrap_or("The latest database backup attempt failed.");
+            format!("The latest database backup attempt failed: {detail}")
+        } else if let Some(last_verified) = backup_last_verified {
+            format!(
+                "Last verified local backup ({}) is older than {overdue_hours} hours.",
+                backup_verified_filename
+                    .as_deref()
+                    .unwrap_or("filename unavailable")
             )
-            .await?
-            {
-                opened_signals.push(signal);
-            }
+        } else {
+            "No locally created database backup has passed PostgreSQL catalog verification."
+                .to_string()
+        };
+        if let Some(signal) = upsert_open_alert(
+            pool,
+            "backup_overdue",
+            "backup_overdue",
+            "Database backup requires attention",
+            &body,
+            json!({
+                "last_local_verified_at": backup_last_verified.map(|value| value.to_rfc3339()),
+                "last_local_verified_filename": backup_verified_filename,
+                "last_local_verification_method": backup_verification_method,
+                "last_local_failure_at": backup_last_failure.map(|value| value.to_rfc3339()),
+                "threshold_hours": overdue_hours,
+            }),
+        )
+        .await?
+        {
+            opened_signals.push(signal);
         }
-    }
-    if !backup_is_overdue {
+    } else {
         let _ = resolve_rule_alerts(pool, "backup_overdue", &[]).await?;
     }
 
@@ -2597,22 +2877,29 @@ pub async fn health_snapshot(
     // Meilisearch (live probe when configured)
     if let Some(client) = meilisearch {
         let ms_h = crate::logic::meilisearch_client::health_check(client).await;
+        let rebuild_proof = crate::logic::meilisearch_search::full_reindex_proof(pool).await?;
         if let Some(idx) = integrations.iter().position(|i| i.key == "meilisearch") {
             integrations[idx] = IntegrationHealthItem {
                 key: "meilisearch".to_string(),
                 title: "Meilisearch".to_string(),
-                status: if ms_h.reachable {
+                status: if !ms_h.reachable {
+                    "failed".to_string()
+                } else if rebuild_proof.is_fresh() {
                     "healthy".to_string()
                 } else {
-                    "failed".to_string()
+                    "degraded".to_string()
                 },
-                severity: if ms_h.reachable {
+                severity: if ms_h.reachable && rebuild_proof.is_fresh() {
                     "info".to_string()
                 } else {
                     "warning".to_string()
                 },
-                detail: ms_h.message,
-                last_success_at: if ms_h.reachable { Some(now) } else { None },
+                detail: if ms_h.reachable {
+                    format!("{} {}", ms_h.message, rebuild_proof.detail)
+                } else {
+                    ms_h.message
+                },
+                last_success_at: rebuild_proof.last_success_at,
                 last_failure_at: if !ms_h.reachable { Some(now) } else { None },
                 updated_at: Some(now),
             };
@@ -2639,7 +2926,11 @@ pub async fn health_snapshot(
             "warning".to_string()
         },
         detail: podium_h.message,
-        last_success_at: if podium_h.reachable { Some(now) } else { None },
+        last_success_at: if podium_h.configured && podium_h.reachable {
+            Some(now)
+        } else {
+            None
+        },
         last_failure_at: if !podium_h.reachable && podium_h.configured {
             Some(now)
         } else {
@@ -2668,7 +2959,11 @@ pub async fn health_snapshot(
             "warning".to_string()
         },
         detail: shippo_h.message,
-        last_success_at: if shippo_h.reachable { Some(now) } else { None },
+        last_success_at: if shippo_h.configured && shippo_h.reachable {
+            Some(now)
+        } else {
+            None
+        },
         last_failure_at: if !shippo_h.reachable && shippo_h.configured {
             Some(now)
         } else {
@@ -2697,7 +2992,11 @@ pub async fn health_snapshot(
             "warning".to_string()
         },
         detail: weather_h.message,
-        last_success_at: if weather_h.reachable { Some(now) } else { None },
+        last_success_at: if weather_h.configured && weather_h.reachable {
+            Some(now)
+        } else {
+            None
+        },
         last_failure_at: if !weather_h.reachable && weather_h.configured {
             Some(now)
         } else {
@@ -2726,7 +3025,11 @@ pub async fn health_snapshot(
             "warning".to_string()
         },
         detail: fal_h.message,
-        last_success_at: if fal_h.reachable { Some(now) } else { None },
+        last_success_at: if fal_h.configured && fal_h.reachable {
+            Some(now)
+        } else {
+            None
+        },
         last_failure_at: if !fal_h.reachable && fal_h.configured {
             Some(now)
         } else {
@@ -2792,7 +3095,11 @@ pub async fn health_snapshot(
             "warning".to_string()
         },
         detail: qbo_h.message,
-        last_success_at: if qbo_h.reachable { Some(now) } else { None },
+        last_success_at: if qbo_h.configured && qbo_h.reachable {
+            Some(now)
+        } else {
+            None
+        },
         last_failure_at: if !qbo_h.reachable && qbo_h.configured {
             Some(now)
         } else {
@@ -2821,7 +3128,11 @@ pub async fn health_snapshot(
             "warning".to_string()
         },
         detail: email_h.message,
-        last_success_at: if email_h.reachable { Some(now) } else { None },
+        last_success_at: if email_h.configured && email_h.reachable {
+            Some(now)
+        } else {
+            None
+        },
         last_failure_at: if !email_h.reachable && email_h.configured {
             Some(now)
         } else {
@@ -2850,7 +3161,11 @@ pub async fn health_snapshot(
             "warning".to_string()
         },
         detail: cp_h.message,
-        last_success_at: if cp_h.reachable { Some(now) } else { None },
+        last_success_at: if cp_h.configured && cp_h.reachable {
+            Some(now)
+        } else {
+            None
+        },
         last_failure_at: if !cp_h.reachable && cp_h.configured {
             Some(now)
         } else {
@@ -2879,7 +3194,11 @@ pub async fn health_snapshot(
             "warning".to_string()
         },
         detail: helcim_h.message,
-        last_success_at: if helcim_h.reachable { Some(now) } else { None },
+        last_success_at: if helcim_h.configured && helcim_h.reachable {
+            Some(now)
+        } else {
+            None
+        },
         last_failure_at: if !helcim_h.reachable && helcim_h.configured {
             Some(now)
         } else {
@@ -2908,7 +3227,11 @@ pub async fn health_snapshot(
             "warning".to_string()
         },
         detail: rosie_h.message,
-        last_success_at: if rosie_h.reachable { Some(now) } else { None },
+        last_success_at: if rosie_h.configured && rosie_h.reachable {
+            Some(now)
+        } else {
+            None
+        },
         last_failure_at: if !rosie_h.reachable && rosie_h.configured {
             Some(now)
         } else {
@@ -2916,6 +3239,13 @@ pub async fn health_snapshot(
         },
         updated_at: Some(now),
     });
+
+    // The persisted heartbeat rows and live probes cover some of the same providers. Keep the
+    // newest live result per key so the overview never reports contradictory duplicate states.
+    let mut seen_keys = HashSet::new();
+    integrations.reverse();
+    integrations.retain(|item| seen_keys.insert(item.key.clone()));
+    integrations.reverse();
 
     let stations = list_stations(pool).await?;
     evaluate_alerts_from_health(pool, &integrations, &stations, server_log_snapshot).await?;
@@ -3018,17 +3348,60 @@ async fn action_backup_trigger_local(pool: &PgPool) -> GuardedActionResult {
 
     let manager = BackupManager::new(database_url);
     let settings_raw: Value =
-        sqlx::query_scalar("SELECT backup_settings FROM store_settings WHERE id = 1")
+        match sqlx::query_scalar("SELECT backup_settings FROM store_settings WHERE id = 1")
             .fetch_optional(pool)
             .await
-            .ok()
-            .flatten()
-            .unwrap_or_else(|| json!({}));
-    let settings: BackupSettings = serde_json::from_value(settings_raw).unwrap_or_default();
+        {
+            Ok(Some(settings)) => settings,
+            Ok(None) => {
+                let message = "Stored backup settings are missing".to_string();
+                if let Err(error) =
+                    crate::logic::backups::record_local_backup_failure(pool, &message).await
+                {
+                    tracing::error!(error = %error, "record_local_backup_failure");
+                }
+                return GuardedActionResult {
+                    ok: false,
+                    message: "Local backup blocked because settings are missing".to_string(),
+                    data: json!({ "error": message }),
+                };
+            }
+            Err(error) => {
+                let message = format!("Stored backup settings could not be loaded: {error}");
+                if let Err(record_error) =
+                    crate::logic::backups::record_local_backup_failure(pool, &message).await
+                {
+                    tracing::error!(error = %record_error, "record_local_backup_failure");
+                }
+                return GuardedActionResult {
+                    ok: false,
+                    message: "Local backup blocked because settings could not be loaded"
+                        .to_string(),
+                    data: json!({ "error": message }),
+                };
+            }
+        };
+    let settings = match BackupSettings::try_from_json(settings_raw) {
+        Ok(settings) => settings,
+        Err(message) => {
+            if let Err(error) =
+                crate::logic::backups::record_local_backup_failure(pool, &message).await
+            {
+                tracing::error!(error = %error, "record_local_backup_failure");
+            }
+            return GuardedActionResult {
+                ok: false,
+                message: "Local backup blocked by invalid settings".to_string(),
+                data: json!({ "error": message }),
+            };
+        }
+    };
     match manager.create_backup_with_settings(&settings).await {
         Ok(filename) => {
-            if let Err(e) = crate::logic::backups::record_local_backup_success(pool).await {
-                tracing::error!(error = %e, "record_local_backup_success");
+            if let Err(e) =
+                crate::logic::backups::record_local_backup_verified_success(pool, &filename).await
+            {
+                tracing::error!(error = %e, "record_local_backup_verified_success");
             }
             GuardedActionResult {
                 ok: true,
@@ -3063,16 +3436,36 @@ async fn action_help_reindex_search(
     };
 
     match help_corpus::reindex_help_meilisearch_with_policies(client, pool).await {
-        Ok(_) => GuardedActionResult {
-            ok: true,
-            message: "Help search reindex completed".to_string(),
-            data: json!({ "reindexed": true }),
-        },
-        Err(e) => GuardedActionResult {
-            ok: false,
-            message: "Help search reindex failed".to_string(),
-            data: json!({ "error": e.to_string() }),
-        },
+        Ok(help_count) => {
+            crate::logic::meilisearch_sync::record_sync_status(
+                pool,
+                crate::logic::meilisearch_client::INDEX_HELP,
+                true,
+                help_count as i64,
+                None,
+            )
+            .await;
+            GuardedActionResult {
+                ok: true,
+                message: "Help search reindex completed".to_string(),
+                data: json!({ "reindexed": true, "row_count": help_count }),
+            }
+        }
+        Err(e) => {
+            crate::logic::meilisearch_sync::record_sync_status(
+                pool,
+                crate::logic::meilisearch_client::INDEX_HELP,
+                false,
+                0,
+                Some(&e.to_string()),
+            )
+            .await;
+            GuardedActionResult {
+                ok: false,
+                message: "Help search reindex failed".to_string(),
+                data: json!({ "error": e.to_string() }),
+            }
+        }
     }
 }
 
@@ -3645,15 +4038,19 @@ pub async fn execute_audit_probes(
         ),
         (
             "stale_backup",
-            "Stale backup health (>30 hours)",
+            "Stale verified backup health (>30 hours)",
             "critical",
             r#"
-            SELECT id::text AS key, COALESCE(last_local_success_at::text, 'never') AS detail
+            SELECT
+                id::text AS key,
+                COALESCE(last_local_verified_at::text, 'never') AS detail,
+                COALESCE(last_local_verified_filename, '') AS verified_filename,
+                COALESCE(last_local_verification_method, '') AS verification_method
             FROM store_backup_health
-            WHERE last_local_success_at IS NULL
-               OR last_local_success_at < now() - INTERVAL '30 hours'
+            WHERE last_local_verified_at IS NULL
+               OR last_local_verified_at < now() - INTERVAL '30 hours'
                OR COALESCE(last_local_failure_at, '-infinity'::timestamptz)
-                  > COALESCE(last_local_success_at, '-infinity'::timestamptz)
+                  > COALESCE(last_local_verified_at, '-infinity'::timestamptz)
         "#,
         ),
     ];
@@ -3836,4 +4233,153 @@ pub async fn get_audit_probe_run_detail(
     .await?;
 
     Ok(Some((run, results)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::logic::meilisearch_search::{FullReindexProof, FullReindexProofStatus};
+
+    fn fresh_meilisearch_proof(now: DateTime<Utc>) -> FullReindexProof {
+        FullReindexProof {
+            status: FullReindexProofStatus::Fresh,
+            last_success_at: Some(now - Duration::hours(1)),
+            last_attempt_at: Some(now - Duration::hours(1)),
+            detail: "fresh rebuild".to_string(),
+        }
+    }
+
+    #[test]
+    fn production_mode_and_safeguards_are_reported_independently() {
+        let mode = environment_mode_diagnostic("production");
+        assert_eq!(mode.value, "production");
+        assert_eq!(mode.severity, "info");
+
+        let disabled = production_safeguards_diagnostic("production", false);
+        assert_eq!(disabled.value, "Disabled");
+        assert_eq!(disabled.severity, "critical");
+        assert!(disabled.detail.contains("go-live signoff is blocked"));
+
+        let enabled = production_safeguards_diagnostic("production", true);
+        assert_eq!(enabled.value, "Enabled");
+        assert_eq!(enabled.severity, "info");
+    }
+
+    #[test]
+    fn counterpoint_without_success_proof_is_never_healthy() {
+        let now = Utc::now();
+        assert_eq!(counterpoint_sync_health_item(&[], now).status, "degraded");
+
+        let never_succeeded = CounterpointSyncHealthRow {
+            entity: "ticket_history".to_string(),
+            last_ok_at: None,
+            last_error: None,
+            updated_at: now - Duration::days(30),
+        };
+        let never = counterpoint_sync_health_item(&[never_succeeded], now);
+        assert_eq!(never.status, "degraded");
+        assert!(never.detail.contains("never succeeded"));
+
+        let stale = CounterpointSyncHealthRow {
+            entity: "inventory".to_string(),
+            last_ok_at: Some(now - Duration::hours(COUNTERPOINT_SYNC_FRESHNESS_HOURS + 1)),
+            last_error: None,
+            updated_at: now,
+        };
+        assert_eq!(
+            counterpoint_sync_health_item(&[stale], now).status,
+            "degraded"
+        );
+    }
+
+    #[test]
+    fn counterpoint_requires_recent_success_for_every_recorded_entity() {
+        let now = Utc::now();
+        let row = CounterpointSyncHealthRow {
+            entity: "inventory".to_string(),
+            last_ok_at: Some(now - Duration::hours(1)),
+            last_error: None,
+            updated_at: now,
+        };
+        assert_eq!(counterpoint_sync_health_item(&[row], now).status, "healthy");
+    }
+
+    #[test]
+    fn meilisearch_requires_current_heartbeat_and_rebuild_proof() {
+        let now = Utc::now();
+        let proof = fresh_meilisearch_proof(now);
+        assert_eq!(
+            meilisearch_health_item(true, None, Some(&proof), now).status,
+            "degraded"
+        );
+
+        let stale_good = IntegrationStateRow {
+            source: "meilisearch".to_string(),
+            status: "GOOD".to_string(),
+            last_failure_at: None,
+            last_success_at: Some(now - Duration::hours(1)),
+            detail: Some("reachable".to_string()),
+            updated_at: now - Duration::minutes(INTEGRATION_HEARTBEAT_FRESHNESS_MINUTES + 1),
+        };
+        assert_eq!(
+            meilisearch_health_item(true, Some(&stale_good), Some(&proof), now).status,
+            "degraded"
+        );
+
+        let fresh_good = IntegrationStateRow {
+            updated_at: now,
+            last_success_at: Some(now),
+            ..stale_good
+        };
+        assert_eq!(
+            meilisearch_health_item(true, Some(&fresh_good), None, now).status,
+            "degraded"
+        );
+        assert_eq!(
+            meilisearch_health_item(true, Some(&fresh_good), Some(&proof), now).status,
+            "healthy"
+        );
+    }
+
+    #[test]
+    fn future_client_station_times_are_bounded_to_server_receipt() {
+        let received_at = Utc::now();
+        assert_eq!(
+            bound_client_reported_timestamp(Some(received_at + Duration::days(365)), received_at),
+            Some(received_at)
+        );
+        let past = received_at - Duration::minutes(10);
+        assert_eq!(
+            bound_client_reported_timestamp(Some(past), received_at),
+            Some(past)
+        );
+    }
+
+    #[test]
+    fn station_install_time_requires_confirmed_native_observation() {
+        let received_at = Utc::now();
+        let reported_at = received_at - Duration::minutes(5);
+        let confirmed = json!({"app_update_install_observation": {"status": "confirmed"}});
+        assert_eq!(
+            confirmed_client_install_timestamp(Some(reported_at), &confirmed, received_at),
+            Some(reported_at)
+        );
+
+        for status in ["pending", "failed", "legacy_local"] {
+            let meta = json!({"app_update_install_observation": {"status": status}});
+            assert_eq!(
+                confirmed_client_install_timestamp(Some(reported_at), &meta, received_at),
+                None
+            );
+        }
+
+        assert_eq!(
+            confirmed_client_install_timestamp(
+                Some(received_at + Duration::days(365)),
+                &confirmed,
+                received_at,
+            ),
+            Some(received_at)
+        );
+    }
 }

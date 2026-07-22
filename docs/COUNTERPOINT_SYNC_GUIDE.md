@@ -28,6 +28,24 @@ Counterpoint can emit a history ticket with merchandise line rows but a zero tic
 
 Counterpoint SQL is the source authority for cutover customer profiles, open orders, gift cards, loyalty balances, catalog identity, and inventory quantities. ROS may add deterministic `CP-*` recovery SKUs only when Counterpoint provides a valid item/cell key without a usable `B-*` barcode/SKU. That recovery identity is additive; imports must preserve Counterpoint keys, barcode aliases, balances, quantities, and provenance rather than replacing source data with ROS-generated values.
 
+### Imported financial-integrity manifest
+
+Every imported ticket keeps the Counterpoint source booking time on the Transaction Record, each transaction line, and its initial booking event. The import also retains an immutable activity snapshot containing the source header, charged-line, tax, and tender totals. A disagreement and its activity evidence are written in the same database transaction as the imported sale; if that evidence cannot be stored, the import fails instead of reporting an unaudited success. A disagreement does not prevent staff from opening the Transaction Record and it never authorizes ROS to guess which money value is correct.
+
+Ticket-history and open-document rows without a valid source booking timestamp are rejected into import review. ROS does not substitute the Bridge run time, because doing so would turn historical activity into false current-day Booked Sales. On an intentional rerun, the prior initial-booking rows remain as excluded audit evidence, the line-delete trigger is suppressed, and the replacement line/event pair uses the newly supplied source time. This prevents a rerun from creating a current-day reversal or duplicate booked sale.
+
+Use **Settings → Counterpoint → Legacy Order Repair → Imported financial integrity** for the review-first repair path:
+
+1. Refresh the dry-run manifest. It separates the immutable import snapshot from the current net header, effective lines, stored paid amount, allocated tenders, returns/refunds, and booking timestamps.
+2. Financial differences inside the immutable import snapshot stay in **Source review**. Compare the retained source payload and Counterpoint receipt before changing any financial record. Later audited returns, refunds, and payments are current state and are never relabeled as import corruption.
+3. **Align Booking Dates** changes only imported line and initial-booking timestamps that differ from the retained Transaction Record booking time. The apply request carries the complete reviewed manifest SHA-256 and candidate count; under row locks, any changed ID, timestamp, count, or displayed financial context aborts the whole repair and requires a refresh. A successful repair stores that digest with the immutable before/after snapshot, approving staff identity, and reason.
+4. Orphaned or amended booking events remain review-only. The date repair does not hide them.
+5. Transaction headers, payments, payment allocations, and tender amounts are read-only throughout this repair.
+
+The corresponding reporting views are `reporting.counterpoint_import_financial_integrity` and `reporting.counterpoint_booking_date_repair_manifest`. The second view is the exact dry-run input used by the guarded repair; migration 146 itself performs no historical rewrite.
+
+Legacy order/payment reconciliation uses the same reviewed-manifest rule. Its digest includes candidate Transaction Record IDs, complete line signatures, payment/allocation IDs, statuses, dates, and totals. Apply locks and rediscovers that graph before moving any tender; drift aborts the whole transaction.
+
 Advancement is proof-gated. Bridge-reported row counts alone do not unlock cutover. If the Bridge reports suspiciously low ticket or open-doc counts, a wrong ROS base URL, empty required SQL mappings, or a history floor other than January 1, 2024, ROS records a failed preflight and the Bridge blocks the import.
 
 During a direct Bridge run, ROS records source-count proof, raw rows, provenance links to landed ROS rows, exceptions, and landed-row proof for the current import run. Ticket and open-doc line/payment proof is counted from the landed source payload child rows for that import run, so repeat proof stays tied to the Bridge input instead of whatever child rows were rewritten in PostgreSQL. Rows that fail validation remain visible as import exceptions until staff fixes them and reruns the affected import area or ROS can prove the source row landed.
@@ -413,7 +431,11 @@ query uses that code as a controlled fallback. Historical tickets also remain
 openable as Transaction Records so staff can review payment and pickup audit
 events and reprint the receipt.
 
+The Transaction Record audit feed includes a Counterpoint import evidence row even for older imports that predate the activity-log writer. It distinguishes the source booking time from the later ROS import time and shows header/line/tender differences as review evidence, not as a corrected total.
+
 **Idempotency:** If a Transaction Record with the same `counterpoint_ticket_ref` already exists, the source is not imported twice. Payment-only tickets (a zero merchandise total with positive tenders) are matched to exactly one existing non-imported ROS transaction by customer, paid amount, and product/quantity lines; the existing ROS transaction retains its customer-facing lines and the imported duplicate is superseded. Ambiguous matches are skipped with a review issue rather than creating another sale.
+
+Reruns never delete a Counterpoint line that has return/refund rows, fulfillment or procurement links/events, discount-use audit, suit-component swap audit, or wedding cutover review. Because those records depend on the original line ID, ROS blocks the source replacement and rolls back the entire batch, including any provisional header or Counterpoint-payment changes. The existing lines, returns, allocations, and audit rows remain intact for Manager review.
 
 **Totals / paid semantics:** The runtime mapper sources the gross historical ticket total from the best visible `PS_TKT_HIST` total column. ROS prefers the summed tender history from `PS_TKT_HIST_PMT` for `amount_paid` and `balance_due` whenever those rows are present. If tender rows are absent, ROS falls back to the header `amount_paid` value.
 
@@ -549,6 +571,11 @@ ROS stores this in the `counterpoint_bridge_heartbeat` singleton table and deriv
 | **OFFLINE** | No heartbeat in the last 2 minutes or the Bridge process is not reachable |
 
 The Main Hub **Counterpoint → Import Command Center** shows a dedicated **Bridge connection status** block for this status. If the Bridge console says the local API is listening but Main Hub shows **No accepted heartbeat**, confirm the Bridge is targeting the Main Hub ROS URL on port 3000 and that the Main Hub API is running.
+
+Bridge reachability and import/sync proof are separate signals. The Operations integration feed
+does not call Counterpoint sync healthy when no run history exists, an entity has never succeeded,
+or its most recent success is older than 72 hours. Those conditions remain **degraded/unknown**
+even if the Bridge process is currently online.
 
 **Polling Stability:** To prevent console spam when the shop is closed (bridge unreachable), the Back Office Settings UI will stop automatic polling after **3 consecutive failures**. Use **Refresh statuses** to resume monitoring once you are back in the store.
 

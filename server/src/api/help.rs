@@ -3322,12 +3322,12 @@ async fn rosie_intelligence_refresh(
             )
             .await
             {
-                Ok(()) => {
+                Ok(help_count) => {
                     crate::logic::meilisearch_sync::record_sync_status(
                         &state.db,
                         crate::logic::meilisearch_client::INDEX_HELP,
                         true,
-                        0,
+                        help_count as i64,
                         None,
                     )
                     .await;
@@ -5316,17 +5316,17 @@ async fn admin_ops_reindex_search(
 
     match crate::logic::help_corpus::reindex_help_meilisearch_with_policies(client, &state.db).await
     {
-        Ok(()) => {
+        Ok(help_count) => {
             crate::logic::meilisearch_sync::record_sync_status(
                 &state.db,
                 crate::logic::meilisearch_client::INDEX_HELP,
                 true,
-                0,
+                help_count as i64,
                 None,
             )
             .await;
             Ok(Json(
-                serde_json::json!({ "status": "ok", "mode": "help_only" }),
+                serde_json::json!({ "status": "ok", "mode": "help_only", "row_count": help_count }),
             ))
         }
         Err(help_err) => {

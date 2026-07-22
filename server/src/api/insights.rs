@@ -55,6 +55,8 @@ pub enum InsightsError {
     Unauthorized(String),
     #[error("{0}")]
     Forbidden(String),
+    #[error("{0}")]
+    Internal(String),
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -157,6 +159,13 @@ impl IntoResponse for InsightsError {
             InsightsError::BadRequest(m) => (StatusCode::BAD_REQUEST, m),
             InsightsError::Unauthorized(m) => (StatusCode::UNAUTHORIZED, m),
             InsightsError::Forbidden(m) => (StatusCode::FORBIDDEN, m),
+            InsightsError::Internal(m) => {
+                tracing::error!(error = %m, "Internal error in insights");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal server error".to_string(),
+                )
+            }
             InsightsError::Database(e) => {
                 tracing::error!(error = %e, "Database error in insights");
                 (
@@ -1421,6 +1430,8 @@ pub struct RegisterDayActivityQuery {
     #[serde(default)]
     pub activity_offset: i64,
     pub activity_search: Option<String>,
+    #[serde(default)]
+    pub complete_output: bool,
 }
 
 fn default_register_activity_limit() -> i64 {
@@ -1432,31 +1443,26 @@ async fn register_day_activity_summary(
     headers: HeaderMap,
     Query(q): Query<RegisterDayActivityQuery>,
 ) -> Result<Json<register_day_activity::RegisterDaySummary>, InsightsError> {
-    require_authenticated_staff_headers(&state, &headers)
+    if let Some(sid) = q.register_session_id {
+        crate::middleware::require_pos_session_secret_or_permission(
+            &state,
+            &headers,
+            sid,
+            REGISTER_REPORTS,
+        )
         .await
-        .map_err(|(s, _)| {
-            if s == StatusCode::UNAUTHORIZED {
-                InsightsError::Unauthorized(
-                    "staff credentials required (x-riverside-staff-code and PIN if set)"
-                        .to_string(),
-                )
-            } else {
-                InsightsError::Forbidden("staff authentication failed".to_string())
+        .map_err(|(status, Json(body))| {
+            let message = body
+                .get("error")
+                .and_then(Value::as_str)
+                .unwrap_or("register report access verification failed")
+                .to_string();
+            match status {
+                StatusCode::UNAUTHORIZED => InsightsError::Unauthorized(message),
+                StatusCode::FORBIDDEN => InsightsError::Forbidden(message),
+                _ => InsightsError::Internal(message),
             }
         })?;
-
-    if let Some(sid) = q.register_session_id {
-        let ok: Option<bool> = sqlx::query_scalar(
-            r#"SELECT (lifecycle_status = 'open') FROM register_sessions WHERE id = $1"#,
-        )
-        .bind(sid)
-        .fetch_optional(&state.db)
-        .await?;
-        if !ok.unwrap_or(false) {
-            return Err(InsightsError::Forbidden(
-                "register session is not open".to_string(),
-            ));
-        }
     } else {
         require_staff_with_permission(&state, &headers, REGISTER_REPORTS)
             .await
@@ -1493,21 +1499,41 @@ async fn register_day_activity_summary(
         ));
     }
 
-    let summary = register_day_activity::fetch_register_day_summary_page(
-        &state.db,
-        q.preset,
-        q.from,
-        q.to,
-        q.register_session_id,
-        basis,
-        register_day_activity::ActivityPageOptions {
-            limit: q.activity_limit,
-            offset: q.activity_offset,
-            search: q.activity_search,
-        },
-    )
-    .await
-    .map_err(|e| match e {
+    if q.complete_output && q.activity_offset != 0 {
+        return Err(InsightsError::BadRequest(
+            "complete_output requires activity_offset=0".to_string(),
+        ));
+    }
+
+    let summary_result = if q.complete_output {
+        register_day_activity::fetch_complete_register_day_summary_for_output(
+            &state.db,
+            q.preset,
+            q.from,
+            q.to,
+            q.register_session_id,
+            basis,
+            q.activity_search,
+        )
+        .await
+    } else {
+        register_day_activity::fetch_register_day_summary_page(
+            &state.db,
+            q.preset,
+            q.from,
+            q.to,
+            q.register_session_id,
+            basis,
+            register_day_activity::ActivityPageOptions {
+                limit: q.activity_limit,
+                offset: q.activity_offset,
+                search: q.activity_search,
+            },
+        )
+        .await
+    };
+
+    let summary = summary_result.map_err(|e| match e {
         register_day_activity::RegisterDayActivityError::InvalidRange(m) => {
             InsightsError::BadRequest(m)
         }
@@ -1980,6 +2006,7 @@ pub async fn rosie_reporting_run(
                 activity_limit: default_register_activity_limit(),
                 activity_offset: 0,
                 activity_search: None,
+                complete_output: false,
             };
             let Json(data) =
                 register_day_activity_summary(State(state.clone()), headers.clone(), Query(query))
@@ -3716,6 +3743,7 @@ async fn payment_exception_review_report(
 
 #[derive(Debug, Serialize, FromRow)]
 pub struct ReturnsExchangesRefundsReportRow {
+    pub row_id: String,
     pub activity_at: DateTime<Utc>,
     pub business_date: NaiveDate,
     pub activity: String,
@@ -3728,6 +3756,7 @@ pub struct ReturnsExchangesRefundsReportRow {
     pub tax_amount: Decimal,
     pub refund_due: Decimal,
     pub refund_paid: Decimal,
+    pub refund_remaining: Decimal,
     pub payment_method: Option<String>,
     pub status: String,
     pub staff_name: Option<String>,
@@ -3735,148 +3764,253 @@ pub struct ReturnsExchangesRefundsReportRow {
     pub notes: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ReturnsExchangesRefundsReportQuery {
+    #[serde(flatten)]
+    pub range: DateRangeQuery,
+    #[serde(default = "default_returns_report_limit")]
+    pub limit: i64,
+    #[serde(default)]
+    pub offset: i64,
+    pub as_of: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ReturnsExchangesRefundsReportPage {
+    pub rows: Vec<ReturnsExchangesRefundsReportRow>,
+    pub total_count: i64,
+    pub limit: i64,
+    pub offset: i64,
+    pub has_more: bool,
+    pub as_of: DateTime<Utc>,
+    pub dataset_truth: String,
+}
+
+#[derive(Debug, FromRow)]
+struct ReturnsExchangesRefundsReportTruth {
+    total_count: i64,
+    dataset_truth: String,
+}
+
+const RETURNS_REPORT_MAX_ROWS: i64 = 20_000;
+
+fn default_returns_report_limit() -> i64 {
+    500
+}
+
+const RETURNS_EXCHANGES_REFUNDS_ACTIVITY_CTE: &str = r#"
+    WITH activity AS (
+        SELECT
+            CONCAT('return:', rl.id::text) AS row_id,
+            rl.created_at AS activity_at,
+            (rl.created_at AT TIME ZONE reporting.effective_store_timezone())::date AS business_date,
+            CASE
+                WHEN LOWER(COALESCE(rl.reason, '')) LIKE '%exchange%' THEN 'Exchange return'
+                ELSE 'Returned item'
+            END AS activity,
+            COALESCE(t.display_id, t.counterpoint_doc_ref, t.counterpoint_ticket_ref, t.id::text) AS transaction_display_id,
+            COALESCE(
+                NULLIF(BTRIM(CONCAT_WS(' ', c.first_name, c.last_name)), ''),
+                NULLIF(c.company_name, ''),
+                c.customer_code,
+                'Walk-in'
+            ) AS customer_name,
+            COALESCE(p.name, pv.sku, 'Item') AS item,
+            pv.sku AS sku,
+            rl.quantity_returned::bigint AS quantity,
+            COALESCE(rl.refund_subtotal, ROUND(tl.unit_price * rl.quantity_returned, 2), 0)::numeric(14,2) AS merchandise_amount,
+            COALESCE(
+                rl.refund_state_tax + rl.refund_local_tax,
+                ROUND((COALESCE(tl.state_tax, 0) + COALESCE(tl.local_tax, 0)) * rl.quantity_returned, 2),
+                0
+            )::numeric(14,2) AS tax_amount,
+            0::numeric(14,2) AS refund_due,
+            0::numeric(14,2) AS refund_paid,
+            0::numeric(14,2) AS refund_remaining,
+            NULL::text AS payment_method,
+            'Return recorded'::text AS status,
+            s.full_name AS staff_name,
+            CASE WHEN COALESCE(t.is_counterpoint_import, false) THEN 'counterpoint' ELSE 'riverside' END AS data_source,
+            NULLIF(rl.reason, '') AS notes
+        FROM transaction_return_lines rl
+        INNER JOIN transactions t ON t.id = rl.transaction_id
+        LEFT JOIN transaction_lines tl ON tl.id = rl.transaction_line_id
+        LEFT JOIN products p ON p.id = tl.product_id
+        LEFT JOIN product_variants pv ON pv.id = tl.variant_id
+        LEFT JOIN customers c ON c.id = t.customer_id
+        LEFT JOIN staff s ON s.id = rl.staff_id
+        WHERE rl.created_at >= $1 AND rl.created_at < $2 AND rl.created_at <= $3
+
+        UNION ALL
+
+        SELECT
+            CONCAT('queue:', rq.id::text) AS row_id,
+            rq.created_at AS activity_at,
+            (rq.created_at AT TIME ZONE reporting.effective_store_timezone())::date AS business_date,
+            CASE WHEN rq.is_open THEN 'Refund still owed' ELSE 'Refund completed' END AS activity,
+            COALESCE(t.display_id, t.counterpoint_doc_ref, t.counterpoint_ticket_ref, t.id::text) AS transaction_display_id,
+            COALESCE(
+                NULLIF(BTRIM(CONCAT_WS(' ', c.first_name, c.last_name)), ''),
+                NULLIF(c.company_name, ''),
+                c.customer_code,
+                'Walk-in'
+            ) AS customer_name,
+            NULL::text AS item,
+            NULL::text AS sku,
+            NULL::bigint AS quantity,
+            0::numeric(14,2) AS merchandise_amount,
+            0::numeric(14,2) AS tax_amount,
+            COALESCE(ROUND(rq.amount_due, 2), 0)::numeric(14,2) AS refund_due,
+            0::numeric(14,2) AS refund_paid,
+            GREATEST(
+                COALESCE(ROUND(rq.amount_due, 2), 0)
+                - COALESCE(ROUND(rq.amount_refunded, 2), 0),
+                0
+            )::numeric(14,2) AS refund_remaining,
+            NULL::text AS payment_method,
+            CASE WHEN rq.is_open THEN 'Open' ELSE 'Closed' END AS status,
+            NULL::text AS staff_name,
+            CASE WHEN COALESCE(t.is_counterpoint_import, false) THEN 'counterpoint' ELSE 'riverside' END AS data_source,
+            NULLIF(rq.reason, '') AS notes
+        FROM transaction_refund_queue rq
+        INNER JOIN transactions t ON t.id = rq.transaction_id
+        LEFT JOIN customers c ON c.id = COALESCE(rq.customer_id, t.customer_id)
+        WHERE rq.created_at >= $1 AND rq.created_at < $2 AND rq.created_at <= $3
+
+        UNION ALL
+
+        SELECT
+            CONCAT('payment:', pt.id::text) AS row_id,
+            COALESCE(pt.occurred_at, pt.created_at) AS activity_at,
+            (COALESCE(pt.occurred_at, pt.created_at) AT TIME ZONE reporting.effective_store_timezone())::date AS business_date,
+            'Refund payment'::text AS activity,
+            tx.transaction_display_id,
+            COALESCE(
+                NULLIF(BTRIM(CONCAT_WS(' ', c.first_name, c.last_name)), ''),
+                NULLIF(c.company_name, ''),
+                c.customer_code,
+                'Walk-in'
+            ) AS customer_name,
+            NULL::text AS item,
+            NULL::text AS sku,
+            NULL::bigint AS quantity,
+            0::numeric(14,2) AS merchandise_amount,
+            0::numeric(14,2) AS tax_amount,
+            0::numeric(14,2) AS refund_due,
+            ABS(COALESCE(ROUND(pt.amount, 2), 0))::numeric(14,2) AS refund_paid,
+            0::numeric(14,2) AS refund_remaining,
+            COALESCE(NULLIF(pt.payment_method, ''), 'refund') AS payment_method,
+            COALESCE(NULLIF(pt.status, ''), 'Posted') AS status,
+            NULL::text AS staff_name,
+            COALESCE(tx.data_source, 'riverside') AS data_source,
+            COALESCE(NULLIF(pt.metadata->>'kind', ''), NULLIF(pt.metadata->>'reason', '')) AS notes
+        FROM payment_transactions pt
+        LEFT JOIN customers c ON c.id = pt.payer_id
+        LEFT JOIN LATERAL (
+            SELECT
+                COALESCE(t.display_id, t.counterpoint_doc_ref, t.counterpoint_ticket_ref, t.id::text) AS transaction_display_id,
+                CASE WHEN COALESCE(t.is_counterpoint_import, false) THEN 'counterpoint' ELSE 'riverside' END AS data_source
+            FROM payment_allocations pa
+            INNER JOIN transactions t ON t.id = pa.target_transaction_id
+            WHERE pa.transaction_id = pt.id
+            ORDER BY pa.amount_allocated DESC NULLS LAST, pa.target_transaction_id
+            LIMIT 1
+        ) tx ON true
+        WHERE COALESCE(pt.occurred_at, pt.created_at) >= $1
+          AND COALESCE(pt.occurred_at, pt.created_at) < $2
+          AND COALESCE(pt.occurred_at, pt.created_at) <= $3
+          AND LOWER(COALESCE(pt.status, '')) IN (
+              'success', 'succeeded', 'approved', 'captured', 'posted', 'settled'
+          )
+          AND LOWER(COALESCE(pt.provider_status, '')) NOT IN (
+              'failed', 'declined', 'voided', 'cancelled', 'canceled', 'error'
+          )
+          AND (
+            pt.amount < 0
+            OR LOWER(COALESCE(pt.metadata->>'kind', '')) LIKE '%refund%'
+            OR LOWER(COALESCE(pt.payment_method, '')) LIKE '%refund%'
+          )
+    )
+"#;
+
 async fn returns_exchanges_refunds_report(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Query(q): Query<DateRangeQuery>,
-) -> Result<Json<Vec<ReturnsExchangesRefundsReportRow>>, InsightsError> {
+    Query(q): Query<ReturnsExchangesRefundsReportQuery>,
+) -> Result<Json<ReturnsExchangesRefundsReportPage>, InsightsError> {
     require_insights_or_register_reports(&state, &headers).await?;
-    let (start, end) = range_bounds(&q);
-    let rows = sqlx::query_as::<_, ReturnsExchangesRefundsReportRow>(
-        r#"
-        SELECT *
-        FROM (
-            SELECT
-                rl.created_at AS activity_at,
-                (rl.created_at AT TIME ZONE reporting.effective_store_timezone())::date AS business_date,
-                CASE
-                    WHEN LOWER(COALESCE(rl.reason, '')) LIKE '%exchange%' THEN 'Exchange return'
-                    ELSE 'Returned item'
-                END AS activity,
-                COALESCE(t.display_id, t.counterpoint_doc_ref, t.counterpoint_ticket_ref, t.id::text) AS transaction_display_id,
-                COALESCE(
-                    NULLIF(BTRIM(CONCAT_WS(' ', c.first_name, c.last_name)), ''),
-                    NULLIF(c.company_name, ''),
-                    c.customer_code,
-                    'Walk-in'
-                ) AS customer_name,
-                COALESCE(p.name, pv.sku, 'Item') AS item,
-                pv.sku AS sku,
-                rl.quantity_returned::bigint AS quantity,
-                COALESCE(rl.refund_subtotal, ROUND(tl.unit_price * rl.quantity_returned, 2), 0)::numeric(14,2) AS merchandise_amount,
-                COALESCE(
-                    rl.refund_state_tax + rl.refund_local_tax,
-                    ROUND((COALESCE(tl.state_tax, 0) + COALESCE(tl.local_tax, 0)) * rl.quantity_returned, 2),
-                    0
-                )::numeric(14,2) AS tax_amount,
-                COALESCE(
-                    rl.refund_total,
-                    ROUND(
-                        (COALESCE(tl.unit_price, 0) + COALESCE(tl.state_tax, 0) + COALESCE(tl.local_tax, 0))
-                        * rl.quantity_returned,
-                        2
-                    ),
-                    0
-                )::numeric(14,2) AS refund_due,
-                0::numeric(14,2) AS refund_paid,
-                NULL::text AS payment_method,
-                'Return recorded'::text AS status,
-                s.full_name AS staff_name,
-                CASE WHEN COALESCE(t.is_counterpoint_import, false) THEN 'counterpoint' ELSE 'riverside' END AS data_source,
-                NULLIF(rl.reason, '') AS notes
-            FROM transaction_return_lines rl
-            INNER JOIN transactions t ON t.id = rl.transaction_id
-            LEFT JOIN transaction_lines tl ON tl.id = rl.transaction_line_id
-            LEFT JOIN products p ON p.id = tl.product_id
-            LEFT JOIN product_variants pv ON pv.id = tl.variant_id
-            LEFT JOIN customers c ON c.id = t.customer_id
-            LEFT JOIN staff s ON s.id = rl.staff_id
-            WHERE rl.created_at >= $1 AND rl.created_at < $2
+    if !(1..=500).contains(&q.limit) {
+        return Err(InsightsError::BadRequest(
+            "limit must be between 1 and 500".to_string(),
+        ));
+    }
+    if !(0..=RETURNS_REPORT_MAX_ROWS).contains(&q.offset) {
+        return Err(InsightsError::BadRequest(format!(
+            "offset must be between 0 and {RETURNS_REPORT_MAX_ROWS}"
+        )));
+    }
 
-            UNION ALL
+    let now = Utc::now();
+    let as_of = q.as_of.unwrap_or(now);
+    if as_of > now + Duration::minutes(1) {
+        return Err(InsightsError::BadRequest(
+            "as_of cannot be in the future".to_string(),
+        ));
+    }
+    let (start, end) = range_bounds(&q.range);
+    let mut transaction = state.db.begin().await?;
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+        .execute(&mut *transaction)
+        .await?;
 
-            SELECT
-                rq.created_at AS activity_at,
-                (rq.created_at AT TIME ZONE reporting.effective_store_timezone())::date AS business_date,
-                CASE WHEN rq.is_open THEN 'Refund still owed' ELSE 'Refund completed' END AS activity,
-                COALESCE(t.display_id, t.counterpoint_doc_ref, t.counterpoint_ticket_ref, t.id::text) AS transaction_display_id,
-                COALESCE(
-                    NULLIF(BTRIM(CONCAT_WS(' ', c.first_name, c.last_name)), ''),
-                    NULLIF(c.company_name, ''),
-                    c.customer_code,
-                    'Walk-in'
-                ) AS customer_name,
-                NULL::text AS item,
-                NULL::text AS sku,
-                NULL::bigint AS quantity,
-                0::numeric(14,2) AS merchandise_amount,
-                0::numeric(14,2) AS tax_amount,
-                COALESCE(ROUND(rq.amount_due, 2), 0)::numeric(14,2) AS refund_due,
-                COALESCE(ROUND(rq.amount_refunded, 2), 0)::numeric(14,2) AS refund_paid,
-                NULL::text AS payment_method,
-                CASE WHEN rq.is_open THEN 'Open' ELSE 'Closed' END AS status,
-                NULL::text AS staff_name,
-                CASE WHEN COALESCE(t.is_counterpoint_import, false) THEN 'counterpoint' ELSE 'riverside' END AS data_source,
-                NULLIF(rq.reason, '') AS notes
-            FROM transaction_refund_queue rq
-            INNER JOIN transactions t ON t.id = rq.transaction_id
-            LEFT JOIN customers c ON c.id = COALESCE(rq.customer_id, t.customer_id)
-            WHERE rq.created_at >= $1 AND rq.created_at < $2
+    let truth_sql = format!(
+        "{RETURNS_EXCHANGES_REFUNDS_ACTIVITY_CTE}\n\
+         SELECT COUNT(*)::bigint AS total_count,\n\
+                MD5(COALESCE(STRING_AGG(ROW_TO_JSON(report_row)::text, E'\\n'\n\
+                    ORDER BY report_row.activity_at DESC, report_row.row_id ASC), '')) AS dataset_truth\n\
+         FROM activity report_row"
+    );
+    let truth = sqlx::query_as::<_, ReturnsExchangesRefundsReportTruth>(&truth_sql)
+        .bind(start)
+        .bind(end)
+        .bind(as_of)
+        .fetch_one(&mut *transaction)
+        .await?;
 
-            UNION ALL
+    if truth.total_count > RETURNS_REPORT_MAX_ROWS {
+        transaction.rollback().await?;
+        return Err(InsightsError::BadRequest(format!(
+            "This report contains {} rows, above the {}-row audited output limit. Narrow the date range.",
+            truth.total_count, RETURNS_REPORT_MAX_ROWS
+        )));
+    }
 
-            SELECT
-                COALESCE(pt.occurred_at, pt.created_at) AS activity_at,
-                (COALESCE(pt.occurred_at, pt.created_at) AT TIME ZONE reporting.effective_store_timezone())::date AS business_date,
-                'Refund payment'::text AS activity,
-                tx.transaction_display_id,
-                COALESCE(
-                    NULLIF(BTRIM(CONCAT_WS(' ', c.first_name, c.last_name)), ''),
-                    NULLIF(c.company_name, ''),
-                    c.customer_code,
-                    'Walk-in'
-                ) AS customer_name,
-                NULL::text AS item,
-                NULL::text AS sku,
-                NULL::bigint AS quantity,
-                0::numeric(14,2) AS merchandise_amount,
-                0::numeric(14,2) AS tax_amount,
-                0::numeric(14,2) AS refund_due,
-                ABS(COALESCE(ROUND(pt.amount, 2), 0))::numeric(14,2) AS refund_paid,
-                COALESCE(NULLIF(pt.payment_method, ''), 'refund') AS payment_method,
-                COALESCE(NULLIF(pt.status, ''), 'Posted') AS status,
-                NULL::text AS staff_name,
-                COALESCE(tx.data_source, 'riverside') AS data_source,
-                COALESCE(NULLIF(pt.metadata->>'kind', ''), NULLIF(pt.metadata->>'reason', '')) AS notes
-            FROM payment_transactions pt
-            LEFT JOIN customers c ON c.id = pt.payer_id
-            LEFT JOIN LATERAL (
-                SELECT
-                    COALESCE(t.display_id, t.counterpoint_doc_ref, t.counterpoint_ticket_ref, t.id::text) AS transaction_display_id,
-                    CASE WHEN COALESCE(t.is_counterpoint_import, false) THEN 'counterpoint' ELSE 'riverside' END AS data_source
-                FROM payment_allocations pa
-                INNER JOIN transactions t ON t.id = pa.target_transaction_id
-                WHERE pa.transaction_id = pt.id
-                ORDER BY pa.amount_allocated DESC NULLS LAST
-                LIMIT 1
-            ) tx ON true
-            WHERE COALESCE(pt.occurred_at, pt.created_at) >= $1
-              AND COALESCE(pt.occurred_at, pt.created_at) < $2
-              AND (
-                pt.amount < 0
-                OR LOWER(COALESCE(pt.metadata->>'kind', '')) LIKE '%refund%'
-                OR LOWER(COALESCE(pt.payment_method, '')) LIKE '%refund%'
-              )
-        ) activity
-        ORDER BY activity_at DESC, transaction_display_id NULLS LAST
-        LIMIT 1000
-        "#,
-    )
-    .bind(start)
-    .bind(end)
-    .fetch_all(&state.db)
-    .await?;
-    Ok(Json(rows))
+    let page_sql = format!(
+        "{RETURNS_EXCHANGES_REFUNDS_ACTIVITY_CTE}\n\
+         SELECT * FROM activity\n\
+         ORDER BY activity_at DESC, row_id ASC\n\
+         LIMIT $4 OFFSET $5"
+    );
+    let rows = sqlx::query_as::<_, ReturnsExchangesRefundsReportRow>(&page_sql)
+        .bind(start)
+        .bind(end)
+        .bind(as_of)
+        .bind(q.limit)
+        .bind(q.offset)
+        .fetch_all(&mut *transaction)
+        .await?;
+    transaction.commit().await?;
+
+    let has_more = q.offset + (rows.len() as i64) < truth.total_count;
+    Ok(Json(ReturnsExchangesRefundsReportPage {
+        rows,
+        total_count: truth.total_count,
+        limit: q.limit,
+        offset: q.offset,
+        has_more,
+        as_of,
+        dataset_truth: truth.dataset_truth,
+    }))
 }
 
 #[derive(Debug, Serialize, FromRow)]
@@ -4993,5 +5127,54 @@ mod tests {
             }
             other => panic!("expected forbidden, got {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    #[ignore = "requires TEST_DATABASE_URL pointing to an isolated migrated database"]
+    async fn returns_report_exposes_complete_audited_page_metadata() {
+        let database_url = std::env::var("TEST_DATABASE_URL")
+            .expect("TEST_DATABASE_URL must point to an isolated migrated database");
+        let pool = PgPool::connect(&database_url)
+            .await
+            .expect("connect isolated test database");
+        let (staff_id, code) =
+            insert_staff_with_permissions(&pool, "salesperson", &[INSIGHTS_VIEW]).await;
+        let state = build_test_state(pool.clone());
+        let today = Utc::now().date_naive();
+
+        let page = returns_exchanges_refunds_report(
+            State(state),
+            auth_headers(&code),
+            Query(ReturnsExchangesRefundsReportQuery {
+                range: DateRangeQuery {
+                    from: Some(today),
+                    to: Some(today),
+                },
+                limit: 500,
+                offset: 0,
+                as_of: None,
+            }),
+        )
+        .await
+        .expect("audited report page should load")
+        .0;
+
+        assert_eq!(page.offset, 0);
+        assert_eq!(page.limit, 500);
+        assert!(page.rows.len() as i64 <= page.total_count);
+        assert_eq!(page.has_more, (page.rows.len() as i64) < page.total_count);
+        assert!(!page.dataset_truth.is_empty());
+        assert!(page.rows.iter().all(|row| !row.row_id.is_empty()));
+
+        sqlx::query("DELETE FROM staff_permission WHERE staff_id = $1")
+            .bind(staff_id)
+            .execute(&pool)
+            .await
+            .expect("delete test permissions");
+        sqlx::query("DELETE FROM staff WHERE id = $1")
+            .bind(staff_id)
+            .execute(&pool)
+            .await
+            .expect("delete test staff");
     }
 }

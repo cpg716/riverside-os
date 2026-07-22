@@ -37,7 +37,10 @@ import {
   type ReportDef,
   type ReportUrlContext,
 } from "../../lib/reportsCatalog";
-import { openProfessionalTablePrint } from "../pos/zReportPrint";
+import {
+  openProfessionalTablePrint,
+  REGISTER_REPORT_OUTPUT_ROW_LIMIT,
+} from "../pos/zReportPrint";
 import type { ReportPrintAction } from "../../lib/reportPrint";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
 import { downloadTextFile } from "../../lib/desktopFileBridge";
@@ -45,6 +48,9 @@ import { useToast } from "../ui/ToastProviderLogic";
 import { fetchWithTimeout } from "../../lib/api";
 
 const baseUrl = getBaseUrl();
+const REGISTER_DAY_PAGE_SIZE = 200;
+const REGISTER_DAY_INTERACTIVE_LIMIT = 2_000;
+const AUDITED_ROWS_PAGE_SIZE = 500;
 
 function ymd(d: Date): string {
   const y = d.getFullYear();
@@ -356,7 +362,7 @@ function ReportMiniChart({
   config: ReportChartConfig;
   rows: Record<string, unknown>[];
 }) {
-  const data = rows
+  const mapped = rows
     .map((row) => ({
       label: formatCellValue(row[config.labelKey], config.labelKey) || "Unspecified",
       value: numberFromUnknown(row[config.valueKey]),
@@ -367,8 +373,26 @@ function ReportMiniChart({
     .filter(
       (item): item is { label: string; value: number; secondaryValue: number | null } =>
         item.value !== null,
-    )
-    .slice(0, config.limit ?? 8);
+    );
+  const data = (config.aggregateByLabel
+    ? Array.from(
+        mapped.reduce((byLabel, item) => {
+          const current = byLabel.get(item.label);
+          byLabel.set(item.label, {
+            label: item.label,
+            value: (current?.value ?? 0) + item.value,
+            secondaryValue:
+              current === undefined
+                ? item.secondaryValue
+                : current.secondaryValue === null && item.secondaryValue === null
+                  ? null
+                  : (current.secondaryValue ?? 0) + (item.secondaryValue ?? 0),
+          });
+          return byLabel;
+        }, new Map<string, { label: string; value: number; secondaryValue: number | null }>()).values(),
+      )
+    : mapped
+  ).slice(0, config.limit ?? 8);
 
   if (data.length === 0) return null;
 
@@ -526,6 +550,7 @@ const FIELD_LABELS: Record<string, string> = {
   register_number: "Register #",
   refund_due: "Refund Due",
   refund_paid: "Refund Paid",
+  refund_remaining: "Refund Remaining",
   report_date: "Report Date",
   reporting_basis: "Basis",
   revenue_momentum: "Last 7 Days",
@@ -634,7 +659,16 @@ function registerSummaryPrintRows(payload: unknown): Record<string, unknown>[] {
     }));
   });
 
-  return [...summaryRows, ...activityRows];
+  const pickupRows = registerDayPickupRows(payload).flatMap((row, index) => {
+    const columns = keysFromRowsForDisplay([row]);
+    return columns.map((key) => ({
+      Section: `Pickup ${index + 1}`,
+      Field: fieldLabel(key),
+      Value: formatCellValue(row[key], key),
+    }));
+  });
+
+  return [...summaryRows, ...activityRows, ...pickupRows];
 }
 
 function printableDataForReport(
@@ -859,6 +893,214 @@ function registerDayActivityRows(payload: unknown): Record<string, unknown>[] {
   return Array.isArray(activities) ? (activities as Record<string, unknown>[]) : [];
 }
 
+function registerDayPickupRows(payload: unknown): Record<string, unknown>[] {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return [];
+  const pickups = (payload as { pickups_today?: unknown }).pickups_today;
+  return Array.isArray(pickups) ? (pickups as Record<string, unknown>[]) : [];
+}
+
+type RegisterDayPagePayload = Record<string, unknown> & {
+  activities?: Record<string, unknown>[];
+  pickups_today?: Record<string, unknown>[];
+  activities_has_more?: boolean;
+  pickups_has_more?: boolean;
+  activity_total_count?: number;
+  pickups_total_count?: number;
+};
+
+type AuditedPagedRowsPayload = {
+  rows: Record<string, unknown>[];
+  total_count: number;
+  limit: number;
+  offset: number;
+  has_more: boolean;
+  as_of: string;
+  dataset_truth: string;
+};
+
+function auditedRowsPageFromUnknown(value: unknown): AuditedPagedRowsPayload {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("The Main Hub returned an invalid audited report page.");
+  }
+  const page = value as Partial<AuditedPagedRowsPayload>;
+  if (
+    !Array.isArray(page.rows) ||
+    !Number.isSafeInteger(page.total_count) ||
+    !Number.isSafeInteger(page.limit) ||
+    !Number.isSafeInteger(page.offset) ||
+    typeof page.has_more !== "boolean" ||
+    typeof page.as_of !== "string" ||
+    !page.as_of ||
+    typeof page.dataset_truth !== "string" ||
+    !page.dataset_truth
+  ) {
+    throw new Error("The Main Hub returned incomplete audit metadata for this report.");
+  }
+  return page as AuditedPagedRowsPayload;
+}
+
+async function fetchCompleteAuditedRowsPayload(
+  path: string,
+  headers: Record<string, string>,
+  signal: AbortSignal,
+): Promise<AuditedPagedRowsPayload> {
+  let offset = 0;
+  let expectedTotal = -1;
+  let expectedAsOf = "";
+  let expectedTruth = "";
+  let firstPage: AuditedPagedRowsPayload | null = null;
+  const rowIds = new Set<string>();
+  const rows: Record<string, unknown>[] = [];
+
+  while (true) {
+    const separator = path.includes("?") ? "&" : "?";
+    const snapshot = expectedAsOf ? `&as_of=${encodeURIComponent(expectedAsOf)}` : "";
+    const pagePath = `${path}${separator}limit=${AUDITED_ROWS_PAGE_SIZE}&offset=${offset}${snapshot}`;
+    const response = await fetchWithTimeout(`${baseUrl}${pagePath}`, { headers, signal });
+    const text = await response.text();
+    let body: unknown = null;
+    try {
+      body = text ? JSON.parse(text) : null;
+    } catch {
+      body = text;
+    }
+    if (!response.ok) {
+      const message =
+        body &&
+        typeof body === "object" &&
+        "error" in body &&
+        typeof (body as { error: unknown }).error === "string"
+          ? (body as { error: string }).error
+          : `Request failed (${response.status})`;
+      throw new Error(message);
+    }
+
+    const page = auditedRowsPageFromUnknown(body);
+    if (page.offset !== offset || page.limit !== AUDITED_ROWS_PAGE_SIZE) {
+      throw new Error("The Main Hub returned the wrong audited report page. Nothing was loaded.");
+    }
+    if (!firstPage) {
+      firstPage = page;
+      expectedTotal = page.total_count;
+      expectedAsOf = page.as_of;
+      expectedTruth = page.dataset_truth;
+      if (expectedTotal < 0 || expectedTotal > REGISTER_REPORT_OUTPUT_ROW_LIMIT) {
+        throw new Error(
+          `This report contains ${expectedTotal.toLocaleString()} rows, above the ${REGISTER_REPORT_OUTPUT_ROW_LIMIT.toLocaleString()}-row audited output limit. Narrow the date range.`,
+        );
+      }
+    } else if (
+      page.total_count !== expectedTotal ||
+      page.as_of !== expectedAsOf ||
+      page.dataset_truth !== expectedTruth
+    ) {
+      throw new Error(
+        "This report changed while its audited pages were loading. Nothing was displayed or output; refresh and retry.",
+      );
+    }
+
+    for (const row of page.rows) {
+      const rowId = typeof row.row_id === "string" ? row.row_id : "";
+      if (!rowId || rowIds.has(rowId)) {
+        throw new Error(
+          "This report returned missing or repeated audit identities. Nothing was displayed or output; refresh and retry.",
+        );
+      }
+      rowIds.add(rowId);
+      rows.push(row);
+    }
+
+    const pageEnd = offset + page.rows.length;
+    if (page.has_more !== (pageEnd < expectedTotal)) {
+      throw new Error(
+        "The Main Hub reported an incomplete audited result. Nothing was displayed or output; refresh and retry.",
+      );
+    }
+    if (!page.has_more) break;
+    if (page.rows.length === 0) {
+      throw new Error(
+        "The Main Hub returned an empty audited page before the report was complete. Nothing was displayed or output.",
+      );
+    }
+    offset = pageEnd;
+  }
+
+  if (!firstPage || rows.length !== expectedTotal) {
+    throw new Error(
+      "The Main Hub did not return every audited report row. Nothing was displayed or output; refresh and retry.",
+    );
+  }
+  return { ...firstPage, rows, offset: 0, has_more: false };
+}
+
+function registerDayPageTruth(payload: RegisterDayPagePayload): string {
+  const pagedKeys = new Set([
+    "activities",
+    "pickups_today",
+    "activities_has_more",
+    "pickups_has_more",
+    "activity_offset",
+  ]);
+  return JSON.stringify(
+    Object.fromEntries(Object.entries(payload).filter(([key]) => !pagedKeys.has(key))),
+  );
+}
+
+function registerDayRowIdentity(row: Record<string, unknown>): string {
+  const id = row.id;
+  return typeof id === "string" && id ? id : JSON.stringify(row);
+}
+
+function RegisterDayRowsTable({
+  title,
+  rows,
+}: {
+  title: string;
+  rows: Record<string, unknown>[];
+}) {
+  if (rows.length === 0) return null;
+  const columns = REGISTER_DAY_ACTIVITY_FIELDS.filter((key) =>
+    rows.some((row) => hasDisplayValue(row[key])),
+  );
+  return (
+    <section className="space-y-2">
+      <h4 className="text-xs font-black uppercase tracking-wider text-app-text-muted">
+        {title} ({rows.length.toLocaleString()})
+      </h4>
+      <div className="overflow-auto rounded-xl border border-app-border">
+        <table className="w-full min-w-[640px] border-collapse text-left text-xs">
+          <thead>
+            <tr className="border-b border-app-border bg-app-surface-2">
+              {columns.map((key) => (
+                <th
+                  key={key}
+                  className="whitespace-nowrap px-3 py-2 font-black text-app-text"
+                >
+                  {fieldLabel(key)}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr
+                key={registerDayRowIdentity(row)}
+                className="border-b border-app-border/70"
+              >
+                {columns.map((key) => (
+                  <td key={key} className="px-3 py-2 font-semibold text-app-text-muted">
+                    {formatCellValue(row[key], key)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
 type Props = {
   onOpenMetabaseExplore: () => void;
   onNavigateRegisterReports: () => void;
@@ -889,8 +1131,12 @@ export default function ReportsWorkspace({
   const [payload, setPayload] = useState<unknown>(null);
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [registerDayLoadingMore, setRegisterDayLoadingMore] = useState(false);
+  const [reportOutputBusy, setReportOutputBusy] = useState(false);
   const reportRequestRef = useRef(0);
   const reportAbortRef = useRef<AbortController | null>(null);
+  const registerDayPageAbortRef = useRef<AbortController | null>(null);
+  const reportOutputAbortRef = useRef<AbortController | null>(null);
 
   const ctx: ReportUrlContext = useMemo(
     () => ({ fromYmd: from, toYmd: to, basis, groupBy, bestSellerView }),
@@ -934,6 +1180,8 @@ export default function ReportsWorkspace({
       if (!isAvailableReport(r)) return;
       const requestId = ++reportRequestRef.current;
       reportAbortRef.current?.abort();
+      registerDayPageAbortRef.current?.abort();
+      reportOutputAbortRef.current?.abort();
       const abortController = new AbortController();
       reportAbortRef.current = abortController;
       setLoading(true);
@@ -941,8 +1189,17 @@ export default function ReportsWorkspace({
       setPayload(null);
       try {
         const path = r.buildPath(ctx);
+        if (r.responseKind === "audited_paged_rows") {
+          const completePayload = await fetchCompleteAuditedRowsPayload(
+            path,
+            apiAuth(),
+            abortController.signal,
+          );
+          if (requestId === reportRequestRef.current) setPayload(completePayload);
+          return;
+        }
         const firstPath = r.responseKind === "register_day_summary"
-          ? `${path}${path.includes("?") ? "&" : "?"}activity_limit=500&activity_offset=0`
+          ? `${path}${path.includes("?") ? "&" : "?"}activity_limit=${REGISTER_DAY_PAGE_SIZE}&activity_offset=0`
           : path;
         const res = await fetchWithTimeout(`${baseUrl}${firstPath}`, {
           headers: apiAuth(),
@@ -967,66 +1224,6 @@ export default function ReportsWorkspace({
           setLoadErr(msg);
           return;
         }
-        if (
-          r.responseKind === "register_day_summary" &&
-          body &&
-          typeof body === "object" &&
-          !Array.isArray(body)
-        ) {
-          const firstPage = body as Record<string, unknown> & {
-            activities?: Record<string, unknown>[];
-            pickups_today?: Record<string, unknown>[];
-            activities_has_more?: boolean;
-            pickups_has_more?: boolean;
-            activity_total_count?: number;
-            pickups_total_count?: number;
-          };
-          const expectedRows = Math.max(
-            firstPage.activity_total_count ?? 0,
-            firstPage.pickups_total_count ?? 0,
-          );
-          if (expectedRows > 100_000) {
-            throw new Error(
-              "This report exceeds the 100,000-row audited display limit. Narrow the date range.",
-            );
-          }
-          const activities = [...(firstPage.activities ?? [])];
-          const pickups = [...(firstPage.pickups_today ?? [])];
-          let offset = 500;
-          let activitiesHaveMore = firstPage.activities_has_more === true;
-          let pickupsHaveMore = firstPage.pickups_has_more === true;
-          while ((activitiesHaveMore || pickupsHaveMore) && offset <= 100_000) {
-            const pagePath = `${path}${path.includes("?") ? "&" : "?"}activity_limit=500&activity_offset=${offset}`;
-            const pageResponse = await fetchWithTimeout(`${baseUrl}${pagePath}`, {
-              headers: apiAuth(),
-              signal: abortController.signal,
-            });
-            const pageText = await pageResponse.text();
-            const pageBody = pageText ? JSON.parse(pageText) as {
-              error?: string;
-              activities?: Record<string, unknown>[];
-              pickups_today?: Record<string, unknown>[];
-              activities_has_more?: boolean;
-              pickups_has_more?: boolean;
-            } : {};
-            if (!pageResponse.ok) {
-              throw new Error(pageBody.error || `Request failed (${pageResponse.status})`);
-            }
-            activities.push(...(pageBody.activities ?? []));
-            pickups.push(...(pageBody.pickups_today ?? []));
-            activitiesHaveMore = pageBody.activities_has_more === true;
-            pickupsHaveMore = pageBody.pickups_has_more === true;
-            offset += 500;
-          }
-          body = {
-            ...firstPage,
-            activity_offset: 0,
-            activities_has_more: false,
-            activities,
-            pickups_has_more: false,
-            pickups_today: pickups,
-          };
-        }
         setPayload(body);
       } catch (e) {
         if (requestId !== reportRequestRef.current) return;
@@ -1044,6 +1241,213 @@ export default function ReportsWorkspace({
     [apiAuth, ctx],
   );
 
+  const fetchCompleteRegisterDayPayload = useCallback(
+    async (
+      report: ReportDef,
+      signal: AbortSignal,
+    ): Promise<RegisterDayPagePayload> => {
+      if (!isAvailableReport(report) || report.responseKind !== "register_day_summary") {
+        throw new Error("This report does not provide paged Register activity.");
+      }
+
+      const path = report.buildPath(ctx);
+      const pagePath = `${path}${path.includes("?") ? "&" : "?"}complete_output=true&activity_limit=500&activity_offset=0`;
+      const response = await fetchWithTimeout(`${baseUrl}${pagePath}`, {
+        headers: apiAuth(),
+        signal,
+      });
+      const text = await response.text();
+      let body: unknown = null;
+      try {
+        body = text ? JSON.parse(text) : null;
+      } catch {
+        body = text;
+      }
+      if (!response.ok) {
+        const message =
+          body &&
+          typeof body === "object" &&
+          "error" in body &&
+          typeof (body as { error: unknown }).error === "string"
+            ? (body as { error: string }).error
+            : `Request failed (${response.status})`;
+        throw new Error(message);
+      }
+      if (!body || typeof body !== "object" || Array.isArray(body)) {
+        throw new Error("The Main Hub returned an invalid complete Register report.");
+      }
+
+      const page = body as RegisterDayPagePayload;
+      const activities = page.activities ?? [];
+      const pickups = page.pickups_today ?? [];
+      const expectedActivityCount = page.activity_total_count ?? activities.length;
+      const expectedPickupCount = page.pickups_total_count ?? pickups.length;
+      if (
+        !Number.isSafeInteger(expectedActivityCount) ||
+        expectedActivityCount < 0 ||
+        !Number.isSafeInteger(expectedPickupCount) ||
+        expectedPickupCount < 0
+      ) {
+        throw new Error("The Main Hub returned invalid Register report counts.");
+      }
+      const combinedCount = expectedActivityCount + expectedPickupCount;
+      if (combinedCount > REGISTER_REPORT_OUTPUT_ROW_LIMIT) {
+        throw new Error(
+          `This report contains ${combinedCount.toLocaleString()} detail rows, above the ${REGISTER_REPORT_OUTPUT_ROW_LIMIT.toLocaleString()}-row output limit. Narrow the date range.`,
+        );
+      }
+      if (
+        (page.activity_offset ?? 0) !== 0 ||
+        page.activities_has_more === true ||
+        page.pickups_has_more === true ||
+        activities.length !== expectedActivityCount ||
+        pickups.length !== expectedPickupCount
+      ) {
+        throw new Error(
+          "The Main Hub did not return one complete Register report snapshot. Nothing was output; refresh and retry.",
+        );
+      }
+
+      const activityIds = new Set<string>();
+      const pickupIds = new Set<string>();
+      for (const row of activities) {
+        const id = typeof row.id === "string" ? row.id : "";
+        if (!id || activityIds.has(id)) {
+          throw new Error(
+            "The complete Register report returned a missing or repeated activity identity. Nothing was output; refresh and retry.",
+          );
+        }
+        activityIds.add(id);
+      }
+      for (const row of pickups) {
+        const id = typeof row.id === "string" ? row.id : "";
+        if (!id || pickupIds.has(id)) {
+          throw new Error(
+            "The complete Register report returned a missing or repeated pickup identity. Nothing was output; refresh and retry.",
+          );
+        }
+        pickupIds.add(id);
+      }
+
+      return {
+        ...page,
+        activity_offset: 0,
+        activities_has_more: false,
+        activities,
+        pickups_has_more: false,
+        pickups_today: pickups,
+      };
+    },
+    [apiAuth, ctx],
+  );
+
+  const loadMoreRegisterDay = useCallback(async () => {
+    if (
+      !selected ||
+      !isAvailableReport(selected) ||
+      selected.responseKind !== "register_day_summary" ||
+      !payload ||
+      typeof payload !== "object" ||
+      Array.isArray(payload)
+    ) return;
+
+    const current = payload as RegisterDayPagePayload;
+    if (!current.activities_has_more && !current.pickups_has_more) return;
+
+    const requestId = reportRequestRef.current;
+    const activities = current.activities ?? [];
+    const pickups = current.pickups_today ?? [];
+    const offset = Math.max(activities.length, pickups.length);
+    if (activities.length + pickups.length >= REGISTER_DAY_INTERACTIVE_LIMIT) {
+      toast(
+        `The interactive report is limited to ${REGISTER_DAY_INTERACTIVE_LIMIT.toLocaleString()} audited rows for stability. Narrow the date range to continue.`,
+        "info",
+      );
+      return;
+    }
+    registerDayPageAbortRef.current?.abort();
+    const controller = new AbortController();
+    registerDayPageAbortRef.current = controller;
+    const path = selected.buildPath(ctx);
+    const pagePath = `${path}${path.includes("?") ? "&" : "?"}activity_limit=${REGISTER_DAY_PAGE_SIZE}&activity_offset=${offset}`;
+
+    setRegisterDayLoadingMore(true);
+    try {
+      const response = await fetchWithTimeout(`${baseUrl}${pagePath}`, {
+        headers: apiAuth(),
+        signal: controller.signal,
+      });
+      const text = await response.text();
+      const page = text ? JSON.parse(text) as RegisterDayPagePayload & { error?: string } : {};
+      if (!response.ok) throw new Error(page.error || `Request failed (${response.status})`);
+      if (requestId !== reportRequestRef.current) return;
+      if (
+        page.activity_total_count !== current.activity_total_count ||
+        page.pickups_total_count !== current.pickups_total_count ||
+        registerDayPageTruth(page) !== registerDayPageTruth(current)
+      ) {
+        throw new Error(
+          "Register activity changed while this page was loading. Refresh the report before continuing.",
+        );
+      }
+
+      const activityIds = new Set(
+        activities.map((row) => registerDayRowIdentity(row)),
+      );
+      const pickupIds = new Set(
+        pickups.map((row) => registerDayRowIdentity(row)),
+      );
+      const pageActivities = page.activities ?? [];
+      const pagePickups = page.pickups_today ?? [];
+      if (
+        pageActivities.some((row) => activityIds.has(registerDayRowIdentity(row))) ||
+        pagePickups.some((row) => pickupIds.has(registerDayRowIdentity(row)))
+      ) {
+        throw new Error(
+          "Register activity paging repeated an existing page. Refresh the report before continuing.",
+        );
+      }
+      const nextActivities = pageActivities;
+      const nextPickups = pagePickups;
+
+      const remainingCapacity = Math.max(
+        0,
+        REGISTER_DAY_INTERACTIVE_LIMIT - activities.length - pickups.length,
+      );
+      let activityTake = Math.min(nextActivities.length, Math.ceil(remainingCapacity / 2));
+      let pickupTake = Math.min(nextPickups.length, remainingCapacity - activityTake);
+      activityTake += Math.min(
+        nextActivities.length - activityTake,
+        remainingCapacity - activityTake - pickupTake,
+      );
+      pickupTake += Math.min(
+        nextPickups.length - pickupTake,
+        remainingCapacity - activityTake - pickupTake,
+      );
+      setPayload({
+        ...page,
+        activity_offset: 0,
+        activities_has_more:
+          page.activities_has_more === true || activityTake < nextActivities.length,
+        activities: [...activities, ...nextActivities.slice(0, activityTake)],
+        pickups_has_more:
+          page.pickups_has_more === true || pickupTake < nextPickups.length,
+        pickups_today: [...pickups, ...nextPickups.slice(0, pickupTake)],
+      });
+    } catch (error) {
+      if (controller.signal.aborted || requestId !== reportRequestRef.current) return;
+      toast(
+        error instanceof Error ? error.message : "More Register activity could not be loaded.",
+        "error",
+      );
+    } finally {
+      if (registerDayPageAbortRef.current === controller) {
+        registerDayPageAbortRef.current = null;
+        setRegisterDayLoadingMore(false);
+      }
+    }
+  }, [apiAuth, ctx, payload, selected, toast]);
+
   useEffect(() => {
     if (!selected) return;
     if (isAvailableReport(selected)) {
@@ -1055,7 +1459,37 @@ export default function ReportsWorkspace({
     setPayload(null);
   }, [selected, runLoad]);
 
+  useEffect(
+    () => () => {
+      registerDayPageAbortRef.current?.abort();
+      reportOutputAbortRef.current?.abort();
+    },
+    [],
+  );
+
   const selectedAvailable = selected && isAvailableReport(selected) ? selected : null;
+
+  const registerDayProgress = useMemo(() => {
+    if (
+      selectedAvailable?.responseKind !== "register_day_summary" ||
+      !payload ||
+      typeof payload !== "object" ||
+      Array.isArray(payload)
+    ) return null;
+    const page = payload as RegisterDayPagePayload;
+    const activitiesLoaded = page.activities?.length ?? 0;
+    const pickupsLoaded = page.pickups_today?.length ?? 0;
+    return {
+      activitiesLoaded,
+      activityTotal: page.activity_total_count ?? activitiesLoaded,
+      pickupsLoaded,
+      pickupTotal: page.pickups_total_count ?? pickupsLoaded,
+      hasMore: page.activities_has_more === true || page.pickups_has_more === true,
+      canLoadMore:
+        (page.activities_has_more === true || page.pickups_has_more === true) &&
+        activitiesLoaded + pickupsLoaded < REGISTER_DAY_INTERACTIVE_LIMIT,
+    };
+  }, [payload, selectedAvailable?.responseKind]);
 
   const tableRows = useMemo(() => {
     if (!payload || !selectedAvailable) return [];
@@ -1069,7 +1503,11 @@ export default function ReportsWorkspace({
     ) {
       return rowsFromUnknown(payload);
     }
-    if (selectedAvailable.responseKind === "rows" || selectedAvailable.responseKind === "wedding_saved_views") {
+    if (
+      selectedAvailable.responseKind === "rows" ||
+      selectedAvailable.responseKind === "audited_paged_rows" ||
+      selectedAvailable.responseKind === "wedding_saved_views"
+    ) {
       return rowsFromUnknown(payload);
     }
     return [];
@@ -1100,18 +1538,61 @@ export default function ReportsWorkspace({
     [displayRows, payload, selectedAvailable],
   );
   const handlePrintSelectedReport = useCallback(async (action: ReportPrintAction = "print") => {
-    if (!selectedAvailable || !printableReport) return;
-    const started = await openProfessionalTablePrint({
-      title: selectedAvailable.title,
-      action,
-      subtitle: reportPrintSubtitle(selectedAvailable, ctx),
-      columns: printableReport.columns,
-      rows: printableReport.rows,
-    });
-    if (!started) {
-      toast(action === "preview" ? "Report preview could not open." : "Print could not open. Check printer setup.", "error");
+    if (!selectedAvailable || payload === null || reportOutputBusy) return;
+    const controller = new AbortController();
+    reportOutputAbortRef.current?.abort();
+    reportOutputAbortRef.current = controller;
+    setReportOutputBusy(true);
+    try {
+      const outputPayload =
+        selectedAvailable.responseKind === "register_day_summary"
+          ? await fetchCompleteRegisterDayPayload(selectedAvailable, controller.signal)
+          : payload;
+      const output =
+        selectedAvailable.responseKind === "register_day_summary"
+          ? printableDataForReport(selectedAvailable, outputPayload, [])
+          : printableReport;
+      if (!output) throw new Error("The report has no output-ready data.");
+      const started = await openProfessionalTablePrint({
+        title: selectedAvailable.title,
+        action,
+        subtitle: reportPrintSubtitle(selectedAvailable, ctx),
+        columns: output.columns,
+        rows: output.rows,
+      });
+      if (!started) {
+        toast(
+          action === "preview"
+            ? "Report preview could not open."
+            : "Print could not open. Check printer setup.",
+          "error",
+        );
+      }
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      toast(
+        error instanceof DOMException && error.name === "AbortError"
+          ? "A complete Register report page timed out. Nothing was output; check the Main Hub connection and retry."
+          : error instanceof Error
+            ? error.message
+            : "The complete audited report could not be prepared.",
+        "error",
+      );
+    } finally {
+      if (reportOutputAbortRef.current === controller) {
+        reportOutputAbortRef.current = null;
+        setReportOutputBusy(false);
+      }
     }
-  }, [ctx, printableReport, selectedAvailable, toast]);
+  }, [
+    ctx,
+    fetchCompleteRegisterDayPayload,
+    payload,
+    printableReport,
+    reportOutputBusy,
+    selectedAvailable,
+    toast,
+  ]);
   const showRange = selectedAvailable?.usesGlobalDateRange ?? false;
   const showBasis = selectedAvailable?.usesBasis ?? false;
   const showGroup = selectedAvailable?.supportsGroupBy ?? false;
@@ -1339,7 +1820,7 @@ export default function ReportsWorkspace({
               <>
                 <button
                   type="button"
-                  disabled={loading || !printableReport || !!loadErr}
+                  disabled={loading || reportOutputBusy || !printableReport || !!loadErr}
                   onClick={() => void handlePrintSelectedReport("preview")}
                   className="ui-btn-secondary inline-flex min-h-11 w-full items-center justify-center gap-1 rounded-xl border-app-accent/20 px-3 py-2 text-sm font-bold text-app-accent hover:bg-app-accent hover:text-white disabled:opacity-50 sm:ml-auto sm:w-auto"
                 >
@@ -1348,7 +1829,7 @@ export default function ReportsWorkspace({
                 </button>
                 <button
                   type="button"
-                  disabled={loading || !printableReport || !!loadErr}
+                  disabled={loading || reportOutputBusy || !printableReport || !!loadErr}
                   onClick={() => void handlePrintSelectedReport("print")}
                   className="ui-btn-secondary inline-flex min-h-11 w-full items-center justify-center gap-1 rounded-xl border-app-success/20 px-3 py-2 text-sm font-bold text-app-success hover:bg-app-success hover:text-white disabled:opacity-50 sm:w-auto"
                 >
@@ -1616,6 +2097,18 @@ export default function ReportsWorkspace({
                 ) : null
                 : null}
 
+              {selectedAvailable.responseKind === "audited_paged_rows" &&
+              payload &&
+              typeof payload === "object" &&
+              !Array.isArray(payload) ? (
+                <p
+                  data-testid="reports-audited-completeness"
+                  className="rounded-xl border border-app-success/25 bg-app-success/10 px-3 py-2 text-xs font-bold text-app-text"
+                >
+                  Complete audited set: {((payload as AuditedPagedRowsPayload).total_count).toLocaleString()} rows as of {formatDateValue((payload as AuditedPagedRowsPayload).as_of, true) ?? (payload as AuditedPagedRowsPayload).as_of}. Charts, table, print, and CSV use this same complete snapshot.
+                </p>
+              ) : null}
+
               {selectedAvailable.responseKind === "register_day_summary" ? (
                 <div data-testid="reports-detail-register-day" className="space-y-4">
                   <dl className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
@@ -1637,40 +2130,38 @@ export default function ReportsWorkspace({
                       );
                     })}
                   </dl>
-                  {registerDayActivityRows(payload).length > 0 ? (
-                    <div className="overflow-auto rounded-xl border border-app-border">
-                      <table className="w-full min-w-[640px] border-collapse text-left text-xs">
-                        <thead>
-                          <tr className="border-b border-app-border bg-app-surface-2">
-                            {REGISTER_DAY_ACTIVITY_FIELDS.filter((key) =>
-                              registerDayActivityRows(payload).some((row) => hasDisplayValue(row[key])),
-                            ).map((key) => (
-                              <th
-                                key={key}
-                                className="whitespace-nowrap px-3 py-2 font-black text-app-text"
-                              >
-                                {fieldLabel(key)}
-                              </th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {registerDayActivityRows(payload).map((row, index) => (
-                            <tr key={index} className="border-b border-app-border/70">
-                              {REGISTER_DAY_ACTIVITY_FIELDS.filter((key) =>
-                                registerDayActivityRows(payload).some((activity) => hasDisplayValue(activity[key])),
-                              ).map((key) => (
-                                <td
-                                  key={key}
-                                  className="px-3 py-2 font-semibold text-app-text-muted"
-                                >
-                                  {formatCellValue(row[key], key)}
-                                </td>
-                              ))}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                  <RegisterDayRowsTable
+                    title="Activity records"
+                    rows={registerDayActivityRows(payload)}
+                  />
+                  <RegisterDayRowsTable
+                    title="Pickup records"
+                    rows={registerDayPickupRows(payload)}
+                  />
+                  {registerDayProgress ? (
+                    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-app-border bg-app-surface-2 px-3 py-2">
+                      <p className="text-xs font-semibold text-app-text-muted">
+                        Showing {registerDayProgress.activitiesLoaded.toLocaleString()} of {registerDayProgress.activityTotal.toLocaleString()} activity records and {" "}
+                        {registerDayProgress.pickupsLoaded.toLocaleString()} of {registerDayProgress.pickupTotal.toLocaleString()} pickup records.
+                      </p>
+                      {registerDayProgress.canLoadMore ? (
+                        <button
+                          type="button"
+                          disabled={registerDayLoadingMore}
+                          onClick={() => void loadMoreRegisterDay()}
+                          className="ui-btn-secondary inline-flex min-h-10 items-center gap-2 rounded-xl px-3 py-2 text-xs font-black disabled:opacity-50"
+                        >
+                          <RefreshCw
+                            className={`h-4 w-4 ${registerDayLoadingMore ? "animate-spin" : ""}`}
+                            aria-hidden
+                          />
+                          {registerDayLoadingMore ? "Loading next audited page…" : "Load next audited page"}
+                        </button>
+                      ) : registerDayProgress.hasMore ? (
+                        <span className="text-xs font-bold text-app-warning">
+                          Interactive limit reached. Narrow the date range for more detail.
+                        </span>
+                      ) : null}
                     </div>
                   ) : null}
                 </div>

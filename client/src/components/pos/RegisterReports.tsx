@@ -1,4 +1,5 @@
 import { getBaseUrl } from "../../lib/apiConfig";
+import { fetchWithTimeout } from "../../lib/api";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
@@ -43,6 +44,15 @@ const baseUrl = getBaseUrl();
 const ACTIVITY_PAGE_SIZE = 200;
 const ACTIVITY_EXPORT_PAGE_SIZE = 500;
 const ACTIVITY_INTERACTIVE_ROW_LIMIT = 2_000;
+const SUMMARY_REQUEST_TIMEOUT_MS = 15_000;
+const Z_LOG_LIMIT = 40;
+
+function reportSummaryErrorMessage(error: unknown): string {
+  if (error instanceof DOMException && error.name === "AbortError") {
+    return "The Main Hub did not return this report basis within 15 seconds. Narrow the range or retry; no totals were substituted.";
+  }
+  return error instanceof Error ? error.message : "The report basis could not be loaded.";
+}
 
 const isBookedToday = (occurredAtStr?: string | null) => {
   if (!occurredAtStr) return false;
@@ -236,12 +246,12 @@ function appendStableRegisterReportPage(
     failChangedOutput();
   }
   for (const row of page.activities) {
-    if (accumulator.activityIds.has(row.id)) failChangedOutput();
+    if (!row.id || accumulator.activityIds.has(row.id)) failChangedOutput();
     accumulator.activityIds.add(row.id);
     accumulator.activities.push(row);
   }
   for (const row of page.pickups_today ?? []) {
-    if (accumulator.pickupIds.has(row.id)) failChangedOutput();
+    if (!row.id || accumulator.pickupIds.has(row.id)) failChangedOutput();
     accumulator.pickupIds.add(row.id);
     accumulator.pickups.push(row);
   }
@@ -259,6 +269,33 @@ function assertCompleteRegisterReportPages(
       `${outputLabel} changed while its audited detail was being prepared. Nothing was output; retry after current Register activity settles.`,
     );
   }
+}
+
+function completeRegisterReportPayload(
+  page: RegisterDaySummary,
+  outputLabel: string,
+): RegisterDaySummary {
+  assertRegisterReportOutputLimit(page, outputLabel);
+  if (
+    (page.activity_offset ?? 0) !== 0 ||
+    page.activities_has_more === true ||
+    page.pickups_has_more === true
+  ) {
+    throw new Error(
+      `${outputLabel} did not return one complete database snapshot. Nothing was output; retry or narrow the date range.`,
+    );
+  }
+  const accumulator = createRegisterReportPageAccumulator(page);
+  appendStableRegisterReportPage(accumulator, page, outputLabel);
+  assertCompleteRegisterReportPages(accumulator, outputLabel);
+  return {
+    ...page,
+    activity_offset: 0,
+    activities_has_more: false,
+    activities: accumulator.activities,
+    pickups_has_more: false,
+    pickups_today: accumulator.pickups,
+  };
 }
 
 interface RegisterDayWeatherSummary {
@@ -748,9 +785,11 @@ export default function RegisterReports({
   const [summary, setSummary] = useState<RegisterDaySummary | null>(null);
   const [summaryBooked, setSummaryBooked] = useState<RegisterDaySummary | null>(null);
   const [zLogs, setZLogs] = useState<RegisterSessionRow[]>([]);
+  const [zLogsError, setZLogsError] = useState<string | null>(null);
   const [openSessions, setOpenSessions] = useState<OpenRegisterSessionRow[]>([]);
   const [openSessionsError, setOpenSessionsError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [basisLoadError, setBasisLoadError] = useState<Partial<Record<"booked" | "fulfilled", string>>>({});
   const [zLoading, setZLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [receiptOrderId, setReceiptOrderId] = useState<string | null>(null);
@@ -765,6 +804,8 @@ export default function RegisterReports({
   const [reportOutputBusy, setReportOutputBusy] = useState(false);
   const summaryRequestRef = useRef<{ generation: number; controller: AbortController } | null>(null);
   const loadMoreRequestRef = useRef<{ generation: number; controller: AbortController } | null>(null);
+  const archivedZReportRequestRef = useRef<AbortController | null>(null);
+  const zLogsRequestRef = useRef<AbortController | null>(null);
 
   const { backofficeHeaders } = useBackofficeAuth();
   const { toast } = useToast();
@@ -780,7 +821,7 @@ export default function RegisterReports({
 
   const buildActivityParams = useCallback((
     basis: "booked" | "fulfilled" = reportBasis,
-    options?: { offset?: number; limit?: number; search?: string },
+    options?: { offset?: number; limit?: number; search?: string; completeOutput?: boolean },
   ) => {
     const params = new URLSearchParams();
     if (preset === "custom") {
@@ -794,86 +835,83 @@ export default function RegisterReports({
     } else {
       params.set("preset", preset);
     }
+    if (sessionId) params.set("register_session_id", sessionId);
     params.set("basis", basis);
     params.set("activity_offset", String(options?.offset ?? 0));
     params.set("activity_limit", String(options?.limit ?? ACTIVITY_PAGE_SIZE));
     const search = options?.search?.trim();
     if (search) params.set("activity_search", search);
+    if (options?.completeOutput) params.set("complete_output", "true");
     return params;
-  }, [preset, customFrom, customTo, reportBasis]);
+  }, [preset, customFrom, customTo, reportBasis, sessionId]);
 
   const fetchSummary = useCallback(async (
     basis?: "booked" | "fulfilled",
-    options?: { offset?: number; limit?: number; search?: string; signal?: AbortSignal },
+    options?: {
+      offset?: number;
+      limit?: number;
+      search?: string;
+      signal?: AbortSignal;
+      completeOutput?: boolean;
+    },
   ) => {
     const targetBasis = basis || reportBasis;
     const h = apiAuth();
     const params = buildActivityParams(targetBasis, options);
-    const res = await fetch(`${baseUrl}/api/insights/register-day-activity?${params}`, {
+    const res = await fetchWithTimeout(`${baseUrl}/api/insights/register-day-activity?${params}`, {
       headers: h,
       signal: options?.signal,
-    });
-    if (res.status === 403) {
-      throw new Error(sessionId ? "Register session is not open." : "register.reports permission required.");
-    }
+    }, SUMMARY_REQUEST_TIMEOUT_MS);
     if (!res.ok) {
       const j = (await res.json().catch(() => ({}))) as { error?: string };
       throw new Error(j.error || "Failed to load activity");
     }
     return (await res.json()) as RegisterDaySummary;
-  }, [apiAuth, buildActivityParams, sessionId, reportBasis]);
+  }, [apiAuth, buildActivityParams, reportBasis]);
 
   const fetchBookedSummaryForDate = useCallback(async (businessDate: string) => {
-    let offset = 0;
-    let firstPage: RegisterDaySummary | null = null;
-    let accumulator: RegisterReportPageAccumulator | null = null;
-    while (offset <= REGISTER_REPORT_OUTPUT_ROW_LIMIT) {
+    archivedZReportRequestRef.current?.abort();
+    const controller = new AbortController();
+    archivedZReportRequestRef.current = controller;
+    try {
       const params = new URLSearchParams({
         preset: "custom",
         from: businessDate,
         to: businessDate,
         basis: "booked",
-        activity_offset: String(offset),
+        activity_offset: "0",
         activity_limit: String(ACTIVITY_EXPORT_PAGE_SIZE),
+        complete_output: "true",
       });
-      const res = await fetch(`${baseUrl}/api/insights/register-day-activity?${params}`, {
-        headers: apiAuth(),
-      });
+      const res = await fetchWithTimeout(
+        `${baseUrl}/api/insights/register-day-activity?${params}`,
+        { headers: apiAuth(), signal: controller.signal },
+        SUMMARY_REQUEST_TIMEOUT_MS,
+      );
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as { error?: string };
         throw new Error(body.error || "Failed to load the Z-report business day.");
       }
-      const page = (await res.json()) as RegisterDaySummary;
-      if (!firstPage) {
-        assertRegisterReportOutputLimit(page, "This Z-report");
-        firstPage = page;
-        accumulator = createRegisterReportPageAccumulator(page);
-      }
-      if (!accumulator) throw new Error("Failed to load the Z-report business day.");
+      return completeRegisterReportPayload(
+        (await res.json()) as RegisterDaySummary,
+        "This Z-report",
+      );
+    } catch (error) {
       if (
-        accumulator.activities.length +
-          accumulator.pickups.length +
-          page.activities.length +
-          (page.pickups_today?.length ?? 0) >
-        REGISTER_REPORT_OUTPUT_ROW_LIMIT
+        error instanceof DOMException &&
+        error.name === "AbortError" &&
+        !controller.signal.aborted
       ) {
-        throw new Error("This Z-report exceeded the audited detail-row output limit.");
+        throw new Error(
+          "The archived Z-report timed out while loading its complete database snapshot. Nothing was opened; retry or narrow the date range.",
+        );
       }
-      appendStableRegisterReportPage(accumulator, page, "This Z-report");
-      if (!page.activities_has_more && !page.pickups_has_more) break;
-      offset += ACTIVITY_EXPORT_PAGE_SIZE;
+      throw error;
+    } finally {
+      if (archivedZReportRequestRef.current === controller) {
+        archivedZReportRequestRef.current = null;
+      }
     }
-    if (!firstPage || !accumulator) {
-      throw new Error("Failed to load the Z-report business day.");
-    }
-    assertCompleteRegisterReportPages(accumulator, "This Z-report");
-    return {
-      ...firstPage,
-      activities: accumulator.activities,
-      activities_has_more: false,
-      pickups_today: accumulator.pickups,
-      pickups_has_more: false,
-    };
   }, [apiAuth]);
 
   const loadSummaries = useCallback(async () => {
@@ -883,23 +921,39 @@ export default function RegisterReports({
     const generation = (summaryRequestRef.current?.generation ?? 0) + 1;
     summaryRequestRef.current = { generation, controller };
     setError(null);
+    setBasisLoadError({});
+    setSummary(null);
+    setSummaryBooked(null);
     setLoading(true);
     try {
       const options = { search: debouncedActivitySearch, signal: controller.signal };
-      const [bookedData, fulfilledData] = await Promise.all([
-        fetchSummary("booked", options),
-        fetchSummary("fulfilled", options),
-      ]);
+      const primaryBasis = reportBasis;
+      const secondaryBasis = primaryBasis === "booked" ? "fulfilled" : "booked";
+      const primaryData = await fetchSummary(primaryBasis, options);
       if (summaryRequestRef.current?.generation !== generation) return;
-      setSummaryBooked(bookedData);
-      setSummary(fulfilledData);
+      if (primaryBasis === "booked") setSummaryBooked(primaryData);
+      else setSummary(primaryData);
+      setLoading(false);
+
+      try {
+        const secondaryData = await fetchSummary(secondaryBasis, options);
+        if (summaryRequestRef.current?.generation !== generation) return;
+        if (secondaryBasis === "booked") setSummaryBooked(secondaryData);
+        else setSummary(secondaryData);
+      } catch (secondaryError) {
+        if (controller.signal.aborted || summaryRequestRef.current?.generation !== generation) return;
+        const message = reportSummaryErrorMessage(secondaryError);
+        setBasisLoadError({ [secondaryBasis]: message });
+      }
     } catch (e) {
       if (controller.signal.aborted || summaryRequestRef.current?.generation !== generation) return;
-      setError(e instanceof Error ? e.message : "An error occurred");
+      const message = reportSummaryErrorMessage(e);
+      setBasisLoadError({ [reportBasis]: message });
+      setError(message);
     } finally {
       if (summaryRequestRef.current?.generation === generation) setLoading(false);
     }
-  }, [debouncedActivitySearch, fetchSummary]);
+  }, [debouncedActivitySearch, fetchSummary, reportBasis]);
 
   useEffect(() => {
     void loadSummaries();
@@ -909,50 +963,25 @@ export default function RegisterReports({
     };
   }, [loadSummaries]);
 
+  useEffect(
+    () => () => {
+      archivedZReportRequestRef.current?.abort();
+      zLogsRequestRef.current?.abort();
+    },
+    [],
+  );
+
   const fetchCompleteSummary = useCallback(async (
     basis: "booked" | "fulfilled",
     search = debouncedActivitySearch,
   ): Promise<RegisterDaySummary> => {
-    let offset = 0;
-    let firstPage: RegisterDaySummary | null = null;
-    let accumulator: RegisterReportPageAccumulator | null = null;
-
-    while (offset <= REGISTER_REPORT_OUTPUT_ROW_LIMIT) {
-      const page = await fetchSummary(basis, {
-        offset,
-        limit: ACTIVITY_EXPORT_PAGE_SIZE,
-        search,
-      });
-      if (!firstPage) {
-        assertRegisterReportOutputLimit(page, "This report");
-        firstPage = page;
-        accumulator = createRegisterReportPageAccumulator(page);
-      }
-      if (!accumulator) throw new Error("No report data was returned.");
-      if (
-        accumulator.activities.length +
-          accumulator.pickups.length +
-          page.activities.length +
-          (page.pickups_today?.length ?? 0) >
-        REGISTER_REPORT_OUTPUT_ROW_LIMIT
-      ) {
-        throw new Error("This report exceeded the audited detail-row output limit.");
-      }
-      appendStableRegisterReportPage(accumulator, page, "This report");
-      if (!page.activities_has_more && !page.pickups_has_more) break;
-      offset += ACTIVITY_EXPORT_PAGE_SIZE;
-    }
-
-    if (!firstPage || !accumulator) throw new Error("No report data was returned.");
-    assertCompleteRegisterReportPages(accumulator, "This report");
-    return {
-      ...firstPage,
-      activity_offset: 0,
-      activities_has_more: false,
-      activities: accumulator.activities,
-      pickups_has_more: false,
-      pickups_today: accumulator.pickups,
-    };
+    const complete = await fetchSummary(basis, {
+      offset: 0,
+      limit: ACTIVITY_EXPORT_PAGE_SIZE,
+      search,
+      completeOutput: true,
+    });
+    return completeRegisterReportPayload(complete, "This report");
   }, [debouncedActivitySearch, fetchSummary]);
 
   const loadMoreActivity = useCallback(async () => {
@@ -978,34 +1007,67 @@ export default function RegisterReports({
         search: debouncedActivitySearch,
         signal: controller.signal,
       });
-      if (loadMoreRequestRef.current?.generation !== generation) return;
+      if (controller.signal.aborted || loadMoreRequestRef.current?.generation !== generation) return;
       if (
-        loadedRowCount + page.activities.length + (page.pickups_today?.length ?? 0) >
-        ACTIVITY_INTERACTIVE_ROW_LIMIT
+        (page.activity_total_count ?? page.activities.length) !==
+          (current.activity_total_count ?? current.activities.length) ||
+        (page.pickups_total_count ?? page.pickups_today?.length ?? 0) !==
+          (current.pickups_total_count ?? current.pickups_today?.length ?? 0) ||
+        registerReportSummaryTruth(page) !== registerReportSummaryTruth(current)
       ) {
         throw new Error(
-          `Loading this page would exceed the ${ACTIVITY_INTERACTIVE_ROW_LIMIT.toLocaleString()}-row screen limit. Narrow the date range or search.`,
+          "Register activity changed while this audited page was loading. Refresh before continuing.",
         );
       }
-      const mergePage = (previous: RegisterDaySummary | null) => {
-        if (!previous) return page;
-        const activityIds = new Set(previous.activities.map((row) => row.id));
-        const pickupIds = new Set((previous.pickups_today ?? []).map((row) => row.id));
-        return {
-          ...page,
-          activity_offset: 0,
-          activities: [
-            ...previous.activities,
-            ...page.activities.filter((row) => !activityIds.has(row.id)),
-          ],
-          pickups_today: [
-            ...(previous.pickups_today ?? []),
-            ...(page.pickups_today ?? []).filter((row) => !pickupIds.has(row.id)),
-          ],
-        };
+      const activityIds = new Set(current.activities.map((row) => row.id));
+      const pickupIds = new Set((current.pickups_today ?? []).map((row) => row.id));
+      if (
+        page.activities.some((row) => activityIds.has(row.id)) ||
+        (page.pickups_today ?? []).some((row) => pickupIds.has(row.id))
+      ) {
+        throw new Error(
+          "Register activity paging repeated an existing row. Refresh before continuing.",
+        );
+      }
+      if (
+        (page.activities_has_more && page.activities.length === 0) ||
+        (page.pickups_has_more && (page.pickups_today?.length ?? 0) === 0)
+      ) {
+        throw new Error(
+          "The Main Hub returned an incomplete Register activity page. Refresh before continuing.",
+        );
+      }
+
+      const nextPickups = page.pickups_today ?? [];
+      const remainingCapacity = Math.max(
+        0,
+        ACTIVITY_INTERACTIVE_ROW_LIMIT - loadedRowCount,
+      );
+      let activityTake = Math.min(page.activities.length, Math.ceil(remainingCapacity / 2));
+      let pickupTake = Math.min(nextPickups.length, remainingCapacity - activityTake);
+      activityTake += Math.min(
+        page.activities.length - activityTake,
+        remainingCapacity - activityTake - pickupTake,
+      );
+      pickupTake += Math.min(
+        nextPickups.length - pickupTake,
+        remainingCapacity - activityTake - pickupTake,
+      );
+      const merged: RegisterDaySummary = {
+        ...current,
+        activity_offset: 0,
+        activities: [...current.activities, ...page.activities.slice(0, activityTake)],
+        activities_has_more:
+          page.activities_has_more === true || activityTake < page.activities.length,
+        pickups_today: [
+          ...(current.pickups_today ?? []),
+          ...nextPickups.slice(0, pickupTake),
+        ],
+        pickups_has_more:
+          page.pickups_has_more === true || pickupTake < nextPickups.length,
       };
-      if (reportBasis === "booked") setSummaryBooked(mergePage);
-      else setSummary(mergePage);
+      if (reportBasis === "booked") setSummaryBooked(merged);
+      else setSummary(merged);
     } catch (e) {
       if (controller.signal.aborted || loadMoreRequestRef.current?.generation !== generation) return;
       toast(e instanceof Error ? e.message : "More activity could not be loaded.", "error");
@@ -1017,7 +1079,7 @@ export default function RegisterReports({
   }, [debouncedActivitySearch, fetchSummary, reportBasis, summary, summaryBooked, toast]);
 
   const buildZLogParams = useCallback(() => {
-    const params = new URLSearchParams({ limit: "40" });
+    const params = new URLSearchParams({ limit: String(Z_LOG_LIMIT) });
     if (zPreset === "custom") {
       if (customFromZ && customToZ) {
         params.set("preset", "custom");
@@ -1035,18 +1097,43 @@ export default function RegisterReports({
   }, [zPreset, customFromZ, customToZ]);
 
   const fetchZLogs = useCallback(async () => {
+    zLogsRequestRef.current?.abort();
+    const controller = new AbortController();
+    zLogsRequestRef.current = controller;
     setZLoading(true);
+    setZLogsError(null);
     try {
       const h = apiAuth();
       const params = buildZLogParams();
-      const res = await fetch(`${baseUrl}/api/insights/register-sessions?${params}`, { headers: h });
-      if (!res.ok) throw new Error("Failed to fetch Z-Logs");
-      const data = (await res.json()) as RegisterSessionRow[];
-      setZLogs(Array.isArray(data) ? data : []);
-    } catch {
+      const res = await fetchWithTimeout(
+        `${baseUrl}/api/insights/register-sessions?${params}`,
+        { headers: h, signal: controller.signal },
+        SUMMARY_REQUEST_TIMEOUT_MS,
+      );
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error || `Z-report history failed (${res.status}).`);
+      }
+      const data = (await res.json()) as unknown;
+      if (!Array.isArray(data)) throw new Error("The Main Hub returned invalid Z-report history.");
+      if (zLogsRequestRef.current !== controller) return;
+      setZLogs(data as RegisterSessionRow[]);
+      setZLogsError(null);
+    } catch (error) {
+      if (controller.signal.aborted) return;
       setZLogs([]);
+      setZLogsError(
+        error instanceof DOMException && error.name === "AbortError"
+          ? "Z-report history timed out. The range was not reported as empty; retry or narrow it."
+          : error instanceof Error
+            ? error.message
+            : "Z-report history could not be loaded.",
+      );
     } finally {
-      setZLoading(false);
+      if (zLogsRequestRef.current === controller) {
+        zLogsRequestRef.current = null;
+        setZLoading(false);
+      }
     }
   }, [apiAuth, buildZLogParams]);
 
@@ -1552,6 +1639,18 @@ export default function RegisterReports({
         </div>
       )}
 
+      {!loading && !error && (basisLoadError.booked || basisLoadError.fulfilled) ? (
+        <div
+          className="mb-4 rounded-xl border border-app-warning/25 bg-app-warning/10 px-4 py-3 text-sm text-app-text"
+          role="status"
+        >
+          <span className="font-bold">
+            {basisLoadError.booked ? "Booked" : "Fulfilled"} comparison is temporarily unavailable.
+          </span>{" "}
+          The loaded basis remains usable. Select the unavailable basis or refresh to retry; no totals were substituted.
+        </div>
+      ) : null}
+
       {/* Content Area */}
       <div className="ui-card ui-tint-neutral flex flex-1 flex-col rounded-[24px]">
 
@@ -1563,14 +1662,26 @@ export default function RegisterReports({
             </div>
           ) : (
             <div className="flex flex-col gap-2 p-3">
+              {error ? (
+                <div className="rounded-xl border border-app-danger/20 bg-app-danger/10 px-4 py-3 text-sm text-app-text">
+                  <p className="font-bold">{error}</p>
+                  <button
+                    type="button"
+                    onClick={() => void loadSummaries()}
+                    className="mt-2 text-xs font-black text-app-accent hover:underline"
+                  >
+                    Try again
+                  </button>
+                </div>
+              ) : null}
               <div className="flex gap-2 mb-2">
-                <button type="button" disabled={reportOutputBusy} onClick={() => void handleReportOutput("preview")} className="ui-btn-secondary flex items-center gap-1.5 border-app-accent/20 px-3 py-1.5 text-xs font-black text-app-accent hover:bg-app-accent hover:text-white disabled:opacity-50">
+                <button type="button" disabled={reportOutputBusy || !selectedSummary} onClick={() => void handleReportOutput("preview")} className="ui-btn-secondary flex items-center gap-1.5 border-app-accent/20 px-3 py-1.5 text-xs font-black text-app-accent hover:bg-app-accent hover:text-white disabled:opacity-50">
                   <Eye size={12} />View
                 </button>
-                <button type="button" disabled={reportOutputBusy} onClick={() => void handleReportOutput("print")} className="ui-btn-secondary flex items-center gap-1.5 border-app-success/20 px-3 py-1.5 text-xs font-black text-app-success hover:bg-app-success hover:text-white disabled:opacity-50">
+                <button type="button" disabled={reportOutputBusy || !selectedSummary} onClick={() => void handleReportOutput("print")} className="ui-btn-secondary flex items-center gap-1.5 border-app-success/20 px-3 py-1.5 text-xs font-black text-app-success hover:bg-app-success hover:text-white disabled:opacity-50">
                   <Printer size={12} />Print
                 </button>
-                <button type="button" disabled={reportOutputBusy} onClick={() => void handleExportCSV()} className="ui-btn-secondary flex items-center gap-1.5 border-app-border px-3 py-1.5 text-xs font-black text-app-text hover:bg-app-surface disabled:opacity-50">
+                <button type="button" disabled={reportOutputBusy || !selectedSummary} onClick={() => void handleExportCSV()} className="ui-btn-secondary flex items-center gap-1.5 border-app-border px-3 py-1.5 text-xs font-black text-app-text hover:bg-app-surface disabled:opacity-50">
                   <Download size={12} />CSV
                 </button>
               </div>
@@ -1707,44 +1818,44 @@ export default function RegisterReports({
 
               {/* Additional Metrics - Compact */}
               <div className="grid grid-cols-4 gap-2">
-                <div className="ui-metric-cell ui-tint-neutral p-2">
-	                  <div className="flex items-center gap-1 text-xs font-bold text-app-text-muted"><Package className="h-3 w-3" />New Orders</div>
-                  <p className="text-base font-black">{summaryBooked?.special_order_sale_count || 0}</p>
-                </div>
-                <div className="ui-metric-cell ui-tint-info p-2">
-	                  <div className="flex items-center gap-1 text-xs font-bold text-app-text-muted"><Truck className="h-3 w-3" />Orders Picked Up</div>
-                  <p className="text-base font-black">{summaryBooked?.pickup_count || 0}</p>
-                </div>
-                <div className="ui-metric-cell ui-tint-accent p-2">
-	                  <div className="flex items-center gap-1 text-xs font-bold text-app-text-muted"><DollarSign className="h-3 w-3" />RMS Payments</div>
-                  <p className="text-base font-black">{summaryBooked?.activities_has_more ? "—" : `$${centsToFixed2(activityRmsPaymentTotalCents(summaryBooked?.activities))}`}</p>
-                </div>
-                <div className="ui-metric-cell ui-tint-warning p-2">
-	                  <div className="flex items-center gap-1 text-xs font-bold text-app-text-muted"><DollarSign className="h-3 w-3" />RMS Charge</div>
-                  <p className="text-base font-black">{summaryBooked?.activities_has_more ? "—" : `$${centsToFixed2(activityRmsChargeTotalCents(summaryBooked?.activities))}`}</p>
-                </div>
-                <div className="ui-metric-cell ui-tint-neutral p-2">
-	                  <div className="flex items-center gap-1 text-xs font-bold text-app-text-muted"><Clock className="h-3 w-3" />New Appts</div>
-                  <p className="text-base font-black">{summaryBooked?.new_appointment_count || 0}</p>
-                </div>
-                <div className="ui-metric-cell ui-tint-neutral p-2">
-	                  <div className="flex items-center gap-1 text-xs font-bold text-app-text-muted"><Package className="h-3 w-3" />New Layaways</div>
-                  <p className="text-base font-black">{summaryBooked?.activities_has_more ? "—" : activityNewLayawayCount(summaryBooked?.activities)}</p>
-                </div>
+	                <div className="ui-metric-cell ui-tint-neutral p-2">
+		                  <div className="flex items-center gap-1 text-xs font-bold text-app-text-muted"><Package className="h-3 w-3" />New Orders</div>
+	                  <p className="text-base font-black">{summaryBooked ? summaryBooked.special_order_sale_count : "—"}</p>
+	                </div>
+	                <div className="ui-metric-cell ui-tint-info p-2">
+		                  <div className="flex items-center gap-1 text-xs font-bold text-app-text-muted"><Truck className="h-3 w-3" />Orders Picked Up</div>
+	                  <p className="text-base font-black">{summaryBooked ? summaryBooked.pickup_count : "—"}</p>
+	                </div>
+	                <div className="ui-metric-cell ui-tint-accent p-2">
+		                  <div className="flex items-center gap-1 text-xs font-bold text-app-text-muted"><DollarSign className="h-3 w-3" />RMS Payments</div>
+	                  <p className="text-base font-black">{!summaryBooked || summaryBooked.activities_has_more ? "—" : `$${centsToFixed2(activityRmsPaymentTotalCents(summaryBooked.activities))}`}</p>
+	                </div>
+	                <div className="ui-metric-cell ui-tint-warning p-2">
+		                  <div className="flex items-center gap-1 text-xs font-bold text-app-text-muted"><DollarSign className="h-3 w-3" />RMS Charge</div>
+	                  <p className="text-base font-black">{!summaryBooked || summaryBooked.activities_has_more ? "—" : `$${centsToFixed2(activityRmsChargeTotalCents(summaryBooked.activities))}`}</p>
+	                </div>
+	                <div className="ui-metric-cell ui-tint-neutral p-2">
+		                  <div className="flex items-center gap-1 text-xs font-bold text-app-text-muted"><Clock className="h-3 w-3" />New Appts</div>
+	                  <p className="text-base font-black">{summaryBooked ? summaryBooked.new_appointment_count : "—"}</p>
+	                </div>
+	                <div className="ui-metric-cell ui-tint-neutral p-2">
+		                  <div className="flex items-center gap-1 text-xs font-bold text-app-text-muted"><Package className="h-3 w-3" />New Layaways</div>
+	                  <p className="text-base font-black">{!summaryBooked || summaryBooked.activities_has_more ? "—" : activityNewLayawayCount(summaryBooked.activities)}</p>
+	                </div>
                 <div className="ui-metric-cell ui-tint-info p-2">
 	                  <div className="flex items-center gap-1 text-xs font-bold text-app-text-muted"><Truck className="h-3 w-3" />Picked Up $</div>
                   <p className="text-base font-black">
-                    {summaryBooked?.pickups_has_more
-                      ? "—"
-                      : `$${centsToFixed2(activityPickupTotalCents(summaryBooked?.pickups_today))} (${summaryBooked?.pickups_total_count ?? summaryBooked?.pickups_today?.length ?? 0})`}
+	                    {!summaryBooked || summaryBooked.pickups_has_more
+	                      ? "—"
+	                      : `$${centsToFixed2(activityPickupTotalCents(summaryBooked.pickups_today))} (${summaryBooked.pickups_total_count ?? summaryBooked.pickups_today?.length ?? 0})`}
                   </p>
                 </div>
                 <div className="ui-metric-cell ui-tint-warning p-2">
 	                  <div className="flex items-center gap-1 text-xs font-bold text-app-text-muted"><DollarSign className="h-3 w-3" />Discounts</div>
                   <p className="text-base font-black">
-                    {summaryBooked?.activities_has_more
-                      ? "—"
-                      : `$${centsToFixed2(activityDiscountTotalCents(summaryBooked?.activities))} (${activityDiscountTransactionCount(summaryBooked?.activities)})`}
+	                    {!summaryBooked || summaryBooked.activities_has_more
+	                      ? "—"
+	                      : `$${centsToFixed2(activityDiscountTotalCents(summaryBooked.activities))} (${activityDiscountTransactionCount(summaryBooked.activities)})`}
                   </p>
                 </div>
               </div>
@@ -1785,13 +1896,13 @@ export default function RegisterReports({
                   />
                 </label>
               <div className="flex justify-end gap-2">
-                <button type="button" disabled={reportOutputBusy} onClick={() => void handleReportOutput("preview")} className="ui-btn-secondary flex items-center gap-2 border-app-accent/20 px-3 py-1.5 text-xs font-black text-app-accent hover:bg-app-accent hover:text-white disabled:opacity-50">
+                <button type="button" disabled={reportOutputBusy || !selectedSummary} onClick={() => void handleReportOutput("preview")} className="ui-btn-secondary flex items-center gap-2 border-app-accent/20 px-3 py-1.5 text-xs font-black text-app-accent hover:bg-app-accent hover:text-white disabled:opacity-50">
                   <Eye size={12} />View
                 </button>
-                <button type="button" disabled={reportOutputBusy} onClick={() => void handleReportOutput("print")} className="ui-btn-secondary flex items-center gap-2 border-app-success/20 px-3 py-1.5 text-xs font-black text-app-success hover:bg-app-success hover:text-white disabled:opacity-50">
+                <button type="button" disabled={reportOutputBusy || !selectedSummary} onClick={() => void handleReportOutput("print")} className="ui-btn-secondary flex items-center gap-2 border-app-success/20 px-3 py-1.5 text-xs font-black text-app-success hover:bg-app-success hover:text-white disabled:opacity-50">
                   <Printer size={12} />Print
                 </button>
-                <button type="button" disabled={reportOutputBusy} onClick={() => void handleExportCSV()} className="ui-btn-secondary flex items-center gap-2 border-app-border px-3 py-1.5 text-xs font-black text-app-text hover:bg-app-surface disabled:opacity-50">
+                <button type="button" disabled={reportOutputBusy || !selectedSummary} onClick={() => void handleExportCSV()} className="ui-btn-secondary flex items-center gap-2 border-app-border px-3 py-1.5 text-xs font-black text-app-text hover:bg-app-surface disabled:opacity-50">
                   <Download size={12} />Export
                 </button>
               </div>
@@ -2348,13 +2459,32 @@ export default function RegisterReports({
                   </div>
                 )}
               </div>
-              {zLogs.length === 0 ? (
+              {zLogsError ? (
+                <div
+                  className="m-4 rounded-xl border border-app-danger/25 bg-app-danger/10 px-4 py-4 text-sm text-app-text sm:m-6"
+                  role="alert"
+                >
+                  <p className="font-black">Z-report history is unavailable.</p>
+                  <p className="mt-1 font-semibold text-app-text-muted">{zLogsError}</p>
+                  <button
+                    type="button"
+                    onClick={() => void fetchZLogs()}
+                    className="ui-btn-secondary mt-3 min-h-10 rounded-xl px-3 py-2 text-xs font-black"
+                  >
+                    Retry history
+                  </button>
+                </div>
+              ) : zLogs.length === 0 ? (
                 <div className="flex flex-1 items-center justify-center py-20 text-app-text-muted">
                   No register sessions recorded in this range.
                 </div>
               ) : (
-                <ul className="flex flex-col divide-y divide-app-border overflow-y-auto">
-                  {zLogs.map((session) => {
+                <div>
+                  <p className="border-b border-app-border bg-app-surface px-4 py-2 text-xs font-semibold text-app-text-muted sm:px-6">
+                    Showing up to the newest {Z_LOG_LIMIT} Z-reports in this range. Narrow the dates to review older history.
+                  </p>
+                  <ul className="flex flex-col divide-y divide-app-border overflow-y-auto">
+                    {zLogs.map((session) => {
                     const depositDate = session.z_report_json?.cash_deposit_date ?? session.cash_deposit_date ?? null;
                     const depositAmount = session.z_report_json?.cash_deposit_amount ?? session.cash_deposit_amount ?? "0";
                     return (
@@ -2430,6 +2560,9 @@ export default function RegisterReports({
                                 toast("Z-report could not open. Check the Reports printer setup.", "error");
                               })
                               .catch((error) => {
+                                if (error instanceof DOMException && error.name === "AbortError") {
+                                  return;
+                                }
                                 toast(
                                   error instanceof Error
                                     ? error.message
@@ -2445,8 +2578,9 @@ export default function RegisterReports({
                       </div>
                     </li>
                     );
-                  })}
-                </ul>
+                    })}
+                  </ul>
+                </div>
               )}
             </div>
           )

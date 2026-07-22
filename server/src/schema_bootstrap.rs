@@ -42,6 +42,7 @@ pub async fn ensure_core_schema(pool: &PgPool) -> Result<()> {
                 ('public', 'counterpoint_staging_batch'),
                 ('public', 'counterpoint_payment_method_map'),
                 ('public', 'counterpoint_gift_reason_map'),
+                ('public', 'counterpoint_booking_date_repair_audit'),
                 ('public', 'shipment'),
                 ('public', 'ros_schema_migrations')
         ),
@@ -56,6 +57,11 @@ pub async fn ensure_core_schema(pool: &PgPool) -> Result<()> {
                 ('public', 'store_settings', 'environment_mode'),
                 ('public', 'store_settings', 'active_card_provider'),
                 ('public', 'store_settings', 'email_config'),
+                ('public', 'store_backup_health', 'last_local_verified_at'),
+                ('public', 'store_backup_health', 'last_local_verified_filename'),
+                ('public', 'store_backup_health', 'last_local_verification_method'),
+                ('public', 'store_backup_health', 'last_local_verified_size_bytes'),
+                ('public', 'store_backup_health', 'last_local_verified_sha256'),
                 ('public', 'integration_credentials', 'encrypted_value'),
                 ('public', 'products', 'tax_category'),
                 ('public', 'products', 'tax_category_override'),
@@ -67,6 +73,7 @@ pub async fn ensure_core_schema(pool: &PgPool) -> Result<()> {
                 ('public', 'transaction_lines', 'transaction_id'),
                 ('public', 'transaction_lines', 'fulfillment_order_id'),
                 ('public', 'transaction_lines', 'fulfilled_at'),
+                ('public', 'transaction_lines', 'booked_at'),
                 ('public', 'transaction_loyalty_accrual', 'transaction_id'),
                 ('public', 'transaction_loyalty_accrual', 'points_earned'),
                 ('public', 'transaction_loyalty_accrual', 'product_subtotal'),
@@ -96,7 +103,9 @@ pub async fn ensure_core_schema(pool: &PgPool) -> Result<()> {
                 ('reporting', 'order_lines'),
                 ('reporting', 'payment_ledger'),
                 ('reporting', 'merchant_reconciliation'),
-                ('reporting', 'transaction_status_integrity')
+                ('reporting', 'transaction_status_integrity'),
+                ('reporting', 'counterpoint_import_financial_integrity'),
+                ('reporting', 'counterpoint_booking_date_repair_manifest')
         ),
         expected_functions(schema_name, function_name) AS (
             VALUES

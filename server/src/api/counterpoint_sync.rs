@@ -12,7 +12,8 @@ use uuid::Uuid;
 use crate::api::AppState;
 use crate::auth::permissions::SETTINGS_ADMIN;
 use crate::logic::counterpoint_reconciliation::{
-    apply_counterpoint_transaction_reconciliation, preview_counterpoint_transaction_reconciliation,
+    apply_counterpoint_booking_date_repairs, apply_counterpoint_transaction_reconciliation,
+    preview_counterpoint_booking_date_repairs, preview_counterpoint_transaction_reconciliation,
 };
 use crate::logic::counterpoint_staging;
 use crate::logic::counterpoint_sync::{
@@ -1721,16 +1722,60 @@ async fn settings_transaction_reconciliation_preview(
     Ok(Json(json!(preview)))
 }
 
+async fn settings_booking_date_repair_preview(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
+        .await
+        .map_err(map_perm)?;
+    let preview = preview_counterpoint_booking_date_repairs(&state.db)
+        .await
+        .map_err(cp_err)?;
+    Ok(Json(json!(preview)))
+}
+
 #[derive(Deserialize)]
-struct CounterpointTransactionReconciliationApplyBody {
+struct CounterpointReviewedRepairApplyBody {
     confirmation_phrase: String,
     reason: String,
+    manifest_digest: String,
+    manifest_candidate_count: usize,
+}
+
+async fn settings_booking_date_repair_apply(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<CounterpointReviewedRepairApplyBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let staff = middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
+        .await
+        .map_err(map_perm)?;
+    let result = apply_counterpoint_booking_date_repairs(
+        &state.db,
+        staff.id,
+        &body.confirmation_phrase,
+        &body.reason,
+        &body.manifest_digest,
+        body.manifest_candidate_count,
+    )
+    .await
+    .map_err(cp_err)?;
+    tracing::warn!(
+        staff_id = %staff.id,
+        repaired_transactions = result.repaired_transactions,
+        line_rows_updated = result.line_rows_updated,
+        booking_events_updated = result.booking_events_updated,
+        remaining_financial_review_count = result.remaining_financial_review_count,
+        "reviewed Counterpoint booking-date repair applied without tender changes"
+    );
+    Ok(Json(json!(result)))
 }
 
 async fn settings_transaction_reconciliation_apply(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Json(body): Json<CounterpointTransactionReconciliationApplyBody>,
+    Json(body): Json<CounterpointReviewedRepairApplyBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     let staff = middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
         .await
@@ -1740,6 +1785,8 @@ async fn settings_transaction_reconciliation_apply(
         staff.id,
         &body.confirmation_phrase,
         &body.reason,
+        &body.manifest_digest,
+        body.manifest_candidate_count,
     )
     .await
     .map_err(cp_err)?;
@@ -1919,6 +1966,14 @@ pub fn settings_router() -> Router<AppState> {
         .route(
             "/transaction-reconciliation/repair",
             post(settings_transaction_reconciliation_apply),
+        )
+        .route(
+            "/financial-integrity/booking-date-repair-preview",
+            get(settings_booking_date_repair_preview),
+        )
+        .route(
+            "/financial-integrity/booking-date-repair",
+            post(settings_booking_date_repair_apply),
         )
         .route(
             "/open-docs-verification",

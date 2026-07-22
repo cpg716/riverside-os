@@ -352,7 +352,7 @@ pub async fn reindex_help_meilisearch(
 pub async fn reindex_help_meilisearch_with_policies(
     client: &Client,
     pool: &PgPool,
-) -> Result<(), meilisearch_sdk::errors::Error> {
+) -> Result<usize, meilisearch_sdk::errors::Error> {
     use meilisearch_sdk::errors::Error as MeiliError;
 
     let chunks = load_help_chunk_docs_with_policies(pool)
@@ -390,11 +390,12 @@ pub async fn reindex_help_meilisearch_with_policies(
         }
     }
 
+    let chunk_count = chunks.len();
     tracing::info!(
-        chunks = chunks.len(),
+        chunks = chunk_count,
         "Meilisearch help index rebuilt from current Help Center content"
     );
-    Ok(())
+    Ok(chunk_count)
 }
 
 #[cfg(test)]

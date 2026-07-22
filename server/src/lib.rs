@@ -15,5 +15,6 @@ pub mod metrics;
 pub mod middleware;
 pub mod models;
 pub mod observability;
+pub mod runtime_config;
 pub mod schema_bootstrap;
 pub mod services;

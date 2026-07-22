@@ -32,6 +32,8 @@ Use the Register checkout drawer to collect payment. Use Payments Operations to 
 - Viewing requires payment access; syncing, linking, resolving, or accepting differences requires the matching elevated permission.
 - Never enter a full card number, CVV, provider token, or private credential in Riverside notes.
 - Missing fee or net information means **not ready**, not `$0.00`.
+- A batch fee or net is copied to the Riverside payment only when one current Helcim row uniquely links by provider transaction ID and its gross amount, USD currency, final status, and purchase/refund direction agree with Riverside. Any missing, duplicate, or conflicting evidence opens an issue and leaves the payment ledger unchanged. **Unavailable from provider** is not counted as synchronized or as a zero fee, and scheduled retries are paced to avoid provider throttling.
+- Automatic deposit links require current USD evidence and either an explicit provider deposit/net amount or a complete net total from all current successful batch transactions. Helcim **net sales** is not treated as bank-deposit evidence. If that evidence later regresses, Riverside marks the imported deposit **Needs review**, unlinks the batch, and records the change in its audit history; verified evidence can relink it later.
 - If the terminal and Riverside disagree, do not run the card again until the first attempt is checked.
 
 ## Review today's status

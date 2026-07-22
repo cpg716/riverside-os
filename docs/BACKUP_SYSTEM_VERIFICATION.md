@@ -1,12 +1,12 @@
 # Backup System Verification Report
 
-**Date:** 2026-05-28
-**Version:** v0.80.9
-**Status:** VERIFIED - All backup systems operational
+**Updated:** 2026-07-22
+**Version:** v0.95.0 source candidate
+**Status:** Implementation contract validated locally; production backup proof pending
 
 ## Summary
 
-The Riverside OS backup system has been verified to be fully functional with automated scheduling, manual triggers, and restore capabilities. All components are production-ready with appropriate safety measures.
+This document describes the backup safety contract implemented by the v0.95.0 source candidate. Local unit, migration, and compilation checks validate the code paths, but they do not prove that the production Main Hub has created a current backup, retained its key, uploaded an off-site copy, or completed a restore drill. Production readiness requires the exact artifact checks listed below.
 
 ## Automated Backup System
 
@@ -18,7 +18,7 @@ The Riverside OS backup system has been verified to be fully functional with aut
 - Runs every minute to check whether the configured daily HH:MM backup time matches current local time
 - Loads backup settings from `store_settings.backup_settings` JSONB field
 - Performs automatic cleanup of old backups (default 30 days retention)
-- Records success/failure to `store_backup_health` table
+- Records catalog-verified success evidence separately from scheduler/failure timestamps in `store_backup_health`
 - Supports cloud sync and replication targets if configured
 
 **Safety Features:**
@@ -26,7 +26,7 @@ The Riverside OS backup system has been verified to be fully functional with aut
 - Error logging with detailed context
 - Automatic retry on next scheduled run if failed
 
-**Verification Status:** ✅ OPERATIONAL
+**Source Status:** Implemented and locally validated. Confirm the scheduled worker and current verified artifact on the production Main Hub.
 
 ## Manual Backup System
 
@@ -37,16 +37,16 @@ The Riverside OS backup system has been verified to be fully functional with aut
 - Requires `SETTINGS_ADMIN` permission
 - Loads backup settings from database
 - Creates immediate backup using `BackupManager::create_backup_with_settings()`
-- Records success/failure to `store_backup_health` table
+- Records the verified archive timestamp, final filename, verification method, byte length, and SHA-256 in `store_backup_health`
 - Automatically triggers cloud sync and replication if configured
 
 **Safety Features:**
 - Permission-based access control
 - Error handling with detailed logging
 - Health status tracking
-- Optional cloud upload with verification
+- Optional cloud upload with bounded-memory size and SHA-256 read-back verification
 
-**Verification Status:** ✅ OPERATIONAL
+**Source Status:** Implemented and locally validated. A production manual-backup exercise is still required.
 
 ## Backup Restore System
 
@@ -57,32 +57,32 @@ The Riverside OS backup system has been verified to be fully functional with aut
 - Requires `SETTINGS_ADMIN` permission
 - Multi-stage validation before restore:
   1. Confirmation filename matching
-  2. Environment validation (production restore locked unless explicitly allowed)
+  2. Environment validation (live production restore is always unavailable; live non-production drills require explicit enablement)
   3. Register session blocker (no open registers allowed)
   4. Catalog membership verification (backup must exist in local catalog)
   5. Pre-restore backup creation (automatic safety snapshot)
 
 **Safety Features:**
 - **Confirmation Required:** User must type exact backup filename to confirm
-- **Production Lock:** Production restores blocked unless `RIVERSIDE_ALLOW_PRODUCTION_RESTORE=true`
+- **Production Lock:** Strict production cannot be unlocked for live restore; `RIVERSIDE_ALLOW_LIVE_RESTORE=true` is non-production-drill only
 - **Register Blocker:** Prevents restore if any register sessions are open
-- **Pre-Restore Backup:** Automatically creates backup before restore attempt
-- **Schema Repair + Validation:** Post-restore SQL applies compatibility repairs, then `scripts/validate_schema_contract.sh` must pass
+- **Pre-Restore Backup:** Automatically creates a verified backup with the effective encryption/replication settings before a drill restore attempt
+- **Atomic Replay + Validation:** `pg_restore --single-transaction` prevents partial archive replay; the packaged server validates its schema contract in-process without repository scripts
 - **Encryption Support:** Handles encrypted backup archives with key validation
 
-**Verification Status:** ✅ OPERATIONAL
+**Source Status:** Implemented and locally validated. Restore must be proven only through an approved non-production drill.
 
 ## Backup Manager Core
 
 **Location:** `server/src/logic/backups.rs`
 
 **Key Functions:**
-- `create_backup()` - Creates PostgreSQL custom format dump
-- `create_backup_with_settings()` - Creates backup with settings (encryption, compression)
+- `create_backup()` - Creates a uniquely named PostgreSQL custom-format dump through a non-catalog partial file
+- `create_backup_with_settings()` - Verifies the archive catalog, atomically publishes it, and applies configured bounded-memory encryption
 - `restore_backup()` - Restores from backup file with pre/post SQL
 - `list_backups()` - Lists available backup files
 - `perform_auto_cleanup()` - Removes backups older than retention period
-- `sync_to_cloud()` - Uploads to S3-compatible storage via OpenDAL
+- `sync_to_cloud()` - Streams fixed-size buffers to configured OpenDAL cloud storage, reads the finalized object back in bounded chunks, and accepts it only when its byte length and SHA-256 match the uploaded stream
 - `replicate_to_targets()` - Copies to local/external filesystem targets
 
 **Supported Destinations:**
@@ -95,26 +95,29 @@ The Riverside OS backup system has been verified to be fully functional with aut
 - External drives
 
 **Encryption:**
-- AES-GCM authenticated encryption
+- New archives use versioned `ROSBAK2` ChaCha20-Poly1305 encryption with independently authenticated 1 MiB chunks and a unique 64-bit random archive nonce prefix
+- Existing `ROSBAK1` archives remain readable for restore compatibility; create a new backup before relying on readiness proof
 - 32-character minimum key requirement
 - `.dump.enc` file extension for encrypted archives
 - Key stored in `RIVERSIDE_BACKUP_ENCRYPTION_KEY` environment variable
 
-**Verification Status:** ✅ OPERATIONAL
+**Source Status:** Implemented and locally validated. Encryption-key custody and destination access remain production operational checks.
 
 ## Health Monitoring
 
 **Location:** `server/src/logic/backups.rs` & `server/src/logic/notifications_jobs.rs`
 
 **Health Tracking:**
-- `store_backup_health` table records backup outcomes
-- Tracks: last local backup time, last cloud backup time, failure states
+- `store_backup_health` records legacy scheduler outcomes separately from catalog-verified local evidence
+- Tracks: verified timestamp/final filename/method/size/SHA-256, read-back-verified cloud backup time, and failure states
+- Readiness rechecks that the exact recorded local file still exists, matches its stored size and SHA-256, has a valid archive header, and can use the configured encryption key. Deleting or retention-cleaning that file clears its evidence in the same serialized operation.
+- Backup downloads and cloud uploads stream fixed-size buffers instead of loading the complete archive into server memory.
 - Admin notifications sent when:
   - Scheduled/manual local backup fails
   - Cloud upload fails (if enabled)
-  - Last successful backup is older than `RIVERSIDE_BACKUP_OVERDUE_HOURS` (default 30)
+  - No catalog-verified backup exists or the last verified backup is older than `RIVERSIDE_BACKUP_OVERDUE_HOURS` (default 30)
 
-**Verification Status:** ✅ OPERATIONAL
+**Source Status:** Implemented and locally validated. Production readiness must still expose a current matching artifact and healthy worker.
 
 ## Recommendations for Production
 
@@ -142,15 +145,14 @@ The Riverside OS backup system has been verified to be fully functional with aut
    - Check backup directory for expected file count and sizes
    - Verify cloud storage for successful uploads
 
-## Conclusion
+## Current Verification Boundary
 
-The Riverside OS backup system is production-ready with:
-- ✅ Automated scheduled backups
-- ✅ Manual on-demand backups
-- ✅ Safe restore with multiple validation layers
-- ✅ Cloud sync and replication support
-- ✅ Encryption capabilities
-- ✅ Health monitoring and alerting
-- ✅ Comprehensive error handling
+The source candidate implements scheduled and manual backups, guarded non-production restore drills, cloud and filesystem replication, authenticated encryption, health monitoring, and explicit failure handling. It must not be described as a verified production backup until all of the following are observed on the Main Hub:
 
-No data loss risk identified when system is properly configured and monitored.
+1. `/api/ready` identifies the exact installed build and a current local backup artifact.
+2. The recorded filename, byte length, SHA-256, archive catalog, and encryption-key check match the file still present on disk.
+3. Any configured off-site object has passed the post-upload size and SHA-256 read-back check; any filesystem replica has passed its local SHA-256 check.
+4. Backup-worker heartbeats and failure notifications are current.
+5. An approved non-production restore drill completes with schema validation.
+
+Until those checks pass, backup capability exists in source but production recoverability remains unverified. No backup design can honestly guarantee zero data-loss risk.

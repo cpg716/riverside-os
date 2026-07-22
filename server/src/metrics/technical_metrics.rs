@@ -58,6 +58,10 @@ pub struct ApiMetrics {
 pub struct CacheMetrics {
     pub hit_rate_percent: Option<f64>,
     pub miss_rate_percent: Option<f64>,
+    pub lookup_hits: u64,
+    pub lookup_misses: u64,
+    pub redis_keyspace_hits: u64,
+    pub redis_keyspace_misses: u64,
     pub total_operations: u64,
     pub memory_usage_mb: u64,
     pub evicted_keys: u64,
@@ -394,11 +398,26 @@ impl TechnicalMetrics {
                 return None;
             }
         };
-        let metrics = Self::parse_redis_info(&info);
-        if metrics.is_none() {
+        let mut metrics = Self::parse_redis_info(&info);
+        if let Some(metrics) = metrics.as_mut() {
+            let (hits, misses) = cache.lookup_counts();
+            Self::apply_application_cache_lookup_metrics(metrics, hits, misses);
+        } else {
             tracing::warn!("Redis INFO telemetry was incomplete or malformed");
         }
         metrics
+    }
+
+    fn apply_application_cache_lookup_metrics(metrics: &mut CacheMetrics, hits: u64, misses: u64) {
+        let lookups = hits.saturating_add(misses);
+        metrics.lookup_hits = hits;
+        metrics.lookup_misses = misses;
+        metrics.hit_rate_percent = (lookups > 0)
+            .then(|| Self::safe_percent(hits, lookups))
+            .flatten();
+        metrics.miss_rate_percent = (lookups > 0)
+            .then(|| Self::safe_percent(misses, lookups))
+            .flatten();
     }
 
     fn parse_redis_info(info: &str) -> Option<CacheMetrics> {
@@ -428,6 +447,10 @@ impl TechnicalMetrics {
         Some(CacheMetrics {
             hit_rate_percent,
             miss_rate_percent,
+            lookup_hits: hits,
+            lookup_misses: misses,
+            redis_keyspace_hits: hits,
+            redis_keyspace_misses: misses,
             total_operations,
             memory_usage_mb: used_memory / (1024 * 1024),
             evicted_keys,
@@ -605,6 +628,16 @@ impl TechnicalMetrics {
             if let Some(value) = cache.miss_rate_percent {
                 registry.record_gauge("cache_miss_rate_percent", value, HashMap::new());
             }
+            registry.record_gauge(
+                "cache_lookup_hits",
+                cache.lookup_hits as f64,
+                HashMap::new(),
+            );
+            registry.record_gauge(
+                "cache_lookup_misses",
+                cache.lookup_misses as f64,
+                HashMap::new(),
+            );
             registry.record_gauge(
                 "cache_total_operations",
                 cache.total_operations as f64,
@@ -810,6 +843,8 @@ mod tests {
             TechnicalMetrics::parse_redis_info(valid).expect("complete Redis INFO should parse");
         assert_eq!(metrics.hit_rate_percent, Some(75.0));
         assert_eq!(metrics.miss_rate_percent, Some(25.0));
+        assert_eq!(metrics.redis_keyspace_hits, 75);
+        assert_eq!(metrics.redis_keyspace_misses, 25);
         assert_eq!(metrics.memory_usage_mb, 2);
         assert_eq!(metrics.connected_clients, 4);
 
@@ -835,5 +870,27 @@ mod tests {
             .expect("zero-valued but complete Redis INFO should parse");
         assert_eq!(metrics.hit_rate_percent, None);
         assert_eq!(metrics.miss_rate_percent, None);
+    }
+
+    #[test]
+    fn application_lookup_ratio_does_not_reuse_global_redis_keyspace_counters() {
+        let info = concat!(
+            "keyspace_hits:0\n",
+            "keyspace_misses:100\n",
+            "total_commands_processed:200\n",
+            "used_memory:0\n",
+            "evicted_keys:0\n",
+            "expired_keys:0\n",
+            "connected_clients:1\n",
+        );
+        let mut metrics = TechnicalMetrics::parse_redis_info(info).expect("Redis INFO");
+
+        TechnicalMetrics::apply_application_cache_lookup_metrics(&mut metrics, 3, 1);
+
+        assert_eq!(metrics.hit_rate_percent, Some(75.0));
+        assert_eq!(metrics.miss_rate_percent, Some(25.0));
+        assert_eq!(metrics.lookup_hits, 3);
+        assert_eq!(metrics.lookup_misses, 1);
+        assert_eq!(metrics.redis_keyspace_misses, 100);
     }
 }

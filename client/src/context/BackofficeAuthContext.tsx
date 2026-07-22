@@ -22,6 +22,7 @@ import {
   type StaffRole,
 } from "./BackofficeAuthContextLogic";
 import { getConnectionKey, getStableStationKey } from "../lib/stationIdentity";
+import { readAppUpdateTelemetry } from "../lib/appUpdater";
 
 function stationRuntimeMeta() {
   const tauri = isTauri();
@@ -184,6 +185,7 @@ export function BackofficeAuthProvider({
 
     const sendHeartbeat = async () => {
       try {
+        const updateTelemetry = await readAppUpdateTelemetry();
         await fetch(`${getBaseUrl()}/api/ops/stations/heartbeat`, {
           method: "POST",
           headers: {
@@ -197,10 +199,20 @@ export function BackofficeAuthProvider({
             git_sha: GIT_SHORT || null,
             tailscale_node: null,
             lan_ip: null,
+            last_update_check_at: updateTelemetry.lastUpdateCheckAt,
+            last_update_install_at: updateTelemetry.lastUpdateInstallAt,
             meta: {
               ...stationRuntimeMeta(),
               user_agent: navigator.userAgent,
               platform: navigator.platform,
+              app_update_install_observation: {
+                status: updateTelemetry.installObservationStatus,
+                pending_target_version: updateTelemetry.pendingTargetVersion,
+                pending_target_build: updateTelemetry.pendingTargetBuild,
+                pending_started_at: updateTelemetry.pendingStartedAt,
+                last_failure_at: updateTelemetry.lastFailureAt,
+                last_failure_reason: updateTelemetry.lastFailureReason,
+              },
             },
           }),
         });

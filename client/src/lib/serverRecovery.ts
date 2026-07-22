@@ -126,8 +126,14 @@ async function recoveryResponseError(
 
 export async function mirrorRecoveryJob(
   job: ServerRecoveryUpsert,
+  requestHeaders?: HeadersInit,
 ): Promise<ServerRecoveryJob | null> {
-  const context = recoveryRequestContext();
+  const context = requestHeaders
+    ? {
+        baseUrl: getBaseUrl(),
+        headers: Object.fromEntries(new Headers(requestHeaders).entries()),
+      }
+    : recoveryRequestContext();
   if (!context) return null;
   try {
     const response = await fetch(`${context.baseUrl}/api/recovery`, {
@@ -175,25 +181,41 @@ export async function resolveRecoveryJob(
   }
 }
 
-export async function listCurrentRegisterRecoveryJobs(): Promise<
-  ServerRecoveryJob[]
-> {
-  const context = recoveryRequestContext();
-  if (!context || !getPosRegisterAuth()?.sessionId) return [];
+export async function listCurrentRegisterRecoveryJobs(
+  requestHeaders?: HeadersInit,
+): Promise<ServerRecoveryJob[]> {
+  return (await listCurrentRegisterRecoveryJobsAuthoritative(requestHeaders)) ?? [];
+}
+
+/**
+ * Read the current Register recovery list without treating an unavailable
+ * Main Hub as an authoritative empty result.
+ */
+export async function listCurrentRegisterRecoveryJobsAuthoritative(
+  requestHeaders?: HeadersInit,
+): Promise<ServerRecoveryJob[] | null> {
+  const context = requestHeaders
+    ? {
+        baseUrl: getBaseUrl(),
+        headers: Object.fromEntries(new Headers(requestHeaders).entries()),
+      }
+    : recoveryRequestContext();
+  if (!context || (!requestHeaders && !getPosRegisterAuth()?.sessionId)) return null;
   try {
     const response = await fetch(`${context.baseUrl}/api/recovery`, {
       headers: context.headers,
+      cache: "no-store",
     });
-    if (!response.ok) return [];
+    if (!response.ok) return null;
     const jobs = (await response.json()) as unknown;
     return Array.isArray(jobs)
       ? jobs.flatMap((job) => {
           const parsed = parseRecoveryJob(job);
           return parsed ? [parsed] : [];
         })
-      : [];
+      : null;
   } catch {
-    return [];
+    return null;
   }
 }
 

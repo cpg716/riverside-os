@@ -60,7 +60,10 @@ async function loadOfflineRecoveryHarness(page: Page): Promise<void> {
     if (!html.includes('name="riverside-e2e-queue-harness"')) {
       throw new Error("E2E queue harness is missing from the built SPA");
     }
-    const source = html.match(/<script[^>]*src="([^"]+)"/)?.[1];
+    const source = Array.from(
+      html.matchAll(/<script[^>]*src="([^"]+)"/g),
+      (match) => match[1],
+    ).find((candidate) => candidate.includes("queueRecoveryHarness"));
     if (!source) {
       throw new Error("E2E queue harness module is missing from its page");
     }

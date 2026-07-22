@@ -339,7 +339,8 @@ function checkCuratedReportsPrintVisibility() {
   assert(
     content.includes("printableDataForReport") &&
       content.includes("handlePrintSelectedReport") &&
-      content.includes("disabled={loading || !printableReport || !!loadErr}") &&
+      (content.includes("disabled={loading || !printableReport || !!loadErr}") ||
+        content.includes("disabled={loading || reportOutputBusy || !printableReport || !!loadErr}")) &&
       content.includes("report.responseKind === \"register_day_summary\""),
     "Curated Reports expose Print Report for loaded table, summary, and no-row results",
     file,

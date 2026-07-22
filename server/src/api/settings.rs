@@ -10,8 +10,9 @@ use crate::logic::integration_credentials;
 use crate::logic::remote_access::RemoteAccessManager;
 use crate::logic::rosie_intelligence::{get_token_metrics, RosieTokenMetrics};
 use axum::{
+    body::{Body, Bytes},
     extract::{ConnectInfo, Path, Query, State},
-    http::{HeaderMap, StatusCode},
+    http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     routing::{delete, get, post},
     Json, Router,
@@ -213,11 +214,17 @@ fn validate_restore_confirmation(
 
 fn validate_restore_environment(
     strict_production: bool,
-    allow_production_restore: bool,
+    allow_live_restore: bool,
 ) -> Result<(), SettingsError> {
-    if strict_production && !allow_production_restore {
+    if strict_production {
         return Err(SettingsError::Conflict(
-            "Production restore is locked. Restore into a non-production drill database, or set RIVERSIDE_ALLOW_PRODUCTION_RESTORE=true for an approved emergency window."
+            "Live production restore is unavailable. Stop the Riverside server and use the approved offline recovery procedure so application writers cannot mutate the database during restore."
+                .to_string(),
+        ));
+    }
+    if !allow_live_restore {
+        return Err(SettingsError::Conflict(
+            "Live restore is disabled by default. Use an approved offline recovery procedure, or explicitly enable RIVERSIDE_ALLOW_LIVE_RESTORE for a non-production restore drill."
                 .to_string(),
         ));
     }
@@ -707,10 +714,9 @@ async fn create_backup(
     let manager = BackupManager::new(state.database_url.clone());
     let settings_raw: Value =
         sqlx::query_scalar("SELECT backup_settings FROM store_settings WHERE id = 1")
-            .fetch_optional(&state.db)
-            .await?
-            .unwrap_or_else(|| json!({}));
-    let settings: BackupSettings = serde_json::from_value(settings_raw).unwrap_or_default();
+            .fetch_one(&state.db)
+            .await?;
+    let settings = BackupSettings::try_from_json(settings_raw).map_err(SettingsError::Backup)?;
     let filename = match manager.create_backup_with_settings(&settings).await {
         Ok(f) => f,
         Err(e) => {
@@ -723,8 +729,12 @@ async fn create_backup(
             return Err(SettingsError::Backup(msg));
         }
     };
-    if let Err(e) = crate::logic::backups::record_local_backup_success(&state.db).await {
-        tracing::error!(error = e.to_string(), "record_local_backup_success");
+    if let Err(e) =
+        crate::logic::backups::record_local_backup_verified_success(&state.db, &filename).await
+    {
+        return Err(SettingsError::Backup(format!(
+            "Local backup {filename} was verified, but its audit evidence could not be recorded: {e}"
+        )));
     }
 
     let offsite_enabled = settings.cloud_storage_enabled
@@ -782,7 +792,7 @@ async fn restore_backup(
 
     validate_restore_environment(
         env_truthy("RIVERSIDE_STRICT_PRODUCTION"),
-        env_truthy("RIVERSIDE_ALLOW_PRODUCTION_RESTORE"),
+        env_truthy("RIVERSIDE_ALLOW_LIVE_RESTORE"),
     )?;
 
     let open_register_count: i64 = sqlx::query_scalar(
@@ -804,7 +814,12 @@ async fn restore_backup(
         .any(|backup| backup.filename == filename);
     validate_restore_catalog_membership(exists_in_catalog)?;
 
-    let pre_restore_filename = match manager.create_backup().await {
+    let settings_raw: Value =
+        sqlx::query_scalar("SELECT backup_settings FROM store_settings WHERE id = 1")
+            .fetch_one(&state.db)
+            .await?;
+    let settings = BackupSettings::try_from_json(settings_raw).map_err(SettingsError::Backup)?;
+    let pre_restore_filename = match manager.create_backup_with_settings(&settings).await {
         Ok(f) => f,
         Err(e) => {
             let msg = format!("Pre-restore backup failed: {e}");
@@ -816,8 +831,15 @@ async fn restore_backup(
             return Err(SettingsError::Backup(msg));
         }
     };
-    if let Err(e) = crate::logic::backups::record_local_backup_success(&state.db).await {
-        tracing::error!(error = e.to_string(), "record_local_backup_success");
+    if let Err(e) = crate::logic::backups::record_local_backup_verified_success(
+        &state.db,
+        &pre_restore_filename,
+    )
+    .await
+    {
+        return Err(SettingsError::Backup(format!(
+            "Pre-restore backup {pre_restore_filename} was verified, but its audit evidence could not be recorded; restore was not started: {e}"
+        )));
     }
 
     manager
@@ -836,9 +858,10 @@ async fn delete_backup(
     headers: HeaderMap,
 ) -> Result<Json<Value>, SettingsError> {
     require_settings_admin(&state, &headers).await?;
-    let manager = BackupManager::new(state.database_url);
+    let manager = BackupManager::new(state.database_url.clone());
     manager
-        .delete_backup(&filename)
+        .delete_backup_and_invalidate_evidence(&state.db, &filename)
+        .await
         .map_err(|e| SettingsError::Backup(e.to_string()))?;
     Ok(Json(json!({ "status": "deleted" })))
 }
@@ -847,22 +870,40 @@ async fn get_backup_download(
     State(state): State<AppState>,
     Path(filename): Path<String>,
     headers: HeaderMap,
-) -> Result<impl IntoResponse, SettingsError> {
+) -> Result<Response, SettingsError> {
     require_settings_admin(&state, &headers).await?;
     let manager = BackupManager::new(state.database_url.clone());
-    let content = manager
-        .read_backup_file(&filename)
+    let (file, size_bytes) = manager
+        .open_backup_file(&filename)
         .await
         .map_err(|e| SettingsError::Backup(e.to_string()))?;
-
-    Ok((
-        axum::http::header::HeaderMap::new(),
-        [(
-            axum::http::header::CONTENT_DISPOSITION,
-            format!("attachment; filename=\"{filename}\""),
-        )],
-        content,
-    ))
+    let stream = futures_util::stream::try_unfold(file, |mut file| async move {
+        use tokio::io::AsyncReadExt;
+        let mut buffer = vec![0u8; 64 * 1024];
+        let read = file.read(&mut buffer).await?;
+        if read == 0 {
+            return Ok::<_, std::io::Error>(None);
+        }
+        buffer.truncate(read);
+        Ok(Some((Bytes::from(buffer), file)))
+    });
+    let mut response = Response::new(Body::from_stream(stream));
+    response.headers_mut().insert(
+        header::CONTENT_DISPOSITION,
+        HeaderValue::from_str(&format!("attachment; filename=\"{filename}\"")).map_err(|_| {
+            SettingsError::Backup("Backup filename is not safe for download".to_string())
+        })?,
+    );
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/octet-stream"),
+    );
+    response.headers_mut().insert(
+        header::CONTENT_LENGTH,
+        HeaderValue::from_str(&size_bytes.to_string())
+            .map_err(|_| SettingsError::Backup("Backup size is invalid".to_string()))?,
+    );
+    Ok(response)
 }
 
 #[derive(Serialize)]
@@ -1329,7 +1370,7 @@ async fn get_backup_settings(
         .fetch_one(&state.db)
         .await?;
 
-    let cfg: BackupSettings = serde_json::from_value(raw).unwrap_or_default();
+    let cfg = BackupSettings::try_from_json(raw).map_err(SettingsError::Backup)?;
     Ok(Json(backup_settings_response(cfg)))
 }
 
@@ -3548,33 +3589,40 @@ async fn patch_backup_settings(
             .await?;
 
     let mut existing: Value = existing_raw;
-    if let Value::Object(new_map) = &body {
-        if let Some(value) = new_map.get("schedule_cron") {
-            let schedule = value.as_str().ok_or_else(|| {
-                SettingsError::InvalidPayload(
-                    "backup schedule must be a daily time expression like '0 2 * * *'".to_string(),
-                )
-            })?;
-            if parse_daily_backup_schedule(schedule).is_none() {
-                return Err(SettingsError::InvalidPayload(
-                    "backup schedule must use daily minute/hour format: minute hour * * *"
-                        .to_string(),
-                ));
-            }
+    let Value::Object(new_map) = body else {
+        return Err(SettingsError::InvalidPayload(
+            "backup settings patch must be a JSON object".to_string(),
+        ));
+    };
+    if let Some(value) = new_map.get("schedule_cron") {
+        let schedule = value.as_str().ok_or_else(|| {
+            SettingsError::InvalidPayload(
+                "backup schedule must be a daily time expression like '0 2 * * *'".to_string(),
+            )
+        })?;
+        if parse_daily_backup_schedule(schedule).is_none() {
+            return Err(SettingsError::InvalidPayload(
+                "backup schedule must use daily minute/hour format: minute hour * * *".to_string(),
+            ));
         }
     }
-    if let (Value::Object(existing_map), Value::Object(new_map)) = (&mut existing, body) {
-        for (k, v) in new_map {
-            existing_map.insert(k, v);
-        }
+    let Value::Object(existing_map) = &mut existing else {
+        return Err(SettingsError::Backup(
+            "Stored backup settings are invalid: expected a JSON object".to_string(),
+        ));
+    };
+    for (key, value) in new_map {
+        existing_map.insert(key, value);
     }
+
+    let cfg =
+        BackupSettings::try_from_json(existing.clone()).map_err(SettingsError::InvalidPayload)?;
 
     sqlx::query("UPDATE store_settings SET backup_settings = $1 WHERE id = 1")
         .bind(&existing)
         .execute(&state.db)
         .await?;
 
-    let cfg: BackupSettings = serde_json::from_value(existing).unwrap_or_default();
     Ok(Json(backup_settings_response(cfg)))
 }
 
@@ -3996,14 +4044,15 @@ mod tests {
     }
 
     #[test]
-    fn restore_environment_blocks_strict_production_without_emergency_unlock() {
+    fn restore_environment_is_offline_only_in_production_and_opt_in_for_drills() {
         let locked =
             validate_restore_environment(true, false).expect_err("strict production is locked");
         assert!(matches!(locked, SettingsError::Conflict(_)));
-        assert!(err_message(locked).contains("Production restore is locked"));
+        assert!(err_message(locked).contains("Live production restore is unavailable"));
 
-        assert!(validate_restore_environment(true, true).is_ok());
-        assert!(validate_restore_environment(false, false).is_ok());
+        assert!(validate_restore_environment(true, true).is_err());
+        assert!(validate_restore_environment(false, false).is_err());
+        assert!(validate_restore_environment(false, true).is_ok());
     }
 
     #[test]

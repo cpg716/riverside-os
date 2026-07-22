@@ -319,6 +319,10 @@ pub async fn metrics_middleware(
 pub struct CacheMetrics {
     pub hit_rate_percent: Option<f64>,
     pub miss_rate_percent: Option<f64>,
+    pub lookup_hits: u64,
+    pub lookup_misses: u64,
+    pub redis_keyspace_hits: u64,
+    pub redis_keyspace_misses: u64,
     pub total_operations: u64,
     pub memory_usage_mb: u64,
     pub evicted_keys: u64,
@@ -327,7 +331,7 @@ pub struct CacheMetrics {
 }
 ```
 
-The Redis snapshot is accepted only when all required `INFO` fields are present and numeric. A missing or malformed field makes the snapshot unavailable. Zero cache lookups leave hit and miss rates absent because no percentage has been observed.
+The Redis snapshot is accepted only when all required `INFO` fields are present and numeric. A missing or malformed field makes the snapshot unavailable. Riverside calculates the application hit/miss percentage from successful `CacheService` GET outcomes observed by the current server process. Redis's global keyspace counters remain available as separate evidence because they can include other clients and direct Redis commands. Zero application lookups leave hit and miss rates absent because no percentage has been observed.
 
 **Redis Commands**:
 ```bash

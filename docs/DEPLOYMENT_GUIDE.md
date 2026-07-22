@@ -88,6 +88,10 @@ RIVERSIDE_REDIS_MAX_CONNECTIONS=20
 RIVERSIDE_ENVIRONMENT=production
 RIVERSIDE_CORS_ORIGINS=https://retail.riverside.com,https://admin.riverside.com
 RIVERSIDE_STRICT_PRODUCTION=true
+RIVERSIDE_BACKUP_DIR=/var/backups/riverside-os
+# Optional when the tools are outside PATH or standard PostgreSQL install locations:
+RIVERSIDE_PG_DUMP_PATH=/usr/bin/pg_dump
+RIVERSIDE_PG_RESTORE_PATH=/usr/bin/pg_restore
 
 # =============================================================================
 # Security Configuration
@@ -964,6 +968,10 @@ GRANT SELECT ON ALL TABLES IN SCHEMA public TO backup;
 ### Database Maintenance
 
 #### Daily Backup Script
+
+Riverside's built-in scheduled/manual backup path is preferred for the application database. It resolves PostgreSQL client tools from explicit `RIVERSIDE_PG_DUMP_PATH` / `RIVERSIDE_PG_RESTORE_PATH` values, `PATH`, and standard PostgreSQL installation directories. A custom-format dump is not recorded as successful until its header and `pg_restore --list` catalog both validate. Keep the script below only as an independently monitored secondary operating-system backup.
+
+Production recovery is offline-only: close all Registers, stop the Riverside server and workers, restore with the approved PostgreSQL toolchain, validate the packaged server's in-binary schema contract, and only then restart service. The live Settings restore endpoint stays locked in strict production; `RIVERSIDE_ALLOW_LIVE_RESTORE=true` is limited to an approved non-production restore drill. Archive replay uses one PostgreSQL transaction so a failed restore does not leave a partially replayed schema.
 
 ```bash
 #!/bin/bash

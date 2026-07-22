@@ -120,7 +120,9 @@ Current labels:
 - **Helcim**: `Configured`, `Partial`, `Not configured`
 - **Shippo**: `Disabled`, `Live rates`, `Stub fallback`, `Stub mode`
 - **Metabase auth**: `JWT SSO`, `Shared auth`, `Fallback login`
-- **Search**: `Live search`, `Bundled fallback`
+- **Search**: `Meilisearch configured`, `Bundled fallback`. Configuration alone is not a healthy
+  search verdict; the integration feed also requires a current reachability heartbeat and a
+  successful full rebuild inside the same 36-hour freshness window used by runtime search.
 - **Weather**: `Live weather`, `Mock weather`
 - **Station lifecycle**: configured offline alert window and heartbeat retention window
 
@@ -145,6 +147,12 @@ Readiness reuses existing runtime signals where available:
 - existing Helcim, Counterpoint, bug-report, and integration health endpoints already loaded by `RosOperationsCenter`
 
 Where a required check has no authoritative runtime source, it is shown as **Manual signoff required** instead of being marked ready. Examples include QBO/accounting signoff, hardware stress evidence, backup restore drill proof, Help Center freshness, and staff pilot/go-no-go approval.
+
+Integration health is evidence-based. Counterpoint sync is **degraded** when there is no run
+history, any entity has never succeeded, or the latest success is older than 72 hours. Meilisearch
+is **degraded** when it is merely configured, its 60-second heartbeat is stale/future-dated, or its
+full-rebuild proof is missing/stale/failed. Provider reachability never substitutes for index
+freshness.
 
 Manual signoffs are persisted in `ops_readiness_signoffs` and are guarded by `ops.dev_center.actions`. A current signoff can only upgrade checks that are explicitly manual; it cannot override automated blocked/warning checks from payments, stations, alerts, Counterpoint, or database health.
 
@@ -186,6 +194,12 @@ Payload fields:
 - `meta` JSON
 
 Fleet online/offline status is derived from recency cutoffs in server logic (`last_seen_at`).
+`last_seen_at` is server-recorded. Sync and update-check fields are client-reported clock telemetry
+and are capped at the server receipt time so a workstation clock set in the future cannot create
+false recency proof. `last_update_install_at` is accepted only when the native updater reports a
+`confirmed` install observation; pending, failed, unavailable, and legacy browser/local-storage
+observations cannot create install-success evidence. A heartbeat without confirmed evidence keeps
+the station's previous confirmed install timestamp.
 
 Lifecycle semantics:
 - `online`: heartbeat inside the online cutoff.

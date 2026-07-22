@@ -5,6 +5,10 @@ pub mod redis_client;
 pub use redis_client::{DistributedLock, RedisCache};
 
 use redis::RedisError;
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc,
+};
 use std::time::Duration;
 
 /// Cache configuration
@@ -33,12 +37,23 @@ impl Default for CacheConfig {
 pub struct CacheService {
     redis: RedisCache,
     config: CacheConfig,
+    lookup_telemetry: Arc<CacheLookupTelemetry>,
+}
+
+#[derive(Debug, Default)]
+struct CacheLookupTelemetry {
+    hits: AtomicU64,
+    misses: AtomicU64,
 }
 
 impl CacheService {
     pub fn new(config: CacheConfig) -> Result<Self, RedisError> {
         let redis = RedisCache::new(&config.redis_url)?;
-        Ok(Self { redis, config })
+        Ok(Self {
+            redis,
+            config,
+            lookup_telemetry: Arc::new(CacheLookupTelemetry::default()),
+        })
     }
 
     pub fn from_env() -> Result<Self, RedisError> {
@@ -99,7 +114,14 @@ impl CacheService {
 
         loop {
             match self.redis.get(key).await {
-                Ok(value) => return Ok(value),
+                Ok(value) => {
+                    if value.is_some() {
+                        self.lookup_telemetry.hits.fetch_add(1, Ordering::Relaxed);
+                    } else {
+                        self.lookup_telemetry.misses.fetch_add(1, Ordering::Relaxed);
+                    }
+                    return Ok(value);
+                }
                 Err(e) if retries < self.config.max_retries => {
                     retries += 1;
                     tracing::warn!(error = %e, retry = retries, "Cache get failed, retrying");
@@ -126,6 +148,16 @@ impl CacheService {
         key: &str,
     ) -> Result<Option<T>, RedisError> {
         self.get_with_retry(key).await
+    }
+
+    /// Successful application GET outcomes since this server process started. Redis' global
+    /// keyspace counters include other clients and direct Redis commands, so they are not a
+    /// truthful application cache hit ratio.
+    pub fn lookup_counts(&self) -> (u64, u64) {
+        (
+            self.lookup_telemetry.hits.load(Ordering::Relaxed),
+            self.lookup_telemetry.misses.load(Ordering::Relaxed),
+        )
     }
 
     /// Flush the cache database

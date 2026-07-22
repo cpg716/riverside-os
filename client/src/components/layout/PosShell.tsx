@@ -343,6 +343,7 @@ export default function PosShell({
                 <div className="flex flex-1 items-center justify-center bg-app-bg p-6 text-center text-sm font-black italic uppercase tracking-[0.3em] text-app-text-muted opacity-40">Open register to view the sales dashboard.</div>
               ) : (
                 <RegisterDashboard
+                  registerLane={registerLane}
                   registerOrdinal={registerOrdinal}
                   cashierName={cashierName}
                   onGoToRegister={() => setActivePosTab("register")}

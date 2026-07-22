@@ -3,7 +3,8 @@
 use crate::api::{build_router, AppState};
 use crate::logic::backups::{
     daily_backup_schedule_matches_time, record_cloud_backup_failure, record_cloud_backup_success,
-    record_local_backup_failure, record_local_backup_success, BackupManager, BackupSettings,
+    record_local_backup_failure, record_local_backup_verified_success, BackupManager,
+    BackupSettings,
 };
 use crate::logic::ops_dev_center::{ops_retention_config_from_env, perform_retention_cleanup};
 use crate::logic::wedding_push::WeddingEventBus;
@@ -103,6 +104,39 @@ fn meilisearch_daily_reindex_hour() -> u32 {
         .and_then(|value| value.parse::<u32>().ok())
         .filter(|hour| *hour <= 23)
         .unwrap_or(3)
+}
+
+const MEILISEARCH_DAILY_REINDEX_MAX_ATTEMPTS: u32 = 3;
+
+fn meilisearch_daily_reindex_retry_delay(completed_attempts: u32) -> std::time::Duration {
+    let exponent = completed_attempts.saturating_sub(1).min(2);
+    std::time::Duration::from_secs(30 * 4_u64.pow(exponent))
+}
+
+async fn run_daily_meilisearch_reindex_with_retry(
+    client: &meilisearch_sdk::client::Client,
+    pool: &sqlx::PgPool,
+) -> anyhow::Result<()> {
+    let mut last_error = None;
+    for attempt in 1..=MEILISEARCH_DAILY_REINDEX_MAX_ATTEMPTS {
+        if attempt > 1 {
+            let delay = meilisearch_daily_reindex_retry_delay(attempt - 1);
+            tracing::warn!(
+                attempt,
+                ?delay,
+                "Retrying incomplete daily Meilisearch rebuild"
+            );
+            tokio::time::sleep(delay).await;
+        }
+        match crate::logic::meilisearch_sync::reindex_all_meilisearch(client, pool).await {
+            Ok(()) => return Ok(()),
+            Err(error) => {
+                tracing::error!(attempt, error = %error, "Daily Meilisearch rebuild attempt failed");
+                last_error = Some(error);
+            }
+        }
+    }
+    Err(last_error.unwrap_or_else(|| anyhow::anyhow!("Daily Meilisearch rebuild did not run")))
 }
 
 async fn apply_static_cache_control(request: axum::extract::Request, next: Next) -> Response {
@@ -689,6 +723,7 @@ async fn launch_server_inner(
         let reindex_hour = meilisearch_daily_reindex_hour();
         tokio::spawn(async move {
             let mut ticker = tokio::time::interval(std::time::Duration::from_secs(3600));
+            let mut attempted_day: Option<chrono::NaiveDate> = None;
             // Tokio intervals tick immediately once. Consume that scheduling tick so a missing
             // daily marker cannot start a full catalog reindex during server startup.
             ticker.tick().await;
@@ -709,6 +744,9 @@ async fn launch_server_inner(
                 if hour < reindex_hour {
                     continue;
                 }
+                if attempted_day == Some(today) {
+                    continue;
+                }
                 match latest_successful_meilisearch_reindex_day(&meilisearch_reindex_state.db)
                     .await
                 {
@@ -725,18 +763,19 @@ async fn launch_server_inner(
                 let Some(client) = meilisearch_reindex_state.meilisearch.as_ref() else {
                     continue;
                 };
+                attempted_day = Some(today);
                 tracing::info!(
                     activity_date = %today,
                     hour,
                     "Meilisearch daily reindex worker: rebuilding all search indexes"
                 );
-                if let Err(e) = crate::logic::meilisearch_sync::reindex_all_meilisearch(
+                if let Err(e) = run_daily_meilisearch_reindex_with_retry(
                     client,
                     &meilisearch_reindex_state.db,
                 )
                 .await
                 {
-                    tracing::error!(error = %e, "Meilisearch daily reindex worker failed");
+                    tracing::error!(error = %e, "Meilisearch daily reindex exhausted bounded retries");
                 }
             }
         });
@@ -926,18 +965,23 @@ async fn launch_server_inner(
     });
 
     // CORS
-    let cors_header_values: Vec<HeaderValue> = config
-        .cors_origins
-        .iter()
-        .filter_map(|s| HeaderValue::from_str(s).ok())
-        .collect();
-
-    if config.strict_production && cors_header_values.is_empty() {
-        return Err(
-            "Strict production requires RIVERSIDE_CORS_ORIGINS for browser-facing deployments"
-                .into(),
-        );
+    let cors_policy = crate::runtime_config::effective_cors_policy(&config.cors_origins);
+    if config.strict_production {
+        if cors_policy.configured_origin_count == 0 {
+            return Err(
+                "Strict production requires RIVERSIDE_CORS_ORIGINS for browser-facing deployments"
+                    .into(),
+            );
+        }
+        if cors_policy.invalid_origin_count > 0 {
+            return Err(format!(
+                "Strict production requires every RIVERSIDE_CORS_ORIGINS entry to be an exact http/https browser origin; invalid configured entries: {}",
+                cors_policy.invalid_origin_count
+            )
+            .into());
+        }
     }
+    let cors_header_values = cors_policy.header_values;
 
     if config.strict_production {
         crate::logic::integration_credentials::validate_credentials_key_for_startup().map_err(
@@ -1053,7 +1097,10 @@ pub async fn launch_server_with_ready_signal(
 
 #[cfg(test)]
 mod tests {
-    use super::{helcim_value_looks_placeholder, static_cache_control_for_path};
+    use super::{
+        helcim_value_looks_placeholder, meilisearch_daily_reindex_retry_delay,
+        static_cache_control_for_path,
+    };
 
     #[test]
     fn helcim_placeholder_detection_catches_dummy_values() {
@@ -1107,6 +1154,38 @@ mod tests {
         assert!(static_cache_control_for_path("/api/health").is_none());
         assert!(static_cache_control_for_path("/uploads/photo.jpg").is_none());
     }
+
+    #[test]
+    fn daily_meilisearch_retries_use_bounded_backoff() {
+        assert_eq!(
+            meilisearch_daily_reindex_retry_delay(1),
+            std::time::Duration::from_secs(30)
+        );
+        assert_eq!(
+            meilisearch_daily_reindex_retry_delay(2),
+            std::time::Duration::from_secs(120)
+        );
+        assert_eq!(
+            meilisearch_daily_reindex_retry_delay(20),
+            std::time::Duration::from_secs(480)
+        );
+    }
+}
+
+async fn load_backup_worker_settings(pool: &sqlx::PgPool) -> Result<BackupSettings, String> {
+    let raw: serde_json::Value =
+        sqlx::query_scalar("SELECT backup_settings FROM store_settings WHERE id = 1")
+            .fetch_one(pool)
+            .await
+            .map_err(|error| format!("Failed to load stored backup settings: {error}"))?;
+    BackupSettings::try_from_json(raw)
+}
+
+async fn report_backup_worker_settings_error(pool: &sqlx::PgPool, detail: &str) {
+    tracing::error!(error = %detail, "Background backup worker rejected stored settings");
+    if let Err(error) = record_local_backup_failure(pool, detail).await {
+        tracing::error!(%error, "Failed to record backup settings failure");
+    }
 }
 
 async fn start_backup_worker(state: AppState) -> Result<(), anyhow::Error> {
@@ -1117,14 +1196,15 @@ async fn start_backup_worker(state: AppState) -> Result<(), anyhow::Error> {
         Box::pin(async move {
             crate::api::health::WorkerHealth::mark_heartbeat("backup").await;
             let manager = BackupManager::new(st.database_url.clone());
-            let settings_raw: serde_json::Value =
-                sqlx::query_scalar("SELECT backup_settings FROM store_settings WHERE id = 1")
-                    .fetch_one(&st.db)
-                    .await
-                    .unwrap_or_default();
-            let settings: BackupSettings = serde_json::from_value(settings_raw).unwrap_or_default();
+            let settings = match load_backup_worker_settings(&st.db).await {
+                Ok(settings) => settings,
+                Err(detail) => {
+                    report_backup_worker_settings_error(&st.db, &detail).await;
+                    return;
+                }
+            };
             if let Err(e) = manager
-                .perform_auto_cleanup(settings.auto_cleanup_days)
+                .perform_auto_cleanup(&st.db, settings.auto_cleanup_days)
                 .await
             {
                 tracing::error!(error = %e, "Background Worker: Auto-cleanup failed");
@@ -1161,12 +1241,13 @@ async fn start_backup_worker(state: AppState) -> Result<(), anyhow::Error> {
         let st = backup_state.clone();
         Box::pin(async move {
             crate::api::health::WorkerHealth::mark_heartbeat("backup").await;
-            let settings_raw: serde_json::Value =
-                sqlx::query_scalar("SELECT backup_settings FROM store_settings WHERE id = 1")
-                    .fetch_one(&st.db)
-                    .await
-                    .unwrap_or_default();
-            let settings: BackupSettings = serde_json::from_value(settings_raw).unwrap_or_default();
+            let settings = match load_backup_worker_settings(&st.db).await {
+                Ok(settings) => settings,
+                Err(detail) => {
+                    report_backup_worker_settings_error(&st.db, &detail).await;
+                    return;
+                }
+            };
             let now = match store_local_hh_mm(&st.db).await {
                 Ok(v) => v,
                 Err(e) => {
@@ -1178,7 +1259,15 @@ async fn start_backup_worker(state: AppState) -> Result<(), anyhow::Error> {
                 let manager = BackupManager::new(st.database_url.clone());
                 match manager.create_backup_with_settings(&settings).await {
                     Ok(filename) => {
-                        let _ = record_local_backup_success(&st.db).await;
+                        if let Err(error) =
+                            record_local_backup_verified_success(&st.db, &filename).await
+                        {
+                            tracing::error!(
+                                %error,
+                                %filename,
+                                "Scheduled backup verified but audit evidence could not be recorded"
+                            );
+                        }
 
                         let offsite_enabled = settings.cloud_storage_enabled
                             || settings

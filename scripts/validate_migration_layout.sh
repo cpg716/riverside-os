@@ -149,6 +149,10 @@ expected=(
   "143_register_financial_recovery_integrity.sql"
   "144_transaction_line_booking_event_delete_integrity.sql"
   "145_notification_queue_partial_conflict_inference.sql"
+  "146_counterpoint_financial_integrity_manifest.sql"
+  "147_verified_backup_evidence.sql"
+  "148_receiving_identifier_lookup_indexes.sql"
+  "149_verified_backup_artifact_identity.sql"
 )
 
 active=()
@@ -211,4 +215,4 @@ if rg -n "INSERT INTO (public\\.)?(staff\\b|staff_permission|store_settings|prod
 fi
 rm -f /tmp/ros_migration_seed_hits.$$
 
-echo "Migration layout OK: active baseline through 145."
+echo "Migration layout OK: active baseline through 149."

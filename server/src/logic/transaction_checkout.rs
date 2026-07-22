@@ -8542,7 +8542,10 @@ mod tests {
                 .await
                 .expect("build beneficiary customer timeline");
         assert!(beneficiary_timeline.iter().any(|event| {
-            event.reference_type.as_deref() == Some("payment") && event.summary.contains("50.00")
+            event.kind == "payment"
+                && event.reference_type.as_deref() == Some("transaction")
+                && event.reference_id == Some(order_transaction_id)
+                && event.summary == "Payment recorded: 50.00 via Cash"
         }));
 
         cleanup_wedding_group_pay_checkout_test(

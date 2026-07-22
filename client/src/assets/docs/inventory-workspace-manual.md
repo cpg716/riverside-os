@@ -51,6 +51,7 @@ Each subsection is job-based:
 - Available stock means **on hand minus reserved minus layaway**. Layaway-held items are not available for another customer or the online store.
 - Count corrections require a reason. Stock decreases, damage/loss, and return-to-vendor adjustments require Manager Access.
 - **Promotions** track sales, units, and line count by promotion. Promotions can apply to selected SKUs, the full inventory, a whole category, or a primary vendor. Use the promotion row's **Performance** button to open the printable transaction detail popup, scan SKUs into a selected-SKU promotion, or end/cancel an active promotion.
+- A promotion scan adds a variation only after one unique exact SKU, Product UPC/barcode, approved barcode alias, or catalog-number match. If Riverside cannot prove the identifier is exact and unambiguous, nothing is added; use the product picker to review and explicitly select a fuzzy name match.
 - Inventory guidance in this workspace now assumes **Counterpoint sync** is the authoritative pre-launch inventory source.
 
 ## Operational detail

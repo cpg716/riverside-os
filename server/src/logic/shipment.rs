@@ -41,7 +41,7 @@ pub struct ShipmentListQuery {
     pub offset: Option<i64>,
 }
 
-#[derive(Debug, Serialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
 pub struct ShipmentListRow {
     pub id: Uuid,
     pub source: String,

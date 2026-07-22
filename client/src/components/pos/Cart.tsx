@@ -729,6 +729,12 @@ export default function Cart({
 
   const clearCartAndAlterations = useCallback(() => {
     clearCart();
+    // Sale-level staff identity must not carry into the next checkout.
+    // Register authentication remains active, but the cashier/operator is
+    // selected again for each sale just like the salesperson.
+    setCheckoutOperator(null);
+    setSalePinCredential("");
+    setSalePinError(null);
     // A failed/provider-approved checkout must never contaminate the next sale.
     // The provider attempt remains auditable in Payments Health; local tender
     // state belongs only to the sale being cleared.

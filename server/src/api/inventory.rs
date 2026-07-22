@@ -20,7 +20,7 @@ use crate::auth::permissions::{
 use crate::logic::physical_inventory::{resolve_scan_code, ScanResolveResult};
 use crate::middleware::{self, StaffOrPosSession};
 use crate::services::inventory::available_stock_units;
-use crate::services::{resolve_sku, InventoryError, ResolvedSkuItem};
+use crate::services::{resolve_receiving_identifier, resolve_sku, InventoryError, ResolvedSkuItem};
 
 // ── InventoryError → HTTP ─────────────────────────────────────────────────────
 
@@ -53,6 +53,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/scan/{*sku}", get(scan_sku))
         .route("/scan-resolve", get(scan_resolve))
+        .route("/receiving-scan-resolve", get(receiving_scan_resolve))
         .route("/control-board", get(products::list_control_board))
         .route("/batch-scan", post(batch_scan))
         .route("/recommendations", get(get_recommendations))
@@ -135,6 +136,13 @@ pub struct ScanResolveQuery {
     pub vendor_id: Option<Uuid>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ReceivingScanResolveQuery {
+    pub code: String,
+    pub vendor_id: Uuid,
+    pub purchase_order_id: Uuid,
+}
+
 // ── Handlers ──────────────────────────────────────────────────────────────────
 
 /// Legacy single-SKU lookup for POS cart (preserved for backward compat).
@@ -157,6 +165,32 @@ async fn scan_sku(
     let resolved_item = resolve_sku(&state.db, &sku, state.global_employee_markup).await?;
 
     Ok(Json(resolved_item))
+}
+
+/// Exact-only receiving lookup across SKU, Product UPC/barcode, active aliases,
+/// catalog number, and the selected vendor's enabled vendor UPC namespace.
+async fn receiving_scan_resolve(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<ReceivingScanResolveQuery>,
+) -> Response {
+    if let Err((status, body)) =
+        middleware::require_staff_perm_or_pos_session(&state, &headers, CATALOG_VIEW).await
+    {
+        return (status, body).into_response();
+    }
+    match resolve_receiving_identifier(
+        &state.db,
+        &q.code,
+        q.vendor_id,
+        q.purchase_order_id,
+        state.global_employee_markup,
+    )
+    .await
+    {
+        Ok(resolved) => Json(resolved).into_response(),
+        Err(error) => error.into_response(),
+    }
 }
 
 /// Resolve a scanned code (GET) — for receiving and physical inventory lookups.

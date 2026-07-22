@@ -78,3 +78,34 @@ test("universal endpoint rejects punctuation-only queries", async ({ request }) 
   expect(response.status()).toBe(400);
   expect(body.error).toBe("query must include at least one letter or number");
 });
+
+test("identical concurrent universal searches stay bounded and complete", async ({ request }) => {
+  const query = `zz-concurrent-no-match-${Date.now()}`;
+  const started = Date.now();
+  const responses = await Promise.all(
+    Array.from({ length: 8 }, () =>
+      request.get(
+        `${apiBase()}/api/search/universal?q=${encodeURIComponent(query)}&limit=8`,
+        {
+          headers: staffHeaders(),
+          timeout: 5_000,
+          failOnStatusCode: false,
+        },
+      ),
+    ),
+  );
+  const elapsedMs = Date.now() - started;
+
+  for (const response of responses) {
+    const body = (await response.json()) as {
+      query?: string;
+      sources_failed?: string[];
+    };
+    expect(response.status(), JSON.stringify(body.sources_failed ?? [])).toBe(200);
+    expect(body.query).toBe(query);
+    expect(body.sources_failed ?? []).not.toEqual(
+      expect.arrayContaining([expect.stringMatching(/timed out/i)]),
+    );
+  }
+  expect(elapsedMs).toBeLessThan(2_500);
+});

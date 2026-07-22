@@ -1,5 +1,106 @@
 import { isTauri, invoke } from "@tauri-apps/api/core";
 
+const LAST_UPDATE_CHECK_AT_KEY = "ros_last_update_check_at";
+const LAST_UPDATE_INSTALL_AT_KEY = "ros_last_update_install_at";
+
+function recordUpdateTelemetry(key: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(key, new Date().toISOString());
+  } catch {
+    // Update checks and installs remain authoritative even if local telemetry storage is blocked.
+  }
+}
+
+function readTelemetryTimestamp(key: string): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const value = window.localStorage.getItem(key)?.trim() ?? "";
+    return value && Number.isFinite(Date.parse(value)) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+export type AppUpdateInstallObservationStatus =
+  | "none"
+  | "pending"
+  | "confirmed"
+  | "failed"
+  | "unavailable"
+  | "legacy_local";
+
+export interface AppUpdateTelemetry {
+  lastUpdateCheckAt: string | null;
+  lastUpdateInstallAt: string | null;
+  installObservationStatus: AppUpdateInstallObservationStatus;
+  pendingTargetVersion: string | null;
+  pendingTargetBuild: string | null;
+  pendingStartedAt: string | null;
+  lastFailureAt: string | null;
+  lastFailureReason: string | null;
+}
+
+interface NativeAppUpdateTelemetryResult {
+  observation_status: "none" | "pending" | "confirmed" | "failed";
+  last_update_install_observed_at_unix_ms: number | null;
+  pending_target_version: string | null;
+  pending_target_build: string | null;
+  pending_started_at_unix_ms: number | null;
+  last_failure_at_unix_ms: number | null;
+  last_failure_reason: string | null;
+  current_version: string;
+  current_build: string | null;
+}
+
+function unixMsToIso(value: number | null): string | null {
+  if (value == null || !Number.isFinite(value) || value < 0) return null;
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? date.toISOString() : null;
+}
+
+export async function readAppUpdateTelemetry(): Promise<AppUpdateTelemetry> {
+  const lastUpdateCheckAt = readTelemetryTimestamp(LAST_UPDATE_CHECK_AT_KEY);
+  if (!isTauri()) {
+    const lastUpdateInstallAt = readTelemetryTimestamp(LAST_UPDATE_INSTALL_AT_KEY);
+    return {
+      lastUpdateCheckAt,
+      lastUpdateInstallAt,
+      installObservationStatus: lastUpdateInstallAt ? "legacy_local" : "none",
+      pendingTargetVersion: null,
+      pendingTargetBuild: null,
+      pendingStartedAt: null,
+      lastFailureAt: null,
+      lastFailureReason: null,
+    };
+  }
+
+  try {
+    const native = await invoke<NativeAppUpdateTelemetryResult>("read_app_update_telemetry");
+    return {
+      lastUpdateCheckAt,
+      lastUpdateInstallAt: unixMsToIso(native.last_update_install_observed_at_unix_ms),
+      installObservationStatus: native.observation_status,
+      pendingTargetVersion: native.pending_target_version,
+      pendingTargetBuild: native.pending_target_build,
+      pendingStartedAt: unixMsToIso(native.pending_started_at_unix_ms),
+      lastFailureAt: unixMsToIso(native.last_failure_at_unix_ms),
+      lastFailureReason: native.last_failure_reason,
+    };
+  } catch {
+    return {
+      lastUpdateCheckAt,
+      lastUpdateInstallAt: null,
+      installObservationStatus: "unavailable",
+      pendingTargetVersion: null,
+      pendingTargetBuild: null,
+      pendingStartedAt: null,
+      lastFailureAt: null,
+      lastFailureReason: "Native updater install telemetry could not be read.",
+    };
+  }
+}
+
 export interface UpdateCheckResult {
   enabled: boolean;
   available: boolean;
@@ -34,7 +135,9 @@ export async function checkForAppUpdate(): Promise<UpdateCheckResult> {
     };
   }
 
-  return invoke<UpdateCheckResult>("check_app_update");
+  const result = await invoke<UpdateCheckResult>("check_app_update");
+  recordUpdateTelemetry(LAST_UPDATE_CHECK_AT_KEY);
+  return result;
 }
 
 export async function installAppUpdate(): Promise<InstallUpdateResult> {
@@ -49,7 +152,8 @@ export async function installAppUpdate(): Promise<InstallUpdateResult> {
     };
   }
 
-  return invoke<InstallUpdateResult>("install_app_update");
+  const result = await invoke<InstallUpdateResult>("install_app_update");
+  return result;
 }
 
 export interface ServerLocalStatus {

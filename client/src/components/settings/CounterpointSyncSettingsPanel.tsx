@@ -137,9 +137,44 @@ interface CounterpointReconciliationCandidate {
 interface CounterpointReconciliationPreview {
   generated_at: string;
   confirmation_phrase: string;
+  manifest_digest: string;
+  candidate_count: number;
   ready_count: number;
   needs_review_count: number;
   candidates: CounterpointReconciliationCandidate[];
+}
+
+interface CounterpointBookingDateRepairCandidate {
+  manifest_key: string;
+  transaction_id: string;
+  display_id: string;
+  counterpoint_ticket_ref: string | null;
+  counterpoint_doc_ref: string | null;
+  target_booked_at: string;
+  line_rows_to_update: number;
+  booking_events_to_update: number;
+  orphaned_initial_booking_event_count: number;
+  unreviewed_adjustment_event_count: number;
+  header_total: string;
+  line_total: string;
+  stored_amount_paid: string;
+  allocated_tender_total: string;
+  integrity_status: "ok" | "review" | "critical";
+  review_codes: string[];
+}
+
+interface CounterpointBookingDateRepairPreview {
+  generated_at: string;
+  confirmation_phrase: string;
+  manifest_digest: string;
+  candidate_count: number;
+  line_rows_to_update: number;
+  booking_events_to_update: number;
+  financial_review_count: number;
+  event_review_count: number;
+  tender_values_read_only: boolean;
+  candidates_truncated: boolean;
+  candidates: CounterpointBookingDateRepairCandidate[];
 }
 
 interface CounterpointSnapshotReconciliationRow {
@@ -502,6 +537,15 @@ export default function CounterpointSyncSettingsPanel({
   const [reconciliationPromptOpen, setReconciliationPromptOpen] = useState(false);
   const [reconciliationBusy, setReconciliationBusy] = useState(false);
 
+  const [bookingDateRepairPreview, setBookingDateRepairPreview] =
+    useState<CounterpointBookingDateRepairPreview | null>(null);
+  const [bookingDateRepairError, setBookingDateRepairError] = useState<
+    string | null
+  >(null);
+  const [bookingDateRepairPromptOpen, setBookingDateRepairPromptOpen] =
+    useState(false);
+  const [bookingDateRepairBusy, setBookingDateRepairBusy] = useState(false);
+
   const headers = useCallback(
     () => backofficeHeaders() as Record<string, string>,
     [backofficeHeaders],
@@ -606,6 +650,33 @@ export default function CounterpointSyncSettingsPanel({
     }
   }, [baseUrl, hasPermission, headers]);
 
+  const fetchBookingDateRepairPreview = useCallback(async () => {
+    if (!hasPermission("settings.admin")) return;
+    setBookingDateRepairError(null);
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/settings/counterpoint-sync/financial-integrity/booking-date-repair-preview`,
+        { headers: headers() },
+      );
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(
+          body.error ?? "Imported financial-integrity evidence is unavailable.",
+        );
+      }
+      setBookingDateRepairPreview(
+        (await res.json()) as CounterpointBookingDateRepairPreview,
+      );
+    } catch (error) {
+      setBookingDateRepairPreview(null);
+      setBookingDateRepairError(
+        error instanceof Error
+          ? error.message
+          : "Imported financial-integrity evidence is unavailable.",
+      );
+    }
+  }, [baseUrl, hasPermission, headers]);
+
   const fetchAllData = useCallback(async () => {
     setLoading(true);
     await Promise.all([
@@ -616,6 +687,7 @@ export default function CounterpointSyncSettingsPanel({
       fetchLandingVerification(),
       fetchResetPreview(),
       fetchReconciliationPreview(),
+      fetchBookingDateRepairPreview(),
     ]);
     setLoading(false);
   }, [
@@ -626,6 +698,7 @@ export default function CounterpointSyncSettingsPanel({
     fetchLandingVerification,
     fetchResetPreview,
     fetchReconciliationPreview,
+    fetchBookingDateRepairPreview,
   ]);
 
   useEffect(() => {
@@ -717,6 +790,10 @@ export default function CounterpointSyncSettingsPanel({
   };
 
   const runHistoricalReconciliation = async (confirmationPhrase: string): Promise<boolean> => {
+    if (!reconciliationPreview) {
+      toast("Refresh the exact-match review before applying a repair.", "error");
+      return false;
+    }
     setReconciliationBusy(true);
     try {
       const res = await fetch(
@@ -730,6 +807,8 @@ export default function CounterpointSyncSettingsPanel({
           body: JSON.stringify({
             confirmation_phrase: confirmationPhrase,
             reason: "Approved legacy Counterpoint order and payment reconciliation.",
+            manifest_digest: reconciliationPreview.manifest_digest,
+            manifest_candidate_count: reconciliationPreview.candidate_count,
           }),
         },
       );
@@ -751,6 +830,72 @@ export default function CounterpointSyncSettingsPanel({
       return false;
     } finally {
       setReconciliationBusy(false);
+    }
+  };
+
+  const runBookingDateRepair = async (
+    confirmationPhrase: string,
+  ): Promise<boolean> => {
+    if (!bookingDateRepairPreview) {
+      toast(
+        "Refresh the booking-date manifest before applying a repair.",
+        "error",
+      );
+      return false;
+    }
+    setBookingDateRepairBusy(true);
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/settings/counterpoint-sync/financial-integrity/booking-date-repair`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...headers(),
+          },
+          body: JSON.stringify({
+            confirmation_phrase: confirmationPhrase,
+            reason:
+              "Approved correction of imported Counterpoint booking timestamps.",
+            manifest_digest: bookingDateRepairPreview.manifest_digest,
+            manifest_candidate_count: bookingDateRepairPreview.candidate_count,
+          }),
+        },
+      );
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        repaired_transactions?: number;
+        line_rows_updated?: number;
+        booking_events_updated?: number;
+        remaining_financial_review_count?: number;
+        tender_values_changed?: boolean;
+      };
+      if (!res.ok)
+        throw new Error(
+          data.error ?? "Counterpoint booking-date repair failed.",
+        );
+      if (data.tender_values_changed) {
+        throw new Error(
+          "Repair reported an unexpected tender change. Stop and contact support.",
+        );
+      }
+      toast(
+        `Aligned ${data.repaired_transactions ?? 0} imported transaction(s): ${data.line_rows_updated ?? 0} line date(s) and ${data.booking_events_updated ?? 0} booking event(s). Tender values were not changed. ${data.remaining_financial_review_count ?? 0} financial exception(s) still require source review.`,
+        "success",
+      );
+      setBookingDateRepairPromptOpen(false);
+      await fetchBookingDateRepairPreview();
+      return true;
+    } catch (error) {
+      toast(
+        error instanceof Error
+          ? error.message
+          : "Counterpoint booking-date repair failed.",
+        "error",
+      );
+      return false;
+    } finally {
+      setBookingDateRepairBusy(false);
     }
   };
 
@@ -1624,6 +1769,174 @@ export default function CounterpointSyncSettingsPanel({
             </div>
           </div>
 
+          <div className="space-y-3 rounded-lg border border-app-border bg-app-bg/60 p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="max-w-3xl">
+                <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                  Imported financial integrity
+                </p>
+                <p className="mt-1 text-xs font-semibold text-app-text-muted">
+                  The dry-run manifest separates the immutable Counterpoint
+                  import snapshot from current net state. Later returns and
+                  refunds remain operational history, not import corruption.
+                  Booking-date repair changes only line and initial-booking
+                  timestamps; all money remains read-only.
+                </p>
+                {bookingDateRepairPreview ? (
+                  <p className="mt-1 font-mono text-[10px] text-app-text-muted">
+                    Reviewed manifest{" "}
+                    {bookingDateRepairPreview.manifest_digest.slice(0, 12)}… ·{" "}
+                    {new Date(
+                      bookingDateRepairPreview.generated_at,
+                    ).toLocaleString()}
+                  </p>
+                ) : null}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => void fetchBookingDateRepairPreview()}
+                  className="ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  Refresh Integrity
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBookingDateRepairPromptOpen(true)}
+                  disabled={
+                    !bookingDateRepairPreview?.candidate_count ||
+                    bookingDateRepairBusy
+                  }
+                  className="ui-btn-primary inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Wrench className="h-3.5 w-3.5" />
+                  Align Booking Dates
+                </button>
+              </div>
+            </div>
+
+            {bookingDateRepairError ? (
+              <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs font-bold text-red-700 dark:text-red-300">
+                Financial-integrity status is unavailable:{" "}
+                {bookingDateRepairError} No zero-count or repair-ready claim is
+                being made.
+              </div>
+            ) : null}
+
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="rounded-lg border border-sky-500/25 bg-sky-500/10 p-3">
+                <p className="text-[10px] font-black uppercase tracking-widest text-sky-700 dark:text-sky-300">
+                  Safe date repair
+                </p>
+                <p className="mt-1 text-2xl font-black tabular-nums text-app-text">
+                  {bookingDateRepairPreview?.candidate_count ?? "—"}
+                </p>
+                <p className="text-xs font-semibold text-app-text-muted">
+                  {bookingDateRepairPreview
+                    ? `${bookingDateRepairPreview.line_rows_to_update} line · ${bookingDateRepairPreview.booking_events_to_update} event timestamp(s)`
+                    : "Awaiting authoritative manifest"}
+                </p>
+              </div>
+              <div className="rounded-lg border border-red-500/25 bg-red-500/10 p-3">
+                <p className="text-[10px] font-black uppercase tracking-widest text-red-700 dark:text-red-300">
+                  Financial source review
+                </p>
+                <p className="mt-1 text-2xl font-black tabular-nums text-app-text">
+                  {bookingDateRepairPreview?.financial_review_count ?? "—"}
+                </p>
+                <p className="text-xs font-semibold text-app-text-muted">
+                  Never changed by booking-date repair
+                </p>
+              </div>
+              <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 p-3">
+                <p className="text-[10px] font-black uppercase tracking-widest text-amber-700 dark:text-amber-300">
+                  Event review
+                </p>
+                <p className="mt-1 text-2xl font-black tabular-nums text-app-text">
+                  {bookingDateRepairPreview?.event_review_count ?? "—"}
+                </p>
+                <p className="text-xs font-semibold text-app-text-muted">
+                  Orphaned or amended history left unchanged
+                </p>
+              </div>
+            </div>
+
+            {(bookingDateRepairPreview?.candidates ?? []).length > 0 ? (
+              <div className="overflow-auto rounded-lg border border-app-border">
+                <table className="w-full min-w-[760px] text-left text-xs">
+                  <thead className="bg-app-surface-2">
+                    <tr className="border-b border-app-border text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                      <th className="px-3 py-2">Transaction</th>
+                      <th className="px-3 py-2">Source booked time</th>
+                      <th className="px-3 py-2">Safe timestamp changes</th>
+                      <th className="px-3 py-2">Financial evidence</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-app-border">
+                    {bookingDateRepairPreview?.candidates
+                      .slice(0, 20)
+                      .map((candidate) => (
+                        <tr key={candidate.manifest_key}>
+                          <td className="px-3 py-3">
+                            <p className="font-black text-app-text">
+                              {candidate.display_id}
+                            </p>
+                            <p className="text-app-text-muted">
+                              {candidate.counterpoint_ticket_ref ??
+                                candidate.counterpoint_doc_ref ??
+                                "Counterpoint import"}
+                            </p>
+                          </td>
+                          <td className="px-3 py-3 text-app-text-muted">
+                            {new Date(
+                              candidate.target_booked_at,
+                            ).toLocaleString()}
+                          </td>
+                          <td className="px-3 py-3 text-app-text-muted">
+                            <p>{candidate.line_rows_to_update} line date(s)</p>
+                            <p>
+                              {candidate.booking_events_to_update} booking
+                              event(s)
+                            </p>
+                          </td>
+                          <td className="px-3 py-3">
+                            <p
+                              className={
+                                candidate.integrity_status === "critical"
+                                  ? "font-bold text-red-700 dark:text-red-300"
+                                  : "text-app-text-muted"
+                              }
+                            >
+                              Current net header $
+                              {Number(candidate.header_total).toFixed(2)} ·
+                              Lines ${Number(candidate.line_total).toFixed(2)}
+                            </p>
+                            <p className="text-app-text-muted">
+                              Stored paid $
+                              {Number(candidate.stored_amount_paid).toFixed(2)}{" "}
+                              · Allocated $
+                              {Number(candidate.allocated_tender_total).toFixed(
+                                2,
+                              )}
+                            </p>
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+                {bookingDateRepairPreview?.candidates_truncated ||
+                (bookingDateRepairPreview?.candidate_count ?? 0) > 20 ? (
+                  <p className="border-t border-app-border px-3 py-2 text-[11px] font-semibold text-app-text-muted">
+                    Showing the first 20 manifest rows. Apply is bound to the
+                    complete reviewed manifest digest and aborts if any
+                    candidate, ID, count, or value changed.
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="rounded-lg border border-emerald-500/25 bg-emerald-500/10 p-3">
               <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700 dark:text-emerald-300">Ready</p>
@@ -1636,6 +1949,15 @@ export default function CounterpointSyncSettingsPanel({
               <p className="text-xs font-semibold text-app-text-muted">Not changed automatically</p>
             </div>
           </div>
+
+          {reconciliationPreview ? (
+            <p className="font-mono text-[10px] text-app-text-muted">
+              Reviewed manifest{" "}
+              {reconciliationPreview.manifest_digest.slice(0, 12)}… ·{" "}
+              {reconciliationPreview.candidate_count} candidate(s) ·{" "}
+              {new Date(reconciliationPreview.generated_at).toLocaleString()}
+            </p>
+          ) : null}
 
           <div className="overflow-auto rounded-lg border border-app-border">
             <table className="w-full min-w-[920px] text-left text-xs">
@@ -1878,6 +2200,28 @@ export default function CounterpointSyncSettingsPanel({
 
       {/* ── Modals ── */}
       <PromptModal
+        isOpen={bookingDateRepairPromptOpen}
+        onClose={() => setBookingDateRepairPromptOpen(false)}
+        onSubmit={async (value) => {
+          const expected =
+            bookingDateRepairPreview?.confirmation_phrase ??
+            "REPAIR COUNTERPOINT BOOKING DATES";
+          if (value.trim() !== expected) {
+            toast(
+              "Incorrect confirmation phrase. No records were changed.",
+              "error",
+            );
+            return false;
+          }
+          return runBookingDateRepair(value);
+        }}
+        title="Align Imported Booking Dates?"
+        message={`This applies only reviewed manifest ${bookingDateRepairPreview?.manifest_digest.slice(0, 12) ?? "unavailable"}… to ${bookingDateRepairPreview?.candidate_count ?? 0} imported transaction(s). If any candidate, ID, count, or value changed after review, the whole repair aborts. It changes only transaction-line and initial-booking event timestamps and never changes transaction headers, payments, allocations, or tender amounts. ${bookingDateRepairPreview?.financial_review_count ?? 0} import-snapshot exception(s) remain for source review.\n\nTo proceed, type: ${bookingDateRepairPreview?.confirmation_phrase ?? "REPAIR COUNTERPOINT BOOKING DATES"}`}
+        confirmLabel="Align Booking Dates"
+        placeholder="Enter confirmation phrase"
+      />
+
+      <PromptModal
         isOpen={reconciliationPromptOpen}
         onClose={() => setReconciliationPromptOpen(false)}
         onSubmit={async (value) => {
@@ -1889,7 +2233,7 @@ export default function CounterpointSyncSettingsPanel({
           return runHistoricalReconciliation(value);
         }}
         title="Repair Exact Counterpoint Matches?"
-        message={`This changes only the ${reconciliationPreview?.ready_count ?? 0} exact match(es). Payments are consolidated into each original order, duplicate imported shells are superseded, and an audit snapshot is retained. ${reconciliationPreview?.needs_review_count ?? 0} ambiguous case(s) will remain unchanged.\n\nTo proceed, type: ${reconciliationPreview?.confirmation_phrase ?? "RECONCILE COUNTERPOINT ORDERS"}`}
+        message={`This changes only the ${reconciliationPreview?.ready_count ?? 0} exact match(es) in reviewed manifest ${reconciliationPreview?.manifest_digest.slice(0, 12) ?? "unavailable"}… If any candidate, transaction, line signature, payment ID, or total changed after review, the whole repair aborts. Payments are consolidated into each original order, duplicate imported shells are superseded, and an audit snapshot is retained. ${reconciliationPreview?.needs_review_count ?? 0} ambiguous case(s) will remain unchanged.\n\nTo proceed, type: ${reconciliationPreview?.confirmation_phrase ?? "RECONCILE COUNTERPOINT ORDERS"}`}
         confirmLabel="Repair Exact Matches"
         placeholder="Enter confirmation phrase"
       />

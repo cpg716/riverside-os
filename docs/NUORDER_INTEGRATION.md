@@ -78,6 +78,7 @@ The integration utilizes a dedicated **`NuorderClient`** in the server backend, 
 - **Timeouts**: `reqwest` client configured with 15s connect timeout and 60s request timeout.
 - **Response Body Capture**: Non-2xx responses now include the full response body in error messages for easier debugging.
 - **Health Check**: Lightweight `GET /api/settings/nuorder/health` endpoint performs a single-product probe against `api.nuorder.com` without triggering a sync.
+- **Heartbeat truthfulness**: Integration monitoring reports **CAUTION** only when all NuORDER credentials are absent. An incomplete credential set, credential-database read failure, or decryption/validation failure is reported as **WARNING** without exposing credential values.
 
 ## Related docs
 

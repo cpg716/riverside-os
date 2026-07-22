@@ -52,6 +52,7 @@ pub async fn live() -> Result<Json<serde_json::Value>, StatusCode>
   "status": "healthy",
   "timestamp": "2024-01-15T10:30:00Z",
   "version": "0.70.2",
+  "build_sha": "851dcba0b0e4f1d31a2f8d386cf09db74c18bd14",
   "uptime_seconds": 86400
 }
 ```
@@ -61,6 +62,7 @@ pub async fn live() -> Result<Json<serde_json::Value>, StatusCode>
 {
   "status": "ready",
   "timestamp": "2024-01-15T10:30:00Z",
+  "build_sha": "851dcba0b0e4f1d31a2f8d386cf09db74c18bd14",
   "database": {
     "connected": true,
     "pool_size": 20,
@@ -79,11 +81,23 @@ pub async fn live() -> Result<Json<serde_json::Value>, StatusCode>
     "redis_connected": false,
     "job_queue_enabled": true
   },
+  "backup": {
+    "worker_healthy": true,
+    "tooling_ready": true,
+    "artifact_usable": true,
+    "recent_verified_backup": true,
+    "last_verified_at": "2026-07-22T06:00:00Z",
+    "last_verified_filename": "backup_20260722_020000_9d315da7ad5343c98e261dd347ea3a1b.dump.enc",
+    "verification_method": "pg_restore_catalog+chunked_aead_v2+sha256",
+    "last_verified_size_bytes": 104857600,
+    "last_failure_at": null,
+    "max_age_hours": 30
+  },
   "unavailable_components": []
 }
 ```
 
-`status` is `ready` only when every reported component is healthy. A non-critical worker or optional configured Redis outage returns `degraded` with the exact component names while keeping HTTP 200 so Register connectivity is not blocked. A database failure, or an enabled job queue whose worker is unhealthy, returns `not_ready` with HTTP 503. The job-queue heartbeat is refreshed only after a successful queue poll and expires after 60 seconds, so a stopped or disconnected worker cannot remain ready indefinitely. The blocking Redis dequeue returns at least every 20 seconds when idle, leaving time to refresh that heartbeat without false readiness failures. Handler capacity is reserved before a job moves into the processing list, preventing saturation from aging an unstarted job into stale recovery. Pool and worker failures are never replaced with healthy-looking zero values.
+`build_sha` is compiled into the server binary and appears on both `/api/health` and `/api/ready`; use its full value as the live Main Hub deployment identity instead of inferring deployment from the semantic version alone. `status` is `ready` only when every reported component is healthy. Backup readiness is separate from the scheduler heartbeat: it requires executable, matching-major `pg_dump`/`pg_restore` tools that can support the connected PostgreSQL server and a recent archive that passed `pg_restore --list` verification. The verification timestamp, final catalog filename, method, byte length, and SHA-256 are distinct from the legacy scheduler-success timestamp and are never backfilled. Each readiness probe confirms that the exact recorded artifact still exists with matching metadata; a bounded, cached SHA-256/header/key check proves it is unchanged and usable. Deletion and retention cleanup clear evidence for the matching filename in the same serialized operation. Missing, stale, replaced, damaged, or key-inaccessible backup evidence returns `degraded` with HTTP 200 so Register connectivity is not blocked; it is never represented as a healthy worker-only result. Current encrypted archives use versioned `ROSBAK2` 1 MiB authenticated chunks. HTTP downloads, cloud uploads, and the cloud object's post-upload SHA-256 read-back all stream fixed-size buffers; legacy `ROSBAK1` archives remain restore-readable but do not establish the new bounded readiness proof. The evidence query and tool probe are bounded; the evidence query is skipped when the database connectivity check already failed. A non-critical worker or optional configured Redis outage also returns `degraded` with the exact component names. A database failure, or an enabled job queue whose worker is unhealthy, returns `not_ready` with HTTP 503. The job-queue heartbeat is refreshed only after a successful queue poll and expires after 60 seconds, so a stopped or disconnected worker cannot remain ready indefinitely. The blocking Redis dequeue returns at least every 20 seconds when idle, leaving time to refresh that heartbeat without false readiness failures. Handler capacity is reserved before a job moves into the processing list, preventing saturation from aging an unstarted job into stale recovery. Pool and worker failures are never replaced with healthy-looking zero values.
 
 ### Kubernetes Configuration
 
@@ -622,6 +636,11 @@ RIVERSIDE_AUTHENTICATED_RATE_LIMIT_PER_MINUTE=5000
 # CORS Origins (production)
 RIVERSIDE_CORS_ORIGINS=https://retail.riverside.com,https://admin.riverside.com
 RIVERSIDE_STRICT_PRODUCTION=true
+
+# Durable backup path and optional explicit PostgreSQL client-tool paths
+RIVERSIDE_BACKUP_DIR=/var/backups/riverside-os
+RIVERSIDE_PG_DUMP_PATH=/usr/bin/pg_dump
+RIVERSIDE_PG_RESTORE_PATH=/usr/bin/pg_restore
 
 # Metrics
 RIVERSIDE_METRICS_ENABLED=true

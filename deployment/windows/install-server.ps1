@@ -42,7 +42,9 @@ if (Test-Path $packageManifestPath) {
   & $packageVerifier -PackageRoot $ScriptRoot
   try {
     $packageManifest = Get-Content $packageManifestPath -Raw | ConvertFrom-Json
-  } catch {}
+  } catch {
+    throw "deployment-package.manifest.json is invalid: $($_.Exception.Message)"
+  }
 }
 
 function Assert-Admin {
@@ -1402,6 +1404,25 @@ function Set-ServerDatabaseUrl([string]$Path, [string]$DatabaseUrl) {
   [System.IO.File]::WriteAllLines($Path, [string[]]$lines, $utf8WithoutBom)
 }
 
+function Write-DeploymentConfigJson([string]$Path, $DeploymentConfig) {
+  $json = $DeploymentConfig | ConvertTo-Json -Depth 20
+  $utf8WithoutBom = New-Object System.Text.UTF8Encoding($false)
+  [System.IO.File]::WriteAllText($Path, $json, $utf8WithoutBom)
+}
+
+function Set-DeploymentConfigDatabaseAppPassword([string]$Path, [string]$AppPassword) {
+  if (-not (Test-Path $Path)) {
+    throw "Cannot synchronize the deployment config because it is missing: $Path"
+  }
+
+  $restoredConfig = Get-Content $Path -Raw | ConvertFrom-Json
+  if (-not $restoredConfig.server -or -not $restoredConfig.server.database) {
+    throw "Cannot synchronize the deployment config because server.database is missing: $Path"
+  }
+  Set-SafeProperty $restoredConfig.server.database "appPassword" $AppPassword
+  Write-DeploymentConfigJson $Path $restoredConfig
+}
+
 # ---------------------------------------------------------------------------
 # ROSIE AI Stack Setup
 # Downloads the pinned Gemma GGUF, SenseVoice STT model, and Kokoro TTS model.
@@ -1758,6 +1779,7 @@ if (-not (Test-Path $ConfigPath)) {
   }
 }
 
+$sourceConfigOriginalBytes = [System.IO.File]::ReadAllBytes($ConfigPath)
 $config = Get-Content $ConfigPath -Raw | ConvertFrom-Json
 if (-not $config.server) {
   $config | Add-Member -NotePropertyName server -NotePropertyValue ([pscustomobject]@{}) -Force
@@ -1912,10 +1934,7 @@ if (Test-PlaceholderSecret $config.server.database.appPassword) {
   }
 
 if ($configModified) {
-  $configJson = $config | ConvertTo-Json -Depth 8
-  Set-Content -Path $ConfigPath -Value $configJson -Encoding UTF8
-  Write-DeploymentLog "Writing config to $ConfigPath"
-  Write-Host "Auto-saved resolved credentials and passwords to $ConfigPath." -ForegroundColor Green
+  Write-Host "Resolved deployment config changes will be saved after update preflight succeeds." -ForegroundColor Yellow
 }
 # $packageManifest already loaded at script startup
 $server = $config.server
@@ -1951,16 +1970,34 @@ $packageMigrations = Join-Path $ScriptRoot "migrations"
 $packageSeeds = Join-Path $ScriptRoot "seeds"
 $packageReleaseDocs = Join-Path $ScriptRoot "docs"
 
+$serverEnvironment = Ensure-ServerEnvironmentObject $config
+$configuredRuntimeBackupDir = "$($serverEnvironment.RIVERSIDE_BACKUP_DIR)".Trim()
+if ([string]::IsNullOrWhiteSpace($configuredRuntimeBackupDir)) {
+  Set-SafeProperty $serverEnvironment "RIVERSIDE_BACKUP_DIR" $backupDir
+  $configModified = $true
+  Write-Host "Configured the durable runtime backup directory at $backupDir." -ForegroundColor Green
+}
+
 foreach ($dir in @($installRoot, $serverDir, $clientDist, $releaseDir, $backupDir, $logDir)) {
   New-Item -ItemType Directory -Force -Path $dir | Out-Null
 }
 
 $installRootConfigPath = Join-Path $installRoot "riverside-deployment.config.json"
-if ($ConfigPath -ne $installRootConfigPath) {
-  Copy-Item -Path $ConfigPath -Destination $installRootConfigPath -Force
-  $ConfigPath = $installRootConfigPath
-  Write-Host "Persisted deployment config to $ConfigPath." -ForegroundColor Green
+$sourceConfigPath = [System.IO.Path]::GetFullPath($ConfigPath)
+$canonicalConfigPath = [System.IO.Path]::GetFullPath($installRootConfigPath)
+$configPathsDiffer = -not $sourceConfigPath.Equals(
+  $canonicalConfigPath,
+  [System.StringComparison]::OrdinalIgnoreCase
+)
+$canonicalConfigExisted = Test-Path $installRootConfigPath
+$canonicalConfigOriginalBytes = if ($configPathsDiffer -and $canonicalConfigExisted) {
+  [System.IO.File]::ReadAllBytes($installRootConfigPath)
+} elseif (-not $configPathsDiffer) {
+  $sourceConfigOriginalBytes
+} else {
+  $null
 }
+$canonicalConfigRollbackRequired = $false
 
 # Lockdown C:\RiversideOS directory so only SYSTEM and Administrators have access
 try {
@@ -2028,6 +2065,16 @@ if ($hadExistingServerInstall -and -not $SkipMigrations) {
 }
 
 try {
+$canonicalConfigRollbackRequired = $true
+if ($configModified) {
+  Write-DeploymentConfigJson $installRootConfigPath $config
+  Write-DeploymentLog "Writing config to $installRootConfigPath"
+  Write-Host "Persisted resolved deployment config to $installRootConfigPath." -ForegroundColor Green
+} elseif ($configPathsDiffer) {
+  Copy-Item -Path $sourceConfigPath -Destination $installRootConfigPath -Force
+  Write-Host "Persisted deployment config to $installRootConfigPath." -ForegroundColor Green
+}
+$ConfigPath = $installRootConfigPath
 Stop-RiversideServer
 Stop-PortListeners $serverPort
 
@@ -2043,6 +2090,11 @@ Copy-Item $packageSeeds (Join-Path $releaseDir "seeds") -Recurse -Force
 if (Test-Path $packageReleaseDocs) {
   Remove-Item "$releaseDir\docs" -Recurse -Force -ErrorAction SilentlyContinue
   Copy-Item $packageReleaseDocs (Join-Path $releaseDir "docs") -Recurse -Force
+}
+if ($packageManifest) {
+  Copy-Item $packageManifestPath (Join-Path $releaseDir "deployment-package.manifest.json") -Force
+} elseif ([bool]$server.strictProduction) {
+  throw "Strict production installation requires a verified deployment-package.manifest.json."
 }
 
 $psql = Resolve-PsqlPath $db
@@ -2263,6 +2315,27 @@ Remove-Item $rollbackDir -Recurse -Force -ErrorAction SilentlyContinue
     }
   } catch {
     Write-Warning "Rollback file restoration failed: $($_.Exception.Message)"
+  }
+
+  if ($canonicalConfigRollbackRequired) {
+    try {
+      if ($canonicalConfigExisted) {
+        [System.IO.File]::WriteAllBytes($installRootConfigPath, $canonicalConfigOriginalBytes)
+        if ($databaseRoleCredentialsUpdated) {
+          Set-DeploymentConfigDatabaseAppPassword $installRootConfigPath "$($db.appPassword)"
+          Write-Host "Restored deployment config synchronized with the PostgreSQL app role." -ForegroundColor Yellow
+        }
+        Write-Host "Restored the previous installed deployment config after the failed update." -ForegroundColor Yellow
+      } elseif ($databaseRoleCredentialsUpdated) {
+        Write-DeploymentConfigJson $installRootConfigPath $config
+        Write-Host "Retained the failed initial install config because PostgreSQL app credentials were already applied." -ForegroundColor Yellow
+      } else {
+        Remove-Item $installRootConfigPath -Force -ErrorAction SilentlyContinue
+        Write-Host "Removed the incomplete installed deployment config after the failed initial install." -ForegroundColor Yellow
+      }
+    } catch {
+      Write-Warning "Rollback deployment config restoration failed: $($_.Exception.Message)"
+    }
   }
 
   try {

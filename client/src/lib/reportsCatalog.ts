@@ -10,6 +10,7 @@ export type ReportResponseKind =
   | "sales_pivot"
   | "margin_pivot"
   | "rows"
+  | "audited_paged_rows"
   | "row_object"
   | "best_sellers"
   | "dead_stock"
@@ -86,6 +87,7 @@ export type ReportChartConfig = {
   secondaryValueKey?: string;
   valueFormat?: ReportChartValueFormat;
   limit?: number;
+  aggregateByLabel?: boolean;
 };
 
 const enc = (s: string) => encodeURIComponent(s);
@@ -718,16 +720,17 @@ export const REPORTS_CATALOG: ReportDef[] = [
     adminOnly: false,
     permissionsAll: [],
     permissionsAny: ["insights.view", "register.reports"],
-    responseKind: "rows",
+    responseKind: "audited_paged_rows",
     usesGlobalDateRange: true,
     usesBasis: false,
     chartConfigs: [
       {
         title: "Refunds owed by day",
         labelKey: "business_date",
-        valueKey: "refund_due",
+        valueKey: "refund_remaining",
         valueFormat: "money",
         limit: 14,
+        aggregateByLabel: true,
       },
       {
         title: "Refunds paid by day",
@@ -735,6 +738,7 @@ export const REPORTS_CATALOG: ReportDef[] = [
         valueKey: "refund_paid",
         valueFormat: "money",
         limit: 14,
+        aggregateByLabel: true,
       },
     ],
     buildPath: ({ fromYmd, toYmd }) =>

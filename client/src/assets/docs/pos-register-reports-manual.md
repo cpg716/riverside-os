@@ -31,10 +31,15 @@ Daily Sales payment totals use the same store-local effective business-date wind
 
 1. Open **POS → Reports** while the register session is still active.
 2. Review **Booked** for what was rung during the drawer/session and **Completed** for recognized revenue and pickup activity.
+   Riverside loads the selected basis first so a slower comparison cannot keep the whole screen waiting. If the comparison misses the 15-second response deadline, the selected basis stays usable and the screen says that the other basis is unavailable; it shows an em dash for unavailable comparison metrics and never substitutes zero totals.
 3. Open individual entries when you need receipt or tender detail. Click the customer name or Customer # to open CustomerHub for that customer.
 4. Search by customer name, phone, email, Customer #, Transaction number, payment method, item name, or SKU. Search runs against the full selected date range, not only the rows currently visible. Use **Load more audited activity** when the result count is larger than the current page.
 5. Use **Void** on a completed sale only after a manager confirms the transaction, reason, tender reversal, and inventory impact.
-6. Use **View**, **Print**, or **Export** to prepare the complete matching activity set. Riverside loads every audited page before producing the output; it never labels the first page as a complete report. If Register activity changes while those pages are loading, Riverside produces nothing and asks you to retry instead of creating a mixed-time report. For stability, the screen stops at 2,000 loaded detail rows and generated output stops at 20,000 combined activity and pickup rows. Narrow the date range or search when ROS reports that limit.
+
+An active Register can request its own lane-scoped report only with that Register session's matching protected token. Supplying an open session number is not authorization. Store-wide and archived report access requires **register.reports** permission.
+
+Archived Z-report output loads audited detail in timed, cancellable pages. Starting a different archived report cancels the earlier load, and a timeout opens nothing. Z-report history shows up to the newest 40 rows for the selected range; a loading failure is shown as an error with Retry and is never labeled as an empty range.
+6. Use **View**, **Print**, or **Export** to prepare the complete matching activity set. Riverside asks the Main Hub for one read-only database snapshot and verifies its counts, row identities, and completion flags before producing output; it never labels an interactive page as a complete report. For stability, the screen stops at 2,000 loaded detail rows and generated output stops at 20,000 combined activity and pickup rows. Narrow the date range or search when ROS reports that limit.
 7. Open **Z-Reports** to see which linked lanes are still open, which drawer is already reconciling, and whether Register #1 still needs to finish the shared close.
 
 ## Daily Sales Activity
@@ -79,7 +84,7 @@ To review the report first, tap **View**. In the desktop app, the preview opens 
 
 Z-Reports also use the same contract in the desktop app. Each row and printed report shows its store-local **business date**, which may differ from the morning it was closed. **Open Report** opens the Z-report inside ROS for review, with each sale row labeled by its `TXN-` transaction number. ROS never combines multiple business dates; missed days appear as separate reports and must be closed oldest first. The Z-report quick-look boxes include daily business counts and amounts such as New Vendor Invoices from Back Office receiving, New Orders, Orders Picked Up, Credit Card Total, RMS Payments, RMS Charge, appointments, alterations, new wedding parties, shipping, and discounts. **Close & Print Z-Report** and preview **Print** send the report to the configured Reports printer. If a report prints as raw text instead of the formatted layout, check that the workstation is using the current build and rerun the report print.
 
-After close, Riverside freezes the complete audited activity and pickup set for that business date. It never saves the first page as though it were the full EOD snapshot. If every page cannot be verified, the drawer still closes, no partial snapshot is saved, and Riverside raises an operational alert for support follow-up.
+After close, Riverside freezes the complete audited activity and pickup set for that business date inside one read-only repeatable-read database snapshot. It never saves the first page as though it were the full EOD snapshot. If every row cannot be verified, the drawer still closes, no partial snapshot is saved, and Riverside raises an operational alert for support follow-up.
 
 Cash refunds processed before close appear as negative cash activity. They reduce Cash Sales (Gross), Expected Cash, and the amount available for deposit; any difference between the resulting expected cash and the physical count remains an over/short variance to explain.
 

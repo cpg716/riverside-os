@@ -50,7 +50,24 @@ That means a missing incident feed should not hide available audit history, prot
 
 Database diagnostics never turn a failed request into a disconnected pool with zero errors or zero migrations. When the current probe is unavailable, Riverside either keeps the last confirmed snapshot and labels it, or shows **Unavailable** and an em dash. Treat those states as missing evidence, not as zero activity.
 
-The migration total comes from Riverside's active `ros_schema_migrations` ledger. If that ledger cannot be read, the diagnostic is **Unavailable**; Riverside does not report a fabricated zero.
+The migration total comes from the migration ledger. The **highest active migration** is selected by
+its numeric filename from the migrations shipped with this server, so an inactive legacy row or a
+newer `applied_at` timestamp cannot masquerade as the current baseline. The panel shows whether
+that active migration is applied and explicitly flags missing checksums. If the ledger cannot be
+read, the diagnostic is **Unavailable**; Riverside does not report a fabricated zero.
+
+Runtime Diagnostics also reports the effective browser origin policy and PostgreSQL backup-tool readiness. **Wildcard** origin policy or **Backup Verification Tools: Unavailable** is a production warning, not a healthy status.
+
+Integration status also requires current evidence. Counterpoint with no run history, a
+never-successful entity, or an older-than-72-hour success is **Degraded**. Meilisearch must have a
+current reachability heartbeat and a successful full rebuild within 36 hours; configuration alone
+or an old `GOOD` row is not healthy.
+
+In Station Fleet, **Last Seen** is recorded by the server. Sync and update-check times come from the
+workstation clock, are client-reported, and are capped at the heartbeat receipt time when a client
+reports a future value. Install time is accepted only from a confirmed native-updater observation;
+pending, failed, unavailable, and legacy browser/local-storage observations do not count as proof
+of an installed update.
 
 ## Protected actions
 

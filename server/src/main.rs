@@ -26,16 +26,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let frontend_dist = std::env::var("FRONTEND_DIST").ok().map(PathBuf::from);
 
-    let cors_origins: Vec<String> = std::env::var("RIVERSIDE_CORS_ORIGINS")
-        .unwrap_or_default()
-        .split(',')
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .collect();
+    let cors_origins = riverside_server::runtime_config::cors_origins_from_env();
 
     let strict_production = std::env::var("RIVERSIDE_STRICT_PRODUCTION")
-        .unwrap_or_default()
-        .eq_ignore_ascii_case("true");
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false);
 
     let max_body_bytes = std::env::var("RIVERSIDE_MAX_BODY_BYTES")
         .ok()

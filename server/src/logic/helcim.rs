@@ -193,6 +193,7 @@ pub struct HelcimFeeDetails {
     pub net_amount: Option<Decimal>,
     pub card_batch_id: Option<String>,
     pub source_field: Option<String>,
+    pub net_source_field: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -502,6 +503,13 @@ impl HelcimCardTransaction {
             .map(str::to_string)
     }
 
+    pub fn transaction_type(&self) -> Option<String> {
+        first_string_field(
+            &Value::Object(self.extra.clone()),
+            &["transactionType", "transaction_type", "type"],
+        )
+    }
+
     pub fn card_last4(&self) -> Option<String> {
         let digits: String = self
             .card_number
@@ -619,9 +627,11 @@ pub fn extract_fee_details(payload: &Value) -> HelcimFeeDetails {
     const NET_FIELDS: &[&str] = &["netAmount", "net_amount", "net"];
 
     let fee = first_decimal_field(payload, FEE_FIELDS);
-    let net_amount = first_decimal_field(payload, NET_FIELDS).map(|(_, amount)| amount);
+    let net = first_decimal_field(payload, NET_FIELDS);
+    let net_amount = net.as_ref().map(|(_, amount)| *amount);
     let merchant_fee = fee.as_ref().map(|(_, amount)| *amount);
     let source_field = fee.map(|(field, _)| field);
+    let net_source_field = net.map(|(field, _)| field);
     let card_batch_id = first_string_field(payload, &["cardBatchId", "card_batch_id"]);
 
     HelcimFeeDetails {
@@ -629,6 +639,7 @@ pub fn extract_fee_details(payload: &Value) -> HelcimFeeDetails {
         net_amount,
         card_batch_id,
         source_field,
+        net_source_field,
     }
 }
 
@@ -689,14 +700,7 @@ pub fn parse_card_batch_snapshot(payload: &Value) -> Option<HelcimCardBatchSnaps
         .map(|(_, amount)| amount),
         net_amount: first_decimal_field(
             payload,
-            &[
-                "depositAmount",
-                "deposit_amount",
-                "netSales",
-                "net_sales",
-                "netAmount",
-                "net_amount",
-            ],
+            &["depositAmount", "deposit_amount", "netAmount", "net_amount"],
         )
         .map(|(_, amount)| amount),
         transaction_count: first_i32_field(
@@ -2060,6 +2064,16 @@ mod tests {
         assert_eq!(details.net_amount, Some(Decimal::new(9709, 2)));
         assert_eq!(details.card_batch_id.as_deref(), Some("456"));
         assert_eq!(details.source_field.as_deref(), Some("processingFee"));
+        assert_eq!(details.net_source_field.as_deref(), Some("netAmount"));
+    }
+
+    #[test]
+    fn card_transaction_exposes_provider_transaction_type() {
+        let mut transaction = simulated_card_transaction("123", 10_000, "USD", "approved");
+        transaction
+            .extra
+            .insert("type".to_string(), json!("purchase"));
+        assert_eq!(transaction.transaction_type().as_deref(), Some("purchase"));
     }
 
     #[test]
@@ -2073,6 +2087,7 @@ mod tests {
         assert_eq!(details.merchant_fee, None);
         assert_eq!(details.net_amount, None);
         assert_eq!(details.card_batch_id.as_deref(), Some("456"));
+        assert_eq!(details.net_source_field, None);
     }
 
     #[test]
@@ -2119,6 +2134,21 @@ mod tests {
         assert_eq!(batch.net_amount, Some(Decimal::new(289401, 2)));
         assert_eq!(batch.transaction_count, Some(4));
         assert!(batch.closed_at.is_some());
+    }
+
+    #[test]
+    fn does_not_treat_batch_net_sales_as_deposit_evidence() {
+        let batch = parse_card_batch_snapshot(&json!({
+            "id": 456,
+            "closed": true,
+            "totalSales": "100.00",
+            "netSales": "75.00",
+            "totalRefunds": "25.00"
+        }))
+        .expect("batch should parse");
+
+        assert_eq!(batch.gross_amount, Some(Decimal::new(10000, 2)));
+        assert_eq!(batch.net_amount, None);
     }
 
     #[test]

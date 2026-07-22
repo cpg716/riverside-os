@@ -46,6 +46,8 @@ If you are already logged in but a different staff member needs to ring a sale, 
 
 Staff Access records who operated the register. It is separate from **Salesperson** attribution for commissions. Only active staff with the **Salesperson** role appear in Salesperson attribution lists. Before completing payment, every merchandise, alteration, special-order, custom-order, and wedding-order sale line must have a default Salesperson or a line-level Salesperson. Choose **Staff Admin** only when the sale should not commission to an individual salesperson; it is a protected no-commission system account. Gift-card-load-only and RMS Charge payment-only flows do not use salesperson attribution.
 
+Completing or clearing a sale keeps the Register session and workstation Staff Access active, but clears **Cashier for this sale**. Select and verify the operator again before the next checkout so one staff member's sale identity cannot silently carry into another person's transaction.
+
 Correcting Salesperson attribution after the sale always requires a fresh Access PIN, even when the signed-in Admin already has permission. Riverside does not reuse or retain the sign-in PIN for this audit-sensitive correction.
 
 ---

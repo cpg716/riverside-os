@@ -627,6 +627,38 @@ fn env_backup_overdue_hours() -> i64 {
         .unwrap_or(30)
 }
 
+fn local_backup_failure_is_current(
+    failure_at: Option<chrono::DateTime<Utc>>,
+    verified_at: Option<chrono::DateTime<Utc>>,
+) -> bool {
+    match (failure_at, verified_at) {
+        (Some(failure), Some(verified)) => failure > verified,
+        (Some(_), None) => true,
+        (None, _) => false,
+    }
+}
+
+fn verified_backup_is_overdue(
+    verified_at: Option<chrono::DateTime<Utc>>,
+    now: chrono::DateTime<Utc>,
+    max_age_hours: i64,
+) -> bool {
+    verified_at.is_none_or(|verified| verified < now - ChronoDuration::hours(max_age_hours))
+}
+
+fn clip_backup_notification_detail(detail: &str) -> String {
+    const MAX_CHARS: usize = 280;
+    if detail.chars().count() <= MAX_CHARS {
+        return detail.to_string();
+    }
+    let mut clipped = detail
+        .chars()
+        .take(MAX_CHARS.saturating_sub(1))
+        .collect::<String>();
+    clipped.push('…');
+    clipped
+}
+
 async fn run_scheduled_helcim_fee_sync(pool: &PgPool) -> Result<(), sqlx::Error> {
     let http = reqwest::Client::new();
     payments::run_scheduled_helcim_fee_sync(pool, &http)
@@ -941,7 +973,7 @@ async fn run_payment_operations_notifications(pool: &PgPool) -> Result<(), sqlx:
     Ok(())
 }
 
-/// Admin-only: failed local backup, failed cloud export, or no successful local backup within threshold.
+/// Admin-only: failed local backup, failed cloud export, or no verified local backup within threshold.
 pub async fn run_backup_admin_notifications(pool: &PgPool) -> Result<(), sqlx::Error> {
     type HealthRow = (
         Option<chrono::DateTime<Utc>>,
@@ -953,7 +985,7 @@ pub async fn run_backup_admin_notifications(pool: &PgPool) -> Result<(), sqlx::E
     );
     let row: Option<HealthRow> = sqlx::query_as(
         r#"
-        SELECT last_local_success_at, last_local_failure_at, last_local_failure_detail,
+        SELECT last_local_verified_at, last_local_failure_at, last_local_failure_detail,
                last_cloud_success_at, last_cloud_failure_at, last_cloud_failure_detail
         FROM store_backup_health
         WHERE id = 1
@@ -962,16 +994,25 @@ pub async fn run_backup_admin_notifications(pool: &PgPool) -> Result<(), sqlx::E
     .fetch_optional(pool)
     .await?;
 
-    let Some((loc_succ, loc_fail, loc_detail, cloud_succ, cloud_fail, cloud_detail)) = row else {
+    let Some((loc_verified, loc_fail, loc_detail, cloud_succ, cloud_fail, cloud_detail)) = row
+    else {
         return Ok(());
     };
 
     let settings_raw: Value =
         sqlx::query_scalar("SELECT backup_settings FROM store_settings WHERE id = 1")
-            .fetch_optional(pool)
-            .await?
-            .unwrap_or(json!({}));
-    let backup_cfg: BackupSettings = serde_json::from_value(settings_raw).unwrap_or_default();
+            .fetch_one(pool)
+            .await?;
+    let backup_cfg = match BackupSettings::try_from_json(settings_raw) {
+        Ok(settings) => settings,
+        Err(error) => {
+            let detail = format!(
+                "Backup configuration is invalid; open Data & Backups and correct the saved settings before the next backup: {error}"
+            );
+            crate::logic::backups::record_local_backup_failure(pool, &detail).await?;
+            return Ok(());
+        }
+    };
     let cloud_enabled = backup_cfg.cloud_storage_enabled;
 
     let admins = admin_staff_ids(pool).await?;
@@ -982,11 +1023,7 @@ pub async fn run_backup_admin_notifications(pool: &PgPool) -> Result<(), sqlx::E
 
     let deep = json!({ "type": "settings", "section": "backups" });
 
-    let local_in_bad_state = match (loc_fail, loc_succ) {
-        (Some(f), Some(s)) => f > s,
-        (Some(_), None) => true,
-        (None, _) => false,
-    };
+    let local_in_bad_state = local_backup_failure_is_current(loc_fail, loc_verified);
     if local_in_bad_state {
         if let Some(fail_at) = loc_fail {
             let dedupe = format!("backup_admin_local_failed:{}", fail_at.format("%Y-%m-%d"));
@@ -995,11 +1032,7 @@ pub async fn run_backup_admin_notifications(pool: &PgPool) -> Result<(), sqlx::E
                 .map(str::trim)
                 .filter(|s| !s.is_empty())
                 .unwrap_or("Scheduled or manual backup failed.");
-            let body = if detail.len() > 280 {
-                format!("{}…", &detail[..279])
-            } else {
-                detail.to_string()
-            };
+            let body = clip_backup_notification_detail(detail);
             if let Some(nid) = insert_app_notification_deduped(
                 pool,
                 "backup_admin_local_failed",
@@ -1031,11 +1064,7 @@ pub async fn run_backup_admin_notifications(pool: &PgPool) -> Result<(), sqlx::E
                     .map(str::trim)
                     .filter(|s| !s.is_empty())
                     .unwrap_or("Cloud upload after a successful local backup failed.");
-                let body = if detail.len() > 280 {
-                    format!("{}…", &detail[..279])
-                } else {
-                    detail.to_string()
-                };
+                let body = clip_backup_notification_detail(detail);
                 if let Some(nid) = insert_app_notification_deduped(
                     pool,
                     "backup_admin_cloud_failed",
@@ -1054,37 +1083,39 @@ pub async fn run_backup_admin_notifications(pool: &PgPool) -> Result<(), sqlx::E
         }
     }
 
-    if let Some(succ) = loc_succ {
-        if !local_in_bad_state {
-            let threshold = ChronoDuration::hours(env_backup_overdue_hours());
-            if succ < Utc::now() - threshold {
-                let tz_name = load_store_timezone_name(pool).await?;
-                let tz: Tz = tz_name.parse().unwrap_or(Tz::UTC);
-                let store_day_s = Utc::now()
-                    .with_timezone(&tz)
-                    .date_naive()
-                    .format("%Y-%m-%d")
-                    .to_string();
-                let dedupe = format!("backup_admin_past_due:{store_day_s}");
-                let hours = env_backup_overdue_hours();
-                let title = "Backup overdue";
-                let body = format!(
-                    "Last successful local backup was more than {hours} hours ago. Open Data & Backups to run or inspect backups."
-                );
-                if let Some(nid) = insert_app_notification_deduped(
-                    pool,
-                    "backup_admin_past_due",
-                    title,
-                    &body,
-                    deep,
-                    "generator",
-                    aud,
-                    Some(&dedupe),
+    if !local_in_bad_state {
+        let hours = env_backup_overdue_hours();
+        if verified_backup_is_overdue(loc_verified, Utc::now(), hours) {
+            let tz_name = load_store_timezone_name(pool).await?;
+            let tz: Tz = tz_name.parse().unwrap_or(Tz::UTC);
+            let store_day_s = Utc::now()
+                .with_timezone(&tz)
+                .date_naive()
+                .format("%Y-%m-%d")
+                .to_string();
+            let dedupe = format!("backup_admin_past_due:{store_day_s}");
+            let title = "Verified backup overdue";
+            let body = if loc_verified.is_some() {
+                format!(
+                    "Last verified local backup was more than {hours} hours ago. Open Data & Backups to run or inspect backups."
                 )
-                .await?
-                {
-                    fan_out_notification_to_staff_ids(pool, nid, &admins).await?;
-                }
+            } else {
+                "No catalog-verified local backup has been recorded. Open Data & Backups to create and inspect one."
+                    .to_string()
+            };
+            if let Some(nid) = insert_app_notification_deduped(
+                pool,
+                "backup_admin_past_due",
+                title,
+                &body,
+                deep,
+                "generator",
+                aud,
+                Some(&dedupe),
+            )
+            .await?
+            {
+                fan_out_notification_to_staff_ids(pool, nid, &admins).await?;
             }
         }
     }
@@ -3035,4 +3066,34 @@ async fn run_qbo_failed_reminder_sweep(pool: &PgPool) -> Result<(), sqlx::Error>
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        clip_backup_notification_detail, local_backup_failure_is_current,
+        verified_backup_is_overdue,
+    };
+    use chrono::{Duration, Utc};
+
+    #[test]
+    fn backup_alerts_require_current_verified_evidence() {
+        let now = Utc::now();
+        let verified = now - Duration::hours(2);
+
+        assert!(verified_backup_is_overdue(None, now, 30));
+        assert!(!verified_backup_is_overdue(Some(verified), now, 30));
+        assert!(local_backup_failure_is_current(
+            Some(now - Duration::hours(1)),
+            Some(verified)
+        ));
+        assert!(!local_backup_failure_is_current(
+            Some(now - Duration::hours(3)),
+            Some(verified)
+        ));
+
+        let clipped = clip_backup_notification_detail(&"é".repeat(300));
+        assert_eq!(clipped.chars().count(), 280);
+        assert!(clipped.ends_with('…'));
+    }
 }

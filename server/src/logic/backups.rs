@@ -11,9 +11,11 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{postgres::PgConnectOptions, PgPool, Row};
 use std::fs;
-use std::io::Read;
+use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::sync::{Mutex as StdMutex, OnceLock};
+use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 use tracing::{error, info};
 use uuid::Uuid;
@@ -21,17 +23,24 @@ use uuid::Uuid;
 const BACKUP_DIR_ENV: &str = "RIVERSIDE_BACKUP_DIR";
 const BACKUP_ENCRYPTION_KEY_ENV: &str = "RIVERSIDE_BACKUP_ENCRYPTION_KEY";
 const PG_DUMP_PATH_ENV: &str = "RIVERSIDE_PG_DUMP_PATH";
+const PG_RESTORE_PATH_ENV: &str = "RIVERSIDE_PG_RESTORE_PATH";
 const BACKUP_DOCKER_FALLBACK_ENV: &str = "RIVERSIDE_BACKUP_ALLOW_DOCKER_FALLBACK";
 const ENCRYPTED_BACKUP_EXTENSION: &str = ".dump.enc";
-const ENCRYPTED_BACKUP_MAGIC: &[u8] = b"ROSBAK1";
+const LEGACY_ENCRYPTED_BACKUP_MAGIC: &[u8] = b"ROSBAK1";
+const CHUNKED_ENCRYPTED_BACKUP_MAGIC: &[u8] = b"ROSBAK2";
+const CHUNKED_ENCRYPTION_CHUNK_SIZE: usize = 1024 * 1024;
+const CLOUD_UPLOAD_BUFFER_SIZE: usize = 1024 * 1024;
+const CHUNKED_ENCRYPTION_HEADER_LEN: usize = CHUNKED_ENCRYPTED_BACKUP_MAGIC.len() + 4 + 8 + 8;
+const AEAD_TAG_LEN: usize = 16;
+const POSTGRES_CUSTOM_ARCHIVE_MAGIC: &[u8] = b"PGDMP";
 const BACKUP_ENCRYPTION_KEY_MIN_LEN: usize = 32;
-const RESTORE_SCHEMA_PRE_CLEAN_SQL: &str = r#"
-DROP SCHEMA IF EXISTS reporting CASCADE;
-DROP SCHEMA IF EXISTS public CASCADE;
-CREATE SCHEMA public;
-GRANT ALL ON SCHEMA public TO postgres;
-GRANT USAGE ON SCHEMA public TO public;
-"#;
+const PG_RESTORE_SAFETY_ARGS: &[&str] = &[
+    "--clean",
+    "--if-exists",
+    "--no-owner",
+    "--single-transaction",
+];
+static BACKUP_OPERATION_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 const POST_RESTORE_SCHEMA_REPAIR_SQL: &[&str] = &[
     r#"ALTER TABLE public.store_settings
         ADD COLUMN IF NOT EXISTS environment_mode text"#,
@@ -254,6 +263,20 @@ impl Default for BackupSettings {
     }
 }
 
+impl BackupSettings {
+    pub fn try_from_json(value: serde_json::Value) -> Result<Self, String> {
+        let settings: Self = serde_json::from_value(value)
+            .map_err(|error| format!("Stored backup settings are invalid: {error}"))?;
+        if parse_daily_backup_schedule(&settings.schedule_cron).is_none() {
+            return Err(
+                "Stored backup schedule must use daily minute/hour format: minute hour * * *"
+                    .to_string(),
+            );
+        }
+        Ok(settings)
+    }
+}
+
 pub fn parse_daily_backup_schedule(schedule: &str) -> Option<(u32, u32)> {
     let mut parts = schedule.split_whitespace();
     let minute = parts.next()?.parse::<u32>().ok()?;
@@ -384,12 +407,7 @@ impl BackupManager {
 
     fn listed_backup_path(&self, filename: &str) -> Result<PathBuf> {
         let trimmed = filename.trim();
-        if trimmed.is_empty()
-            || trimmed.contains('/')
-            || trimmed.contains('\\')
-            || trimmed.contains("..")
-            || !is_backup_archive_name(trimmed)
-        {
+        if !is_safe_backup_catalog_name(trimmed) {
             return Err(anyhow::anyhow!(
                 "Backup file is not in the local backup catalog"
             ));
@@ -415,11 +433,14 @@ impl BackupManager {
     }
 
     pub async fn create_backup_with_settings(&self, settings: &BackupSettings) -> Result<String> {
-        let timestamp = Local::now().format("%Y%m%d_%H%M%S").to_string();
-        let filename = format!("backup_{timestamp}.dump");
-        let output_path = self.backup_dir.join(&filename);
+        let _operation_guard = BACKUP_OPERATION_LOCK.lock().await;
+        let filename = new_backup_filename();
+        let output_path = self
+            .backup_dir
+            .join(format!(".{filename}.partial-{}", Uuid::new_v4().simple()));
+        let _partial_file = PendingBackupFile::new(output_path.clone());
 
-        info!("Starting database backup to {:?}", output_path);
+        info!(filename = %filename, "Starting database backup to a non-catalog partial file");
 
         // We use the full connection string directly with pg_dump -d
         // -F c: Custom-format archive suitable for input into pg_restore.
@@ -447,7 +468,9 @@ impl BackupManager {
                 if docker_backup_fallback_allowed()
                     && self.write_backup_with_docker(&output_path).await?
                 {
-                    let filename = self.finalize_backup_archive(filename, settings)?;
+                    let filename = self
+                        .verify_and_finalize_backup_archive(&output_path, filename, settings)
+                        .await?;
                     info!("Backup successful via Docker fallback: {}", filename);
                     return Ok(filename);
                 }
@@ -468,7 +491,9 @@ impl BackupManager {
                 if docker_backup_fallback_allowed()
                     && self.write_backup_with_docker(&output_path).await?
                 {
-                    let filename = self.finalize_backup_archive(filename, settings)?;
+                    let filename = self
+                        .verify_and_finalize_backup_archive(&output_path, filename, settings)
+                        .await?;
                     info!("Backup successful via Docker fallback: {}", filename);
                     return Ok(filename);
                 }
@@ -482,14 +507,125 @@ impl BackupManager {
             return Err(anyhow::anyhow!("pg_dump failed: {detail}"));
         }
 
-        let filename = self.finalize_backup_archive(filename, settings)?;
+        let filename = self
+            .verify_and_finalize_backup_archive(&output_path, filename, settings)
+            .await?;
         info!("Database backup completed successfully: {}", filename);
         Ok(filename)
     }
 
+    async fn verify_and_finalize_backup_archive(
+        &self,
+        partial_path: &Path,
+        filename: String,
+        settings: &BackupSettings,
+    ) -> Result<String> {
+        self.verify_plain_backup_archive(partial_path).await?;
+        self.finalize_backup_archive(partial_path, filename, settings)
+            .await
+    }
+
+    async fn verify_plain_backup_archive(&self, path: &Path) -> Result<()> {
+        let metadata = fs::metadata(path)
+            .with_context(|| format!("Backup verification could not read {}", path.display()))?;
+        if metadata.len() <= POSTGRES_CUSTOM_ARCHIVE_MAGIC.len() as u64 {
+            return Err(anyhow::anyhow!(
+                "Backup verification failed: archive is empty or incomplete"
+            ));
+        }
+
+        let mut file = fs::File::open(path)?;
+        let mut magic = [0u8; POSTGRES_CUSTOM_ARCHIVE_MAGIC.len()];
+        file.read_exact(&mut magic)?;
+        if magic != POSTGRES_CUSTOM_ARCHIVE_MAGIC {
+            return Err(anyhow::anyhow!(
+                "Backup verification failed: archive is not a PostgreSQL custom-format dump"
+            ));
+        }
+
+        let pg_restore = pg_restore_command_path();
+        match Command::new(&pg_restore)
+            .arg("--list")
+            .arg(path)
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .output()
+            .await
+        {
+            Ok(output) if output.status.success() => Ok(()),
+            Ok(output) => {
+                if docker_backup_fallback_allowed() && self.verify_backup_with_docker(path).await? {
+                    return Ok(());
+                }
+                let detail = String::from_utf8_lossy(&output.stderr);
+                Err(anyhow::anyhow!(
+                    "Backup verification failed: {}",
+                    detail.trim()
+                ))
+            }
+            Err(error) => {
+                if docker_backup_fallback_allowed() && self.verify_backup_with_docker(path).await? {
+                    return Ok(());
+                }
+                Err(error).with_context(|| {
+                    format!(
+                        "Failed to execute pg_restore for backup verification. Install PostgreSQL client tools or set {PG_RESTORE_PATH_ENV} to the full pg_restore path."
+                    )
+                })
+            }
+        }
+    }
+
+    async fn verify_backup_with_docker(&self, path: &Path) -> Result<bool> {
+        let mut command = Command::new("docker");
+        command
+            .arg("exec")
+            .arg("-i")
+            .arg("riverside-os-db")
+            .arg("pg_restore")
+            .arg("--list")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true);
+
+        let mut child = match command.spawn() {
+            Ok(child) => child,
+            Err(error) => {
+                tracing::warn!(error = %error, "Failed to start Docker backup verification");
+                return Ok(false);
+            }
+        };
+        let mut dump_file = tokio::fs::File::open(path).await?;
+        let mut stdin = child
+            .stdin
+            .take()
+            .context("Docker backup verification stdin was unavailable")?;
+        let stream_task = tokio::spawn(async move {
+            let copied = tokio::io::copy(&mut dump_file, &mut stdin).await?;
+            use tokio::io::AsyncWriteExt;
+            stdin.shutdown().await?;
+            Ok::<u64, std::io::Error>(copied)
+        });
+        let output = child.wait_with_output().await?;
+        if output.status.success() {
+            stream_task
+                .await
+                .context("Docker backup verification stream task failed")??;
+            return Ok(true);
+        }
+        let _ = stream_task.await;
+        tracing::warn!(
+            stderr = %String::from_utf8_lossy(&output.stderr),
+            "Docker backup verification failed"
+        );
+        Ok(false)
+    }
+
     async fn write_backup_with_docker(&self, output_path: &Path) -> Result<bool> {
         let database_name = docker_backup_database_name(&self.database_url)?;
-        let docker_out = Command::new("docker")
+        let mut command = Command::new("docker");
+        command
             .arg("exec")
             .arg("riverside-os-db")
             .arg("pg_dump")
@@ -499,50 +635,90 @@ impl BackupManager {
             .arg("c")
             .arg("--dbname")
             .arg(&database_name)
-            .output()
-            .await;
-
-        match docker_out {
-            Ok(out) if out.status.success() => {
-                fs::write(output_path, out.stdout)?;
-                Ok(true)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true);
+        let mut child = match command.spawn() {
+            Ok(child) => child,
+            Err(error) => {
+                error!(%error, "Failed to initiate Docker pg_dump fallback");
+                return Ok(false);
             }
-            Ok(out) => {
-                let err = String::from_utf8_lossy(&out.stderr);
-                error!(stderr = %err, "Docker fallback pg_dump failed");
-                Ok(false)
-            }
-            Err(err) => {
-                error!(error = %err, "Failed to initiate Docker fallback");
-                Ok(false)
-            }
+        };
+        let mut stdout = child
+            .stdout
+            .take()
+            .context("Docker pg_dump stdout was unavailable")?;
+        let output_file = tokio::fs::File::create(output_path).await?;
+        let stream_task = tokio::spawn(async move {
+            let mut output_file = output_file;
+            let copied = tokio::io::copy(&mut stdout, &mut output_file).await?;
+            output_file.sync_all().await?;
+            Ok::<u64, std::io::Error>(copied)
+        });
+        let output = child.wait_with_output().await?;
+        if output.status.success() {
+            stream_task
+                .await
+                .context("Docker pg_dump stream task failed")??;
+            return Ok(true);
         }
+        let _ = stream_task.await;
+        error!(
+            stderr = %String::from_utf8_lossy(&output.stderr),
+            "Docker fallback pg_dump failed"
+        );
+        Ok(false)
     }
 
-    fn finalize_backup_archive(
+    async fn finalize_backup_archive(
         &self,
+        partial_path: &Path,
         filename: String,
         settings: &BackupSettings,
     ) -> Result<String> {
         if !settings.encryption_enabled {
+            tokio::fs::rename(partial_path, self.backup_dir.join(&filename))
+                .await
+                .with_context(|| {
+                    format!("Failed to atomically finalize verified backup {filename}")
+                })?;
             return Ok(filename);
         }
-        let plaintext_path = self.backup_dir.join(&filename);
         let encrypted_filename = format!("{filename}.enc");
         let encrypted_path = self.backup_dir.join(&encrypted_filename);
-        encrypt_backup_file(&plaintext_path, &encrypted_path)?;
-        fs::remove_file(&plaintext_path).with_context(|| {
-            format!(
-                "Encrypted backup was created but plaintext cleanup failed: {}",
-                plaintext_path.to_string_lossy()
-            )
-        })?;
+        let encrypted_partial_path = self.backup_dir.join(format!(
+            ".{encrypted_filename}.partial-{}",
+            Uuid::new_v4().simple()
+        ));
+        let _encrypted_partial_file = PendingBackupFile::new(encrypted_partial_path.clone());
+        let encryption_source = partial_path.to_path_buf();
+        let encryption_destination = encrypted_partial_path.clone();
+        tokio::task::spawn_blocking(move || {
+            encrypt_backup_file(&encryption_source, &encryption_destination)
+        })
+        .await
+        .context("Backup encryption task failed")??;
+        tokio::fs::rename(&encrypted_partial_path, &encrypted_path)
+            .await
+            .with_context(|| {
+                format!("Failed to atomically finalize encrypted backup {encrypted_filename}")
+            })?;
+        tokio::fs::remove_file(partial_path)
+            .await
+            .with_context(|| {
+                format!(
+                    "Encrypted backup was created but plaintext cleanup failed: {}",
+                    partial_path.to_string_lossy()
+                )
+            })?;
         Ok(encrypted_filename)
     }
 
     /// Restore a database from a backup using pg_restore.
     /// WARNING: This is destructive.
     pub async fn restore_backup(&self, filename: &str) -> Result<()> {
+        let _operation_guard = BACKUP_OPERATION_LOCK.lock().await;
         let input_path = self.listed_backup_path(filename)?;
         if !input_path.exists() {
             return Err(anyhow::anyhow!("Backup file not found"));
@@ -552,12 +728,19 @@ impl BackupManager {
             let tmp = self
                 .backup_dir
                 .join(format!("{filename}.restore-{}.tmp", Uuid::new_v4()));
-            decrypt_backup_file(&input_path, &tmp)?;
+            let encrypted_path = input_path.clone();
+            let decrypted_path = tmp.clone();
+            tokio::task::spawn_blocking(move || {
+                decrypt_backup_file(&encrypted_path, &decrypted_path)
+            })
+            .await
+            .context("Backup decryption task failed")??;
             decrypted_temp = Some(RestoreTemp { path: tmp.clone() });
             tmp
         } else {
             input_path.clone()
         };
+        self.verify_plain_backup_archive(&restore_path).await?;
 
         info!("Starting database restore from {:?}", restore_path);
 
@@ -565,28 +748,43 @@ impl BackupManager {
         // -d: Connect to database.
         // --if-exists: Use IF EXISTS when dropping objects.
         // --no-owner: Skip restoration of object ownership.
-        let mut cmd = Command::new("pg_restore");
+        let pg_restore = pg_restore_command_path();
+        let mut cmd = Command::new(&pg_restore);
         cmd.arg("-d")
             .arg(&self.database_url)
-            .arg("--clean")
-            .arg("--if-exists")
-            .arg("--no-owner")
+            .args(PG_RESTORE_SAFETY_ARGS)
             .arg(&restore_path);
 
-        let out = cmd
+        let host_restore_error = match cmd
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
             .output()
             .await
-            .context("Failed to execute pg_restore")?;
+        {
+            Ok(out) if out.status.success() => None,
+            Ok(out) => {
+                let detail = String::from_utf8_lossy(&out.stderr).trim().to_string();
+                error!(stderr = %detail, status = %out.status, "Host pg_restore failed");
+                Some(if detail.is_empty() {
+                    format!("pg_restore failed ({})", out.status)
+                } else {
+                    format!("pg_restore failed: {detail}")
+                })
+            }
+            Err(error) => {
+                error!(error = %error, pg_restore = %pg_restore, "Failed to execute PostgreSQL pg_restore");
+                Some(format!(
+                    "Failed to execute pg_restore. Install PostgreSQL client tools or set {PG_RESTORE_PATH_ENV} to the full pg_restore path: {error}"
+                ))
+            }
+        };
 
-        if !out.status.success() {
-            let err = String::from_utf8_lossy(&out.stderr);
-            error!(stderr = %err, status = %out.status, "Host pg_restore failed - attempting universal Docker fallback...");
-
-            // Read the local file into memory or stream it.
-            // For a 5MB-20MB dump, reading to memory is safe for this context.
-            let dump_data = fs::read(&restore_path)?;
+        if let Some(host_restore_error) = host_restore_error {
+            if !docker_backup_fallback_allowed() {
+                return Err(anyhow::anyhow!(host_restore_error));
+            }
+            let database_name = docker_backup_database_name(&self.database_url)?;
+            info!("Attempting explicitly enabled Docker pg_restore fallback");
 
             // Fallback attempt: docker exec -i riverside-os-db pg_restore -U postgres -d riverside_os ...
             let mut d_cmd = Command::new("docker");
@@ -598,104 +796,49 @@ impl BackupManager {
                 .arg("-U")
                 .arg("postgres")
                 .arg("-d")
-                .arg("riverside_os")
-                .arg("--clean")
-                .arg("--if-exists")
-                .arg("--no-owner");
+                .arg(&database_name)
+                .args(PG_RESTORE_SAFETY_ARGS);
 
             d_cmd
                 .stdin(Stdio::piped())
                 .stdout(Stdio::null())
-                .stderr(Stdio::piped());
+                .stderr(Stdio::piped())
+                .kill_on_drop(true);
 
             let mut child = d_cmd
                 .spawn()
                 .context("Failed to spawn docker exec for pg_restore")?;
 
-            use tokio::io::AsyncWriteExt;
-            if let Some(mut stdin) = child.stdin.take() {
-                stdin.write_all(&dump_data).await?;
-                stdin.flush().await?;
-            }
+            let mut dump_file = tokio::fs::File::open(&restore_path).await?;
+            let mut stdin = child
+                .stdin
+                .take()
+                .context("Docker pg_restore stdin was unavailable")?;
+            let stream_task = tokio::spawn(async move {
+                let copied = tokio::io::copy(&mut dump_file, &mut stdin).await?;
+                use tokio::io::AsyncWriteExt;
+                stdin.shutdown().await?;
+                Ok::<u64, std::io::Error>(copied)
+            });
 
             let d_out = child.wait_with_output().await?;
 
             if d_out.status.success() {
+                stream_task
+                    .await
+                    .context("Docker pg_restore stream task failed")??;
                 info!("Database restoration successful via Docker fallback");
                 self.apply_post_restore_schema_repairs().await?;
                 self.validate_schema_after_restore().await?;
                 drop(decrypted_temp);
                 return Ok(());
             } else {
+                let _ = stream_task.await;
                 let d_err = String::from_utf8_lossy(&d_out.stderr);
                 error!(stderr = %d_err, "Docker fallback pg_restore also failed");
-
-                info!("Attempting destructive schema pre-clean restore via Docker fallback");
-                let preclean = Command::new("docker")
-                    .arg("exec")
-                    .arg("riverside-os-db")
-                    .arg("psql")
-                    .arg("-U")
-                    .arg("postgres")
-                    .arg("-d")
-                    .arg("riverside_os")
-                    .arg("-v")
-                    .arg("ON_ERROR_STOP=1")
-                    .arg("-c")
-                    .arg(RESTORE_SCHEMA_PRE_CLEAN_SQL)
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::piped())
-                    .output()
-                    .await
-                    .context("Failed to execute Docker schema pre-clean")?;
-
-                if !preclean.status.success() {
-                    let p_err = String::from_utf8_lossy(&preclean.stderr);
-                    error!(stderr = %p_err, "Docker schema pre-clean failed");
-                    return Err(anyhow::anyhow!(
-                        "pg_restore failed and schema pre-clean failed. Restore error: {}",
-                        d_err.trim()
-                    ));
-                }
-
-                let mut replay_cmd = Command::new("docker");
-                replay_cmd
-                    .arg("exec")
-                    .arg("-i")
-                    .arg("riverside-os-db")
-                    .arg("pg_restore")
-                    .arg("-U")
-                    .arg("postgres")
-                    .arg("-d")
-                    .arg("riverside_os")
-                    .arg("--no-owner");
-
-                replay_cmd
-                    .stdin(Stdio::piped())
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::piped());
-
-                let mut replay = replay_cmd
-                    .spawn()
-                    .context("Failed to spawn Docker schema pre-clean pg_restore")?;
-                if let Some(mut stdin) = replay.stdin.take() {
-                    stdin.write_all(&dump_data).await?;
-                    stdin.flush().await?;
-                }
-                let replay_out = replay.wait_with_output().await?;
-                if replay_out.status.success() {
-                    info!("Database restoration successful via Docker schema pre-clean fallback");
-                    self.apply_post_restore_schema_repairs().await?;
-                    self.validate_schema_after_restore().await?;
-                    drop(decrypted_temp);
-                    return Ok(());
-                }
-
-                let replay_err = String::from_utf8_lossy(&replay_out.stderr);
-                error!(stderr = %replay_err, "Docker schema pre-clean pg_restore failed");
                 return Err(anyhow::anyhow!(
-                    "pg_restore failed after schema pre-clean fallback: {}",
-                    replay_err.trim()
+                    "Docker pg_restore failed; the single transaction was rolled back: {}",
+                    d_err.trim()
                 ));
             }
         }
@@ -724,66 +867,64 @@ impl BackupManager {
     }
 
     async fn validate_schema_after_restore(&self) -> Result<()> {
-        let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .map(PathBuf::from)
-            .context("Could not resolve repository root for post-restore schema validation")?;
-        let validation_script = repo_root
-            .join("scripts")
-            .join("validate_schema_contract.sh");
-
-        if !validation_script.exists() {
-            return Err(anyhow::anyhow!(
-                "restore completed but schema validation script was not found"
-            ));
-        }
-
-        let out = Command::new("bash")
-            .arg(&validation_script)
-            .current_dir(&repo_root)
-            .env("DATABASE_URL", &self.database_url)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .output()
+        let pool = PgPool::connect(&self.database_url)
             .await
-            .context("Failed to execute post-restore schema validation")?;
-        if out.status.success() {
-            info!("Post-restore schema contract validation passed");
-            return Ok(());
-        }
-
-        let stderr = String::from_utf8_lossy(&out.stderr);
-        error!(stderr = %stderr, "Post-restore schema validation failed");
-        Err(anyhow::anyhow!(
-            "restore completed but schema validation failed: {}",
-            stderr.trim()
-        ))
+            .context("Failed to connect for post-restore schema validation")?;
+        crate::schema_bootstrap::ensure_core_schema(&pool)
+            .await
+            .context("Restore completed but the in-binary schema contract validation failed")?;
+        info!("Post-restore in-binary schema contract validation passed");
+        Ok(())
     }
 
-    /// Delete a backup file.
-    pub fn delete_backup(&self, filename: &str) -> Result<()> {
+    /// Delete a backup file while invalidating evidence for that exact artifact in the same
+    /// serialized operation. Readiness also checks the file directly, so a process interruption
+    /// between the filesystem removal and database commit still fails closed.
+    pub async fn delete_backup_and_invalidate_evidence(
+        &self,
+        pool: &PgPool,
+        filename: &str,
+    ) -> Result<()> {
+        let _operation_guard = BACKUP_OPERATION_LOCK.lock().await;
         let path = self.listed_backup_path(filename)?;
-        if path.exists() {
-            fs::remove_file(path)?;
-            Ok(())
-        } else {
-            Err(anyhow::anyhow!("File not found"))
-        }
+        let mut transaction = pool.begin().await?;
+        sqlx::query(
+            r#"
+            UPDATE store_backup_health
+            SET last_local_verified_at = NULL,
+                last_local_verified_filename = NULL,
+                last_local_verification_method = NULL,
+                last_local_verified_size_bytes = NULL,
+                last_local_verified_sha256 = NULL,
+                updated_at = NOW()
+            WHERE id = 1
+              AND last_local_verified_filename = $1
+            "#,
+        )
+        .bind(filename)
+        .execute(&mut *transaction)
+        .await?;
+        tokio::fs::remove_file(&path).await?;
+        transaction.commit().await?;
+        Ok(())
     }
 
-    /// Read a cataloged backup file for download.
-    pub async fn read_backup_file(&self, filename: &str) -> Result<Vec<u8>> {
+    /// Open a cataloged backup file for bounded-memory HTTP streaming.
+    pub async fn open_backup_file(&self, filename: &str) -> Result<(tokio::fs::File, u64)> {
         let path = self.listed_backup_path(filename)?;
-        tokio::fs::read(&path).await.map_err(Into::into)
+        let file = tokio::fs::File::open(&path).await?;
+        let size_bytes = file.metadata().await?.len();
+        Ok((file, size_bytes))
     }
 
     /// Auto-cleanup local backups older than max_days.
     /// Uses tokio::fs for optimized non-blocking filesystem operations.
-    pub async fn perform_auto_cleanup(&self, max_days: u32) -> Result<u32> {
+    pub async fn perform_auto_cleanup(&self, pool: &PgPool, max_days: u32) -> Result<u32> {
         if max_days == 0 {
             return Ok(0);
         }
 
+        let _operation_guard = BACKUP_OPERATION_LOCK.lock().await;
         let mut deleted_count = 0;
         let mut entries = tokio::fs::read_dir(&self.backup_dir).await?;
         let now = Utc::now();
@@ -796,11 +937,34 @@ impl BackupManager {
                 let modified: chrono::DateTime<Utc> = metadata.modified()?.into();
 
                 if now.signed_duration_since(modified) > max_age {
+                    let filename = path
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .context("Backup cleanup encountered a non-UTF-8 filename")?
+                        .to_string();
                     info!(
                         "Auto-cleanup: Deleting old backup {:?}",
                         path.file_name().unwrap_or_default()
                     );
-                    tokio::fs::remove_file(path).await?;
+                    let mut transaction = pool.begin().await?;
+                    sqlx::query(
+                        r#"
+                        UPDATE store_backup_health
+                        SET last_local_verified_at = NULL,
+                            last_local_verified_filename = NULL,
+                            last_local_verification_method = NULL,
+                            last_local_verified_size_bytes = NULL,
+                            last_local_verified_sha256 = NULL,
+                            updated_at = NOW()
+                        WHERE id = 1
+                          AND last_local_verified_filename = $1
+                        "#,
+                    )
+                    .bind(&filename)
+                    .execute(&mut *transaction)
+                    .await?;
+                    tokio::fs::remove_file(&path).await?;
+                    transaction.commit().await?;
                     deleted_count += 1;
                 }
             }
@@ -827,7 +991,7 @@ impl BackupManager {
         }
         let op = cloud_operator(settings)?;
         let file_path = self.listed_backup_path(filename)?;
-        let contents = tokio::fs::read(&file_path).await?;
+        let mut source = tokio::fs::File::open(&file_path).await?;
 
         info!(
             provider = %settings.cloud_provider,
@@ -835,11 +999,54 @@ impl BackupManager {
             filename
         );
 
-        op.write(filename, contents).await?;
+        let mut writer = op.writer(filename).await?;
+        let mut buffer = vec![0u8; CLOUD_UPLOAD_BUFFER_SIZE];
+        let mut uploaded_size = 0u64;
+        let mut uploaded_hasher = Sha256::new();
+        loop {
+            let read = match source.read(&mut buffer).await {
+                Ok(read) => read,
+                Err(error) => {
+                    let _ = writer.abort().await;
+                    return Err(error).context("Failed to read local backup during cloud upload");
+                }
+            };
+            if read == 0 {
+                break;
+            }
+            uploaded_size = uploaded_size
+                .checked_add(read as u64)
+                .context("Cloud backup size overflowed during upload")?;
+            uploaded_hasher.update(&buffer[..read]);
+            if let Err(error) = writer.write(buffer[..read].to_vec()).await {
+                let _ = writer.abort().await;
+                return Err(error).context("Cloud backup upload failed");
+            }
+        }
+        if let Err(error) = writer.close().await {
+            let _ = writer.abort().await;
+            return Err(error).context("Cloud backup upload could not be finalized");
+        }
+
+        let uploaded_sha256 = format!("{:x}", uploaded_hasher.finalize());
+        if let Err(verification_error) =
+            verify_cloud_backup(&op, filename, uploaded_size, &uploaded_sha256).await
+        {
+            if let Err(cleanup_error) = op.delete(filename).await {
+                error!(
+                    backup = filename,
+                    error = %cleanup_error,
+                    "Cloud backup verification failed and the invalid object could not be removed"
+                );
+            }
+            return Err(verification_error).context("Cloud backup read-back verification failed");
+        }
 
         info!(
-            "Cloud Sync: Successfully uploaded {} to cloud storage",
-            filename
+            size_bytes = uploaded_size,
+            sha256 = %uploaded_sha256,
+            "Cloud Sync: Uploaded and read-back verified {}",
+            filename,
         );
 
         Ok(())
@@ -851,8 +1058,7 @@ impl BackupManager {
         settings: &BackupSettings,
     ) -> Result<usize> {
         let source = self.listed_backup_path(filename)?;
-        let source_hash = sha256_file(&source)?;
-        let source_size = fs::metadata(&source)?.len();
+        let (source_size, source_hash) = file_size_and_sha256(source.clone()).await?;
         let mut copied = 0usize;
 
         for target in settings
@@ -865,7 +1071,7 @@ impl BackupManager {
             tokio::fs::create_dir_all(&target_dir)
                 .await
                 .with_context(|| format!("Backup replication target is not writable: {target}"))?;
-            if !target_dir.is_dir() {
+            if !tokio::fs::metadata(&target_dir).await?.is_dir() {
                 return Err(anyhow::anyhow!(
                     "Backup replication target is not a directory: {target}"
                 ));
@@ -873,7 +1079,7 @@ impl BackupManager {
 
             let final_path = target_dir.join(filename);
             let temp_path = target_dir.join(format!("{filename}.tmp"));
-            if temp_path.exists() {
+            if tokio::fs::try_exists(&temp_path).await? {
                 tokio::fs::remove_file(&temp_path).await?;
             }
             tokio::fs::copy(&source, &temp_path)
@@ -887,8 +1093,17 @@ impl BackupManager {
             file.sync_all().await?;
             drop(file);
 
-            let copied_size = fs::metadata(&temp_path)?.len();
-            if copied_size != source_size || sha256_file(&temp_path)? != source_hash {
+            let copied_identity = file_size_and_sha256(temp_path.clone()).await;
+            let (copied_size, copied_hash) = match copied_identity {
+                Ok(identity) => identity,
+                Err(error) => {
+                    let _ = tokio::fs::remove_file(&temp_path).await;
+                    return Err(error).with_context(|| {
+                        format!("Failed to verify replicated backup in {target}")
+                    });
+                }
+            };
+            if copied_size != source_size || copied_hash != source_hash {
                 let _ = tokio::fs::remove_file(&temp_path).await;
                 return Err(anyhow::anyhow!(
                     "Backup replication verification failed for {target}"
@@ -901,6 +1116,59 @@ impl BackupManager {
 
         Ok(copied)
     }
+}
+
+async fn verify_cloud_backup(
+    operator: &Operator,
+    filename: &str,
+    expected_size: u64,
+    expected_sha256: &str,
+) -> Result<()> {
+    let metadata = operator
+        .stat(filename)
+        .await
+        .with_context(|| format!("Cloud backup metadata is unavailable for {filename}"))?;
+    if metadata.content_length() != expected_size {
+        return Err(anyhow::anyhow!(
+            "Cloud backup size mismatch for {filename}: expected {expected_size} bytes, found {}",
+            metadata.content_length()
+        ));
+    }
+
+    let reader = operator
+        .reader(filename)
+        .await
+        .with_context(|| format!("Cloud backup cannot be opened for verification: {filename}"))?;
+    let mut offset = 0u64;
+    let mut hasher = Sha256::new();
+    while offset < expected_size {
+        let end = offset
+            .saturating_add(CLOUD_UPLOAD_BUFFER_SIZE as u64)
+            .min(expected_size);
+        let chunk = reader
+            .read(offset..end)
+            .await
+            .with_context(|| format!("Cloud backup read-back failed for {filename}"))?;
+        let bytes = chunk.to_bytes();
+        let expected_chunk_size = (end - offset) as usize;
+        if bytes.len() != expected_chunk_size {
+            return Err(anyhow::anyhow!(
+                "Cloud backup read-back was incomplete for {filename}: expected {expected_chunk_size} bytes at offset {offset}, found {}",
+                bytes.len()
+            ));
+        }
+        hasher.update(&bytes);
+        offset = end;
+    }
+
+    let observed_sha256 = format!("{:x}", hasher.finalize());
+    if observed_sha256 != expected_sha256 {
+        return Err(anyhow::anyhow!(
+            "Cloud backup SHA-256 mismatch for {filename}"
+        ));
+    }
+
+    Ok(())
 }
 
 fn required_env(key: &str) -> Result<String> {
@@ -918,12 +1186,146 @@ fn optional_env(key: &str) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
-fn pg_dump_command_path() -> String {
-    std::env::var(PG_DUMP_PATH_ENV)
+fn configured_postgres_tool_path(env_key: &str) -> Option<String> {
+    std::env::var(env_key)
         .ok()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| "pg_dump".to_string())
+}
+
+fn executable_on_path(tool_name: &str) -> Option<PathBuf> {
+    let path = std::env::var_os("PATH")?;
+    let names: Vec<String> = if cfg!(windows) {
+        vec![format!("{tool_name}.exe"), tool_name.to_string()]
+    } else {
+        vec![tool_name.to_string()]
+    };
+    std::env::split_paths(&path)
+        .flat_map(|directory| names.iter().map(move |name| directory.join(name)))
+        .find(|candidate| candidate.is_file())
+}
+
+fn common_postgres_tool_path(tool_name: &str) -> Option<PathBuf> {
+    let executable = if cfg!(windows) {
+        format!("{tool_name}.exe")
+    } else {
+        tool_name.to_string()
+    };
+    let mut candidates = Vec::new();
+
+    if cfg!(windows) {
+        for root_key in ["ProgramFiles", "ProgramFiles(x86)"] {
+            if let Some(root) = std::env::var_os(root_key) {
+                for version in ["18", "17", "16", "15", "14", "13", "12"] {
+                    candidates.push(
+                        PathBuf::from(&root)
+                            .join("PostgreSQL")
+                            .join(version)
+                            .join("bin")
+                            .join(&executable),
+                    );
+                }
+            }
+        }
+    } else {
+        candidates.extend([
+            PathBuf::from("/opt/homebrew/opt/libpq/bin").join(&executable),
+            PathBuf::from("/usr/local/opt/libpq/bin").join(&executable),
+            PathBuf::from("/Applications/Postgres.app/Contents/Versions/latest/bin")
+                .join(&executable),
+            PathBuf::from("/Library/PostgreSQL/16/bin").join(&executable),
+            PathBuf::from("/usr/bin").join(&executable),
+            PathBuf::from("/usr/local/bin").join(&executable),
+        ]);
+    }
+
+    candidates.into_iter().find(|candidate| candidate.is_file())
+}
+
+fn postgres_tool_command_path(tool_name: &str, env_key: &str) -> String {
+    configured_postgres_tool_path(env_key)
+        .or_else(|| {
+            executable_on_path(tool_name)
+                .or_else(|| common_postgres_tool_path(tool_name))
+                .map(|path| path.to_string_lossy().into_owned())
+        })
+        .unwrap_or_else(|| tool_name.to_string())
+}
+
+fn command_path_is_available(command: &str) -> bool {
+    let path = Path::new(command);
+    if path.is_absolute() || path.components().count() > 1 {
+        path.is_file()
+    } else {
+        executable_on_path(command).is_some()
+    }
+}
+
+fn parse_postgres_tool_major(version_output: &str) -> Option<u32> {
+    version_output
+        .split_whitespace()
+        .find(|part| {
+            part.chars()
+                .next()
+                .is_some_and(|character| character.is_ascii_digit())
+        })
+        .and_then(|version| version.split('.').next())
+        .and_then(|major| major.parse::<u32>().ok())
+}
+
+fn postgres_tool_major(command: &str) -> Option<u32> {
+    if !command_path_is_available(command) {
+        return None;
+    }
+    let output = std::process::Command::new(command)
+        .arg("--version")
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    parse_postgres_tool_major(&String::from_utf8_lossy(&output.stdout))
+}
+
+fn postgres_tool_versions_compatible(
+    pg_dump_major: u32,
+    pg_restore_major: u32,
+    server_major: Option<u32>,
+) -> bool {
+    pg_dump_major == pg_restore_major
+        && server_major.is_none_or(|server_major| pg_dump_major >= server_major)
+}
+
+fn detected_postgres_tool_versions() -> Option<(u32, u32)> {
+    static DETECTED_TOOL_VERSIONS: std::sync::OnceLock<(u32, u32)> = std::sync::OnceLock::new();
+    if let Some(versions) = DETECTED_TOOL_VERSIONS.get() {
+        return Some(*versions);
+    }
+    let versions = (
+        postgres_tool_major(&pg_dump_command_path())?,
+        postgres_tool_major(&pg_restore_command_path())?,
+    );
+    let _ = DETECTED_TOOL_VERSIONS.set(versions);
+    Some(versions)
+}
+
+fn pg_dump_command_path() -> String {
+    postgres_tool_command_path("pg_dump", PG_DUMP_PATH_ENV)
+}
+
+fn pg_restore_command_path() -> String {
+    postgres_tool_command_path("pg_restore", PG_RESTORE_PATH_ENV)
+}
+
+pub fn backup_tooling_compatible_with_server(server_major: Option<u32>) -> bool {
+    let Some((pg_dump_major, pg_restore_major)) = detected_postgres_tool_versions() else {
+        return false;
+    };
+    postgres_tool_versions_compatible(pg_dump_major, pg_restore_major, server_major)
+}
+
+pub fn backup_tooling_available() -> bool {
+    backup_tooling_compatible_with_server(None)
 }
 
 fn docker_backup_database_name(database_url: &str) -> Result<String> {
@@ -1063,7 +1465,7 @@ fn require_cloud_oauth_material(provider: &str) -> Result<()> {
     ))
 }
 
-fn sha256_file(path: &PathBuf) -> Result<String> {
+fn sha256_file(path: &Path) -> Result<String> {
     let mut file = fs::File::open(path)?;
     let mut hasher = Sha256::new();
     let mut buffer = [0u8; 1024 * 64];
@@ -1077,8 +1479,23 @@ fn sha256_file(path: &PathBuf) -> Result<String> {
     Ok(format!("{:x}", hasher.finalize()))
 }
 
+async fn file_size_and_sha256(path: PathBuf) -> Result<(u64, String)> {
+    tokio::task::spawn_blocking(move || {
+        let size = fs::metadata(&path)?.len();
+        let sha256 = sha256_file(&path)?;
+        Ok((size, sha256))
+    })
+    .await
+    .context("Backup artifact identity task failed")?
+}
+
 fn is_encrypted_backup_name(filename: &str) -> bool {
     filename.ends_with(ENCRYPTED_BACKUP_EXTENSION)
+}
+
+fn new_backup_filename() -> String {
+    let timestamp = Local::now().format("%Y%m%d_%H%M%S");
+    format!("backup_{timestamp}_{}.dump", Uuid::new_v4().simple())
 }
 
 fn is_backup_archive_name(filename: &str) -> bool {
@@ -1090,6 +1507,15 @@ fn is_backup_archive_path(path: &Path) -> bool {
         .and_then(|name| name.to_str())
         .map(is_backup_archive_name)
         .unwrap_or(false)
+}
+
+fn is_safe_backup_catalog_name(filename: &str) -> bool {
+    !filename.is_empty()
+        && !filename.contains("..")
+        && filename.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '_' | '-' | '.')
+        })
+        && is_backup_archive_name(filename)
 }
 
 fn backup_encryption_key() -> Result<LessSafeKey> {
@@ -1110,49 +1536,424 @@ fn backup_encryption_key() -> Result<LessSafeKey> {
     Ok(LessSafeKey::new(unbound))
 }
 
+fn chunk_nonce(prefix: [u8; 8], chunk_index: u32) -> aead::Nonce {
+    let mut nonce = [0u8; 12];
+    nonce[..8].copy_from_slice(&prefix);
+    nonce[8..].copy_from_slice(&chunk_index.to_be_bytes());
+    aead::Nonce::assume_unique_for_key(nonce)
+}
+
+fn chunk_aad(header: &[u8; CHUNKED_ENCRYPTION_HEADER_LEN], chunk_index: u32) -> Vec<u8> {
+    let mut aad = Vec::with_capacity(CHUNKED_ENCRYPTION_HEADER_LEN + 4);
+    aad.extend_from_slice(header);
+    aad.extend_from_slice(&chunk_index.to_be_bytes());
+    aad
+}
+
+fn chunk_count(plaintext_size: u64, chunk_size: usize) -> u64 {
+    if plaintext_size == 0 {
+        0
+    } else {
+        ((plaintext_size - 1) / chunk_size as u64) + 1
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BackupArchiveFormat {
+    PlainPostgres,
+    LegacyEncryptedV1,
+    ChunkedEncryptedV2,
+}
+
+fn detect_backup_archive_format(path: &Path) -> Result<BackupArchiveFormat> {
+    let mut file = fs::File::open(path)?;
+    let mut prefix = [0u8; CHUNKED_ENCRYPTED_BACKUP_MAGIC.len()];
+    let read = file.read(&mut prefix)?;
+    if read >= POSTGRES_CUSTOM_ARCHIVE_MAGIC.len()
+        && &prefix[..POSTGRES_CUSTOM_ARCHIVE_MAGIC.len()] == POSTGRES_CUSTOM_ARCHIVE_MAGIC
+    {
+        return Ok(BackupArchiveFormat::PlainPostgres);
+    }
+    if read == LEGACY_ENCRYPTED_BACKUP_MAGIC.len()
+        && prefix.as_slice() == LEGACY_ENCRYPTED_BACKUP_MAGIC
+    {
+        return Ok(BackupArchiveFormat::LegacyEncryptedV1);
+    }
+    if read == CHUNKED_ENCRYPTED_BACKUP_MAGIC.len()
+        && prefix.as_slice() == CHUNKED_ENCRYPTED_BACKUP_MAGIC
+    {
+        return Ok(BackupArchiveFormat::ChunkedEncryptedV2);
+    }
+    Err(anyhow::anyhow!(
+        "backup archive has an unsupported or invalid header"
+    ))
+}
+
+fn read_chunked_header(
+    reader: &mut BufReader<fs::File>,
+) -> Result<([u8; CHUNKED_ENCRYPTION_HEADER_LEN], usize, u64, [u8; 8])> {
+    let mut header = [0u8; CHUNKED_ENCRYPTION_HEADER_LEN];
+    reader.read_exact(&mut header)?;
+    if !header.starts_with(CHUNKED_ENCRYPTED_BACKUP_MAGIC) {
+        return Err(anyhow::anyhow!(
+            "encrypted backup archive has an invalid ROSBAK2 header"
+        ));
+    }
+
+    let mut chunk_size_bytes = [0u8; 4];
+    chunk_size_bytes.copy_from_slice(
+        &header[CHUNKED_ENCRYPTED_BACKUP_MAGIC.len()..CHUNKED_ENCRYPTED_BACKUP_MAGIC.len() + 4],
+    );
+    let chunk_size = u32::from_be_bytes(chunk_size_bytes) as usize;
+    if !(64 * 1024..=16 * 1024 * 1024).contains(&chunk_size) {
+        return Err(anyhow::anyhow!(
+            "encrypted backup archive has an invalid chunk size"
+        ));
+    }
+
+    let size_start = CHUNKED_ENCRYPTED_BACKUP_MAGIC.len() + 4;
+    let mut plaintext_size_bytes = [0u8; 8];
+    plaintext_size_bytes.copy_from_slice(&header[size_start..size_start + 8]);
+    let plaintext_size = u64::from_be_bytes(plaintext_size_bytes);
+
+    let mut nonce_prefix = [0u8; 8];
+    nonce_prefix.copy_from_slice(&header[size_start + 8..size_start + 16]);
+    Ok((header, chunk_size, plaintext_size, nonce_prefix))
+}
+
+fn expected_chunked_archive_size(plaintext_size: u64, chunk_size: usize) -> Result<u64> {
+    let chunks = chunk_count(plaintext_size, chunk_size);
+    u32::try_from(chunks).context("encrypted backup archive exceeds the ROSBAK2 chunk limit")?;
+    let tag_bytes = chunks
+        .checked_mul(AEAD_TAG_LEN as u64)
+        .context("encrypted backup archive chunk count overflowed")?;
+    (CHUNKED_ENCRYPTION_HEADER_LEN as u64)
+        .checked_add(plaintext_size)
+        .and_then(|size| size.checked_add(tag_bytes))
+        .context("encrypted backup archive size overflowed")
+}
+
+fn validate_chunked_encrypted_archive(path: &Path) -> Result<()> {
+    let file = fs::File::open(path)?;
+    let metadata = file.metadata()?;
+    let mut reader = BufReader::new(file);
+    let (header, chunk_size, plaintext_size, nonce_prefix) = read_chunked_header(&mut reader)?;
+    if plaintext_size <= POSTGRES_CUSTOM_ARCHIVE_MAGIC.len() as u64 {
+        return Err(anyhow::anyhow!(
+            "encrypted backup archive is empty or incomplete"
+        ));
+    }
+    if metadata.len() != expected_chunked_archive_size(plaintext_size, chunk_size)? {
+        return Err(anyhow::anyhow!(
+            "encrypted backup archive length does not match its authenticated header"
+        ));
+    }
+
+    // Authenticating one bounded chunk proves the current recovery key matches. The stored
+    // SHA-256 identity below proves the rest of the archive is unchanged from creation.
+    let first_plaintext_len = usize::try_from(plaintext_size.min(chunk_size as u64))
+        .context("encrypted backup first chunk is too large")?;
+    let mut first_chunk = vec![0u8; first_plaintext_len + AEAD_TAG_LEN];
+    reader.read_exact(&mut first_chunk)?;
+    let key = backup_encryption_key()?;
+    let aad = chunk_aad(&header, 0);
+    let plaintext = key
+        .open_in_place(
+            chunk_nonce(nonce_prefix, 0),
+            Aad::from(aad.as_slice()),
+            &mut first_chunk,
+        )
+        .map_err(|_| {
+            anyhow::anyhow!(
+                "encrypted backup archive could not be opened with the configured recovery key"
+            )
+        })?;
+    if !plaintext.starts_with(POSTGRES_CUSTOM_ARCHIVE_MAGIC) {
+        return Err(anyhow::anyhow!(
+            "decrypted backup archive is not a PostgreSQL custom-format dump"
+        ));
+    }
+    Ok(())
+}
+
+fn validate_verified_backup_format(path: &Path) -> Result<&'static str> {
+    match detect_backup_archive_format(path)? {
+        BackupArchiveFormat::PlainPostgres => Ok("pg_restore_catalog+sha256"),
+        BackupArchiveFormat::ChunkedEncryptedV2 => {
+            validate_chunked_encrypted_archive(path)?;
+            Ok("pg_restore_catalog+chunked_aead_v2+sha256")
+        }
+        BackupArchiveFormat::LegacyEncryptedV1 => Err(anyhow::anyhow!(
+            "legacy ROSBAK1 archives remain restorable but cannot establish bounded readiness proof; create a new backup"
+        )),
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct BackupArtifactCacheKey {
+    path: PathBuf,
+    size_bytes: u64,
+    modified_at: Option<std::time::SystemTime>,
+    expected_sha256: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum BackupArtifactCacheState {
+    Verifying(BackupArtifactCacheKey),
+    Verified(BackupArtifactCacheKey),
+}
+
+fn backup_artifact_cache() -> &'static StdMutex<Option<BackupArtifactCacheState>> {
+    static CACHE: OnceLock<StdMutex<Option<BackupArtifactCacheState>>> = OnceLock::new();
+    CACHE.get_or_init(|| StdMutex::new(None))
+}
+
+fn catalog_artifact_path(filename: &str) -> Result<PathBuf> {
+    let filename = filename.trim();
+    if !is_safe_backup_catalog_name(filename) {
+        return Err(anyhow::anyhow!(
+            "Backup file is not in the local backup catalog"
+        ));
+    }
+    let (backup_dir, _) = configured_backup_dir();
+    let path = backup_dir.join(filename);
+    if !path.is_file() {
+        return Err(anyhow::anyhow!(
+            "Verified backup artifact is missing from the local catalog"
+        ));
+    }
+    Ok(path)
+}
+
+fn artifact_cache_key(
+    path: &Path,
+    expected_size: i64,
+    expected_sha256: &str,
+) -> Result<BackupArtifactCacheKey> {
+    if expected_size <= 0
+        || expected_sha256.len() != 64
+        || !expected_sha256.bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
+        return Err(anyhow::anyhow!(
+            "Verified backup evidence has no complete artifact identity"
+        ));
+    }
+    let metadata = fs::metadata(path)?;
+    if metadata.len() != expected_size as u64 {
+        return Err(anyhow::anyhow!(
+            "Verified backup artifact size no longer matches its evidence"
+        ));
+    }
+    Ok(BackupArtifactCacheKey {
+        path: path.to_path_buf(),
+        size_bytes: metadata.len(),
+        modified_at: metadata.modified().ok(),
+        expected_sha256: expected_sha256.to_ascii_lowercase(),
+    })
+}
+
+/// Confirms that readiness evidence still identifies the exact usable local archive. Hashing is
+/// cached only while the path, byte length, and modification time remain unchanged; existence and
+/// metadata are re-read on every readiness probe so deletion is visible immediately.
+pub fn verify_local_backup_artifact_evidence(
+    filename: &str,
+    expected_size: i64,
+    expected_sha256: &str,
+) -> Result<()> {
+    let path = catalog_artifact_path(filename)?;
+    let cache_key = artifact_cache_key(&path, expected_size, expected_sha256)?;
+    {
+        let mut cache = backup_artifact_cache()
+            .lock()
+            .map_err(|_| anyhow::anyhow!("backup artifact verification cache is unavailable"))?;
+        match cache.as_ref() {
+            Some(BackupArtifactCacheState::Verified(existing)) if existing == &cache_key => {
+                return Ok(())
+            }
+            Some(BackupArtifactCacheState::Verifying(existing)) if existing == &cache_key => {
+                return Err(anyhow::anyhow!(
+                    "backup artifact verification is still in progress"
+                ))
+            }
+            _ => *cache = Some(BackupArtifactCacheState::Verifying(cache_key.clone())),
+        }
+    }
+
+    let verification = (|| {
+        validate_verified_backup_format(&path)?;
+        let actual_sha256 = sha256_file(&path)?;
+        if actual_sha256 != cache_key.expected_sha256 {
+            return Err(anyhow::anyhow!(
+                "Verified backup artifact SHA-256 no longer matches its evidence"
+            ));
+        }
+        Ok(())
+    })();
+
+    let mut cache = backup_artifact_cache()
+        .lock()
+        .map_err(|_| anyhow::anyhow!("backup artifact verification cache is unavailable"))?;
+    *cache = if verification.is_ok() {
+        Some(BackupArtifactCacheState::Verified(cache_key))
+    } else {
+        None
+    };
+    verification
+}
+
+fn verified_backup_artifact_identity(filename: &str) -> Result<(i64, String, &'static str)> {
+    let path = catalog_artifact_path(filename)?;
+    let metadata = fs::metadata(&path)?;
+    let size_bytes =
+        i64::try_from(metadata.len()).context("Verified backup artifact is too large to record")?;
+    let verification_method = validate_verified_backup_format(&path)?;
+    let sha256 = sha256_file(&path)?;
+    let cache_key = artifact_cache_key(&path, size_bytes, &sha256)?;
+    let mut cache = backup_artifact_cache()
+        .lock()
+        .map_err(|_| anyhow::anyhow!("backup artifact verification cache is unavailable"))?;
+    *cache = Some(BackupArtifactCacheState::Verified(cache_key));
+    Ok((size_bytes, sha256, verification_method))
+}
+
 fn encrypt_backup_file(source: &PathBuf, destination: &PathBuf) -> Result<()> {
     let key = backup_encryption_key()?;
+    let plaintext_size = fs::metadata(source)?.len();
+    expected_chunked_archive_size(plaintext_size, CHUNKED_ENCRYPTION_CHUNK_SIZE)?;
     let nonce_uuid = Uuid::new_v4();
-    let mut nonce_bytes = [0u8; 12];
-    nonce_bytes.copy_from_slice(&nonce_uuid.as_bytes()[..12]);
-    let nonce = aead::Nonce::assume_unique_for_key(nonce_bytes);
-    let mut body = fs::read(source)?;
-    key.seal_in_place_append_tag(nonce, Aad::from(ENCRYPTED_BACKUP_MAGIC), &mut body)
-        .map_err(|_| anyhow::anyhow!("failed to encrypt backup archive"))?;
+    let mut nonce_prefix = [0u8; 8];
+    nonce_prefix.copy_from_slice(&nonce_uuid.as_bytes()[..8]);
+    let mut header = [0u8; CHUNKED_ENCRYPTION_HEADER_LEN];
+    header[..CHUNKED_ENCRYPTED_BACKUP_MAGIC.len()].copy_from_slice(CHUNKED_ENCRYPTED_BACKUP_MAGIC);
+    let chunk_size_start = CHUNKED_ENCRYPTED_BACKUP_MAGIC.len();
+    header[chunk_size_start..chunk_size_start + 4]
+        .copy_from_slice(&(CHUNKED_ENCRYPTION_CHUNK_SIZE as u32).to_be_bytes());
+    header[chunk_size_start + 4..chunk_size_start + 12]
+        .copy_from_slice(&plaintext_size.to_be_bytes());
+    header[chunk_size_start + 12..chunk_size_start + 20].copy_from_slice(&nonce_prefix);
 
-    let temp_path = destination.with_extension("tmp");
-    let mut packed =
-        Vec::with_capacity(ENCRYPTED_BACKUP_MAGIC.len() + nonce_bytes.len() + body.len());
-    packed.extend_from_slice(ENCRYPTED_BACKUP_MAGIC);
-    packed.extend_from_slice(&nonce_bytes);
-    packed.extend_from_slice(&body);
-    fs::write(&temp_path, packed)?;
+    let mut reader = BufReader::new(fs::File::open(source)?);
+    let temp_path = destination.with_extension(format!("encrypting-{}.tmp", Uuid::new_v4()));
+    let _pending_temp = PendingBackupFile::new(temp_path.clone());
+    let mut writer = BufWriter::new(fs::File::create(&temp_path)?);
+    writer.write_all(&header)?;
+    let mut remaining = plaintext_size;
+    let mut chunk_index = 0u32;
+    while remaining > 0 {
+        let plaintext_len = usize::try_from(remaining.min(CHUNKED_ENCRYPTION_CHUNK_SIZE as u64))
+            .context("backup encryption chunk is too large")?;
+        let mut chunk = vec![0u8; plaintext_len];
+        reader.read_exact(&mut chunk)?;
+        let aad = chunk_aad(&header, chunk_index);
+        key.seal_in_place_append_tag(
+            chunk_nonce(nonce_prefix, chunk_index),
+            Aad::from(aad.as_slice()),
+            &mut chunk,
+        )
+        .map_err(|_| anyhow::anyhow!("failed to encrypt backup archive chunk"))?;
+        writer.write_all(&chunk)?;
+        remaining -= plaintext_len as u64;
+        chunk_index = chunk_index
+            .checked_add(1)
+            .context("backup encryption chunk counter overflowed")?;
+    }
+    let mut unexpected = [0u8; 1];
+    if reader.read(&mut unexpected)? != 0 {
+        return Err(anyhow::anyhow!(
+            "backup source changed size during encryption"
+        ));
+    }
+    writer.flush()?;
+    writer.get_ref().sync_all()?;
+    drop(writer);
     fs::rename(&temp_path, destination)?;
     Ok(())
 }
 
 fn decrypt_backup_file(source: &PathBuf, destination: &PathBuf) -> Result<()> {
+    match detect_backup_archive_format(source)? {
+        BackupArchiveFormat::ChunkedEncryptedV2 => decrypt_chunked_backup_file(source, destination),
+        BackupArchiveFormat::LegacyEncryptedV1 => decrypt_legacy_backup_file(source, destination),
+        BackupArchiveFormat::PlainPostgres => {
+            Err(anyhow::anyhow!("backup archive is not encrypted"))
+        }
+    }
+}
+
+fn decrypt_chunked_backup_file(source: &Path, destination: &Path) -> Result<()> {
     let key = backup_encryption_key()?;
-    let packed = fs::read(source)?;
-    let header_len = ENCRYPTED_BACKUP_MAGIC.len() + 12;
-    if packed.len() <= header_len || !packed.starts_with(ENCRYPTED_BACKUP_MAGIC) {
+    let file = fs::File::open(source)?;
+    let metadata = file.metadata()?;
+    let mut reader = BufReader::new(file);
+    let (header, chunk_size, plaintext_size, nonce_prefix) = read_chunked_header(&mut reader)?;
+    if metadata.len() != expected_chunked_archive_size(plaintext_size, chunk_size)? {
+        return Err(anyhow::anyhow!(
+            "encrypted backup archive length does not match its authenticated header"
+        ));
+    }
+
+    let temp_path = destination.with_extension(format!("decrypting-{}.tmp", Uuid::new_v4()));
+    let _pending_temp = PendingBackupFile::new(temp_path.clone());
+    let mut writer = BufWriter::new(fs::File::create(&temp_path)?);
+    let mut remaining = plaintext_size;
+    let mut chunk_index = 0u32;
+    while remaining > 0 {
+        let plaintext_len = usize::try_from(remaining.min(chunk_size as u64))
+            .context("backup decryption chunk is too large")?;
+        let mut chunk = vec![0u8; plaintext_len + AEAD_TAG_LEN];
+        reader.read_exact(&mut chunk)?;
+        let aad = chunk_aad(&header, chunk_index);
+        let plaintext = key
+            .open_in_place(
+                chunk_nonce(nonce_prefix, chunk_index),
+                Aad::from(aad.as_slice()),
+                &mut chunk,
+            )
+            .map_err(|_| {
+                anyhow::anyhow!("failed to authenticate encrypted backup archive chunk")
+            })?;
+        writer.write_all(plaintext)?;
+        remaining -= plaintext_len as u64;
+        chunk_index = chunk_index
+            .checked_add(1)
+            .context("backup decryption chunk counter overflowed")?;
+    }
+    writer.flush()?;
+    writer.get_ref().sync_all()?;
+    drop(writer);
+    fs::rename(&temp_path, destination)?;
+    Ok(())
+}
+
+/// ROSBAK1 used one AEAD tag for the complete archive, so exact backward compatibility requires
+/// a one-shot open. All newly created archives use bounded-memory ROSBAK2 chunks.
+fn decrypt_legacy_backup_file(source: &Path, destination: &Path) -> Result<()> {
+    let key = backup_encryption_key()?;
+    let mut packed = fs::read(source)?;
+    let header_len = LEGACY_ENCRYPTED_BACKUP_MAGIC.len() + 12;
+    if packed.len() <= header_len || !packed.starts_with(LEGACY_ENCRYPTED_BACKUP_MAGIC) {
         return Err(anyhow::anyhow!(
             "encrypted backup archive has an invalid header"
         ));
     }
     let mut nonce_bytes = [0u8; 12];
-    nonce_bytes.copy_from_slice(&packed[ENCRYPTED_BACKUP_MAGIC.len()..header_len]);
-    let mut body = packed[header_len..].to_vec();
+    nonce_bytes.copy_from_slice(&packed[LEGACY_ENCRYPTED_BACKUP_MAGIC.len()..header_len]);
     let plaintext = key
-        .open_in_place(
+        .open_within(
             aead::Nonce::assume_unique_for_key(nonce_bytes),
-            Aad::from(ENCRYPTED_BACKUP_MAGIC),
-            &mut body,
+            Aad::from(LEGACY_ENCRYPTED_BACKUP_MAGIC),
+            &mut packed,
+            header_len..,
         )
         .map_err(|_| anyhow::anyhow!("failed to decrypt backup archive"))?;
 
-    let temp_path = destination.with_extension("tmp");
-    fs::write(&temp_path, plaintext)?;
+    let temp_path = destination.with_extension(format!("decrypting-{}.tmp", Uuid::new_v4()));
+    let _pending_temp = PendingBackupFile::new(temp_path.clone());
+    let mut writer = BufWriter::new(fs::File::create(&temp_path)?);
+    writer.write_all(plaintext)?;
+    writer.flush()?;
+    writer.get_ref().sync_all()?;
+    drop(writer);
     fs::rename(&temp_path, destination)?;
     Ok(())
 }
@@ -1165,6 +1966,30 @@ impl Drop for RestoreTemp {
     fn drop(&mut self) {
         if let Err(error) = fs::remove_file(&self.path) {
             tracing::warn!(error = %error, path = %self.path.to_string_lossy(), "failed to remove decrypted restore temp file");
+        }
+    }
+}
+
+struct PendingBackupFile {
+    path: PathBuf,
+}
+
+impl PendingBackupFile {
+    fn new(path: PathBuf) -> Self {
+        Self { path }
+    }
+}
+
+impl Drop for PendingBackupFile {
+    fn drop(&mut self) {
+        if let Err(error) = fs::remove_file(&self.path) {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                tracing::warn!(
+                    error = %error,
+                    path = %self.path.to_string_lossy(),
+                    "Failed to remove non-catalog backup partial file"
+                );
+            }
         }
     }
 }
@@ -1197,6 +2022,42 @@ mod tests {
         let error = docker_backup_database_name("postgresql://postgres:password@localhost:5433")
             .expect_err("missing database name must fail");
         assert!(error.to_string().contains("explicit database name"));
+    }
+
+    #[test]
+    fn explicit_postgres_tool_path_must_resolve_to_a_file() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let tool = tmp.path().join("pg_dump-test");
+        File::create(&tool).expect("tool file");
+
+        assert!(command_path_is_available(&tool.to_string_lossy()));
+        assert!(!command_path_is_available(
+            &tmp.path().join("missing-tool").to_string_lossy()
+        ));
+    }
+
+    #[test]
+    fn postgres_tool_versions_must_execute_match_and_support_the_server() {
+        assert_eq!(
+            parse_postgres_tool_major("pg_dump (PostgreSQL) 16.4"),
+            Some(16)
+        );
+        assert_eq!(
+            parse_postgres_tool_major("pg_restore (PostgreSQL) 17beta2"),
+            None
+        );
+        assert!(postgres_tool_versions_compatible(17, 17, Some(16)));
+        assert!(!postgres_tool_versions_compatible(16, 15, Some(16)));
+        assert!(!postgres_tool_versions_compatible(16, 16, Some(17)));
+    }
+
+    #[test]
+    fn backup_failure_detail_clipping_preserves_utf8() {
+        let detail = "é".repeat(BACKUP_FAILURE_DETAIL_MAX);
+        let clipped = clip_backup_detail(&detail);
+
+        assert!(clipped.ends_with('…'));
+        assert!(clipped.is_char_boundary(clipped.len()));
     }
 
     #[test]
@@ -1243,20 +2104,53 @@ mod tests {
     }
 
     #[test]
-    fn restore_schema_pre_clean_drops_app_schemas_before_replay() {
-        assert!(RESTORE_SCHEMA_PRE_CLEAN_SQL.contains("DROP SCHEMA IF EXISTS public CASCADE"));
-        assert!(RESTORE_SCHEMA_PRE_CLEAN_SQL.contains("CREATE SCHEMA public"));
+    fn backup_filenames_remain_unique_within_the_same_second() {
+        let first = new_backup_filename();
+        let second = new_backup_filename();
+
+        assert_ne!(first, second);
+        assert!(is_backup_archive_name(&first));
+        assert!(is_backup_archive_name(&second));
     }
 
     #[test]
-    fn post_restore_schema_validation_script_exists_in_repo() {
-        let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .map(PathBuf::from)
-            .expect("repo root");
-        assert!(repo_root
-            .join("scripts/validate_schema_contract.sh")
-            .exists());
+    fn partial_backup_files_are_hidden_from_catalog_and_removed_on_drop() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let partial_path = tmp.path().join(".backup_20260722_120000.dump.partial-test");
+        File::create(&partial_path).expect("partial file");
+        assert!(!is_backup_archive_path(&partial_path));
+
+        drop(PendingBackupFile::new(partial_path.clone()));
+        assert!(!partial_path.exists());
+    }
+
+    #[tokio::test]
+    async fn verified_partial_backup_is_atomically_published_to_catalog() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let manager = BackupManager {
+            backup_dir: tmp.path().to_path_buf(),
+            database_url: "postgres://example".to_string(),
+        };
+        let partial_path = tmp.path().join(".verified.dump.partial-test");
+        fs::write(&partial_path, b"verified archive bytes").expect("partial file");
+        assert!(manager.list_backups().expect("catalog").is_empty());
+
+        let filename = "backup_20260722_120000_unique.dump".to_string();
+        let finalized = manager
+            .finalize_backup_archive(&partial_path, filename.clone(), &BackupSettings::default())
+            .await
+            .expect("finalize");
+
+        assert_eq!(finalized, filename);
+        assert!(!partial_path.exists());
+        assert_eq!(manager.list_backups().expect("catalog").len(), 1);
+    }
+
+    #[test]
+    fn restore_archive_replay_is_single_transaction() {
+        assert!(PG_RESTORE_SAFETY_ARGS.contains(&"--clean"));
+        assert!(PG_RESTORE_SAFETY_ARGS.contains(&"--if-exists"));
+        assert!(PG_RESTORE_SAFETY_ARGS.contains(&"--single-transaction"));
     }
 
     #[test]
@@ -1269,11 +2163,28 @@ mod tests {
             "cloud_region": "us-east-1",
             "cloud_endpoint": ""
         });
-        let settings: BackupSettings = serde_json::from_value(raw).expect("settings");
+        let settings = BackupSettings::try_from_json(raw).expect("settings");
         assert!(settings.replication_targets.is_empty());
         assert!(!settings.encryption_enabled);
         assert_eq!(settings.cloud_provider, "s3");
         assert!(settings.cloud_root.is_empty());
+    }
+
+    #[test]
+    fn malformed_backup_settings_never_fall_back_to_unencrypted_defaults() {
+        let malformed = serde_json::json!({
+            "auto_cleanup_days": 30,
+            "schedule_cron": "not a daily schedule",
+            "cloud_storage_enabled": false,
+            "cloud_bucket_name": "",
+            "cloud_region": "us-east-1",
+            "cloud_endpoint": "",
+            "encryption_enabled": true
+        });
+        assert!(BackupSettings::try_from_json(malformed).is_err());
+
+        let missing_required_fields = serde_json::json!({ "encryption_enabled": true });
+        assert!(BackupSettings::try_from_json(missing_required_fields).is_err());
     }
 
     #[test]
@@ -1304,6 +2215,39 @@ mod tests {
             .await
             .expect_err("blank bucket should fail");
         assert!(err.to_string().contains("bucket name is blank"));
+    }
+
+    #[tokio::test]
+    async fn cloud_read_back_requires_exact_size_and_sha256() {
+        let operator =
+            Operator::new(opendal::services::Memory::default()).expect("memory cloud operator");
+        let filename = "backup_20260425_120000.dump";
+        let contents = b"verified Riverside backup";
+        operator
+            .write(filename, contents.to_vec())
+            .await
+            .expect("write cloud fixture");
+        let expected_sha256 = format!("{:x}", Sha256::digest(contents));
+
+        verify_cloud_backup(&operator, filename, contents.len() as u64, &expected_sha256)
+            .await
+            .expect("matching cloud object");
+
+        let size_error = verify_cloud_backup(
+            &operator,
+            filename,
+            contents.len() as u64 + 1,
+            &expected_sha256,
+        )
+        .await
+        .expect_err("size mismatch");
+        assert!(size_error.to_string().contains("size mismatch"));
+
+        let hash_error =
+            verify_cloud_backup(&operator, filename, contents.len() as u64, &"0".repeat(64))
+                .await
+                .expect_err("hash mismatch");
+        assert!(hash_error.to_string().contains("SHA-256 mismatch"));
     }
 
     #[tokio::test]
@@ -1346,18 +2290,78 @@ mod tests {
         let source = tmp.path().join("backup_20260425_120000.dump");
         let encrypted = tmp.path().join("backup_20260425_120000.dump.enc");
         let restored = tmp.path().join("restored.dump");
-        fs::write(&source, b"riverside encrypted backup").expect("source");
+        let mut source_bytes = POSTGRES_CUSTOM_ARCHIVE_MAGIC.to_vec();
+        source_bytes.resize(CHUNKED_ENCRYPTION_CHUNK_SIZE * 2 + 137, 0x5a);
+        fs::write(&source, &source_bytes).expect("source");
 
         encrypt_backup_file(&source, &encrypted).expect("encrypt");
-        assert_ne!(
-            fs::read(&encrypted).expect("encrypted"),
-            b"riverside encrypted backup"
-        );
+        let encrypted_bytes = fs::read(&encrypted).expect("encrypted");
+        assert!(encrypted_bytes.starts_with(CHUNKED_ENCRYPTED_BACKUP_MAGIC));
+        assert_ne!(encrypted_bytes, source_bytes);
 
         decrypt_backup_file(&encrypted, &restored).expect("decrypt");
-        assert_eq!(
-            fs::read(&restored).expect("restored"),
-            b"riverside encrypted backup"
+        assert_eq!(fs::read(&restored).expect("restored"), source_bytes);
+    }
+
+    #[test]
+    fn chunked_encrypted_backup_rejects_tampering_without_publishing_plaintext() {
+        std::env::set_var(
+            BACKUP_ENCRYPTION_KEY_ENV,
+            "test-backup-encryption-key-material-32-plus",
+        );
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let source = tmp.path().join("source.dump");
+        let encrypted = tmp.path().join("source.dump.enc");
+        let restored = tmp.path().join("restored.dump");
+        let mut source_bytes = POSTGRES_CUSTOM_ARCHIVE_MAGIC.to_vec();
+        source_bytes.resize(CHUNKED_ENCRYPTION_CHUNK_SIZE + 31, 0x33);
+        fs::write(&source, source_bytes).expect("source");
+        encrypt_backup_file(&source, &encrypted).expect("encrypt");
+
+        let mut encrypted_bytes = fs::read(&encrypted).expect("encrypted");
+        let last = encrypted_bytes.last_mut().expect("encrypted byte");
+        *last ^= 0x01;
+        fs::write(&encrypted, encrypted_bytes).expect("tampered archive");
+
+        assert!(decrypt_backup_file(&encrypted, &restored).is_err());
+        assert!(!restored.exists());
+    }
+
+    #[test]
+    fn legacy_rosbak1_archive_remains_readable() {
+        std::env::set_var(
+            BACKUP_ENCRYPTION_KEY_ENV,
+            "test-backup-encryption-key-material-32-plus",
+        );
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let encrypted = tmp.path().join("legacy.dump.enc");
+        let restored = tmp.path().join("restored.dump");
+        let plaintext = b"PGDMP legacy encrypted backup";
+        let key = backup_encryption_key().expect("key");
+        let nonce_uuid = Uuid::new_v4();
+        let mut nonce_bytes = [0u8; 12];
+        nonce_bytes.copy_from_slice(&nonce_uuid.as_bytes()[..12]);
+        let mut body = plaintext.to_vec();
+        key.seal_in_place_append_tag(
+            aead::Nonce::assume_unique_for_key(nonce_bytes),
+            Aad::from(LEGACY_ENCRYPTED_BACKUP_MAGIC),
+            &mut body,
+        )
+        .expect("legacy encrypt");
+        let mut packed = LEGACY_ENCRYPTED_BACKUP_MAGIC.to_vec();
+        packed.extend_from_slice(&nonce_bytes);
+        packed.extend_from_slice(&body);
+        fs::write(&encrypted, packed).expect("legacy archive");
+
+        decrypt_backup_file(&encrypted, &restored).expect("legacy decrypt");
+        assert_eq!(fs::read(restored).expect("restored"), plaintext);
+    }
+
+    #[test]
+    fn chunked_format_rejects_counter_overflow() {
+        let too_many_chunks = (u32::MAX as u64 + 1) * CHUNKED_ENCRYPTION_CHUNK_SIZE as u64;
+        assert!(
+            expected_chunked_archive_size(too_many_chunks, CHUNKED_ENCRYPTION_CHUNK_SIZE,).is_err()
         );
     }
 }
@@ -1369,7 +2373,11 @@ fn clip_backup_detail(s: &str) -> String {
     if t.len() <= BACKUP_FAILURE_DETAIL_MAX {
         t.to_string()
     } else {
-        format!("{}…", &t[..BACKUP_FAILURE_DETAIL_MAX.saturating_sub(1)])
+        let mut end = BACKUP_FAILURE_DETAIL_MAX.saturating_sub(1).min(t.len());
+        while !t.is_char_boundary(end) {
+            end = end.saturating_sub(1);
+        }
+        format!("{}…", &t[..end])
     }
 }
 
@@ -1384,6 +2392,48 @@ pub async fn record_local_backup_success(pool: &PgPool) -> Result<(), sqlx::Erro
             updated_at = EXCLUDED.updated_at
         "#,
     )
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Records success only for an archive returned by `create_backup_with_settings`, which has
+/// already passed the PostgreSQL custom-format header and `pg_restore --list` checks.
+pub async fn record_local_backup_verified_success(pool: &PgPool, filename: &str) -> Result<()> {
+    let _operation_guard = BACKUP_OPERATION_LOCK.lock().await;
+    let filename = filename.trim();
+    let identity_filename = filename.to_string();
+    let (size_bytes, sha256, verification_method) =
+        tokio::task::spawn_blocking(move || verified_backup_artifact_identity(&identity_filename))
+            .await
+            .context("Verified backup artifact identity task failed")??;
+    sqlx::query(
+        r#"
+        INSERT INTO store_backup_health (
+            id,
+            last_local_success_at,
+            last_local_verified_at,
+            last_local_verified_filename,
+            last_local_verification_method,
+            last_local_verified_size_bytes,
+            last_local_verified_sha256,
+            updated_at
+        )
+        VALUES (1, NOW(), NOW(), $1, $2, $3, $4, NOW())
+        ON CONFLICT (id) DO UPDATE SET
+            last_local_success_at = EXCLUDED.last_local_success_at,
+            last_local_verified_at = EXCLUDED.last_local_verified_at,
+            last_local_verified_filename = EXCLUDED.last_local_verified_filename,
+            last_local_verification_method = EXCLUDED.last_local_verification_method,
+            last_local_verified_size_bytes = EXCLUDED.last_local_verified_size_bytes,
+            last_local_verified_sha256 = EXCLUDED.last_local_verified_sha256,
+            updated_at = EXCLUDED.updated_at
+        "#,
+    )
+    .bind(filename)
+    .bind(verification_method)
+    .bind(size_bytes)
+    .bind(sha256)
     .execute(pool)
     .await?;
     Ok(())
@@ -1404,6 +2454,17 @@ pub async fn record_local_backup_failure(pool: &PgPool, detail: &str) -> Result<
     .bind(&d)
     .execute(pool)
     .await?;
+
+    let alert_key = format!("ops_alert:backup_failure:{}", Utc::now().format("%Y-%m-%d"));
+    if let Err(error) = crate::logic::notifications::broadcast_system_alert_with_key(
+        pool,
+        &format!("Database backup failed: {d}"),
+        &alert_key,
+    )
+    .await
+    {
+        tracing::error!(error = %error, "Failed to broadcast database backup failure alert");
+    }
     Ok(())
 }
 

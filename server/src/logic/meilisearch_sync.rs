@@ -1,5 +1,6 @@
 //! Push PostgreSQL rows into Meilisearch (best-effort; failures are logged).
 
+use anyhow::Context;
 use meilisearch_sdk::client::Client;
 use meilisearch_sdk::client::SwapIndexes;
 use meilisearch_sdk::indexes::Index;
@@ -1855,17 +1856,15 @@ async fn reindex_all_meilisearch_inner(client: &Client, pool: &PgPool) -> anyhow
     record_sync_status(pool, INDEX_ORDERS, true, n_orders as i64, None).await;
 
     // 7. Help
-    if let Err(e) =
-        crate::logic::help_corpus::reindex_help_meilisearch_with_policies(client, pool).await
-    {
-        tracing::warn!(error = %e, "Meilisearch help reindex failed (other indexes succeeded)");
-        record_sync_status(pool, INDEX_HELP, false, 0, Some(&e.to_string())).await;
-    } else {
-        let help_count = crate::logic::help_corpus::load_help_chunk_docs_with_policies(pool)
-            .await
-            .map(|chunks| chunks.len() as i64)
-            .unwrap_or(0);
-        record_sync_status(pool, INDEX_HELP, true, help_count, None).await;
+    match crate::logic::help_corpus::reindex_help_meilisearch_with_policies(client, pool).await {
+        Ok(help_count) => {
+            record_sync_status(pool, INDEX_HELP, true, help_count as i64, None).await;
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "Meilisearch help reindex failed; aggregate rebuild is incomplete");
+            record_sync_status(pool, INDEX_HELP, false, 0, Some(&e.to_string())).await;
+            return Err(anyhow::Error::new(e).context("Help index rebuild failed"));
+        }
     }
 
     // 8. Staff

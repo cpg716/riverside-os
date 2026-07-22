@@ -28,6 +28,16 @@ pub struct NuorderCredentials {
     pub user_secret: String,
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum NuorderClientLoadError {
+    #[error("NuORDER integration is not configured")]
+    MissingCredentials,
+    #[error("NuORDER credential set is incomplete")]
+    IncompleteCredentials,
+    #[error("NuORDER credential store failed: {0}")]
+    CredentialStore(#[from] integration_credentials::IntegrationCredentialError),
+}
+
 pub struct NuorderClient {
     http: reqwest::Client,
     creds: NuorderCredentials,
@@ -303,7 +313,9 @@ pub struct NuorderHealth {
     pub message: String,
 }
 
-pub async fn nuorder_client_from_pool(pool: &PgPool) -> anyhow::Result<NuorderClient> {
+pub async fn nuorder_client_from_pool(
+    pool: &PgPool,
+) -> Result<NuorderClient, NuorderClientLoadError> {
     let values = integration_credentials::load_integration_credentials(
         pool,
         "nuorder",
@@ -321,12 +333,15 @@ pub async fn nuorder_client_from_pool(pool: &PgPool) -> anyhow::Result<NuorderCl
     let user_token = values.get("user_token").cloned().unwrap_or_default();
     let user_secret = values.get("user_secret").cloned().unwrap_or_default();
 
-    if consumer_key.is_empty()
-        || consumer_secret.is_empty()
-        || user_token.is_empty()
-        || user_secret.is_empty()
-    {
-        anyhow::bail!("Missing NuORDER credentials");
+    let configured_count = [&consumer_key, &consumer_secret, &user_token, &user_secret]
+        .into_iter()
+        .filter(|value| !value.trim().is_empty())
+        .count();
+    if configured_count == 0 {
+        return Err(NuorderClientLoadError::MissingCredentials);
+    }
+    if configured_count < 4 {
+        return Err(NuorderClientLoadError::IncompleteCredentials);
     }
 
     Ok(NuorderClient::new(NuorderCredentials {

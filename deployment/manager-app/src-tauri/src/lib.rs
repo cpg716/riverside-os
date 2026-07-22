@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs::OpenOptions;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -123,8 +123,38 @@ fn format_script_args_for_log(args: Option<&Vec<String>>) -> String {
         .join(" ")
 }
 
+const DEPLOYMENT_CONFIG_FILE: &str = "riverside-deployment.config.json";
+const DEFAULT_MAIN_HUB_INSTALL_ROOT: &str = r"C:\RiversideOS";
+
+fn configured_install_root(path: &Path) -> Option<PathBuf> {
+    let raw = std::fs::read_to_string(path).ok()?;
+    let config: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    config
+        .pointer("/server/installRoot")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+}
+
+fn resolve_deployment_config_path(package_root: &Path) -> PathBuf {
+    let package_config = package_root.join(DEPLOYMENT_CONFIG_FILE);
+    let package_example = package_root.join("riverside-deployment.config.example.json");
+    let install_root = configured_install_root(&package_config)
+        .or_else(|| configured_install_root(&package_example))
+        .unwrap_or_else(|| PathBuf::from(DEFAULT_MAIN_HUB_INSTALL_ROOT));
+    let installed_config = install_root.join(DEPLOYMENT_CONFIG_FILE);
+
+    if installed_config.exists() {
+        installed_config
+    } else {
+        package_config
+    }
+}
+
 fn get_config_path() -> PathBuf {
-    get_package_root().join("riverside-deployment.config.json")
+    let package_root = get_package_root();
+    resolve_deployment_config_path(&package_root)
 }
 
 fn config_path_arg() -> String {
@@ -136,7 +166,7 @@ fn config_path_value() -> String {
 }
 
 fn script_supports_config_path(script_name: &str) -> bool {
-    !matches!(script_name, "audit-system.ps1" | "Install-RosieAiStack.ps1")
+    script_name != "Install-RosieAiStack.ps1"
 }
 
 #[tauri::command]
@@ -173,6 +203,83 @@ async fn read_deployment_config() -> Result<String, String> {
     tokio::fs::read_to_string(path)
         .await
         .map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{resolve_deployment_config_path, DEPLOYMENT_CONFIG_FILE};
+    use std::path::PathBuf;
+
+    fn unique_test_dir(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "riverside-deployment-manager-{name}-{}",
+            std::process::id()
+        ))
+    }
+
+    #[test]
+    fn existing_installed_config_wins_over_package_config() {
+        let root = unique_test_dir("installed-config");
+        let package_root = root.join("package");
+        let install_root = root.join("installed");
+        std::fs::create_dir_all(&package_root).expect("package dir");
+        std::fs::create_dir_all(&install_root).expect("install dir");
+        std::fs::write(
+            package_root.join(DEPLOYMENT_CONFIG_FILE),
+            serde_json::json!({"server": {"installRoot": install_root}}).to_string(),
+        )
+        .expect("package config");
+        let installed_config = install_root.join(DEPLOYMENT_CONFIG_FILE);
+        std::fs::write(&installed_config, "{}").expect("installed config");
+
+        assert_eq!(
+            resolve_deployment_config_path(&package_root),
+            installed_config
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn first_install_uses_package_config() {
+        let root = unique_test_dir("package-config");
+        let package_root = root.join("package");
+        let install_root = root.join("not-installed");
+        std::fs::create_dir_all(&package_root).expect("package dir");
+        let package_config = package_root.join(DEPLOYMENT_CONFIG_FILE);
+        std::fs::write(
+            &package_config,
+            serde_json::json!({"server": {"installRoot": install_root}}).to_string(),
+        )
+        .expect("package config");
+
+        assert_eq!(
+            resolve_deployment_config_path(&package_root),
+            package_config
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn custom_install_root_from_example_finds_installed_config() {
+        let root = unique_test_dir("custom-example-root");
+        let package_root = root.join("package");
+        let install_root = root.join("custom-installed");
+        std::fs::create_dir_all(&package_root).expect("package dir");
+        std::fs::create_dir_all(&install_root).expect("install dir");
+        std::fs::write(
+            package_root.join("riverside-deployment.config.example.json"),
+            serde_json::json!({"server": {"installRoot": install_root}}).to_string(),
+        )
+        .expect("package example");
+        let installed_config = install_root.join(DEPLOYMENT_CONFIG_FILE);
+        std::fs::write(&installed_config, "{}").expect("installed config");
+
+        assert_eq!(
+            resolve_deployment_config_path(&package_root),
+            installed_config
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
 }
 
 #[tauri::command]

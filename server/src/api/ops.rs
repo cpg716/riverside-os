@@ -766,6 +766,66 @@ struct DatabaseDiagnostics {
     active_connections: u32,
     idle_connections: u32,
     migration_count: i64,
+    active_migration_count: usize,
+    active_migrations_applied: usize,
+    latest_migration: Option<String>,
+    latest_migration_applied: bool,
+    latest_migration_checksum: Option<String>,
+    missing_migration_checksum_count: usize,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct ActiveMigrationDiagnostics {
+    active_migration_count: usize,
+    active_migrations_applied: usize,
+    latest_migration: Option<String>,
+    latest_migration_applied: bool,
+    latest_migration_checksum: Option<String>,
+    missing_migration_checksum_count: usize,
+}
+
+fn active_migration_number(version: &str) -> Option<u32> {
+    version.split('_').next()?.parse().ok()
+}
+
+fn summarize_active_migrations(
+    active_versions: &[&str],
+    ledger_rows: &[(String, Option<String>)],
+) -> ActiveMigrationDiagnostics {
+    let latest_migration = active_versions
+        .iter()
+        .filter_map(|version| active_migration_number(version).map(|number| (number, *version)))
+        .max_by(|(left_number, left_name), (right_number, right_name)| {
+            left_number
+                .cmp(right_number)
+                .then_with(|| left_name.cmp(right_name))
+        })
+        .map(|(_, version)| version.to_string());
+    let active_rows = active_versions
+        .iter()
+        .filter_map(|active| ledger_rows.iter().find(|(version, _)| version == active))
+        .collect::<Vec<_>>();
+    let missing_migration_checksum_count = active_rows
+        .iter()
+        .filter(|(_, checksum)| checksum.as_deref().map(str::trim).is_none_or(str::is_empty))
+        .count();
+    let latest_row = latest_migration
+        .as_deref()
+        .and_then(|latest| ledger_rows.iter().find(|(version, _)| version == latest));
+    let latest_migration_checksum = latest_row
+        .and_then(|(_, checksum)| checksum.as_deref())
+        .map(str::trim)
+        .filter(|checksum| !checksum.is_empty())
+        .map(ToOwned::to_owned);
+
+    ActiveMigrationDiagnostics {
+        active_migration_count: active_versions.len(),
+        active_migrations_applied: active_rows.len(),
+        latest_migration,
+        latest_migration_applied: latest_row.is_some(),
+        latest_migration_checksum,
+        missing_migration_checksum_count,
+    }
 }
 
 #[derive(serde::Serialize)]
@@ -867,6 +927,15 @@ async fn check_db_diagnostics(pool: &sqlx::PgPool) -> Result<DatabaseDiagnostics
         sqlx::query_scalar("SELECT COUNT(*) FROM public.ros_schema_migrations")
             .fetch_one(pool)
             .await?;
+    let migration_ledger: Vec<(String, Option<String>)> =
+        sqlx::query_as("SELECT version, file_sha256 FROM public.ros_schema_migrations")
+            .fetch_all(pool)
+            .await?;
+    let active_versions = crate::embedded_migrations::EMBEDDED_MIGRATIONS
+        .iter()
+        .map(|(version, _)| *version)
+        .collect::<Vec<_>>();
+    let active_migrations = summarize_active_migrations(&active_versions, &migration_ledger);
 
     Ok(DatabaseDiagnostics {
         connected: true,
@@ -874,6 +943,12 @@ async fn check_db_diagnostics(pool: &sqlx::PgPool) -> Result<DatabaseDiagnostics
         active_connections: active,
         idle_connections: idle,
         migration_count,
+        active_migration_count: active_migrations.active_migration_count,
+        active_migrations_applied: active_migrations.active_migrations_applied,
+        latest_migration: active_migrations.latest_migration,
+        latest_migration_applied: active_migrations.latest_migration_applied,
+        latest_migration_checksum: active_migrations.latest_migration_checksum,
+        missing_migration_checksum_count: active_migrations.missing_migration_checksum_count,
     })
 }
 
@@ -913,6 +988,24 @@ fn generate_ai_prompt(
         db.active_connections, db.pool_size, db.idle_connections
     ));
     prompt.push_str(&format!("**Migrations:** {} applied\n", db.migration_count));
+    prompt.push_str(&format!(
+        "**Active migration baseline:** {}/{} applied; {} active checksum(s) missing\n",
+        db.active_migrations_applied,
+        db.active_migration_count,
+        db.missing_migration_checksum_count
+    ));
+    prompt.push_str(&format!(
+        "**Highest active migration:** {} — {} ({})\n",
+        db.latest_migration.as_deref().unwrap_or("unavailable"),
+        if db.latest_migration_applied {
+            "applied"
+        } else {
+            "NOT APPLIED"
+        },
+        db.latest_migration_checksum
+            .as_deref()
+            .unwrap_or("checksum unavailable")
+    ));
     prompt.push_str(&format!(
         "**GitHub Token:** {}\n",
         if github.token_configured {
@@ -1246,4 +1339,49 @@ pub fn router() -> Router<AppState> {
         .route("/connectivity-logs", get(get_connectivity_logs))
         .route("/metrics", get(get_operational_metrics))
         .route("/update-check", get(get_update_check))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::summarize_active_migrations;
+
+    #[test]
+    fn migration_diagnostics_choose_highest_numeric_active_version() {
+        let active = ["009_example.sql", "100_active.sql", "146_latest_active.sql"];
+        let ledger = vec![
+            (
+                "188_legacy_inactive.sql".to_string(),
+                Some("legacy".to_string()),
+            ),
+            (
+                "146_latest_active.sql".to_string(),
+                Some("abc123".to_string()),
+            ),
+            ("100_active.sql".to_string(), Some("def456".to_string())),
+            ("009_example.sql".to_string(), Some("ghi789".to_string())),
+        ];
+
+        let summary = summarize_active_migrations(&active, &ledger);
+        assert_eq!(
+            summary.latest_migration.as_deref(),
+            Some("146_latest_active.sql")
+        );
+        assert!(summary.latest_migration_applied);
+        assert_eq!(summary.latest_migration_checksum.as_deref(), Some("abc123"));
+        assert_eq!(summary.active_migrations_applied, 3);
+    }
+
+    #[test]
+    fn migration_diagnostics_flag_missing_active_checksums() {
+        let active = ["145_prior.sql", "146_latest.sql"];
+        let ledger = vec![
+            ("145_prior.sql".to_string(), Some(" ".to_string())),
+            ("146_latest.sql".to_string(), None),
+        ];
+
+        let summary = summarize_active_migrations(&active, &ledger);
+        assert_eq!(summary.missing_migration_checksum_count, 2);
+        assert!(summary.latest_migration_applied);
+        assert_eq!(summary.latest_migration_checksum, None);
+    }
 }

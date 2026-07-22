@@ -1,6 +1,6 @@
 use crate::api::qbo;
 use crate::logic::fal_sidecar;
-use crate::logic::nuorder::nuorder_client_from_pool;
+use crate::logic::nuorder::{nuorder_client_from_pool, NuorderClientLoadError};
 use crate::logic::podium;
 use crate::logic::shippo;
 use crate::logic::weather;
@@ -119,28 +119,52 @@ pub async fn run_integration_heartbeat(
     record_status(pool, "fal_ai", &fal_status, &fal_detail, fal_has_failed).await?;
 
     // 6. NuORDER
-    let (nu_status, nu_detail) = match nuorder_client_from_pool(pool).await {
+    let (nu_status, nu_detail, nu_has_failed) = match nuorder_client_from_pool(pool).await {
         Ok(client) => {
             let nu_h = client.health_check().await;
             if nu_h.reachable {
-                ("GOOD".to_string(), "NuORDER is reachable".to_string())
+                (
+                    "GOOD".to_string(),
+                    "NuORDER is reachable".to_string(),
+                    false,
+                )
             } else {
-                ("WARNING".to_string(), nu_h.message)
+                ("WARNING".to_string(), nu_h.message, true)
             }
         }
-        Err(_) => (
-            "CAUTION".to_string(),
-            "NuORDER integration not configured".to_string(),
-        ),
+        Err(error) => {
+            let (status, detail, has_failed) = classify_nuorder_load_failure(&error);
+            if has_failed {
+                tracing::warn!(%error, "NuORDER heartbeat could not load credentials");
+            }
+            (status.to_string(), detail.to_string(), has_failed)
+        }
     };
-    let nu_has_failed = nu_status == "WARNING";
     record_status(pool, "nuorder", &nu_status, &nu_detail, nu_has_failed).await?;
 
     // 7. Meilisearch
     let (ms_status, ms_detail) = if let Some(client) = meilisearch_client {
         let ms_h = crate::logic::meilisearch_client::health_check(client).await;
         if ms_h.reachable {
-            ("GOOD".to_string(), "Meilisearch is reachable".to_string())
+            match crate::logic::meilisearch_search::full_reindex_proof(pool).await {
+                Ok(proof) if proof.is_fresh() => (
+                    "GOOD".to_string(),
+                    format!("Meilisearch is reachable. {}", proof.detail),
+                ),
+                Ok(proof) => (
+                    "CAUTION".to_string(),
+                    format!(
+                        "Meilisearch is reachable, but search freshness is not proven. {}",
+                        proof.detail
+                    ),
+                ),
+                Err(error) => (
+                    "CAUTION".to_string(),
+                    format!(
+                        "Meilisearch is reachable, but full-rebuild proof could not be read: {error}"
+                    ),
+                ),
+            }
         } else {
             ("WARNING".to_string(), ms_h.message)
         }
@@ -156,6 +180,33 @@ pub async fn run_integration_heartbeat(
     Ok(())
 }
 
+fn classify_nuorder_load_failure(
+    error: &NuorderClientLoadError,
+) -> (&'static str, &'static str, bool) {
+    match error {
+        NuorderClientLoadError::MissingCredentials => {
+            ("CAUTION", "NuORDER integration not configured", false)
+        }
+        NuorderClientLoadError::IncompleteCredentials => {
+            ("WARNING", "NuORDER credential set is incomplete", true)
+        }
+        NuorderClientLoadError::CredentialStore(
+            crate::logic::integration_credentials::IntegrationCredentialError::Database(_),
+        ) => (
+            "WARNING",
+            "NuORDER credential store could not be read",
+            true,
+        ),
+        NuorderClientLoadError::CredentialStore(
+            crate::logic::integration_credentials::IntegrationCredentialError::InvalidPayload(_),
+        ) => (
+            "WARNING",
+            "NuORDER credentials could not be decrypted or validated",
+            true,
+        ),
+    }
+}
+
 async fn record_status(
     pool: &PgPool,
     source: &str,
@@ -169,7 +220,7 @@ async fn record_status(
             .fetch_optional(pool)
             .await?;
 
-    let old_status = prev.map(|(s,)| s).unwrap_or_else(|| "GOOD".to_string());
+    let old_status = prev.map(|(s,)| s).unwrap_or_else(|| "UNKNOWN".to_string());
 
     if old_status != new_status {
         // Log transition to ops_connectivity_logs
@@ -187,7 +238,8 @@ async fn record_status(
         .await?;
     }
 
-    // Upsert into integration_alert_state
+    // Upsert into integration_alert_state. A skipped/unconfigured probe is CAUTION, not a
+    // successful provider call, so it must not advance last_success_at.
     if has_failed {
         sqlx::query(
             r#"
@@ -205,7 +257,7 @@ async fn record_status(
         .bind(detail)
         .execute(pool)
         .await?;
-    } else {
+    } else if new_status.eq_ignore_ascii_case("GOOD") {
         sqlx::query(
             r#"
             INSERT INTO integration_alert_state (source, status, last_success_at, detail, updated_at)
@@ -216,6 +268,22 @@ async fn record_status(
                 detail = EXCLUDED.detail,
                 updated_at = EXCLUDED.updated_at
             "#
+        )
+        .bind(source)
+        .bind(new_status)
+        .bind(detail)
+        .execute(pool)
+        .await?;
+    } else {
+        sqlx::query(
+            r#"
+            INSERT INTO integration_alert_state (source, status, detail, updated_at)
+            VALUES ($1, $2, $3, NOW())
+            ON CONFLICT (source) DO UPDATE SET
+                status = EXCLUDED.status,
+                detail = EXCLUDED.detail,
+                updated_at = EXCLUDED.updated_at
+            "#,
         )
         .bind(source)
         .bind(new_status)
@@ -233,4 +301,33 @@ pub async fn get_connectivity_logs(pool: &PgPool) -> Result<Vec<ConnectivityLog>
     )
     .fetch_all(pool)
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::classify_nuorder_load_failure;
+    use crate::logic::integration_credentials::IntegrationCredentialError;
+    use crate::logic::nuorder::NuorderClientLoadError;
+
+    #[test]
+    fn nuorder_missing_config_is_caution_but_bad_credentials_are_warning() {
+        assert_eq!(
+            classify_nuorder_load_failure(&NuorderClientLoadError::MissingCredentials),
+            ("CAUTION", "NuORDER integration not configured", false)
+        );
+        assert_eq!(
+            classify_nuorder_load_failure(&NuorderClientLoadError::IncompleteCredentials),
+            ("WARNING", "NuORDER credential set is incomplete", true)
+        );
+        assert_eq!(
+            classify_nuorder_load_failure(&NuorderClientLoadError::CredentialStore(
+                IntegrationCredentialError::InvalidPayload("decrypt failed".to_string()),
+            )),
+            (
+                "WARNING",
+                "NuORDER credentials could not be decrypted or validated",
+                true,
+            )
+        );
+    }
 }

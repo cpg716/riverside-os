@@ -28,6 +28,12 @@ type DatabaseDiagnostics = {
   active_connections: number;
   idle_connections: number;
   migration_count: number;
+  active_migration_count: number;
+  active_migrations_applied: number;
+  latest_migration: string | null;
+  latest_migration_applied: boolean;
+  latest_migration_checksum: string | null;
+  missing_migration_checksum_count: number;
 };
 
 type LogEntry = {
@@ -561,11 +567,29 @@ export default function RosDevCenterPanel() {
             </div>
             <div className="ui-metric-cell ui-tint-neutral p-4">
               <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                Applied Migrations
+                Migration Ledger Rows
               </p>
               <p className="mt-2 text-2xl font-black text-app-text">
                 {diagnostics?.database.migration_count ?? "—"}
               </p>
+              <p className="mt-1 break-all font-mono text-[10px] text-app-text-muted">
+                {diagnostics
+                  ? `${diagnostics.database.active_migrations_applied}/${diagnostics.database.active_migration_count} active • ${diagnostics.database.latest_migration ?? "latest unavailable"}`
+                  : "Active migration status unavailable"}
+                {diagnostics?.database.latest_migration_applied === false
+                  ? " • not applied"
+                  : diagnostics?.database.latest_migration_checksum
+                    ? ` • ${diagnostics.database.latest_migration_checksum.slice(0, 12)}`
+                    : diagnostics?.database.latest_migration_applied
+                      ? " • checksum missing"
+                      : ""}
+              </p>
+              {diagnostics && diagnostics.database.missing_migration_checksum_count > 0 && (
+                <p className="mt-1 text-[10px] font-bold text-app-warning">
+                  {diagnostics.database.missing_migration_checksum_count} active migration checksum
+                  {diagnostics.database.missing_migration_checksum_count === 1 ? " is" : "s are"} missing
+                </p>
+              )}
             </div>
           </div>
 

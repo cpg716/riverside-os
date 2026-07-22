@@ -65,6 +65,7 @@ type StationRow = {
   last_sync_at: string | null;
   last_update_check_at: string | null;
   last_update_install_at: string | null;
+  client_timestamp_source: string;
   last_seen_at: string;
   updated_at: string;
   online: boolean;
@@ -942,7 +943,9 @@ export default function RosSupportCenterPanel({
                     Station Fleet Triage
                   </h3>
                   <p className="mt-1 text-xs text-app-text-muted">
-                    Workstation pulse monitoring. Toggle Stale History to view older inactive sessions.
+                    Workstation pulse monitoring. Last Seen is server-recorded. Sync/check times
+                    are client-reported and future-bounded; install time requires confirmed native
+                    updater evidence.
                   </p>
                 </div>
               </div>

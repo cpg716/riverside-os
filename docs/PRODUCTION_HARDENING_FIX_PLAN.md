@@ -33,9 +33,9 @@ This plan resolves the audit findings in `docs/reviews/PRODUCTION_HARDENING_AUDI
 
 5. **Restore safety lockout**
    - Status: implemented in `server/src/api/settings.rs`, `server/src/logic/backups.rs`, and `SettingsWorkspace`.
-   - Add server-side restore preflight: no open/reconciling registers, fresh pre-restore backup, explicit target confirmation, and no active production flag unless a guarded emergency path is used.
+   - Add server-side restore preflight: no open/reconciling registers, fresh pre-restore backup using the effective saved settings, and explicit target confirmation.
    - Constrain restore filenames to files listed by `BackupManager::list_backups`.
-   - Strict production restore requires `RIVERSIDE_ALLOW_PRODUCTION_RESTORE=true`; normal restore drills should use a non-production database.
+   - Live strict-production restore is unavailable. `RIVERSIDE_ALLOW_LIVE_RESTORE=true` is limited to an approved non-production drill; production recovery uses the offline procedure.
    - Tests: `cargo test --manifest-path server/Cargo.toml backups::tests:: --lib` passed locally on 2026-04-25; 2 passed.
    - Restore preflight tests: `cargo test --manifest-path server/Cargo.toml api::settings::tests:: --lib` passed locally on 2026-04-25; 4 passed.
    - Local drill: `server/backups/backup_20260425_020000.dump` restored into `riverside_restore_drill_20260425`; temporary API boot on `127.0.0.1:43310` returned staff list data. Evidence: `docs/reviews/evidence/restore_drill_local_2026-04-25.txt`.

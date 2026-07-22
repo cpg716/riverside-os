@@ -18,6 +18,7 @@ status: approved
 ![Purchase order panel](../images/help/inventory-receiving-bay/workflow-2.png)
 
 ![Receive Stock workflow](../images/help/inventory-receiving-bay/workflow-3.png)
+
 ## What this is
 
 Receive Stock is the guided workflow for counting inbound quantities and posting received stock from vendor paperwork.
@@ -41,7 +42,11 @@ If paperwork cannot load, the drawer shows a recovery state with a retry action.
 
 The item-entry strip appears above the receiving table for open receiving documents. Search by product name, SKU, product UPC, catalog/vendor style number, or scanner input, confirm the current cost and retail, then add the line. Use it when a vendor shipment includes extra non-PO items on the invoice. Added invoice lines stage their received quantity but still do not change live inventory until **Post Receipt** succeeds.
 
-For existing receiving lines, scanner matching checks the variation's `Product UPC` before SKU. Receiving displays the variation `Catalog # / vendor style #` when present, otherwise it falls back to the main product catalog number. Shared main catalog scans only auto-select a line when exactly one receiving line matches. Vendor/supplier style numbers belong in `Catalog # / vendor style #`; Counterpoint item numbers such as `I-103067` are internal identifiers and should not be used as vendor catalog numbers.
+A scanner entry selects an invoice item only when Riverside can prove one unique exact SKU, Product UPC/barcode, approved barcode alias, catalog number, or enabled vendor UPC match across all of those identifier types. A similar-looking or ambiguous result is never selected automatically. If the code is not exact and unique, use the item picker and choose the intended variation yourself before adding the line.
+
+For existing receiving lines, scanner matching checks Product UPC/barcode, the enabled vendor UPC, catalog number, and SKU together. Riverside auto-selects only when the code resolves to one purchase-order line across all of those identifier types; a barcode on one line that is also another line's SKU is treated as ambiguous and changes nothing. A product-level catalog number shared by several sizes or colors can select the one variation already on this paperwork, but requires the item picker when the paperwork contains more than one of those variations or when a new line is not uniquely identifiable. Receiving displays the variation `Catalog # / vendor style #` when present, otherwise it falls back to the main product catalog number. Vendor/supplier style numbers belong in `Catalog # / vendor style #`; Counterpoint item numbers such as `I-103067` are internal identifiers and should not be used as vendor catalog numbers.
+
+Each variation can appear only once on a purchase order. If it is already listed, update that existing line instead of adding a duplicate; this keeps scanned quantities and invoice cost tied to one auditable line.
 
 Use **Quick Add Item** when paperwork contains a SKU that does not exist yet. Enter the Product UPC and Catalog # / vendor style # if they are on the paperwork or tag. Riverside OS creates the catalog item for the current vendor with zero starting stock, selects it for the invoice, and leaves stock unchanged until the receipt posts.
 

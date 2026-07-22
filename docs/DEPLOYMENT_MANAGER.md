@@ -88,22 +88,28 @@ To prevent setup failures caused by misconfigured passwords or unreplaced placeh
 When `install-server.ps1` or `apply-riverside-migrations.ps1` runs:
 *   **JWT Secret:** If `storeCustomerJwtSecret` in the configuration is empty or matches a placeholder (e.g. `replace-with-...`), the script generates a secure 32-character token.
 *   **App DB User Password:** If `appPassword` is empty or matches a placeholder, the script generates a secure 24-character database password.
-*   **Auto-Save:** Generated secrets are automatically written back to the `riverside-deployment.config.json` configuration file, ensuring they are persistent and won't be lost during updates.
+*   **Auto-Save:** Generated secrets are staged in memory, then written to the installed `riverside-deployment.config.json` only after the required pre-update backup and other non-destructive preflight checks succeed.
 *   **Legacy Function Ownership Repair:** Before pending migrations run, the migration script repairs known Riverside-owned PostgreSQL functions such as wedding-number helpers so older Main Hub databases can continue through the update without manual owner fixes.
 
 ### Postgres Admin Password Auto-Detection
 If the PostgreSQL admin password is left blank or as a placeholder:
 *   The script probes the local PostgreSQL instance using the `psql -w` (no-interactive-prompt) flag. This ensures psql **immediately exits with a non-zero code** if the password is wrong rather than opening a console password prompt.
 *   The probe sequence is: configured password → trust/empty → common defaults (`postgres`, `admin`, `password`).
-*   If a connection is successfully established, the script **automatically writes the working password** to `riverside-deployment.config.json`.
+*   If a connection is successfully established, the script stages the working password and writes it to the installed `riverside-deployment.config.json` after preflight succeeds.
 *   If no connection succeeds, the installer prints a clear error pointing to `riverside-deployment.config.json` and exits — no hanging password prompts, no looping console dialogs.
 *   `Invoke-NativeCommand` (the low-level process wrapper used by all psql calls) redirects stdin and closes it immediately, which prevents any child process from opening an interactive prompt on the console window.
+
+### Production safeguards and installed config authority
+
+On an existing Main Hub, the installed `<installRoot>\riverside-deployment.config.json` is authoritative. The default install root is `C:\RiversideOS`. For a custom install root, keep `server.installRoot` in the package config or pass `-ConfigPath <absolute-installed-config-path>` when launching the PowerShell manager/audit directly; this is the discovery pointer a newly extracted package uses to find the installed config. A package example never replaces an installed config during an update. Missing runtime paths are filled individually: `RIVERSIDE_BACKUP_DIR` defaults to the absolute `<installRoot>\backups` path in both manager and direct-installer/LAN-push flows, while any existing custom path and the selected `server.strictProduction` value are preserved.
+
+`server.strictProduction=false` is permitted only while initial production configuration is incomplete. It does not stop normal staff operation, but **System Audit** and ROS runtime diagnostics report it as a production go-live blocker. Before changing it to `true`, verify the backup directory and PostgreSQL tools, current migration ledger, exact CORS origins, credential encryption key, live Helcim token and both terminal device codes, configured Meilisearch reachability, storefront JWT secret, and deployed frontend bundle. Then update or repair the Main Hub so the installer writes the selected value to the server environment and proves startup readiness. A failed update restores the prior server files and prior installed config. If PostgreSQL already accepted a new app-role password before a later failure, rollback synchronizes that effective password into both the restored server environment and installed config. A failed initial install likewise retains the config only when necessary to avoid losing an already-applied database credential.
 
 ---
 
 ## 4. Deep Pre-flight System Audit
 
-Clicking the **Audit** button in the Deployment Manager (or running `Audit-System.cmd`) triggers the **`audit-system.ps1`** diagnostic utility. It validates the host environment and prints a color-coded status log:
+Clicking the **Audit** button in the Deployment Manager (or running `Audit-System.cmd`) triggers the **`audit-system.ps1`** diagnostic utility. It validates the host environment and prints a color-coded status log. Any `[FAIL]` result produces a non-zero process status, so the manager cannot report a failed audit as successful:
 
 | Check Target | Diagnostic Method | Recovery Action |
 | :--- | :--- | :--- |
@@ -111,9 +117,10 @@ Clicking the **Audit** button in the Deployment Manager (or running `Audit-Syste
 | **Port Reachability** | Checks if TCP Port 5432 (PostgreSQL) is open. | Identifies if database service is stopped. |
 | **Database Connection** | Attempts SQL check query using resolved credentials. | Validates config credentials and database existence. |
 | **Schema & Migrations** | Queries table counts and checks `ros_schema_migrations`. | Identifies if migrations are pending or unapplied. |
+| **Production Safeguards** | Checks `server.strictProduction` and an absolute `RIVERSIDE_BACKUP_DIR` for production. | Blocks go-live signoff until both are explicit. |
 | **Server Task Status** | Audits state of `"Riverside OS Server"` scheduled task. | Checks if task is registered, active, or terminated. |
-| **API Health** | Pings port 3000 `/api/health`, `/api/ready`, `/api/live`, and `/api/version`. | Verifies Axum server is responding to HTTP traffic. |
-| **System Environment** | Audits machine-level `RIVERSIDE_CREDENTIALS_KEY` variable. | Confirms API server has access to encryption keys. |
+| **API Health** | Reads `/api/version` and `/api/ready`, then compares the live version and full build SHA with the verified deployment-package manifest. | Rejects a healthy but stale or wrong server binary. |
+| **System Environment** | Audits the effective `server\.env` values, with the Windows Machine environment accepted only as a credential-key fallback. | Confirms the API server has its JWT, credential-encryption key, and Counterpoint token without falsely rejecting a standard install. |
 | **Printer Connectivity** | Pings IPs defined in `receiptPrinter` / `tagPrinter` settings. | Identifies routing/firewall issues for ticket printers. |
 
 ---

@@ -23,7 +23,7 @@ Before you **scan**, **search**, use the **numpad**, or tap **Pay**, the registe
 1. **Select Identity**: Choose your name from the **Staff Roster** dropdown. The system will remember your choice for your next sign-in on this device.
 2. **Enter PIN**: Type your **4-digit PIN** to authorize the register for this sale. 
 
-That person is recorded as the checkout **operator** for the transaction. **After you complete a sale**, you stay signed in as that cashier; use **Logout** or **Switch cashier** only if someone else should ring the next sale. Clearing the cart or starting a new sale does **not** sign you out. This is separate from **who opened the drawer** (session) and separate from the **Salesperson** (assigned via the avatar-picker at top or on each line) used for commissions.
+That person is recorded as the checkout **operator** for the transaction. **After you complete or clear a sale**, the Register session and workstation Staff Access stay active, but Riverside clears the sale-level operator and asks for **Cashier for this sale** again before the next checkout. This prevents one cashier's identity from silently carrying into another cashier's sale. It is separate from **who opened the drawer** (session) and separate from the **Salesperson** (assigned via the avatar-picker at top or on each line) used for commissions.
 
 Every merchandise, alteration, special-order, custom-order, and wedding-order sale line must have a **Salesperson** before payment can finish. Select a default Salesperson at the top of the cart, or assign a Salesperson on individual lines. Use **Staff Admin** only when the sale should not commission to an individual salesperson; it is a protected no-commission system account. Gift-card-load-only and RMS Charge payment-only flows do not use salesperson attribution.
 
@@ -32,7 +32,7 @@ Every merchandise, alteration, special-order, custom-order, and wedding-order sa
 While the till is open, an **in-progress sale** is **saved in the browser** on this device (`localforage`, key `ros_pos_active_sale`, scoped to your **register session id**) **only after you have at least one line item** in the cart (lines, linked customer, shipping selection, default salesperson, and cashier-for-sale).
 
 - If you **sign in** as cashier but **never add a line**, nothing is saved. **Refresh** or **returning** to this screen may ask for **Cashier for this sale** again.
-- **It stays** if you switch to another **POS sidebar** tab (Dashboard, Inventory, Settings, etc.), **Exit POS mode** to Back Office, or refresh — until you **clear the sale**, or the saved snapshot does not match the current register session (e.g. different lane/session). **Cashier-for-this-sale** is reset when the **register session** changes, not on every cart clear.
+- **It stays** if you switch to another **POS sidebar** tab (Dashboard, Inventory, Settings, etc.), **Exit POS mode** to Back Office, or refresh — until you **clear the sale**, or the saved snapshot does not match the current register session (e.g. different lane/session). Clearing or completing the sale also resets **Cashier for this sale** while leaving the Register session open.
 - **It is not** the same as **Park** (below): **Park** is a **server** snapshot for intentional handoff; the local draft is automatic recovery for the same session/device.
 
 Staff-facing details for engineers: **[Parked sales and RMS charges](../POS_PARKED_SALES_AND_RMS_CHARGES.md)** (parked vs local draft).

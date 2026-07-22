@@ -6941,6 +6941,68 @@ async fn record_counterpoint_import_exception(
     }
 }
 
+async fn record_counterpoint_financial_mismatch_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    ticket_ref: &str,
+    transaction_id: Uuid,
+    evidence: &CounterpointTicketFinancialEvidence,
+) -> Result<(), sqlx::Error> {
+    let review_codes = evidence.review_codes.join(", ");
+    sqlx::query(
+        r#"
+        INSERT INTO counterpoint_import_exceptions (
+            import_run_id, entity_key, source_key, severity, reason_code,
+            message, suggested_fix, fallback_landed, ros_table, ros_id, source_payload
+        )
+        SELECT (
+            SELECT id
+            FROM (
+                SELECT id, 0 AS priority, created_at
+                FROM counterpoint_import_runs
+                WHERE run_kind IN ('full_import', 'rehearsal', 'full_rehearsal', 'fix_rerun', 'incremental_update', 'go_live')
+                  AND status = 'running'
+                UNION ALL
+                SELECT id, 1 AS priority, created_at
+                FROM counterpoint_import_runs
+                WHERE run_kind IN ('full_import', 'rehearsal', 'full_rehearsal', 'fix_rerun', 'incremental_update', 'go_live')
+                  AND status IN ('completed', 'failed')
+                UNION ALL
+                SELECT id, 2 AS priority, created_at
+                FROM counterpoint_import_runs
+                WHERE preflight_passed
+            ) candidate_runs
+            ORDER BY priority, created_at DESC
+            LIMIT 1
+        ), 'tickets', $1, $2, 'financial_total_mismatch', $3, $4,
+           TRUE, 'transactions', $5, $6
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM counterpoint_import_exceptions
+            WHERE entity_key = 'tickets'
+              AND source_key = $1
+              AND reason_code = 'financial_total_mismatch'
+              AND status = 'open'
+        )
+        "#,
+    )
+    .bind(ticket_ref)
+    .bind(evidence.severity())
+    .bind(format!(
+        "Counterpoint ticket {ticket_ref} has conflicting header, line, or tender totals ({review_codes}). The sale remains visible, but its immutable import snapshot requires source review."
+    ))
+    .bind("Compare the retained Counterpoint source payload, receipt, charged line amounts, and tender rows. Do not overwrite ROS transaction or tender amounts until the source authority is established; rerun Ticket History after correcting the source mapping.")
+    .bind(transaction_id)
+    .bind(serde_json::json!({
+        "counterpoint_ticket_ref": ticket_ref,
+        "transaction_id": transaction_id,
+        "financial_evidence": evidence,
+        "tender_values_read_only": true,
+    }))
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
 async fn record_counterpoint_generated_sku_exceptions(
     pool: &PgPool,
     records: &[CounterpointGeneratedSkuRecord],
@@ -12092,6 +12154,45 @@ pub struct TicketSyncSummary {
     pub skipped: i32,
 }
 
+#[derive(Debug, Clone, Serialize)]
+struct CounterpointTicketFinancialEvidence {
+    source_header_total: Decimal,
+    source_header_tax_total: Option<Decimal>,
+    source_header_amount_paid: Decimal,
+    source_line_subtotal: Decimal,
+    source_line_tax_total: Option<Decimal>,
+    source_line_total: Option<Decimal>,
+    source_tender_total: Decimal,
+    source_tender_rows_present: bool,
+    imported_header_total: Decimal,
+    imported_line_subtotal: Decimal,
+    imported_line_tax: Decimal,
+    imported_line_total: Decimal,
+    header_line_delta: Decimal,
+    tender_line_delta: Decimal,
+    source_header_line_delta: Option<Decimal>,
+    source_tender_line_delta: Option<Decimal>,
+    source_header_tender_delta: Decimal,
+    source_amount_paid_tender_delta: Decimal,
+    review_codes: Vec<String>,
+}
+
+impl CounterpointTicketFinancialEvidence {
+    fn needs_review(&self) -> bool {
+        !self.review_codes.is_empty()
+    }
+
+    fn severity(&self) -> &'static str {
+        if self.review_codes.iter().any(|code| {
+            code == "header_line_total_mismatch" || code == "source_header_line_total_mismatch"
+        }) {
+            "blocked"
+        } else {
+            "warning"
+        }
+    }
+}
+
 fn sum_counterpoint_ticket_tenders(
     payments: &[TicketPaymentRow],
     gift_applications: &[TicketGiftApplicationRow],
@@ -12597,6 +12698,202 @@ async fn resolve_variant_for_cp_item_no(
     .await
 }
 
+fn parse_counterpoint_source_booked_at(value: Option<&str>) -> Option<DateTime<Utc>> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
+        .map(|value| value.with_timezone(&Utc))
+}
+
+async fn counterpoint_line_protected_dependencies(
+    tx: &mut Transaction<'_, Postgres>,
+    transaction_id: Uuid,
+) -> Result<Vec<String>, sqlx::Error> {
+    sqlx::query_scalar(
+        r#"
+        WITH source_lines AS (
+            SELECT id, fulfillment_order_id, po_id, po_line_id
+            FROM transaction_lines
+            WHERE transaction_id = $1
+        )
+        SELECT dependency
+        FROM (
+            SELECT 'return/refund rows'::text AS dependency
+            WHERE EXISTS (
+                SELECT 1 FROM transaction_return_lines d
+                INNER JOIN source_lines l ON l.id = d.transaction_line_id
+            )
+            UNION ALL
+            SELECT 'fulfillment lifecycle events'
+            WHERE EXISTS (
+                SELECT 1 FROM transaction_line_lifecycle_events d
+                INNER JOIN source_lines l ON l.id = d.transaction_line_id
+            )
+            UNION ALL
+            SELECT 'fulfillment or procurement links'
+            WHERE EXISTS (
+                SELECT 1 FROM source_lines l
+                WHERE l.fulfillment_order_id IS NOT NULL
+                   OR l.po_id IS NOT NULL
+                   OR l.po_line_id IS NOT NULL
+            )
+            UNION ALL
+            SELECT 'discount usage audit'
+            WHERE EXISTS (
+                SELECT 1 FROM discount_event_usage d
+                INNER JOIN source_lines l ON l.id = d.order_item_id
+            )
+            UNION ALL
+            SELECT 'suit component swap audit'
+            WHERE EXISTS (
+                SELECT 1 FROM suit_component_swap_events d
+                INNER JOIN source_lines l ON l.id = d.order_item_id
+            )
+            UNION ALL
+            SELECT 'wedding cutover review'
+            WHERE EXISTS (
+                SELECT 1 FROM wedding_cutover_match_suggestions d
+                INNER JOIN source_lines l ON l.id = d.transaction_line_id
+            )
+        ) protected
+        ORDER BY dependency
+        "#,
+    )
+    .bind(transaction_id)
+    .fetch_all(&mut **tx)
+    .await
+}
+
+async fn replace_counterpoint_import_lines(
+    tx: &mut Transaction<'_, Postgres>,
+    transaction_id: Uuid,
+    source_kind: &str,
+    source_ref: &str,
+) -> Result<u64, CounterpointSyncError> {
+    let mut protected_dependencies =
+        counterpoint_line_protected_dependencies(tx, transaction_id).await?;
+    let transaction_dependencies: Vec<String> = sqlx::query_scalar(
+        r#"
+        SELECT dependency
+        FROM (
+            SELECT 'later or unproven payment allocations'::text AS dependency
+            WHERE EXISTS (
+                SELECT 1
+                FROM payment_allocations pa
+                INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
+                WHERE pa.target_transaction_id = $1
+                  AND CASE $2::text
+                      WHEN 'ticket' THEN COALESCE(pt.metadata->>'counterpoint_ticket_ref', '') <> $3
+                      WHEN 'open_doc' THEN COALESCE(pt.metadata->>'counterpoint_doc_ref', '') <> $3
+                      ELSE TRUE
+                  END
+            )
+            UNION ALL
+            SELECT 'post-import transaction activity'
+            WHERE EXISTS (
+                SELECT 1
+                FROM transaction_activity_log
+                WHERE transaction_id = $1
+                  AND event_kind NOT IN (
+                      'counterpoint_import',
+                      'counterpoint_import_evidence',
+                      'counterpoint_reimport'
+                  )
+            )
+        ) protected
+        ORDER BY dependency
+        "#,
+    )
+    .bind(transaction_id)
+    .bind(source_kind)
+    .bind(source_ref)
+    .fetch_all(&mut **tx)
+    .await?;
+    protected_dependencies.extend(transaction_dependencies);
+    if !protected_dependencies.is_empty() {
+        protected_dependencies.sort();
+        protected_dependencies.dedup();
+        return Err(CounterpointSyncError::InvalidPayload(format!(
+            "Counterpoint {source_kind} {source_ref} rerun was blocked because existing line IDs have protected dependencies ({}). The transaction, lines, returns, allocations, and audit rows were left unchanged; review this transaction before any source replacement.",
+            protected_dependencies.join(", ")
+        )));
+    }
+
+    // A Counterpoint rerun is a source replacement, not new booked activity. Keep
+    // the superseded initial events as audit evidence, exclude them from reporting,
+    // and suppress the delete trigger so it cannot manufacture a current-time sale
+    // reversal. Replacement lines will create fresh source-dated initial events.
+    sqlx::query("SET LOCAL riverside.suppress_booking_event = 'true'")
+        .execute(&mut **tx)
+        .await?;
+
+    sqlx::query(
+        r#"
+        UPDATE transaction_line_booking_events e
+        SET metadata = COALESCE(e.metadata, '{}'::jsonb) || jsonb_build_object(
+            'reporting_excluded', 'counterpoint_financial_repair',
+            'reporting_exclusion_reason', 'counterpoint_reimport_superseded',
+            'counterpoint_source_kind', $2::text,
+            'counterpoint_source_ref', $3::text,
+            'superseded_at', CURRENT_TIMESTAMP
+        )
+        WHERE e.transaction_id = $1
+          AND e.event_kind = 'initial_booking'
+          AND e.transaction_line_id IN (
+              SELECT tl.id
+              FROM transaction_lines tl
+              WHERE tl.transaction_id = $1
+          )
+        "#,
+    )
+    .bind(transaction_id)
+    .bind(source_kind)
+    .bind(source_ref)
+    .execute(&mut **tx)
+    .await?;
+
+    let deleted = sqlx::query("DELETE FROM transaction_lines WHERE transaction_id = $1")
+        .bind(transaction_id)
+        .execute(&mut **tx)
+        .await?
+        .rows_affected();
+
+    sqlx::query("SET LOCAL riverside.suppress_booking_event = 'false'")
+        .execute(&mut **tx)
+        .await?;
+
+    if deleted > 0 {
+        sqlx::query(
+            r#"
+            INSERT INTO transaction_activity_log (
+                transaction_id, event_kind, summary, metadata
+            )
+            VALUES (
+                $1,
+                'counterpoint_reimport',
+                'Superseded Counterpoint lines before applying a source rerun.',
+                jsonb_build_object(
+                    'counterpoint_source_kind', $2::text,
+                    'counterpoint_source_ref', $3::text,
+                    'superseded_line_count', $4::bigint,
+                    'booking_delete_event_suppressed', true,
+                    'tender_values_changed_by_line_replacement', false
+                )
+            )
+            "#,
+        )
+        .bind(transaction_id)
+        .bind(source_kind)
+        .bind(source_ref)
+        .bind(deleted as i64)
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    Ok(deleted)
+}
+
 pub async fn execute_counterpoint_ticket_batch(
     pool: &PgPool,
     payload: CounterpointTicketsPayload,
@@ -12718,6 +13015,8 @@ pub async fn execute_counterpoint_ticket_batch(
         gift_payments_created: 0,
         skipped: 0,
     };
+    let mut financial_review_rows: Vec<(String, Uuid, CounterpointTicketFinancialEvidence)> =
+        Vec::new();
 
     for tkt in &payload.rows {
         let ticket_ref = tkt.ticket_ref.trim();
@@ -12846,15 +13145,40 @@ pub async fn execute_counterpoint_ticket_batch(
             }
         }
 
-        let booked_at = tkt
-            .booked_at
-            .as_deref()
-            .and_then(|s| {
-                DateTime::parse_from_rfc3339(s)
-                    .ok()
-                    .map(|d| d.with_timezone(&Utc))
-            })
-            .unwrap_or_else(Utc::now);
+        let Some(booked_at) = parse_counterpoint_source_booked_at(tkt.booked_at.as_deref()) else {
+            record_counterpoint_import_exception(
+                pool,
+                "tickets",
+                Some(ticket_ref),
+                "error",
+                "invalid_source_booking_date",
+                &format!(
+                    "Counterpoint ticket {ticket_ref} was not imported because its source booking timestamp is missing or invalid."
+                ),
+                Some(
+                    "Correct the Counterpoint booking timestamp in the bridge payload, then rerun Ticket History. Riverside will not substitute the import time for financial history.",
+                ),
+                false,
+                None,
+                None,
+                serde_json::json!({
+                    "counterpoint_ticket_ref": ticket_ref,
+                    "source_booked_at": tkt.booked_at.as_deref(),
+                    "import_time_substitution_blocked": true,
+                }),
+            )
+            .await;
+            record_sync_issue(
+                pool,
+                "tickets",
+                Some(ticket_ref),
+                "error",
+                "Ticket skipped: source booking timestamp is missing or invalid; import time was not substituted",
+            )
+            .await;
+            summary.skipped += 1;
+            continue;
+        };
 
         // Counterpoint ticket imports are closed sales history. Tender offsets can span
         // related tickets/open docs, so keep source tender rows but present ticket rows
@@ -12870,6 +13194,35 @@ pub async fn execute_counterpoint_ticket_batch(
                 ticket_lines,
                 false,
             );
+        let financial_evidence = counterpoint_ticket_financial_evidence(
+            tkt,
+            normalized_amount_paid,
+            effective_total_price,
+            &effective_line_prices,
+            &ticket_line_taxes,
+        );
+        let financial_evidence_json =
+            serde_json::to_value(&financial_evidence).map_err(|error| {
+                CounterpointSyncError::InvalidPayload(format!(
+                "could not retain financial evidence for Counterpoint ticket {ticket_ref}: {error}"
+            ))
+            })?;
+        let mut counterpoint_metadata = serde_json::json!({
+            "counterpoint_financial_evidence": &financial_evidence_json,
+        });
+        if let Some(customer_code) = tkt
+            .cust_no
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            if let Some(metadata) = counterpoint_metadata.as_object_mut() {
+                metadata.insert(
+                    "counterpoint_customer_code".to_string(),
+                    serde_json::json!(customer_code),
+                );
+            }
+        }
         // Historical tickets are closed sales, but their paid amount must remain
         // the source-of-truth tender total. Do not replace a discounted payment
         // with the retail/effective merchandise total.
@@ -12974,10 +13327,7 @@ pub async fn execute_counterpoint_ticket_batch(
                     processed_by_staff_id = COALESCE($8, processed_by_staff_id),
                     primary_salesperson_id = COALESCE($9, primary_salesperson_id),
                     notes = COALESCE($10, notes),
-                    metadata = CASE
-                        WHEN $11 IS NULL OR BTRIM($11) = '' THEN metadata
-                        ELSE jsonb_set(COALESCE(metadata, '{}'::jsonb), '{counterpoint_customer_code}', to_jsonb($11::text), true)
-                    END
+                    metadata = COALESCE(metadata, '{}'::jsonb) || $11::jsonb
                 WHERE id = $1
                   AND is_counterpoint_import
                   AND counterpoint_ticket_ref = $12
@@ -12993,7 +13343,7 @@ pub async fn execute_counterpoint_ticket_batch(
             .bind(processed_by)
             .bind(salesperson)
             .bind(tkt.notes.as_deref())
-            .bind(tkt.cust_no.as_deref())
+            .bind(&counterpoint_metadata)
             .bind(ticket_ref)
             .execute(&mut *tx)
             .await?;
@@ -13021,9 +13371,7 @@ pub async fn execute_counterpoint_ticket_batch(
                     .execute(&mut *tx)
                     .await?;
             }
-            sqlx::query("DELETE FROM transaction_lines WHERE transaction_id = $1")
-                .bind(transaction_id)
-                .execute(&mut *tx)
+            replace_counterpoint_import_lines(&mut tx, transaction_id, "ticket", ticket_ref)
                 .await?;
             transaction_id
         } else {
@@ -13039,10 +13387,7 @@ pub async fn execute_counterpoint_ticket_batch(
                     $1, $2, TRUE, $3::order_status, $4,
                     ($4 AT TIME ZONE reporting.effective_store_timezone())::date,
                     CASE WHEN $3::order_status = 'fulfilled'::order_status THEN $4 ELSE NULL END,
-                    $5, $6, $7, $8, $9, $10,
-                    CASE WHEN $11 IS NULL OR BTRIM($11) = '' THEN '{}'::jsonb
-                         ELSE jsonb_build_object('counterpoint_customer_code', $11::text)
-                    END
+                    $5, $6, $7, $8, $9, $10, $11::jsonb
                 )
                 RETURNING id
                 "#,
@@ -13057,12 +13402,54 @@ pub async fn execute_counterpoint_ticket_batch(
             .bind(processed_by)
             .bind(salesperson)
             .bind(tkt.notes.as_deref())
-            .bind(tkt.cust_no.as_deref())
+            .bind(&counterpoint_metadata)
             .fetch_one(&mut *tx)
             .await?;
             summary.transactions_created += 1;
             transaction_id
         };
+
+        sqlx::query(
+            r#"
+            INSERT INTO transaction_activity_log (
+                transaction_id, customer_id, event_kind, summary, metadata
+            )
+            SELECT
+                $1,
+                $2,
+                'counterpoint_import',
+                'Imported Counterpoint transaction with source booking and financial evidence.',
+                jsonb_build_object(
+                    'counterpoint_ticket_ref', $3::text,
+                    'source_booked_at', $4::timestamptz,
+                    'financial_evidence', $5::jsonb
+                )
+            WHERE NOT EXISTS (
+                SELECT 1
+                FROM transaction_activity_log existing
+                WHERE existing.transaction_id = $1
+                  AND existing.event_kind = 'counterpoint_import'
+                  AND existing.metadata->>'counterpoint_ticket_ref' = $3
+                  AND existing.metadata->'source_booked_at' = to_jsonb($4::timestamptz)
+                  AND existing.metadata->'financial_evidence' = $5::jsonb
+            )
+            "#,
+        )
+        .bind(transaction_id)
+        .bind(customer_id)
+        .bind(ticket_ref)
+        .bind(booked_at)
+        .bind(&financial_evidence_json)
+        .execute(&mut *tx)
+        .await?;
+
+        if financial_evidence.needs_review() {
+            financial_review_rows.push((
+                ticket_ref.to_string(),
+                transaction_id,
+                financial_evidence.clone(),
+            ));
+        }
 
         for (
             ((((variant_id, product_id), line), vendor_ref), (state_tax, local_tax)),
@@ -13198,11 +13585,15 @@ pub async fn execute_counterpoint_ticket_batch(
             let txn_id: Uuid = sqlx::query_scalar(
                 r#"
                 INSERT INTO payment_transactions (
-                    payer_id, category, payment_method, amount, created_at, effective_date
+                    payer_id, category, payment_method, amount, created_at, effective_date, metadata
                 )
                 VALUES (
                     $1, 'retail_sale', 'gift_card', $2, $3,
-                    ($3 AT TIME ZONE reporting.effective_store_timezone())::date
+                    ($3 AT TIME ZONE reporting.effective_store_timezone())::date,
+                    jsonb_build_object(
+                        'counterpoint_ticket_ref', $4::text,
+                        'counterpoint_gift_cert_no', $5::text
+                    )
                 )
                 RETURNING id
                 "#,
@@ -13210,6 +13601,8 @@ pub async fn execute_counterpoint_ticket_batch(
             .bind(customer_id)
             .bind(redeem)
             .bind(booked_at)
+            .bind(ticket_ref)
+            .bind(cert)
             .fetch_one(&mut *tx)
             .await?;
 
@@ -13234,12 +13627,12 @@ pub async fn execute_counterpoint_ticket_batch(
                 quantity, unit_price, unit_cost,
                 state_tax, local_tax, applied_spiff, calculated_commission,
                 is_fulfilled, fulfilled_at,
-                counterpoint_reason_code, vendor_reference, size_specs
+                booked_at, counterpoint_reason_code, vendor_reference, size_specs
             )
             SELECT
                 u.tid, u.pid, u.vid, u.sid, 'takeaway'::fulfillment_type,
                 u.qty, u.price, u.cost, u.state_tax, u.local_tax, 0, 0,
-                TRUE, t.booked_at,
+                TRUE, t.booked_at, t.booked_at,
                 u.reason, u.vref, u.size_specs
             FROM UNNEST($1::uuid[], $2::uuid[], $3::uuid[], $4::uuid[], $5::int[], $6::numeric[], $7::numeric[], $8::numeric[], $9::numeric[], $10::text[], $11::text[], $12::jsonb[])
               AS u(tid, pid, vid, sid, qty, price, cost, state_tax, local_tax, reason, vref, size_specs)
@@ -13259,6 +13652,16 @@ pub async fn execute_counterpoint_ticket_batch(
         .bind(&bulk_line_vendor_refs)
         .bind(&bulk_line_size_specs)
         .execute(&mut *tx)
+        .await?;
+    }
+
+    for (ticket_ref, transaction_id, evidence) in &financial_review_rows {
+        record_counterpoint_financial_mismatch_in_tx(
+            &mut tx,
+            ticket_ref,
+            *transaction_id,
+            evidence,
+        )
         .await?;
     }
 
@@ -13912,6 +14315,126 @@ fn counterpoint_import_line_financials(
     )
 }
 
+fn counterpoint_ticket_financial_evidence(
+    ticket: &CounterpointTicketRow,
+    source_tender_total: Decimal,
+    imported_header_total: Decimal,
+    imported_line_prices: &[Decimal],
+    imported_line_taxes: &[(Decimal, Decimal)],
+) -> CounterpointTicketFinancialEvidence {
+    let (source_line_prices, _) = counterpoint_line_source_prices(&ticket.lines);
+    let source_line_subtotal = rounded_counterpoint_money(
+        counterpoint_open_doc_line_subtotal_from_prices(&ticket.lines, &source_line_prices),
+    );
+    let source_has_explicit_line_tax = ticket.lines.iter().any(|line| {
+        line.state_tax.is_some() || line.local_tax.is_some() || line.tax_amount.is_some()
+    });
+    let source_line_tax_total = source_has_explicit_line_tax.then(|| {
+        rounded_counterpoint_money(
+            ticket
+                .lines
+                .iter()
+                .map(|line| {
+                    let tax = if line.state_tax.is_some() || line.local_tax.is_some() {
+                        line.state_tax.unwrap_or(Decimal::ZERO)
+                            + line.local_tax.unwrap_or(Decimal::ZERO)
+                    } else {
+                        line.tax_amount.unwrap_or(Decimal::ZERO)
+                    };
+                    Decimal::from(line.quantity) * tax
+                })
+                .sum(),
+        )
+    });
+    let source_line_total = source_line_tax_total
+        .or(ticket.tax_total.map(rounded_counterpoint_money))
+        .map(|tax| rounded_counterpoint_money(source_line_subtotal + tax));
+    let imported_line_subtotal = rounded_counterpoint_money(
+        ticket
+            .lines
+            .iter()
+            .zip(imported_line_prices.iter())
+            .map(|(line, unit_price)| Decimal::from(line.quantity) * *unit_price)
+            .sum(),
+    );
+    let imported_line_tax = rounded_counterpoint_money(
+        ticket
+            .lines
+            .iter()
+            .zip(imported_line_taxes.iter())
+            .map(|(line, (state_tax, local_tax))| {
+                Decimal::from(line.quantity) * (*state_tax + *local_tax)
+            })
+            .sum(),
+    );
+    let imported_line_total =
+        rounded_counterpoint_money(imported_line_subtotal + imported_line_tax);
+    let header_line_delta = rounded_counterpoint_money(imported_header_total - imported_line_total);
+    let tender_line_delta = rounded_counterpoint_money(source_tender_total - imported_line_total);
+    let source_header_line_delta = source_line_total
+        .map(|line_total| rounded_counterpoint_money(ticket.total_price - line_total));
+    let source_tender_line_delta = source_line_total
+        .map(|line_total| rounded_counterpoint_money(source_tender_total - line_total));
+    let source_header_tender_delta =
+        rounded_counterpoint_money(ticket.total_price - source_tender_total);
+    let source_amount_paid_tender_delta =
+        rounded_counterpoint_money(ticket.amount_paid - source_tender_total);
+    let source_tender_rows_present =
+        !ticket.payments.is_empty() || !ticket.gift_applications.is_empty();
+    let tolerance = Decimal::new(1, 2);
+    let mut review_codes = Vec::new();
+    if header_line_delta.abs() > tolerance {
+        review_codes.push("header_line_total_mismatch".to_string());
+    }
+    if source_header_line_delta
+        .map(|delta| delta.abs() > tolerance)
+        .unwrap_or(false)
+    {
+        review_codes.push("source_header_line_total_mismatch".to_string());
+    }
+    if source_tender_rows_present && tender_line_delta.abs() > tolerance {
+        review_codes.push("closed_ticket_tender_line_mismatch".to_string());
+    }
+    if source_tender_rows_present
+        && source_tender_line_delta
+            .map(|delta| delta.abs() > tolerance)
+            .unwrap_or(false)
+    {
+        review_codes.push("source_tender_line_total_mismatch".to_string());
+    }
+    if source_tender_rows_present && source_header_tender_delta.abs() > tolerance {
+        review_codes.push("source_header_tender_mismatch".to_string());
+    }
+    if source_tender_rows_present && source_amount_paid_tender_delta.abs() > tolerance {
+        review_codes.push("source_amount_paid_tender_mismatch".to_string());
+    }
+    if !source_tender_rows_present && !ticket.amount_paid.is_zero() {
+        review_codes.push("missing_source_tender_rows".to_string());
+    }
+
+    CounterpointTicketFinancialEvidence {
+        source_header_total: rounded_counterpoint_money(ticket.total_price),
+        source_header_tax_total: ticket.tax_total.map(rounded_counterpoint_money),
+        source_header_amount_paid: rounded_counterpoint_money(ticket.amount_paid),
+        source_line_subtotal,
+        source_line_tax_total,
+        source_line_total,
+        source_tender_total: rounded_counterpoint_money(source_tender_total),
+        source_tender_rows_present,
+        imported_header_total: rounded_counterpoint_money(imported_header_total),
+        imported_line_subtotal,
+        imported_line_tax,
+        imported_line_total,
+        header_line_delta,
+        tender_line_delta,
+        source_header_line_delta,
+        source_tender_line_delta,
+        source_header_tender_delta,
+        source_amount_paid_tender_delta,
+        review_codes,
+    }
+}
+
 async fn counterpoint_open_doc_matches_existing_ticket_transaction(
     tx: &mut Transaction<'_, Postgres>,
     customer_id: Option<Uuid>,
@@ -13995,7 +14518,52 @@ async fn delete_counterpoint_open_doc_transaction(
     tx: &mut Transaction<'_, Postgres>,
     transaction_id: Uuid,
     doc_ref: &str,
-) -> Result<u64, sqlx::Error> {
+) -> Result<u64, CounterpointSyncError> {
+    let mut protected_dependencies =
+        counterpoint_line_protected_dependencies(tx, transaction_id).await?;
+    let transaction_dependencies: Vec<String> = sqlx::query_scalar(
+        r#"
+        SELECT dependency
+        FROM (
+            SELECT 'non-Counterpoint payment allocations'::text AS dependency
+            WHERE EXISTS (
+                SELECT 1
+                FROM payment_allocations pa
+                INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
+                WHERE pa.target_transaction_id = $1
+                  AND COALESCE(pt.metadata->>'counterpoint_doc_ref', '') <> $2
+            )
+            UNION ALL
+            SELECT 'transaction activity audit'
+            WHERE EXISTS (
+                SELECT 1 FROM transaction_activity_log WHERE transaction_id = $1
+            )
+            UNION ALL
+            SELECT 'Counterpoint reconciliation audit'
+            WHERE EXISTS (
+                SELECT 1
+                FROM counterpoint_transaction_reconciliation
+                WHERE canonical_transaction_id = $1
+                   OR $1 = ANY(superseded_transaction_ids)
+            )
+        ) protected
+        ORDER BY dependency
+        "#,
+    )
+    .bind(transaction_id)
+    .bind(doc_ref)
+    .fetch_all(&mut **tx)
+    .await?;
+    protected_dependencies.extend(transaction_dependencies);
+    if !protected_dependencies.is_empty() {
+        protected_dependencies.sort();
+        protected_dependencies.dedup();
+        return Err(CounterpointSyncError::InvalidPayload(format!(
+            "Counterpoint open_doc {doc_ref} duplicate cleanup was blocked because the imported transaction has protected dependencies ({}). The transaction, lines, returns, allocations, and audit rows were left unchanged for Manager review.",
+            protected_dependencies.join(", ")
+        )));
+    }
+
     let payment_ids: Vec<Uuid> = sqlx::query_scalar(
         r#"
         SELECT pt.id
@@ -14212,15 +14780,40 @@ pub async fn execute_counterpoint_open_doc_batch(
             }
         }
 
-        let booked_at = doc
-            .booked_at
-            .as_deref()
-            .and_then(|s| {
-                DateTime::parse_from_rfc3339(s)
-                    .ok()
-                    .map(|d| d.with_timezone(&Utc))
-            })
-            .unwrap_or_else(Utc::now);
+        let Some(booked_at) = parse_counterpoint_source_booked_at(doc.booked_at.as_deref()) else {
+            record_counterpoint_import_exception(
+                pool,
+                "open_docs",
+                Some(doc_ref),
+                "error",
+                "invalid_source_booking_date",
+                &format!(
+                    "Counterpoint open document {doc_ref} was not imported because its source booking timestamp is missing or invalid."
+                ),
+                Some(
+                    "Correct the Counterpoint booking timestamp in the bridge payload, then rerun Open Orders. Riverside will not substitute the import time for financial history.",
+                ),
+                false,
+                None,
+                None,
+                serde_json::json!({
+                    "counterpoint_doc_ref": doc_ref,
+                    "source_booked_at": doc.booked_at.as_deref(),
+                    "import_time_substitution_blocked": true,
+                }),
+            )
+            .await;
+            record_sync_issue(
+                pool,
+                "open_docs",
+                Some(doc_ref),
+                "error",
+                "Open doc skipped: source booking timestamp is missing or invalid; import time was not substituted",
+            )
+            .await;
+            summary.skipped += 1;
+            continue;
+        };
 
         let normalized_amount_paid =
             sum_counterpoint_open_doc_tenders(&doc.payments).unwrap_or(doc.amount_paid);
@@ -14427,10 +15020,7 @@ pub async fn execute_counterpoint_open_doc_batch(
                     .execute(&mut *tx)
                     .await?;
             }
-            sqlx::query("DELETE FROM transaction_lines WHERE transaction_id = $1")
-                .bind(transaction_id)
-                .execute(&mut *tx)
-                .await?;
+            replace_counterpoint_import_lines(&mut tx, transaction_id, "open_doc", doc_ref).await?;
             transaction_id
         } else {
             let Some(transaction_id) = sqlx::query_scalar::<_, Uuid>(
@@ -18935,6 +19525,86 @@ mod tests {
     }
 
     #[test]
+    fn counterpoint_ticket_financial_evidence_flags_conflicting_money_sources() {
+        let ticket = CounterpointTicketRow {
+            ticket_ref: "CP-INTEGRITY-TEST".into(),
+            cust_no: None,
+            booked_at: Some("2026-03-01T12:00:00Z".into()),
+            total_price: Decimal::new(19609, 2),
+            tax_total: None,
+            amount_paid: Decimal::new(19609, 2),
+            usr_id: None,
+            sls_rep: None,
+            notes: None,
+            lines: vec![TicketLineRow {
+                sku: Some("B-INTEGRITY".into()),
+                counterpoint_item_key: Some("I-INTEGRITY".into()),
+                lin_seq_no: Some(1),
+                quantity: 1,
+                unit_price: Decimal::new(22800, 2),
+                unit_cost: None,
+                state_tax: Some(Decimal::new(912, 2)),
+                local_tax: Some(Decimal::new(1099, 2)),
+                tax_amount: None,
+                original_unit_price: None,
+                discount_amount: None,
+                description: Some("Financial integrity fixture".into()),
+                reason_code: None,
+            }],
+            payments: vec![TicketPaymentRow {
+                pmt_typ: "CREDITCARD".into(),
+                amount: Decimal::new(25056, 2),
+                gift_cert_no: None,
+            }],
+            gift_applications: vec![],
+        };
+
+        let evidence = counterpoint_ticket_financial_evidence(
+            &ticket,
+            Decimal::new(25056, 2),
+            Decimal::new(19609, 2),
+            &[Decimal::new(22800, 2)],
+            &[(Decimal::new(912, 2), Decimal::new(1099, 2))],
+        );
+
+        assert_eq!(evidence.imported_line_total, Decimal::new(24811, 2));
+        assert_eq!(evidence.header_line_delta, Decimal::new(-5202, 2));
+        assert_eq!(evidence.tender_line_delta, Decimal::new(245, 2));
+        assert_eq!(evidence.source_line_total, Some(Decimal::new(24811, 2)));
+        assert_eq!(
+            evidence.source_header_line_delta,
+            Some(Decimal::new(-5202, 2))
+        );
+        assert_eq!(
+            evidence.source_tender_line_delta,
+            Some(Decimal::new(245, 2))
+        );
+        assert!(evidence
+            .review_codes
+            .contains(&"header_line_total_mismatch".to_string()));
+        assert!(evidence
+            .review_codes
+            .contains(&"source_header_line_total_mismatch".to_string()));
+        assert!(evidence
+            .review_codes
+            .contains(&"closed_ticket_tender_line_mismatch".to_string()));
+        assert_eq!(evidence.severity(), "blocked");
+    }
+
+    #[test]
+    fn counterpoint_source_booking_date_never_falls_back_to_import_time() {
+        assert_eq!(
+            parse_counterpoint_source_booked_at(Some("2026-03-01T12:00:00-05:00"))
+                .expect("valid source booking timestamp")
+                .to_rfc3339(),
+            "2026-03-01T17:00:00+00:00"
+        );
+        assert!(parse_counterpoint_source_booked_at(None).is_none());
+        assert!(parse_counterpoint_source_booked_at(Some(" ")).is_none());
+        assert!(parse_counterpoint_source_booked_at(Some("not-a-date")).is_none());
+    }
+
+    #[test]
     fn counterpoint_historical_financials_allocate_discounted_paid_total() {
         let lines = vec![
             TicketLineRow {
@@ -19349,6 +20019,7 @@ mod tests {
         let sku = format!("CP-PMT-SKU-{suffix}");
         let cp_key = format!("CP-PMT-ITEM-{suffix}");
         let ticket_ref = format!("CP-PMT-{suffix}");
+        let source_booked_at = Utc::now() - chrono::Duration::days(30);
         let mapped_cp_method = format!("CPMAP{}", &suffix[..8]).to_uppercase();
         let unmapped_cp_method = format!("CPUNKNOWN{}", &suffix[..8]).to_uppercase();
 
@@ -19396,7 +20067,7 @@ mod tests {
                 rows: vec![CounterpointTicketRow {
                     ticket_ref: ticket_ref.clone(),
                     cust_no: None,
-                    booked_at: Some(Utc::now().to_rfc3339()),
+                    booked_at: Some(source_booked_at.to_rfc3339()),
                     total_price: Decimal::new(4000, 2),
                     tax_total: None,
                     amount_paid: Decimal::new(4000, 2),
@@ -19479,9 +20150,12 @@ mod tests {
             ("fulfilled".to_string(), true, true)
         );
 
-        let line_lifecycle: (bool, bool) = sqlx::query_as(
+        let line_lifecycle: (bool, bool, bool) = sqlx::query_as(
             r#"
-            SELECT bool_and(tl.is_fulfilled), bool_and(tl.fulfilled_at IS NOT NULL)
+            SELECT
+                bool_and(tl.is_fulfilled),
+                bool_and(tl.fulfilled_at IS NOT NULL),
+                bool_and(tl.booked_at = t.booked_at)
             FROM transaction_lines tl
             INNER JOIN transactions t ON t.id = tl.transaction_id
             WHERE t.counterpoint_ticket_ref = $1
@@ -19491,7 +20165,34 @@ mod tests {
         .fetch_one(&pool)
         .await
         .expect("load imported ticket line lifecycle");
-        assert_eq!(line_lifecycle, (true, true));
+        assert_eq!(line_lifecycle, (true, true, true));
+
+        let booking_event_and_audit_match: (bool, bool) = sqlx::query_as(
+            r#"
+            SELECT
+                EXISTS(
+                    SELECT 1
+                    FROM transaction_line_booking_events e
+                    INNER JOIN transactions t ON t.id = e.transaction_id
+                    WHERE t.counterpoint_ticket_ref = $1
+                      AND e.event_kind = 'initial_booking'
+                      AND e.booked_at = t.booked_at
+                ),
+                EXISTS(
+                    SELECT 1
+                    FROM transaction_activity_log a
+                    INNER JOIN transactions t ON t.id = a.transaction_id
+                    WHERE t.counterpoint_ticket_ref = $1
+                      AND a.event_kind = 'counterpoint_import'
+                      AND a.metadata->>'counterpoint_ticket_ref' = $1
+                )
+            "#,
+        )
+        .bind(&ticket_ref)
+        .fetch_one(&pool)
+        .await
+        .expect("load imported booking and audit evidence");
+        assert_eq!(booking_event_and_audit_match, (true, true));
 
         let payment_dates_populated: bool = sqlx::query_scalar(
             r#"
@@ -21053,13 +21754,14 @@ mod tests {
         .await
         .expect("import duplicate open doc rows");
 
+        let rerun_booked_at = Utc::now();
         let rerun_summary = execute_counterpoint_open_doc_batch(
             &pool,
             CounterpointOpenDocsPayload {
                 rows: vec![CounterpointOpenDocRow {
                     doc_ref: doc_ref.clone(),
                     cust_no: None,
-                    booked_at: Some(Utc::now().to_rfc3339()),
+                    booked_at: Some(rerun_booked_at.to_rfc3339()),
                     total_price: Decimal::new(4590, 2),
                     amount_paid: Decimal::new(2000, 2),
                     usr_id: None,
@@ -21103,6 +21805,40 @@ mod tests {
         .fetch_all(&pool)
         .await
         .expect("load payment ids for cleanup");
+        let booking_event_evidence: (i64, i64, i64, bool) = sqlx::query_as(
+            r#"
+            SELECT
+                COUNT(*) FILTER (
+                    WHERE e.event_kind = 'line_deleted'
+                      AND COALESCE(e.metadata->>'reporting_excluded', '') = ''
+                )::bigint,
+                COUNT(*) FILTER (
+                    WHERE e.event_kind = 'initial_booking'
+                      AND e.transaction_line_id IS NULL
+                      AND e.metadata->>'reporting_exclusion_reason' = 'counterpoint_reimport_superseded'
+                )::bigint,
+                COUNT(*) FILTER (
+                    WHERE e.event_kind = 'initial_booking'
+                      AND e.transaction_line_id IS NOT NULL
+                      AND e.booked_at = t.booked_at
+                )::bigint,
+                EXISTS (
+                    SELECT 1
+                    FROM transaction_activity_log a
+                    WHERE a.transaction_id = t.id
+                      AND a.event_kind = 'counterpoint_reimport'
+                      AND (a.metadata->>'booking_delete_event_suppressed')::boolean
+                )
+            FROM transactions t
+            LEFT JOIN transaction_line_booking_events e ON e.transaction_id = t.id
+            WHERE t.id = $1
+            GROUP BY t.id
+            "#,
+        )
+        .bind(transaction.0)
+        .fetch_one(&pool)
+        .await
+        .expect("load reimport booking audit evidence");
 
         sqlx::query("DELETE FROM payment_allocations WHERE target_transaction_id = $1")
             .bind(transaction.0)
@@ -21148,6 +21884,7 @@ mod tests {
         assert_eq!(transaction.1, Decimal::new(4590, 2));
         assert_eq!(transaction.2, Decimal::new(2000, 2));
         assert_eq!(transaction.3, Decimal::new(2590, 2));
+        assert_eq!(booking_event_evidence, (0, 1, 1, true));
     }
 
     #[tokio::test]
@@ -22976,5 +23713,203 @@ mod tests {
             health.message.contains("never sent a heartbeat")
                 || health.message.contains("heartbeat query failed")
         );
+    }
+
+    #[tokio::test]
+    #[ignore = "requires an isolated migrated test database"]
+    async fn counterpoint_rerun_preserves_lines_returns_and_allocations_when_activity_exists() {
+        let database_url = std::env::var("TEST_DATABASE_URL")
+            .expect("TEST_DATABASE_URL must name an isolated migrated test database");
+        let pool = PgPool::connect(&database_url)
+            .await
+            .expect("connect isolated Counterpoint rerun test database");
+        let mut tx = pool.begin().await.expect("begin isolated fixture");
+        let suffix = Uuid::new_v4().simple().to_string();
+        let transaction_id = Uuid::new_v4();
+        let product_id = Uuid::new_v4();
+        let variant_id = Uuid::new_v4();
+        let total = Decimal::new(4000, 2);
+
+        sqlx::query(
+            r#"
+            INSERT INTO products (id, name, base_retail_price, base_cost, is_active, data_source)
+            VALUES ($1, $2, $3, 0, TRUE, 'counterpoint')
+            "#,
+        )
+        .bind(product_id)
+        .bind(format!("Protected Counterpoint Rerun {suffix}"))
+        .bind(total)
+        .execute(&mut *tx)
+        .await
+        .expect("insert protected rerun product");
+        sqlx::query(
+            r#"
+            INSERT INTO product_variants (
+                id, product_id, sku, variation_values, stock_on_hand, counterpoint_item_key
+            )
+            VALUES ($1, $2, $3, '{}'::jsonb, 0, $4)
+            "#,
+        )
+        .bind(variant_id)
+        .bind(product_id)
+        .bind(format!("CP-PROTECTED-{suffix}"))
+        .bind(format!("CP-PROTECTED-KEY-{suffix}"))
+        .execute(&mut *tx)
+        .await
+        .expect("insert protected rerun variant");
+        sqlx::query(
+            r#"
+            INSERT INTO transactions (
+                id, status, booked_at, total_price, amount_paid, balance_due,
+                counterpoint_ticket_ref, is_counterpoint_import
+            )
+            VALUES ($1, 'fulfilled', NOW(), $2, $2, 0, $3, TRUE)
+            "#,
+        )
+        .bind(transaction_id)
+        .bind(total)
+        .bind(format!("CP-PROTECTED-TICKET-{suffix}"))
+        .execute(&mut *tx)
+        .await
+        .expect("insert protected rerun transaction");
+        let line_id: Uuid = sqlx::query_scalar(
+            r#"
+            INSERT INTO transaction_lines (
+                transaction_id, product_id, variant_id, fulfillment, quantity,
+                unit_price, unit_cost, state_tax, local_tax, booked_at,
+                is_fulfilled, fulfilled_at
+            )
+            VALUES ($1, $2, $3, 'takeaway', 1, $4, 0, 0, 0, NOW(), TRUE, NOW())
+            RETURNING id
+            "#,
+        )
+        .bind(transaction_id)
+        .bind(product_id)
+        .bind(variant_id)
+        .bind(total)
+        .fetch_one(&mut *tx)
+        .await
+        .expect("insert protected rerun line");
+        sqlx::query(
+            r#"
+            INSERT INTO transaction_return_lines (
+                transaction_id, transaction_line_id, quantity_returned, reason,
+                refund_event_id, refund_subtotal, refund_state_tax,
+                refund_local_tax, refund_total
+            )
+            VALUES ($1, $2, 1, 'Protected return evidence', $3, $4, 0, 0, $4)
+            "#,
+        )
+        .bind(transaction_id)
+        .bind(line_id)
+        .bind(Uuid::new_v4())
+        .bind(total)
+        .execute(&mut *tx)
+        .await
+        .expect("insert protected return evidence");
+        let payment_id: Uuid = sqlx::query_scalar(
+            r#"
+            INSERT INTO payment_transactions (
+                category, payment_method, amount, status, metadata
+            )
+            VALUES (
+                'retail_sale', 'cash', $1, 'success',
+                jsonb_build_object('counterpoint_ticket_ref', $2::text)
+            )
+            RETURNING id
+            "#,
+        )
+        .bind(total)
+        .bind(format!("CP-PROTECTED-TICKET-{suffix}"))
+        .fetch_one(&mut *tx)
+        .await
+        .expect("insert protected payment");
+        sqlx::query(
+            "INSERT INTO payment_allocations (transaction_id, target_transaction_id, amount_allocated) VALUES ($1, $2, $3)",
+        )
+        .bind(payment_id)
+        .bind(transaction_id)
+        .bind(total)
+        .execute(&mut *tx)
+        .await
+        .expect("insert protected allocation");
+
+        let result = replace_counterpoint_import_lines(
+            &mut tx,
+            transaction_id,
+            "ticket",
+            &format!("CP-PROTECTED-TICKET-{suffix}"),
+        )
+        .await;
+        assert!(matches!(
+            result,
+            Err(CounterpointSyncError::InvalidPayload(_))
+        ));
+
+        let (line_count, return_count, allocation_count): (i64, i64, i64) = sqlx::query_as(
+            r#"
+            SELECT
+                (SELECT COUNT(*)::bigint FROM transaction_lines WHERE id = $1),
+                (SELECT COUNT(*)::bigint FROM transaction_return_lines WHERE transaction_line_id = $1),
+                (SELECT COUNT(*)::bigint FROM payment_allocations WHERE transaction_id = $2 AND target_transaction_id = $3)
+            "#,
+        )
+        .bind(line_id)
+        .bind(payment_id)
+        .bind(transaction_id)
+        .fetch_one(&mut *tx)
+        .await
+        .expect("verify protected line graph");
+        assert_eq!((line_count, return_count, allocation_count), (1, 1, 1));
+
+        let mismatch_evidence = CounterpointTicketFinancialEvidence {
+            source_header_total: total,
+            source_header_tax_total: None,
+            source_header_amount_paid: total,
+            source_line_subtotal: Decimal::new(3000, 2),
+            source_line_tax_total: Some(Decimal::ZERO),
+            source_line_total: Some(Decimal::new(3000, 2)),
+            source_tender_total: total,
+            source_tender_rows_present: true,
+            imported_header_total: total,
+            imported_line_subtotal: Decimal::new(3000, 2),
+            imported_line_tax: Decimal::ZERO,
+            imported_line_total: Decimal::new(3000, 2),
+            header_line_delta: Decimal::new(1000, 2),
+            tender_line_delta: Decimal::new(1000, 2),
+            source_header_line_delta: Some(Decimal::new(1000, 2)),
+            source_tender_line_delta: Some(Decimal::new(1000, 2)),
+            source_header_tender_delta: Decimal::ZERO,
+            source_amount_paid_tender_delta: Decimal::ZERO,
+            review_codes: vec!["header_line_total_mismatch".to_string()],
+        };
+        let mismatch_ref = format!("CP-MISMATCH-ATOMIC-{suffix}");
+        record_counterpoint_financial_mismatch_in_tx(
+            &mut tx,
+            &mismatch_ref,
+            transaction_id,
+            &mismatch_evidence,
+        )
+        .await
+        .expect("record financial mismatch in import transaction");
+        let mismatch_visible_in_transaction: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*)::bigint FROM counterpoint_import_exceptions WHERE entity_key = 'tickets' AND source_key = $1 AND reason_code = 'financial_total_mismatch'",
+        )
+        .bind(&mismatch_ref)
+        .fetch_one(&mut *tx)
+        .await
+        .expect("load mismatch evidence before rollback");
+        assert_eq!(mismatch_visible_in_transaction, 1);
+
+        tx.rollback().await.expect("rollback isolated fixture");
+
+        let mismatch_after_rollback: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*)::bigint FROM counterpoint_import_exceptions WHERE entity_key = 'tickets' AND source_key = $1 AND reason_code = 'financial_total_mismatch'",
+        )
+        .bind(&mismatch_ref)
+        .fetch_one(&pool)
+        .await
+        .expect("verify mismatch evidence shares import rollback");
+        assert_eq!(mismatch_after_rollback, 0);
     }
 }

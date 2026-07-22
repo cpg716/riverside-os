@@ -11,9 +11,11 @@ use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::{PgPool, Row};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::future::Future;
-use std::time::Duration;
+use std::sync::{Arc, Mutex as StdMutex, OnceLock, Weak};
+use std::time::{Duration, Instant};
+use tokio::sync::{Mutex as AsyncMutex, Semaphore};
 use tokio::time::timeout;
 use uuid::Uuid;
 
@@ -38,6 +40,10 @@ use crate::middleware;
 const DEFAULT_LIMIT: usize = 8;
 const MAX_LIMIT: usize = 12;
 const UNIVERSAL_SOURCE_TIMEOUT: Duration = Duration::from_millis(1_100);
+const UNIVERSAL_MAX_CONCURRENT_SOURCES: usize = 16;
+const UNIVERSAL_RESULT_CACHE_TTL: Duration = Duration::from_secs(2);
+const UNIVERSAL_PARTIAL_CACHE_TTL: Duration = Duration::from_millis(250);
+const UNIVERSAL_RESULT_CACHE_MAX_ENTRIES: usize = 128;
 
 #[derive(Debug, Deserialize)]
 struct UniversalSearchQuery {
@@ -46,7 +52,7 @@ struct UniversalSearchQuery {
     limit: Option<usize>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 struct UniversalSearchResponse {
     query: String,
     sources_failed: Vec<String>,
@@ -62,7 +68,87 @@ struct UniversalSearchResponse {
     shortcuts: Vec<UniversalShortcutHit>,
 }
 
-#[derive(Debug, Serialize, sqlx::FromRow)]
+#[derive(Clone)]
+struct CachedUniversalSearch {
+    expires_at: Instant,
+    response: UniversalSearchResponse,
+}
+
+#[derive(Default)]
+struct UniversalSearchCoordinator {
+    cache: StdMutex<HashMap<String, CachedUniversalSearch>>,
+    inflight: StdMutex<HashMap<String, Weak<AsyncMutex<()>>>>,
+}
+
+impl UniversalSearchCoordinator {
+    fn cached(&self, key: &str) -> Option<UniversalSearchResponse> {
+        let now = Instant::now();
+        let mut cache = self.cache.lock().ok()?;
+        cache.retain(|_, entry| entry.expires_at > now);
+        cache.get(key).map(|entry| entry.response.clone())
+    }
+
+    fn store(&self, key: String, response: UniversalSearchResponse) {
+        let Ok(mut cache) = self.cache.lock() else {
+            return;
+        };
+        let now = Instant::now();
+        cache.retain(|_, entry| entry.expires_at > now);
+        if cache.len() >= UNIVERSAL_RESULT_CACHE_MAX_ENTRIES && !cache.contains_key(&key) {
+            if let Some(eviction_key) = cache.keys().next().cloned() {
+                cache.remove(&eviction_key);
+            }
+        }
+        let ttl = if response.sources_failed.is_empty() {
+            UNIVERSAL_RESULT_CACHE_TTL
+        } else {
+            UNIVERSAL_PARTIAL_CACHE_TTL
+        };
+        cache.insert(
+            key,
+            CachedUniversalSearch {
+                expires_at: now + ttl,
+                response,
+            },
+        );
+    }
+
+    fn lock_for(&self, key: &str) -> Arc<AsyncMutex<()>> {
+        let Ok(mut inflight) = self.inflight.lock() else {
+            return Arc::new(AsyncMutex::new(()));
+        };
+        inflight.retain(|_, lock| lock.strong_count() > 0);
+        if let Some(lock) = inflight.get(key).and_then(Weak::upgrade) {
+            return lock;
+        }
+        let lock = Arc::new(AsyncMutex::new(()));
+        inflight.insert(key.to_string(), Arc::downgrade(&lock));
+        lock
+    }
+}
+
+fn universal_search_coordinator() -> &'static UniversalSearchCoordinator {
+    static COORDINATOR: OnceLock<UniversalSearchCoordinator> = OnceLock::new();
+    COORDINATOR.get_or_init(UniversalSearchCoordinator::default)
+}
+
+fn universal_source_semaphore() -> &'static Semaphore {
+    static SEMAPHORE: OnceLock<Semaphore> = OnceLock::new();
+    SEMAPHORE.get_or_init(|| Semaphore::new(UNIVERSAL_MAX_CONCURRENT_SOURCES))
+}
+
+fn universal_search_cache_key(
+    staff_id: Uuid,
+    perms: &HashSet<String>,
+    query: &str,
+    limit: usize,
+) -> String {
+    let mut permission_keys = perms.iter().map(String::as_str).collect::<Vec<_>>();
+    permission_keys.sort_unstable();
+    format!("{staff_id}:{limit}:{}:{query}", permission_keys.join(","))
+}
+
+#[derive(Clone, Debug, Serialize, sqlx::FromRow)]
 struct UniversalCustomerHit {
     id: Uuid,
     customer_code: Option<String>,
@@ -81,13 +167,13 @@ struct UniversalCustomerHit {
     wedding_member_id: Option<Uuid>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, sqlx::FromRow)]
 struct UniversalSkuHit {
     sku: String,
     name: String,
 }
 
-#[derive(Debug, Serialize, sqlx::FromRow)]
+#[derive(Clone, Debug, Serialize, sqlx::FromRow)]
 struct UniversalProductHit {
     variant_id: Uuid,
     product_id: Uuid,
@@ -96,7 +182,7 @@ struct UniversalProductHit {
     variation_label: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 struct UniversalWeddingHit {
     id: Uuid,
     party_name: String,
@@ -104,7 +190,7 @@ struct UniversalWeddingHit {
     event_date: Option<String>,
 }
 
-#[derive(Debug, Serialize, sqlx::FromRow)]
+#[derive(Clone, Debug, Serialize, sqlx::FromRow)]
 struct UniversalAlterationHit {
     id: Uuid,
     customer_first_name: Option<String>,
@@ -118,7 +204,7 @@ struct UniversalAlterationHit {
     due_at: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 struct UniversalHelpHit {
     id: String,
     manual_id: String,
@@ -128,12 +214,12 @@ struct UniversalHelpHit {
     excerpt: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 struct UniversalShortcutHit {
     intent: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 struct UniversalOperationalHit {
     id: String,
     domain: String,
@@ -211,8 +297,27 @@ fn phone_like_pattern(value: &str) -> Option<String> {
     (phone_like && digits.len() >= 7).then(|| format!("%{digits}%"))
 }
 
+async fn within_source_deadline_with_semaphore<T>(
+    semaphore: &Semaphore,
+    deadline: Duration,
+    future: impl Future<Output = T>,
+) -> Option<T> {
+    timeout(deadline, async {
+        let _permit = semaphore.acquire().await.ok()?;
+        Some(future.await)
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
 async fn within_source_deadline<T>(future: impl Future<Output = T>) -> Option<T> {
-    timeout(UNIVERSAL_SOURCE_TIMEOUT, future).await.ok()
+    within_source_deadline_with_semaphore(
+        universal_source_semaphore(),
+        UNIVERSAL_SOURCE_TIMEOUT,
+        future,
+    )
+    .await
 }
 
 async fn validated_meili_candidate_ids(
@@ -675,25 +780,64 @@ async fn search_products(
 }
 
 async fn search_exact_sku(pool: &PgPool, q: &str) -> Result<Option<UniversalSkuHit>, sqlx::Error> {
-    sqlx::query(
+    let matches = sqlx::query_as::<_, UniversalSkuHit>(
         r#"
+        WITH identifier_matches AS (
+            SELECT v.id AS variant_id
+            FROM product_variants v
+            INNER JOIN products p ON p.id = v.product_id
+            WHERE p.is_active = TRUE
+              AND LOWER(BTRIM(v.sku)) = LOWER(BTRIM($1))
+
+            UNION ALL
+
+            SELECT v.id AS variant_id
+            FROM product_variants v
+            INNER JOIN products p ON p.id = v.product_id
+            WHERE p.is_active = TRUE
+              AND NULLIF(BTRIM(v.barcode), '') IS NOT NULL
+              AND LOWER(BTRIM(v.barcode)) = LOWER(BTRIM($1))
+
+            UNION ALL
+
+            SELECT v.id AS variant_id
+            FROM product_variant_barcode_aliases alias
+            INNER JOIN product_variants v ON v.id = alias.variant_id
+            INNER JOIN products p ON p.id = v.product_id
+            WHERE p.is_active = TRUE
+              AND alias.status = 'active'
+              AND alias.normalized_alias = LOWER(BTRIM($1))
+
+            UNION ALL
+
+            SELECT v.id AS variant_id
+            FROM product_variants v
+            INNER JOIN products p ON p.id = v.product_id
+            WHERE p.is_active = TRUE
+              AND NULLIF(BTRIM(p.catalog_handle::text), '') IS NOT NULL
+              AND LOWER(BTRIM(p.catalog_handle::text)) = LOWER(BTRIM($1))
+        ), unique_variants AS (
+            SELECT variant_id
+            FROM identifier_matches
+            GROUP BY variant_id
+            ORDER BY variant_id
+            LIMIT 2
+        )
         SELECT pv.sku, p.name
-        FROM product_variants pv
-        JOIN products p ON p.id = pv.product_id
-        WHERE p.is_active = true
-          AND LOWER(pv.sku) = LOWER($1)
-        LIMIT 1
+        FROM unique_variants matches
+        INNER JOIN product_variants pv ON pv.id = matches.variant_id
+        INNER JOIN products p ON p.id = pv.product_id
+        ORDER BY pv.id
         "#,
     )
     .bind(q)
-    .fetch_optional(pool)
-    .await
-    .map(|row| {
-        row.map(|row| UniversalSkuHit {
-            sku: row.get("sku"),
-            name: row.get("name"),
-        })
-    })
+    .fetch_all(pool)
+    .await?;
+    Ok(unique_exact_identifier_hit(matches))
+}
+
+fn unique_exact_identifier_hit(mut matches: Vec<UniversalSkuHit>) -> Option<UniversalSkuHit> {
+    (matches.len() == 1).then(|| matches.remove(0))
 }
 
 async fn search_alterations(
@@ -1753,6 +1897,16 @@ async fn universal_search(
         .map_err(map_auth_error)?;
     let perms = effective_permissions_for_staff(&state.db, staff.id, staff.role).await?;
     let limit = query.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
+    let cache_key = universal_search_cache_key(staff.id, &perms, &q, limit);
+    let coordinator = universal_search_coordinator();
+    if let Some(response) = coordinator.cached(&cache_key) {
+        return Ok(Json(response));
+    }
+    let query_lock = coordinator.lock_for(&cache_key);
+    let _query_guard = query_lock.lock().await;
+    if let Some(response) = coordinator.cached(&cache_key) {
+        return Ok(Json(response));
+    }
 
     let customers_fut = async {
         if !has_permission(&perms, CUSTOMERS_HUB_VIEW) {
@@ -2174,7 +2328,7 @@ async fn universal_search(
 
     let shortcuts = shortcut_ids(&q, &perms);
 
-    Ok(Json(UniversalSearchResponse {
+    let response = UniversalSearchResponse {
         query: q,
         sources_failed,
         customers,
@@ -2187,7 +2341,10 @@ async fn universal_search(
         help_hits,
         operational_hits,
         shortcuts,
-    }))
+    };
+    coordinator.store(cache_key, response.clone());
+
+    Ok(Json(response))
 }
 
 pub fn router() -> Router<AppState> {
@@ -2198,8 +2355,31 @@ pub fn router() -> Router<AppState> {
 mod tests {
     use super::{
         has_domain_word, has_searchable_term, hydrated_candidate_page_is_complete, like_query,
+        unique_exact_identifier_hit, within_source_deadline_with_semaphore,
+        UniversalSearchCoordinator, UniversalSearchResponse, UniversalSkuHit,
     };
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+    use std::time::Duration;
+    use tokio::sync::{Barrier, Semaphore};
     use uuid::Uuid;
+
+    fn empty_search_response(query: &str) -> UniversalSearchResponse {
+        UniversalSearchResponse {
+            query: query.to_string(),
+            sources_failed: Vec::new(),
+            customers: Vec::new(),
+            sku_hit: None,
+            products: Vec::new(),
+            orders: Vec::new(),
+            shipments: Vec::new(),
+            weddings: Vec::new(),
+            alterations: Vec::new(),
+            help_hits: Vec::new(),
+            operational_hits: Vec::new(),
+            shortcuts: Vec::new(),
+        }
+    }
 
     #[test]
     fn punctuation_only_query_is_not_searchable() {
@@ -2247,5 +2427,98 @@ mod tests {
             [first, Uuid::new_v4()],
             2
         ));
+    }
+
+    #[test]
+    fn exact_identifier_shortcut_requires_one_unique_variant() {
+        let unique = unique_exact_identifier_hit(vec![UniversalSkuHit {
+            sku: "ROS-1001".to_string(),
+            name: "Navy Suit".to_string(),
+        }]);
+        assert_eq!(
+            unique.as_ref().map(|hit| hit.sku.as_str()),
+            Some("ROS-1001")
+        );
+
+        let ambiguous = unique_exact_identifier_hit(vec![
+            UniversalSkuHit {
+                sku: "ROS-1001".to_string(),
+                name: "Navy Suit".to_string(),
+            },
+            UniversalSkuHit {
+                sku: "ROS-2002".to_string(),
+                name: "Black Suit".to_string(),
+            },
+        ]);
+        assert!(ambiguous.is_none());
+    }
+
+    #[tokio::test]
+    async fn concurrent_source_fanout_never_exceeds_the_shared_bound() {
+        let semaphore = Arc::new(Semaphore::new(4));
+        let active = Arc::new(AtomicUsize::new(0));
+        let max_active = Arc::new(AtomicUsize::new(0));
+        let active_group = Arc::new(Barrier::new(4));
+        let mut tasks = Vec::new();
+
+        for _ in 0..32 {
+            let semaphore = semaphore.clone();
+            let active = active.clone();
+            let max_active = max_active.clone();
+            let active_group = active_group.clone();
+            tasks.push(tokio::spawn(async move {
+                within_source_deadline_with_semaphore(
+                    semaphore.as_ref(),
+                    Duration::from_secs(2),
+                    async move {
+                        let current = active.fetch_add(1, Ordering::SeqCst) + 1;
+                        max_active.fetch_max(current, Ordering::SeqCst);
+                        active_group.wait().await;
+                        active.fetch_sub(1, Ordering::SeqCst);
+                    },
+                )
+                .await
+            }));
+        }
+
+        for task in tasks {
+            assert!(task.await.expect("fanout task should join").is_some());
+        }
+        assert!(max_active.load(Ordering::SeqCst) <= 4);
+    }
+
+    #[tokio::test]
+    async fn identical_concurrent_queries_compute_once_then_share_the_result() {
+        let coordinator = Arc::new(UniversalSearchCoordinator::default());
+        let executions = Arc::new(AtomicUsize::new(0));
+        let cache_key = "staff:permissions:same-query".to_string();
+        let ready = Arc::new(Barrier::new(16));
+        let cache_miss_observed = Arc::new(Barrier::new(16));
+        let mut tasks = Vec::new();
+
+        for _ in 0..16 {
+            let coordinator = coordinator.clone();
+            let executions = executions.clone();
+            let cache_key = cache_key.clone();
+            let ready = ready.clone();
+            let cache_miss_observed = cache_miss_observed.clone();
+            tasks.push(tokio::spawn(async move {
+                ready.wait().await;
+                assert!(coordinator.cached(&cache_key).is_none());
+                cache_miss_observed.wait().await;
+                let query_lock = coordinator.lock_for(&cache_key);
+                let _guard = query_lock.lock().await;
+                if coordinator.cached(&cache_key).is_some() {
+                    return;
+                }
+                executions.fetch_add(1, Ordering::SeqCst);
+                coordinator.store(cache_key, empty_search_response("same-query"));
+            }));
+        }
+
+        for task in tasks {
+            task.await.expect("coalesced search task should join");
+        }
+        assert_eq!(executions.load(Ordering::SeqCst), 1);
     }
 }

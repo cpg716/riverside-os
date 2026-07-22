@@ -26,8 +26,9 @@ const TASK_MEILI_HIT_CAP: usize = 1_000;
 const APPOINTMENT_MEILI_HIT_CAP: usize = 1_000;
 const ALTERATION_MEILI_HIT_CAP: usize = 1_000;
 const ID_ATTRIBUTES: &[&str] = &["id"];
-const AUTHORITATIVE_INDEX_MAX_AGE_HOURS: i64 = 36;
+pub const AUTHORITATIVE_INDEX_MAX_AGE_HOURS: i64 = 36;
 const INDEX_STATS_TIMEOUT: Duration = Duration::from_millis(250);
+const FUTURE_PROOF_CLOCK_SKEW_MINUTES: i64 = 5;
 
 #[derive(Debug, Deserialize)]
 struct IdHit {
@@ -41,6 +42,142 @@ struct SearchHealthRow {
     indexed_row_count: i64,
     rebuild_success: bool,
     rebuild_last_success_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FullReindexProofStatus {
+    Fresh,
+    Missing,
+    Failed,
+    Stale,
+    InvalidFutureTimestamp,
+}
+
+#[derive(Debug, Clone)]
+pub struct FullReindexProof {
+    pub status: FullReindexProofStatus,
+    pub last_success_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub last_attempt_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub detail: String,
+}
+
+impl FullReindexProof {
+    pub fn is_fresh(&self) -> bool {
+        self.status == FullReindexProofStatus::Fresh
+    }
+}
+
+#[derive(sqlx::FromRow)]
+struct FullReindexProofRow {
+    is_success: bool,
+    last_success_at: Option<chrono::DateTime<chrono::Utc>>,
+    last_attempt_at: Option<chrono::DateTime<chrono::Utc>>,
+    error_message: Option<String>,
+    unhealthy_index_count: i64,
+}
+
+fn classify_full_reindex_proof(
+    row: Option<FullReindexProofRow>,
+    now: chrono::DateTime<chrono::Utc>,
+) -> FullReindexProof {
+    let Some(row) = row else {
+        return FullReindexProof {
+            status: FullReindexProofStatus::Missing,
+            last_success_at: None,
+            last_attempt_at: None,
+            detail: "No successful full Meilisearch rebuild has been recorded.".to_string(),
+        };
+    };
+
+    if !row.is_success {
+        return FullReindexProof {
+            status: FullReindexProofStatus::Failed,
+            last_success_at: row.last_success_at,
+            last_attempt_at: row.last_attempt_at,
+            detail: row
+                .error_message
+                .as_deref()
+                .map(str::trim)
+                .filter(|detail| !detail.is_empty())
+                .map(|detail| format!("The latest full Meilisearch rebuild failed: {detail}"))
+                .unwrap_or_else(|| "The latest full Meilisearch rebuild failed.".to_string()),
+        };
+    }
+
+    if row.unhealthy_index_count > 0 {
+        return FullReindexProof {
+            status: FullReindexProofStatus::Failed,
+            last_success_at: row.last_success_at,
+            last_attempt_at: row.last_attempt_at,
+            detail: format!(
+                "{} Meilisearch index sync status row(s) still report an unresolved failure.",
+                row.unhealthy_index_count
+            ),
+        };
+    }
+
+    let Some(last_success_at) = row.last_success_at else {
+        return FullReindexProof {
+            status: FullReindexProofStatus::Missing,
+            last_success_at: None,
+            last_attempt_at: row.last_attempt_at,
+            detail: "Meilisearch is marked successful without a full-rebuild success timestamp."
+                .to_string(),
+        };
+    };
+    if last_success_at > now + chrono::Duration::minutes(FUTURE_PROOF_CLOCK_SKEW_MINUTES) {
+        return FullReindexProof {
+            status: FullReindexProofStatus::InvalidFutureTimestamp,
+            last_success_at: Some(last_success_at),
+            last_attempt_at: row.last_attempt_at,
+            detail: "The recorded full-rebuild success timestamp is in the future and cannot prove search freshness."
+                .to_string(),
+        };
+    }
+
+    let cutoff = now - chrono::Duration::hours(AUTHORITATIVE_INDEX_MAX_AGE_HOURS);
+    if last_success_at < cutoff {
+        return FullReindexProof {
+            status: FullReindexProofStatus::Stale,
+            last_success_at: Some(last_success_at),
+            last_attempt_at: row.last_attempt_at,
+            detail: format!(
+                "The last successful full Meilisearch rebuild is older than {AUTHORITATIVE_INDEX_MAX_AGE_HOURS} hours."
+            ),
+        };
+    }
+
+    FullReindexProof {
+        status: FullReindexProofStatus::Fresh,
+        last_success_at: Some(last_success_at),
+        last_attempt_at: row.last_attempt_at,
+        detail: format!(
+            "A successful full Meilisearch rebuild is within the {AUTHORITATIVE_INDEX_MAX_AGE_HOURS}-hour freshness window."
+        ),
+    }
+}
+
+pub async fn full_reindex_proof(pool: &PgPool) -> Result<FullReindexProof, sqlx::Error> {
+    let row = sqlx::query_as::<_, FullReindexProofRow>(
+        r#"
+        SELECT
+            COALESCE(run.is_success, FALSE) AS is_success,
+            run.last_success_at,
+            run.last_attempt_at,
+            run.error_message,
+            COALESCE((
+                SELECT COUNT(*)::bigint
+                FROM meilisearch_sync_status AS index_status
+                WHERE index_status.index_name <> 'ros_reindex_run'
+                  AND NOT COALESCE(index_status.is_success, FALSE)
+            ), 0)::bigint AS unhealthy_index_count
+        FROM meilisearch_sync_status AS run
+        WHERE run.index_name = 'ros_reindex_run'
+        "#,
+    )
+    .fetch_optional(pool)
+    .await?;
+    Ok(classify_full_reindex_proof(row, chrono::Utc::now()))
 }
 
 struct ControlBoardMeiliFilters<'a> {
@@ -410,8 +547,9 @@ pub async fn alteration_search_ids(
 #[cfg(test)]
 mod tests {
     use super::{
-        candidate_ids_are_unique, candidate_ids_may_be_truncated,
-        recorded_index_health_allows_authority, SearchHealthRow, CUSTOMER_MEILI_HIT_CAP,
+        candidate_ids_are_unique, candidate_ids_may_be_truncated, classify_full_reindex_proof,
+        recorded_index_health_allows_authority, FullReindexProofRow, FullReindexProofStatus,
+        SearchHealthRow, CUSTOMER_MEILI_HIT_CAP,
     };
     use crate::logic::meilisearch_client::{INDEX_CUSTOMERS, INDEX_HELP};
     use chrono::{Duration, Utc};
@@ -455,5 +593,68 @@ mod tests {
 
         health.index_success = false;
         assert!(!recorded_index_health_allows_authority(&health, cutoff));
+    }
+
+    #[test]
+    fn full_reindex_proof_requires_a_fresh_success() {
+        let now = Utc::now();
+        assert_eq!(
+            classify_full_reindex_proof(None, now).status,
+            FullReindexProofStatus::Missing
+        );
+
+        let stale = classify_full_reindex_proof(
+            Some(FullReindexProofRow {
+                is_success: true,
+                last_success_at: Some(now - Duration::hours(37)),
+                last_attempt_at: Some(now - Duration::hours(37)),
+                error_message: None,
+                unhealthy_index_count: 0,
+            }),
+            now,
+        );
+        assert_eq!(stale.status, FullReindexProofStatus::Stale);
+
+        let failed = classify_full_reindex_proof(
+            Some(FullReindexProofRow {
+                is_success: false,
+                last_success_at: Some(now - Duration::hours(1)),
+                last_attempt_at: Some(now),
+                error_message: Some("task failed".to_string()),
+                unhealthy_index_count: 0,
+            }),
+            now,
+        );
+        assert_eq!(failed.status, FullReindexProofStatus::Failed);
+
+        let unresolved_index_failure = classify_full_reindex_proof(
+            Some(FullReindexProofRow {
+                is_success: true,
+                last_success_at: Some(now - Duration::hours(1)),
+                last_attempt_at: Some(now - Duration::hours(1)),
+                error_message: None,
+                unhealthy_index_count: 1,
+            }),
+            now,
+        );
+        assert_eq!(
+            unresolved_index_failure.status,
+            FullReindexProofStatus::Failed
+        );
+        assert!(unresolved_index_failure
+            .detail
+            .contains("unresolved failure"));
+
+        let fresh = classify_full_reindex_proof(
+            Some(FullReindexProofRow {
+                is_success: true,
+                last_success_at: Some(now - Duration::hours(1)),
+                last_attempt_at: Some(now - Duration::hours(1)),
+                error_message: None,
+                unhealthy_index_count: 0,
+            }),
+            now,
+        );
+        assert!(fresh.is_fresh());
     }
 }

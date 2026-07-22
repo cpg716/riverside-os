@@ -16,7 +16,7 @@ import { useEffect, useState, useCallback } from "react";
 import type { CheckoutPayload } from "../components/pos/types";
 import { headersSafeForOfflinePersist } from "./posRegisterAuth";
 import {
-  listCurrentRegisterRecoveryJobs,
+  listCurrentRegisterRecoveryJobsAuthoritative,
   mirrorRecoveryJob,
   reportStationCloseStatus,
   resolveRecoveryJob,
@@ -106,6 +106,16 @@ function checkoutServerKey(id: string): string {
   return `checkout:${id}`;
 }
 
+function checkoutServerKeyForItem(item: QueuedCheckout): string {
+  // Preserve a server-issued recovery key when an older client already stored
+  // it locally. Re-keying the item makes a resolved Main Hub record look like
+  // a new recovery job and leaves the local blocker (and sale identity) stuck.
+  const existingKey = item.recoveryKey?.trim();
+  return existingKey?.startsWith("checkout:")
+    ? existingKey
+    : checkoutServerKey(item.id);
+}
+
 function serverKindForCheckout(item: QueuedCheckout): ServerRecoveryKind {
   if (item.recoveryKind === "pickup_after_payment")
     return "pickup_after_payment";
@@ -115,13 +125,14 @@ function serverKindForCheckout(item: QueuedCheckout): ServerRecoveryKind {
 
 async function postQueuedCheckoutMirror(
   item: QueuedCheckout,
+  liveAuthHeaders?: Record<string, string>,
 ): Promise<ServerRecoveryJob | null> {
   const serverSafeItem = scrubSensitivePinKeys<QueuedCheckout>({
     ...item,
     authHeaders: headersSafeForOfflinePersist(item.authHeaders),
   });
   return mirrorRecoveryJob({
-    client_job_key: checkoutServerKey(item.id),
+    client_job_key: checkoutServerKeyForItem(item),
     kind: serverKindForCheckout(item),
     status: (item.status ?? "pending") === "blocked" ? "blocked" : "pending",
     register_session_id: validRecoveryUuid(item.payload.session_id),
@@ -131,12 +142,13 @@ async function postQueuedCheckoutMirror(
     payload: serverSafeItem,
     last_error: item.lastErrorMessage,
     attempt_count: item.attemptCount ?? 0,
-  });
+  }, liveAuthHeaders);
 }
 
 function mirrorQueuedCheckout(
   item: QueuedCheckout,
   reuseSettledVersion = false,
+  liveAuthHeaders?: Record<string, string>,
 ): Promise<ServerRecoveryJob | null> {
   // Keep every state transition in call order. In particular, a blocked update
   // must trail an already-started pending mirror instead of being coalesced away.
@@ -150,7 +162,7 @@ function mirrorQueuedCheckout(
   }
   const request = (previous?.promise ?? Promise.resolve(null))
     .catch(() => null)
-    .then(() => postQueuedCheckoutMirror(item))
+    .then(() => postQueuedCheckoutMirror(item, liveAuthHeaders))
     .catch(() => null);
   const entry: CheckoutMirrorVersion = {
     version,
@@ -166,12 +178,15 @@ function mirrorQueuedCheckout(
   return request;
 }
 
-export async function syncCheckoutRecoveryWithServer(): Promise<void> {
+export async function syncCheckoutRecoveryWithServer(
+  getLiveAuthHeaders?: () => Record<string, string>,
+): Promise<void> {
+  const liveAuthHeaders = getLiveAuthHeaders?.();
   const local = await getCheckoutQueue();
   const mirrorResults = await Promise.all(
     local.map(async (item) => ({
       item,
-      job: await mirrorQueuedCheckout(item),
+      job: await mirrorQueuedCheckout(item, false, liveAuthHeaders),
     })),
   );
   let changed = false;
@@ -192,7 +207,27 @@ export async function syncCheckoutRecoveryWithServer(): Promise<void> {
     }
   }
 
-  const server = await listCurrentRegisterRecoveryJobs();
+  const server = await listCurrentRegisterRecoveryJobsAuthoritative(liveAuthHeaders);
+  if (server === null) return;
+
+  // A resolved provider checkout can remain only in the local IndexedDB queue
+  // when its original recovery identity no longer matches the server row. If
+  // Main Hub authoritatively reports no open recovery jobs for this Register,
+  // remove that stale online-unconfirmed blocker. Pickup follow-up records are
+  // intentionally retained because they represent separate fulfillment work.
+  if (server.length === 0) {
+    let removedStaleLocalBlocker = false;
+    for (const item of await getCheckoutQueue()) {
+      if (
+        item.status === "blocked" &&
+        item.recoveryKind === "online_unconfirmed"
+      ) {
+        await removeQueuedCheckout(item.id);
+        removedStaleLocalBlocker = true;
+      }
+    }
+    if (removedStaleLocalBlocker) changed = true;
+  }
   const localIds = new Set((await getCheckoutQueue()).map((item) => item.id));
   for (const job of server) {
     if (!matchesCheckoutQueueKind(job.kind)) continue;
@@ -643,7 +678,7 @@ export function useOfflineSync(
   useEffect(() => {
     const initialize = async () => {
       if (navigator.onLine) {
-        await syncCheckoutRecoveryWithServer();
+        await syncCheckoutRecoveryWithServer(getAuthHeaders);
         await flushCheckoutQueue(baseUrl, getAuthHeaders);
       }
       await reloadQueue();
@@ -656,7 +691,7 @@ export function useOfflineSync(
 
     const handleOnline = async () => {
       setIsOnline(true);
-      await syncCheckoutRecoveryWithServer();
+      await syncCheckoutRecoveryWithServer(getAuthHeaders);
       await flushCheckoutQueue(baseUrl, getAuthHeaders);
       void reloadQueue();
       const summary = await getCheckoutQueueSummary();
@@ -676,7 +711,7 @@ export function useOfflineSync(
     window.addEventListener("queue_changed", handleQueueChanged);
     const recoveryPoll = window.setInterval(() => {
       if (!navigator.onLine) return;
-      void syncCheckoutRecoveryWithServer().then(async () => {
+      void syncCheckoutRecoveryWithServer(getAuthHeaders).then(async () => {
         await flushCheckoutQueue(baseUrl, getAuthHeaders);
         await reloadQueue();
         const summary = await getCheckoutQueueSummary();

@@ -176,9 +176,44 @@ for (const copy of [
   "Launching {} from {}",
   "Arguments: {args_display}",
   "PowerShell process started; waiting for script output...",
+  "resolve_deployment_config_path",
+  "if installed_config.exists()",
+  'script_name != "Install-RosieAiStack.ps1"',
 ]) {
   assertIncludes(managerRunner, copy, "deployment runner must emit immediate launch logs");
 }
+for (const copy of [
+  "typeof newConfig.server.strictProduction !== 'boolean'",
+  "newConfig.server.environment.RIVERSIDE_BACKUP_DIR?.trim()",
+  "Production safeguards are disabled",
+  "production go-live signoff is blocked",
+]) {
+  assertIncludes(
+    managerApp,
+    copy,
+    "Deployment Manager must preserve explicit hardening state and surface production blockers",
+  );
+}
+
+const fallbackDeploymentManager = "deployment/windows/Start-RiversideDeployment.ps1";
+for (const copy of [
+  "function Resolve-DeploymentConfigPath",
+  "function Get-ConfiguredInstallRoot",
+  "$requestedConfigPath",
+  'Set-ConfigEnvironmentValue $config "RIVERSIDE_BACKUP_DIR"',
+  "Production safeguards remain enabled by the installed deployment config.",
+]) {
+  assertIncludes(
+    fallbackDeploymentManager,
+    copy,
+    "fallback deployment manager must preserve installed config and fill required runtime paths",
+  );
+}
+assertNotIncludes(
+  fallbackDeploymentManager,
+  '$config.server.strictProduction = $false',
+  "deployment manager must not disable safeguards from stale package-side Helcim fields",
+);
 
 const registerInstaller = "deployment/windows/install-register.ps1";
 assertIncludes(
@@ -461,6 +496,13 @@ for (const copy of [
   'Previous Riverside OS Server task restarted after the failed update.',
   'Set-ServerDatabaseUrl $restoredEnvPath $databaseUrl',
   'Restored server DATABASE_URL synchronized with the PostgreSQL app role.',
+  'Set-SafeProperty $serverEnvironment "RIVERSIDE_BACKUP_DIR" $backupDir',
+  'Write-DeploymentConfigJson $installRootConfigPath $config',
+  'Set-DeploymentConfigDatabaseAppPassword $installRootConfigPath "$($db.appPassword)"',
+  'Restored deployment config synchronized with the PostgreSQL app role.',
+  'Retained the failed initial install config because PostgreSQL app credentials were already applied.',
+  "Restored the previous installed deployment config after the failed update.",
+  "Removed the incomplete installed deployment config after the failed initial install.",
   '[switch]$PreserveExistingRosie',
   'Get-PreservedRosieEnvironment $envPath',
   'Resolve-InstalledRosieModelPath $installRoot $ScriptRoot $preservedRosieEnvironment',
@@ -470,6 +512,43 @@ for (const copy of [
     mainHubInstaller,
     copy,
     "Main Hub updates must verify an admin-readable backup before downtime and recover the prior task after failure",
+  );
+}
+for (const copy of [
+  "function Resolve-DeploymentConfigPath",
+  "function Get-ConfiguredInstallRoot",
+  "function Write-AuditFailure",
+  "$script:auditFailureCount",
+  "Production safeguards are disabled",
+  "production go-live signoff is blocked",
+  "RIVERSIDE_BACKUP_DIR",
+  "Installed production settings cannot be verified.",
+  "Database contents and migration state cannot be verified.",
+  'Invoke-WebRequest -Uri "$apiBase/api/ready"',
+  "The API did not report an immutable build SHA.",
+  "Installed API build matches the exact package SHA.",
+  "does not match the expected package SHA",
+  "Installed API version matches the expected package version.",
+  "Get-DotEnvValue $serverEnvPath \"RIVERSIDE_CREDENTIALS_KEY\"",
+  "API readiness is",
+  "The production sync bridge cannot authenticate.",
+  "Audit Verification Failed",
+  "exit 1",
+]) {
+  assertIncludes(
+    "deployment/windows/audit-system.ps1",
+    copy,
+    "Windows diagnostics must report production hardening and backup blockers truthfully",
+  );
+}
+for (const copy of [
+  'Copy-Item $packageManifestPath (Join-Path $releaseDir "deployment-package.manifest.json") -Force',
+  "Strict production installation requires a verified deployment-package.manifest.json.",
+]) {
+  assertIncludes(
+    mainHubInstaller,
+    copy,
+    "Main Hub installs must persist and require exact build provenance",
   );
 }
 for (const [path, marker] of [
@@ -497,6 +576,9 @@ for (const passwordSafeScript of [
 const preflightBackupIndex = mainHubInstallerSource.indexOf(
   "New-PreMigrationBackup $preflightPsql $db $backupDir",
 );
+const persistedConfigIndex = mainHubInstallerSource.indexOf(
+  "Write-DeploymentConfigJson $installRootConfigPath $config",
+);
 const destructiveStopIndex = mainHubInstallerSource.indexOf(
   "Stop-RiversideServer",
   preflightBackupIndex,
@@ -504,6 +586,11 @@ const destructiveStopIndex = mainHubInstallerSource.indexOf(
 if (!(preflightBackupIndex >= 0 && destructiveStopIndex > preflightBackupIndex)) {
   fail(
     `${mainHubInstaller}: pre-update backup must complete before the first destructive server stop`,
+  );
+}
+if (!(preflightBackupIndex >= 0 && persistedConfigIndex > preflightBackupIndex)) {
+  fail(
+    `${mainHubInstaller}: resolved installed-config changes must not persist before the required pre-update backup`,
   );
 }
 for (const copy of [

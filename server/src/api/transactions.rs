@@ -1682,7 +1682,9 @@ mod tests {
 
     #[tokio::test]
     async fn gift_card_void_reversal_reactivates_depleted_card_and_records_event() {
-        let Some(database_url) = std::env::var("DATABASE_URL").ok() else {
+        let Ok(database_url) =
+            std::env::var("TEST_DATABASE_URL").or_else(|_| std::env::var("DATABASE_URL"))
+        else {
             return;
         };
         let mut conn = sqlx::PgConnection::connect(&database_url)
@@ -1690,14 +1692,36 @@ mod tests {
             .expect("connect test database");
         let mut tx = conn.begin().await.expect("begin transaction");
 
-        let transaction_id: Uuid = sqlx::query_scalar("SELECT id FROM transactions LIMIT 1")
-            .fetch_one(&mut *tx)
-            .await
-            .expect("existing transaction");
-        let session_id: Uuid = sqlx::query_scalar("SELECT id FROM register_sessions LIMIT 1")
-            .fetch_one(&mut *tx)
-            .await
-            .expect("existing register session");
+        let session_id = Uuid::new_v4();
+        sqlx::query(
+            r#"
+            INSERT INTO register_sessions (
+                id, opening_float, is_open, lifecycle_status, register_lane, till_close_group_id
+            )
+            VALUES ($1, 0.00, FALSE, 'closed', 99, $2)
+            "#,
+        )
+        .bind(session_id)
+        .bind(Uuid::new_v4())
+        .execute(&mut *tx)
+        .await
+        .expect("insert gift card void test register session");
+
+        let transaction_id = Uuid::new_v4();
+        sqlx::query(
+            r#"
+            INSERT INTO transactions (
+                id, display_id, total_price, amount_paid, balance_due, register_session_id
+            )
+            VALUES ($1, $2, 0.00, 0.00, 0.00, $3)
+            "#,
+        )
+        .bind(transaction_id)
+        .bind(format!("TXN-GC-VOID-{}", transaction_id.simple()))
+        .bind(session_id)
+        .execute(&mut *tx)
+        .await
+        .expect("insert gift card void test transaction");
         let card_id = Uuid::new_v4();
         let code = format!("gc-void-{}", Uuid::new_v4().simple());
 
@@ -4582,8 +4606,54 @@ async fn get_transaction_audit(
     let rows = sqlx::query_as::<_, TransactionAuditEvent>(
         r#"
         SELECT id, event_kind, summary, metadata, created_at
-        FROM transaction_activity_log
-        WHERE transaction_id = $1
+        FROM (
+            SELECT id, event_kind, summary, metadata, created_at
+            FROM transaction_activity_log
+            WHERE transaction_id = $1
+
+            UNION ALL
+
+            SELECT
+                t.id,
+                'counterpoint_import_evidence'::text AS event_kind,
+                CASE
+                    WHEN fi.integrity_status = 'critical'
+                        THEN 'Imported Counterpoint transaction has conflicting financial totals that require source review.'
+                    WHEN fi.integrity_status = 'review'
+                        THEN 'Imported Counterpoint transaction has booking or audit evidence that requires review.'
+                    ELSE 'Imported from Counterpoint with retained source and financial evidence.'
+                END AS summary,
+                jsonb_build_object(
+                    'counterpoint_ticket_ref', t.counterpoint_ticket_ref,
+                    'counterpoint_doc_ref', t.counterpoint_doc_ref,
+                    'source_booked_at', t.booked_at,
+                    'imported_at', t.created_at,
+                    'financial_integrity', jsonb_build_object(
+                        'status', fi.integrity_status,
+                        'review_codes', COALESCE(to_jsonb(fi.review_codes), '[]'::jsonb),
+                        'header_total', fi.header_total,
+                        'line_total', fi.line_total,
+                        'stored_amount_paid', fi.stored_amount_paid,
+                        'allocated_tender_total', fi.allocated_tender_total,
+                        'header_line_delta', fi.header_line_delta,
+                        'stored_paid_allocation_delta', fi.stored_paid_allocation_delta,
+                        'recommended_action', fi.recommended_action
+                    ),
+                    'tender_values_read_only', TRUE
+                ) AS metadata,
+                t.created_at
+            FROM transactions t
+            LEFT JOIN reporting.counterpoint_import_financial_integrity fi
+                ON fi.transaction_id = t.id
+            WHERE t.id = $1
+              AND COALESCE(t.is_counterpoint_import, FALSE)
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM transaction_activity_log imported
+                  WHERE imported.transaction_id = t.id
+                    AND imported.event_kind = 'counterpoint_import'
+              )
+        ) audit_evidence
         ORDER BY created_at DESC
         LIMIT 100
         "#,

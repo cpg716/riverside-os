@@ -29,9 +29,12 @@ import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { openExternalUrl } from "../../lib/desktopFileBridge";
+import { fetchWithTimeout } from "../../lib/api";
 import RosieInsightSummary from "../help/RosieInsightSummary";
+import { stageReceivingVariantScan } from "./receivingLineMatcher";
 
 const BASE_URL = getBaseUrl();
+const RECEIVING_LOOKUP_TIMEOUT_MS = 8_000;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -86,6 +89,31 @@ interface ScanFeedback {
   type: "success" | "warning" | "error";
   message: string;
 }
+
+interface ExactVariantScanResult {
+  product_id: string;
+  variant_id: string;
+  sku: string;
+  name: string;
+  variation_label?: string | null;
+  standard_retail_price?: string | number;
+  unit_cost?: string | number;
+  resolution_kind?:
+    | "variant_id"
+    | "sku"
+    | "barcode"
+    | "barcode_alias"
+    | "catalog_handle"
+    | "vendor_upc"
+    | "product_name";
+}
+
+type VariantCodeLookup =
+  | { kind: "exact"; variant: VariantSearchResult }
+  | { kind: "ambiguous" }
+  | { kind: "name_only" }
+  | { kind: "not_found" }
+  | { kind: "unavailable" };
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
 
@@ -249,7 +277,10 @@ export default function ReceivingBay({ poId, onComplete, onClose, onOpenAddItem 
   const { toast } = useToast();
   const scannerRef = useRef<HTMLInputElement>(null);
   const feedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const autoReceiveAfterLoadRef = useRef<{ variantId: string; qty: number } | null>(null);
+  const autoReceiveAfterLoadRef = useRef<{ lineId: string; qty: number } | null>(null);
+  const linesRef = useRef<WorksheetLine[]>([]);
+  const activePoIdRef = useRef(poId);
+  const scanQueueRef = useRef<Promise<void>>(Promise.resolve());
   // Track timing of chars in the scan input for HID detection
   const lastCharTimeRef = useRef<number>(Date.now());
   const charIntervalsRef = useRef<number[]>([]);
@@ -306,19 +337,22 @@ export default function ReceivingBay({ poId, onComplete, onClose, onOpenAddItem 
       setLines((prev) => {
         const merged = mergeWorksheetLines(data.lines, prev);
         const autoReceive = autoReceiveAfterLoadRef.current;
-        if (!autoReceive) return merged;
+        if (!autoReceive) {
+          linesRef.current = merged;
+          return merged;
+        }
         autoReceiveAfterLoadRef.current = null;
-        let applied = false;
-        return merged.map((line) => {
-          if (applied || line.variant_id !== autoReceive.variantId) return line;
+        const next = merged.map((line) => {
+          if (line.line_id !== autoReceive.lineId) return line;
           const remaining = Math.max(0, line.qty_ordered - line.qty_previously_received);
-          applied = true;
           return {
             ...line,
             qty_receiving: Math.min(Math.max(autoReceive.qty, 0), remaining),
-            line_status: "received",
+            line_status: "received" as const,
           };
         });
+        linesRef.current = next;
+        return next;
       });
 
       // Load vendor's use_vendor_upc setting
@@ -343,39 +377,21 @@ export default function ReceivingBay({ poId, onComplete, onClose, onOpenAddItem 
   }, [loadPo, refreshGlance]);
 
   useEffect(() => {
+    linesRef.current = lines;
+  }, [lines]);
+
+  useEffect(() => {
+    activePoIdRef.current = poId;
+    scanQueueRef.current = Promise.resolve();
+  }, [poId]);
+
+  useEffect(() => {
     if (scanMode === "laser") {
       scannerRef.current?.focus();
     }
   }, [lines.length, detail?.id, scanMode]);
 
   // ── Scan matching ──────────────────────────────────────────────────────────
-
-  const matchLine = useCallback(
-    (code: string): number => {
-      const c = code.toLowerCase().trim();
-      const barcodeIdx = lines.findIndex(
-        (l) => l.barcode && l.barcode.toLowerCase() === c,
-      );
-      if (barcodeIdx >= 0) return barcodeIdx;
-      // If vendor uses vendor UPC, check that field first
-      if (useVendorUpc) {
-        const vuIdx = lines.findIndex(
-          (l) => l.vendor_upc && l.vendor_upc.toLowerCase() === c,
-        );
-        if (vuIdx >= 0) return vuIdx;
-      }
-      const catalogMatches = lines
-        .map((line, index) => ({
-          index,
-          catalog: line.product_catalog_handle?.toLowerCase().trim() ?? "",
-        }))
-        .filter((line) => line.catalog && line.catalog === c);
-      if (catalogMatches.length === 1) return catalogMatches[0].index;
-      // Fall back to SKU
-      return lines.findIndex((l) => l.sku.toLowerCase() === c);
-    },
-    [lines, useVendorUpc],
-  );
 
   const canAddInvoiceLines =
     !!detail &&
@@ -443,34 +459,61 @@ export default function ReceivingBay({ poId, onComplete, onClose, onOpenAddItem 
   );
 
   const lookupVariantByCode = useCallback(
-    async (code: string): Promise<VariantSearchResult | null> => {
+    async (code: string): Promise<VariantCodeLookup> => {
       const trimmed = code.trim();
-      if (trimmed.length < 2) return null;
+      if (trimmed.length < 2) return { kind: "not_found" };
       try {
-        const res = await fetch(
-          `${BASE_URL}/api/products/control-board?search=${encodeURIComponent(trimmed)}&limit=8`,
-          { headers: apiAuth() },
+        const headers = apiAuth();
+        if (!detail?.vendor_id) return { kind: "unavailable" };
+        const params = new URLSearchParams({
+          code: trimmed,
+          vendor_id: detail.vendor_id,
+          purchase_order_id: poId,
+        });
+        const scanRes = await fetchWithTimeout(
+          `${BASE_URL}/api/inventory/receiving-scan-resolve?${params}`,
+          { headers },
+          RECEIVING_LOOKUP_TIMEOUT_MS,
         );
-        if (!res.ok) return null;
+        if (scanRes.ok) {
+          const exact = (await scanRes.json()) as ExactVariantScanResult;
+          const exactIdentifierMatch =
+            exact.resolution_kind != null
+              ? exact.resolution_kind !== "product_name"
+              : exact.sku.toLowerCase() === trimmed.toLowerCase();
+          if (!exactIdentifierMatch) return { kind: "name_only" };
+          return {
+            kind: "exact",
+            variant: {
+              product_id: exact.product_id,
+              variant_id: exact.variant_id,
+              sku: exact.sku,
+              product_name: exact.name,
+              variation_label: exact.variation_label,
+              retail_price: exact.standard_retail_price,
+              cost_price: exact.unit_cost,
+            },
+          };
+        }
+        if (scanRes.status === 400) return { kind: "ambiguous" };
+        if (scanRes.status !== 404) return { kind: "unavailable" };
+
+        // The server exact resolver is the only authority for automatic selection.
+        // A fuzzy result may guide staff to the picker, but never proves uniqueness.
+        const res = await fetchWithTimeout(
+          `${BASE_URL}/api/products/control-board?search=${encodeURIComponent(trimmed)}&limit=8`,
+          { headers },
+          RECEIVING_LOOKUP_TIMEOUT_MS,
+        );
+        if (!res.ok) return { kind: "unavailable" };
         const data = (await res.json()) as { rows?: VariantSearchResult[] };
         const rows = Array.isArray(data.rows) ? data.rows : [];
-        const normalized = trimmed.toLowerCase();
-        return (
-          rows.find(
-            (row) =>
-              row.sku.toLowerCase() === normalized ||
-              row.barcode?.toLowerCase() === normalized ||
-              row.vendor_upc?.toLowerCase() === normalized ||
-              row.catalog_handle?.toLowerCase() === normalized,
-          ) ??
-          rows[0] ??
-          null
-        );
+        return { kind: rows.length > 0 ? "name_only" : "not_found" };
       } catch {
-        return null;
+        return { kind: "unavailable" };
       }
     },
-    [apiAuth],
+    [apiAuth, detail?.vendor_id, poId],
   );
 
   const processScan = useCallback(
@@ -478,16 +521,34 @@ export default function ReceivingBay({ poId, onComplete, onClose, onOpenAddItem 
       const sku = code.trim();
       if (!sku) return;
 
-      const idx = matchLine(sku);
-      if (idx === -1) {
+      const lookup = await lookupVariantByCode(sku);
+      if (activePoIdRef.current !== poId) return;
+      if (lookup.kind === "unavailable") {
+        playScanError();
+        showFeedback({
+          type: "error",
+          message: "Item lookup is unavailable. Nothing was selected or changed.",
+        });
+        return;
+      }
+      if (lookup.kind === "ambiguous") {
+        playScanError();
+        showFeedback({
+          type: "error",
+          message: "That identifier matches multiple variations. Use the item picker; nothing was selected.",
+        });
+        return;
+      }
+      if (lookup.kind === "name_only") {
+        playScanWarning();
+        showFeedback({
+          type: "warning",
+          message: "Similar items were found, but the code is not one unique exact identifier. Use the item picker.",
+        });
+        return;
+      }
+      if (lookup.kind === "not_found") {
         if (canAddInvoiceLines) {
-          const variant = await lookupVariantByCode(sku);
-          if (variant) {
-            selectEntryVariant(variant);
-            playScanWarning();
-            showFeedback({ type: "warning", message: `${variant.product_name} found. Confirm qty, cost, and retail, then Add Line.` });
-            return;
-          }
           setQuickItemSeedSku(sku);
         }
         playScanError();
@@ -495,25 +556,53 @@ export default function ReceivingBay({ poId, onComplete, onClose, onOpenAddItem 
         return;
       }
 
-      const line = lines[idx];
-      const remain = Math.max(0, line.qty_ordered - line.qty_previously_received);
-
-      if (line.qty_receiving >= remain) {
+      const staged = stageReceivingVariantScan(linesRef.current, lookup.variant.variant_id);
+      if (staged.status === "ambiguous") {
+        playScanError();
+        showFeedback({
+          type: "error",
+          message: "That variation appears on more than one purchase-order line. Choose the intended line manually; nothing changed.",
+        });
+        return;
+      }
+      if (staged.status === "not_found") {
+        if (canAddInvoiceLines) {
+          selectEntryVariant(lookup.variant);
+          playScanWarning();
+          showFeedback({ type: "warning", message: `${lookup.variant.product_name} found. Confirm qty, cost, and retail, then Add Line.` });
+        } else {
+          playScanError();
+          showFeedback({ type: "error", message: `Not on this purchase order: ${sku}` });
+        }
+        return;
+      }
+      if (staged.status === "at_limit") {
         playScanWarning();
-        showFeedback({ type: "warning", message: `${line.product_name} already at max qty` });
+        showFeedback({
+          type: "warning",
+          message: `${staged.line?.product_name ?? lookup.variant.product_name} already at max qty`,
+        });
         return;
       }
 
-      setLines((prev) => {
-        const next = [...prev];
-        next[idx] = { ...next[idx], qty_receiving: next[idx].qty_receiving + 1 };
-        return next;
-      });
+      const line = staged.line;
+      if (!line) return;
+      linesRef.current = staged.lines;
+      setLines(staged.lines);
       setScanCount((c) => c + 1);
       playScanSuccess();
-      showFeedback({ type: "success", message: `${line.product_name} · ${line.qty_receiving + 1} received` });
+      showFeedback({ type: "success", message: `${line.product_name} · ${line.qty_receiving} received` });
     },
-    [canAddInvoiceLines, lines, lookupVariantByCode, matchLine, selectEntryVariant, showFeedback],
+    [canAddInvoiceLines, lookupVariantByCode, poId, selectEntryVariant, showFeedback],
+  );
+
+  const enqueueScan = useCallback(
+    (code: string) => {
+      const run = () => processScan(code);
+      const queued = scanQueueRef.current.then(run, run);
+      scanQueueRef.current = queued.catch(() => undefined);
+    },
+    [processScan],
   );
 
   // ── HID scanner detection in the dedicated scan input ─────────────────────
@@ -524,7 +613,7 @@ export default function ReceivingBay({ poId, onComplete, onClose, onOpenAddItem 
       const code = scanInput.trim();
       if (!code) return;
 
-      void processScan(code);
+      enqueueScan(code);
       setScanInput("");
       charIntervalsRef.current = [];
       scannerRef.current?.focus();
@@ -543,8 +632,8 @@ export default function ReceivingBay({ poId, onComplete, onClose, onOpenAddItem 
   // ── Camera scan handler ────────────────────────────────────────────────────
 
   const handleCameraScan = useCallback(
-    (code: string) => void processScan(code),
-    [processScan],
+    (code: string) => enqueueScan(code),
+    [enqueueScan],
   );
 
   const addInvoiceLine = useCallback(async () => {
@@ -562,23 +651,7 @@ export default function ReceivingBay({ poId, onComplete, onClose, onOpenAddItem 
     setLineBusy(true);
     try {
       const currentRetailCents = parseMoneyToCents(variantMoneyInput(selectedVariant.retail_price));
-      if (currentRetailCents !== retailCents) {
-        const priceRes = await fetch(`${BASE_URL}/api/products/variants/${selectedVariant.variant_id}/pricing`, {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            ...apiAuth(),
-          },
-          body: JSON.stringify({
-            retail_price_override: centsToFixed2(retailCents),
-          }),
-        });
-        if (!priceRes.ok) {
-          const body = (await priceRes.json().catch(() => ({}))) as { error?: string };
-          throw new Error(body.error ?? "Retail price could not be updated.");
-        }
-      }
-
+      const retailNeedsUpdate = currentRetailCents !== retailCents;
       const res = await fetch(`${BASE_URL}/api/purchase-orders/${poId}/lines`, {
         method: "POST",
         headers: {
@@ -595,8 +668,31 @@ export default function ReceivingBay({ poId, onComplete, onClose, onOpenAddItem 
         const body = (await res.json().catch(() => ({}))) as { error?: string };
         throw new Error(body.error ?? "Could not add invoice line.");
       }
+      const addedLine = (await res.json()) as { line_id?: string };
+      if (!addedLine.line_id) {
+        await loadPo();
+        throw new Error("Invoice line was added, but its exact line could not be staged automatically.");
+      }
+
+      let retailUpdateWarning: string | null = null;
+      if (retailNeedsUpdate) {
+        const priceRes = await fetch(`${BASE_URL}/api/products/variants/${selectedVariant.variant_id}/pricing`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            ...apiAuth(),
+          },
+          body: JSON.stringify({
+            retail_price_override: centsToFixed2(retailCents),
+          }),
+        });
+        if (!priceRes.ok) {
+          const body = (await priceRes.json().catch(() => ({}))) as { error?: string };
+          retailUpdateWarning = body.error ?? "Retail price could not be updated.";
+        }
+      }
       autoReceiveAfterLoadRef.current = {
-        variantId: selectedVariant.variant_id,
+        lineId: addedLine.line_id,
         qty: entryQty,
       };
       await loadPo();
@@ -604,7 +700,14 @@ export default function ReceivingBay({ poId, onComplete, onClose, onOpenAddItem 
       setEntryQty(1);
       setEntryCost("0.00");
       setEntryRetail("0.00");
-      toast("Invoice line added and staged for receiving.", "success");
+      if (retailUpdateWarning) {
+        toast(
+          `Invoice line added and staged, but retail was not changed: ${retailUpdateWarning}`,
+          "info",
+        );
+      } else {
+        toast("Invoice line added and staged for receiving.", "success");
+      }
     } catch (error) {
       toast(error instanceof Error ? error.message : "Could not add invoice line.", "error");
     } finally {

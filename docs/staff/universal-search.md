@@ -45,7 +45,7 @@ In POS, the trigger is intentionally tighter so it does not crowd the header. Th
 | Result type | What it helps with |
 |------------|--------------------|
 | **Customer** | Jump to the customer profile or send the customer into POS |
-| **Exact SKU** | Open the matching inventory/product target quickly |
+| **Exact SKU** | Open an item only when the entered SKU, barcode, approved alias, or catalog number identifies one active variation |
 | **Product** | Find the right item when you know the product or variation |
 | **Transaction** | Open the matching Transaction Record |
 | **Shipment** | Jump to shipping details or tracking context |
@@ -64,9 +64,19 @@ In POS, the trigger is intentionally tighter so it does not crowd the header. Th
 ### Jump to a product or SKU quickly
 
 1. Open **Universal Search**.
-2. Type the SKU if you know it exactly, or part of the product name if you do not.
+2. Type the exact SKU, barcode, approved alias, or catalog number if you know it, or part of the product name if you do not.
 3. Choose the **Exact SKU** or **Product** result.
 4. ROS opens the related inventory/product destination.
+
+Riverside does not show the **Exact SKU** shortcut when that identifier belongs to more than one
+active variation across those identifier types. Search by product name or another identifying
+detail, then choose the intended **Product** result explicitly instead.
+
+### Open one Transaction Record by number
+
+1. Enter the complete `TXN-*` number, including the prefix and hyphen.
+2. Riverside checks the financial ledger for that exact number before using broad search, including fulfilled records that the normal open-orders list hides.
+3. Open the matching **Transaction** result. A complete transaction number that does not exist stays a no-match; it does not turn into a long list of loosely similar transactions.
 
 ### Jump to a wedding party, shipment, or alteration
 
@@ -122,4 +132,4 @@ Examples:
 
 Universal Search shows confirmed Riverside results as soon as they arrive. Optional ROSIE shortcuts may appear afterward, but they do not delay or replace the record results. Phone matching for weddings requires a complete phone-like entry; digits embedded in a name or identifier are treated as part of that literal text.
 
-**Last reviewed:** 2026-07-21
+**Last reviewed:** 2026-07-22

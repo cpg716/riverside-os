@@ -33,6 +33,27 @@ fn phone_like_pattern(value: &str) -> Option<String> {
     (phone_like && digits.len() >= 7).then(|| format!("%{digits}%"))
 }
 
+fn is_exact_transaction_display_id_query(value: &str) -> bool {
+    let normalized = value.trim().to_ascii_uppercase();
+    let Some(suffix) = normalized.strip_prefix("TXN-") else {
+        return false;
+    };
+
+    suffix.len() >= 5
+        && suffix
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || character == '-')
+}
+
+fn uses_default_open_order_scope(
+    status_scope: Option<&str>,
+    show_closed: bool,
+    exact_display_id_query: bool,
+) -> bool {
+    matches!(status_scope, Some("open"))
+        || (status_scope.is_none() && !show_closed && !exact_display_id_query)
+}
+
 fn uses_order_search_index(
     order_record_scope: bool,
     default_order_scope: bool,
@@ -141,7 +162,7 @@ pub struct TransactionListQuery {
     pub offset: Option<i64>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct TransactionListResponse {
     pub transaction_id: Uuid,
     pub display_id: String,
@@ -254,8 +275,9 @@ pub async fn query_paged_transactions(
         kind_filter,
         Some("special_order" | "custom" | "wedding_order")
     );
+    let exact_display_id_query = search_trim.is_some_and(is_exact_transaction_display_id_query);
     let default_order_scope =
-        matches!(status_scope, Some("open")) || (status_scope.is_none() && !q.show_closed);
+        uses_default_open_order_scope(status_scope, q.show_closed, exact_display_id_query);
     let list_line_filter = if is_layaway_filter {
         "oi.fulfillment::text = 'layaway'"
     } else if order_record_scope || default_order_scope || is_order_kind_filter {
@@ -270,7 +292,32 @@ pub async fn query_paged_transactions(
         is_order_kind_filter,
         is_layaway_filter,
     );
-    let mut meili_transaction_ids: Option<Vec<Uuid>> = if let Some(st) = search_trim {
+    let exact_transaction_ids = if let Some(st) = search_trim.filter(|_| exact_display_id_query) {
+        let normalized_display_id = st.trim().to_ascii_uppercase();
+        Some(
+            sqlx::query_scalar::<_, Uuid>(
+                r#"
+                SELECT id
+                FROM transactions
+                WHERE COALESCE(display_id, '') ILIKE $1
+                ORDER BY booked_at DESC, id DESC
+                LIMIT 10
+                "#,
+            )
+            .bind(normalized_display_id)
+            .fetch_all(pool)
+            .await?,
+        )
+    } else {
+        None
+    };
+
+    // A complete TXN-* identifier is a literal financial-record lookup. Resolve it
+    // directly in PostgreSQL and never let typo-tolerant index candidates replace or
+    // bury the authoritative exact result.
+    let mut meili_transaction_ids: Option<Vec<Uuid>> = if exact_transaction_ids.is_some() {
+        exact_transaction_ids
+    } else if let Some(st) = search_trim {
         if let Some(c) = meilisearch {
             let open_only =
                 matches!(status_scope, Some("open")) || (status_scope.is_none() && !q.show_closed);
@@ -589,7 +636,7 @@ pub async fn query_paged_transactions(
             qb.push(" AND o.status = 'cancelled' ");
         }
         Some("all") => {}
-        _ if !q.show_closed => {
+        _ if !q.show_closed && !exact_display_id_query => {
             qb.push(" AND o.status <> 'cancelled' AND ");
             qb.push(open_work_predicate);
             qb.push(" ");
@@ -797,8 +844,9 @@ pub async fn query_paged_transactions(
 #[cfg(test)]
 mod tests {
     use super::{
-        kind_filter_having_clause, lifecycle_filter_status, literal_ilike_pattern,
-        order_kind_from_flags, phone_like_pattern, uses_order_search_index,
+        is_exact_transaction_display_id_query, kind_filter_having_clause, lifecycle_filter_status,
+        literal_ilike_pattern, order_kind_from_flags, phone_like_pattern, query_paged_transactions,
+        uses_default_open_order_scope, uses_order_search_index, TransactionListQuery,
     };
     use uuid::Uuid;
 
@@ -874,6 +922,86 @@ mod tests {
         );
         assert_eq!(phone_like_pattern("SEEMAN-071926"), None);
         assert_eq!(phone_like_pattern("555-121"), None);
+    }
+
+    #[test]
+    fn complete_transaction_ids_use_literal_postgres_lookup() {
+        assert!(is_exact_transaction_display_id_query("TXN-624168"));
+        assert!(is_exact_transaction_display_id_query(" txn-dur-123 "));
+        assert!(!is_exact_transaction_display_id_query("TXN-"));
+        assert!(!is_exact_transaction_display_id_query("TXN-6"));
+        assert!(!is_exact_transaction_display_id_query("TXN-621"));
+        assert!(!is_exact_transaction_display_id_query("TXN 624168"));
+        assert!(!is_exact_transaction_display_id_query("Christopher"));
+    }
+
+    #[test]
+    fn exact_transaction_id_bypasses_only_the_implicit_open_order_scope() {
+        assert!(!uses_default_open_order_scope(None, false, true));
+        assert!(uses_default_open_order_scope(None, false, false));
+        assert!(uses_default_open_order_scope(Some("open"), false, true));
+        assert!(!uses_default_open_order_scope(Some("all"), false, false));
+    }
+
+    #[tokio::test]
+    #[ignore = "requires an isolated migrated test database"]
+    async fn exact_transaction_id_finds_fulfilled_sale_without_show_closed() {
+        let database_url = std::env::var("TEST_DATABASE_URL")
+            .expect("TEST_DATABASE_URL must name an isolated migrated test database");
+        let pool = sqlx::PgPool::connect(&database_url)
+            .await
+            .expect("connect transaction-list test database");
+        let transaction_id = Uuid::new_v4();
+        let display_id = format!("TXN-{}", &Uuid::new_v4().simple().to_string()[..8]);
+
+        sqlx::query(
+            r#"
+            INSERT INTO transactions (
+                id, status, total_price, amount_paid, balance_due,
+                display_id, booked_at, business_date
+            )
+            VALUES ($1, 'fulfilled', 10.00, 10.00, 0.00, $2, NOW(), CURRENT_DATE)
+            "#,
+        )
+        .bind(transaction_id)
+        .bind(&display_id)
+        .execute(&pool)
+        .await
+        .expect("insert fulfilled transaction fixture");
+
+        let result = query_paged_transactions(
+            &pool,
+            &TransactionListQuery {
+                search: Some(display_id.clone()),
+                show_closed: false,
+                customer_id: None,
+                register_session_id: None,
+                date_from: None,
+                date_to: None,
+                payment_filter: None,
+                kind_filter: None,
+                salesperson_filter: None,
+                lifecycle_filter: None,
+                status_scope: None,
+                record_scope: None,
+                limit: Some(10),
+                offset: Some(0),
+            },
+            None,
+        )
+        .await;
+
+        sqlx::query("DELETE FROM transactions WHERE id = $1")
+            .bind(transaction_id)
+            .execute(&pool)
+            .await
+            .expect("remove transaction fixture");
+
+        let page = result.expect("query exact fulfilled transaction");
+        assert_eq!(page.total_count, 1);
+        assert_eq!(page.items.len(), 1);
+        assert_eq!(page.items[0].transaction_id, transaction_id);
+        assert_eq!(page.items[0].display_id, display_id);
     }
 }
 

@@ -27,6 +27,11 @@ Use this panel to verify facts before cutover. Bridge row counts mean data was s
 
 After the import is signed off, Counterpoint does not create recurring stale-sync alerts. Any follow-up work belongs in the import proof, exception review, or duplicate-customer review surfaces before go-live.
 
+Bridge **Online** proves only that the extraction process is currently reporting. Operations keeps
+sync health **Degraded/Unknown** when no run history exists, an entity has never succeeded, or the
+latest recorded success is older than 72 hours; it never converts those missing facts into a
+healthy result.
+
 ROS does not need another Counterpoint import to correct legacy order/payment history. Use **Legacy Order Repair** for historical records already stored in ROS.
 
 ## Legacy Order Repair
@@ -45,6 +50,24 @@ The review uses only data already stored in ROS. It does not connect to Counterp
 An exact match requires the same customer, order total, merchandise lines, an original same-time Counterpoint ticket, and a unique set of payments that exactly equals the order total. ROS moves legitimate later payments onto the original order and supersedes duplicate imported payment/ticket shells. Before changing anything, ROS stores an audit snapshot and records the approving staff member.
 
 Rows marked **Manager review** are not changed. Common reasons include multiple possible orders, mismatched merchandise, indistinguishable later payments, or payment totals that do not exactly equal the order total. Do not force a repair from the database; investigate the receipt and ROS transaction records first.
+
+### Imported financial integrity
+
+The financial-integrity section separates each Transaction Record's immutable Counterpoint import snapshot from its current net lines, payments, returns, refunds, and booking timestamps. A later audited return or refund is current operational history, not a broken import.
+
+If Ticket History or Open Orders reports **source booking timestamp is missing or invalid**, correct the Bridge/source mapping and rerun that area. Riverside deliberately leaves the row in import review instead of substituting today's import time. A normal rerun preserves the superseded booking evidence and does not create a new current-day booked-sale adjustment.
+
+1. Select **Refresh Integrity** and review the three counts.
+2. **Financial source review** means the retained import-time money evidence conflicts. Compare the retained Counterpoint source payload and receipt; do not choose a total from this screen or force a database correction.
+3. **Safe date repair** means a current imported line or its initial booking event used the later ROS import timestamp instead of the retained Counterpoint business time.
+4. Select **Align Booking Dates** only after reviewing the manifest and entering the displayed confirmation phrase.
+5. Reopen the affected Transaction Record audit and Daily Sales date. Confirm the source booking time appears and the header/payment/tender amounts are unchanged.
+
+The screen shows a short reviewed-manifest fingerprint. Date repair sends the complete fingerprint and candidate count back to the Main Hub. If a candidate, ID, timestamp, count, or displayed financial context changed after the refresh, no row is changed and staff must refresh/review again. A successful repair stores the approving staff member, reason, manifest fingerprint, before/after values, and changed-row counts. It never changes transaction headers, payment transactions, payment allocations, or tender amounts. Orphaned or amended history stays in **Event review** for support/accounting review rather than being hidden.
+
+**Repair Exact Matches** has the same safeguard. Its fingerprint covers the reviewed Transaction Record IDs, line signatures, payment/allocation IDs, statuses, dates, and totals. The Main Hub locks and rechecks those records before moving a payment. If anything drifted, the complete repair stops.
+
+Counterpoint reruns also protect completed work. If an imported line already has a return/refund, fulfillment or purchase-order link/event, discount audit, suit-swap audit, or wedding cutover review, Riverside leaves the original line ID and all allocations/audit records intact and reports that the rerun needs Manager review.
 
 ## Go-live workflow
 

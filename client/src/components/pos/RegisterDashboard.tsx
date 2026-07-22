@@ -94,6 +94,7 @@ function roleHeadline(role: string | null): string {
 }
 
 export interface RegisterDashboardProps {
+  registerLane: number | null;
   registerOrdinal: number | null;
   cashierName: string | null;
   onGoToRegister: () => void;
@@ -108,6 +109,7 @@ export interface RegisterDashboardProps {
 }
 
 export default function RegisterDashboard({
+  registerLane,
   registerOrdinal,
   cashierName,
   onGoToRegister,
@@ -318,7 +320,11 @@ export default function RegisterDashboard({
             </h1>
             <div className="flex items-center gap-2">
                <div className="h-2 w-2 rounded-full bg-app-success" />
-               <p className="text-xs font-bold text-app-text-muted">Register {registerOrdinal ?? "0"} · System Online</p>
+               <p className="text-xs font-bold text-app-text-muted">
+                 Register #{registerLane ?? "?"}
+                 {registerOrdinal != null ? ` · Session #${registerOrdinal}` : ""}
+                 {" · System Online"}
+               </p>
             </div>
           </div>
 
