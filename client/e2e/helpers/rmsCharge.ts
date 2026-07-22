@@ -255,127 +255,160 @@ export async function resetOpenRegisterSessions(request: APIRequestContext) {
     return sessionToken;
   };
 
-  const token = await attachSession(sessionId);
-  const posHeaders = {
-    "x-riverside-pos-session-id": sessionId,
-    "x-riverside-pos-session-token": token,
-    "x-riverside-station-key": "station-e2e",
-  };
-  const beginRes = await request.post(
-    `${apiBase()}/api/sessions/${sessionId}/begin-reconcile`,
-    {
-      headers: {
-        ...posHeaders,
-        "Content-Type": "application/json",
+  const managerStaffId = await verifyStaffId(request);
+  let previousPendingDateCount: number | null = null;
+  let previousClosedBusinessDate: string | null = null;
+
+  while (true) {
+    const token = await attachSession(sessionId);
+    const posHeaders = {
+      "x-riverside-pos-session-id": sessionId,
+      "x-riverside-pos-session-token": token,
+      "x-riverside-station-key": "station-e2e",
+    };
+    const beginRes = await request.post(
+      `${apiBase()}/api/sessions/${sessionId}/begin-reconcile`,
+      {
+        headers: {
+          ...posHeaders,
+          "Content-Type": "application/json",
+        },
+        data: { active: true },
+        failOnStatusCode: false,
       },
-      data: { active: true },
-      failOnStatusCode: false,
-    },
-  );
-  if (beginRes.status() !== 200) {
-    const bodyText = await beginRes.text();
-    throw new Error(
-      `Failed to begin reconciliation for open register session ${sessionId} during E2E reset (status ${beginRes.status()}): ${bodyText || "<empty body>"}`,
     );
-  }
-  for (const session of group) {
-    const groupSessionId = (session.session_id || session.id || "").trim();
-    if (!groupSessionId) {
+    if (beginRes.status() !== 200) {
+      const bodyText = await beginRes.text();
       throw new Error(
-        `Till close group ${tillCloseGroupId} contains a register session without an ID during E2E reset`,
+        `Failed to begin reconciliation for open register session ${sessionId} during E2E reset (status ${beginRes.status()}): ${bodyText || "<empty body>"}`,
       );
     }
-    const groupSessionToken =
-      groupSessionId === sessionId
-        ? token
-        : await attachSession(groupSessionId);
-    const acknowledgementRes = await request.post(
-      `${apiBase()}/api/recovery/station-close-status`,
+
+    for (const session of group) {
+      const groupSessionId = (session.session_id || session.id || "").trim();
+      if (!groupSessionId) {
+        throw new Error(
+          `Till close group ${tillCloseGroupId} contains a register session without an ID during E2E reset`,
+        );
+      }
+      const groupSessionToken =
+        groupSessionId === sessionId
+          ? token
+          : await attachSession(groupSessionId);
+      const acknowledgementRes = await request.post(
+        `${apiBase()}/api/recovery/station-close-status`,
+        {
+          headers: {
+            "Content-Type": "application/json",
+            "x-riverside-pos-session-id": groupSessionId,
+            "x-riverside-pos-session-token": groupSessionToken,
+            "x-riverside-station-key": "station-e2e",
+          },
+          data: {
+            pending_checkout_count: 0,
+            blocked_checkout_count: 0,
+          },
+          failOnStatusCode: false,
+        },
+      );
+      if (acknowledgementRes.status() !== 200) {
+        const bodyText = await acknowledgementRes.text();
+        throw new Error(
+          `Failed to acknowledge the E2E workstation for open register session ${groupSessionId} during reset (status ${acknowledgementRes.status()}): ${bodyText || "<empty body>"}`,
+        );
+      }
+    }
+
+    const reconRes = await request.get(
+      `${apiBase()}/api/sessions/${sessionId}/reconciliation`,
+      {
+        headers: posHeaders,
+        failOnStatusCode: false,
+      },
+    );
+    if (reconRes.status() !== 200) {
+      const bodyText = await reconRes.text();
+      throw new Error(
+        `Failed to read open register session ${sessionId} during E2E reset (status ${reconRes.status()}): ${bodyText || "<empty body>"}`,
+      );
+    }
+    const reconciliation = (await reconRes.json()) as {
+      expected_cash: string;
+      physical_expected_cash?: string;
+      pending_business_dates?: unknown;
+    };
+    const pendingBusinessDates = reconciliation.pending_business_dates;
+    if (
+      !Array.isArray(pendingBusinessDates) ||
+      pendingBusinessDates.length === 0 ||
+      !pendingBusinessDates.every(
+        (value): value is string => typeof value === "string" && value.length > 0,
+      )
+    ) {
+      throw new Error(
+        `Register reconciliation did not expose pending business dates for till group ${tillCloseGroupId}`,
+      );
+    }
+    if (
+      previousPendingDateCount != null &&
+      pendingBusinessDates.length >= previousPendingDateCount
+    ) {
+      throw new Error(
+        `Register close made no pending-date progress for till group ${tillCloseGroupId}`,
+      );
+    }
+
+    const expectedCash = (
+      reconciliation.physical_expected_cash ?? reconciliation.expected_cash
+    ).trim();
+    const actualCash = expectedCash.startsWith("-") ? "0.00" : expectedCash;
+    const closeRes = await request.post(
+      `${apiBase()}/api/sessions/${sessionId}/close`,
       {
         headers: {
           "Content-Type": "application/json",
-          "x-riverside-pos-session-id": groupSessionId,
-          "x-riverside-pos-session-token": groupSessionToken,
-          "x-riverside-station-key": "station-e2e",
+          ...posHeaders,
         },
         data: {
-          pending_checkout_count: 0,
-          blocked_checkout_count: 0,
+          actual_cash: actualCash,
+          closing_notes:
+            actualCash === expectedCash
+              ? "E2E RMS permissions reset"
+              : "E2E RMS permissions reset; negative expected cash clamped to zero",
+          closing_comments:
+            actualCash === expectedCash
+              ? "E2E RMS permissions reset"
+              : "E2E RMS permissions reset; negative expected cash clamped to zero",
+          force_unresolved_recovery: true,
+          manager_staff_id: managerStaffId,
+          manager_pin: staffCode(),
+          manager_reason:
+            "E2E cleanup closes stale workstation sessions between isolated specs",
         },
         failOnStatusCode: false,
       },
     );
-    if (acknowledgementRes.status() !== 200) {
-      const bodyText = await acknowledgementRes.text();
+    const closeBodyText = await closeRes.text();
+    if (closeRes.status() !== 200) {
       throw new Error(
-        `Failed to acknowledge the E2E workstation for open register session ${groupSessionId} during reset (status ${acknowledgementRes.status()}): ${bodyText || "<empty body>"}`,
+        `Failed to close open register session ${sessionId} during E2E reset (status ${closeRes.status()}): ${closeBodyText || "<empty body>"}`,
       );
     }
-  }
-  const reconRes = await request.get(
-    `${apiBase()}/api/sessions/${sessionId}/reconciliation`,
-    {
-      headers: posHeaders,
-      failOnStatusCode: false,
-    },
-  );
-  if (reconRes.status() !== 200) {
-    const bodyText = await reconRes.text();
-    throw new Error(
-      `Failed to read open register session ${sessionId} during E2E reset (status ${reconRes.status()}): ${bodyText || "<empty body>"}`,
-    );
-  }
-  const reconciliation = (await reconRes.json()) as {
-    expected_cash: string;
-    physical_expected_cash?: string;
-  };
-  const expectedCash = (
-    reconciliation.physical_expected_cash ?? reconciliation.expected_cash
-  ).trim();
-  const actualCash = expectedCash.startsWith("-") ? "0.00" : expectedCash;
-  const managerStaffId = await verifyStaffId(request);
-  const closeRes = await request.post(
-    `${apiBase()}/api/sessions/${sessionId}/close`,
-    {
-      headers: {
-        "Content-Type": "application/json",
-        "x-riverside-pos-session-id": sessionId,
-        "x-riverside-pos-session-token": token,
-        "x-riverside-station-key": "station-e2e",
-      },
-      data: {
-        actual_cash: actualCash,
-        closing_notes:
-          actualCash === expectedCash
-            ? "E2E RMS permissions reset"
-            : "E2E RMS permissions reset; negative expected cash clamped to zero",
-        closing_comments:
-          actualCash === expectedCash
-            ? "E2E RMS permissions reset"
-            : "E2E RMS permissions reset; negative expected cash clamped to zero",
-        force_unresolved_recovery: true,
-        manager_staff_id: managerStaffId,
-        manager_pin: staffCode(),
-        manager_reason:
-          "E2E cleanup closes stale workstation sessions between isolated specs",
-      },
-      failOnStatusCode: false,
-    },
-  );
-  const closeBodyText = await closeRes.text();
-  if (closeRes.status() !== 200) {
-    throw new Error(
-      `Failed to close open register session ${sessionId} during E2E reset (status ${closeRes.status()}): ${closeBodyText || "<empty body>"}`,
-    );
-  }
-  const closeBody = JSON.parse(closeBodyText) as Record<string, unknown>;
-  if (
-    "till_group_closed" in closeBody &&
-    closeBody.till_group_closed !== true
-  ) {
-    throw new Error(
-      `Register close left till group ${tillCloseGroupId} open during E2E reset: ${closeBodyText}`,
-    );
+    const closeBody = JSON.parse(closeBodyText) as Record<string, unknown>;
+    if (closeBody.till_group_closed === true) return;
+    if (
+      closeBody.till_group_closed !== false ||
+      closeBody.status !== "business_day_closed" ||
+      typeof closeBody.business_date !== "string" ||
+      closeBody.business_date !== pendingBusinessDates[0] ||
+      closeBody.business_date === previousClosedBusinessDate
+    ) {
+      throw new Error(
+        `Register close returned invalid partial-close evidence for till group ${tillCloseGroupId}: ${closeBodyText}`,
+      );
+    }
+    previousPendingDateCount = pendingBusinessDates.length;
+    previousClosedBusinessDate = closeBody.business_date;
   }
 }
 
