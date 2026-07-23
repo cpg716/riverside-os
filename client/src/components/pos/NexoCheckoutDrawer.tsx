@@ -2849,7 +2849,7 @@ export default function NexoCheckoutDrawer({
             id: newId(),
             method: "card_credit",
             amountCents: amtCents,
-            label: "HELCIM REFUND",
+            label: "HELCIM REFUND — PENDING APPROVAL",
             metadata: {
               payment_provider: "helcim",
               tender_family: "helcim_refund",
@@ -4818,7 +4818,11 @@ export default function NexoCheckoutDrawer({
                            )}
                         </div>
                         <div className="flex items-center gap-2.5 ml-2">
-                           <span className="text-[11px] font-black tabular-nums tracking-tight opacity-90">${centsToFixed2(p.amountCents)}</span>
+                           <span className="text-[11px] font-black tabular-nums tracking-tight opacity-90">
+                             {p.amountCents < 0
+                               ? `Refund $${centsToFixed2(Math.abs(p.amountCents))}`
+                               : `$${centsToFixed2(p.amountCents)}`}
+                           </span>
                            <button onClick={() => void removePaymentLine(p)} className="flex min-h-11 min-w-11 items-center justify-center rounded-lg text-zinc-400 transition-all hover:bg-rose-500/10 hover:text-rose-400" aria-label={`Remove ${p.label} payment`}><Trash2 size={14} /></button>
                         </div>
                      </div>

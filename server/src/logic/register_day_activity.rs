@@ -75,7 +75,49 @@ fn parse_activity_payments(value: Option<serde_json::Value>) -> Vec<RegisterActi
         .collect()
 }
 
-fn payment_activity_id(is_refund: bool, payment_id: Uuid, allocation_id: Uuid) -> String {
+fn activity_metadata_uuid(metadata: Option<&serde_json::Value>, key: &str) -> Option<Uuid> {
+    metadata
+        .and_then(|value| value.get(key))
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .and_then(|value| Uuid::parse_str(value).ok())
+}
+
+fn refund_activity_totals(
+    payment_amount: Decimal,
+    refund_event_id: Option<Uuid>,
+    refund_subtotal: Decimal,
+    refund_tax: Decimal,
+    replacement_subtotal: Decimal,
+    replacement_tax: Decimal,
+) -> (Decimal, Decimal) {
+    let has_event_components = refund_subtotal != Decimal::ZERO
+        || refund_tax != Decimal::ZERO
+        || replacement_subtotal != Decimal::ZERO
+        || replacement_tax != Decimal::ZERO;
+    if refund_event_id.is_some() && has_event_components {
+        (
+            (replacement_subtotal + replacement_tax - refund_subtotal - refund_tax).round_dp(2),
+            (replacement_tax - refund_tax).round_dp(2),
+        )
+    } else {
+        (payment_amount.round_dp(2), (-refund_tax).round_dp(2))
+    }
+}
+
+fn payment_activity_id(
+    is_refund: bool,
+    payment_id: Uuid,
+    allocation_id: Uuid,
+    refund_event_id: Option<Uuid>,
+) -> String {
+    if is_refund {
+        if let Some(refund_event_id) = refund_event_id {
+            return format!("refund-event:{refund_event_id}");
+        }
+    }
+
     format!(
         "{}:{payment_id}:{allocation_id}",
         if is_refund { "refund" } else { "payment" }
@@ -144,6 +186,10 @@ pub struct RegisterActivityItem {
     pub payment_id: Option<Uuid>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub payment_allocation_id: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refund_event_id: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub replacement_transaction_id: Option<Uuid>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub wedding_party_id: Option<Uuid>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1391,7 +1437,10 @@ async fn fetch_register_day_summary_page_on_connection(
         net_amount: Option<Decimal>,
         target_display_id: Option<String>,
         metadata: Option<serde_json::Value>,
+        refund_subtotal: Decimal,
         refund_tax: Decimal,
+        replacement_subtotal: Decimal,
+        replacement_tax: Decimal,
         refund_items_json: Option<serde_json::Value>,
     }
 
@@ -1629,6 +1678,28 @@ async fn fetch_register_day_summary_page_on_connection(
               FROM transaction_lines tl_activity
               WHERE tl_activity.transaction_id = o.id
           )
+          -- A refund-producing exchange is represented by its one event-scoped
+          -- refund row below. Do not also emit the replacement checkout as a
+          -- second sale or its positive lines would be counted twice.
+          AND NOT EXISTS (
+              SELECT 1
+              FROM payment_transactions pt_exchange_event
+              INNER JOIN payment_allocations pa_exchange_event
+                  ON pa_exchange_event.transaction_id = pt_exchange_event.id
+              WHERE pt_exchange_event.status = 'success'
+                AND pa_exchange_event.amount_allocated < 0
+                AND COALESCE(pt_exchange_event.metadata->>'kind', '') <> 'exchange_credit_relief'
+                AND NULLIF(pt_exchange_event.metadata->>'refund_event_id', '') IS NOT NULL
+                AND pt_exchange_event.metadata->>'replacement_transaction_id' = o.id::text
+                AND COALESCE(
+                    pt_exchange_event.effective_date,
+                    (pt_exchange_event.created_at AT TIME ZONE reporting.effective_store_timezone())::date
+                ) >= ($1 AT TIME ZONE reporting.effective_store_timezone())::date
+                AND COALESCE(
+                    pt_exchange_event.effective_date,
+                    (pt_exchange_event.created_at AT TIME ZONE reporting.effective_store_timezone())::date
+                ) < ($2 AT TIME ZONE reporting.effective_store_timezone())::date
+          )
           AND (
               $4::text IS NULL
               OR COALESCE(NULLIF(TRIM(o.display_id), ''), o.counterpoint_doc_ref, o.counterpoint_ticket_ref, o.id::text) ILIKE $4 ESCAPE '\'
@@ -1835,6 +1906,14 @@ async fn fetch_register_day_summary_page_on_connection(
             pt.metadata,
             COALESCE((
                 SELECT SUM(
+                    COALESCE(trl.refund_subtotal, tl.unit_price * trl.quantity_returned)
+                )
+                FROM transaction_return_lines trl
+                INNER JOIN transaction_lines tl ON tl.id = trl.transaction_line_id
+                WHERE trl.refund_event_id::text = pt.metadata->>'refund_event_id'
+            ), 0)::numeric(14,2) AS refund_subtotal,
+            COALESCE((
+                SELECT SUM(
                     COALESCE(trl.refund_state_tax, tl.state_tax * trl.quantity_returned)
                     + COALESCE(trl.refund_local_tax, tl.local_tax * trl.quantity_returned)
                 )
@@ -1842,26 +1921,77 @@ async fn fetch_register_day_summary_page_on_connection(
                 INNER JOIN transaction_lines tl ON tl.id = trl.transaction_line_id
                 WHERE trl.refund_event_id::text = pt.metadata->>'refund_event_id'
             ), 0)::numeric(14,2) AS refund_tax,
+            COALESCE((
+                SELECT SUM(tl_replacement.quantity::numeric * tl_replacement.unit_price)
+                FROM transaction_lines tl_replacement
+                WHERE tl_replacement.transaction_id::text = pt.metadata->>'replacement_transaction_id'
+            ), 0)::numeric(14,2) AS replacement_subtotal,
+            COALESCE((
+                SELECT SUM(
+                    tl_replacement.quantity::numeric
+                    * (tl_replacement.state_tax + tl_replacement.local_tax)
+                )
+                FROM transaction_lines tl_replacement
+                WHERE tl_replacement.transaction_id::text = pt.metadata->>'replacement_transaction_id'
+            ), 0)::numeric(14,2) AS replacement_tax,
             (
-                SELECT jsonb_agg(jsonb_build_object(
-                    'name', COALESCE(NULLIF(TRIM(p.name), ''), pv.sku, 'Returned item'),
-                    'sku', COALESCE(pv.sku, 'Unknown SKU'),
-                    'quantity', -trl.quantity_returned,
-                    'price', (
-                        COALESCE(trl.refund_subtotal, tl.unit_price * trl.quantity_returned)
-                        / GREATEST(trl.quantity_returned, 1)
-                    )::text,
-                    'reg_price', COALESCE(pv.retail_price_override, p.base_retail_price)::text,
-                    'product_id', p.id,
-                    'fulfillment', 'return',
-                    'is_internal', false,
-                    'line_kind', 'return'
-                ) ORDER BY trl.created_at, trl.id)
-                FROM transaction_return_lines trl
-                INNER JOIN transaction_lines tl ON tl.id = trl.transaction_line_id
-                INNER JOIN products p ON p.id = tl.product_id
-                INNER JOIN product_variants pv ON pv.id = tl.variant_id
-                WHERE trl.refund_event_id::text = pt.metadata->>'refund_event_id'
+                SELECT jsonb_agg(
+                    event_item.item
+                    ORDER BY event_item.sort_group, event_item.sort_id
+                )
+                FROM (
+                    SELECT
+                        jsonb_build_object(
+                            'name', COALESCE(NULLIF(TRIM(p.name), ''), pv.sku, 'Returned item'),
+                            'sku', COALESCE(pv.sku, 'Unknown SKU'),
+                            'quantity', -trl.quantity_returned,
+                            'price', (
+                                COALESCE(trl.refund_subtotal, tl.unit_price * trl.quantity_returned)
+                                / GREATEST(trl.quantity_returned, 1)
+                            )::text,
+                            'reg_price', COALESCE(pv.retail_price_override, p.base_retail_price)::text,
+                            'product_id', p.id,
+                            'fulfillment', 'return',
+                            'is_internal', false,
+                            'line_kind', 'return'
+                        ) AS item,
+                        0::smallint AS sort_group,
+                        trl.id AS sort_id
+                    FROM transaction_return_lines trl
+                    INNER JOIN transaction_lines tl ON tl.id = trl.transaction_line_id
+                    INNER JOIN products p ON p.id = tl.product_id
+                    INNER JOIN product_variants pv ON pv.id = tl.variant_id
+                    WHERE trl.refund_event_id::text = pt.metadata->>'refund_event_id'
+
+                    UNION ALL
+
+                    SELECT
+                        jsonb_build_object(
+                            'name', COALESCE(NULLIF(TRIM(p_replacement.name), ''), pv_replacement.sku, 'Replacement item'),
+                            'sku', COALESCE(pv_replacement.sku, 'Unknown SKU'),
+                            'quantity', tl_replacement.quantity,
+                            'price', tl_replacement.unit_price::text,
+                            'reg_price', COALESCE(
+                                pv_replacement.retail_price_override,
+                                p_replacement.base_retail_price
+                            )::text,
+                            'product_id', p_replacement.id,
+                            'fulfillment', tl_replacement.fulfillment::text,
+                            'is_internal', COALESCE(tl_replacement.is_internal, false),
+                            'line_kind', COALESCE(
+                                NULLIF(TRIM(p_replacement.pos_line_kind), ''),
+                                NULLIF(TRIM(tl_replacement.custom_item_type), '')
+                            )
+                        ) AS item,
+                        1::smallint AS sort_group,
+                        tl_replacement.id AS sort_id
+                    FROM transaction_lines tl_replacement
+                    INNER JOIN products p_replacement
+                        ON p_replacement.id = tl_replacement.product_id
+                    INNER JOIN product_variants pv_replacement
+                        ON pv_replacement.id = tl_replacement.variant_id
+                    WHERE tl_replacement.transaction_id::text = pt.metadata->>'replacement_transaction_id'
+                ) event_item
             ) AS refund_items_json
         FROM payment_transactions pt
         INNER JOIN payment_allocations pa ON pa.transaction_id = pt.id
@@ -1870,6 +2000,7 @@ async fn fetch_register_day_summary_page_on_connection(
         WHERE COALESCE(pt.effective_date, (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date) >= ($1 AT TIME ZONE reporting.effective_store_timezone())::date
           AND COALESCE(pt.effective_date, (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date) < ($2 AT TIME ZONE reporting.effective_store_timezone())::date
           AND pt.status = 'success'
+          AND COALESCE(pt.metadata->>'kind', '') <> 'exchange_credit_relief'
           AND ($3::uuid IS NULL OR pt.session_id = $3)
           AND (
               $4::text IS NULL
@@ -2072,6 +2203,8 @@ async fn fetch_register_day_summary_page_on_connection(
             transaction_id: Some(s.transaction_id),
             payment_id: None,
             payment_allocation_id: None,
+            refund_event_id: None,
+            replacement_transaction_id: None,
             wedding_party_id: s.wedding_party_id,
             amount_label: Some(format!("${}", money_label(s.sales_total_booked))),
             payment_summary,
@@ -2144,16 +2277,49 @@ async fn fetch_register_day_summary_page_on_connection(
                             | "legacy_migration_refund"
                     )
                 });
+        let refund_event_id = if is_refund {
+            activity_metadata_uuid(p.metadata.as_ref(), "refund_event_id")
+        } else {
+            None
+        };
+        let replacement_transaction_id = if is_refund {
+            activity_metadata_uuid(p.metadata.as_ref(), "replacement_transaction_id")
+        } else {
+            None
+        };
+        let (sales_total, tax_total) = if is_refund {
+            let (event_sales_total, event_tax_total) = refund_activity_totals(
+                p.amount,
+                refund_event_id,
+                p.refund_subtotal,
+                p.refund_tax,
+                p.replacement_subtotal,
+                p.replacement_tax,
+            );
+            (
+                Some(money_label(event_sales_total)),
+                Some(money_label(event_tax_total)),
+            )
+        } else {
+            (None, None)
+        };
 
         activities.push(RegisterActivityItem {
-            id: payment_activity_id(is_refund, p.payment_id, p.payment_allocation_id),
+            id: payment_activity_id(
+                is_refund,
+                p.payment_id,
+                p.payment_allocation_id,
+                refund_event_id,
+            ),
             kind: if is_refund {
                 "refund".to_string()
             } else {
                 "payment".to_string()
             },
             occurred_at: p.created_at,
-            title: if is_refund {
+            title: if replacement_transaction_id.is_some() {
+                "Return / Exchange".to_string()
+            } else if is_refund {
                 "Return / Refund".to_string()
             } else {
                 "Payment Recorded".to_string()
@@ -2165,6 +2331,8 @@ async fn fetch_register_day_summary_page_on_connection(
             transaction_id: p.target_transaction_id,
             payment_id: Some(p.payment_id),
             payment_allocation_id: Some(p.payment_allocation_id),
+            refund_event_id,
+            replacement_transaction_id,
             wedding_party_id: None,
             amount_label: Some(format!("${}", money_label(p.amount))),
             payment_summary: Some(format!("{payment_label} ${payment_amount}")),
@@ -2172,14 +2340,17 @@ async fn fetch_register_day_summary_page_on_connection(
                 method: payment_label,
                 amount_label: payment_amount,
             }]),
-            sales_total: is_refund.then(|| money_label(p.amount)),
-            tax_total: is_refund.then(|| money_label(-p.refund_tax)),
+            sales_total,
+            tax_total,
             is_takeaway: None,
             channel: None,
             wedding_party_name: None,
-            items: p
-                .refund_items_json
-                .and_then(|value| serde_json::from_value::<Vec<ActivityItemDetail>>(value).ok()),
+            items: if is_refund {
+                p.refund_items_json
+                    .and_then(|value| serde_json::from_value::<Vec<ActivityItemDetail>>(value).ok())
+            } else {
+                None
+            },
             merchant_fees_total: p.merchant_fee.map(money_label),
             net_amount: p.net_amount.map(money_label),
             customer_id: p.customer_id,
@@ -2240,6 +2411,8 @@ async fn fetch_register_day_summary_page_on_connection(
                 transaction_id: Some(p.transaction_id),
                 payment_id: None,
                 payment_allocation_id: None,
+                refund_event_id: None,
+                replacement_transaction_id: None,
                 wedding_party_id: p.wedding_party_id,
                 amount_label: Some(format!("${}", money_label(p.sales_total_booked))),
                 payment_summary: None,
@@ -2320,11 +2493,13 @@ async fn fetch_register_day_summary_page_on_connection(
 #[cfg(test)]
 mod tests {
     use super::{
-        activity_search_pattern, compare_activity_desc, ensure_complete_eod_counts,
-        format_weather_value, payment_activity_id, reporting_tender_label,
-        validate_complete_row_bounds, RegisterActivityItem, REGISTER_REPORT_OUTPUT_MAX_ROWS,
+        activity_metadata_uuid, activity_search_pattern, compare_activity_desc,
+        ensure_complete_eod_counts, format_weather_value, payment_activity_id,
+        refund_activity_totals, reporting_tender_label, validate_complete_row_bounds,
+        RegisterActivityItem, REGISTER_REPORT_OUTPUT_MAX_ROWS,
     };
     use chrono::{TimeZone, Utc};
+    use rust_decimal::Decimal;
     use serde_json::json;
     use uuid::Uuid;
 
@@ -2362,9 +2537,88 @@ mod tests {
         let second_allocation = Uuid::parse_str("00000000-0000-0000-0000-000000000012").unwrap();
 
         assert_ne!(
-            payment_activity_id(false, payment_id, first_allocation),
-            payment_activity_id(false, payment_id, second_allocation)
+            payment_activity_id(false, payment_id, first_allocation, None),
+            payment_activity_id(false, payment_id, second_allocation, None)
         );
+    }
+
+    #[test]
+    fn refund_activity_identity_prefers_the_stable_event_id() {
+        let payment_id = Uuid::parse_str("00000000-0000-0000-0000-000000000010").unwrap();
+        let allocation_id = Uuid::parse_str("00000000-0000-0000-0000-000000000011").unwrap();
+        let refund_event_id = Uuid::parse_str("00000000-0000-0000-0000-000000000012").unwrap();
+
+        assert_eq!(
+            payment_activity_id(true, payment_id, allocation_id, Some(refund_event_id)),
+            format!("refund-event:{refund_event_id}")
+        );
+        assert_eq!(
+            payment_activity_id(true, payment_id, allocation_id, None),
+            format!("refund:{payment_id}:{allocation_id}")
+        );
+    }
+
+    #[test]
+    fn refund_activity_metadata_uses_only_valid_event_ids() {
+        let refund_event_id = Uuid::new_v4();
+        let replacement_transaction_id = Uuid::new_v4();
+        let metadata = json!({
+            "refund_event_id": format!("  {refund_event_id}  "),
+            "replacement_transaction_id": replacement_transaction_id,
+            "invalid_id": "not-a-uuid",
+        });
+
+        assert_eq!(
+            activity_metadata_uuid(Some(&metadata), "refund_event_id"),
+            Some(refund_event_id)
+        );
+        assert_eq!(
+            activity_metadata_uuid(Some(&metadata), "replacement_transaction_id"),
+            Some(replacement_transaction_id)
+        );
+        assert_eq!(activity_metadata_uuid(Some(&metadata), "invalid_id"), None);
+        assert_eq!(activity_metadata_uuid(None, "refund_event_id"), None);
+    }
+
+    #[test]
+    fn refund_activity_totals_net_replacement_against_current_return_event() {
+        let refund_event_id = Some(Uuid::new_v4());
+        let (sales_total, tax_total) = refund_activity_totals(
+            Decimal::new(-16455, 2),
+            refund_event_id,
+            Decimal::new(18000, 2),
+            Decimal::new(855, 2),
+            Decimal::new(2400, 2),
+            Decimal::ZERO,
+        );
+
+        assert_eq!(sales_total, Decimal::new(-16455, 2));
+        assert_eq!(tax_total, Decimal::new(-855, 2));
+    }
+
+    #[test]
+    fn refund_activity_totals_keep_pure_and_financial_only_refunds_correct() {
+        let (pure_sales_total, pure_tax_total) = refund_activity_totals(
+            Decimal::new(-10875, 2),
+            Some(Uuid::new_v4()),
+            Decimal::new(10000, 2),
+            Decimal::new(875, 2),
+            Decimal::ZERO,
+            Decimal::ZERO,
+        );
+        assert_eq!(pure_sales_total, Decimal::new(-10875, 2));
+        assert_eq!(pure_tax_total, Decimal::new(-875, 2));
+
+        let (financial_sales_total, financial_tax_total) = refund_activity_totals(
+            Decimal::new(-5000, 2),
+            Some(Uuid::new_v4()),
+            Decimal::ZERO,
+            Decimal::ZERO,
+            Decimal::ZERO,
+            Decimal::ZERO,
+        );
+        assert_eq!(financial_sales_total, Decimal::new(-5000, 2));
+        assert_eq!(financial_tax_total, Decimal::ZERO);
     }
 
     #[test]

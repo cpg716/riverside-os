@@ -157,4 +157,5 @@ pub const EMBEDDED_MIGRATIONS: &[(&str, &str)] = &[
     ("154_finalize_released_helcim_terminal_attempts.sql", include_str!("../../migrations/154_finalize_released_helcim_terminal_attempts.sql")),
     ("155_release_verified_helcim_reference_without_transaction.sql", include_str!("../../migrations/155_release_verified_helcim_reference_without_transaction.sql")),
     ("156_isolate_closed_session_pending_helcim_attempts.sql", include_str!("../../migrations/156_isolate_closed_session_pending_helcim_attempts.sql")),
+    ("157_link_deferred_exchange_refund_events.sql", include_str!("../../migrations/157_link_deferred_exchange_refund_events.sql")),
 ];

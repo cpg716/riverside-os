@@ -31,6 +31,23 @@ import { enqueueFailedPrint } from "../../lib/printRetryQueue";
 import { openPrintableHtml } from "../../lib/browserPrint";
 import type { OrderPaymentCartLine } from "./types";
 
+export type RefundProcessResult = {
+  status: string;
+  transaction_id: string;
+  payment_transaction_id: string;
+  refund_event_id: string;
+  refund_amount: string;
+  tender_amount: string;
+  payment_method: string;
+  payment_provider: string | null;
+  provider_status: string | null;
+  provider_refund_id: string | null;
+  original_provider_transaction_id: string | null;
+  card_brand: string | null;
+  card_last4: string | null;
+  message: string;
+};
+
 export interface ReceiptSummaryModalProps {
   transactionId: string | null;
   onClose: () => void;
@@ -44,6 +61,14 @@ export interface ReceiptSummaryModalProps {
   receiptTransactionLineIds?: string[];
   /** When set, append returned lines from this original transaction to an exchange receipt. */
   exchangeReturnTransactionId?: string | null;
+  /** Server-issued identifier that scopes receipt content to one return/refund event. */
+  refundEventId?: string | null;
+  /** Original transaction used only for event-scoped receipt generation and delivery. */
+  receiptEventTransactionId?: string | null;
+  /** Exact confirmation returned by the just-completed refund request. */
+  refundResult?: RefundProcessResult | null;
+  /** A linked-card refund is still outstanding; no final receipt may be issued. */
+  pendingRefundAmountCents?: number | null;
   /** Only the just-completed sale flow may auto-print. Historical receipt views stay manual. */
   autoPrintOnOpen?: boolean;
 }
@@ -141,6 +166,10 @@ export default function ReceiptSummaryModal({
   cashChangeDueCents = 0,
   receiptTransactionLineIds = EMPTY_RECEIPT_TRANSACTION_LINE_IDS,
   exchangeReturnTransactionId = null,
+  refundEventId = null,
+  receiptEventTransactionId = null,
+  refundResult = null,
+  pendingRefundAmountCents = null,
   autoPrintOnOpen = false,
 }: ReceiptSummaryModalProps) {
   const { toast } = useToast();
@@ -181,15 +210,25 @@ export default function ReceiptSummaryModal({
   /** Per line; only lines checked here are included on the next gift receipt. */
   const [giftLinePick, setGiftLinePick] = useState<Record<string, boolean>>({});
   const autoPrintAttemptedTransactionRef = useRef<string | null>(null);
+  const receiptDeliveryTransactionId =
+    receiptEventTransactionId?.trim() || transactionId;
 
   const buildReceiptQuery = useCallback(
-    (extra?: { gift?: boolean; transactionLineIds?: string[] }) => {
+    (
+      extra?: { gift?: boolean; transactionLineIds?: string[] },
+      includeRefundEvent = true,
+    ) => {
       const sp = new URLSearchParams();
       if (registerSessionId) {
         sp.set("register_session_id", registerSessionId);
       }
       if (extra?.gift) {
         sp.set("gift", "1");
+      }
+      if (includeRefundEvent && refundEventId) {
+        sp.set("refund_event_id", refundEventId);
+        const eventQuery = sp.toString();
+        return eventQuery ? `?${eventQuery}` : "";
       }
       const ids = extra?.transactionLineIds?.length
         ? extra.transactionLineIds
@@ -223,6 +262,7 @@ export default function ReceiptSummaryModal({
     },
     [
       registerSessionId,
+      refundEventId,
       transactionDetail?.status,
       transactionDetail?.items,
       receiptTransactionLineIds,
@@ -376,7 +416,7 @@ export default function ReceiptSummaryModal({
     if (!eligible) return;
     setReviewInviteSaving(true);
     try {
-      const q = buildReceiptQuery();
+      const q = buildReceiptQuery(undefined, false);
       const res = await fetch(`${baseUrl}/api/transactions/${transactionId}/review-invite${q}`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...getAuthHeaders() },
@@ -450,7 +490,7 @@ export default function ReceiptSummaryModal({
             : undefined,
         );
 
-        const res = await fetch(`${baseUrl}/api/transactions/${transactionId}/receipt.escpos${q}`, {
+        const res = await fetch(`${baseUrl}/api/transactions/${receiptDeliveryTransactionId}/receipt.escpos${q}`, {
           headers: getAuthHeaders(),
           cache: "no-store",
         });
@@ -500,6 +540,7 @@ export default function ReceiptSummaryModal({
     },
     [
       transactionId,
+      receiptDeliveryTransactionId,
       baseUrl,
       buildReceiptQuery,
       getAuthHeaders,
@@ -530,6 +571,7 @@ export default function ReceiptSummaryModal({
   useEffect(() => {
     if (
       autoPrintOnOpen &&
+      pendingRefundAmountCents == null &&
       transactionId &&
       transactionDetail &&
       autoPrintAttemptedTransactionRef.current !== transactionId &&
@@ -538,7 +580,13 @@ export default function ReceiptSummaryModal({
       autoPrintAttemptedTransactionRef.current = transactionId;
       void handlePrint();
     }
-  }, [autoPrintOnOpen, transactionId, transactionDetail, handlePrint]);
+  }, [
+    autoPrintOnOpen,
+    pendingRefundAmountCents,
+    transactionId,
+    transactionDetail,
+    handlePrint,
+  ]);
 
   const getGiftLineIds = (): string[] =>
     (transactionDetail?.items ?? [])
@@ -615,7 +663,7 @@ export default function ReceiptSummaryModal({
           baseBody.transaction_line_ids = picked;
         }
       }
-      const res = await fetch(`${baseUrl}/api/transactions/${transactionId}/receipt/send-email${q}`, {
+      const res = await fetch(`${baseUrl}/api/transactions/${receiptDeliveryTransactionId}/receipt/send-email${q}`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -668,7 +716,7 @@ export default function ReceiptSummaryModal({
       let pngBase64: string | undefined;
       if (transactionDetail?.receipt_studio_layout_available) {
         try {
-          const hres = await fetch(`${baseUrl}/api/transactions/${transactionId}/receipt.html${htmlQ}`, {
+          const hres = await fetch(`${baseUrl}/api/transactions/${receiptDeliveryTransactionId}/receipt.html${htmlQ}`, {
             headers: getAuthHeaders(),
             cache: "no-store",
           });
@@ -699,7 +747,7 @@ export default function ReceiptSummaryModal({
         }
       }
 
-      const res = await fetch(`${baseUrl}/api/transactions/${transactionId}/receipt/send-sms${postQ}`, {
+      const res = await fetch(`${baseUrl}/api/transactions/${receiptDeliveryTransactionId}/receipt/send-sms${postQ}`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -778,16 +826,18 @@ export default function ReceiptSummaryModal({
   );
   const pickupApplications = transactionDetail?.pickup_applications ?? [];
   const transactionTotalCents = parseMoneyToCents(transactionDetail?.total_price ?? "0");
+  const exchangeCheckout = Boolean(exchangeReturnTransactionId);
   const refundCheckout =
-    receiptTransactionLineIds.length > 0 &&
-    receiptTransactionLineIds.every((id) => {
-      const item = itemRows.find((row) => row.transaction_line_id === id);
-      return (
-        (item?.quantity_returned ?? 0) > 0 &&
-        parseMoneyToCents(item?.returned_total ?? "0") > 0
-      );
-    });
-  const exchangeCheckout = !refundCheckout && Boolean(exchangeReturnTransactionId);
+    !exchangeCheckout &&
+    (Boolean(refundEventId || refundResult) ||
+      (receiptTransactionLineIds.length > 0 &&
+        receiptTransactionLineIds.every((id) => {
+          const item = itemRows.find((row) => row.transaction_line_id === id);
+          return (
+            (item?.quantity_returned ?? 0) > 0 &&
+            parseMoneyToCents(item?.returned_total ?? "0") > 0
+          );
+        })));
   const pickupCheckout =
     !refundCheckout && !exchangeCheckout && receiptTransactionLineIds.length > 0;
   const paymentOnlyCheckout =
@@ -802,8 +852,11 @@ export default function ReceiptSummaryModal({
     !refundCheckout &&
     !paymentOnlyCheckout &&
     itemRows.some((item) => item.is_internal !== true);
+  const exactRefundAmountCents = refundResult
+    ? Math.abs(parseMoneyToCents(refundResult.refund_amount))
+    : null;
   const currentCheckoutAmountCents = refundCheckout
-    ? -Math.abs(parseMoneyToCents(transactionDetail?.refund_total ?? "0"))
+    ? -(exactRefundAmountCents ?? 0)
     : pickupCheckout || paymentOnlyCheckout
       ? orderPaymentTotalCents
       : parseMoneyToCents(transactionDetail?.amount_paid ?? "0");
@@ -825,9 +878,13 @@ export default function ReceiptSummaryModal({
                 ? "Sale and payment recorded"
                 : "Sale recorded";
   const completionTitle = refundCheckout
-    ? "Refund complete"
+    ? pendingRefundAmountCents != null
+      ? "Refund pending"
+      : "Refund complete"
     : exchangeCheckout
-      ? "Exchange complete"
+      ? pendingRefundAmountCents != null
+        ? "Refund pending"
+        : "Exchange complete"
       : pickupCheckout
         ? "Pickup complete"
         : paymentOnlyCheckout
@@ -854,11 +911,31 @@ export default function ReceiptSummaryModal({
         ? "Collected now"
         : "Sale total";
   const summaryTotal =
-    refundCheckout || pickupCheckout || paymentOnlyCheckout
-      ? centsToFixed2(currentCheckoutAmountCents)
+    refundCheckout
+      ? exactRefundAmountCents == null
+        ? "…"
+        : `-${centsToFixed2(exactRefundAmountCents)}`
+      : pickupCheckout || paymentOnlyCheckout
+        ? centsToFixed2(currentCheckoutAmountCents)
       : transactionDetail?.total_price ?? transactionDetail?.amount_paid ?? "…";
   const summaryPaid = transactionDetail?.amount_paid ?? "…";
   const summaryBalance = transactionDetail?.balance_due ?? "…";
+  const refundProviderLabel =
+    refundResult?.payment_provider?.trim() ||
+    refundResult?.payment_method.replaceAll("_", " ").trim() ||
+    "Refund tender";
+  const refundStatusLabel =
+    refundResult?.provider_status?.trim() || refundResult?.status.trim() || "Recorded";
+  const refundCardLabel = refundResult
+    ? [
+        refundResult.card_brand?.trim().toUpperCase(),
+        refundResult.card_last4?.trim()
+          ? `•••• ${refundResult.card_last4.trim()}`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(" ")
+    : "";
   const customerName = transactionDetail?.customer
     ? `${transactionDetail.customer.first_name} ${transactionDetail.customer.last_name}`.trim()
     : "Walk-in customer";
@@ -884,7 +961,7 @@ export default function ReceiptSummaryModal({
     if (!transactionId) throw new Error("Missing transaction.");
     const q = buildReceiptQuery(opts);
     const res = await fetch(
-      `${baseUrl}/api/transactions/${transactionId}/receipt.html${q}`,
+      `${baseUrl}/api/transactions/${receiptDeliveryTransactionId}/receipt.html${q}`,
       {
         headers: getAuthHeaders(),
         cache: "no-store",
@@ -900,7 +977,7 @@ export default function ReceiptSummaryModal({
     if (!transactionId) throw new Error("Missing transaction.");
     const q = buildReceiptQuery(opts);
     try {
-      const res = await fetch(`${baseUrl}/api/transactions/${transactionId}/receipt.escpos${q}`, {
+      const res = await fetch(`${baseUrl}/api/transactions/${receiptDeliveryTransactionId}/receipt.escpos${q}`, {
         headers: getAuthHeaders(),
         cache: "no-store",
       });
@@ -1011,8 +1088,16 @@ export default function ReceiptSummaryModal({
             data-testid="receipt-summary-modal"
           >
             <header className="relative flex shrink-0 items-center gap-3 border-b border-app-border px-3 py-3 pr-14 sm:px-5 sm:py-4 sm:pr-16">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--app-success)_18%,var(--app-surface-2))] text-[var(--app-success)] ring-1 ring-[color-mix(in_srgb,var(--app-success)_35%,var(--app-border))] sm:h-12 sm:w-12">
-                <CheckCircle2 className="h-6 w-6 sm:h-7 sm:w-7" strokeWidth={1.5} />
+              <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full ring-1 sm:h-12 sm:w-12 ${
+                pendingRefundAmountCents != null
+                  ? "bg-app-warning/15 text-app-warning ring-app-warning/35"
+                  : "bg-[color-mix(in_srgb,var(--app-success)_18%,var(--app-surface-2))] text-[var(--app-success)] ring-[color-mix(in_srgb,var(--app-success)_35%,var(--app-border))]"
+              }`}>
+                {pendingRefundAmountCents != null ? (
+                  <AlertTriangle className="h-6 w-6 sm:h-7 sm:w-7" strokeWidth={1.5} />
+                ) : (
+                  <CheckCircle2 className="h-6 w-6 sm:h-7 sm:w-7" strokeWidth={1.5} />
+                )}
               </div>
               <div className="min-w-0 text-left">
                 <h2
@@ -1040,7 +1125,11 @@ export default function ReceiptSummaryModal({
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
                 <button
                   type="button"
-                  disabled={printing || !transactionDetail}
+                  disabled={
+                    printing ||
+                    !transactionDetail ||
+                    pendingRefundAmountCents != null
+                  }
                   onClick={() => void handlePrint()}
                   className="col-span-2 inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border-b-4 border-emerald-800 bg-emerald-600 px-3 text-[10px] font-black uppercase tracking-widest text-white shadow-md transition-all hover:bg-emerald-500 active:scale-[0.99] disabled:opacity-60 touch-manipulation sm:col-span-1"
                 >
@@ -1049,7 +1138,7 @@ export default function ReceiptSummaryModal({
                 </button>
                 <button
                   type="button"
-                  disabled={!transactionDetail}
+                  disabled={!transactionDetail || pendingRefundAmountCents != null}
                   onClick={() => void openReceiptPreview()}
                   className={compactActionButton}
                 >
@@ -1058,7 +1147,12 @@ export default function ReceiptSummaryModal({
                 </button>
                 <button
                   type="button"
-                  disabled={sendingSms || !transactionDetail || !hasSmsTarget}
+                  disabled={
+                    sendingSms ||
+                    !transactionDetail ||
+                    !hasSmsTarget ||
+                    pendingRefundAmountCents != null
+                  }
                   onClick={() => void sendSmsReceipt("standard")}
                   className={compactActionButton}
                 >
@@ -1067,7 +1161,12 @@ export default function ReceiptSummaryModal({
                 </button>
                 <button
                   type="button"
-                  disabled={sendingEmail || !transactionDetail || !hasEmailTarget}
+                  disabled={
+                    sendingEmail ||
+                    !transactionDetail ||
+                    !hasEmailTarget ||
+                    pendingRefundAmountCents != null
+                  }
                   onClick={() => void sendEmailReceipt("standard")}
                   className={compactActionButton}
                 >
@@ -1088,6 +1187,78 @@ export default function ReceiptSummaryModal({
 
             <div className="grid min-h-0 flex-1 content-start gap-3 p-3 sm:grid-cols-[minmax(0,1.05fr)_minmax(18rem,0.95fr)] sm:p-4 lg:gap-4 lg:px-5">
               <div className="min-w-0 space-y-3">
+                {pendingRefundAmountCents != null ? (
+                  <section
+                    className="rounded-2xl border border-app-warning/40 bg-app-warning/10 px-3 py-3 sm:px-4"
+                    aria-label="Refund pending approval"
+                    data-testid="refund-pending-panel"
+                  >
+                    <div className="flex items-start gap-3">
+                      <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-app-warning" />
+                      <div>
+                        <p className="text-[9px] font-black uppercase tracking-widest text-app-warning">
+                          Original-card refund not approved
+                        </p>
+                        <p className="mt-1 text-xl font-black tabular-nums text-app-text">
+                          ${centsToFixed2(pendingRefundAmountCents)} pending
+                        </p>
+                        <p className="mt-1 text-[11px] font-semibold leading-relaxed text-app-text">
+                          The exchange and returned items are saved, but Helcim has
+                          not approved this refund. Finish it from the refund queue.
+                          Receipt printing and delivery stay unavailable until the
+                          provider refund is complete.
+                        </p>
+                      </div>
+                    </div>
+                  </section>
+                ) : null}
+
+                {refundResult ? (
+                  <section
+                    className="rounded-2xl border border-emerald-500/35 bg-emerald-500/10 px-3 py-3 sm:px-4"
+                    aria-label="Refund approval confirmation"
+                    data-testid="refund-approval-panel"
+                  >
+                    <div className="flex items-start gap-3">
+                      <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-700 dark:text-emerald-300" />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-emerald-800 dark:text-emerald-200">
+                          Refund approved
+                        </p>
+                        <div className="mt-1 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                          <p className="text-2xl font-black tabular-nums tracking-tighter text-app-text">
+                            ${centsToFixed2(exactRefundAmountCents ?? 0)}
+                          </p>
+                          <p className="text-[10px] font-black uppercase tracking-wider text-app-text">
+                            {refundProviderLabel} · {refundStatusLabel}
+                          </p>
+                        </div>
+                        <p className="mt-1 text-[11px] font-semibold leading-relaxed text-app-text">
+                          {refundResult.message}
+                        </p>
+                        {(refundCardLabel ||
+                          refundResult.provider_refund_id ||
+                          refundResult.original_provider_transaction_id) ? (
+                          <div className="mt-2 space-y-0.5 border-t border-emerald-500/20 pt-2 text-[9px] font-semibold text-app-text-muted">
+                            {refundCardLabel ? <p>Card: {refundCardLabel}</p> : null}
+                            {refundResult.provider_refund_id ? (
+                              <p className="break-all">
+                                Refund reference: {refundResult.provider_refund_id}
+                              </p>
+                            ) : null}
+                            {refundResult.original_provider_transaction_id ? (
+                              <p className="break-all">
+                                Original payment reference:{" "}
+                                {refundResult.original_provider_transaction_id}
+                              </p>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  </section>
+                ) : null}
+
                 <section className="rounded-2xl border border-app-border bg-app-surface-2 px-3 py-3 sm:px-4" aria-label="Transaction summary">
                   <div className="flex items-end justify-between gap-3">
                     <div>
@@ -1110,12 +1281,14 @@ export default function ReceiptSummaryModal({
                       </p>
                       <p className="line-clamp-2 text-[11px] font-black uppercase tracking-tight text-app-text sm:text-sm">
                         {refundCheckout
-                          ? (transactionDetail?.refund_payment_methods_summary ?? "…")
+                          ? refundResult
+                            ? `${refundProviderLabel}${refundCardLabel ? ` · ${refundCardLabel}` : ""}`
+                            : (transactionDetail?.refund_payment_methods_summary ?? "…")
                           : (transactionDetail?.payment_methods_summary ?? "…")}
                       </p>
                     </div>
                   </div>
-                  {!paymentOnlyCheckout ? (
+                  {!paymentOnlyCheckout && !refundCheckout ? (
                     <div className="mt-2.5 grid grid-cols-2 gap-3 border-t border-app-border/50 pt-2.5">
                       <div>
                         <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">

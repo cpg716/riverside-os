@@ -10,7 +10,7 @@ use crate::api::settings::ReceiptConfig;
 use crate::logic::receipt_privacy;
 use crate::logic::receipt_shared::{
     order_status_label, payment_summary_has_receipt_detail, receipt_display_ref,
-    tender_display_label, ReceiptOrder,
+    tender_display_label, ReceiptKind, ReceiptOrder,
 };
 
 fn html_escape(s: &str) -> String {
@@ -158,6 +158,13 @@ pub fn render_standard_receipt_html(
     let tz: Tz = cfg.timezone.parse().unwrap_or(chrono_tz::America::New_York);
     let local_time = order.booked_at.with_timezone(&tz);
     let order_ref = receipt_display_ref(order);
+    let document_title = if gift {
+        "Gift receipt"
+    } else if order.receipt_kind.is_standard_sale() {
+        "Receipt"
+    } else {
+        order.receipt_kind.title()
+    };
     let backdated_notice = crate::logic::receipt_shared::backdated_receipt_notice(order)
         .map(|notice| {
             format!(
@@ -211,7 +218,7 @@ pub fn render_standard_receipt_html(
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>Receipt {order_ref}</title>
+  <title>{title} {order_ref}</title>
   <style>
     :root {{ color-scheme: light; }}
     body {{ margin:0; background:#f4f4f5; color:#111827; font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }}
@@ -250,7 +257,7 @@ pub fn render_standard_receipt_html(
 </body>
 </html>"#,
         store = html_escape(&cfg.store_name),
-        title = if gift { "Gift receipt" } else { "Receipt" },
+        title = document_title,
         date = local_time.format("%m/%d/%Y %I:%M %p"),
         backdated_notice = backdated_notice,
         customer = customer,
@@ -269,6 +276,7 @@ pub fn merge_receipt_studio_html(
     gift: bool,
 ) -> String {
     let mut out = template.to_string();
+    let had_receipt_title_token = out.contains("{{ROS_RECEIPT_TITLE}}");
     let tz: Tz = cfg.timezone.parse().unwrap_or(chrono_tz::America::New_York);
     let local_time = order.booked_at.with_timezone(&tz);
     let order_ref = receipt_display_ref(order);
@@ -358,8 +366,28 @@ pub fn merge_receipt_studio_html(
         "{{ROS_CUSTOMER_CODE}}",
         &html_escape(customer_code),
     );
-    let title = if gift { "Gift receipt" } else { "" };
+    let title = if gift {
+        "Gift receipt"
+    } else if order.receipt_kind.is_standard_sale() {
+        ""
+    } else {
+        order.receipt_kind.title()
+    };
     replace_all(&mut out, "{{ROS_RECEIPT_TITLE}}", title);
+    if !gift && !order.receipt_kind.is_standard_sale() && !had_receipt_title_token {
+        let title_banner = format!(
+            "<div style=\"font-weight:900;text-align:center;margin:8px 0\">{}</div>",
+            html_escape(title)
+        );
+        if let Some(body_start) = out.to_ascii_lowercase().find("<body") {
+            if let Some(body_end_offset) = out[body_start..].find('>') {
+                let insert_at = body_start + body_end_offset + 1;
+                out.insert_str(insert_at, &title_banner);
+            }
+        } else {
+            out.insert_str(0, &title_banner);
+        }
+    }
     replace_all(&mut out, "{{ROS_BACKDATED_NOTICE}}", &backdated_notice);
     if !backdated_notice.is_empty() && !out.contains(&backdated_notice) {
         if let Some(body_start) = out.to_ascii_lowercase().find("<body") {
@@ -465,6 +493,7 @@ pub fn sample_receipt_order_for_preview() -> ReceiptOrder {
     ReceiptOrder {
         transaction_id: Uuid::nil(),
         transaction_display_id: "TXN-66736".to_string(),
+        receipt_kind: ReceiptKind::StandardSale,
         booked_at: Utc::now(),
         backdated_business_date: None,
         status: DbOrderStatus::Open,
@@ -524,5 +553,65 @@ pub fn sample_receipt_order_for_preview() -> ReceiptOrder {
         cashier_name: Some("Taylor M.".to_string()),
         salesperson_display_name: Some("Alex B.".to_string()),
         payments: Vec::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn standard_html_receipt_title_is_unchanged() {
+        let order = sample_receipt_order_for_preview();
+        let html = render_standard_receipt_html(&order, &ReceiptConfig::default(), false);
+
+        assert!(html.contains("<title>Receipt TXN-66736</title>"));
+        assert!(html.contains("<div class=\"title\">Receipt</div>"));
+        assert!(!html.contains("RETURN /"));
+    }
+
+    #[test]
+    fn return_document_titles_render_in_standard_and_studio_html() {
+        for (kind, expected) in [
+            (ReceiptKind::ReturnRefund, "RETURN / REFUND"),
+            (ReceiptKind::ReturnExchange, "RETURN / EXCHANGE"),
+        ] {
+            let mut order = sample_receipt_order_for_preview();
+            order.receipt_kind = kind;
+
+            let standard = render_standard_receipt_html(&order, &ReceiptConfig::default(), false);
+            assert!(standard.contains(&format!("<title>{expected} TXN-66736</title>")));
+            assert!(standard.contains(&format!("<div class=\"title\">{expected}</div>")));
+
+            let studio = merge_receipt_studio_html(
+                "<h1>{{ROS_RECEIPT_TITLE}}</h1>",
+                &order,
+                &ReceiptConfig::default(),
+                false,
+            );
+            assert_eq!(studio, format!("<h1>{expected}</h1>"));
+
+            let studio_without_token = merge_receipt_studio_html(
+                "<section>Receipt body</section>",
+                &order,
+                &ReceiptConfig::default(),
+                false,
+            );
+            assert!(studio_without_token.contains(expected));
+            assert!(studio_without_token.ends_with("<section>Receipt body</section>"));
+        }
+    }
+
+    #[test]
+    fn standard_studio_title_token_remains_empty() {
+        let order = sample_receipt_order_for_preview();
+        let studio = merge_receipt_studio_html(
+            "<h1>{{ROS_RECEIPT_TITLE}}</h1>",
+            &order,
+            &ReceiptConfig::default(),
+            false,
+        );
+
+        assert_eq!(studio, "<h1></h1>");
     }
 }

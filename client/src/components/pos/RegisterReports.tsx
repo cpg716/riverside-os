@@ -108,6 +108,8 @@ interface RegisterActivityItem {
   title: string;
   subtitle?: string | null;
   transaction_id?: string | null;
+  refund_event_id?: string | null;
+  replacement_transaction_id?: string | null;
   payment_id?: string | null;
   payment_allocation_id?: string | null;
   order_id?: string | null;
@@ -544,6 +546,13 @@ function activityTransactionId(row: RegisterActivityItem): string | null {
   );
 }
 
+function activityDetailTransactionId(row: RegisterActivityItem): string | null {
+  return (
+    normalizeActivityId(row.replacement_transaction_id) ??
+    activityTransactionId(row)
+  );
+}
+
 function activitySubtotalBeforeTaxCents(
   row: Pick<
     RegisterActivityItem,
@@ -959,6 +968,10 @@ export default function RegisterReports({
   const [zLoading, setZLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [receiptOrderId, setReceiptOrderId] = useState<string | null>(null);
+  const [receiptRefundEventId, setReceiptRefundEventId] =
+    useState<string | null>(null);
+  const [receiptEventTransactionId, setReceiptEventTransactionId] =
+    useState<string | null>(null);
   const [detailOrderId, setDetailOrderId] = useState<string | null>(null);
   const [hubProductId, setHubProductId] = useState<string | null>(null);
   const [zPreset, setZPreset] = useState<ZPresetId>("recent");
@@ -1449,6 +1462,8 @@ export default function RegisterReports({
 
   useEffect(() => {
     if (deepLinkTransactionId) {
+      setReceiptRefundEventId(null);
+      setReceiptEventTransactionId(null);
       setReceiptOrderId(deepLinkTransactionId);
       onDeepLinkConsumed?.();
     }
@@ -1941,10 +1956,23 @@ export default function RegisterReports({
       )}
       <ReceiptSummaryModal
         transactionId={receiptOrderId}
-        onClose={() => setReceiptOrderId(null)}
+        onClose={() => {
+          setReceiptOrderId(null);
+          setReceiptRefundEventId(null);
+          setReceiptEventTransactionId(null);
+        }}
         baseUrl={baseUrl}
         registerSessionId={sessionId}
         getAuthHeaders={apiAuth}
+        refundEventId={receiptRefundEventId}
+        receiptEventTransactionId={receiptEventTransactionId}
+        exchangeReturnTransactionId={
+          receiptRefundEventId &&
+          receiptEventTransactionId &&
+          receiptOrderId !== receiptEventTransactionId
+            ? receiptEventTransactionId
+            : null
+        }
       />
       <PosVoidTransactionModal
         open={!!voidTarget}
@@ -2725,11 +2753,18 @@ export default function RegisterReports({
                                   type="button"
                                   onClick={() => {
                                     const transactionId =
-                                      activityTransactionId(row);
-                                    if (transactionId)
+                                      activityDetailTransactionId(row);
+                                    if (transactionId) {
+                                      setReceiptRefundEventId(
+                                        normalizeActivityId(row.refund_event_id),
+                                      );
+                                      setReceiptEventTransactionId(
+                                        normalizeActivityId(row.transaction_id),
+                                      );
                                       setReceiptOrderId(transactionId);
+                                    }
                                   }}
-                                  disabled={!activityTransactionId(row)}
+                                  disabled={!activityDetailTransactionId(row)}
                                   className="ui-btn-secondary flex min-h-11 w-full items-center justify-center gap-2 py-2 text-sm font-bold shadow-sm transition-all hover:bg-app-accent hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
                                 >
                                   <Receipt size={14} />
@@ -2739,11 +2774,11 @@ export default function RegisterReports({
                                   type="button"
                                   onClick={() => {
                                     const transactionId =
-                                      activityTransactionId(row);
+                                      activityDetailTransactionId(row);
                                     if (transactionId)
                                       setDetailOrderId(transactionId);
                                   }}
-                                  disabled={!activityTransactionId(row)}
+                                  disabled={!activityDetailTransactionId(row)}
                                   className="ui-btn-secondary flex min-h-11 w-full items-center justify-center gap-2 py-2 text-sm font-bold shadow-sm transition-all hover:bg-app-accent hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
                                 >
                                   <Search size={14} /> Detail

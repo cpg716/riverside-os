@@ -33,7 +33,9 @@ import RegisterGiftCardLoadModal from "./RegisterGiftCardLoadModal";
 import RegisterRmsPaymentModal from "./RegisterRmsPaymentModal";
 import RegisterStaffAccountPaymentModal from "./RegisterStaffAccountPaymentModal";
 import PosCustomerMeasurementsDrawer from "./PosCustomerMeasurementsDrawer";
-import ReceiptSummaryModal from "./ReceiptSummaryModal";
+import ReceiptSummaryModal, {
+  type RefundProcessResult,
+} from "./ReceiptSummaryModal";
 import VariantSelectionModal, { type ProductWithVariants } from "./VariantSelectionModal";
 import { useToast } from "../ui/ToastProviderLogic";
 import ConfirmationModal from "../ui/ConfirmationModal";
@@ -121,6 +123,89 @@ const ORDER_HISTORY_ICON = getAppIcon("orderHistory");
 const ALTERATION_SERVICE_PRODUCT_ID = "b7c0a006-0006-4006-8006-000000000006";
 const ALTERATION_SERVICE_VARIANT_ID = "b7c0a007-0007-4007-8007-000000000007";
 const ALTERATION_SERVICE_SKU = "ROS-ALTERATION-SERVICE";
+
+function parseRefundProcessResult(value: unknown): RefundProcessResult | null {
+  if (!value || typeof value !== "object") return null;
+  const payload = value as Record<string, unknown>;
+  const requiredStrings = [
+    "status",
+    "transaction_id",
+    "payment_transaction_id",
+    "refund_event_id",
+    "payment_method",
+    "message",
+  ] as const;
+  if (
+    requiredStrings.some(
+      (key) => typeof payload[key] !== "string" || !payload[key].trim(),
+    )
+  ) {
+    return null;
+  }
+  if (payload.status !== "ok") return null;
+  const nullableStrings = [
+    "payment_provider",
+    "provider_status",
+    "provider_refund_id",
+    "original_provider_transaction_id",
+    "card_brand",
+    "card_last4",
+  ] as const;
+  if (
+    nullableStrings.some(
+      (key) => payload[key] != null && typeof payload[key] !== "string",
+    )
+  ) {
+    return null;
+  }
+  const refundAmount =
+    typeof payload.refund_amount === "number"
+      ? String(payload.refund_amount)
+      : payload.refund_amount;
+  const tenderAmount =
+    typeof payload.tender_amount === "number"
+      ? String(payload.tender_amount)
+      : payload.tender_amount;
+  if (
+    typeof refundAmount !== "string" ||
+    !refundAmount.trim() ||
+    typeof tenderAmount !== "string" ||
+    !tenderAmount.trim() ||
+    !Number.isFinite(Number(refundAmount)) ||
+    Number(refundAmount) < 0 ||
+    !Number.isFinite(Number(tenderAmount)) ||
+    Number(tenderAmount) < 0
+  ) {
+    return null;
+  }
+  return {
+    status: payload.status as string,
+    transaction_id: payload.transaction_id as string,
+    payment_transaction_id: payload.payment_transaction_id as string,
+    refund_event_id: payload.refund_event_id as string,
+    refund_amount: refundAmount,
+    tender_amount: tenderAmount,
+    payment_method: payload.payment_method as string,
+    payment_provider: (payload.payment_provider as string | null) ?? null,
+    provider_status: (payload.provider_status as string | null) ?? null,
+    provider_refund_id: (payload.provider_refund_id as string | null) ?? null,
+    original_provider_transaction_id:
+      (payload.original_provider_transaction_id as string | null) ?? null,
+    card_brand: (payload.card_brand as string | null) ?? null,
+    card_last4: (payload.card_last4 as string | null) ?? null,
+    message: payload.message as string,
+  };
+}
+
+function parseRefundEventId(value: unknown): string | null {
+  if (!value || typeof value !== "object") return null;
+  const payload = value as Record<string, unknown>;
+  return payload.status === "ok" &&
+    typeof payload.refund_event_id === "string" &&
+    payload.refund_event_id.trim()
+    ? payload.refund_event_id.trim()
+    : null;
+}
 
 function allocateCentsByWeight(
   components: Array<{ key: "subtotal" | "stateTax" | "localTax"; cents: number }>,
@@ -481,6 +566,13 @@ export default function Cart({
   const [lastTransactionId, setLastTransactionId] = useState<string | null>(null);
   const [lastReceiptExchangeReturnTransactionId, setLastReceiptExchangeReturnTransactionId] =
     useState<string | null>(null);
+  const [lastRefundEventId, setLastRefundEventId] = useState<string | null>(null);
+  const [lastRefundResult, setLastRefundResult] =
+    useState<RefundProcessResult | null>(null);
+  const [lastReceiptEventTransactionId, setLastReceiptEventTransactionId] =
+    useState<string | null>(null);
+  const [lastPendingRefundAmountCents, setLastPendingRefundAmountCents] =
+    useState<number | null>(null);
   const [pickupTransactionId, setPickupTransactionId] = useState<string | null>(null);
   const [pickupTransactions, setPickupTransactions] = useState<PickupTransactionSelection[]>([]);
   const [pickupPaidAmountCents, setPickupPaidAmountCents] = useState<number>(0);
@@ -4360,12 +4452,41 @@ export default function Cart({
                     }),
                   },
                 );
+                const settlementPayload = (await settlementRes
+                  .json()
+                  .catch(() => ({}))) as unknown;
                 if (!settlementRes.ok) {
-                  const payload = (await settlementRes.json().catch(() => ({}))) as { error?: string };
+                  const payload = settlementPayload as { error?: string };
                   toast(payload.error ?? "Exchange settlement failed after recording the replacement sale.", "error");
                   return;
                 }
+                const exchangeRefundEventId =
+                  parseRefundEventId(settlementPayload);
+                if (!exchangeRefundEventId) {
+                  setLastReceiptOrderPaymentLines([]);
+                  setLastReceiptExchangeReturnTransactionId(
+                    pendingReturnTender.originalTransactionId,
+                  );
+                  setLastRefundEventId(null);
+                  setLastRefundResult(null);
+                  setLastReceiptEventTransactionId(
+                    pendingReturnTender.originalTransactionId,
+                  );
+                  setLastPendingRefundAmountCents(
+                    linkedCardRemainder ? refundRemainderCents : null,
+                  );
+                  setLastReceiptTransactionLineIds([]);
+                  setCheckoutTransactionId(replacementTransactionId);
+                  clearSaleForNextCheckout();
+                  toast(
+                    "The exchange was recorded, but its refund confirmation could not be loaded. Review the Transaction Record before taking any further refund action.",
+                    "error",
+                  );
+                  return;
+                }
                 let cardRefundPending = false;
+                let cardRefundConfirmationNeedsReview = false;
+                let refundResult: RefundProcessResult | null = null;
                 if (refundTender && linkedCardRemainder && refundRemainderCents > 0) {
                   const cardRefundRes = await fetch(
                     `${baseUrl}/api/transactions/${encodeURIComponent(pendingReturnTender.originalTransactionId)}/refunds/process`,
@@ -4377,6 +4498,7 @@ export default function Cart({
                       },
                       body: JSON.stringify({
                         session_id: sessionId,
+                        refund_event_id: exchangeRefundEventId,
                         payment_method: refundTender.method,
                         amount: centsToFixed2(refundRemainderCents),
                         check_number: refundTender.metadata?.check_number,
@@ -4390,21 +4512,42 @@ export default function Cart({
                       }),
                     },
                   );
+                  const cardRefundPayload = (await cardRefundRes
+                    .json()
+                    .catch(() => ({}))) as unknown;
                   if (!cardRefundRes.ok) {
-                    const payload = (await cardRefundRes.json().catch(() => ({}))) as { error?: string };
+                    const payload = cardRefundPayload as { error?: string };
                     cardRefundPending = true;
                     toast(
                       `${payload.error ?? "The original-card refund needs attention."} The exchange and inventory return were saved; retry the remaining refund from the refund queue.`,
                       "error",
                     );
+                  } else {
+                    refundResult = parseRefundProcessResult(cardRefundPayload);
+                    cardRefundConfirmationNeedsReview = !refundResult;
                   }
                 }
                 setLastReceiptOrderPaymentLines([]);
                 setLastReceiptExchangeReturnTransactionId(pendingReturnTender.originalTransactionId);
+                setLastRefundEventId(exchangeRefundEventId);
+                setLastRefundResult(refundResult);
+                setLastReceiptEventTransactionId(
+                  pendingReturnTender.originalTransactionId,
+                );
+                setLastPendingRefundAmountCents(
+                  cardRefundPending ? refundRemainderCents : null,
+                );
                 setLastReceiptTransactionLineIds([]);
                 setCheckoutTransactionId(replacementTransactionId);
                 clearSaleForNextCheckout();
-                if (!cardRefundPending) {
+                if (refundResult) {
+                  toast(refundResult.message, "success");
+                } else if (cardRefundConfirmationNeedsReview) {
+                  toast(
+                    "The refund was recorded, but its provider confirmation could not be loaded. Review the Transaction Record before taking any further refund action.",
+                    "error",
+                  );
+                } else if (!cardRefundPending) {
                   toast(`Exchange settled for ${pendingReturnTender.receiptLabel}.`, "success");
                 }
               } catch {
@@ -4490,14 +4633,34 @@ export default function Cart({
                 toast(payload.error ?? "Refund failed. Check tender and try again.", "error");
                 return;
               }
+              const refundPayload = (await refundRes
+                .json()
+                .catch(() => null)) as unknown;
+              const refundResult = parseRefundProcessResult(refundPayload);
               setLastReceiptOrderPaymentLines([]);
               setLastReceiptExchangeReturnTransactionId(null);
+              setLastRefundEventId(
+                refundResult?.refund_event_id ??
+                  parseRefundEventId(refundPayload),
+              );
+              setLastRefundResult(refundResult);
+              setLastReceiptEventTransactionId(
+                pendingReturnTender.originalTransactionId,
+              );
+              setLastPendingRefundAmountCents(null);
               setLastReceiptTransactionLineIds(
                 pendingReturnTender.returnLines.map((line) => line.transaction_line_id),
               );
               setCheckoutTransactionId(pendingReturnTender.originalTransactionId);
               clearSaleForNextCheckout();
-              toast(`Refund completed for ${pendingReturnTender.receiptLabel}.`, "success");
+              if (refundResult) {
+                toast(refundResult.message, "success");
+              } else {
+                toast(
+                  "The refund was recorded, but its provider confirmation could not be loaded. Review the Transaction Record before taking any further refund action.",
+                  "error",
+                );
+              }
             } catch {
               toast("Refund failed. Check the API connection and try again.", "error");
             }
@@ -5485,6 +5648,10 @@ export default function Cart({
             setCheckoutOperator(null);
             setLastReceiptOrderPaymentLines([]);
             setLastReceiptExchangeReturnTransactionId(null);
+            setLastRefundEventId(null);
+            setLastRefundResult(null);
+            setLastReceiptEventTransactionId(null);
+            setLastPendingRefundAmountCents(null);
             setSelectedCustomer(null);
             onSaleCompleted?.();
           }}
@@ -5495,6 +5662,10 @@ export default function Cart({
           cashChangeDueCents={lastCashChangeDueCents}
           receiptTransactionLineIds={lastReceiptTransactionLineIds}
           exchangeReturnTransactionId={lastReceiptExchangeReturnTransactionId}
+          refundEventId={lastRefundEventId}
+          refundResult={lastRefundResult}
+          receiptEventTransactionId={lastReceiptEventTransactionId}
+          pendingRefundAmountCents={lastPendingRefundAmountCents}
           autoPrintOnOpen
         />
       )}

@@ -66,7 +66,11 @@ pub fn format_pos_receipt_text_message(order: &ReceiptOrder, cfg: &ReceiptConfig
 
     let mut lines: Vec<String> = Vec::new();
     lines.push(cfg.store_name.trim().to_string());
-    lines.push(format!("Receipt {order_ref}"));
+    lines.push(if order.receipt_kind.is_standard_sale() {
+        format!("Receipt {order_ref}")
+    } else {
+        format!("{} {order_ref}", order.receipt_kind.title())
+    });
     lines.push(local_time.format("%m/%d/%Y %I:%M %p").to_string());
     if let Some(notice) = backdated_receipt_notice(order) {
         lines.push(notice);
@@ -167,4 +171,34 @@ pub fn clamp_sms_text(s: &str, max_chars: usize) -> String {
     }
     let take = max_chars.saturating_sub(1);
     format!("{}…", t.chars().take(take).collect::<String>())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::logic::receipt_shared::ReceiptKind;
+    use crate::logic::receipt_studio_html::sample_receipt_order_for_preview;
+
+    #[test]
+    fn standard_sms_receipt_heading_is_unchanged() {
+        let order = sample_receipt_order_for_preview();
+        let text = format_pos_receipt_text_message(&order, &ReceiptConfig::default());
+
+        assert!(text.lines().any(|line| line == "Receipt TXN-66736"));
+        assert!(!text.contains("RETURN /"));
+    }
+
+    #[test]
+    fn return_document_titles_render_in_sms_text() {
+        for (kind, expected) in [
+            (ReceiptKind::ReturnRefund, "RETURN / REFUND TXN-66736"),
+            (ReceiptKind::ReturnExchange, "RETURN / EXCHANGE TXN-66736"),
+        ] {
+            let mut order = sample_receipt_order_for_preview();
+            order.receipt_kind = kind;
+
+            let text = format_pos_receipt_text_message(&order, &ReceiptConfig::default());
+            assert!(text.lines().any(|line| line == expected));
+        }
+    }
 }

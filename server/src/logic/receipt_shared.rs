@@ -61,6 +61,28 @@ pub enum ReceiptLineAdjustment {
     Exchanged,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ReceiptKind {
+    #[default]
+    StandardSale,
+    ReturnRefund,
+    ReturnExchange,
+}
+
+impl ReceiptKind {
+    pub const fn title(self) -> &'static str {
+        match self {
+            Self::StandardSale => "RECEIPT",
+            Self::ReturnRefund => "RETURN / REFUND",
+            Self::ReturnExchange => "RETURN / EXCHANGE",
+        }
+    }
+
+    pub const fn is_standard_sale(self) -> bool {
+        matches!(self, Self::StandardSale)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ReceiptLine {
     pub product_name: String,
@@ -104,6 +126,7 @@ pub struct ReceiptPayment {
 pub struct ReceiptOrder {
     pub transaction_id: Uuid,
     pub transaction_display_id: String,
+    pub receipt_kind: ReceiptKind,
     pub booked_at: DateTime<Utc>,
     /// Business date selected for a manager-approved backdated sale.
     pub backdated_business_date: Option<NaiveDate>,
@@ -184,7 +207,17 @@ pub fn payment_summary_has_receipt_detail(summary: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::tender_display_label;
+    use super::{tender_display_label, ReceiptKind};
+
+    #[test]
+    fn receipt_kind_titles_are_explicit_and_stable() {
+        assert_eq!(ReceiptKind::StandardSale.title(), "RECEIPT");
+        assert_eq!(ReceiptKind::ReturnRefund.title(), "RETURN / REFUND");
+        assert_eq!(ReceiptKind::ReturnExchange.title(), "RETURN / EXCHANGE");
+        assert!(ReceiptKind::StandardSale.is_standard_sale());
+        assert!(!ReceiptKind::ReturnRefund.is_standard_sale());
+        assert!(!ReceiptKind::ReturnExchange.is_standard_sale());
+    }
 
     #[test]
     fn card_tender_variants_use_customer_facing_label() {

@@ -231,6 +231,10 @@ fn push_header(out: &mut Vec<u8>, d: &ReceiptOrder, cfg: &ReceiptConfig, gift: b
         set_bold(out, true);
         push_line(out, "GIFT RECEIPT");
         set_bold(out, false);
+    } else if !d.receipt_kind.is_standard_sale() {
+        set_bold(out, true);
+        push_line(out, d.receipt_kind.title());
+        set_bold(out, false);
     }
     push_line(out, &format!("Receipt {order_ref}"));
     push_line(out, &local_time.format("%m/%d/%Y %I:%M %p").to_string());
@@ -781,13 +785,18 @@ pub fn build_receiptline_markdown(
             _ => default_receiptline_template(),
         }
     };
-    let template = receipt_template_with_slots(template, cfg.show_logo, cfg.show_barcode);
+    let mut template = receipt_template_with_slots(template, cfg.show_logo, cfg.show_barcode);
+    if !gift && !d.receipt_kind.is_standard_sale() && !template.contains("{{RECEIPT_TITLE}}") {
+        template = if template.contains("{{RECEIPT_ID}}") {
+            template.replacen("{{RECEIPT_ID}}", "{{RECEIPT_TITLE}}\n{{RECEIPT_ID}}", 1)
+        } else {
+            format!("{{{{RECEIPT_TITLE}}}}\n{template}")
+        };
+    }
     let title = if gift {
-        "| ^^^GIFT RECEIPT |"
-    } else if is_pickup {
-        "| ^^^RECEIPT |"
+        "| ^^^GIFT RECEIPT |".to_string()
     } else {
-        "| ^^^RECEIPT |"
+        format!("| ^^^{} |", receiptline_escape(d.receipt_kind.title()))
     };
     let customer_line = d
         .customer
@@ -914,7 +923,7 @@ pub fn build_receiptline_markdown(
         .replace("{{LOGO_IMAGE}}", &logo_image)
         .replace("{{STORE_NAME}}", &store_name)
         .replace("{{HEADER_LINES}}", &header_lines)
-        .replace("{{RECEIPT_TITLE}}", title)
+        .replace("{{RECEIPT_TITLE}}", &title)
         .replace("{{RECEIPT_ID}}", &receipt_id)
         .replace("{{RECEIPT_DATE}}", &receipt_date)
         .replace("{{CUSTOMER_LINE}}", &customer_line)
@@ -975,7 +984,7 @@ pub fn build_receipt_escpos(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::logic::receipt_shared::{ReceiptLine, ReceiptOrder, ReceiptPayment};
+    use crate::logic::receipt_shared::{ReceiptKind, ReceiptLine, ReceiptOrder, ReceiptPayment};
     use crate::models::DbOrderStatus;
     use chrono::Utc;
     use uuid::Uuid;
@@ -984,6 +993,7 @@ mod tests {
         ReceiptOrder {
             transaction_id: Uuid::nil(),
             transaction_display_id: "TXN-TEST".to_string(),
+            receipt_kind: ReceiptKind::StandardSale,
             booked_at: Utc::now(),
             backdated_business_date: None,
             status: DbOrderStatus::Fulfilled,
@@ -1153,6 +1163,57 @@ mod tests {
         assert!(markdown.contains("| Return Policy: We will accept returns of |"));
         assert!(markdown.contains("| any merchandise in its unworn, unaltered, |"));
         assert!(!markdown.contains("will a\nccept"));
+    }
+
+    #[test]
+    fn return_document_titles_render_in_thermal_and_receiptline_formats() {
+        for (kind, expected) in [
+            (ReceiptKind::ReturnRefund, "RETURN / REFUND"),
+            (ReceiptKind::ReturnExchange, "RETURN / EXCHANGE"),
+        ] {
+            let mut order = receipt_order_with(Vec::new());
+            order.receipt_kind = kind;
+
+            let escpos = build_receipt_escpos(&order, &ReceiptConfig::default(), HashMap::new());
+            assert!(
+                escpos
+                    .windows(expected.len())
+                    .any(|window| window == expected.as_bytes()),
+                "raw ESC/POS should contain {expected}"
+            );
+
+            let markdown = build_receiptline_markdown(
+                &order,
+                &ReceiptConfig::default(),
+                &HashMap::new(),
+                &LoyaltyReceiptData::default(),
+            );
+            assert!(markdown.contains(&format!("^^^{expected}")));
+
+            let mut custom_cfg = ReceiptConfig::default();
+            custom_cfg.receiptline_template = Some("{{RECEIPT_ID}}".to_string());
+            let custom_markdown = build_receiptline_markdown(
+                &order,
+                &custom_cfg,
+                &HashMap::new(),
+                &LoyaltyReceiptData::default(),
+            );
+            assert!(custom_markdown.contains(&format!("^^^{expected}")));
+        }
+    }
+
+    #[test]
+    fn standard_sale_document_title_remains_receipt() {
+        let order = receipt_order_with(Vec::new());
+        let markdown = build_receiptline_markdown(
+            &order,
+            &ReceiptConfig::default(),
+            &HashMap::new(),
+            &LoyaltyReceiptData::default(),
+        );
+
+        assert!(markdown.contains("^^^RECEIPT"));
+        assert!(!markdown.contains("RETURN /"));
     }
 }
 

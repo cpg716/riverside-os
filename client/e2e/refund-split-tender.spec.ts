@@ -878,10 +878,11 @@ test.describe("refund split-tender capacity contract", () => {
       transactionId: checkout.transaction_id,
       sessionId,
       amount: checkout.grossStr,
-      paymentMethod: "card",
+      paymentMethod: "card_terminal_manual",
       managerStaffId: operatorStaffId,
       managerPin: "0000", // Assuming 0000 is wrong
       managerReason: "migration fix",
+      externalRefundReference: `E2E-INVALID-MANAGER-REF-${Date.now()}`,
     });
     expect(r2.status).toBe(400);
     expect((r2.body as any).error).toContain("Manager Access was not approved");

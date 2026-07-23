@@ -47,7 +47,11 @@ Archived Z-report output loads audited detail in timed, cancellable pages. Start
 
 ## Daily Sales Activity
 
-The **Daily Sales** view shows a chronological timeline of every transaction. Each sale row shows its `TXN-` transaction number so the screen, printout, receipt, and payment records can be reconciled against the same reference. Counterpoint-imported rows keep the Counterpoint transaction time as the activity time and show **Imported at** only as secondary import context. Tap an entry to view the full receipt or reprint it. Merchandise **Subtotal** and **Net Sales** exclude shipping, alteration-service charges, and gift-card loads. Daily Sales reports show shipping and alterations as separate totals, and gift-card loads as separate count/amount activity. Gift-card loads are recorded as liability activity until redeemed; redemption is recorded as a tender and does not turn the original load into merchandise revenue. Use this for:
+The **Daily Sales** view shows a chronological timeline of every transaction. Each sale row shows its `TXN-` transaction number so the screen, printout, receipt, and payment records can be reconciled against the same reference. Counterpoint-imported rows keep the Counterpoint transaction time as the activity time and show **Imported at** only as secondary import context. Tap an entry to view the full receipt or reprint it. Merchandise **Subtotal** and **Net Sales** exclude shipping, alteration-service charges, and gift-card loads. Daily Sales reports show shipping and alterations as separate totals, and gift-card loads as separate count/amount activity. Gift-card loads are recorded as liability activity until redeemed; redemption is recorded as a tender and does not turn the original load into merchandise revenue.
+
+A completed return or exchange that produces a customer refund appears once as one **Return / Exchange** event, not as separate refund and zero-detail payment entries. Its detail and reprint are scoped to that event: today's returned items appear as negative lines, today's new merchandise or services appear as positive lines, and retained original items and historical tenders are omitted. Mixed exchanges show the exact net **Refund to customer** or **Amount due** on the event receipt. When **Original Card** is used, the event remains pending until the provider responds; successful completion identifies Helcim, the approved amount, and the masked card.
+
+Use this for:
 
 - Verifying the status of recent sales.
 - Correcting tender types by reviewing the audit log.
@@ -84,7 +88,7 @@ You can now generate a professional, full-page **Daily Sales Report** that inclu
 - **Transaction Audit**: A complete list of all matching `TXN-` transaction numbers, payment-only activity, and amounts. Payment rows without merchandise lines remain present in CSV exports.
 - **Truthful filter scope**: When search is active, the printed **Period Summary** is fetched separately and labeled as all activity in the selected period. The transaction and pickup sections state the exact filter, and detail-derived boxes are labeled **Filtered** so they cannot be mistaken for full-period totals.
 - **Cents-safe CSV totals**: Export totals are summed as integer cents, including rows whose displayed amount contains a dollar sign or thousands separator.
-- **Activity Cards**: Printed activity mirrors the on-screen grouped list with customer context, fulfillment chips, line items, payment/pickup context, and amount details.
+- **Activity Cards**: Printed activity mirrors the on-screen grouped list with customer context, fulfillment chips, line items, payment/pickup context, and amount details. Return/exchange cards print once with their event-scoped lines and exact net result.
 - **Reporting Station**: The report header identifies the assigned printer for accountability.
 
 To review the report first, tap **View**. In the desktop app, the preview opens inside ROS instead of a browser tab. To print, tap **Print** from the report screen or from the in-app preview. Daily Sales prints through the configured Reports printer so the activity cards, customer context, pickup rows, line items, and totals stay on office paper instead of the receipt printer.

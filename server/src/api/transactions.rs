@@ -72,6 +72,7 @@ pub(crate) async fn rosie_order_summary(
         Query(TransactionReadQuery {
             register_session_id,
             exchange_return_transaction_id: None,
+            refund_event_id: None,
         }),
         headers.clone(),
     )
@@ -726,6 +727,7 @@ impl TransactionDetailResponse {
         };
 
         Ok(receipt_shared::ReceiptOrder {
+            receipt_kind: receipt_shared::ReceiptKind::StandardSale,
             transaction_id: self.transaction_id,
             transaction_display_id: self.transaction_display_id.clone(),
             booked_at: self.booked_at,
@@ -1411,6 +1413,24 @@ mod tests {
     }
 
     #[test]
+    fn refund_confirmation_names_exact_helcim_approval_destination() {
+        assert_eq!(
+            refund_confirmation_message(
+                Decimal::new(16455, 2),
+                "card_credit",
+                Some("helcim"),
+                Some("Visa"),
+                Some("0615"),
+            ),
+            "Helcim approved a $164.55 refund to Visa •••• 0615."
+        );
+        assert_eq!(
+            refund_confirmation_message(Decimal::new(2400, 2), "cash", None, None, None,),
+            "Refund of $24.00 recorded via Cash."
+        );
+    }
+
+    #[test]
     fn card_refund_idempotency_key_is_stable_until_ledger_records_refund() {
         let refund_queue_id = Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap();
 
@@ -1591,6 +1611,7 @@ mod tests {
                 "status": "APPROVED",
                 "amount": "100.00",
                 "currency": "USD",
+                "transactionType": "refund",
                 "cardType": "VISA",
                 "approvalCode": "SIMOK",
                 "cardNumber": "4242424242424242"
@@ -1698,11 +1719,13 @@ mod tests {
             INSERT INTO payment_transactions (
                 id, session_id, category, payment_method, amount, status, metadata,
                 merchant_fee, net_amount, payment_provider, provider_payment_id,
-                provider_status, provider_transaction_id, effective_date
+                provider_status, provider_transaction_id, provider_card_type,
+                card_brand, card_last4, effective_date
             )
             VALUES (
                 $1, $2, 'retail_sale', 'card_present', 100.00, 'approved', $3,
-                0.00, 100.00, 'helcim', $4, 'approved', $4, CURRENT_DATE
+                0.00, 100.00, 'helcim', $4, 'approved', $4, 'VISA',
+                'VISA', '4242', CURRENT_DATE
             )
             "#,
         )
@@ -1756,6 +1779,7 @@ mod tests {
             session_id,
             payment_method: "card".to_string(),
             amount: Decimal::new(10000, 2),
+            refund_event_id: None,
             tender_amount: None,
             rounding_adjustment: None,
             final_cash_due: None,
@@ -1827,8 +1851,27 @@ mod tests {
         .await;
         assert!(
             retry.is_ok(),
-            "retry should reconcile from approved attempt"
+            "retry should reconcile from approved attempt: {retry:?}"
         );
+        let Json(retry_result) = retry.expect("typed refund result");
+        assert_eq!(retry_result.transaction_id, transaction_id);
+        assert_eq!(retry_result.refund_amount, Decimal::new(10000, 2));
+        assert_eq!(retry_result.tender_amount, Decimal::new(10000, 2));
+        assert_eq!(retry_result.payment_provider.as_deref(), Some("helcim"));
+        assert_eq!(retry_result.provider_status.as_deref(), Some("approved"));
+        assert_eq!(
+            retry_result.provider_refund_id.as_deref(),
+            Some("777000123")
+        );
+        assert_eq!(
+            retry_result.original_provider_transaction_id.as_deref(),
+            Some(original_provider_transaction_id.as_str())
+        );
+        assert_eq!(retry_result.card_brand.as_deref(), Some("VISA"));
+        assert_eq!(retry_result.card_last4.as_deref(), Some("4242"));
+        assert!(retry_result
+            .message
+            .contains("Helcim approved a $100.00 refund"));
 
         let provider_calls = mock.received_requests().await.expect("mock requests");
         assert_eq!(provider_calls.len(), 3, "retry must not call Helcim again");
@@ -2285,6 +2328,14 @@ fn receipt_query_exchange_return_transaction_id(
         .and_then(|value| Uuid::parse_str(value.trim()).ok())
 }
 
+fn receipt_query_refund_event_id(
+    params: &std::collections::HashMap<String, String>,
+) -> Option<Uuid> {
+    params
+        .get("refund_event_id")
+        .and_then(|value| Uuid::parse_str(value.trim()).ok())
+}
+
 async fn append_exchange_return_receipt_items(
     state: &AppState,
     headers: &HeaderMap,
@@ -2312,6 +2363,404 @@ async fn append_exchange_return_receipt_items(
             .filter(|item| item.adjustment.is_some()),
     );
     Ok(())
+}
+
+#[derive(Debug, FromRow)]
+struct ReceiptEventReturnRow {
+    transaction_line_id: Uuid,
+    quantity_returned: i32,
+    refund_subtotal: Decimal,
+    refund_state_tax: Decimal,
+    refund_local_tax: Decimal,
+    refund_total: Decimal,
+    created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, FromRow)]
+struct ReceiptEventPaymentRow {
+    date: DateTime<Utc>,
+    method: String,
+    amount: Decimal,
+    payment_provider: Option<String>,
+    card_brand: Option<String>,
+    card_last4: Option<String>,
+}
+
+async fn build_refund_event_receipt_order(
+    state: &AppState,
+    headers: &HeaderMap,
+    register_session_id: Option<Uuid>,
+    original_detail: &TransactionDetailResponse,
+    refund_event_id: Uuid,
+) -> Result<receipt_shared::ReceiptOrder, TransactionError> {
+    let return_rows: Vec<ReceiptEventReturnRow> = sqlx::query_as(
+        r#"
+        SELECT
+            trl.transaction_line_id,
+            trl.quantity_returned,
+            COALESCE(
+                trl.refund_subtotal,
+                tl.unit_price * trl.quantity_returned
+            )::numeric(14,2) AS refund_subtotal,
+            COALESCE(
+                trl.refund_state_tax,
+                tl.state_tax * trl.quantity_returned
+            )::numeric(14,2) AS refund_state_tax,
+            COALESCE(
+                trl.refund_local_tax,
+                tl.local_tax * trl.quantity_returned
+            )::numeric(14,2) AS refund_local_tax,
+            COALESCE(
+                trl.refund_total,
+                (tl.unit_price + tl.state_tax + tl.local_tax) * trl.quantity_returned
+            )::numeric(14,2) AS refund_total,
+            trl.created_at
+        FROM transaction_return_lines trl
+        INNER JOIN transaction_lines tl ON tl.id = trl.transaction_line_id
+        WHERE trl.transaction_id = $1
+          AND trl.refund_event_id = $2
+        ORDER BY trl.created_at, trl.id
+        "#,
+    )
+    .bind(original_detail.transaction_id)
+    .bind(refund_event_id)
+    .fetch_all(&state.db)
+    .await?;
+    if return_rows.is_empty() {
+        return Err(TransactionError::InvalidPayload(
+            "No returned items were found for this receipt event.".to_string(),
+        ));
+    }
+
+    let replacement_transaction_id: Option<Uuid> = sqlx::query_scalar(
+        r#"
+        SELECT COALESCE(
+            (
+                SELECT NULLIF(metadata->>'replacement_transaction_id', '')::uuid
+                FROM transaction_activity_log
+                WHERE transaction_id = $1
+                  AND event_kind = 'exchange_settled'
+                  AND metadata->>'refund_event_id' = $2
+                ORDER BY created_at DESC, id DESC
+                LIMIT 1
+            ),
+            (
+                SELECT NULLIF(pt.metadata->>'replacement_transaction_id', '')::uuid
+                FROM payment_transactions pt
+                INNER JOIN payment_allocations pa ON pa.transaction_id = pt.id
+                WHERE pa.target_transaction_id = $1
+                  AND pt.metadata->>'refund_event_id' = $2
+                ORDER BY pt.created_at DESC, pt.id DESC
+                LIMIT 1
+            )
+        )
+        "#,
+    )
+    .bind(original_detail.transaction_id)
+    .bind(refund_event_id.to_string())
+    .fetch_one(&state.db)
+    .await?;
+
+    let replacement_detail = if let Some(replacement_transaction_id) = replacement_transaction_id {
+        authorize_transaction_read_bo_or_register(
+            state,
+            headers,
+            replacement_transaction_id,
+            register_session_id,
+        )
+        .await?;
+        Some(load_transaction_detail(&state.db, replacement_transaction_id).await?)
+    } else {
+        None
+    };
+    let replacement_receipt = replacement_detail
+        .as_ref()
+        .map(|detail| detail.build_receipt_data(None))
+        .transpose()?;
+
+    let mut receipt_items = Vec::new();
+    for returned in &return_rows {
+        let item = original_detail
+            .items
+            .iter()
+            .find(|item| item.transaction_line_id == returned.transaction_line_id)
+            .ok_or_else(|| {
+                TransactionError::InvalidPayload(
+                    "A returned item is no longer available for receipt rendering.".to_string(),
+                )
+            })?;
+        let refund_unit =
+            (returned.refund_subtotal / Decimal::from(returned.quantity_returned)).round_dp(2);
+        receipt_items.push(receipt_shared::ReceiptLine {
+            product_name: item.product_name.clone(),
+            sku: item.sku.clone(),
+            quantity: returned.quantity_returned,
+            unit_price: -refund_unit,
+            fulfillment: item.fulfillment,
+            salesperson_name: crate::logic::receipt_privacy::mask_name_for_receipt(
+                item.salesperson_name.as_deref(),
+            ),
+            variation_label: item.variation_label.clone(),
+            original_unit_price: None,
+            discount_event_label: None,
+            gift_card_load_code: None,
+            custom_order_details: item.custom_order_details.clone(),
+            custom_item_type: item.custom_item_type.clone(),
+            is_fulfilled: true,
+            adjustment: Some(if replacement_transaction_id.is_some() {
+                receipt_shared::ReceiptLineAdjustment::Exchanged
+            } else {
+                receipt_shared::ReceiptLineAdjustment::Returned
+            }),
+            contributes_to_totals: true,
+        });
+    }
+    if let Some(replacement_receipt) = replacement_receipt.as_ref() {
+        receipt_items.extend(
+            replacement_receipt
+                .items
+                .iter()
+                .filter(|item| item.adjustment.is_none())
+                .cloned(),
+        );
+    }
+
+    let event_payment_rows: Vec<ReceiptEventPaymentRow> = sqlx::query_as(
+        r#"
+        SELECT
+            pt.created_at AS date,
+            pt.payment_method AS method,
+            pa.amount_allocated::numeric(14,2) AS amount,
+            pt.payment_provider,
+            pt.card_brand,
+            pt.card_last4
+        FROM payment_transactions pt
+        INNER JOIN payment_allocations pa ON pa.transaction_id = pt.id
+        WHERE pa.target_transaction_id = $1
+          AND pt.metadata->>'refund_event_id' = $2
+          AND COALESCE(pt.metadata->>'kind', '') <> 'exchange_credit_relief'
+          AND pt.status IN ('success', 'approved', 'captured')
+        ORDER BY pt.created_at, pt.id
+        "#,
+    )
+    .bind(original_detail.transaction_id)
+    .bind(refund_event_id.to_string())
+    .fetch_all(&state.db)
+    .await?;
+
+    let mut event_payments = replacement_detail
+        .as_ref()
+        .map(|detail| {
+            detail
+                .payments
+                .iter()
+                .filter(|payment| {
+                    payment.amount > Decimal::ZERO
+                        && !payment.method.eq_ignore_ascii_case("exchange_credit")
+                })
+                .map(|payment| receipt_shared::ReceiptPayment {
+                    date: payment.date,
+                    method: payment.method.clone(),
+                    amount: payment.amount,
+                    cash_tendered: payment.cash_tendered,
+                    change_due: payment.change_due,
+                    gift_card_balance_after: payment.gift_card_balance_after,
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    event_payments.extend(event_payment_rows.iter().map(|payment| {
+        receipt_shared::ReceiptPayment {
+            date: payment.date,
+            method: payment.method.clone(),
+            amount: payment.amount,
+            cash_tendered: None,
+            change_due: None,
+            gift_card_balance_after: None,
+        }
+    }));
+
+    let mut payment_summary_parts = Vec::new();
+    for payment in &event_payments {
+        let label = receipt_shared::tender_display_label(&payment.method);
+        if !payment_summary_parts.contains(&label) {
+            payment_summary_parts.push(label);
+        }
+    }
+    for payment in &event_payment_rows {
+        if payment
+            .payment_provider
+            .as_deref()
+            .is_some_and(|provider| provider.eq_ignore_ascii_case("helcim"))
+        {
+            let card_detail = match (
+                payment
+                    .card_brand
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty()),
+                payment
+                    .card_last4
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty()),
+            ) {
+                (Some(brand), Some(last4)) => Some(format!("Card: {brand} •••• {last4}")),
+                (None, Some(last4)) => Some(format!("Card: •••• {last4}")),
+                _ => None,
+            };
+            if let Some(card_detail) = card_detail {
+                if !payment_summary_parts.contains(&card_detail) {
+                    payment_summary_parts.push(card_detail);
+                }
+            }
+        }
+    }
+    let payment_methods_summary = if payment_summary_parts.is_empty() {
+        "No additional tender".to_string()
+    } else {
+        payment_summary_parts.join(" | ")
+    };
+
+    let returned_subtotal = return_rows
+        .iter()
+        .fold(Decimal::ZERO, |sum, row| sum + row.refund_subtotal)
+        .round_dp(2);
+    let returned_tax = return_rows
+        .iter()
+        .fold(Decimal::ZERO, |sum, row| {
+            sum + row.refund_state_tax + row.refund_local_tax
+        })
+        .round_dp(2);
+    let returned_total = return_rows
+        .iter()
+        .fold(Decimal::ZERO, |sum, row| sum + row.refund_total)
+        .round_dp(2);
+    let replacement_subtotal = replacement_receipt
+        .as_ref()
+        .map(|receipt| receipt.subtotal_price)
+        .unwrap_or(Decimal::ZERO);
+    let replacement_tax = replacement_receipt
+        .as_ref()
+        .map(|receipt| receipt.tax_total)
+        .unwrap_or(Decimal::ZERO);
+    let replacement_total = replacement_receipt
+        .as_ref()
+        .map(|receipt| receipt.total_price)
+        .unwrap_or(Decimal::ZERO);
+    let event_total = (replacement_total - returned_total).round_dp(2);
+    let event_timestamp = event_payment_rows
+        .iter()
+        .map(|payment| payment.date)
+        .chain(return_rows.iter().map(|row| row.created_at))
+        .max()
+        .unwrap_or(original_detail.booked_at);
+    let event_operator_name = replacement_detail
+        .as_ref()
+        .and_then(|detail| detail.operator_name.as_deref())
+        .or(original_detail.operator_name.as_deref());
+    let event_salesperson_name = replacement_detail
+        .as_ref()
+        .and_then(|detail| detail.primary_salesperson_name.as_deref())
+        .or(original_detail.primary_salesperson_name.as_deref());
+
+    Ok(receipt_shared::ReceiptOrder {
+        transaction_id: original_detail.transaction_id,
+        transaction_display_id: original_detail.transaction_display_id.clone(),
+        receipt_kind: if replacement_transaction_id.is_some() {
+            receipt_shared::ReceiptKind::ReturnExchange
+        } else {
+            receipt_shared::ReceiptKind::ReturnRefund
+        },
+        booked_at: event_timestamp,
+        backdated_business_date: None,
+        status: original_detail.status,
+        subtotal_price: (replacement_subtotal - returned_subtotal).round_dp(2),
+        tax_total: (replacement_tax - returned_tax).round_dp(2),
+        total_price: event_total,
+        total_savings: replacement_receipt
+            .as_ref()
+            .map(|receipt| receipt.total_savings)
+            .unwrap_or(Decimal::ZERO),
+        amount_paid: event_total,
+        wedding_deposit_amount: Decimal::ZERO,
+        balance_due: Decimal::ZERO,
+        payment_methods_summary,
+        payment_applications: Vec::new(),
+        customer: original_detail.customer.as_ref().map(|customer| {
+            let full = format!(
+                "{} {}",
+                customer.first_name.trim(),
+                customer.last_name.trim()
+            )
+            .trim()
+            .to_string();
+            receipt_shared::ReceiptCustomerLine {
+                display_name: if full.is_empty() {
+                    "—".to_string()
+                } else {
+                    full
+                },
+                phone: customer.phone.clone(),
+                customer_code: Some(customer.customer_code.clone()),
+            }
+        }),
+        items: receipt_items,
+        is_tax_exempt: replacement_detail
+            .as_ref()
+            .map(|detail| detail.is_tax_exempt)
+            .unwrap_or(original_detail.is_tax_exempt),
+        tax_exempt_reason: replacement_detail
+            .as_ref()
+            .and_then(|detail| detail.tax_exempt_reason.clone())
+            .or_else(|| original_detail.tax_exempt_reason.clone()),
+        fulfillment_method: replacement_detail
+            .as_ref()
+            .map(|detail| detail.fulfillment_method)
+            .unwrap_or(original_detail.fulfillment_method),
+        cashier_name: crate::logic::receipt_privacy::mask_name_for_receipt(event_operator_name),
+        salesperson_display_name: crate::logic::receipt_privacy::mask_name_for_receipt(
+            event_salesperson_name,
+        ),
+        payments: event_payments,
+    })
+}
+
+async fn build_requested_receipt_order(
+    state: &AppState,
+    headers: &HeaderMap,
+    register_session_id: Option<Uuid>,
+    detail: &TransactionDetailResponse,
+    item_ids: Option<&[Uuid]>,
+    exchange_return_transaction_id: Option<Uuid>,
+    refund_event_id: Option<Uuid>,
+) -> Result<receipt_shared::ReceiptOrder, TransactionError> {
+    if let Some(refund_event_id) = refund_event_id {
+        if item_ids.is_some() || exchange_return_transaction_id.is_some() {
+            return Err(TransactionError::InvalidPayload(
+                "refund_event_id cannot be combined with legacy receipt line filters".to_string(),
+            ));
+        }
+        return build_refund_event_receipt_order(
+            state,
+            headers,
+            register_session_id,
+            detail,
+            refund_event_id,
+        )
+        .await;
+    }
+
+    let mut receipt_order = detail.build_receipt_data(item_ids)?;
+    append_exchange_return_receipt_items(
+        state,
+        headers,
+        register_session_id,
+        exchange_return_transaction_id,
+        &mut receipt_order,
+    )
+    .await?;
+    Ok(receipt_order)
 }
 
 #[derive(Debug, FromRow)]
@@ -2486,6 +2935,8 @@ pub struct TransactionReadQuery {
     pub register_session_id: Option<Uuid>,
     #[serde(default)]
     pub exchange_return_transaction_id: Option<Uuid>,
+    #[serde(default)]
+    pub refund_event_id: Option<Uuid>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -2645,6 +3096,11 @@ pub struct ProcessRefundRequest {
     pub session_id: Uuid,
     pub payment_method: String,
     pub amount: Decimal,
+    /// Server-issued return/exchange event reused only for a deferred provider
+    /// refund. The server validates the event, amount, and replacement
+    /// transaction before attaching the provider movement.
+    #[serde(default)]
+    pub refund_event_id: Option<Uuid>,
     #[serde(default)]
     pub tender_amount: Option<Decimal>,
     #[serde(default)]
@@ -2677,6 +3133,24 @@ pub struct ProcessRefundRequest {
     /// Optional staged return lines to record atomically with the refund.
     #[serde(default)]
     pub return_lines: Vec<TransactionReturnLineBody>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ProcessRefundResponse {
+    pub status: String,
+    pub transaction_id: Uuid,
+    pub payment_transaction_id: Uuid,
+    pub refund_event_id: Uuid,
+    pub refund_amount: Decimal,
+    pub tender_amount: Decimal,
+    pub payment_method: String,
+    pub payment_provider: Option<String>,
+    pub provider_status: Option<String>,
+    pub provider_refund_id: Option<String>,
+    pub original_provider_transaction_id: Option<String>,
+    pub card_brand: Option<String>,
+    pub card_last4: Option<String>,
+    pub message: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -2991,6 +3465,195 @@ fn required_refund_check_number(
             )
         })?;
     Ok(Some(check_number.to_string()))
+}
+
+#[derive(Debug)]
+struct DeferredRefundEventContext {
+    replacement_transaction_id: Uuid,
+    exchange_group_id: Uuid,
+}
+
+async fn validate_deferred_refund_event_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    transaction_id: Uuid,
+    refund_event_id: Uuid,
+    exact_refund_amount: Decimal,
+) -> Result<DeferredRefundEventContext, TransactionError> {
+    let event: Option<(Uuid, Uuid, Decimal)> = sqlx::query_as(
+        r#"
+        SELECT
+            NULLIF(metadata->>'replacement_transaction_id', '')::uuid,
+            NULLIF(metadata->>'exchange_group_id', '')::uuid,
+            COALESCE(NULLIF(metadata->>'deferred_card_refund_amount', '')::numeric, 0)::numeric(14,2)
+        FROM transaction_activity_log
+        WHERE transaction_id = $1
+          AND event_kind = 'exchange_settled'
+          AND metadata->>'refund_event_id' = $2
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1
+        "#,
+    )
+    .bind(transaction_id)
+    .bind(refund_event_id.to_string())
+    .fetch_optional(&mut **tx)
+    .await?;
+    let Some((replacement_transaction_id, exchange_group_id, deferred_amount)) = event else {
+        return Err(TransactionError::InvalidPayload(
+            "the deferred refund event is missing or does not belong to this Transaction Record"
+                .to_string(),
+        ));
+    };
+    if deferred_amount.round_dp(2) != exact_refund_amount {
+        return Err(TransactionError::InvalidPayload(format!(
+            "the deferred refund event authorizes ${} to the original card, not ${}",
+            deferred_amount.round_dp(2),
+            exact_refund_amount
+        )));
+    }
+
+    let return_total: Decimal = sqlx::query_scalar(
+        r#"
+        SELECT COALESCE(SUM(refund_total), 0)::numeric(14,2)
+        FROM transaction_return_lines
+        WHERE transaction_id = $1
+          AND refund_event_id = $2
+        "#,
+    )
+    .bind(transaction_id)
+    .bind(refund_event_id)
+    .fetch_one(&mut **tx)
+    .await?;
+    if return_total <= Decimal::ZERO {
+        return Err(TransactionError::InvalidPayload(
+            "the deferred refund event has no recorded return lines".to_string(),
+        ));
+    }
+
+    Ok(DeferredRefundEventContext {
+        replacement_transaction_id,
+        exchange_group_id,
+    })
+}
+
+#[derive(Debug, FromRow)]
+struct CompletedRefundEventRow {
+    payment_transaction_id: Uuid,
+    refund_amount: Decimal,
+    tender_amount: Decimal,
+    payment_method: String,
+    payment_provider: Option<String>,
+    provider_status: Option<String>,
+    provider_refund_id: Option<String>,
+    original_provider_transaction_id: Option<String>,
+    card_brand: Option<String>,
+    card_last4: Option<String>,
+}
+
+async fn completed_refund_event_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    transaction_id: Uuid,
+    refund_event_id: Uuid,
+) -> Result<Option<CompletedRefundEventRow>, TransactionError> {
+    sqlx::query_as(
+        r#"
+        SELECT
+            pt.id AS payment_transaction_id,
+            COALESCE(
+                NULLIF(pt.metadata->>'exact_refund_amount', '')::numeric,
+                ABS(pa.amount_allocated)
+            )::numeric(14,2) AS refund_amount,
+            ABS(pa.amount_allocated)::numeric(14,2) AS tender_amount,
+            pt.payment_method,
+            pt.payment_provider,
+            pt.provider_status,
+            COALESCE(pt.provider_payment_id, pt.metadata->>'provider_refund_id') AS provider_refund_id,
+            pt.metadata->>'original_provider_transaction_id' AS original_provider_transaction_id,
+            pt.card_brand,
+            pt.card_last4
+        FROM payment_transactions pt
+        INNER JOIN payment_allocations pa ON pa.transaction_id = pt.id
+        WHERE pa.target_transaction_id = $1
+          AND pt.metadata->>'refund_event_id' = $2
+          AND COALESCE(pt.metadata->>'kind', '') <> 'exchange_credit_relief'
+          AND pa.amount_allocated < 0
+          AND pt.status IN ('success', 'approved', 'captured')
+        ORDER BY pt.created_at DESC, pt.id DESC
+        LIMIT 1
+        "#,
+    )
+    .bind(transaction_id)
+    .bind(refund_event_id.to_string())
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(TransactionError::Database)
+}
+
+fn refund_confirmation_message(
+    refund_amount: Decimal,
+    payment_method: &str,
+    payment_provider: Option<&str>,
+    card_brand: Option<&str>,
+    card_last4: Option<&str>,
+) -> String {
+    if payment_provider.is_some_and(|provider| provider.eq_ignore_ascii_case("helcim")) {
+        let destination = match (
+            card_brand.map(str::trim).filter(|value| !value.is_empty()),
+            card_last4.map(str::trim).filter(|value| !value.is_empty()),
+        ) {
+            (Some(brand), Some(last4)) => format!(" to {brand} •••• {last4}"),
+            (None, Some(last4)) => format!(" to the original card •••• {last4}"),
+            _ => " to the original card".to_string(),
+        };
+        return format!(
+            "Helcim approved a ${} refund{}.",
+            refund_amount.round_dp(2),
+            destination
+        );
+    }
+    format!(
+        "Refund of ${} recorded via {}.",
+        refund_amount.round_dp(2),
+        receipt_shared::tender_display_label(payment_method)
+    )
+}
+
+fn process_refund_response(
+    transaction_id: Uuid,
+    payment_transaction_id: Uuid,
+    refund_event_id: Uuid,
+    refund_amount: Decimal,
+    tender_amount: Decimal,
+    payment_method: String,
+    payment_provider: Option<String>,
+    provider_status: Option<String>,
+    provider_refund_id: Option<String>,
+    original_provider_transaction_id: Option<String>,
+    card_brand: Option<String>,
+    card_last4: Option<String>,
+) -> ProcessRefundResponse {
+    let message = refund_confirmation_message(
+        refund_amount,
+        &payment_method,
+        payment_provider.as_deref(),
+        card_brand.as_deref(),
+        card_last4.as_deref(),
+    );
+    ProcessRefundResponse {
+        status: "ok".to_string(),
+        transaction_id,
+        payment_transaction_id,
+        refund_event_id,
+        refund_amount,
+        tender_amount,
+        payment_method,
+        payment_provider,
+        provider_status,
+        provider_refund_id,
+        original_provider_transaction_id,
+        card_brand,
+        card_last4,
+        message,
+    }
 }
 
 #[derive(Debug)]
@@ -5977,7 +6640,7 @@ async fn process_refund(
     Path(transaction_id): Path<Uuid>,
     headers: HeaderMap,
     Json(body): Json<ProcessRefundRequest>,
-) -> Result<Json<serde_json::Value>, TransactionError> {
+) -> Result<Json<ProcessRefundResponse>, TransactionError> {
     let staff = middleware::require_staff_with_permission(&state, &headers, ORDERS_REFUND_PROCESS)
         .await
         .map_err(map_perm_err)?;
@@ -5990,9 +6653,23 @@ async fn process_refund(
 
     let method_l = body.payment_method.trim().to_ascii_lowercase();
     let refund_method = RefundPaymentMethod::parse(&method_l)?;
+    if body.refund_event_id.is_some() {
+        if refund_method != RefundPaymentMethod::LinkedHelcimCard {
+            return Err(TransactionError::InvalidPayload(
+                "a deferred exchange refund event can only be completed through the linked original-card workflow"
+                    .to_string(),
+            ));
+        }
+        if !body.return_lines.is_empty() {
+            return Err(TransactionError::InvalidPayload(
+                "deferred exchange refund lines were already recorded and must not be submitted again"
+                    .to_string(),
+            ));
+        }
+    }
     let check_number = required_refund_check_number(refund_method, body.check_number.as_deref())?;
     let exact_refund_amount = body.amount.round_dp(2);
-    let refund_event_id = Uuid::new_v4();
+    let refund_event_id = body.refund_event_id.unwrap_or_else(Uuid::new_v4);
     validate_return_line_financial_total(&body.return_lines, exact_refund_amount)?;
     let (cash_tender_amount, cash_rounding_adjustment) = cash_refund_tender_amount(
         &body.payment_method,
@@ -6075,6 +6752,49 @@ async fn process_refund(
         ));
     }
 
+    let deferred_event_context = if body.refund_event_id.is_some() {
+        Some(
+            validate_deferred_refund_event_in_tx(
+                &mut tx,
+                transaction_id,
+                refund_event_id,
+                exact_refund_amount,
+            )
+            .await?,
+        )
+    } else {
+        None
+    };
+    if let Some(existing) =
+        completed_refund_event_in_tx(&mut tx, transaction_id, refund_event_id).await?
+    {
+        if existing.refund_amount.round_dp(2) != exact_refund_amount
+            || !existing
+                .payment_method
+                .eq_ignore_ascii_case(body.payment_method.trim())
+        {
+            return Err(TransactionError::InvalidPayload(
+                "this refund event is already completed with different financial details"
+                    .to_string(),
+            ));
+        }
+        tx.rollback().await?;
+        return Ok(Json(process_refund_response(
+            transaction_id,
+            existing.payment_transaction_id,
+            refund_event_id,
+            existing.refund_amount,
+            existing.tender_amount,
+            existing.payment_method,
+            existing.payment_provider,
+            existing.provider_status,
+            existing.provider_refund_id,
+            existing.original_provider_transaction_id,
+            existing.card_brand,
+            existing.card_last4,
+        )));
+    }
+
     apply_refund_return_lines_in_tx(
         &mut tx,
         transaction_id,
@@ -6119,6 +6839,20 @@ async fn process_refund(
         "transaction_id": transaction_id,
         "refund_event_id": refund_event_id,
     });
+    if let (Some(object), Some(context)) = (
+        refund_metadata.as_object_mut(),
+        deferred_event_context.as_ref(),
+    ) {
+        object.insert(
+            "replacement_transaction_id".to_string(),
+            json!(context.replacement_transaction_id),
+        );
+        object.insert(
+            "exchange_group_id".to_string(),
+            json!(context.exchange_group_id),
+        );
+        object.insert("kind".to_string(), json!("exchange_refund_remainder"));
+    }
     if let (Some(object), Some((manager_id, reference, reason))) = (
         refund_metadata.as_object_mut(),
         rms_refund_approval.as_ref(),
@@ -6207,6 +6941,7 @@ async fn process_refund(
 
     let mut provider_payment_id: Option<String> = None;
     let mut provider_transaction_id: Option<String> = None;
+    let mut original_provider_transaction_id: Option<String> = None;
     let mut provider_status: Option<String> = None;
     let mut provider_auth_code: Option<String> = None;
     let mut provider_card_type: Option<String> = None;
@@ -6229,6 +6964,8 @@ async fn process_refund(
         struct CardCapacityRow {
             provider_transaction_id: String,
             provider_card_type: Option<String>,
+            card_brand: Option<String>,
+            card_last4: Option<String>,
             original_amount_cents: i64,
             already_refunded_cents: i64,
         }
@@ -6239,6 +6976,8 @@ async fn process_refund(
                 SELECT
                     pt.provider_transaction_id,
                     MAX(pt.provider_card_type) AS provider_card_type,
+                    MAX(pt.card_brand) AS card_brand,
+                    MAX(pt.card_last4) AS card_last4,
                     ROUND(SUM(pa.amount_allocated) * 100)::bigint AS original_amount_cents
                 FROM payment_allocations pa
                 INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
@@ -6253,6 +6992,8 @@ async fn process_refund(
             SELECT
                 original.provider_transaction_id,
                 original.provider_card_type,
+                original.card_brand,
+                original.card_last4,
                 original.original_amount_cents,
                 COALESCE(
                     (
@@ -6567,15 +7308,20 @@ async fn process_refund(
                     tracing::warn!(error = %error, transaction_id = %transaction_id, "refund customer timeline note failed after refund committed");
                 }
 
-                return Ok(Json(json!({
-                    "status": "success",
-                    "message": if manual_external_card_refund {
-                        "Manual external card refund recorded successfully."
-                    } else {
-                        "Manual legacy refund recorded successfully."
-                    },
-                    "payment_transaction_id": pt_id
-                })));
+                return Ok(Json(process_refund_response(
+                    transaction_id,
+                    pt_id,
+                    refund_event_id,
+                    exact_refund_amount,
+                    cash_tender_amount,
+                    "card_terminal_manual".to_string(),
+                    Some("external".to_string()),
+                    Some("approved".to_string()),
+                    Some(external_refund_reference.to_string()),
+                    None,
+                    None,
+                    card_last4.map(str::to_string),
+                )));
             }
 
             if manual_external_card_refund {
@@ -6597,6 +7343,9 @@ async fn process_refund(
 
         // Use the card with the most remaining capacity.
         let best = &cards[0];
+        card_brand = best.card_brand.clone();
+        card_last4 = best.card_last4.clone();
+        provider_card_type = best.provider_card_type.clone();
         let original_provider_card_type = best
             .provider_card_type
             .as_deref()
@@ -6649,6 +7398,7 @@ async fn process_refund(
                             .to_string(),
                     )
                 })?;
+        original_provider_transaction_id = Some(original_transaction_id.to_string());
 
         // Idempotency key is per-card: uses the per-card already_refunded_cents (not queue-level),
         // so retrying after a partial split refund generates a fresh key scoped to this card's state.
@@ -6857,6 +7607,26 @@ async fn process_refund(
                 return Err(TransactionError::InvalidPayload(
                     "register session is not open".to_string(),
                 ));
+            }
+            if body.refund_event_id.is_some() {
+                if let Err(error) = validate_deferred_refund_event_in_tx(
+                    &mut tx,
+                    transaction_id,
+                    refund_event_id,
+                    exact_refund_amount,
+                )
+                .await
+                {
+                    record_card_refund_pre_dispatch_failure(
+                        &state.db,
+                        provider_attempt_id,
+                        provider_attempt_may_have_been_dispatched,
+                        "pre_provider_revalidation_failed",
+                        error.to_string(),
+                    )
+                    .await?;
+                    return Err(error);
+                }
             }
 
             let refreshed_refund: Option<RefundQueueRow> = sqlx::query_as(
@@ -7305,6 +8075,15 @@ async fn process_refund(
                         .to_string(),
                 ));
             }
+            if body.refund_event_id.is_some() {
+                validate_deferred_refund_event_in_tx(
+                    &mut resumed_tx,
+                    transaction_id,
+                    refund_event_id,
+                    exact_refund_amount,
+                )
+                .await?;
+            }
 
             refund = sqlx::query_as(
                 r#"
@@ -7420,6 +8199,12 @@ async fn process_refund(
         )));
     }
 
+    let response_payment_provider = provider_payment_id.as_ref().map(|_| "helcim".to_string());
+    let response_provider_status = provider_status.clone();
+    let response_provider_refund_id = provider_payment_id.clone();
+    let response_original_provider_transaction_id = original_provider_transaction_id.clone();
+    let response_card_brand = card_brand.clone();
+    let response_card_last4 = card_last4.clone();
     let payment_tx_id: Uuid = sqlx::query_scalar(
         r#"
         INSERT INTO payment_transactions (
@@ -7458,18 +8243,14 @@ async fn process_refund(
         }
         metadata
     })
-    .bind(if provider_payment_id.is_some() {
-        Some("helcim")
-    } else {
-        None
-    })
-    .bind(provider_payment_id)
-    .bind(provider_status)
-    .bind(provider_transaction_id)
-    .bind(provider_auth_code)
-    .bind(provider_card_type)
-    .bind(card_brand)
-    .bind(card_last4)
+    .bind(response_payment_provider.as_deref())
+    .bind(provider_payment_id.clone())
+    .bind(provider_status.clone())
+    .bind(provider_transaction_id.clone())
+    .bind(provider_auth_code.clone())
+    .bind(provider_card_type.clone())
+    .bind(card_brand.clone())
+    .bind(card_last4.clone())
     .bind(check_number.clone())
     .fetch_one(&mut *tx)
     .await?;
@@ -7516,6 +8297,19 @@ async fn process_refund(
         .map_err(TransactionError::Database)?;
     }
 
+    let allocation_metadata = if let Some(context) = deferred_event_context.as_ref() {
+        json!({
+            "kind": "exchange_refund_remainder",
+            "refund_event_id": refund_event_id,
+            "replacement_transaction_id": context.replacement_transaction_id,
+            "exchange_group_id": context.exchange_group_id,
+        })
+    } else {
+        json!({
+            "kind": "order_refund",
+            "refund_event_id": refund_event_id,
+        })
+    };
     sqlx::query(
         r#"
         INSERT INTO payment_allocations (transaction_id, target_transaction_id, amount_allocated, metadata, check_number)
@@ -7525,7 +8319,7 @@ async fn process_refund(
     .bind(payment_tx_id)
     .bind(transaction_id)
     .bind(-cash_tender_amount)
-    .bind(json!({ "kind": "order_refund" }))
+    .bind(allocation_metadata)
     .bind(check_number.clone())
     .execute(&mut *tx)
     .await?;
@@ -7605,6 +8399,18 @@ async fn process_refund(
             "payment_method": body.payment_method,
             "cash_tender_amount": cash_tender_amount,
             "cash_rounding_adjustment": cash_rounding_adjustment,
+            "payment_transaction_id": payment_tx_id,
+            "refund_event_id": refund_event_id,
+            "replacement_transaction_id": deferred_event_context
+                .as_ref()
+                .map(|context| context.replacement_transaction_id),
+            "exchange_group_id": deferred_event_context
+                .as_ref()
+                .map(|context| context.exchange_group_id),
+            "payment_provider": response_payment_provider,
+            "provider_status": response_provider_status,
+            "provider_refund_id": response_provider_refund_id,
+            "original_provider_transaction_id": response_original_provider_transaction_id,
         }),
     )
     .await?;
@@ -7628,7 +8434,20 @@ async fn process_refund(
         tracing::warn!(error = %error, transaction_id = %transaction_id, "refund customer timeline note failed after refund committed");
     }
 
-    Ok(Json(json!({ "status": "ok" })))
+    Ok(Json(process_refund_response(
+        transaction_id,
+        payment_tx_id,
+        refund_event_id,
+        exact_refund_amount,
+        cash_tender_amount,
+        body.payment_method.trim().to_string(),
+        response_payment_provider,
+        response_provider_status,
+        response_provider_refund_id,
+        response_original_provider_transaction_id,
+        response_card_brand,
+        response_card_last4,
+    )))
 }
 
 async fn process_exchange_settlement(
@@ -8129,9 +8948,11 @@ async fn execute_exchange_settlement(
                 "resolved exchange recovery does not match this posting Register audit".to_string(),
             ));
         }
-        let exchange_group_id: Option<Uuid> = sqlx::query_scalar(
+        let settlement_identity: Option<(Uuid, Option<Uuid>)> = sqlx::query_as(
             r#"
-            SELECT NULLIF(metadata->>'exchange_group_id', '')::uuid
+            SELECT
+                NULLIF(metadata->>'exchange_group_id', '')::uuid,
+                NULLIF(metadata->>'refund_event_id', '')::uuid
             FROM transaction_activity_log
             WHERE transaction_id = $1
               AND event_kind = 'exchange_settled'
@@ -8144,7 +8965,7 @@ async fn execute_exchange_settlement(
         .bind(body.replacement_transaction_id.to_string())
         .fetch_optional(&mut *tx)
         .await?;
-        let exchange_group_id = exchange_group_id.ok_or_else(|| {
+        let (exchange_group_id, refund_event_id) = settlement_identity.ok_or_else(|| {
             TransactionError::InvalidPayload(
                 "resolved exchange recovery is missing its settlement audit".to_string(),
             )
@@ -8165,6 +8986,7 @@ async fn execute_exchange_settlement(
         return Ok(Json(json!({
             "status": "ok",
             "exchange_group_id": exchange_group_id,
+            "refund_event_id": refund_event_id,
             "exchange_credit_amount": body.exchange_credit_amount,
             "refund_remainder_amount": refund_remainder_amount,
             "deferred_card_refund_amount": deferred_card_refund_amount,
@@ -8257,9 +9079,11 @@ async fn execute_exchange_settlement(
             "return transaction was not found".to_string(),
         ));
     }
-    let settled_exchange_group: Option<Uuid> = sqlx::query_scalar(
+    let settled_exchange_identity: Option<(Uuid, Option<Uuid>)> = sqlx::query_as(
         r#"
-        SELECT NULLIF(metadata->>'exchange_group_id', '')::uuid
+        SELECT
+            NULLIF(metadata->>'exchange_group_id', '')::uuid,
+            NULLIF(metadata->>'refund_event_id', '')::uuid
         FROM transaction_activity_log
         WHERE transaction_id = $1
           AND event_kind = 'exchange_settled'
@@ -8272,7 +9096,7 @@ async fn execute_exchange_settlement(
     .bind(body.replacement_transaction_id.to_string())
     .fetch_optional(&mut *tx)
     .await?;
-    if let Some(exchange_group_id) = settled_exchange_group {
+    if let Some((exchange_group_id, settled_refund_event_id)) = settled_exchange_identity {
         let deferred_card_refund_due_amount =
             deferred_card_refund_due_in_tx(&mut tx, transaction_id, deferred_card_refund_amount)
                 .await?;
@@ -8289,6 +9113,7 @@ async fn execute_exchange_settlement(
         return Ok(Json(json!({
             "status": "ok",
             "exchange_group_id": exchange_group_id,
+            "refund_event_id": settled_refund_event_id,
             "exchange_credit_amount": body.exchange_credit_amount,
             "refund_remainder_amount": refund_remainder_amount,
             "deferred_card_refund_amount": deferred_card_refund_amount,
@@ -8425,9 +9250,11 @@ async fn execute_exchange_settlement(
             "Exchange settled with return lines and no paid credit",
             json!({
                 "exchange_group_id": exchange_group_id,
+                "refund_event_id": refund_event_id,
                 "replacement_transaction_id": body.replacement_transaction_id,
                 "exchange_credit_amount": body.exchange_credit_amount,
                 "refund_remainder_amount": refund_remainder_amount,
+                "deferred_card_refund_amount": deferred_card_refund_amount,
                 "refund_queue_id": null,
                 "return_line_count": body.return_lines.len(),
             }),
@@ -8442,9 +9269,11 @@ async fn execute_exchange_settlement(
             "Exchange linked to original return with no paid credit",
             json!({
                 "exchange_group_id": exchange_group_id,
+                "refund_event_id": refund_event_id,
                 "original_transaction_id": transaction_id,
                 "exchange_credit_amount": body.exchange_credit_amount,
                 "refund_remainder_amount": refund_remainder_amount,
+                "deferred_card_refund_amount": deferred_card_refund_amount,
                 "refund_queue_id": null,
                 "return_line_count": body.return_lines.len(),
             }),
@@ -8475,6 +9304,7 @@ async fn execute_exchange_settlement(
         return Ok(Json(json!({
             "status": "ok",
             "exchange_group_id": exchange_group_id,
+            "refund_event_id": refund_event_id,
             "exchange_credit_amount": body.exchange_credit_amount,
             "refund_remainder_amount": refund_remainder_amount,
             "deferred_card_refund_amount": deferred_card_refund_amount,
@@ -8562,6 +9392,7 @@ async fn execute_exchange_settlement(
             "kind": "exchange_credit_relief",
             "original_transaction_id": transaction_id,
             "replacement_transaction_id": body.replacement_transaction_id,
+            "refund_event_id": refund_event_id,
             "refund_queue_id": refund.id,
         }))
         .fetch_one(&mut *tx)
@@ -8578,7 +9409,9 @@ async fn execute_exchange_settlement(
         .bind(-body.exchange_credit_amount)
         .bind(json!({
             "kind": "exchange_credit_relief",
+            "original_transaction_id": transaction_id,
             "replacement_transaction_id": body.replacement_transaction_id,
+            "refund_event_id": refund_event_id,
         }))
         .execute(&mut *tx)
         .await?;
@@ -8725,6 +9558,8 @@ async fn execute_exchange_settlement(
         .bind(-refund_remainder_tender_amount)
         .bind(json!({
             "kind": "exchange_refund_remainder",
+            "refund_event_id": refund_event_id,
+            "original_transaction_id": transaction_id,
             "replacement_transaction_id": body.replacement_transaction_id,
         }))
         .bind(check_number)
@@ -8806,9 +9641,11 @@ async fn execute_exchange_settlement(
         ),
         json!({
             "exchange_group_id": exchange_group_id,
+            "refund_event_id": refund_event_id,
             "replacement_transaction_id": body.replacement_transaction_id,
             "exchange_credit_amount": body.exchange_credit_amount,
             "refund_remainder_amount": refund_remainder_amount,
+            "deferred_card_refund_amount": deferred_card_refund_amount,
             "refund_queue_id": refund.id,
         }),
     )
@@ -8825,9 +9662,11 @@ async fn execute_exchange_settlement(
         ),
         json!({
             "exchange_group_id": exchange_group_id,
+            "refund_event_id": refund_event_id,
             "original_transaction_id": transaction_id,
             "exchange_credit_amount": body.exchange_credit_amount,
             "refund_remainder_amount": refund_remainder_amount,
+            "deferred_card_refund_amount": deferred_card_refund_amount,
             "refund_queue_id": refund.id,
         }),
     )
@@ -8859,6 +9698,7 @@ async fn execute_exchange_settlement(
     Ok(Json(json!({
         "status": "ok",
         "exchange_group_id": exchange_group_id,
+        "refund_event_id": refund_event_id,
         "exchange_credit_amount": body.exchange_credit_amount,
         "refund_remainder_amount": refund_remainder_amount,
         "deferred_card_refund_amount": deferred_card_refund_amount,
@@ -8885,13 +9725,14 @@ async fn get_transaction_receipt_escpos(
     let detail = load_transaction_detail(&state.db, transaction_id).await?;
 
     let item_ids = receipt_query_transaction_line_ids(&params);
-    let mut receipt_order = detail.build_receipt_data(item_ids.as_deref())?;
-    append_exchange_return_receipt_items(
+    let receipt_order = build_requested_receipt_order(
         &state,
         &headers,
         register_session_id,
+        &detail,
+        item_ids.as_deref(),
         receipt_query_exchange_return_transaction_id(&params),
-        &mut receipt_order,
+        receipt_query_refund_event_id(&params),
     )
     .await?;
 
@@ -8968,13 +9809,14 @@ async fn get_transaction_receipt_html(
 
     let gift = receipt_query_gift_flag(&params);
     let item_ids = receipt_query_transaction_line_ids(&params);
-    let mut receipt_order = detail.build_receipt_data(item_ids.as_deref())?;
-    append_exchange_return_receipt_items(
+    let receipt_order = build_requested_receipt_order(
         &state,
         &headers,
         register_session_id,
+        &detail,
+        item_ids.as_deref(),
         receipt_query_exchange_return_transaction_id(&params),
-        &mut receipt_order,
+        receipt_query_refund_event_id(&params),
     )
     .await?;
 
@@ -9108,13 +9950,14 @@ async fn post_transaction_receipt_send_email(
     } else {
         Some(body.transaction_line_ids.as_slice())
     };
-    let mut receipt_order = detail.build_receipt_data(item_ids)?;
-    append_exchange_return_receipt_items(
+    let receipt_order = build_requested_receipt_order(
         &state,
         &headers,
         q.register_session_id,
+        &detail,
+        item_ids,
         q.exchange_return_transaction_id,
-        &mut receipt_order,
+        q.refund_event_id,
     )
     .await?;
 
@@ -9221,13 +10064,14 @@ async fn post_transaction_receipt_send_sms(
     } else {
         Some(body.transaction_line_ids.as_slice())
     };
-    let mut receipt_order = detail.build_receipt_data(item_ids)?;
-    append_exchange_return_receipt_items(
+    let receipt_order = build_requested_receipt_order(
         &state,
         &headers,
         q.register_session_id,
+        &detail,
+        item_ids,
         q.exchange_return_transaction_id,
-        &mut receipt_order,
+        q.refund_event_id,
     )
     .await?;
 
