@@ -2,15 +2,15 @@
 
 Target: Hybrid Tauri Host retail deployment.
 
-### Current Deployment Status (2026-07-22)
+### Current Deployment Status (2026-07-23 source-freeze snapshot)
 
 - [x] Target source release version is **`v0.95.0`** across root, client, server, Tauri, standalone apps, ROS Dev Center, and Windows deployment metadata.
 - [x] Source-side QBO fallback mapping has been removed; exportable financial activity must resolve to an explicit Chart of Accounts mapping before posting.
 - [x] Source-side local review evidence is recorded in [`docs/reviews/legacy/2026-06/PRE_GO_LIVE_LOCAL_REVIEW_2026_06_05.md`](reviews/legacy/2026-06/PRE_GO_LIVE_LOCAL_REVIEW_2026_06_05.md).
 - [x] v0.95.0 release notes and certification evidence are recorded in [`docs/releases/v0.95.0-release-notes.md`](releases/v0.95.0-release-notes.md) and [`docs/releases/v0.95.0-certification.md`](releases/v0.95.0-certification.md).
-- [x] Before today's replacement retag, GitHub release **`v0.95.0`** is published as Latest from build `446413bf` with its matching Windows and macOS assets.
-- [ ] The 2026-07-22 checkout/Card Not Present replacement is committed, retagged, published, and independently verified. The prior `446413bf` assets do not certify the open source candidate.
-- [ ] Non-E2E local release checks pass for the final clean replacement commit. Local Playwright is intentionally skipped at operator direction.
+- [x] Before today's replacement retag, GitHub release **`v0.95.0`** is published as Latest from build `feb0db16` with its matching Windows and macOS assets.
+- [ ] The 2026-07-23 Register/search/reporting/runtime replacement is committed, retagged, published, and independently verified. The prior `feb0db16` assets do not certify the open source candidate.
+- [x] Non-E2E local release checks passed for the final replacement source tree on 2026-07-23. Local Playwright is intentionally skipped at operator direction.
 - [ ] Exact-commit GitHub Lint, blocking Playwright, aggregate Playwright, Windows, and macOS workflows pass for the replacement commit.
 - [x] Financial, register, Counterpoint, Help/ROSIE, backup/restore, and reporting launch-critical local suites passed on 2026-06-05.
 - [ ] Production station deployment log is complete for Main Hub, Register #1 Windows Tauri, Register #2 iPad PWA, and other Windows laptop PWA / optional Tauri clients.
@@ -24,14 +24,14 @@ v0.95.0 preserves the v0.85.x GO LIVE readiness baseline, incorporates the exten
 - [x] **Pre-Go-Live Local Review Fixes** — locally verifiable QBO, Counterpoint, backup/restore, Helcim, Podium, Shippo, and release/update code paths were reviewed and targeted issues were fixed where possible.
 - [x] **Helcim Test Isolation** — unit tests serialize credential-environment mutation so local and CI cargo runs do not fail nondeterministically.
 - [x] **Shippo Health Test Coverage** — disabled, missing-token, and healthy credential states are covered without requiring live label purchases.
-- [ ] **Help and Manual Refresh** — the checkout, Payments Health, Register recovery, release, and certification manuals are generated and included in the replacement release.
+- [x] **Help and Manual Refresh** — the checkout, Payments Health, Register recovery, release, and certification manuals are updated for the replacement source; generated Help impact remains part of the pre-retag gate.
 - [x] **GO-LIVE Connectivity Hardening** — Register and Back Office startup/recovery paths now use bounded API calls, shared runtime API-base handling, explicit Main Hub recovery guidance, and focused E2E coverage for outage/recheck behavior.
 - [x] **Direct Layaway Deposit QBO Handling** — daily QBO staging now includes direct layaway cash/card deposit inflows as `liability_deposit` evidence without changing fulfillment-time revenue recognition.
 
 ## v0.95.0 Release Readiness Gates
 
 - [x] `v0.95.0` GitHub release exists and is marked Latest.
-- [x] Pre-candidate `v0.95.0` Windows updater and standalone-app assets exist for build `446413bf`.
+- [x] Pre-candidate `v0.95.0` Windows updater and standalone-app assets exist for build `feb0db16`.
 - [ ] Replacement `v0.95.0` updater manifests, installers, signatures, and standalone-app assets name the final replacement commit.
 - [ ] Replacement Windows deployment package exists with the final short SHA and passes independent provenance verification.
 - [ ] Physical station smoke is complete for Main Hub, Register #1 Windows Tauri, Register #2 iPad PWA, and other Windows laptop PWA devices.
@@ -39,8 +39,8 @@ v0.95.0 preserves the v0.85.x GO LIVE readiness baseline, incorporates the exten
 
 ## Code Gate
 
-- [ ] Final replacement source and publication validation is recorded in [`docs/releases/v0.95.0-certification.md`](releases/v0.95.0-certification.md); the file currently separates the open candidate from the prior `446413bf` publication.
-- [ ] Replacement local validation passes before tagging: whitespace, version parity, client lint/typecheck, locked Rust checks, deployment release gates, go-live blockers, and Help impact. Local Playwright is intentionally skipped at operator direction.
+- [ ] Final replacement source and publication validation is recorded in [`docs/releases/v0.95.0-certification.md`](releases/v0.95.0-certification.md); the source-freeze snapshot separates the open candidate from the prior `feb0db16` publication, while the GitHub Release records the final self-referential build metadata after publication.
+- [x] Replacement local validation passed before tagging: whitespace, version parity, client lint/typecheck, locked Rust checks, deployment release gates, go-live blockers, and Help impact. Local Playwright is intentionally skipped at operator direction.
 - [ ] Exact-commit GitHub Lint and blocking Playwright checks pass on the final replacement commit.
 - [ ] `scripts/production_audit_probes.sql` runs read-only against the release database and all P0/P1 probes are explained or zero-row.
 - [x] The July 21 false-fulfillment incident remains explicitly disclosed: the universal write boundary, payment-allocation history, inventory line/event provenance, per-Transaction QBO attribution, and restore-tested Main Hub backup remain incomplete. The held prototype under `docs/incidents/design/` is not shipped.
