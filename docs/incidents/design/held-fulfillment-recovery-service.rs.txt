@@ -1,0 +1,2729 @@
+//! HELD DESIGN — NOT COMPILED OR ROUTED IN PRODUCTION.
+//! Exact-scope recovery for Counterpoint Transaction Records whose headers were
+//! incorrectly marked fulfilled while active business lines remained open.
+//!
+//! This deliberately retains two held recovery actions: restore a false
+//! fulfilled header to `open`, or restore recognition time from exact canonical
+//! pickup proof, without creating or changing lines, tender, inventory,
+//! loyalty, commissions, or QBO/outbox state.
+
+use chrono::{DateTime, Utc};
+use serde::Serialize;
+use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
+use sqlx::{PgConnection, PgPool};
+use thiserror::Error;
+use uuid::Uuid;
+
+pub const MAX_BULK_FULFILLMENT_RECOVERY_TRANSACTIONS: usize = 100;
+const QBO_TRACEABILITY: &str =
+    "legacy_transaction_outbox_checked; daily_staging_is_aggregate_without_transaction_fk";
+
+#[derive(Debug, Error)]
+pub enum FulfillmentRecoveryError {
+    #[error("{0}")]
+    InvalidRequest(String),
+    #[error("{0}")]
+    StaleReview(String),
+    #[error("{0}")]
+    Ineligible(String),
+    #[error("{0}")]
+    VerificationFailed(String),
+    #[error(transparent)]
+    Database(#[from] sqlx::Error),
+    #[error(transparent)]
+    Serialization(#[from] serde_json::Error),
+}
+
+#[derive(Debug, Clone)]
+pub struct RecoveryReviewRequest {
+    pub operation_id: Uuid,
+    pub correlation_id: Uuid,
+    pub transaction_ids: Vec<Uuid>,
+    pub expected_transaction_count: usize,
+    pub actor_staff_id: Uuid,
+    pub confirming_manager_staff_id: Uuid,
+    pub reason: String,
+    pub acknowledge_qbo_traceability_gap: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RecoveryCandidate {
+    pub transaction_id: Uuid,
+    pub display_id: String,
+    pub eligible: bool,
+    pub blockers: Vec<String>,
+    pub current_status: String,
+    pub current_fulfilled_at: Option<DateTime<Utc>>,
+    pub active_business_line_count: i64,
+    pub open_active_business_line_count: i64,
+    pub payment_matches_stored_amount: bool,
+    pub current_recognition_at: Option<DateTime<Utc>>,
+    pub review_evidence: Value,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RecoveryPreview {
+    pub operation_id: Uuid,
+    pub correlation_id: Uuid,
+    pub expected_transaction_count: usize,
+    pub manifest_digest: String,
+    pub all_eligible: bool,
+    pub qbo_traceability: &'static str,
+    pub qbo_traceability_acknowledged: bool,
+    pub candidates: Vec<RecoveryCandidate>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RecoveryApplyResult {
+    pub operation_id: Uuid,
+    pub correlation_id: Uuid,
+    pub corrected_transaction_count: usize,
+    pub verification_id: Uuid,
+    pub verification_status: &'static str,
+    pub qbo_traceability: &'static str,
+    pub applied_manifest_digest: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct RestorePickupRecognitionReviewRequest {
+    pub operation_id: Uuid,
+    pub correlation_id: Uuid,
+    pub transaction_id: Uuid,
+    pub prior_correction_activity_id: Uuid,
+    pub actor_staff_id: Uuid,
+    pub confirming_manager_staff_id: Uuid,
+    pub reason: String,
+    pub acknowledge_qbo_traceability_gap: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RestorePickupRecognitionPreview {
+    pub operation_id: Uuid,
+    pub correlation_id: Uuid,
+    pub transaction_id: Uuid,
+    pub prior_correction_activity_id: Uuid,
+    pub expected_transaction_count: usize,
+    pub manifest_digest: String,
+    pub eligible: bool,
+    pub blockers: Vec<String>,
+    pub proven_fulfilled_at: Option<DateTime<Utc>>,
+    pub balance_due: String,
+    pub balance_due_requires_review: bool,
+    pub qbo_traceability: &'static str,
+    pub qbo_traceability_acknowledged: bool,
+    pub review_evidence: Value,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+struct SnapshotRow {
+    transaction_id: Uuid,
+    display_id: String,
+    current_status: String,
+    fulfillment_method: String,
+    current_fulfilled_at: Option<DateTime<Utc>>,
+    counterpoint_doc_ref: Option<String>,
+    is_counterpoint_import: bool,
+    is_superseded: bool,
+    active_business_line_count: i64,
+    open_active_business_line_count: i64,
+    open_line_with_fulfilled_timestamp_count: i64,
+    commission_on_open_line_count: i64,
+    commission_event_count: i64,
+    commission_consistent_with_fulfilled_lines: bool,
+    payment_allocation_count: i64,
+    invalid_payment_allocation_count: i64,
+    payment_matches_stored_amount: bool,
+    header_balance_equation_valid: bool,
+    line_financial_total_matches_header: bool,
+    inventory_movement_count: i64,
+    loyalty_accrual_count: i64,
+    loyalty_ledger_count: i64,
+    loyalty_consistent: bool,
+    unsafe_qbo_transaction_outbox_count: i64,
+    operational_outbox_count: i64,
+    current_recognition_at: Option<DateTime<Utc>>,
+    transaction_evidence: Value,
+    line_evidence: Value,
+    payment_evidence: Value,
+    inventory_evidence: Value,
+    revenue_evidence: Value,
+    commission_evidence: Value,
+    loyalty_evidence: Value,
+    audit_evidence: Value,
+    qbo_evidence: Value,
+    activity_count: i64,
+    operation_activity_count: i64,
+    transition_count: i64,
+    operation_transition_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+struct RestorePickupRecognitionProof {
+    transaction_id: Uuid,
+    correction_activity_id: Option<Uuid>,
+    correction_at: Option<DateTime<Utc>>,
+    latest_open_correction_activity_id: Option<Uuid>,
+    latest_open_correction_at: Option<DateTime<Utc>>,
+    current_status: String,
+    current_fulfilled_at: Option<DateTime<Utc>>,
+    balance_due: String,
+    balance_due_is_zero: bool,
+    balance_due_is_positive: bool,
+    active_business_line_count: i64,
+    open_active_business_line_count: i64,
+    returned_business_line_count: i64,
+    non_order_style_line_count: i64,
+    missing_variant_line_count: i64,
+    missing_release_evidence_count: i64,
+    release_evidence_after_correction_count: i64,
+    release_activity_after_correction_count: i64,
+    missing_release_activity_line_count: i64,
+    allocated_payment_created_after_correction_count: i64,
+    unexplained_commission_rows_after_correction_count: i64,
+    canonical_inventory_movement_count: i64,
+    invalid_canonical_inventory_movement_count: i64,
+    inventory_matches_released_quantities: bool,
+    proven_fulfilled_at: Option<DateTime<Utc>>,
+    proof_evidence: Value,
+}
+
+#[derive(Debug, Serialize)]
+struct ReviewedManifest<'a> {
+    contract_version: &'static str,
+    operation_kind: &'static str,
+    operation_id: Uuid,
+    correlation_id: Uuid,
+    transaction_ids: &'a [Uuid],
+    expected_transaction_count: usize,
+    actor_staff_id: Uuid,
+    confirming_manager_staff_id: Uuid,
+    reason: &'a str,
+    acknowledge_qbo_traceability_gap: bool,
+    snapshots: &'a [SnapshotRow],
+}
+
+#[derive(Debug, Serialize)]
+struct RestorePickupRecognitionReviewedManifest<'a> {
+    contract_version: &'static str,
+    operation_kind: &'static str,
+    operation_id: Uuid,
+    correlation_id: Uuid,
+    transaction_id: Uuid,
+    prior_correction_activity_id: Uuid,
+    expected_transaction_count: usize,
+    actor_staff_id: Uuid,
+    confirming_manager_staff_id: Uuid,
+    reason: &'a str,
+    acknowledge_qbo_traceability_gap: bool,
+    snapshot: &'a SnapshotRow,
+    pickup_proof: &'a RestorePickupRecognitionProof,
+}
+
+fn canonical_scope(
+    transaction_ids: &[Uuid],
+    expected_transaction_count: usize,
+    reason: &str,
+) -> Result<(Vec<Uuid>, String), FulfillmentRecoveryError> {
+    if transaction_ids.is_empty() {
+        return Err(FulfillmentRecoveryError::InvalidRequest(
+            "at least one explicit Transaction Record ID is required".to_string(),
+        ));
+    }
+    if transaction_ids.len() > MAX_BULK_FULFILLMENT_RECOVERY_TRANSACTIONS {
+        return Err(FulfillmentRecoveryError::InvalidRequest(format!(
+            "fulfillment recovery is limited to {} exact Transaction Record IDs per operation",
+            MAX_BULK_FULFILLMENT_RECOVERY_TRANSACTIONS
+        )));
+    }
+    if expected_transaction_count != transaction_ids.len() {
+        return Err(FulfillmentRecoveryError::InvalidRequest(format!(
+            "expected_transaction_count was {expected_transaction_count}, but {} IDs were supplied",
+            transaction_ids.len()
+        )));
+    }
+
+    let mut normalized = transaction_ids.to_vec();
+    normalized.sort_unstable();
+    let original_count = normalized.len();
+    normalized.dedup();
+    if normalized.len() != original_count {
+        return Err(FulfillmentRecoveryError::InvalidRequest(
+            "Transaction Record IDs must be unique; duplicate scope is rejected".to_string(),
+        ));
+    }
+
+    let normalized_reason = reason.trim().to_string();
+    let reason_length = normalized_reason.chars().count();
+    if !(12..=2_000).contains(&reason_length) {
+        return Err(FulfillmentRecoveryError::InvalidRequest(
+            "recovery reason must be between 12 and 2000 characters".to_string(),
+        ));
+    }
+
+    Ok((normalized, normalized_reason))
+}
+
+fn candidate_blockers(snapshot: &SnapshotRow) -> Vec<String> {
+    let mut blockers = Vec::new();
+    if snapshot
+        .counterpoint_doc_ref
+        .as_deref()
+        .is_none_or(|value| value.trim().is_empty())
+    {
+        blockers.push("not_counterpoint_open_document".to_string());
+    }
+    if !snapshot.is_counterpoint_import {
+        blockers.push("not_counterpoint_import".to_string());
+    }
+    if snapshot.is_superseded {
+        blockers.push("superseded_counterpoint_transaction".to_string());
+    }
+    if snapshot.current_status != "fulfilled" {
+        blockers.push("transaction_is_not_currently_fulfilled".to_string());
+    }
+    if snapshot.active_business_line_count == 0 {
+        blockers.push("no_active_business_lines".to_string());
+    }
+    if snapshot.open_active_business_line_count == 0 {
+        blockers.push("no_open_active_business_lines".to_string());
+    }
+    if snapshot.open_active_business_line_count != snapshot.active_business_line_count {
+        blockers.push("mixed_open_and_fulfilled_lines_require_manual_review".to_string());
+    }
+    if snapshot.open_line_with_fulfilled_timestamp_count != 0 {
+        blockers.push("open_line_has_fulfilled_timestamp".to_string());
+    }
+    if !snapshot.payment_matches_stored_amount {
+        blockers.push("stored_paid_amount_does_not_match_allocated_tender".to_string());
+    }
+    if snapshot.payment_allocation_count != 0 {
+        blockers.push("payment_allocation_attachment_history_is_not_auditable".to_string());
+    }
+    if snapshot.invalid_payment_allocation_count != 0 {
+        blockers.push("invalid_or_superseded_payment_allocation_requires_review".to_string());
+    }
+    if !snapshot.header_balance_equation_valid {
+        blockers.push("header_total_paid_balance_equation_is_invalid".to_string());
+    }
+    if !snapshot.line_financial_total_matches_header {
+        blockers.push("line_and_shipping_total_does_not_match_header_total".to_string());
+    }
+    if snapshot.commission_on_open_line_count != 0 || snapshot.commission_event_count != 0 {
+        blockers.push("commission_event_exists_on_open_line".to_string());
+    }
+    if snapshot.inventory_movement_count != 0 {
+        blockers.push("inventory_movement_exists_for_open_transaction".to_string());
+    }
+    if snapshot.loyalty_accrual_count != 0 || snapshot.loyalty_ledger_count != 0 {
+        blockers.push("loyalty_effect_exists_for_open_transaction".to_string());
+    }
+    if !snapshot.loyalty_consistent {
+        blockers.push("loyalty_records_are_internally_inconsistent".to_string());
+    }
+    if snapshot.unsafe_qbo_transaction_outbox_count != 0 {
+        blockers.push("transaction_level_qbo_state_may_have_posted_externally".to_string());
+    }
+    if snapshot.operational_outbox_count != 0 {
+        blockers
+            .push("transaction_has_downstream_job_effects_that_require_manual_review".to_string());
+    }
+    if snapshot.current_recognition_at.is_none() {
+        blockers.push("transaction_is_not_currently_recognized_as_revenue".to_string());
+    }
+    blockers
+}
+
+fn reviewed_manifest_digest(
+    request: &RecoveryReviewRequest,
+    transaction_ids: &[Uuid],
+    normalized_reason: &str,
+    snapshots: &[SnapshotRow],
+) -> Result<String, FulfillmentRecoveryError> {
+    let reviewed = ReviewedManifest {
+        contract_version: "fulfillment-recovery-v1",
+        operation_kind: "counterpoint_false_fulfillment_restore_open",
+        operation_id: request.operation_id,
+        correlation_id: request.correlation_id,
+        transaction_ids,
+        expected_transaction_count: request.expected_transaction_count,
+        actor_staff_id: request.actor_staff_id,
+        confirming_manager_staff_id: request.confirming_manager_staff_id,
+        reason: normalized_reason,
+        acknowledge_qbo_traceability_gap: request.acknowledge_qbo_traceability_gap,
+        snapshots,
+    };
+    let encoded = serde_json::to_vec(&reviewed)?;
+    Ok(format!("{:x}", Sha256::digest(encoded)))
+}
+
+async fn lock_transaction_scope(
+    connection: &mut PgConnection,
+    transaction_ids: &[Uuid],
+) -> Result<(), FulfillmentRecoveryError> {
+    let locked: Vec<Uuid> = sqlx::query_scalar(
+        r#"
+        SELECT id
+        FROM transactions
+        WHERE id = ANY($1::uuid[])
+        ORDER BY id
+        FOR UPDATE
+        "#,
+    )
+    .bind(transaction_ids)
+    .fetch_all(&mut *connection)
+    .await?;
+
+    if locked.len() != transaction_ids.len() {
+        let missing: Vec<Uuid> = transaction_ids
+            .iter()
+            .copied()
+            .filter(|id| locked.binary_search(id).is_err())
+            .collect();
+        return Err(FulfillmentRecoveryError::InvalidRequest(format!(
+            "unknown Transaction Record ID(s): {}",
+            missing
+                .iter()
+                .map(Uuid::to_string)
+                .collect::<Vec<_>>()
+                .join(", ")
+        )));
+    }
+    Ok(())
+}
+
+async fn load_snapshots(
+    connection: &mut PgConnection,
+    transaction_ids: &[Uuid],
+    operation_id: Uuid,
+) -> Result<Vec<SnapshotRow>, FulfillmentRecoveryError> {
+    let rows = sqlx::query_as::<_, SnapshotRow>(
+        r#"
+        SELECT
+            t.id AS transaction_id,
+            COALESCE(NULLIF(btrim(t.display_id), ''), t.counterpoint_doc_ref, t.id::text)
+                AS display_id,
+            t.status::text AS current_status,
+            t.fulfillment_method::text AS fulfillment_method,
+            t.fulfilled_at AS current_fulfilled_at,
+            t.counterpoint_doc_ref,
+            t.is_counterpoint_import,
+            COALESCE(t.metadata->>'counterpoint_reconciliation_status', '') = 'superseded'
+                AS is_superseded,
+            (
+                SELECT COUNT(*)::bigint
+                FROM transaction_lines line
+                WHERE line.transaction_id = t.id
+                  AND NOT COALESCE(line.is_internal, FALSE)
+                  AND GREATEST(
+                      line.quantity - COALESCE((
+                          SELECT SUM(returned.quantity_returned)::integer
+                          FROM transaction_return_lines returned
+                          WHERE returned.transaction_line_id = line.id
+                      ), 0),
+                      0
+                  ) > 0
+            ) AS active_business_line_count,
+            (
+                SELECT COUNT(*)::bigint
+                FROM transaction_lines line
+                WHERE line.transaction_id = t.id
+                  AND NOT COALESCE(line.is_internal, FALSE)
+                  AND NOT line.is_fulfilled
+                  AND GREATEST(
+                      line.quantity - COALESCE((
+                          SELECT SUM(returned.quantity_returned)::integer
+                          FROM transaction_return_lines returned
+                          WHERE returned.transaction_line_id = line.id
+                      ), 0),
+                      0
+                  ) > 0
+            ) AS open_active_business_line_count,
+            (
+                SELECT COUNT(*)::bigint
+                FROM transaction_lines line
+                WHERE line.transaction_id = t.id
+                  AND NOT COALESCE(line.is_internal, FALSE)
+                  AND NOT line.is_fulfilled
+                  AND line.fulfilled_at IS NOT NULL
+                  AND GREATEST(
+                      line.quantity - COALESCE((
+                          SELECT SUM(returned.quantity_returned)::integer
+                          FROM transaction_return_lines returned
+                          WHERE returned.transaction_line_id = line.id
+                      ), 0),
+                      0
+                  ) > 0
+            ) AS open_line_with_fulfilled_timestamp_count,
+            (
+                SELECT COUNT(*)::bigint
+                FROM commission_events commission
+                INNER JOIN transaction_lines line
+                    ON line.id = commission.transaction_line_id
+                WHERE commission.transaction_id = t.id
+                  AND NOT COALESCE(line.is_internal, FALSE)
+                  AND NOT line.is_fulfilled
+            ) AS commission_on_open_line_count,
+            (
+                SELECT COUNT(*)::bigint
+                FROM commission_events commission
+                WHERE commission.transaction_id = t.id
+            ) AS commission_event_count,
+            (
+                NOT EXISTS (
+                    SELECT 1
+                    FROM commission_events commission
+                    LEFT JOIN transaction_lines line
+                        ON line.id = commission.transaction_line_id
+                    WHERE commission.transaction_id = t.id
+                      AND (
+                          line.id IS NULL
+                          OR line.transaction_id IS DISTINCT FROM t.id
+                          OR NOT line.is_fulfilled
+                          OR commission.source_event_id IS DISTINCT FROM line.id
+                          OR commission.staff_id IS DISTINCT FROM line.salesperson_id
+                          OR commission.event_type IS DISTINCT FROM (
+                              CASE
+                                  WHEN COALESCE(line.is_internal, FALSE)
+                                      THEN 'combo_incentive'
+                                  ELSE 'sale_commission'
+                              END
+                          )
+                          OR commission.total_commission_amount
+                              IS DISTINCT FROM line.calculated_commission
+                      )
+                )
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM transaction_lines line
+                    WHERE line.transaction_id = t.id
+                      AND line.is_fulfilled
+                      AND line.salesperson_id IS NOT NULL
+                      AND line.calculated_commission <> 0::numeric
+                      AND NOT EXISTS (
+                          SELECT 1
+                          FROM commission_events commission
+                          WHERE commission.transaction_id = t.id
+                            AND commission.transaction_line_id = line.id
+                            AND commission.source_event_id = line.id
+                            AND commission.staff_id = line.salesperson_id
+                            AND commission.event_type = (
+                                CASE
+                                    WHEN COALESCE(line.is_internal, FALSE)
+                                        THEN 'combo_incentive'
+                                    ELSE 'sale_commission'
+                                END
+                            )
+                            AND commission.total_commission_amount
+                                = line.calculated_commission
+                      )
+                )
+            ) AS commission_consistent_with_fulfilled_lines,
+            (
+                SELECT COUNT(*)::bigint
+                FROM payment_allocations allocation
+                WHERE allocation.target_transaction_id = t.id
+            ) AS payment_allocation_count,
+            (
+                SELECT COUNT(*)::bigint
+                FROM payment_allocations allocation
+                LEFT JOIN payment_transactions payment
+                    ON payment.id = allocation.transaction_id
+                WHERE allocation.target_transaction_id = t.id
+                  AND (
+                      payment.id IS NULL
+                      OR payment.status IS DISTINCT FROM 'success'
+                      OR COALESCE(
+                          payment.metadata->>'counterpoint_reconciliation_action',
+                          ''
+                      ) = 'superseded_duplicate'
+                  )
+            ) AS invalid_payment_allocation_count,
+            COALESCE((
+                SELECT SUM(allocation.amount_allocated)
+                FROM payment_allocations allocation
+                INNER JOIN payment_transactions payment
+                    ON payment.id = allocation.transaction_id
+                WHERE allocation.target_transaction_id = t.id
+                  AND payment.status = 'success'
+                  AND COALESCE(
+                      payment.metadata->>'counterpoint_reconciliation_action',
+                      ''
+                  ) <> 'superseded_duplicate'
+            ), 0::numeric) = t.amount_paid AS payment_matches_stored_amount,
+            ROUND(
+                t.total_price
+                + COALESCE(t.rounding_adjustment, 0::numeric)
+                - COALESCE(t.amount_paid, 0::numeric),
+                2
+            ) = ROUND(t.balance_due, 2) AS header_balance_equation_valid,
+            ROUND(
+                COALESCE((
+                    SELECT SUM(
+                        (
+                            line.unit_price
+                            + COALESCE(line.state_tax, 0::numeric)
+                            + COALESCE(line.local_tax, 0::numeric)
+                        ) * line.quantity::numeric
+                    )
+                    FROM transaction_lines line
+                    WHERE line.transaction_id = t.id
+                ), 0::numeric)
+                + COALESCE(t.shipping_amount_usd, 0::numeric),
+                2
+            ) = ROUND(t.total_price, 2) AS line_financial_total_matches_header,
+            (
+                SELECT COUNT(*)::bigint
+                FROM inventory_transactions movement
+                WHERE movement.reference_table = 'transactions'
+                  AND movement.reference_id = t.id
+            ) AS inventory_movement_count,
+            (
+                SELECT COUNT(*)::bigint
+                FROM transaction_loyalty_accrual accrual
+                WHERE accrual.transaction_id = t.id
+            ) AS loyalty_accrual_count,
+            (
+                SELECT COUNT(*)::bigint
+                FROM loyalty_point_ledger ledger
+                WHERE ledger.transaction_id = t.id
+            ) AS loyalty_ledger_count,
+            (
+                (
+                    NOT EXISTS (
+                        SELECT 1
+                        FROM transaction_loyalty_accrual accrual
+                        WHERE accrual.transaction_id = t.id
+                    )
+                    AND NOT EXISTS (
+                        SELECT 1
+                        FROM loyalty_point_ledger ledger
+                        WHERE ledger.transaction_id = t.id
+                    )
+                )
+                OR (
+                    (
+                        SELECT COUNT(*) = 1
+                        FROM transaction_loyalty_accrual accrual
+                        WHERE accrual.transaction_id = t.id
+                    )
+                    AND (
+                        SELECT COUNT(*) = 1
+                        FROM loyalty_point_ledger ledger
+                        WHERE ledger.transaction_id = t.id
+                          AND ledger.reason = 'order_earn'
+                    )
+                    AND EXISTS (
+                        SELECT 1
+                        FROM transaction_loyalty_accrual accrual
+                        INNER JOIN loyalty_point_ledger ledger
+                            ON ledger.transaction_id = accrual.transaction_id
+                        WHERE accrual.transaction_id = t.id
+                          AND ledger.reason = 'order_earn'
+                          AND ledger.delta_points = accrual.points_earned
+                    )
+                )
+            ) AS loyalty_consistent,
+            (
+                SELECT COUNT(*)::bigint
+                FROM qbo_sync_outbox outbox
+                WHERE outbox.transaction_id = t.id
+                  AND outbox.status IS DISTINCT FROM 'retired_daily_staging_only'
+            ) AS unsafe_qbo_transaction_outbox_count,
+            (
+                SELECT COUNT(*)::bigint
+                FROM operational_outbox outbox
+                WHERE outbox.payload->>'transaction_id' = t.id::text
+            ) AS operational_outbox_count,
+            reporting.order_recognition_at(
+                t.id,
+                t.fulfillment_method::text,
+                t.status::text,
+                t.fulfilled_at
+            ) AS current_recognition_at,
+            to_jsonb(t) AS transaction_evidence,
+            COALESCE((
+                SELECT jsonb_agg(
+                    to_jsonb(line)
+                    || jsonb_build_object(
+                        'remaining_quantity',
+                        GREATEST(
+                            line.quantity - COALESCE((
+                                SELECT SUM(returned.quantity_returned)::integer
+                                FROM transaction_return_lines returned
+                                WHERE returned.transaction_line_id = line.id
+                            ), 0),
+                            0
+                        ),
+                        'return_lines',
+                        COALESCE((
+                            SELECT jsonb_agg(to_jsonb(returned) ORDER BY returned.id)
+                            FROM transaction_return_lines returned
+                            WHERE returned.transaction_line_id = line.id
+                        ), '[]'::jsonb)
+                    )
+                    ORDER BY line.id
+                )
+                FROM transaction_lines line
+                WHERE line.transaction_id = t.id
+            ), '[]'::jsonb) AS line_evidence,
+            jsonb_build_object(
+                'stored_amount_paid', t.amount_paid::text,
+                'allocated_tender_total', COALESCE((
+                    SELECT SUM(allocation.amount_allocated)
+                    FROM payment_allocations allocation
+                    INNER JOIN payment_transactions payment
+                        ON payment.id = allocation.transaction_id
+                    WHERE allocation.target_transaction_id = t.id
+                      AND payment.status = 'success'
+                      AND COALESCE(
+                          payment.metadata->>'counterpoint_reconciliation_action',
+                          ''
+                      ) <> 'superseded_duplicate'
+                ), 0::numeric)::text,
+                'allocations', COALESCE((
+                    SELECT jsonb_agg(jsonb_build_object(
+                        'allocation_id', allocation.id,
+                        'target_transaction_id', allocation.target_transaction_id,
+                        'payment_transaction_id', payment.id,
+                        'amount_allocated', allocation.amount_allocated::text,
+                        'allocation_check_number', allocation.check_number,
+                        'allocation_metadata', allocation.metadata,
+                        'session_id', payment.session_id,
+                        'payer_id', payment.payer_id,
+                        'payment_category', payment.category::text,
+                        'payment_amount', payment.amount::text,
+                        'payment_method', payment.payment_method,
+                        'payment_status', payment.status,
+                        'is_posted_to_rms_portal', payment.is_posted_to_rms_portal,
+                        'wedding_member_id', payment.wedding_member_id,
+                        'occurred_at', payment.occurred_at,
+                        'effective_date', payment.effective_date,
+                        'merchant_fee', payment.merchant_fee::text,
+                        'net_amount', payment.net_amount::text,
+                        'card_brand', payment.card_brand,
+                        'card_last4', payment.card_last4,
+                        'check_number', payment.check_number,
+                        'payment_provider', payment.payment_provider,
+                        'provider_payment_id', payment.provider_payment_id,
+                        'provider_status', payment.provider_status,
+                        'provider_terminal_id', payment.provider_terminal_id,
+                        'provider_transaction_id', payment.provider_transaction_id,
+                        'provider_card_type', payment.provider_card_type,
+                        'counterpoint_reconciliation_action',
+                            payment.metadata->>'counterpoint_reconciliation_action',
+                        'payment_metadata',
+                            COALESCE(payment.metadata, '{}'::jsonb)
+                                - ARRAY[
+                                    'card_number',
+                                    'cvv',
+                                    'cvc',
+                                    'track_data',
+                                    'raw_response',
+                                    'provider_auth_code'
+                                ]::text[],
+                        'created_at', payment.created_at
+                    ) ORDER BY allocation.id)
+                    FROM payment_allocations allocation
+                    LEFT JOIN payment_transactions payment
+                        ON payment.id = allocation.transaction_id
+                    WHERE allocation.target_transaction_id = t.id
+                ), '[]'::jsonb)
+            ) AS payment_evidence,
+            jsonb_build_object(
+                'historical_movements', COALESCE((
+                    SELECT jsonb_agg(to_jsonb(movement) ORDER BY movement.id)
+                    FROM inventory_transactions movement
+                    WHERE movement.reference_table = 'transactions'
+                      AND movement.reference_id = t.id
+                ), '[]'::jsonb),
+                'current_variant_balances', COALESCE((
+                    SELECT jsonb_agg(jsonb_build_object(
+                        'variant_id', variant.id,
+                        'stock_on_hand', variant.stock_on_hand,
+                        'reserved_stock', variant.reserved_stock,
+                        'on_layaway', variant.on_layaway
+                    ) ORDER BY variant.id)
+                    FROM product_variants variant
+                    WHERE variant.id IN (
+                        SELECT DISTINCT line.variant_id
+                        FROM transaction_lines line
+                        WHERE line.transaction_id = t.id
+                          AND line.variant_id IS NOT NULL
+                    )
+                ), '[]'::jsonb),
+                'historical_balance_traceability',
+                    'current balances are captured; schema does not retain pre-movement balances'
+            ) AS inventory_evidence,
+            jsonb_build_object(
+                'recognition_at', reporting.order_recognition_at(
+                    t.id,
+                    t.fulfillment_method::text,
+                    t.status::text,
+                    t.fulfilled_at
+                ),
+                'recognition_contract', 'reporting.order_recognition_at'
+            ) AS revenue_evidence,
+            COALESCE((
+                SELECT jsonb_agg(to_jsonb(commission) ORDER BY commission.id)
+                FROM commission_events commission
+                WHERE commission.transaction_id = t.id
+            ), '[]'::jsonb) AS commission_evidence,
+            jsonb_build_object(
+                'accruals', COALESCE((
+                    SELECT jsonb_agg(to_jsonb(accrual) ORDER BY accrual.created_at)
+                    FROM transaction_loyalty_accrual accrual
+                    WHERE accrual.transaction_id = t.id
+                ), '[]'::jsonb),
+                'ledger', COALESCE((
+                    SELECT jsonb_agg(to_jsonb(ledger) ORDER BY ledger.id)
+                    FROM loyalty_point_ledger ledger
+                    WHERE ledger.transaction_id = t.id
+                ), '[]'::jsonb),
+                'internally_consistent', (
+                    (
+                        NOT EXISTS (
+                            SELECT 1
+                            FROM transaction_loyalty_accrual accrual
+                            WHERE accrual.transaction_id = t.id
+                        )
+                        AND NOT EXISTS (
+                            SELECT 1
+                            FROM loyalty_point_ledger ledger
+                            WHERE ledger.transaction_id = t.id
+                        )
+                    )
+                    OR (
+                        (
+                            SELECT COUNT(*) = 1
+                            FROM transaction_loyalty_accrual accrual
+                            WHERE accrual.transaction_id = t.id
+                        )
+                        AND (
+                            SELECT COUNT(*) = 1
+                            FROM loyalty_point_ledger ledger
+                            WHERE ledger.transaction_id = t.id
+                              AND ledger.reason = 'order_earn'
+                        )
+                        AND EXISTS (
+                            SELECT 1
+                            FROM transaction_loyalty_accrual accrual
+                            INNER JOIN loyalty_point_ledger ledger
+                                ON ledger.transaction_id = accrual.transaction_id
+                            WHERE accrual.transaction_id = t.id
+                              AND ledger.reason = 'order_earn'
+                              AND ledger.delta_points = accrual.points_earned
+                        )
+                    )
+                )
+            ) AS loyalty_evidence,
+            jsonb_build_object(
+                'transaction_activity', COALESCE((
+                    SELECT jsonb_agg(to_jsonb(activity) ORDER BY activity.id)
+                    FROM transaction_activity_log activity
+                    WHERE activity.transaction_id = t.id
+                ), '[]'::jsonb),
+                'bulk_transition_events', COALESCE((
+                    SELECT jsonb_agg(to_jsonb(transition) ORDER BY transition.id)
+                    FROM bulk_fulfillment_transition_event transition
+                    WHERE transition.transaction_id = t.id
+                ), '[]'::jsonb)
+            ) AS audit_evidence,
+            jsonb_build_object(
+                'traceability', $2::text,
+                'transaction_outbox', COALESCE((
+                    SELECT jsonb_agg(to_jsonb(outbox) ORDER BY outbox.id)
+                    FROM qbo_sync_outbox outbox
+                    WHERE outbox.transaction_id = t.id
+                ), '[]'::jsonb),
+                'operational_outbox', COALESCE((
+                    SELECT jsonb_agg(to_jsonb(outbox) ORDER BY outbox.id)
+                    FROM operational_outbox outbox
+                    WHERE outbox.payload->>'transaction_id' = t.id::text
+                ), '[]'::jsonb),
+                'aggregate_daily_staging_not_transaction_attributable', COALESCE((
+                    SELECT jsonb_agg(to_jsonb(staging) ORDER BY staging.sync_date, staging.id)
+                    FROM qbo_sync_logs staging
+                    WHERE staging.sync_date IN (
+                        SELECT relevant_date
+                        FROM (
+                            SELECT COALESCE(
+                                t.business_date,
+                                (t.booked_at AT TIME ZONE
+                                    reporting.effective_store_timezone())::date
+                            ) AS relevant_date
+                            UNION
+                            SELECT
+                                (t.fulfilled_at AT TIME ZONE
+                                    reporting.effective_store_timezone())::date
+                            WHERE t.fulfilled_at IS NOT NULL
+                            UNION
+                            SELECT
+                                (line.fulfilled_at AT TIME ZONE
+                                    reporting.effective_store_timezone())::date
+                            FROM transaction_lines line
+                            WHERE line.transaction_id = t.id
+                              AND line.fulfilled_at IS NOT NULL
+                            UNION
+                            SELECT
+                                (line.picked_up_at AT TIME ZONE
+                                    reporting.effective_store_timezone())::date
+                            FROM transaction_lines line
+                            WHERE line.transaction_id = t.id
+                              AND line.picked_up_at IS NOT NULL
+                            UNION
+                            SELECT
+                                ((transition.before_state->>'fulfilled_at')::timestamptz
+                                    AT TIME ZONE reporting.effective_store_timezone())::date
+                            FROM bulk_fulfillment_transition_event transition
+                            WHERE transition.transaction_id = t.id
+                              AND transition.before_state->>'fulfilled_at' IS NOT NULL
+                            UNION
+                            SELECT
+                                ((transition.after_state->>'fulfilled_at')::timestamptz
+                                    AT TIME ZONE reporting.effective_store_timezone())::date
+                            FROM bulk_fulfillment_transition_event transition
+                            WHERE transition.transaction_id = t.id
+                              AND transition.after_state->>'fulfilled_at' IS NOT NULL
+                        ) relevant_dates
+                        WHERE relevant_date IS NOT NULL
+                    )
+                ), '[]'::jsonb),
+                'daily_staging_limit',
+                    'daily staging rows aggregate a whole business date and cannot prove this Transaction Record was or was not posted'
+            ) AS qbo_evidence,
+            (
+                SELECT COUNT(*)::bigint
+                FROM transaction_activity_log activity
+                WHERE activity.transaction_id = t.id
+            ) AS activity_count,
+            (
+                SELECT COUNT(*)::bigint
+                FROM transaction_activity_log activity
+                WHERE activity.transaction_id = t.id
+                  AND activity.metadata->>'bulk_fulfillment_operation_id' = $3::text
+            ) AS operation_activity_count,
+            (
+                SELECT COUNT(*)::bigint
+                FROM bulk_fulfillment_transition_event transition
+                WHERE transition.transaction_id = t.id
+            ) AS transition_count,
+            (
+                SELECT COUNT(*)::bigint
+                FROM bulk_fulfillment_transition_event transition
+                WHERE transition.transaction_id = t.id
+                  AND transition.operation_id = $3
+            ) AS operation_transition_count
+        FROM unnest($1::uuid[]) WITH ORDINALITY requested(transaction_id, ordinal)
+        INNER JOIN transactions t ON t.id = requested.transaction_id
+        ORDER BY requested.ordinal
+        "#,
+    )
+    .bind(transaction_ids)
+    .bind(QBO_TRACEABILITY)
+    .bind(operation_id)
+    .fetch_all(&mut *connection)
+    .await?;
+
+    if rows.len() != transaction_ids.len() {
+        return Err(FulfillmentRecoveryError::InvalidRequest(
+            "one or more requested Transaction Record IDs do not exist".to_string(),
+        ));
+    }
+    Ok(rows)
+}
+
+async fn load_restore_pickup_recognition_proof(
+    connection: &mut PgConnection,
+    transaction_id: Uuid,
+    prior_correction_activity_id: Uuid,
+) -> Result<RestorePickupRecognitionProof, FulfillmentRecoveryError> {
+    let proof = sqlx::query_as::<_, RestorePickupRecognitionProof>(
+        r#"
+        WITH selected_correction AS (
+            SELECT activity.id, activity.created_at
+            FROM transaction_activity_log activity
+            WHERE activity.id = $2
+              AND activity.transaction_id = $1
+              AND activity.event_kind = 'status_corrected'
+              AND activity.metadata->>'prior_status' = 'fulfilled'
+              AND activity.metadata->>'new_status' = 'open'
+        ),
+        latest_open_correction AS (
+            SELECT activity.id, activity.created_at
+            FROM transaction_activity_log activity
+            WHERE activity.transaction_id = $1
+              AND activity.event_kind = 'status_corrected'
+              AND activity.metadata->>'prior_status' = 'fulfilled'
+              AND activity.metadata->>'new_status' = 'open'
+            ORDER BY activity.created_at DESC, activity.id DESC
+            LIMIT 1
+        ),
+        returned AS (
+            SELECT
+                return_line.transaction_line_id,
+                SUM(return_line.quantity_returned)::integer AS returned_quantity
+            FROM transaction_return_lines return_line
+            GROUP BY return_line.transaction_line_id
+        ),
+        active_lines AS (
+            SELECT
+                line.id,
+                line.variant_id,
+                line.quantity,
+                line.fulfillment::text AS fulfillment,
+                line.is_fulfilled,
+                line.fulfilled_at,
+                line.picked_up_at,
+                COALESCE(returned.returned_quantity, 0) AS returned_quantity
+            FROM transaction_lines line
+            LEFT JOIN returned ON returned.transaction_line_id = line.id
+            WHERE line.transaction_id = $1
+              AND NOT COALESCE(line.is_internal, FALSE)
+              AND GREATEST(line.quantity - COALESCE(returned.returned_quantity, 0), 0) > 0
+        ),
+        release_evidence AS (
+            SELECT
+                line.*,
+                pickup.event_id AS pickup_event_id,
+                pickup.event_at AS pickup_event_at,
+                CASE
+                    WHEN pickup.event_id IS NOT NULL
+                      AND line.is_fulfilled
+                      AND line.picked_up_at IS NOT NULL
+                        THEN GREATEST(line.picked_up_at, line.fulfilled_at)
+                    ELSE NULL
+                END AS release_at
+            FROM active_lines line
+            LEFT JOIN LATERAL (
+                SELECT event.id AS event_id, event.created_at AS event_at
+                FROM transaction_line_lifecycle_events event
+                WHERE event.transaction_line_id = line.id
+                  AND event.new_status = 'picked_up'::order_item_lifecycle_status
+                  AND event.source_workflow = 'pickup'
+                  AND event.metadata->>'transaction_id' = $1::text
+                  AND event.created_at >= COALESCE(line.picked_up_at, line.fulfilled_at)
+                ORDER BY event.created_at DESC, event.id DESC
+                LIMIT 1
+            ) pickup ON TRUE
+        ),
+        expected_inventory AS (
+            SELECT
+                line.variant_id,
+                SUM(line.quantity)::integer AS released_quantity
+            FROM active_lines line
+            WHERE line.fulfillment IN ('special_order', 'custom', 'wedding_order', 'layaway')
+            GROUP BY line.variant_id
+        ),
+        actual_inventory AS (
+            SELECT
+                movement.variant_id,
+                (-SUM(movement.quantity_delta))::integer AS released_quantity
+            FROM inventory_transactions movement
+            WHERE movement.reference_table = 'transactions'
+              AND movement.reference_id = $1
+              AND movement.tx_type = 'sale'::inventory_tx_type
+              AND movement.quantity_delta < 0
+              AND movement.notes LIKE 'Pickup fulfillment stock decrement%'
+            GROUP BY movement.variant_id
+        ),
+        inventory_proof AS (
+            SELECT
+                COALESCE((
+                    SELECT jsonb_agg(to_jsonb(expected) ORDER BY expected.variant_id)
+                    FROM expected_inventory expected
+                ), '[]'::jsonb) AS expected,
+                COALESCE((
+                    SELECT jsonb_agg(to_jsonb(actual) ORDER BY actual.variant_id)
+                    FROM actual_inventory actual
+                ), '[]'::jsonb) AS actual,
+                COALESCE((
+                    SELECT jsonb_agg(to_jsonb(movement) ORDER BY movement.id)
+                    FROM inventory_transactions movement
+                    WHERE movement.reference_table = 'transactions'
+                      AND movement.reference_id = $1
+                ), '[]'::jsonb) AS movement_rows,
+                (
+                    SELECT COUNT(*)::bigint
+                    FROM inventory_transactions movement
+                    WHERE movement.reference_table = 'transactions'
+                      AND movement.reference_id = $1
+                      AND movement.tx_type = 'sale'::inventory_tx_type
+                      AND movement.quantity_delta < 0
+                      AND movement.notes LIKE 'Pickup fulfillment stock decrement%'
+                ) AS canonical_movement_count,
+                (
+                    SELECT COUNT(*)::bigint
+                    FROM inventory_transactions movement
+                    WHERE movement.reference_table = 'transactions'
+                      AND movement.reference_id = $1
+                      AND (
+                          movement.tx_type IS DISTINCT FROM 'sale'::inventory_tx_type
+                          OR movement.quantity_delta >= 0
+                          OR movement.notes IS NULL
+                          OR movement.notes NOT LIKE 'Pickup fulfillment stock decrement%'
+                      )
+                ) AS invalid_movement_count
+        ),
+        release_rollup AS (
+            SELECT
+                COUNT(*)::bigint AS active_business_line_count,
+                COUNT(*) FILTER (WHERE NOT is_fulfilled)::bigint
+                    AS open_active_business_line_count,
+                COUNT(*) FILTER (WHERE returned_quantity <> 0)::bigint
+                    AS returned_business_line_count,
+                COUNT(*) FILTER (
+                    WHERE fulfillment NOT IN (
+                        'special_order', 'custom', 'wedding_order', 'layaway'
+                    )
+                )::bigint AS non_order_style_line_count,
+                COUNT(*) FILTER (WHERE variant_id IS NULL)::bigint
+                    AS missing_variant_line_count,
+                COUNT(*) FILTER (WHERE release_at IS NULL)::bigint
+                    AS missing_release_evidence_count,
+                COUNT(*) FILTER (
+                    WHERE release_at > (SELECT created_at FROM selected_correction)
+                )::bigint AS release_evidence_after_correction_count,
+                MAX(release_at) AS proven_fulfilled_at,
+                COALESCE(jsonb_agg(jsonb_build_object(
+                    'transaction_line_id', id,
+                    'variant_id', variant_id,
+                    'quantity', quantity,
+                    'fulfillment', fulfillment,
+                    'is_fulfilled', is_fulfilled,
+                    'fulfilled_at', fulfilled_at,
+                    'picked_up_at', picked_up_at,
+                    'pickup_lifecycle_event_id', pickup_event_id,
+                    'pickup_lifecycle_event_at', pickup_event_at,
+                    'proven_release_at', release_at
+                ) ORDER BY id), '[]'::jsonb) AS line_proof
+            FROM release_evidence
+        )
+        SELECT
+            transaction.id AS transaction_id,
+            selected_correction.id AS correction_activity_id,
+            selected_correction.created_at AS correction_at,
+            latest_open_correction.id AS latest_open_correction_activity_id,
+            latest_open_correction.created_at AS latest_open_correction_at,
+            transaction.status::text AS current_status,
+            transaction.fulfilled_at AS current_fulfilled_at,
+            transaction.balance_due::text AS balance_due,
+            transaction.balance_due = 0::numeric AS balance_due_is_zero,
+            transaction.balance_due > 0::numeric AS balance_due_is_positive,
+            rollup.active_business_line_count,
+            rollup.open_active_business_line_count,
+            rollup.returned_business_line_count,
+            rollup.non_order_style_line_count,
+            rollup.missing_variant_line_count,
+            rollup.missing_release_evidence_count,
+            rollup.release_evidence_after_correction_count,
+            (
+                SELECT COUNT(*)::bigint
+                FROM transaction_activity_log activity
+                WHERE activity.transaction_id = transaction.id
+                  AND activity.event_kind = 'pickup'
+                  AND activity.created_at > selected_correction.created_at
+                  AND EXISTS (
+                      SELECT 1
+                      FROM release_evidence released
+                      WHERE released.release_at > selected_correction.created_at
+                        AND activity.metadata->'delivered_item_ids'
+                            @> jsonb_build_array(released.id::text)
+                  )
+            ) AS release_activity_after_correction_count,
+            (
+                SELECT COUNT(*)::bigint
+                FROM release_evidence released
+                WHERE released.release_at > selected_correction.created_at
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM transaction_activity_log activity
+                      WHERE activity.transaction_id = transaction.id
+                        AND activity.event_kind = 'pickup'
+                        AND activity.created_at > selected_correction.created_at
+                        AND activity.metadata->'delivered_item_ids'
+                            @> jsonb_build_array(released.id::text)
+                  )
+            ) AS missing_release_activity_line_count,
+            (
+                SELECT COUNT(*)::bigint
+                FROM payment_allocations allocation
+                INNER JOIN payment_transactions payment
+                    ON payment.id = allocation.transaction_id
+                WHERE allocation.target_transaction_id = transaction.id
+                  AND payment.created_at > selected_correction.created_at
+            ) AS allocated_payment_created_after_correction_count,
+            (
+                SELECT COUNT(*)::bigint
+                FROM commission_events commission
+                LEFT JOIN transaction_lines line
+                    ON line.id = commission.transaction_line_id
+                WHERE commission.transaction_id = transaction.id
+                  AND commission.created_at > selected_correction.created_at
+                  AND NOT (
+                      commission.source_event_id = commission.transaction_line_id
+                      AND commission.event_type IN (
+                          'sale_commission', 'spiff', 'combo_incentive'
+                      )
+                      AND line.is_fulfilled
+                  )
+            ) AS unexplained_commission_rows_after_correction_count,
+            inventory.canonical_movement_count AS canonical_inventory_movement_count,
+            inventory.invalid_movement_count AS invalid_canonical_inventory_movement_count,
+            inventory.expected = inventory.actual
+                AS inventory_matches_released_quantities,
+            rollup.proven_fulfilled_at,
+            jsonb_build_object(
+                'selected_prior_correction', jsonb_build_object(
+                    'activity_id', selected_correction.id,
+                    'created_at', selected_correction.created_at
+                ),
+                'latest_open_correction', jsonb_build_object(
+                    'activity_id', latest_open_correction.id,
+                    'created_at', latest_open_correction.created_at
+                ),
+                'line_release_evidence', rollup.line_proof,
+                'expected_inventory_by_variant', inventory.expected,
+                'actual_canonical_release_inventory_by_variant', inventory.actual,
+                'transaction_referenced_inventory_movements', inventory.movement_rows,
+                'canonical_inventory_movement_count', inventory.canonical_movement_count,
+                'invalid_canonical_inventory_movement_count',
+                    inventory.invalid_movement_count,
+                'inventory_matches_released_quantities', inventory.expected = inventory.actual,
+                'inventory_traceability_limit',
+                    'movement rows link to the Transaction Record and variant, but not to an individual line or pickup event',
+                'allocated_payments_created_after_selected_correction', (
+                    SELECT COALESCE(jsonb_agg(jsonb_build_object(
+                        'allocation_id', allocation.id,
+                        'payment_transaction_id', payment.id,
+                        'amount_allocated', allocation.amount_allocated::text,
+                        'payment_method', payment.payment_method,
+                        'payment_status', payment.status,
+                        'created_at', payment.created_at
+                    ) ORDER BY allocation.id), '[]'::jsonb)
+                    FROM payment_allocations allocation
+                    INNER JOIN payment_transactions payment
+                        ON payment.id = allocation.transaction_id
+                    WHERE allocation.target_transaction_id = transaction.id
+                      AND payment.created_at > selected_correction.created_at
+                ),
+                'commission_rows_after_selected_correction', (
+                    SELECT COALESCE(jsonb_agg(jsonb_build_object(
+                        'commission_event_id', commission.id,
+                        'transaction_line_id', commission.transaction_line_id,
+                        'source_event_id', commission.source_event_id,
+                        'event_type', commission.event_type,
+                        'event_at', commission.event_at,
+                        'created_at', commission.created_at
+                    ) ORDER BY commission.id), '[]'::jsonb)
+                    FROM commission_events commission
+                    WHERE commission.transaction_id = transaction.id
+                      AND commission.created_at > selected_correction.created_at
+                )
+            ) AS proof_evidence
+        FROM transactions transaction
+        LEFT JOIN selected_correction ON TRUE
+        LEFT JOIN latest_open_correction ON TRUE
+        CROSS JOIN release_rollup rollup
+        CROSS JOIN inventory_proof inventory
+        WHERE transaction.id = $1
+        "#,
+    )
+    .bind(transaction_id)
+    .bind(prior_correction_activity_id)
+    .fetch_optional(&mut *connection)
+    .await?
+    .ok_or_else(|| {
+        FulfillmentRecoveryError::InvalidRequest(format!(
+            "unknown Transaction Record ID: {transaction_id}"
+        ))
+    })?;
+    Ok(proof)
+}
+
+pub async fn resolve_prior_pickup_recognition_correction(
+    pool: &PgPool,
+    transaction_id: Uuid,
+) -> Result<Uuid, FulfillmentRecoveryError> {
+    let correction_id = sqlx::query_scalar::<_, Uuid>(
+        r#"
+        WITH active_lines AS (
+            SELECT
+                line.id,
+                line.fulfilled_at,
+                line.picked_up_at
+            FROM transaction_lines line
+            INNER JOIN transactions transaction
+                ON transaction.id = line.transaction_id
+            LEFT JOIN (
+                SELECT
+                    returned.transaction_line_id,
+                    SUM(returned.quantity_returned)::integer AS returned_quantity
+                FROM transaction_return_lines returned
+                GROUP BY returned.transaction_line_id
+            ) returned ON returned.transaction_line_id = line.id
+            WHERE line.transaction_id = $1
+              AND transaction.fulfillment_method::text = 'pickup'
+              AND NOT COALESCE(line.is_internal, FALSE)
+              AND GREATEST(
+                  line.quantity - COALESCE(returned.returned_quantity, 0),
+                  0
+              ) > 0
+        ),
+        canonical_release AS (
+            SELECT MAX(
+                CASE
+                    WHEN line.picked_up_at IS NOT NULL
+                     AND EXISTS (
+                         SELECT 1
+                         FROM transaction_line_lifecycle_events event
+                         WHERE event.transaction_line_id = line.id
+                           AND event.new_status = 'picked_up'::order_item_lifecycle_status
+                           AND event.source_workflow = 'pickup'
+                           AND event.metadata->>'transaction_id' = $1::text
+                           AND event.created_at >= COALESCE(
+                               line.picked_up_at,
+                               line.fulfilled_at
+                           )
+                     )
+                        THEN GREATEST(line.picked_up_at, line.fulfilled_at)
+                    ELSE NULL
+                END
+            ) AS latest_release_at
+            FROM active_lines line
+        ),
+        latest_open_correction AS (
+            SELECT MAX(activity.created_at) AS corrected_at
+            FROM transaction_activity_log activity
+            WHERE activity.transaction_id = $1
+              AND activity.event_kind = 'status_corrected'
+              AND activity.metadata->>'prior_status' = 'fulfilled'
+              AND activity.metadata->>'new_status' = 'open'
+        )
+        SELECT activity.id
+        FROM transaction_activity_log activity
+        CROSS JOIN canonical_release release
+        CROSS JOIN latest_open_correction latest
+        WHERE activity.transaction_id = $1
+          AND activity.event_kind = 'status_corrected'
+          AND activity.metadata->>'prior_status' = 'fulfilled'
+          AND activity.metadata->>'new_status' = 'open'
+          AND release.latest_release_at IS NOT NULL
+          AND activity.created_at < release.latest_release_at
+          AND latest.corrected_at > release.latest_release_at
+        ORDER BY activity.created_at DESC, activity.id DESC
+        LIMIT 1
+        "#,
+    )
+    .bind(transaction_id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| {
+        FulfillmentRecoveryError::Ineligible(
+            "no exact prior correction followed by canonical pickup evidence and a later open correction could be proven"
+                .to_string(),
+        )
+    })?;
+    Ok(correction_id)
+}
+
+fn build_preview(
+    request: &RecoveryReviewRequest,
+    transaction_ids: &[Uuid],
+    normalized_reason: &str,
+    snapshots: &[SnapshotRow],
+) -> Result<RecoveryPreview, FulfillmentRecoveryError> {
+    let manifest_digest =
+        reviewed_manifest_digest(request, transaction_ids, normalized_reason, snapshots)?;
+    let candidates: Vec<RecoveryCandidate> = snapshots
+        .iter()
+        .map(|snapshot| {
+            let blockers = candidate_blockers(snapshot);
+            RecoveryCandidate {
+                transaction_id: snapshot.transaction_id,
+                display_id: snapshot.display_id.clone(),
+                eligible: blockers.is_empty(),
+                blockers,
+                current_status: snapshot.current_status.clone(),
+                current_fulfilled_at: snapshot.current_fulfilled_at,
+                active_business_line_count: snapshot.active_business_line_count,
+                open_active_business_line_count: snapshot.open_active_business_line_count,
+                payment_matches_stored_amount: snapshot.payment_matches_stored_amount,
+                current_recognition_at: snapshot.current_recognition_at,
+                review_evidence: json!({
+                    "transaction": snapshot.transaction_evidence,
+                    "lines": snapshot.line_evidence,
+                    "payments": snapshot.payment_evidence,
+                    "inventory": snapshot.inventory_evidence,
+                    "revenue": snapshot.revenue_evidence,
+                    "commissions": snapshot.commission_evidence,
+                    "loyalty": snapshot.loyalty_evidence,
+                    "audit": snapshot.audit_evidence,
+                    "qbo": snapshot.qbo_evidence,
+                }),
+            }
+        })
+        .collect();
+    Ok(RecoveryPreview {
+        operation_id: request.operation_id,
+        correlation_id: request.correlation_id,
+        expected_transaction_count: request.expected_transaction_count,
+        manifest_digest,
+        all_eligible: candidates.iter().all(|candidate| candidate.eligible),
+        qbo_traceability: QBO_TRACEABILITY,
+        qbo_traceability_acknowledged: request.acknowledge_qbo_traceability_gap,
+        candidates,
+    })
+}
+
+pub async fn preview_counterpoint_false_fulfillment_recovery(
+    pool: &PgPool,
+    request: &RecoveryReviewRequest,
+) -> Result<RecoveryPreview, FulfillmentRecoveryError> {
+    let (transaction_ids, normalized_reason) = canonical_scope(
+        &request.transaction_ids,
+        request.expected_transaction_count,
+        &request.reason,
+    )?;
+    let mut connection = pool.acquire().await?;
+    let snapshots = load_snapshots(&mut connection, &transaction_ids, request.operation_id).await?;
+    build_preview(request, &transaction_ids, &normalized_reason, &snapshots)
+}
+
+fn restore_pickup_recognition_blockers(
+    snapshot: &SnapshotRow,
+    proof: &RestorePickupRecognitionProof,
+) -> Vec<String> {
+    let mut blockers = Vec::new();
+    if snapshot
+        .counterpoint_doc_ref
+        .as_deref()
+        .is_none_or(|value| value.trim().is_empty())
+    {
+        blockers.push("not_counterpoint_open_document".to_string());
+    }
+    if !snapshot.is_counterpoint_import {
+        blockers.push("not_counterpoint_import".to_string());
+    }
+    if snapshot.fulfillment_method != "pickup" {
+        blockers.push("recognition_recovery_is_limited_to_pickup_transactions".to_string());
+    }
+    if snapshot.is_superseded {
+        blockers.push("superseded_counterpoint_transaction".to_string());
+    }
+    if proof.correction_activity_id.is_none() || proof.correction_at.is_none() {
+        blockers.push("selected_prior_correction_audit_is_not_valid".to_string());
+    }
+    if proof.current_status != "open" || proof.current_fulfilled_at.is_some() {
+        blockers.push("transaction_header_is_not_open_with_null_fulfilled_at".to_string());
+    }
+    if !proof.balance_due_is_zero && !proof.balance_due_is_positive {
+        blockers.push("negative_balance_requires_manual_financial_review".to_string());
+    }
+    if proof.active_business_line_count == 0 {
+        blockers.push("no_active_business_lines".to_string());
+    }
+    if proof.open_active_business_line_count != 0 {
+        blockers.push("active_business_lines_remain_open".to_string());
+    }
+    if proof.returned_business_line_count != 0 {
+        blockers.push("returned_lines_require_manual_review".to_string());
+    }
+    if proof.non_order_style_line_count != 0 {
+        blockers.push("non_order_style_line_requires_manual_review".to_string());
+    }
+    if proof.missing_variant_line_count != 0 {
+        blockers.push("released_line_has_no_inventory_variant".to_string());
+    }
+    if proof.missing_release_evidence_count != 0 {
+        blockers.push("fulfilled_line_lacks_canonical_pickup_evidence".to_string());
+    }
+    if proof.release_evidence_after_correction_count != proof.active_business_line_count {
+        blockers.push("not_every_active_line_was_picked_up_after_selected_correction".to_string());
+    }
+    if proof.release_activity_after_correction_count == 0 {
+        blockers
+            .push("no_transaction_release_audit_occurred_after_selected_correction".to_string());
+    }
+    if proof.missing_release_activity_line_count != 0 {
+        blockers.push("pickup_activity_does_not_cover_every_released_line".to_string());
+    }
+    if proof.proven_fulfilled_at.is_none() {
+        blockers.push("no_proven_pickup_timestamp".to_string());
+    }
+    if proof.latest_open_correction_activity_id.is_none()
+        || proof.latest_open_correction_at.is_none()
+    {
+        blockers.push("current_open_state_has_no_correction_audit".to_string());
+    } else if proof.latest_open_correction_at <= proof.proven_fulfilled_at {
+        blockers.push("open_correction_did_not_occur_after_the_proven_release".to_string());
+    }
+    if proof.allocated_payment_created_after_correction_count != 0 {
+        blockers.push(
+            "allocated_payment_was_created_after_selected_correction_requires_manual_review"
+                .to_string(),
+        );
+    }
+    if proof.unexplained_commission_rows_after_correction_count != 0 {
+        blockers.push("unexplained_commission_mutation_after_selected_correction".to_string());
+    }
+    if proof.canonical_inventory_movement_count == 0 {
+        blockers.push("no_canonical_pickup_inventory_movement".to_string());
+    }
+    if proof.invalid_canonical_inventory_movement_count != 0 {
+        blockers.push("noncanonical_or_reversing_inventory_movement_requires_review".to_string());
+    }
+    if !proof.inventory_matches_released_quantities {
+        blockers.push("canonical_inventory_movements_do_not_match_released_quantities".to_string());
+    }
+    if !snapshot.payment_matches_stored_amount {
+        blockers.push("stored_paid_amount_does_not_match_allocated_tender".to_string());
+    }
+    if snapshot.payment_allocation_count != 0 {
+        blockers.push("payment_allocation_attachment_history_is_not_auditable".to_string());
+    }
+    if snapshot.invalid_payment_allocation_count != 0 {
+        blockers.push("invalid_or_superseded_payment_allocation_requires_review".to_string());
+    }
+    if !snapshot.header_balance_equation_valid {
+        blockers.push("header_total_paid_balance_equation_is_invalid".to_string());
+    }
+    if !snapshot.line_financial_total_matches_header {
+        blockers.push("line_and_shipping_total_does_not_match_header_total".to_string());
+    }
+    if !snapshot.commission_consistent_with_fulfilled_lines {
+        blockers.push("commission_events_do_not_match_fulfilled_lines".to_string());
+    }
+    if !snapshot.loyalty_consistent {
+        blockers.push("loyalty_records_are_internally_inconsistent".to_string());
+    }
+    if snapshot.unsafe_qbo_transaction_outbox_count != 0 {
+        blockers.push("transaction_level_qbo_state_may_have_posted_externally".to_string());
+    }
+    if snapshot.operational_outbox_count != 0 {
+        blockers
+            .push("transaction_has_downstream_job_effects_that_require_manual_review".to_string());
+    }
+    if snapshot.current_recognition_at.is_some() {
+        blockers.push("transaction_is_already_recognized_by_reporting".to_string());
+    }
+    blockers
+}
+
+fn restore_pickup_recognition_manifest_digest(
+    request: &RestorePickupRecognitionReviewRequest,
+    normalized_reason: &str,
+    snapshot: &SnapshotRow,
+    proof: &RestorePickupRecognitionProof,
+) -> Result<String, FulfillmentRecoveryError> {
+    let reviewed = RestorePickupRecognitionReviewedManifest {
+        contract_version: "fulfillment-recovery-v1",
+        operation_kind: "restore_pickup_recognition_evidence",
+        operation_id: request.operation_id,
+        correlation_id: request.correlation_id,
+        transaction_id: request.transaction_id,
+        prior_correction_activity_id: request.prior_correction_activity_id,
+        expected_transaction_count: 1,
+        actor_staff_id: request.actor_staff_id,
+        confirming_manager_staff_id: request.confirming_manager_staff_id,
+        reason: normalized_reason,
+        acknowledge_qbo_traceability_gap: request.acknowledge_qbo_traceability_gap,
+        snapshot,
+        pickup_proof: proof,
+    };
+    Ok(format!(
+        "{:x}",
+        Sha256::digest(serde_json::to_vec(&reviewed)?)
+    ))
+}
+
+fn build_restore_pickup_recognition_preview(
+    request: &RestorePickupRecognitionReviewRequest,
+    normalized_reason: &str,
+    snapshot: &SnapshotRow,
+    proof: &RestorePickupRecognitionProof,
+) -> Result<RestorePickupRecognitionPreview, FulfillmentRecoveryError> {
+    let blockers = restore_pickup_recognition_blockers(snapshot, proof);
+    let balance_due_requires_review = !proof.balance_due_is_zero;
+    Ok(RestorePickupRecognitionPreview {
+        operation_id: request.operation_id,
+        correlation_id: request.correlation_id,
+        transaction_id: request.transaction_id,
+        prior_correction_activity_id: request.prior_correction_activity_id,
+        expected_transaction_count: 1,
+        manifest_digest: restore_pickup_recognition_manifest_digest(
+            request,
+            normalized_reason,
+            snapshot,
+            proof,
+        )?,
+        eligible: blockers.is_empty(),
+        blockers,
+        proven_fulfilled_at: proof.proven_fulfilled_at,
+        balance_due: proof.balance_due.clone(),
+        balance_due_requires_review,
+        qbo_traceability: QBO_TRACEABILITY,
+        qbo_traceability_acknowledged: request.acknowledge_qbo_traceability_gap,
+        review_evidence: json!({
+            "transaction": snapshot.transaction_evidence,
+            "lines": snapshot.line_evidence,
+            "payments": snapshot.payment_evidence,
+            "inventory": snapshot.inventory_evidence,
+            "revenue": snapshot.revenue_evidence,
+            "commissions": snapshot.commission_evidence,
+            "loyalty": snapshot.loyalty_evidence,
+            "audit": snapshot.audit_evidence,
+            "qbo": snapshot.qbo_evidence,
+            "pickup_proof": proof.proof_evidence,
+            "balance_due_preserved": proof.balance_due,
+        }),
+    })
+}
+
+pub async fn preview_restore_pickup_recognition_evidence(
+    pool: &PgPool,
+    request: &RestorePickupRecognitionReviewRequest,
+) -> Result<RestorePickupRecognitionPreview, FulfillmentRecoveryError> {
+    let (scope, normalized_reason) =
+        canonical_scope(&[request.transaction_id], 1, &request.reason)?;
+    let mut connection = pool.acquire().await?;
+    let snapshot = load_snapshots(&mut connection, &scope, request.operation_id)
+        .await?
+        .into_iter()
+        .next()
+        .ok_or_else(|| {
+            FulfillmentRecoveryError::InvalidRequest(format!(
+                "unknown Transaction Record ID: {}",
+                request.transaction_id
+            ))
+        })?;
+    let proof = load_restore_pickup_recognition_proof(
+        &mut connection,
+        request.transaction_id,
+        request.prior_correction_activity_id,
+    )
+    .await?;
+    build_restore_pickup_recognition_preview(request, &normalized_reason, &snapshot, &proof)
+}
+
+pub async fn get_bulk_fulfillment_operation_audit(
+    pool: &PgPool,
+    operation_id: Uuid,
+) -> Result<Option<Value>, FulfillmentRecoveryError> {
+    let audit = sqlx::query_scalar::<_, Value>(
+        r#"
+        SELECT jsonb_build_object(
+            'manifest', jsonb_build_object(
+                'operation_id', manifest.operation_id,
+                'correlation_id', manifest.correlation_id,
+                'transaction_ids', manifest.transaction_ids,
+                'expected_transaction_count', manifest.expected_transaction_count,
+                'actor_staff_id', manifest.actor_staff_id,
+                'confirming_manager_staff_id', manifest.confirming_manager_staff_id,
+                'operation_kind', manifest.operation_kind,
+                'reason', manifest.reason,
+                'manifest_digest', manifest.manifest_digest,
+                'created_at', manifest.created_at
+            ),
+            'transition_events', COALESCE((
+                SELECT jsonb_agg(jsonb_build_object(
+                    'id', transition.id,
+                    'statement_event_id', transition.statement_event_id,
+                    'transaction_id', transition.transaction_id,
+                    'source_table', transition.source_table,
+                    'source_record_id', transition.source_record_id,
+                    'changed_transaction_count', transition.changed_transaction_count,
+                    'before_state', transition.before_state,
+                    'after_state', transition.after_state,
+                    'created_at', transition.created_at
+                ) ORDER BY transition.created_at, transition.id)
+                FROM bulk_fulfillment_transition_event transition
+                WHERE transition.operation_id = manifest.operation_id
+            ), '[]'::jsonb),
+            'verifications', COALESCE((
+                SELECT jsonb_agg(jsonb_build_object(
+                    'verification_id', verification.verification_id,
+                    'verified_by_staff_id', verification.verified_by_staff_id,
+                    'expected_transaction_count', verification.expected_transaction_count,
+                    'verified_transaction_count', verification.verified_transaction_count,
+                    'overall_status', verification.overall_status,
+                    'qbo_traceability', verification.qbo_traceability,
+                    'evidence_digest', verification.evidence_digest,
+                    'summary', verification.summary,
+                    'created_at', verification.created_at,
+                    'records', COALESCE((
+                        SELECT jsonb_agg(to_jsonb(record) ORDER BY record.transaction_id)
+                        FROM bulk_fulfillment_operation_verification_record record
+                        WHERE record.verification_id = verification.verification_id
+                    ), '[]'::jsonb)
+                ) ORDER BY verification.created_at, verification.verification_id)
+                FROM bulk_fulfillment_operation_verification verification
+                WHERE verification.operation_id = manifest.operation_id
+            ), '[]'::jsonb)
+        )
+        FROM bulk_fulfillment_operation_manifest manifest
+        WHERE manifest.operation_id = $1
+        "#,
+    )
+    .bind(operation_id)
+    .fetch_optional(pool)
+    .await?;
+    Ok(audit)
+}
+
+fn unchanged_evidence(
+    before: &SnapshotRow,
+    after: &SnapshotRow,
+) -> Result<(), FulfillmentRecoveryError> {
+    let mut failures = Vec::new();
+    if after.current_status != "open" || after.current_fulfilled_at.is_some() {
+        failures.push("transaction header was not restored to open/null");
+    }
+    if after.current_recognition_at.is_some() {
+        failures.push("revenue recognition remained active");
+    }
+    if transaction_without_recovery_lifecycle(&after.transaction_evidence)
+        != transaction_without_recovery_lifecycle(&before.transaction_evidence)
+    {
+        failures.push("a Transaction Record field outside status/fulfilled_at changed");
+    }
+    if after.line_evidence != before.line_evidence {
+        failures.push("Transaction Record lines changed");
+    }
+    if after.payment_evidence != before.payment_evidence {
+        failures.push("payment or allocation evidence changed");
+    }
+    if after.inventory_evidence != before.inventory_evidence {
+        failures.push("inventory evidence changed");
+    }
+    if after.commission_evidence != before.commission_evidence {
+        failures.push("commission evidence changed");
+    }
+    if after.loyalty_evidence != before.loyalty_evidence {
+        failures.push("loyalty evidence changed");
+    }
+    if after.qbo_evidence != before.qbo_evidence {
+        failures.push("QBO/outbox evidence changed");
+    }
+    if after.activity_count != before.activity_count + 1 || after.operation_activity_count != 1 {
+        failures.push("exact recovery activity audit was not recorded");
+    }
+    if after.transition_count != before.transition_count + 1
+        || after.operation_transition_count != 1
+    {
+        failures.push("exact immutable transition audit was not recorded");
+    }
+
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(FulfillmentRecoveryError::VerificationFailed(format!(
+            "{} failed post-recovery verification: {}",
+            before.display_id,
+            failures.join("; ")
+        )))
+    }
+}
+
+fn evidence_digest(value: &Value) -> Result<String, FulfillmentRecoveryError> {
+    Ok(format!("{:x}", Sha256::digest(serde_json::to_vec(value)?)))
+}
+
+fn transaction_without_recovery_lifecycle(value: &Value) -> Value {
+    let mut stripped = value.clone();
+    if let Some(object) = stripped.as_object_mut() {
+        object.remove("status");
+        object.remove("fulfilled_at");
+    }
+    stripped
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn existing_operation_result(
+    connection: &mut PgConnection,
+    operation_id: Uuid,
+    correlation_id: Uuid,
+    transaction_ids: &[Uuid],
+    expected_transaction_count: usize,
+    actor_staff_id: Uuid,
+    confirming_manager_staff_id: Uuid,
+    operation_kind: &str,
+    normalized_reason: &str,
+    expected_manifest_digest: &str,
+) -> Result<Option<RecoveryApplyResult>, FulfillmentRecoveryError> {
+    let manifest: Option<(Uuid, Vec<Uuid>, i32, Uuid, Uuid, String, String, String)> =
+        sqlx::query_as(
+            r#"
+        SELECT
+            correlation_id,
+            transaction_ids,
+            expected_transaction_count,
+            actor_staff_id,
+            confirming_manager_staff_id,
+            operation_kind,
+            reason,
+            manifest_digest
+        FROM bulk_fulfillment_operation_manifest
+        WHERE operation_id = $1
+        "#,
+        )
+        .bind(operation_id)
+        .fetch_optional(&mut *connection)
+        .await?;
+
+    let Some((
+        existing_correlation_id,
+        existing_transaction_ids,
+        existing_expected_count,
+        existing_actor_staff_id,
+        existing_manager_staff_id,
+        existing_operation_kind,
+        existing_reason,
+        existing_manifest_digest,
+    )) = manifest
+    else {
+        return Ok(None);
+    };
+
+    let expected_count = i32::try_from(expected_transaction_count).map_err(|_| {
+        FulfillmentRecoveryError::InvalidRequest("expected count is out of range".to_string())
+    })?;
+    if existing_correlation_id != correlation_id
+        || existing_transaction_ids != transaction_ids
+        || existing_expected_count != expected_count
+        || existing_actor_staff_id != actor_staff_id
+        || existing_manager_staff_id != confirming_manager_staff_id
+        || existing_operation_kind != operation_kind
+        || existing_reason != normalized_reason
+        || existing_manifest_digest != expected_manifest_digest
+    {
+        return Err(FulfillmentRecoveryError::StaleReview(
+            "operation_id is already bound to different immutable recovery evidence; no changes were made"
+                .to_string(),
+        ));
+    }
+
+    let verification: Option<(Uuid, String, String)> = sqlx::query_as(
+        r#"
+        SELECT verification_id, overall_status, qbo_traceability
+        FROM bulk_fulfillment_operation_verification
+        WHERE operation_id = $1
+        ORDER BY created_at DESC, verification_id DESC
+        LIMIT 1
+        "#,
+    )
+    .bind(operation_id)
+    .fetch_optional(&mut *connection)
+    .await?;
+    let Some((verification_id, verification_status, qbo_traceability)) = verification else {
+        return Err(FulfillmentRecoveryError::VerificationFailed(
+            "an immutable recovery manifest exists without completed verification evidence; inspect the operation audit before retrying"
+                .to_string(),
+        ));
+    };
+    let verification_status = match verification_status.as_str() {
+        "verified" => "verified",
+        "review_required" => "review_required",
+        "failed" => "failed",
+        _ => {
+            return Err(FulfillmentRecoveryError::VerificationFailed(
+                "stored recovery verification has an unsupported status".to_string(),
+            ));
+        }
+    };
+    if qbo_traceability != QBO_TRACEABILITY {
+        return Err(FulfillmentRecoveryError::VerificationFailed(
+            "stored recovery verification uses a different QBO traceability contract".to_string(),
+        ));
+    }
+
+    Ok(Some(RecoveryApplyResult {
+        operation_id,
+        correlation_id,
+        corrected_transaction_count: expected_transaction_count,
+        verification_id,
+        verification_status,
+        qbo_traceability: QBO_TRACEABILITY,
+        applied_manifest_digest: existing_manifest_digest,
+    }))
+}
+
+pub async fn apply_counterpoint_false_fulfillment_recovery(
+    pool: &PgPool,
+    request: &RecoveryReviewRequest,
+    expected_manifest_digest: &str,
+) -> Result<RecoveryApplyResult, FulfillmentRecoveryError> {
+    if !request.acknowledge_qbo_traceability_gap {
+        return Err(FulfillmentRecoveryError::InvalidRequest(
+            "the reviewed per-Transaction QBO traceability gap must be explicitly acknowledged"
+                .to_string(),
+        ));
+    }
+    if expected_manifest_digest.len() != 64
+        || !expected_manifest_digest
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+    {
+        return Err(FulfillmentRecoveryError::InvalidRequest(
+            "a lowercase 64-character reviewed manifest digest is required".to_string(),
+        ));
+    }
+
+    let (transaction_ids, normalized_reason) = canonical_scope(
+        &request.transaction_ids,
+        request.expected_transaction_count,
+        &request.reason,
+    )?;
+
+    let mut transaction = pool.begin().await?;
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+        .execute(&mut *transaction)
+        .await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtext('bulk_fulfillment_recovery'))")
+        .execute(&mut *transaction)
+        .await?;
+    if let Some(existing) = existing_operation_result(
+        &mut transaction,
+        request.operation_id,
+        request.correlation_id,
+        &transaction_ids,
+        request.expected_transaction_count,
+        request.actor_staff_id,
+        request.confirming_manager_staff_id,
+        "counterpoint_false_fulfillment_restore_open",
+        &normalized_reason,
+        expected_manifest_digest,
+    )
+    .await?
+    {
+        transaction.rollback().await?;
+        return Ok(existing);
+    }
+    lock_transaction_scope(&mut transaction, &transaction_ids).await?;
+
+    let before = load_snapshots(&mut transaction, &transaction_ids, request.operation_id).await?;
+    let preview = build_preview(request, &transaction_ids, &normalized_reason, &before)?;
+    if preview.manifest_digest != expected_manifest_digest {
+        return Err(FulfillmentRecoveryError::StaleReview(
+            "the fulfillment recovery evidence changed after review; refresh the preview and review every Transaction Record again; no changes were committed"
+                .to_string(),
+        ));
+    }
+    let ineligible: Vec<String> = preview
+        .candidates
+        .iter()
+        .filter(|candidate| !candidate.eligible)
+        .map(|candidate| {
+            format!(
+                "{} ({})",
+                candidate.display_id,
+                candidate.blockers.join(", ")
+            )
+        })
+        .collect();
+    if !ineligible.is_empty() {
+        return Err(FulfillmentRecoveryError::Ineligible(format!(
+            "fulfillment recovery rejected because the exact reviewed scope contains ineligible Transaction Records: {}",
+            ineligible.join("; ")
+        )));
+    }
+
+    sqlx::query(
+        r#"
+        INSERT INTO bulk_fulfillment_operation_manifest (
+            operation_id,
+            correlation_id,
+            transaction_ids,
+            expected_transaction_count,
+            actor_staff_id,
+            confirming_manager_staff_id,
+            operation_kind,
+            reason,
+            manifest_digest
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        "#,
+    )
+    .bind(request.operation_id)
+    .bind(request.correlation_id)
+    .bind(&transaction_ids)
+    .bind(
+        i32::try_from(request.expected_transaction_count).map_err(|_| {
+            FulfillmentRecoveryError::InvalidRequest("expected count is out of range".to_string())
+        })?,
+    )
+    .bind(request.actor_staff_id)
+    .bind(request.confirming_manager_staff_id)
+    .bind("counterpoint_false_fulfillment_restore_open")
+    .bind(&normalized_reason)
+    .bind(&preview.manifest_digest)
+    .execute(&mut *transaction)
+    .await?;
+
+    sqlx::query("SELECT set_config('riverside.bulk_fulfillment_operation_id', $1, true)")
+        .bind(request.operation_id.to_string())
+        .execute(&mut *transaction)
+        .await?;
+
+    let corrected = sqlx::query(
+        r#"
+        UPDATE transactions target
+        SET
+            status = 'open'::order_status,
+            fulfilled_at = NULL
+        WHERE target.id = ANY($1::uuid[])
+          AND target.status = 'fulfilled'::order_status
+          AND NULLIF(btrim(target.counterpoint_doc_ref), '') IS NOT NULL
+          AND target.is_counterpoint_import
+          AND COALESCE(target.metadata->>'counterpoint_reconciliation_status', '') <> 'superseded'
+          AND EXISTS (
+              SELECT 1
+              FROM transaction_lines line
+              WHERE line.transaction_id = target.id
+                AND NOT COALESCE(line.is_internal, FALSE)
+                AND NOT line.is_fulfilled
+                AND line.fulfilled_at IS NULL
+                AND GREATEST(
+                    line.quantity - COALESCE((
+                        SELECT SUM(returned.quantity_returned)::integer
+                        FROM transaction_return_lines returned
+                        WHERE returned.transaction_line_id = line.id
+                    ), 0),
+                    0
+                ) > 0
+          )
+        "#,
+    )
+    .bind(&transaction_ids)
+    .execute(&mut *transaction)
+    .await?
+    .rows_affected() as usize;
+    if corrected != request.expected_transaction_count {
+        return Err(FulfillmentRecoveryError::VerificationFailed(format!(
+            "expected to correct {} Transaction Records, but the guarded update changed {corrected}; no changes were committed",
+            request.expected_transaction_count
+        )));
+    }
+
+    sqlx::query(
+        r#"
+        INSERT INTO transaction_activity_log (
+            transaction_id,
+            customer_id,
+            event_kind,
+            summary,
+            metadata
+        )
+        SELECT
+            target.id,
+            target.customer_id,
+            'status_corrected',
+            'Counterpoint false-fulfillment header restored to open after exact-scope review',
+            jsonb_build_object(
+                'bulk_fulfillment_operation_id', $2::text,
+                'correlation_id', $3::text,
+                'actor_staff_id', $4::text,
+                'confirming_manager_staff_id', $5::text,
+                'reason', $6::text,
+                'prior_status', 'fulfilled',
+                'new_status', 'open',
+                'financial_values_changed', false,
+                'qbo_traceability', $7::text
+            )
+        FROM transactions target
+        WHERE target.id = ANY($1::uuid[])
+        "#,
+    )
+    .bind(&transaction_ids)
+    .bind(request.operation_id)
+    .bind(request.correlation_id)
+    .bind(request.actor_staff_id)
+    .bind(request.confirming_manager_staff_id)
+    .bind(&normalized_reason)
+    .bind(QBO_TRACEABILITY)
+    .execute(&mut *transaction)
+    .await?;
+
+    let after = load_snapshots(&mut transaction, &transaction_ids, request.operation_id).await?;
+    for (before_row, after_row) in before.iter().zip(after.iter()) {
+        if before_row.transaction_id != after_row.transaction_id {
+            return Err(FulfillmentRecoveryError::VerificationFailed(
+                "post-recovery scope order changed; no changes were committed".to_string(),
+            ));
+        }
+        unchanged_evidence(before_row, after_row)?;
+    }
+
+    let verification_id = Uuid::new_v4();
+    let mut record_digests = Vec::with_capacity(after.len());
+    for (before_row, after_row) in before.iter().zip(after.iter()) {
+        let record_evidence = json!({
+            "operation_id": request.operation_id,
+            "correlation_id": request.correlation_id,
+            "transaction_id": after_row.transaction_id,
+            "transaction": {
+                "before": before_row.transaction_evidence,
+                "after": after_row.transaction_evidence,
+            },
+            "lines": {
+                "before": before_row.line_evidence,
+                "after": after_row.line_evidence,
+                "unchanged": before_row.line_evidence == after_row.line_evidence,
+            },
+            "payments": {
+                "before": before_row.payment_evidence,
+                "after": after_row.payment_evidence,
+                "unchanged": before_row.payment_evidence == after_row.payment_evidence,
+            },
+            "inventory": {
+                "before": before_row.inventory_evidence,
+                "after": after_row.inventory_evidence,
+                "unchanged": before_row.inventory_evidence == after_row.inventory_evidence,
+            },
+            "revenue": {
+                "before": before_row.revenue_evidence,
+                "after": after_row.revenue_evidence,
+            },
+            "commissions": {
+                "before": before_row.commission_evidence,
+                "after": after_row.commission_evidence,
+                "unchanged": before_row.commission_evidence == after_row.commission_evidence,
+            },
+            "loyalty": {
+                "before": before_row.loyalty_evidence,
+                "after": after_row.loyalty_evidence,
+                "unchanged": before_row.loyalty_evidence == after_row.loyalty_evidence,
+            },
+            "audit": {
+                "before": before_row.audit_evidence,
+                "after": after_row.audit_evidence,
+                "activity_rows_added": after_row.activity_count - before_row.activity_count,
+                "transition_rows_added": after_row.transition_count - before_row.transition_count,
+            },
+            "qbo": {
+                "before": before_row.qbo_evidence,
+                "after": after_row.qbo_evidence,
+                "unchanged": before_row.qbo_evidence == after_row.qbo_evidence,
+                "traceability": QBO_TRACEABILITY,
+            },
+        });
+        record_digests.push((
+            after_row.transaction_id,
+            evidence_digest(&record_evidence)?,
+            record_evidence,
+        ));
+    }
+    let summary = json!({
+        "operation_kind": "counterpoint_false_fulfillment_restore_open",
+        "corrected_transaction_count": corrected,
+        "hard_postconditions": "passed",
+        "qbo_traceability": QBO_TRACEABILITY,
+        "qbo_traceability_acknowledged": true,
+        "record_digests": record_digests
+            .iter()
+            .map(|(transaction_id, digest, _)| json!({
+                "transaction_id": transaction_id,
+                "record_digest": digest,
+            }))
+            .collect::<Vec<_>>(),
+    });
+    let summary_digest = evidence_digest(&summary)?;
+
+    sqlx::query(
+        r#"
+        INSERT INTO bulk_fulfillment_operation_verification (
+            verification_id,
+            operation_id,
+            verified_by_staff_id,
+            expected_transaction_count,
+            verified_transaction_count,
+            overall_status,
+            qbo_traceability,
+            evidence_digest,
+            summary
+        )
+        VALUES ($1, $2, $3, $4, 0, 'review_required', $5, $6, $7)
+        "#,
+    )
+    .bind(verification_id)
+    .bind(request.operation_id)
+    .bind(request.actor_staff_id)
+    .bind(
+        i32::try_from(request.expected_transaction_count).map_err(|_| {
+            FulfillmentRecoveryError::InvalidRequest("expected count is out of range".to_string())
+        })?,
+    )
+    .bind(QBO_TRACEABILITY)
+    .bind(&summary_digest)
+    .bind(&summary)
+    .execute(&mut *transaction)
+    .await?;
+
+    for (transaction_id, record_digest, record_evidence) in &record_digests {
+        sqlx::query(
+            r#"
+            INSERT INTO bulk_fulfillment_operation_verification_record (
+                verification_id,
+                operation_id,
+                transaction_id,
+                verification_status,
+                transaction_evidence,
+                line_evidence,
+                payment_evidence,
+                inventory_evidence,
+                revenue_evidence,
+                commission_evidence,
+                loyalty_evidence,
+                audit_evidence,
+                qbo_evidence,
+                record_digest
+            )
+            VALUES (
+                $1, $2, $3, 'review_required',
+                $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
+            )
+            "#,
+        )
+        .bind(verification_id)
+        .bind(request.operation_id)
+        .bind(transaction_id)
+        .bind(&record_evidence["transaction"])
+        .bind(&record_evidence["lines"])
+        .bind(&record_evidence["payments"])
+        .bind(&record_evidence["inventory"])
+        .bind(&record_evidence["revenue"])
+        .bind(&record_evidence["commissions"])
+        .bind(&record_evidence["loyalty"])
+        .bind(&record_evidence["audit"])
+        .bind(&record_evidence["qbo"])
+        .bind(record_digest)
+        .execute(&mut *transaction)
+        .await?;
+    }
+
+    transaction.commit().await?;
+    Ok(RecoveryApplyResult {
+        operation_id: request.operation_id,
+        correlation_id: request.correlation_id,
+        corrected_transaction_count: corrected,
+        verification_id,
+        verification_status: "review_required",
+        qbo_traceability: QBO_TRACEABILITY,
+        applied_manifest_digest: preview.manifest_digest,
+    })
+}
+
+fn recognition_recovery_evidence_unchanged(
+    before: &SnapshotRow,
+    after: &SnapshotRow,
+    proof: &RestorePickupRecognitionProof,
+) -> Result<(), FulfillmentRecoveryError> {
+    let mut failures = Vec::new();
+    let expected_status = if proof.balance_due_is_zero {
+        "fulfilled"
+    } else {
+        "open"
+    };
+    if after.current_status != expected_status {
+        failures.push("transaction status does not preserve the open-receivable contract");
+    }
+    if after.current_fulfilled_at != proof.proven_fulfilled_at {
+        failures.push("fulfilled_at does not equal the proven pickup timestamp");
+    }
+    if after.current_recognition_at != proof.proven_fulfilled_at {
+        failures.push("reporting recognition does not equal the proven pickup timestamp");
+    }
+    if transaction_without_recovery_lifecycle(&after.transaction_evidence)
+        != transaction_without_recovery_lifecycle(&before.transaction_evidence)
+    {
+        failures.push("a Transaction Record field outside status/fulfilled_at changed");
+    }
+    if after.line_evidence != before.line_evidence {
+        failures.push("Transaction Record lines changed");
+    }
+    if after.payment_evidence != before.payment_evidence {
+        failures.push("payment or allocation evidence changed");
+    }
+    if after.inventory_evidence != before.inventory_evidence {
+        failures.push("inventory evidence changed");
+    }
+    if after.commission_evidence != before.commission_evidence {
+        failures.push("commission evidence changed");
+    }
+    if after.loyalty_evidence != before.loyalty_evidence {
+        failures.push("loyalty evidence changed");
+    }
+    if after.qbo_evidence != before.qbo_evidence {
+        failures.push("QBO/outbox evidence changed");
+    }
+    if after.activity_count != before.activity_count + 1 || after.operation_activity_count != 1 {
+        failures.push("exact recognition-recovery activity audit was not recorded");
+    }
+    if after.transition_count != before.transition_count + 1
+        || after.operation_transition_count != 1
+    {
+        failures.push("exact immutable recognition transition was not recorded");
+    }
+
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(FulfillmentRecoveryError::VerificationFailed(format!(
+            "{} failed post-recovery verification: {}",
+            before.display_id,
+            failures.join("; ")
+        )))
+    }
+}
+
+pub async fn apply_restore_pickup_recognition_evidence(
+    pool: &PgPool,
+    request: &RestorePickupRecognitionReviewRequest,
+    expected_manifest_digest: &str,
+) -> Result<RecoveryApplyResult, FulfillmentRecoveryError> {
+    if !request.acknowledge_qbo_traceability_gap {
+        return Err(FulfillmentRecoveryError::InvalidRequest(
+            "the reviewed per-Transaction QBO traceability gap must be explicitly acknowledged"
+                .to_string(),
+        ));
+    }
+    if expected_manifest_digest.len() != 64
+        || !expected_manifest_digest
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+    {
+        return Err(FulfillmentRecoveryError::InvalidRequest(
+            "a lowercase 64-character reviewed manifest digest is required".to_string(),
+        ));
+    }
+
+    let (scope, normalized_reason) =
+        canonical_scope(&[request.transaction_id], 1, &request.reason)?;
+    let mut transaction = pool.begin().await?;
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+        .execute(&mut *transaction)
+        .await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtext('bulk_fulfillment_recovery'))")
+        .execute(&mut *transaction)
+        .await?;
+    if let Some(existing) = existing_operation_result(
+        &mut transaction,
+        request.operation_id,
+        request.correlation_id,
+        &scope,
+        1,
+        request.actor_staff_id,
+        request.confirming_manager_staff_id,
+        "restore_pickup_recognition_evidence",
+        &normalized_reason,
+        expected_manifest_digest,
+    )
+    .await?
+    {
+        transaction.rollback().await?;
+        return Ok(existing);
+    }
+    lock_transaction_scope(&mut transaction, &scope).await?;
+
+    let before = load_snapshots(&mut transaction, &scope, request.operation_id)
+        .await?
+        .into_iter()
+        .next()
+        .ok_or_else(|| {
+            FulfillmentRecoveryError::InvalidRequest(format!(
+                "unknown Transaction Record ID: {}",
+                request.transaction_id
+            ))
+        })?;
+    let proof = load_restore_pickup_recognition_proof(
+        &mut transaction,
+        request.transaction_id,
+        request.prior_correction_activity_id,
+    )
+    .await?;
+    let preview =
+        build_restore_pickup_recognition_preview(request, &normalized_reason, &before, &proof)?;
+    if preview.manifest_digest != expected_manifest_digest {
+        return Err(FulfillmentRecoveryError::StaleReview(
+            "the pickup recognition evidence changed after review; refresh the preview and review the Transaction Record again; no changes were committed"
+                .to_string(),
+        ));
+    }
+    if !preview.eligible {
+        return Err(FulfillmentRecoveryError::Ineligible(format!(
+            "pickup recognition recovery rejected for {}: {}",
+            before.display_id,
+            preview.blockers.join(", ")
+        )));
+    }
+    let proven_fulfilled_at = proof.proven_fulfilled_at.ok_or_else(|| {
+        FulfillmentRecoveryError::Ineligible(
+            "pickup recognition recovery has no proven pickup timestamp".to_string(),
+        )
+    })?;
+
+    sqlx::query(
+        r#"
+        INSERT INTO bulk_fulfillment_operation_manifest (
+            operation_id,
+            correlation_id,
+            transaction_ids,
+            expected_transaction_count,
+            actor_staff_id,
+            confirming_manager_staff_id,
+            operation_kind,
+            reason,
+            manifest_digest
+        )
+        VALUES ($1, $2, $3, 1, $4, $5, $6, $7, $8)
+        "#,
+    )
+    .bind(request.operation_id)
+    .bind(request.correlation_id)
+    .bind(&scope)
+    .bind(request.actor_staff_id)
+    .bind(request.confirming_manager_staff_id)
+    .bind("restore_pickup_recognition_evidence")
+    .bind(&normalized_reason)
+    .bind(&preview.manifest_digest)
+    .execute(&mut *transaction)
+    .await?;
+
+    sqlx::query("SELECT set_config('riverside.bulk_fulfillment_operation_id', $1, true)")
+        .bind(request.operation_id.to_string())
+        .execute(&mut *transaction)
+        .await?;
+
+    let corrected = sqlx::query(
+        r#"
+        UPDATE transactions target
+        SET
+            status = CASE
+                WHEN target.balance_due = 0::numeric
+                    THEN 'fulfilled'::order_status
+                ELSE 'open'::order_status
+            END,
+            fulfilled_at = $2
+        WHERE target.id = $1
+          AND target.status = 'open'::order_status
+          AND target.fulfilled_at IS NULL
+          AND target.balance_due >= 0::numeric
+          AND NULLIF(btrim(target.counterpoint_doc_ref), '') IS NOT NULL
+          AND target.is_counterpoint_import
+          AND COALESCE(target.metadata->>'counterpoint_reconciliation_status', '') <> 'superseded'
+          AND NOT EXISTS (
+              SELECT 1
+              FROM transaction_lines line
+              LEFT JOIN (
+                  SELECT
+                      returned.transaction_line_id,
+                      SUM(returned.quantity_returned)::integer AS returned_quantity
+                  FROM transaction_return_lines returned
+                  GROUP BY returned.transaction_line_id
+              ) returned ON returned.transaction_line_id = line.id
+              WHERE line.transaction_id = target.id
+                AND NOT COALESCE(line.is_internal, FALSE)
+                AND GREATEST(
+                    line.quantity - COALESCE(returned.returned_quantity, 0),
+                    0
+                ) > 0
+                AND NOT line.is_fulfilled
+          )
+        "#,
+    )
+    .bind(request.transaction_id)
+    .bind(proven_fulfilled_at)
+    .execute(&mut *transaction)
+    .await?
+    .rows_affected();
+    if corrected != 1 {
+        return Err(FulfillmentRecoveryError::VerificationFailed(
+            "the guarded recognition update did not change exactly one reviewed Transaction Record; no changes were committed"
+                .to_string(),
+        ));
+    }
+
+    sqlx::query(
+        r#"
+        INSERT INTO transaction_activity_log (
+            transaction_id,
+            customer_id,
+            event_kind,
+            summary,
+            metadata
+        )
+        SELECT
+            target.id,
+            target.customer_id,
+            'recognition_corrected',
+            'Pickup recognition restored from canonical pickup evidence',
+            jsonb_build_object(
+                'bulk_fulfillment_operation_id', $2::text,
+                'correlation_id', $3::text,
+                'actor_staff_id', $4::text,
+                'confirming_manager_staff_id', $5::text,
+                'reason', $6::text,
+                'prior_correction_activity_id', $7::text,
+                'latest_open_correction_activity_id', $8::text,
+                'prior_status', 'open',
+                'new_status', target.status::text,
+                'proven_fulfilled_at', $9::timestamptz,
+                'balance_due_preserved', target.balance_due::text,
+                'financial_values_changed', false,
+                'qbo_traceability', $10::text
+            )
+        FROM transactions target
+        WHERE target.id = $1
+        "#,
+    )
+    .bind(request.transaction_id)
+    .bind(request.operation_id)
+    .bind(request.correlation_id)
+    .bind(request.actor_staff_id)
+    .bind(request.confirming_manager_staff_id)
+    .bind(&normalized_reason)
+    .bind(request.prior_correction_activity_id)
+    .bind(proof.latest_open_correction_activity_id)
+    .bind(proven_fulfilled_at)
+    .bind(QBO_TRACEABILITY)
+    .execute(&mut *transaction)
+    .await?;
+
+    let after = load_snapshots(&mut transaction, &scope, request.operation_id)
+        .await?
+        .into_iter()
+        .next()
+        .ok_or_else(|| {
+            FulfillmentRecoveryError::VerificationFailed(
+                "Transaction Record disappeared during post-verification".to_string(),
+            )
+        })?;
+    recognition_recovery_evidence_unchanged(&before, &after, &proof)?;
+
+    let verification_id = Uuid::new_v4();
+    let record_evidence = json!({
+        "operation_id": request.operation_id,
+        "correlation_id": request.correlation_id,
+        "transaction_id": request.transaction_id,
+        "operation_kind": "restore_pickup_recognition_evidence",
+        "pickup_proof": proof.proof_evidence,
+        "transaction": {
+            "before": before.transaction_evidence,
+            "after": after.transaction_evidence,
+            "balance_due_preserved": proof.balance_due,
+        },
+        "lines": {
+            "before": before.line_evidence,
+            "after": after.line_evidence,
+            "unchanged": before.line_evidence == after.line_evidence,
+        },
+        "payments": {
+            "before": before.payment_evidence,
+            "after": after.payment_evidence,
+            "unchanged": before.payment_evidence == after.payment_evidence,
+        },
+        "inventory": {
+            "before": before.inventory_evidence,
+            "after": after.inventory_evidence,
+            "unchanged": before.inventory_evidence == after.inventory_evidence,
+        },
+        "revenue": {
+            "before": before.revenue_evidence,
+            "after": after.revenue_evidence,
+            "restored_to_proven_fulfilled_at": proven_fulfilled_at,
+        },
+        "commissions": {
+            "before": before.commission_evidence,
+            "after": after.commission_evidence,
+            "unchanged": before.commission_evidence == after.commission_evidence,
+        },
+        "loyalty": {
+            "before": before.loyalty_evidence,
+            "after": after.loyalty_evidence,
+            "unchanged": before.loyalty_evidence == after.loyalty_evidence,
+        },
+        "audit": {
+            "before": before.audit_evidence,
+            "after": after.audit_evidence,
+            "activity_rows_added": after.activity_count - before.activity_count,
+            "transition_rows_added": after.transition_count - before.transition_count,
+        },
+        "qbo": {
+            "before": before.qbo_evidence,
+            "after": after.qbo_evidence,
+            "unchanged": before.qbo_evidence == after.qbo_evidence,
+            "traceability": QBO_TRACEABILITY,
+        },
+    });
+    let record_digest = evidence_digest(&record_evidence)?;
+    let summary = json!({
+        "operation_kind": "restore_pickup_recognition_evidence",
+        "corrected_transaction_count": 1,
+        "hard_postconditions": "passed",
+        "balance_due_preserved": proof.balance_due,
+        "resulting_status": after.current_status,
+        "proven_fulfilled_at": proven_fulfilled_at,
+        "qbo_traceability": QBO_TRACEABILITY,
+        "qbo_traceability_acknowledged": true,
+        "record_digests": [{
+            "transaction_id": request.transaction_id,
+            "record_digest": record_digest,
+        }],
+    });
+    let summary_digest = evidence_digest(&summary)?;
+
+    sqlx::query(
+        r#"
+        INSERT INTO bulk_fulfillment_operation_verification (
+            verification_id,
+            operation_id,
+            verified_by_staff_id,
+            expected_transaction_count,
+            verified_transaction_count,
+            overall_status,
+            qbo_traceability,
+            evidence_digest,
+            summary
+        )
+        VALUES ($1, $2, $3, 1, 0, 'review_required', $4, $5, $6)
+        "#,
+    )
+    .bind(verification_id)
+    .bind(request.operation_id)
+    .bind(request.actor_staff_id)
+    .bind(QBO_TRACEABILITY)
+    .bind(&summary_digest)
+    .bind(&summary)
+    .execute(&mut *transaction)
+    .await?;
+
+    sqlx::query(
+        r#"
+        INSERT INTO bulk_fulfillment_operation_verification_record (
+            verification_id,
+            operation_id,
+            transaction_id,
+            verification_status,
+            transaction_evidence,
+            line_evidence,
+            payment_evidence,
+            inventory_evidence,
+            revenue_evidence,
+            commission_evidence,
+            loyalty_evidence,
+            audit_evidence,
+            qbo_evidence,
+            record_digest
+        )
+        VALUES (
+            $1, $2, $3, 'review_required',
+            $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
+        )
+        "#,
+    )
+    .bind(verification_id)
+    .bind(request.operation_id)
+    .bind(request.transaction_id)
+    .bind(&record_evidence["transaction"])
+    .bind(&record_evidence["lines"])
+    .bind(&record_evidence["payments"])
+    .bind(&record_evidence["inventory"])
+    .bind(&record_evidence["revenue"])
+    .bind(&record_evidence["commissions"])
+    .bind(&record_evidence["loyalty"])
+    .bind(&record_evidence["audit"])
+    .bind(&record_evidence["qbo"])
+    .bind(&record_digest)
+    .execute(&mut *transaction)
+    .await?;
+
+    transaction.commit().await?;
+    Ok(RecoveryApplyResult {
+        operation_id: request.operation_id,
+        correlation_id: request.correlation_id,
+        corrected_transaction_count: 1,
+        verification_id,
+        verification_status: "review_required",
+        qbo_traceability: QBO_TRACEABILITY,
+        applied_manifest_digest: preview.manifest_digest,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sqlx::postgres::PgPoolOptions;
+
+    #[test]
+    fn exact_scope_rejects_duplicates_and_count_drift() {
+        let id = Uuid::new_v4();
+        let duplicate = canonical_scope(&[id, id], 2, "Reviewed recovery reason");
+        assert!(matches!(
+            duplicate,
+            Err(FulfillmentRecoveryError::InvalidRequest(_))
+        ));
+
+        let count_drift = canonical_scope(&[id], 2, "Reviewed recovery reason");
+        assert!(matches!(
+            count_drift,
+            Err(FulfillmentRecoveryError::InvalidRequest(_))
+        ));
+    }
+
+    #[test]
+    fn exact_scope_rejects_unbounded_batches() {
+        let ids = (0..=MAX_BULK_FULFILLMENT_RECOVERY_TRANSACTIONS)
+            .map(|_| Uuid::new_v4())
+            .collect::<Vec<_>>();
+        let result = canonical_scope(&ids, ids.len(), "Reviewed recovery reason");
+        assert!(matches!(
+            result,
+            Err(FulfillmentRecoveryError::InvalidRequest(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn recovery_snapshot_queries_match_migrated_schema_when_database_is_supplied() {
+        let Ok(database_url) = std::env::var("FULFILLMENT_RECOVERY_TEST_DATABASE_URL") else {
+            return;
+        };
+        let pool = PgPoolOptions::new()
+            .max_connections(1)
+            .connect(&database_url)
+            .await
+            .expect("connect fulfillment recovery test database");
+        let mut transaction = pool.begin().await.expect("begin recovery query smoke test");
+        let transaction_id = Uuid::new_v4();
+        sqlx::query(
+            r#"
+            INSERT INTO transactions (
+                id, display_id, total_price, amount_paid, balance_due,
+                status, fulfilled_at, counterpoint_doc_ref, is_counterpoint_import
+            )
+            VALUES (
+                $1, $2, 0.00, 0.00, 0.00,
+                'fulfilled', CURRENT_TIMESTAMP, $3, TRUE
+            )
+            "#,
+        )
+        .bind(transaction_id)
+        .bind(format!("TXN-RECOVERY-SMOKE-{}", transaction_id.simple()))
+        .bind(format!("CP-RECOVERY-SMOKE-{}", transaction_id.simple()))
+        .execute(&mut *transaction)
+        .await
+        .expect("insert recovery query smoke Transaction Record");
+
+        let operation_id = Uuid::new_v4();
+        let snapshots = load_snapshots(&mut transaction, &[transaction_id], operation_id)
+            .await
+            .expect("load complete recovery evidence snapshot");
+        assert_eq!(snapshots.len(), 1);
+        load_restore_pickup_recognition_proof(&mut transaction, transaction_id, Uuid::new_v4())
+            .await
+            .expect("load pickup recognition proof shape");
+        transaction
+            .rollback()
+            .await
+            .expect("rollback recovery query smoke test");
+    }
+}

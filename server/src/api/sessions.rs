@@ -20,8 +20,7 @@ use rust_decimal_macros::dec;
 
 use crate::api::AppState;
 use crate::auth::permissions::{
-    effective_permissions_for_staff, staff_can_approve_manager_access, REGISTER_OPEN_DRAWER,
-    REGISTER_REPORTS, REGISTER_SESSION_ATTACH, REGISTER_SHIFT_HANDOFF,
+    REGISTER_OPEN_DRAWER, REGISTER_REPORTS, REGISTER_SESSION_ATTACH, REGISTER_SHIFT_HANDOFF,
 };
 use crate::auth::pins::{self, is_valid_staff_credential, log_staff_access, AuthenticatedStaff};
 use crate::auth::pos_session;
@@ -52,11 +51,6 @@ pub enum SessionError {
     NotAuthorized(String),
     #[error("{0}")]
     Forbidden(String),
-    #[error("Register close is blocked by unresolved checkout recovery")]
-    CheckoutRecoveryBlocked {
-        recovery_job_keys: Vec<String>,
-        station_blockers: Vec<String>,
-    },
 }
 
 fn expected_cash_from_activity(
@@ -138,19 +132,6 @@ impl IntoResponse for SessionError {
             SessionError::Forbidden(m) => {
                 (StatusCode::FORBIDDEN, Json(json!({ "error": m }))).into_response()
             }
-            SessionError::CheckoutRecoveryBlocked {
-                recovery_job_keys,
-                station_blockers,
-            } => (
-                StatusCode::CONFLICT,
-                Json(json!({
-                    "error": "checkout_recovery_blocks_close",
-                    "message": "Every linked workstation must acknowledge an empty checkout queue, and all server recovery jobs must be resolved before Z-close.",
-                    "recovery_job_keys": recovery_job_keys,
-                    "station_blockers": station_blockers,
-                })),
-            )
-                .into_response(),
         }
     }
 }
@@ -389,6 +370,7 @@ pub struct ReconciliationResponse {
     pub transactions: Vec<TransactionLine>,
     pub inventory_activity: Vec<InventoryActivityLine>,
     pub unresolved_helcim_attempts: Vec<HelcimCloseReviewAttempt>,
+    pub unresolved_close_issues: Option<UnresolvedCloseIssues>,
 }
 
 #[derive(Debug, Serialize, FromRow, Clone)]
@@ -472,19 +454,37 @@ pub struct ManualDrawerOpenRequest {
 
 #[derive(Debug, Deserialize)]
 pub struct CloseSessionRequest {
+    // Unknown fields remain accepted so older clients may keep sending the retired
+    // Manager force-close fields without breaking an otherwise valid close request.
     pub actual_cash: Decimal,
     pub cash_deposit_date: Option<NaiveDate>,
     pub cash_deposit_amount: Option<Decimal>,
     pub closing_notes: Option<String>,
     pub closing_comments: Option<String>,
-    #[serde(default)]
-    pub force_unresolved_recovery: bool,
-    #[serde(default)]
-    pub manager_staff_id: Option<Uuid>,
-    #[serde(default)]
-    pub manager_pin: Option<String>,
-    #[serde(default)]
-    pub manager_reason: Option<String>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct UnresolvedCloseIssues {
+    pub recovery_job_keys: Vec<String>,
+    pub recovery_jobs: Vec<CloseRecoveryJobEvidence>,
+    pub station_warnings: Vec<String>,
+    pub helcim_attempts: Vec<HelcimCloseReviewAttempt>,
+}
+
+#[derive(Debug, Serialize, FromRow, Clone)]
+pub struct CloseRecoveryJobEvidence {
+    pub client_job_key: String,
+    pub kind: String,
+    pub status: String,
+    pub register_session_id: Option<Uuid>,
+    pub transaction_id: Option<Uuid>,
+    pub checkout_client_id: Option<Uuid>,
+    pub station_key: Option<String>,
+    pub label: Option<String>,
+    pub last_error: Option<String>,
+    pub attempt_count: i32,
+    pub first_seen_at: DateTime<Utc>,
+    pub last_seen_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -507,6 +507,11 @@ pub struct CloseSessionResponse {
     pub next_business_date: Option<NaiveDate>,
     pub discrepancy: Option<Decimal>,
     pub till_group_closed: bool,
+    pub unresolved_close_issues: Option<UnresolvedCloseIssues>,
+    /// The exact server reconciliation used to build the immutable Z snapshot.
+    pub reconciliation: ReconciliationResponse,
+    /// The exact immutable payload persisted for archived Z-report output.
+    pub z_report_snapshot: serde_json::Value,
 }
 
 #[derive(Debug, FromRow)]
@@ -839,32 +844,6 @@ async fn try_authenticated_staff_headers(
     middleware::require_authenticated_staff_headers(state, headers)
         .await
         .ok()
-}
-
-async fn authenticate_register_close_manager(
-    state: &AppState,
-    staff_id: Option<Uuid>,
-    pin: Option<&str>,
-) -> Result<AuthenticatedStaff, SessionError> {
-    let staff_id = staff_id.ok_or_else(|| {
-        SessionError::Forbidden(
-            "Manager Access requires selecting an approving staff member".to_string(),
-        )
-    })?;
-    let pin = pin
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| SessionError::Forbidden("Manager Access PIN is required".to_string()))?;
-    let manager = pins::authenticate_staff_by_id(&state.db, staff_id, Some(pin))
-        .await
-        .map_err(|_| SessionError::Forbidden("Manager Access was not approved".to_string()))?;
-    let effective = effective_permissions_for_staff(&state.db, manager.id, manager.role).await?;
-    if !staff_can_approve_manager_access(&effective, manager.role) {
-        return Err(SessionError::Forbidden(
-            "manager.approval permission required".to_string(),
-        ));
-    }
-    Ok(manager)
 }
 
 async fn post_shift_primary(
@@ -1254,12 +1233,82 @@ fn tenders_by_lane_from_agg(rows: Vec<LaneTenderAggRow>) -> Vec<TendersByLane> {
         .collect()
 }
 
-async fn unresolved_helcim_attempts_for_sessions(
-    db: &sqlx::PgPool,
-    session_ids: &[Uuid],
-) -> Result<Vec<HelcimCloseReviewAttempt>, SessionError> {
-    sqlx::query_as::<_, HelcimCloseReviewAttempt>(
-        r#"
+type StationCloseStatusRow = (
+    i16,
+    String,
+    i32,
+    i32,
+    Option<DateTime<Utc>>,
+    Option<DateTime<Utc>>,
+);
+
+const OPEN_RECOVERY_JOBS_SQL: &str = r#"
+        SELECT
+            client_job_key,
+            kind,
+            status,
+            register_session_id,
+            transaction_id,
+            checkout_client_id,
+            station_key,
+            label,
+            last_error,
+            attempt_count,
+            first_seen_at,
+            last_seen_at
+        FROM operational_recovery_job
+        WHERE register_session_id = ANY($1)
+          AND status IN ('pending', 'blocked')
+        ORDER BY first_seen_at, client_job_key
+        "#;
+
+const STATION_CLOSE_STATUS_SQL: &str = r#"
+        SELECT
+            rs.register_lane,
+            token.station_key,
+            COALESCE(ack.pending_checkout_count, 0),
+            COALESCE(ack.blocked_checkout_count, 0),
+            ack.acknowledged_at,
+            rs.reconcile_started_at
+        FROM register_session_station_tokens token
+        INNER JOIN register_sessions rs ON rs.id = token.register_session_id
+        LEFT JOIN register_station_close_acknowledgement ack
+          ON ack.register_session_id = token.register_session_id
+         AND ack.station_key = token.station_key
+        WHERE rs.id = ANY($1)
+        ORDER BY rs.register_lane, token.station_key
+        "#;
+
+fn station_warnings_from_rows(rows: &[StationCloseStatusRow]) -> Vec<String> {
+    rows.iter()
+        .filter_map(
+            |(lane, station_key, pending, blocked, acknowledged_at, reconcile_started_at)| {
+                let fresh = acknowledged_at
+                    .zip(*reconcile_started_at)
+                    .is_some_and(|(acknowledged, started)| acknowledged >= started);
+                if fresh && *pending == 0 && *blocked == 0 {
+                    return None;
+                }
+                let suffix = station_key
+                    .chars()
+                    .rev()
+                    .take(8)
+                    .collect::<String>()
+                    .chars()
+                    .rev()
+                    .collect::<String>();
+                Some(format!(
+                    "Register #{lane} workstation {suffix}: {} pending, {} blocked, acknowledgement {}",
+                    pending,
+                    blocked,
+                    if fresh { "current" } else { "missing" }
+                ))
+            },
+        )
+        .collect()
+}
+
+const UNRESOLVED_HELCIM_ATTEMPTS_SQL: &str = r#"
         SELECT
             ppa.id,
             ppa.register_session_id,
@@ -1267,42 +1316,76 @@ async fn unresolved_helcim_attempts_for_sessions(
             ppa.status,
             ppa.amount_cents,
             ppa.selected_terminal_key,
-            'approved_not_recorded' AS review_reason,
+            CASE
+                WHEN ppa.status = 'pending' THEN 'waiting_on_terminal'
+                ELSE 'approved_not_recorded'
+            END AS review_reason,
             ppa.created_at
         FROM payment_provider_attempts ppa
         INNER JOIN register_sessions rs ON rs.id = ppa.register_session_id
         WHERE ppa.provider = 'helcim'
           AND ppa.register_session_id = ANY($1)
-          AND ppa.status IN ('approved', 'captured')
+          AND (
+              ppa.status IN ('approved', 'captured')
+              OR ($2::boolean AND ppa.status = 'pending')
+          )
+          -- Provider identity alone is not ledger attachment. The matching ROS
+          -- tender must be successful, same-session, exact-amount, and fully
+          -- allocated across valid Transaction Records.
           AND NOT EXISTS (
               SELECT 1
               FROM payment_transactions pt
               WHERE COALESCE(pt.payment_provider, '') = 'helcim'
+                AND pt.status IN ('success', 'approved', 'captured')
+                AND pt.session_id = ppa.register_session_id
+                AND ABS(pt.amount) = ppa.amount_cents::numeric / 100
                 AND (
                     pt.metadata->>'payment_provider_attempt_id' = ppa.id::text
-                    OR (
-                        NULLIF(TRIM(COALESCE(ppa.provider_transaction_id, '')), '') IS NOT NULL
-                        AND pt.provider_transaction_id = ppa.provider_transaction_id
-                    )
+                    OR pt.metadata->>'provider_attempt_id' = ppa.id::text
                     OR (
                         NULLIF(TRIM(COALESCE(ppa.provider_payment_id, '')), '') IS NOT NULL
                         AND pt.provider_payment_id = ppa.provider_payment_id
                     )
+                    OR (
+                        LOWER(COALESCE(ppa.raw_audit_reference, '')) NOT LIKE '%refund%'
+                        AND LOWER(COALESCE(ppa.raw_audit_reference, '')) NOT LIKE '%reverse%'
+                        AND NULLIF(TRIM(COALESCE(ppa.provider_transaction_id, '')), '') IS NOT NULL
+                        AND pt.provider_transaction_id = ppa.provider_transaction_id
+                    )
+                )
+                AND (
+                    SELECT ABS(COALESCE(SUM(pa.amount_allocated), 0))
+                    FROM payment_allocations pa
+                    INNER JOIN transactions target
+                        ON target.id = pa.target_transaction_id
+                    WHERE pa.transaction_id = pt.id
+                ) = ABS(pt.amount)
+                AND (
+                    ppa.checkout_client_id IS NULL
+                    OR NOT EXISTS (
+                        SELECT 1
+                        FROM payment_allocations pa
+                        INNER JOIN transactions target
+                            ON target.id = pa.target_transaction_id
+                        WHERE pa.transaction_id = pt.id
+                          AND target.checkout_client_id IS DISTINCT FROM ppa.checkout_client_id
+                    )
                 )
           )
-          AND NOT EXISTS (
-              SELECT 1
-              FROM helcim_terminal_recovery_actions hra
-              WHERE hra.source_kind = 'payment_provider_attempt'
-                AND hra.source_id = ppa.id
-          )
         ORDER BY ppa.created_at ASC
-        "#,
-    )
-    .bind(session_ids)
-    .fetch_all(db)
-    .await
-    .map_err(SessionError::Database)
+        "#;
+
+async fn unresolved_helcim_attempts_for_sessions(
+    db: &sqlx::PgPool,
+    session_ids: &[Uuid],
+    include_pending: bool,
+) -> Result<Vec<HelcimCloseReviewAttempt>, SessionError> {
+    sqlx::query_as::<_, HelcimCloseReviewAttempt>(UNRESOLVED_HELCIM_ATTEMPTS_SQL)
+        .bind(session_ids)
+        .bind(include_pending)
+        .fetch_all(db)
+        .await
+        .map_err(SessionError::Database)
 }
 
 fn normalize_helcim_close_review_action(value: &str) -> Result<String, SessionError> {
@@ -1358,11 +1441,12 @@ async fn post_helcim_close_review(
     struct AttemptCtx {
         opened_by: Uuid,
         shift_primary_staff_id: Option<Uuid>,
+        status: String,
     }
 
     let ctx: Option<AttemptCtx> = sqlx::query_as(
         r#"
-        SELECT rs.opened_by, rs.shift_primary_staff_id
+        SELECT rs.opened_by, rs.shift_primary_staff_id, ppa.status
         FROM payment_provider_attempts ppa
         INNER JOIN register_sessions rs ON rs.id = ppa.register_session_id
         INNER JOIN register_sessions requested
@@ -1384,6 +1468,18 @@ async fn post_helcim_close_review(
             "Card review item is not attached to this open till group.".to_string(),
         ));
     };
+    if ctx.status == "pending" {
+        return Err(SessionError::InvalidPayload(
+            "A pending terminal attempt cannot be marked reviewed; wait for an approved, captured, declined, canceled, or expired provider outcome."
+                .to_string(),
+        ));
+    }
+    if !matches!(ctx.status.as_str(), "approved" | "captured") {
+        return Err(SessionError::InvalidPayload(
+            "Card close review is available only for approved or captured attempts that are missing ROS payment evidence."
+                .to_string(),
+        ));
+    }
 
     let actor_staff_id = authenticated_staff_id
         .or(ctx.shift_primary_staff_id)
@@ -1978,8 +2074,39 @@ async fn build_reconciliation(
 
     let expected_cash =
         expected_cash_from_activity(opening_float, total_cash_sales, net_cash_adjustments);
-    let unresolved_helcim_attempts =
-        unresolved_helcim_attempts_for_sessions(db, &payment_session_ids).await?;
+    let close_issue_helcim_attempts =
+        unresolved_helcim_attempts_for_sessions(db, &payment_session_ids, true).await?;
+    let unresolved_helcim_attempts = close_issue_helcim_attempts
+        .iter()
+        .filter(|attempt| attempt.status != "pending")
+        .cloned()
+        .collect::<Vec<_>>();
+    let recovery_jobs: Vec<CloseRecoveryJobEvidence> = sqlx::query_as(OPEN_RECOVERY_JOBS_SQL)
+        .bind(&payment_session_ids)
+        .fetch_all(db)
+        .await?;
+    let recovery_job_keys = recovery_jobs
+        .iter()
+        .map(|job| job.client_job_key.clone())
+        .collect::<Vec<_>>();
+    let station_rows: Vec<StationCloseStatusRow> = sqlx::query_as(STATION_CLOSE_STATUS_SQL)
+        .bind(&payment_session_ids)
+        .fetch_all(db)
+        .await?;
+    let station_warnings = station_warnings_from_rows(&station_rows);
+    let unresolved_close_issues = if recovery_job_keys.is_empty()
+        && station_warnings.is_empty()
+        && close_issue_helcim_attempts.is_empty()
+    {
+        None
+    } else {
+        Some(UnresolvedCloseIssues {
+            recovery_job_keys,
+            recovery_jobs,
+            station_warnings,
+            helcim_attempts: close_issue_helcim_attempts,
+        })
+    };
     let inventory_activity: Vec<InventoryActivityLine> = sqlx::query_as(
         r#"
         SELECT
@@ -2053,6 +2180,7 @@ async fn build_reconciliation(
         transactions,
         inventory_activity,
         unresolved_helcim_attempts,
+        unresolved_close_issues,
     })
 }
 
@@ -2496,7 +2624,7 @@ async fn close_session(
     }
 
     let till_gid = claim.till_close_group_id;
-    let mut close_actor_id = closer_from_headers
+    let close_actor_id = closer_from_headers
         .or(claim.shift_primary_staff_id)
         .unwrap_or(claim.opened_by);
 
@@ -2513,110 +2641,51 @@ async fn close_session(
     .fetch_all(&mut *tx)
     .await?;
 
-    let recovery_job_keys: Vec<String> = sqlx::query_scalar(
-        r#"
-        SELECT client_job_key
-        FROM operational_recovery_job
-        WHERE register_session_id = ANY($1)
-          AND status IN ('pending', 'blocked')
-        ORDER BY first_seen_at
-        "#,
-    )
-    .bind(&group_ids)
-    .fetch_all(&mut *tx)
-    .await?;
-    let station_rows: Vec<(
-        i16,
-        String,
-        i32,
-        i32,
-        Option<DateTime<Utc>>,
-        Option<DateTime<Utc>>,
-    )> = sqlx::query_as(
-        r#"
-        SELECT
-            rs.register_lane,
-            token.station_key,
-            COALESCE(ack.pending_checkout_count, 0),
-            COALESCE(ack.blocked_checkout_count, 0),
-            ack.acknowledged_at,
-            rs.reconcile_started_at
-        FROM register_session_station_tokens token
-        INNER JOIN register_sessions rs ON rs.id = token.register_session_id
-        LEFT JOIN register_station_close_acknowledgement ack
-          ON ack.register_session_id = token.register_session_id
-         AND ack.station_key = token.station_key
-        WHERE rs.id = ANY($1)
-        ORDER BY rs.register_lane, token.station_key
-        "#,
-    )
-    .bind(&group_ids)
-    .fetch_all(&mut *tx)
-    .await?;
-    let station_blockers: Vec<String> = station_rows
-        .iter()
-        .filter_map(
-            |(lane, station_key, pending, blocked, acknowledged_at, reconcile_started_at)| {
-                let fresh = acknowledged_at
-                    .zip(*reconcile_started_at)
-                    .is_some_and(|(acknowledged, started)| acknowledged >= started);
-                if fresh && *pending == 0 && *blocked == 0 {
-                    return None;
-                }
-                let suffix = station_key
-                    .chars()
-                    .rev()
-                    .take(8)
-                    .collect::<String>()
-                    .chars()
-                    .rev()
-                    .collect::<String>();
-                Some(format!(
-                    "Register #{lane} workstation {suffix}: {} pending, {} blocked, acknowledgement {}",
-                    pending,
-                    blocked,
-                    if fresh { "current" } else { "missing" }
-                ))
-            },
-        )
-        .collect();
-    let has_recovery_blockers = !recovery_job_keys.is_empty() || !station_blockers.is_empty();
-    let forced_recovery_close = if has_recovery_blockers {
-        if !payload.force_unresolved_recovery {
-            let _ = tx.rollback().await;
-            return Err(SessionError::CheckoutRecoveryBlocked {
-                recovery_job_keys,
-                station_blockers,
-            });
-        }
-        let reason = payload
-            .manager_reason
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| value.chars().count() >= 12)
-            .ok_or_else(|| {
-                SessionError::InvalidPayload(
-                    "Manager force-close reason must be at least 12 characters".to_string(),
-                )
-            })?;
-        let manager = authenticate_register_close_manager(
-            &state,
-            payload.manager_staff_id,
-            payload.manager_pin.as_deref(),
-        )
+    // Freeze every close-sensitive writer before reading the final financial
+    // reconciliation. Checkout/refund writers take the register-session lock;
+    // recovery and Helcim writers take the rows locked below. The pool-backed
+    // reconciliation therefore observes one stable, committed close boundary.
+    let recovery_lock_sql = format!("{OPEN_RECOVERY_JOBS_SQL}\nFOR UPDATE");
+    let recovery_jobs: Vec<CloseRecoveryJobEvidence> = sqlx::query_as(&recovery_lock_sql)
+        .bind(&group_ids)
+        .fetch_all(&mut *tx)
         .await?;
-        close_actor_id = manager.id;
-        Some(json!({
-            "approved_by_staff_id": manager.id,
-            "reason": reason,
-            "recovery_job_keys": recovery_job_keys,
-            "station_blockers": station_blockers,
-        }))
-    } else {
+    let recovery_job_keys = recovery_jobs
+        .iter()
+        .map(|job| job.client_job_key.clone())
+        .collect::<Vec<_>>();
+    let station_rows: Vec<StationCloseStatusRow> = sqlx::query_as(STATION_CLOSE_STATUS_SQL)
+        .bind(&group_ids)
+        .fetch_all(&mut *tx)
+        .await?;
+    let station_warnings = station_warnings_from_rows(&station_rows);
+    let helcim_lock_sql = format!("{UNRESOLVED_HELCIM_ATTEMPTS_SQL}\nFOR UPDATE OF ppa");
+    let close_helcim_attempts = sqlx::query_as::<_, HelcimCloseReviewAttempt>(&helcim_lock_sql)
+        .bind(&group_ids)
+        .bind(true)
+        .fetch_all(&mut *tx)
+        .await?;
+    let unresolved_close_issues = if recovery_job_keys.is_empty()
+        && station_warnings.is_empty()
+        && close_helcim_attempts.is_empty()
+    {
         None
+    } else {
+        Some(UnresolvedCloseIssues {
+            recovery_job_keys,
+            recovery_jobs,
+            station_warnings,
+            helcim_attempts: close_helcim_attempts.clone(),
+        })
     };
 
-    let recon = build_reconciliation(&state.db, session_id, "z_report").await?;
+    let mut recon = build_reconciliation(&state.db, session_id, "z_report").await?;
+    recon.unresolved_helcim_attempts = close_helcim_attempts
+        .iter()
+        .filter(|attempt| attempt.status != "pending")
+        .cloned()
+        .collect();
+    recon.unresolved_close_issues = unresolved_close_issues.clone();
     let primary_id = recon.session_id;
     let business_date = recon.qbo_activity_date;
     let next_business_date = recon.pending_business_dates.get(1).copied();
@@ -2739,17 +2808,17 @@ async fn close_session(
         "override_summary": recon.override_summary,
         "closing_notes": notes_trimmed,
         "closing_comments": payload.closing_comments.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()),
-        "forced_recovery_close": forced_recovery_close,
+        "unresolved_close_issues": unresolved_close_issues.as_ref(),
         "closed_at": Utc::now(),
     });
 
-    if let Some(force_audit) = forced_recovery_close.as_ref() {
+    if let Some(issues) = unresolved_close_issues.as_ref() {
         sqlx::query(
             r#"
             INSERT INTO staff_access_log (
                 staff_id, event_kind, metadata, idempotency_key
             )
-            VALUES ($1, 'register_close_recovery_force', $2, $3)
+            VALUES ($1, 'register_close_with_unresolved_issues', $2, $3)
             ON CONFLICT (idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING
             "#,
         )
@@ -2758,10 +2827,10 @@ async fn close_session(
             "session_id": session_id,
             "till_close_group_id": till_gid,
             "business_date": business_date,
-            "force": force_audit,
+            "unresolved_close_issues": issues,
         }))
         .bind(format!(
-            "register-close-recovery-force:{till_gid}:{business_date}"
+            "register-close-unresolved-issues:{till_gid}:{business_date}"
         ))
         .execute(&mut *tx)
         .await?;
@@ -2904,6 +2973,9 @@ async fn close_session(
             next_business_date,
             discrepancy: report_discrepancy,
             till_group_closed: false,
+            unresolved_close_issues,
+            reconciliation: recon,
+            z_report_snapshot: z_snapshot,
         }));
     }
 
@@ -3100,5 +3172,8 @@ async fn close_session(
         next_business_date: None,
         discrepancy: report_discrepancy,
         till_group_closed: true,
+        unresolved_close_issues,
+        reconciliation: recon,
+        z_report_snapshot: z_snapshot,
     }))
 }

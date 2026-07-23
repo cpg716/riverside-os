@@ -97,6 +97,52 @@ fn optional_string(line: &Value, key: &str) -> Option<String> {
         .map(str::to_string)
 }
 
+fn validated_helcim_purchase_recovery_amount(
+    gross_amount: Option<Decimal>,
+    currency: Option<&str>,
+    transaction_type: Option<&str>,
+    status: Option<&str>,
+) -> Result<Decimal, CheckoutError> {
+    let amount = gross_amount
+        .ok_or_else(|| invalid("Helcim processor transaction has no amount"))?
+        .round_dp(2);
+    if amount <= Decimal::ZERO {
+        return Err(invalid(
+            "Helcim sale recovery requires a positive processor purchase amount",
+        ));
+    }
+    if !currency.is_some_and(|value| value.trim().eq_ignore_ascii_case("USD")) {
+        return Err(invalid(
+            "Helcim sale recovery requires verified USD processor evidence",
+        ));
+    }
+    if !matches!(
+        transaction_type
+            .unwrap_or_default()
+            .trim()
+            .to_ascii_lowercase()
+            .as_str(),
+        "purchase" | "sale"
+    ) {
+        return Err(invalid(
+            "Helcim refund or reverse evidence cannot recover a paid sale",
+        ));
+    }
+    if !matches!(
+        status
+            .unwrap_or_default()
+            .trim()
+            .to_ascii_lowercase()
+            .as_str(),
+        "approved" | "approval" | "captured" | "capture"
+    ) {
+        return Err(invalid(
+            "Helcim sale recovery requires approved processor evidence",
+        ));
+    }
+    Ok(amount)
+}
+
 async fn reconstruct_attempt_from_approved_event(
     pool: &PgPool,
     event_id: Uuid,
@@ -104,7 +150,8 @@ async fn reconstruct_attempt_from_approved_event(
     staff_id: Uuid,
 ) -> Result<Uuid, CheckoutError> {
     let mut tx = pool.begin().await?;
-    let event = sqlx::query(
+    let idempotency_key = format!("helcim-event-recovery-{event_id}");
+    let mut events = sqlx::query(
         r#"
         SELECT e.provider_transaction_id,
                e.payment_provider_attempt_id,
@@ -115,7 +162,9 @@ async fn reconstruct_attempt_from_approved_event(
                    NULLIF(e.payload_json->>'status', ''),
                    NULLIF(e.payload_json->'data'->>'status', '')
                )) AS provider_status,
-               COALESCE(b.currency, 'usd') AS currency,
+               b.currency,
+               b.transaction_type,
+               b.status AS processor_status,
                b.gross_amount,
                COALESCE(b.occurred_at, e.received_at) AS approved_at,
                b.payment_transaction_id
@@ -129,13 +178,31 @@ async fn reconstruct_attempt_from_approved_event(
           AND e.provider = 'helcim'
           AND e.event_type = 'cardTransaction'
           AND e.processing_status = 'processed'
+          AND (
+                (
+                    COALESCE(e.match_type, 'none') = 'none'
+                    AND e.payment_provider_attempt_id IS NULL
+                )
+                OR (
+                    e.match_type = 'recovery_attempt'
+                    AND recovery_attempt.idempotency_key = $2
+                )
+          )
         FOR UPDATE OF e
         "#,
     )
     .bind(event_id)
-    .fetch_optional(&mut *tx)
-    .await?
-    .ok_or_else(|| invalid("Helcim approval event was not found"))?;
+    .bind(&idempotency_key)
+    .fetch_all(&mut *tx)
+    .await?;
+    if events.len() != 1 {
+        return Err(invalid(
+            "Helcim approval event does not have one unique, recoverable processor transaction",
+        ));
+    }
+    let event = events
+        .pop()
+        .expect("one Helcim recovery event was verified");
 
     let provider_status = event
         .get::<Option<String>, _>("provider_status")
@@ -152,7 +219,6 @@ async fn reconstruct_attempt_from_approved_event(
     {
         return Err(invalid("Helcim event is already linked to a payment"));
     }
-    let idempotency_key = format!("helcim-event-recovery-{event_id}");
     let linked_attempt_id = event.get::<Option<Uuid>, _>("payment_provider_attempt_id");
     let linked_attempt_idempotency_key =
         event.get::<Option<String>, _>("linked_attempt_idempotency_key");
@@ -173,19 +239,22 @@ async fn reconstruct_attempt_from_approved_event(
     {
         return Err(invalid("Helcim processor transaction is already linked"));
     }
-    let approved_amount = event
-        .get::<Option<Decimal>, _>("gross_amount")
-        .ok_or_else(|| invalid("Helcim processor transaction has no amount"))?
-        .abs()
-        .round_dp(2);
-    if approved_amount <= Decimal::ZERO {
-        return Err(invalid("Helcim approval amount must be positive"));
-    }
+    let approved_amount = validated_helcim_purchase_recovery_amount(
+        event.get::<Option<Decimal>, _>("gross_amount"),
+        event.get::<Option<String>, _>("currency").as_deref(),
+        event
+            .get::<Option<String>, _>("transaction_type")
+            .as_deref(),
+        event
+            .get::<Option<String>, _>("processor_status")
+            .as_deref(),
+    )?;
     let amount_cents = (approved_amount * Decimal::from(100))
         .to_i64()
         .ok_or_else(|| invalid("Helcim approval amount is invalid"))?;
     let currency = event
-        .get::<String, _>("currency")
+        .get::<Option<String>, _>("currency")
+        .expect("validated Helcim recovery currency")
         .trim()
         .to_ascii_lowercase();
     let approved_at = event.get::<DateTime<Utc>, _>("approved_at");
@@ -194,12 +263,12 @@ async fn reconstruct_attempt_from_approved_event(
         r#"
         INSERT INTO payment_provider_attempts (
             id, provider, status, amount_cents, currency, register_session_id, staff_id,
-            idempotency_key, provider_payment_id, provider_transaction_id,
+            idempotency_key, provider_transaction_id,
             raw_audit_reference, created_at, updated_at, completed_at
         )
         VALUES (
             $1, 'helcim', 'approved', $2, $3, $4, $5,
-            $6, $7, $7, $8, $9, now(), $9
+            $6, $7, $8, $9, now(), $9
         )
         ON CONFLICT (provider, idempotency_key) DO NOTHING
         "#,
@@ -218,7 +287,8 @@ async fn reconstruct_attempt_from_approved_event(
 
     let attempt = sqlx::query(
         r#"
-        SELECT id, status, amount_cents, register_session_id, staff_id, provider_transaction_id
+        SELECT id, status, amount_cents, currency, register_session_id, staff_id,
+               provider_payment_id, provider_transaction_id, raw_audit_reference, error_code
         FROM payment_provider_attempts
         WHERE provider = 'helcim' AND idempotency_key = $1
         "#,
@@ -226,14 +296,30 @@ async fn reconstruct_attempt_from_approved_event(
     .bind(&idempotency_key)
     .fetch_one(&mut *tx)
     .await?;
+    let existing_provider_payment_id = attempt.get::<Option<String>, _>("provider_payment_id");
+    let existing_provider_transaction_id =
+        attempt.get::<Option<String>, _>("provider_transaction_id");
+    let expected_audit_reference = format!("helcim:event-recovery:{event_id}");
     if attempt.get::<String, _>("status") != "approved"
         || attempt.get::<i64, _>("amount_cents") != amount_cents
+        || !attempt
+            .get::<String, _>("currency")
+            .trim()
+            .eq_ignore_ascii_case("USD")
         || attempt.get::<Option<Uuid>, _>("register_session_id") != Some(register_session_id)
         || attempt.get::<Option<Uuid>, _>("staff_id") != Some(staff_id)
-        || attempt
-            .get::<Option<String>, _>("provider_transaction_id")
+        // Older partial recovery attempts stored the transaction ID in both
+        // provider columns. Accept only that exact legacy alias for an
+        // idempotent retry; new recovery attempts leave payment ID unset.
+        || existing_provider_payment_id
             .as_deref()
-            != Some(provider_transaction_id.as_str())
+            .is_some_and(|value| value != provider_transaction_id)
+        || attempt.get::<Option<String>, _>("error_code").is_some()
+        || existing_provider_transaction_id.as_deref() != Some(provider_transaction_id.as_str())
+        || attempt
+            .get::<Option<String>, _>("raw_audit_reference")
+            .as_deref()
+            != Some(expected_audit_reference.as_str())
     {
         return Err(invalid(
             "Existing Helcim event recovery attempt does not match this payment",
@@ -352,7 +438,7 @@ pub async fn recover_paid_parked_sale(
         r#"
         SELECT ppa.status, ppa.amount_cents, ppa.register_session_id, ppa.staff_id,
                ppa.terminal_id, ppa.provider_payment_id, ppa.provider_transaction_id,
-               ppa.completed_at, ppa.created_at, staff.full_name
+               ppa.currency, ppa.error_code, ppa.completed_at, ppa.created_at, staff.full_name
         FROM payment_provider_attempts ppa
         LEFT JOIN staff ON staff.id = ppa.staff_id
         WHERE ppa.id = $1 AND ppa.provider = 'helcim'
@@ -365,6 +451,18 @@ pub async fn recover_paid_parked_sale(
     let status = attempt.get::<String, _>("status");
     if !matches!(status.as_str(), "approved" | "captured") {
         return Err(invalid("Helcim payment is not approved"));
+    }
+    if attempt.get::<Option<String>, _>("error_code").is_some() {
+        return Err(invalid(
+            "Helcim payment has blocking provider evidence and must be reconciled in Payments Health",
+        ));
+    }
+    if !attempt
+        .get::<String, _>("currency")
+        .trim()
+        .eq_ignore_ascii_case("USD")
+    {
+        return Err(invalid("Helcim payment is not verified as USD"));
     }
     let session_id = attempt
         .get::<Option<Uuid>, _>("register_session_id")
@@ -448,7 +546,7 @@ pub async fn recover_paid_parked_sale(
 
     let batch = sqlx::query(
         r#"
-        SELECT gross_amount, payment_transaction_id
+        SELECT gross_amount, currency, transaction_type, status, payment_transaction_id
         FROM payment_provider_batch_transactions
         WHERE provider = 'helcim' AND provider_transaction_id = $1
         "#,
@@ -463,10 +561,15 @@ pub async fn recover_paid_parked_sale(
     {
         return Err(invalid("Helcim processor transaction is already linked"));
     }
-    let processor_amount = batch
-        .get::<Option<Decimal>, _>("gross_amount")
-        .ok_or_else(|| invalid("Helcim processor transaction has no amount"))?;
-    if processor_amount.abs().round_dp(2) != approved_amount.abs().round_dp(2) {
+    let processor_amount = validated_helcim_purchase_recovery_amount(
+        batch.get::<Option<Decimal>, _>("gross_amount"),
+        batch.get::<Option<String>, _>("currency").as_deref(),
+        batch
+            .get::<Option<String>, _>("transaction_type")
+            .as_deref(),
+        batch.get::<Option<String>, _>("status").as_deref(),
+    )?;
+    if processor_amount != approved_amount.round_dp(2) {
         return Err(invalid(
             "Helcim synchronized amount does not match the approval",
         ));
@@ -590,7 +693,7 @@ pub async fn recover_paid_order_payment(
         r#"
         SELECT ppa.status, ppa.amount_cents, ppa.register_session_id, ppa.staff_id,
                ppa.terminal_id, ppa.provider_payment_id, ppa.provider_transaction_id,
-               ppa.completed_at, ppa.created_at, staff.full_name
+               ppa.currency, ppa.error_code, ppa.completed_at, ppa.created_at, staff.full_name
         FROM payment_provider_attempts ppa
         LEFT JOIN staff ON staff.id = ppa.staff_id
         WHERE ppa.id = $1 AND ppa.provider = 'helcim'
@@ -603,6 +706,18 @@ pub async fn recover_paid_order_payment(
     let status = attempt.get::<String, _>("status");
     if !matches!(status.as_str(), "approved" | "captured") {
         return Err(invalid("Helcim payment is not approved"));
+    }
+    if attempt.get::<Option<String>, _>("error_code").is_some() {
+        return Err(invalid(
+            "Helcim payment has blocking provider evidence and must be reconciled in Payments Health",
+        ));
+    }
+    if !attempt
+        .get::<String, _>("currency")
+        .trim()
+        .eq_ignore_ascii_case("USD")
+    {
+        return Err(invalid("Helcim payment is not verified as USD"));
     }
     let session_id = attempt
         .get::<Option<Uuid>, _>("register_session_id")
@@ -663,7 +778,7 @@ pub async fn recover_paid_order_payment(
 
     let batch = sqlx::query(
         r#"
-        SELECT gross_amount, payment_transaction_id
+        SELECT gross_amount, currency, transaction_type, status, payment_transaction_id
         FROM payment_provider_batch_transactions
         WHERE provider = 'helcim' AND provider_transaction_id = $1
         "#,
@@ -678,10 +793,15 @@ pub async fn recover_paid_order_payment(
     {
         return Err(invalid("Helcim processor transaction is already linked"));
     }
-    let processor_amount = batch
-        .get::<Option<Decimal>, _>("gross_amount")
-        .ok_or_else(|| invalid("Helcim processor transaction has no amount"))?;
-    if processor_amount.abs().round_dp(2) != approved_amount.round_dp(2) {
+    let processor_amount = validated_helcim_purchase_recovery_amount(
+        batch.get::<Option<Decimal>, _>("gross_amount"),
+        batch.get::<Option<String>, _>("currency").as_deref(),
+        batch
+            .get::<Option<String>, _>("transaction_type")
+            .as_deref(),
+        batch.get::<Option<String>, _>("status").as_deref(),
+    )?;
+    if processor_amount != approved_amount.round_dp(2) {
         return Err(invalid(
             "Helcim synchronized amount does not match the approval",
         ));
@@ -931,5 +1051,53 @@ mod tests {
         });
 
         assert!(retained_checkout_item(&line).is_err());
+    }
+
+    #[test]
+    fn recovery_accepts_only_positive_approved_usd_purchases() {
+        let amount = validated_helcim_purchase_recovery_amount(
+            Some(Decimal::new(1_234, 2)),
+            Some("USD"),
+            Some("purchase"),
+            Some("APPROVED"),
+        )
+        .expect("approved USD purchase is recoverable");
+
+        assert_eq!(amount, Decimal::new(1_234, 2));
+        assert!(validated_helcim_purchase_recovery_amount(
+            Some(Decimal::new(1_234, 2)),
+            Some("USD"),
+            Some("refund"),
+            Some("APPROVED"),
+        )
+        .is_err());
+        assert!(validated_helcim_purchase_recovery_amount(
+            Some(Decimal::new(1_234, 2)),
+            Some("CAD"),
+            Some("purchase"),
+            Some("APPROVED"),
+        )
+        .is_err());
+        assert!(validated_helcim_purchase_recovery_amount(
+            Some(Decimal::new(1_234, 2)),
+            None,
+            Some("purchase"),
+            Some("APPROVED"),
+        )
+        .is_err());
+        assert!(validated_helcim_purchase_recovery_amount(
+            Some(Decimal::new(-1_234, 2)),
+            Some("USD"),
+            Some("purchase"),
+            Some("APPROVED"),
+        )
+        .is_err());
+        assert!(validated_helcim_purchase_recovery_amount(
+            Some(Decimal::new(1_234, 2)),
+            Some("USD"),
+            Some("purchase"),
+            Some("DECLINED"),
+        )
+        .is_err());
     }
 }

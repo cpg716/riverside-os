@@ -6,7 +6,7 @@ use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use sqlx::{Error as SqlxError, PgPool};
+use sqlx::{Error as SqlxError, Executor, PgPool, Postgres};
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 use thiserror::Error;
@@ -2164,17 +2164,56 @@ fn resolve_payment_splits(
     ))
 }
 
+fn helcim_tender_method_matches_amount(method: &str, amount: Decimal) -> bool {
+    let method = method.trim().to_ascii_lowercase();
+    if amount < Decimal::ZERO {
+        method == "card_credit"
+    } else {
+        matches!(
+            method.as_str(),
+            "card_terminal" | "card_manual" | "card_saved"
+        )
+    }
+}
+
+fn canonical_helcim_ledger_transaction_id(
+    is_return: bool,
+    provider_transaction_id: Option<&str>,
+    provider_payment_id: Option<&str>,
+) -> Result<Option<String>, CheckoutError> {
+    if is_return {
+        return provider_payment_id
+            .map(str::to_string)
+            .map(Some)
+            .ok_or_else(|| {
+                CheckoutError::InvalidPayload(
+                    "Helcim card refund is missing its approved refund/reverse reference"
+                        .to_string(),
+                )
+            });
+    }
+    Ok(provider_transaction_id.map(str::to_string))
+}
+
 async fn validate_helcim_payment_splits(
     pool: &PgPool,
     checkout_register_session_id: Uuid,
     checkout_client_id: Option<Uuid>,
     require_checkout_binding: bool,
-    payment_splits: &[ResolvedPaymentSplit],
+    payment_splits: &mut [ResolvedPaymentSplit],
 ) -> Result<(), CheckoutError> {
     for split in payment_splits {
         if split.payment_provider.as_deref() != Some("helcim") {
             continue;
         }
+
+        if !helcim_tender_method_matches_amount(&split.method, split.amount) {
+            return Err(CheckoutError::InvalidPayload(
+                "Helcim provider references may only be attached to the matching approved card tender"
+                    .to_string(),
+            ));
+        }
+        let is_return_tender = split.amount < Decimal::ZERO;
 
         let provider_transaction_id = split
             .provider_transaction_id
@@ -2186,10 +2225,17 @@ async fn validate_helcim_payment_splits(
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty());
-        let provider_attempt_id =
-            metadata_optional_text(&split.metadata, "payment_provider_attempt_id")
-                .and_then(|value| Uuid::parse_str(&value).ok());
-        let provider_attempt_id_text = provider_attempt_id.map(|value| value.to_string());
+        let provider_attempt_reference =
+            metadata_optional_text(&split.metadata, "payment_provider_attempt_id");
+        let provider_attempt_id = provider_attempt_reference
+            .as_deref()
+            .map(Uuid::parse_str)
+            .transpose()
+            .map_err(|_| {
+                CheckoutError::InvalidPayload(
+                    "Helcim card payment has an invalid provider attempt reference".to_string(),
+                )
+            })?;
 
         if provider_transaction_id.is_none()
             && provider_payment_id.is_none()
@@ -2206,17 +2252,22 @@ async fn validate_helcim_payment_splits(
                 CheckoutError::InvalidPayload("Helcim card payment amount is not valid".to_string())
             })?;
 
-        let attempt: Option<(
+        let attempts: Vec<(
+            Uuid,
             String,
             i64,
             Option<Uuid>,
             Option<Uuid>,
             Option<String>,
             Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
         )> = sqlx::query_as(
             r#"
-            SELECT status, amount_cents, register_session_id, checkout_client_id,
-                   raw_audit_reference, error_code
+            SELECT id, status, amount_cents, register_session_id, checkout_client_id,
+                   raw_audit_reference, error_code, provider_transaction_id,
+                   provider_payment_id, terminal_id
             FROM payment_provider_attempts
             WHERE provider = 'helcim'
               AND (
@@ -2225,27 +2276,44 @@ async fn validate_helcim_payment_splits(
                 OR ($3::text IS NOT NULL AND provider_payment_id = $3)
               )
             ORDER BY created_at DESC
-            LIMIT 1
             "#,
         )
         .bind(provider_attempt_id)
         .bind(provider_transaction_id)
         .bind(provider_payment_id)
-        .fetch_optional(pool)
+        .fetch_all(pool)
         .await?;
-        let Some((
+        if attempts.len() != 1 {
+            return Err(CheckoutError::InvalidPayload(
+                "Helcim card references do not identify one approved provider attempt".to_string(),
+            ));
+        }
+        let (
+            canonical_attempt_id,
             attempt_status,
             attempt_amount_cents,
             attempt_register_session_id,
             attempt_checkout_client_id,
             raw_audit_reference,
             attempt_error_code,
-        )) = attempt
-        else {
+            canonical_transaction_id,
+            canonical_payment_id,
+            canonical_terminal_id,
+        ) = attempts.into_iter().next().expect("one Helcim attempt");
+        let supplied_transaction_matches = provider_transaction_id.is_none_or(|value| {
+            canonical_transaction_id.as_deref() == Some(value)
+                || (is_return_tender && canonical_payment_id.as_deref() == Some(value))
+        });
+        if provider_attempt_id.is_some_and(|value| value != canonical_attempt_id)
+            || !supplied_transaction_matches
+            || provider_payment_id
+                .is_some_and(|value| canonical_payment_id.as_deref() != Some(value))
+        {
             return Err(CheckoutError::InvalidPayload(
-                "Helcim card payment has not been confirmed by the terminal".to_string(),
+                "Helcim card references do not all belong to the same approved provider attempt"
+                    .to_string(),
             ));
-        };
+        }
         if attempt_register_session_id != Some(checkout_register_session_id) {
             return Err(CheckoutError::InvalidPayload(
                 "Helcim card payment does not belong to this register session".to_string(),
@@ -2262,16 +2330,28 @@ async fn validate_helcim_payment_splits(
                 "Helcim card payment must be approved before checkout can be completed".to_string(),
             ));
         }
-        if attempt_error_code.as_deref() == Some("amount_mismatch") {
+        if matches!(
+            attempt_error_code.as_deref(),
+            Some("amount_mismatch" | "provider_identity_mismatch" | "provider_result_mismatch")
+        ) {
             return Err(CheckoutError::InvalidPayload(
-                "Helcim card payment amount does not match the provider response".to_string(),
+                "Helcim card payment identity does not match the provider response; reconcile it in Payments Health"
+                    .to_string(),
             ));
         }
-        let is_refund_attempt = split.method.trim().eq_ignore_ascii_case("card_credit")
-            || raw_audit_reference
-                .as_deref()
-                .map(|value| value.to_ascii_lowercase().contains("refund"))
-                .unwrap_or(false);
+        let is_refund_attempt = raw_audit_reference
+            .as_deref()
+            .map(|value| {
+                let normalized = value.to_ascii_lowercase();
+                normalized.contains("refund") || normalized.contains("reverse")
+            })
+            .unwrap_or(false);
+        if is_return_tender != is_refund_attempt {
+            return Err(CheckoutError::InvalidPayload(
+                "Helcim purchase and refund attempts cannot be substituted for one another"
+                    .to_string(),
+            ));
+        }
         let comparable_split_cents =
             helcim_attempt_comparison_cents(split_amount_cents, is_refund_attempt);
         if attempt_amount_cents != comparable_split_cents {
@@ -2280,6 +2360,56 @@ async fn validate_helcim_payment_splits(
                     .to_string(),
             ));
         }
+
+        // Persist only the canonical provider identity resolved from ROS's
+        // durable attempt. Return attempts retain the original charge in the
+        // attempt's provider_transaction_id; the new refund/reverse movement
+        // is provider_payment_id and is the only transaction identity valid
+        // for the negative tender row.
+        let ledger_transaction_id = canonical_helcim_ledger_transaction_id(
+            is_refund_attempt,
+            canonical_transaction_id.as_deref(),
+            canonical_payment_id.as_deref(),
+        )?;
+        split.provider_transaction_id = ledger_transaction_id.clone();
+        split.provider_payment_id = canonical_payment_id.clone();
+        split.provider_terminal_id = canonical_terminal_id.clone();
+        split.provider_status = Some(attempt_status.clone());
+        let mut canonical_metadata = split.metadata.as_object().cloned().unwrap_or_default();
+        canonical_metadata.insert(
+            "payment_provider".to_string(),
+            Value::String("helcim".to_string()),
+        );
+        canonical_metadata.insert(
+            "payment_provider_attempt_id".to_string(),
+            Value::String(canonical_attempt_id.to_string()),
+        );
+        canonical_metadata.insert(
+            "provider_status".to_string(),
+            Value::String(attempt_status.clone()),
+        );
+        for (key, value) in [
+            ("provider_transaction_id", ledger_transaction_id.as_ref()),
+            ("provider_payment_id", canonical_payment_id.as_ref()),
+            ("provider_terminal_id", canonical_terminal_id.as_ref()),
+        ] {
+            if let Some(value) = value {
+                canonical_metadata.insert(key.to_string(), Value::String(value.clone()));
+            } else {
+                canonical_metadata.remove(key);
+            }
+        }
+        if is_refund_attempt {
+            if let Some(original_transaction_id) = canonical_transaction_id.as_ref() {
+                canonical_metadata.insert(
+                    "original_provider_transaction_id".to_string(),
+                    Value::String(original_transaction_id.clone()),
+                );
+            }
+        }
+        split.metadata = Value::Object(canonical_metadata);
+
+        let provider_attempt_id_text = canonical_attempt_id.to_string();
 
         let already_recorded: bool = sqlx::query_scalar(
             r#"
@@ -2295,9 +2425,9 @@ async fn validate_helcim_payment_splits(
             )
             "#,
         )
-        .bind(provider_transaction_id)
-        .bind(provider_payment_id)
-        .bind(provider_attempt_id_text.as_deref())
+        .bind(ledger_transaction_id.as_deref())
+        .bind(canonical_payment_id.as_deref())
+        .bind(&provider_attempt_id_text)
         .fetch_one(pool)
         .await?;
         if already_recorded {
@@ -2327,39 +2457,73 @@ fn helcim_checkout_references(payment_splits: &[ResolvedPaymentSplit]) -> Vec<St
         .collect()
 }
 
-async fn reject_unattached_helcim_attempt(
-    pool: &PgPool,
+async fn reject_unattached_helcim_attempt<'e, E>(
+    executor: E,
     register_session_id: Uuid,
     checkout_client_id: Option<Uuid>,
     payment_splits: &[ResolvedPaymentSplit],
-) -> Result<(), CheckoutError> {
-    let Some(checkout_client_id) = checkout_client_id else {
-        return Ok(());
-    };
+) -> Result<(), CheckoutError>
+where
+    E: Executor<'e, Database = Postgres>,
+{
     let checkout_references = helcim_checkout_references(payment_splits);
-    let pending: Option<(i64, Option<String>)> = sqlx::query_as(
+    let unresolved: Option<(String, i64, Option<String>)> = sqlx::query_as(
         r#"
-        SELECT ppa.amount_cents, ppa.provider_transaction_id
+        SELECT ppa.status, ppa.amount_cents, ppa.provider_transaction_id
         FROM payment_provider_attempts ppa
         WHERE ppa.provider = 'helcim'
-          AND ppa.register_session_id = $1
-          AND ppa.checkout_client_id = $2
-          AND ppa.status IN ('approved', 'captured')
-          AND NOT (
-              ppa.id::text = ANY($3::text[])
-              OR COALESCE(ppa.provider_transaction_id, '') = ANY($3::text[])
-              OR COALESCE(ppa.provider_payment_id, '') = ANY($3::text[])
+          AND (
+              ppa.register_session_id = $1
+              OR ($3::uuid IS NOT NULL AND ppa.checkout_client_id = $3)
+          )
+          AND (
+              ppa.status IN ('pending', 'expired')
+              OR (ppa.status = 'failed' AND ppa.error_code = 'outcome_unknown')
+              OR (
+                  ppa.status IN ('approved', 'captured')
+                  AND NOT (
+                      ppa.id::text = ANY($2::text[])
+                      OR COALESCE(ppa.provider_transaction_id, '') = ANY($2::text[])
+                      OR COALESCE(ppa.provider_payment_id, '') = ANY($2::text[])
+                  )
+              )
           )
           AND NOT EXISTS (
               SELECT 1
               FROM payment_transactions pt
               WHERE COALESCE(pt.payment_provider, '') = 'helcim'
+                AND pt.status IN ('success', 'approved', 'captured')
+                AND pt.session_id = ppa.register_session_id
+                AND ABS(pt.amount) = ppa.amount_cents::numeric / 100
                 AND (
-                    (ppa.provider_transaction_id IS NOT NULL
-                     AND pt.provider_transaction_id = ppa.provider_transaction_id)
-                    OR (ppa.provider_payment_id IS NOT NULL
+                    (ppa.provider_payment_id IS NOT NULL
                         AND pt.provider_payment_id = ppa.provider_payment_id)
                     OR pt.metadata->>'payment_provider_attempt_id' = ppa.id::text
+                    OR pt.metadata->>'provider_attempt_id' = ppa.id::text
+                    OR (
+                        LOWER(COALESCE(ppa.raw_audit_reference, '')) NOT LIKE '%refund%'
+                        AND LOWER(COALESCE(ppa.raw_audit_reference, '')) NOT LIKE '%reverse%'
+                        AND ppa.provider_transaction_id IS NOT NULL
+                        AND pt.provider_transaction_id = ppa.provider_transaction_id
+                    )
+                )
+                AND (
+                    SELECT ABS(COALESCE(SUM(pa.amount_allocated), 0))
+                    FROM payment_allocations pa
+                    INNER JOIN transactions target
+                        ON target.id = pa.target_transaction_id
+                    WHERE pa.transaction_id = pt.id
+                ) = ABS(pt.amount)
+                AND (
+                    ppa.checkout_client_id IS NULL
+                    OR NOT EXISTS (
+                        SELECT 1
+                        FROM payment_allocations pa
+                        INNER JOIN transactions target
+                            ON target.id = pa.target_transaction_id
+                        WHERE pa.transaction_id = pt.id
+                          AND target.checkout_client_id IS DISTINCT FROM ppa.checkout_client_id
+                    )
                 )
           )
         ORDER BY ppa.created_at DESC
@@ -2367,20 +2531,24 @@ async fn reject_unattached_helcim_attempt(
         "#,
     )
     .bind(register_session_id)
-    .bind(checkout_client_id)
     .bind(&checkout_references)
-    .fetch_optional(pool)
+    .bind(checkout_client_id)
+    .fetch_optional(executor)
     .await?;
 
-    if let Some((amount_cents, provider_transaction_id)) = pending {
+    if let Some((status, amount_cents, provider_transaction_id)) = unresolved {
         let reference = provider_transaction_id
             .filter(|value| !value.trim().is_empty())
             .map(|value| format!(" (provider transaction {value})"))
             .unwrap_or_default();
+        let amount = Decimal::new(amount_cents, 2);
+        if matches!(status.as_str(), "approved" | "captured") {
+            return Err(CheckoutError::InvalidPayload(format!(
+                "An approved Helcim payment of ${amount:.2}{reference} is still waiting to be attached to this sale. Attach it before recording the sale, or use Payments Health to recover or refund it."
+            )));
+        }
         return Err(CheckoutError::InvalidPayload(format!(
-            "An approved Helcim payment of ${:.2}{} is still waiting to be attached to this sale. Attach it before recording the sale, or use Payments Health to recover or refund it.",
-            Decimal::new(amount_cents, 2),
-            reference
+            "A Helcim payment of ${amount:.2} still has an unresolved provider outcome. Recover its final status before retrying the card, using another tender, clearing the sale, or completing checkout."
         )));
     }
 
@@ -3313,7 +3481,7 @@ async fn execute_checkout_internal(
             .as_ref()
             .map(|context| context.require_checkout_binding)
             .unwrap_or(true),
-        &payment_splits,
+        &mut payment_splits,
     )
     .await?;
 
@@ -3671,6 +3839,34 @@ async fn execute_checkout_internal(
             )
         };
         return Err(CheckoutError::InvalidPayload(message));
+    }
+
+    // Payment initiation uses the same provider+checkout advisory identity.
+    // Taking it after the Register row lock serializes this checkout with a
+    // Helcim start for the same sale even when another Register initiated it.
+    if let Some(checkout_client_id) = payload.checkout_client_id {
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+            .bind(format!("helcim:checkout:{checkout_client_id}"))
+            .execute(&mut *tx)
+            .await?;
+    }
+
+    // Payment initiation takes the same Register-session lock before creating
+    // a provider attempt. Recheck while holding it so a pending/unknown Helcim
+    // request cannot race the earlier validation and let an alternate tender
+    // complete this checkout.
+    if recovery
+        .as_ref()
+        .map(|context| context.require_checkout_binding)
+        .unwrap_or(true)
+    {
+        reject_unattached_helcim_attempt(
+            &mut *tx,
+            payload.session_id,
+            payload.checkout_client_id,
+            &payment_splits,
+        )
+        .await?;
     }
 
     let mut transaction_id = Uuid::new_v4();
@@ -6177,10 +6373,11 @@ where
 #[cfg(test)]
 mod tests {
     use super::{
-        build_payment_allocation_plan, checkout_processing_intent_fingerprint,
-        checkout_request_fingerprints, checkout_total_matches, evaluate_combo_incentives,
-        execute_checkout, fetch_variant_pos_line_kind, helcim_attempt_comparison_cents,
-        helcim_checkout_references, is_fee_only_shipping_quote, parse_combo_reward_amount,
+        build_payment_allocation_plan, canonical_helcim_ledger_transaction_id,
+        checkout_processing_intent_fingerprint, checkout_request_fingerprints,
+        checkout_total_matches, evaluate_combo_incentives, execute_checkout,
+        fetch_variant_pos_line_kind, helcim_attempt_comparison_cents, helcim_checkout_references,
+        helcim_tender_method_matches_amount, is_fee_only_shipping_quote, parse_combo_reward_amount,
         payment_effective_date, resolve_payment_splits, strip_sensitive_checkout_request,
         strip_sensitive_payment_metadata, validate_checkout_alteration_intakes,
         validate_checkout_item_quantity, validate_checkout_replay_fingerprints,
@@ -6433,14 +6630,41 @@ mod tests {
         let recovery_override = transaction_scope
             .find("context.allow_closed_session")
             .expect("recovery closed-session policy");
+        let checkout_advisory_lock = transaction_scope
+            .find("helcim:checkout:{checkout_client_id}")
+            .expect("cross-Register Helcim checkout advisory lock");
+        let helcim_recheck = transaction_scope
+            .find("reject_unattached_helcim_attempt(\n            &mut *tx")
+            .expect("in-transaction Helcim outcome recheck");
         let checkout_identity_reread = transaction_scope
             .find("FROM transactions\n            WHERE checkout_client_id = $1")
             .expect("in-transaction checkout identity re-read");
 
         assert!(
-            session_lock < recovery_override && recovery_override < checkout_identity_reread,
-            "Register session lock and lifecycle validation must precede the in-transaction checkout identity re-read"
+            session_lock < recovery_override
+                && recovery_override < checkout_advisory_lock
+                && checkout_advisory_lock < helcim_recheck
+                && helcim_recheck < checkout_identity_reread,
+            "Register session lock and lifecycle validation must precede the checkout advisory lock, Helcim outcome recheck, and checkout identity re-read"
         );
+    }
+
+    #[test]
+    fn checkout_helcim_guard_covers_cross_register_identity_and_return_movements() {
+        let source = include_str!("transaction_checkout.rs");
+        let guard = source
+            .split_once("async fn reject_unattached_helcim_attempt")
+            .expect("Helcim checkout guard")
+            .1
+            .split_once("fn validate_helcim_attempt_checkout_binding")
+            .expect("end of Helcim checkout guard")
+            .0;
+
+        assert!(guard.contains("ppa.checkout_client_id = $3"));
+        assert!(guard.contains("pt.status IN ('success', 'approved', 'captured')"));
+        assert!(guard.contains("pt.metadata->>'provider_attempt_id'"));
+        assert!(guard.contains("NOT LIKE '%refund%'"));
+        assert!(guard.contains("ppa.checkout_client_id IS NULL"));
     }
 
     #[test]
@@ -6804,6 +7028,56 @@ mod tests {
         assert_eq!(helcim_attempt_comparison_cents(-1000, true), 1000);
         assert_eq!(helcim_attempt_comparison_cents(1000, true), 1000);
         assert_eq!(helcim_attempt_comparison_cents(-1000, false), -1000);
+    }
+
+    #[test]
+    fn helcim_provider_identity_only_attaches_to_card_tenders() {
+        assert!(helcim_tender_method_matches_amount(
+            "card_terminal",
+            dec!(10.00)
+        ));
+        assert!(helcim_tender_method_matches_amount(
+            "card_manual",
+            dec!(10.00)
+        ));
+        assert!(helcim_tender_method_matches_amount(
+            "card_saved",
+            dec!(10.00)
+        ));
+        assert!(helcim_tender_method_matches_amount(
+            "card_credit",
+            dec!(-10.00)
+        ));
+        assert!(!helcim_tender_method_matches_amount("cash", dec!(10.00)));
+        assert!(!helcim_tender_method_matches_amount(
+            "card_credit",
+            dec!(10.00)
+        ));
+    }
+
+    #[test]
+    fn helcim_return_ledger_uses_new_movement_not_original_charge() {
+        assert_eq!(
+            canonical_helcim_ledger_transaction_id(
+                true,
+                Some("original-charge"),
+                Some("refund-movement"),
+            )
+            .expect("return movement"),
+            Some("refund-movement".to_string())
+        );
+        assert!(
+            canonical_helcim_ledger_transaction_id(true, Some("original-charge"), None,).is_err()
+        );
+        assert_eq!(
+            canonical_helcim_ledger_transaction_id(
+                false,
+                Some("purchase-movement"),
+                Some("provider-payment"),
+            )
+            .expect("purchase movement"),
+            Some("purchase-movement".to_string())
+        );
     }
 
     #[test]

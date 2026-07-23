@@ -8,3 +8,8 @@
 # normalize packaged migration copies by historical checksum compatibility:
 # migrations 001-101 ship CRLF, and 102+ ship LF.
 *.sql text eol=lf
+
+# Incident evidence hashes are byte-for-byte release gates and must not change
+# when a Windows runner checks out the repository.
+docs/incidents/evidence/*.csv text eol=lf
+docs/incidents/evidence/*.json text eol=lf

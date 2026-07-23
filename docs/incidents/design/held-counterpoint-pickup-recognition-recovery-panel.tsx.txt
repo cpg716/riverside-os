@@ -1,0 +1,578 @@
+// HELD DESIGN — NOT IMPORTED OR RENDERED IN PRODUCTION.
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  AlertTriangle,
+  ClipboardCopy,
+  Loader2,
+  ShieldCheck,
+} from "lucide-react";
+import { getBaseUrl } from "../../lib/apiConfig";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
+import { useToast } from "../ui/ToastProviderLogic";
+import TransactionSearchInput, {
+  type TransactionSearchResult,
+} from "../ui/TransactionSearchInput";
+import ManagerApprovalModal from "../pos/ManagerApprovalModal";
+
+interface PickupRecognitionPreview {
+  operation_id: string;
+  correlation_id: string;
+  transaction_id: string;
+  prior_correction_activity_id: string;
+  expected_transaction_count: number;
+  manifest_digest: string;
+  eligible: boolean;
+  blockers: string[];
+  proven_fulfilled_at: string | null;
+  balance_due: string;
+  balance_due_requires_review: boolean;
+  qbo_traceability: string;
+  qbo_traceability_acknowledged: boolean;
+  review_evidence: Record<string, unknown>;
+}
+
+interface RecoveryApplyResult {
+  operation_id: string;
+  correlation_id: string;
+  corrected_transaction_count: number;
+  verification_id: string;
+  verification_status: string;
+}
+
+interface StaffApprover {
+  id: string;
+  full_name: string;
+  role?: string;
+}
+
+function errorMessage(payload: unknown, fallback: string): string {
+  if (
+    payload &&
+    typeof payload === "object" &&
+    "error" in payload &&
+    typeof payload.error === "string"
+  ) {
+    return payload.error;
+  }
+  return fallback;
+}
+
+export default function CounterpointPickupRecognitionRecoveryPanel() {
+  const baseUrl = getBaseUrl();
+  const { backofficeHeaders } = useBackofficeAuth();
+  const { toast } = useToast();
+  const [selected, setSelected] = useState<TransactionSearchResult | null>(
+    null,
+  );
+  const [reason, setReason] = useState("");
+  const [managerStaffId, setManagerStaffId] = useState("");
+  const [managerRoster, setManagerRoster] = useState<StaffApprover[]>([]);
+  const [managerRosterError, setManagerRosterError] = useState<string | null>(
+    null,
+  );
+  const [qboGapAcknowledged, setQboGapAcknowledged] = useState(false);
+  const [preview, setPreview] = useState<PickupRecognitionPreview | null>(null);
+  const [previewBusy, setPreviewBusy] = useState(false);
+  const [approvalOpen, setApprovalOpen] = useState(false);
+  const [applyResult, setApplyResult] = useState<RecoveryApplyResult | null>(
+    null,
+  );
+  const [operationAudit, setOperationAudit] = useState<Record<
+    string,
+    unknown
+  > | null>(null);
+  const [auditBusy, setAuditBusy] = useState(false);
+  const [outcomeRecovered, setOutcomeRecovered] = useState(false);
+
+  const headers = useCallback(
+    () => backofficeHeaders() as Record<string, string>,
+    [backofficeHeaders],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch(`${baseUrl}/api/staff/list-for-pos`, {
+          headers: headers(),
+        });
+        const payload = (await response.json().catch(() => [])) as unknown;
+        if (!response.ok || !Array.isArray(payload)) {
+          throw new Error(
+            errorMessage(payload, "Approver identities could not be loaded."),
+          );
+        }
+        if (!cancelled) {
+          setManagerRoster(payload as StaffApprover[]);
+          setManagerRosterError(null);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setManagerRoster([]);
+          setManagerRosterError(
+            error instanceof Error
+              ? error.message
+              : "Approver identities could not be loaded.",
+          );
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [baseUrl, headers]);
+
+  const invalidateReview = () => {
+    setPreview(null);
+    setApplyResult(null);
+    setOperationAudit(null);
+    setOutcomeRecovered(false);
+  };
+
+  const operationLocked = applyResult !== null || outcomeRecovered;
+  const reviewedManager = useMemo(
+    () => managerRoster.find((staff) => staff.id === managerStaffId),
+    [managerRoster, managerStaffId],
+  );
+
+  const loadOperationOutcome = useCallback(
+    async (operationId: string, quietNotFound = false): Promise<boolean> => {
+      setAuditBusy(true);
+      try {
+        const response = await fetch(
+          `${baseUrl}/api/fulfillment-integrity/operations/${operationId}`,
+          { headers: headers() },
+        );
+        const payload = (await response.json().catch(() => ({}))) as unknown;
+        if (response.status === 404 && quietNotFound) return false;
+        if (!response.ok) {
+          throw new Error(
+            errorMessage(payload, "Operation evidence could not be loaded."),
+          );
+        }
+        setOperationAudit(payload as Record<string, unknown>);
+        setOutcomeRecovered(true);
+        return true;
+      } finally {
+        setAuditBusy(false);
+      }
+    },
+    [baseUrl, headers],
+  );
+
+  const requestPreview = async () => {
+    if (!selected) {
+      toast("Select the exact Transaction Record.", "error");
+      return;
+    }
+    if (reason.trim().length < 12) {
+      toast(
+        "Enter a specific recovery reason of at least 12 characters.",
+        "error",
+      );
+      return;
+    }
+    if (!managerStaffId || !qboGapAcknowledged) {
+      toast(
+        "Select the reviewing manager and acknowledge the QBO limitation.",
+        "error",
+      );
+      return;
+    }
+
+    setPreviewBusy(true);
+    invalidateReview();
+    try {
+      const response = await fetch(
+        `${baseUrl}/api/fulfillment-integrity/pickup-recognition/preview`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...headers() },
+          body: JSON.stringify({
+            transaction_id: selected.transaction_id,
+            reason: reason.trim(),
+            manager_staff_id: managerStaffId,
+            acknowledge_qbo_traceability_gap: qboGapAcknowledged,
+          }),
+        },
+      );
+      const payload = (await response.json().catch(() => ({}))) as unknown;
+      if (!response.ok) {
+        throw new Error(
+          errorMessage(payload, "Pickup recognition preview failed."),
+        );
+      }
+      setPreview(payload as PickupRecognitionPreview);
+    } catch (error) {
+      toast(
+        error instanceof Error
+          ? error.message
+          : "Pickup recognition preview failed.",
+        "error",
+      );
+    } finally {
+      setPreviewBusy(false);
+    }
+  };
+
+  const applyReviewedRecovery = async (
+    managerPin: string,
+    approvingManagerId: string,
+  ): Promise<boolean> => {
+    if (!selected || !preview || !preview.eligible) {
+      toast(
+        "Create and review an eligible exact-record manifest first.",
+        "error",
+      );
+      return false;
+    }
+    if (approvingManagerId !== managerStaffId) {
+      toast(
+        "The approving manager must match the reviewed manager identity.",
+        "error",
+      );
+      return false;
+    }
+
+    let applyError: Error | null = null;
+    try {
+      const response = await fetch(
+        `${baseUrl}/api/fulfillment-integrity/pickup-recognition/apply`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...headers() },
+          body: JSON.stringify({
+            operation_id: preview.operation_id,
+            correlation_id: preview.correlation_id,
+            transaction_id: selected.transaction_id,
+            reason: reason.trim(),
+            manager_staff_id: approvingManagerId,
+            manager_pin: managerPin,
+            expected_manifest_digest: preview.manifest_digest,
+            acknowledge_qbo_traceability_gap: qboGapAcknowledged,
+          }),
+        },
+      );
+      const payload = (await response.json().catch(() => ({}))) as unknown;
+      if (!response.ok) {
+        throw new Error(
+          errorMessage(payload, "Pickup recognition recovery failed."),
+        );
+      }
+      const result = payload as RecoveryApplyResult;
+      setApplyResult(result);
+      setApprovalOpen(false);
+      void loadOperationOutcome(result.operation_id);
+      toast(
+        "Pickup recognition evidence restored and post-checked.",
+        "success",
+      );
+      return true;
+    } catch (error) {
+      applyError =
+        error instanceof Error
+          ? error
+          : new Error("Pickup recognition recovery failed.");
+    }
+
+    try {
+      if (await loadOperationOutcome(preview.operation_id, true)) {
+        setApprovalOpen(false);
+        toast(
+          "The apply response was interrupted, but the committed operation evidence was recovered by operation ID. Do not apply it again.",
+          "info",
+        );
+        return true;
+      }
+    } catch {
+      // Preserve the original apply error when the read-only recovery lookup fails.
+    }
+    throw applyError;
+  };
+
+  const resetOperation = () => {
+    setSelected(null);
+    setReason("");
+    setManagerStaffId("");
+    setQboGapAcknowledged(false);
+    invalidateReview();
+  };
+
+  return (
+    <section
+      className="ui-card space-y-5 p-5"
+      data-testid="counterpoint-pickup-recognition-recovery"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="max-w-3xl">
+          <h4 className="text-sm font-black uppercase tracking-wide text-app-text">
+            Restore Proven Pickup Recognition
+          </h4>
+          <p className="mt-1 text-xs font-semibold text-app-text-muted">
+            One-record recovery for a Transaction Record that was reopened after
+            a later, proven pickup. It restores only the recognition
+            timestamp proven by the retained lifecycle evidence.
+          </p>
+        </div>
+        <span className="ui-pill border border-red-500/25 bg-red-500/10 text-[10px] font-black text-red-700 dark:text-red-300">
+          Manager Access · one exact record
+        </span>
+      </div>
+
+      <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 p-3 text-xs font-semibold text-app-text-muted">
+        This does not mark an unpaid Transaction Record paid and does not create
+        a pickup, inventory movement, payment, commission, loyalty entry, or QBO
+        row. Payment-allocation attachment history is not retained, so any
+        existing allocation blocks this recovery. Any missing or conflicting
+        lifecycle evidence also blocks the action.
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <div className="space-y-3">
+          <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+            Exact Transaction Record
+          </label>
+          <TransactionSearchInput
+            key={selected?.transaction_id ?? "pickup-recognition-search"}
+            onSelect={(transaction) => {
+              invalidateReview();
+              setSelected(transaction);
+            }}
+            placeholder="Search by TXN number, customer, or phone…"
+            disabled={operationLocked}
+          />
+          {selected ? (
+            <div className="rounded-lg border border-app-border bg-app-bg/50 p-3">
+              <p className="text-xs font-black text-app-text">
+                {selected.display_id ?? "Transaction Record"}
+              </p>
+              <p className="text-[11px] font-semibold text-app-text-muted">
+                {selected.customer_name ?? "Guest customer"} · {selected.status}{" "}
+                · balance {selected.balance_due}
+              </p>
+            </div>
+          ) : (
+            <p className="rounded-lg border border-app-border bg-app-bg/50 p-4 text-center text-xs font-semibold text-app-text-muted">
+              Select one record by search. Raw UUID entry is not available.
+            </p>
+          )}
+        </div>
+
+        <div className="space-y-3">
+          <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+            Recovery reason
+            <textarea
+              value={reason}
+              onChange={(event) => {
+                invalidateReview();
+                setReason(event.target.value);
+              }}
+              rows={3}
+              maxLength={2000}
+              disabled={operationLocked}
+              className="ui-input mt-2 w-full resize-y text-sm font-semibold normal-case tracking-normal disabled:opacity-50"
+            />
+          </label>
+          <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+            Reviewing manager identity
+            <select
+              value={managerStaffId}
+              onChange={(event) => {
+                invalidateReview();
+                setManagerStaffId(event.target.value);
+              }}
+              disabled={operationLocked || managerRoster.length === 0}
+              className="ui-input mt-2 w-full text-sm font-semibold normal-case tracking-normal disabled:opacity-50"
+            >
+              <option value="">Select identity before review</option>
+              {managerRoster.map((staff) => (
+                <option key={staff.id} value={staff.id}>
+                  {staff.full_name}
+                  {staff.role ? ` · ${staff.role}` : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+          {managerRosterError ? (
+            <p className="text-xs font-bold text-red-700 dark:text-red-300">
+              {managerRosterError}
+            </p>
+          ) : null}
+          <label className="flex items-start gap-2 rounded-lg border border-app-border bg-app-bg/50 p-3 text-xs font-semibold text-app-text-muted">
+            <input
+              type="checkbox"
+              checked={qboGapAcknowledged}
+              onChange={(event) => {
+                invalidateReview();
+                setQboGapAcknowledged(event.target.checked);
+              }}
+              disabled={operationLocked}
+              className="mt-0.5"
+            />
+            <span>
+              I reviewed that aggregate QBO history cannot prove per-Transaction
+              journal membership.
+            </span>
+          </label>
+          <button
+            type="button"
+            onClick={() => void requestPreview()}
+            disabled={
+              previewBusy ||
+              operationLocked ||
+              !selected ||
+              reason.trim().length < 12 ||
+              !managerStaffId ||
+              !qboGapAcknowledged
+            }
+            className="ui-btn-secondary inline-flex items-center gap-2 px-4 py-2 text-xs font-black disabled:opacity-50"
+          >
+            {previewBusy ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <ShieldCheck className="h-4 w-4" />
+            )}
+            Review exact evidence
+          </button>
+        </div>
+      </div>
+
+      {preview ? (
+        <div className="space-y-3 rounded-xl border border-app-border bg-app-bg/50 p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-black text-app-text">
+                {selected?.display_id ?? "Transaction Record"} ·{" "}
+                {preview.eligible ? "eligible" : "blocked"}
+              </p>
+              <p className="text-xs font-semibold text-app-text-muted">
+                Proven recognition time:{" "}
+                {preview.proven_fulfilled_at ?? "not proven"} · balance due{" "}
+                {preview.balance_due}
+              </p>
+              <p className="mt-1 text-xs font-semibold text-app-text-muted">
+                Reviewing manager:{" "}
+                {reviewedManager?.full_name ?? "identity unavailable"}
+              </p>
+            </div>
+            <span
+              className={`ui-pill text-[10px] font-black ${preview.eligible ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300" : "bg-red-500/10 text-red-700 dark:text-red-300"}`}
+            >
+              {preview.eligible ? "Eligible" : "Apply blocked"}
+            </span>
+          </div>
+          {preview.balance_due_requires_review ? (
+            <div className="flex items-start gap-2 rounded-lg border border-amber-500/25 bg-amber-500/10 p-3 text-xs font-bold text-app-text-muted">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />A positive
+              balance remains. This operation keeps the header open and restores
+              recognition time only; it never represents the sale as paid.
+            </div>
+          ) : null}
+          {preview.blockers.length > 0 ? (
+            <ul className="list-disc pl-5 text-xs font-semibold text-red-700 dark:text-red-300">
+              {preview.blockers.map((blocker) => (
+                <li key={blocker}>{blocker.replaceAll("_", " ")}</li>
+              ))}
+            </ul>
+          ) : null}
+          <p className="break-all font-mono text-[10px] text-app-text-muted">
+            Operation {preview.operation_id} · Correlation{" "}
+            {preview.correlation_id} · Digest {preview.manifest_digest}
+          </p>
+          <details className="rounded-lg border border-app-border p-3">
+            <summary className="cursor-pointer text-xs font-black text-app-text">
+              Review transaction, payment, inventory, revenue, commission,
+              loyalty, audit, and QBO evidence
+            </summary>
+            <pre className="mt-3 max-h-[32rem] overflow-auto whitespace-pre-wrap break-all rounded bg-black/5 p-3 text-[10px] text-app-text dark:bg-white/5">
+              {JSON.stringify(preview.review_evidence, null, 2)}
+            </pre>
+          </details>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setApprovalOpen(true)}
+              disabled={!preview.eligible || operationLocked}
+              className="ui-btn-primary inline-flex items-center gap-2 px-4 py-2 text-xs font-black disabled:opacity-50"
+            >
+              <ShieldCheck className="h-4 w-4" />
+              Apply this one reviewed record
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                void loadOperationOutcome(preview.operation_id, true)
+                  .then((found) => {
+                    if (!found) {
+                      toast(
+                        "No committed operation was found for this reviewed operation ID.",
+                        "info",
+                      );
+                    }
+                  })
+                  .catch((error) => {
+                    toast(
+                      error instanceof Error
+                        ? error.message
+                        : "Operation evidence could not be loaded.",
+                      "error",
+                    );
+                  });
+              }}
+              disabled={auditBusy}
+              className="ui-btn-secondary inline-flex items-center gap-2 px-3 py-2 text-xs font-bold disabled:opacity-50"
+            >
+              {auditBusy ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <ClipboardCopy className="h-3.5 w-3.5" />
+              )}
+              Check operation outcome
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {applyResult || operationAudit ? (
+        <div className="space-y-3 rounded-xl border border-amber-500/25 bg-amber-500/10 p-4">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+            <p className="text-xs font-bold text-app-text">
+              {applyResult
+                ? `Post-check status: ${applyResult.verification_status.replaceAll("_", " ")}. Verification ${applyResult.verification_id}. Aggregate QBO history is not per-Transaction proof, so this is not represented as fully verified.`
+                : "Committed operation evidence was recovered by operation ID after an interrupted or separate apply response."}
+            </p>
+          </div>
+          {operationAudit ? (
+            <details
+              open
+              className="rounded-lg border border-app-border bg-app-bg/60 p-3"
+            >
+              <summary className="cursor-pointer text-xs font-black text-app-text">
+                Manifest, transitions, and per-record verification
+              </summary>
+              <pre className="mt-3 max-h-[32rem] overflow-auto whitespace-pre-wrap break-all rounded bg-black/5 p-3 text-[10px] text-app-text dark:bg-white/5">
+                {JSON.stringify(operationAudit, null, 2)}
+              </pre>
+            </details>
+          ) : null}
+          <button
+            type="button"
+            onClick={resetOperation}
+            className="ui-btn-secondary px-3 py-2 text-xs font-bold"
+          >
+            Start a separate operation
+          </button>
+        </div>
+      ) : null}
+
+      <ManagerApprovalModal
+        isOpen={approvalOpen}
+        onClose={() => setApprovalOpen(false)}
+        onApprove={applyReviewedRecovery}
+        title="Approve Pickup Recognition Recovery"
+        message={`Approve only after reviewing the exact record, positive balance warning, lifecycle proof, reason, and digest ${preview?.manifest_digest ?? "unavailable"}. Any changed evidence aborts the operation.`}
+      />
+    </section>
+  );
+}

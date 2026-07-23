@@ -797,6 +797,68 @@ mod tests {
     use super::*;
 
     #[test]
+    fn release_requires_an_open_transaction_record() {
+        assert!(validate_release_transaction_status(DbOrderStatus::Open, "Pickup").is_ok());
+        assert!(matches!(
+            validate_release_transaction_status(DbOrderStatus::Cancelled, "Pickup"),
+            Err(TransactionError::InvalidPayload(message))
+                if message.contains("cancelled Transaction Records")
+        ));
+        assert!(matches!(
+            validate_release_transaction_status(DbOrderStatus::Fulfilled, "Shipping"),
+            Err(TransactionError::InvalidPayload(message))
+                if message.contains("only open Transaction Records")
+        ));
+    }
+
+    #[test]
+    fn requested_release_lines_must_exactly_match_validated_lines() {
+        let first = Uuid::new_v4();
+        let second = Uuid::new_v4();
+        assert!(requested_line_ids_match_validated(
+            &[first, second],
+            &[second, first]
+        ));
+        assert!(!requested_line_ids_match_validated(
+            &[first],
+            &[first, second]
+        ));
+        assert!(!requested_line_ids_match_validated(
+            &[first, first],
+            &[first]
+        ));
+        assert!(!requested_line_ids_match_validated(
+            &[first, second],
+            &[first, first]
+        ));
+        assert!(!requested_line_ids_match_validated(&[first], &[second]));
+    }
+
+    #[test]
+    fn release_line_scope_is_explicit_unique_and_bounded() {
+        let first = Uuid::new_v4();
+        assert!(validate_release_line_scope(&[first], "pickup").is_ok());
+        assert!(matches!(
+            validate_release_line_scope(&[], "shipping"),
+            Err(TransactionError::InvalidPayload(message))
+                if message.contains("Select at least one")
+        ));
+        assert!(matches!(
+            validate_release_line_scope(&[first, first], "pickup"),
+            Err(TransactionError::InvalidPayload(message))
+                if message.contains("duplicate")
+        ));
+        let oversized = (0..=MAX_TRANSACTION_RELEASE_LINES)
+            .map(|_| Uuid::new_v4())
+            .collect::<Vec<_>>();
+        assert!(matches!(
+            validate_release_line_scope(&oversized, "shipping"),
+            Err(TransactionError::InvalidPayload(message))
+                if message.contains("limited to 100")
+        ));
+    }
+
+    #[test]
     fn refund_payment_method_accepts_all_card_entry_aliases() {
         for method in [
             "cc",
@@ -1254,6 +1316,28 @@ mod tests {
     }
 
     #[test]
+    fn card_refund_reservation_is_scoped_to_the_original_provider_charge() {
+        assert_eq!(
+            card_refund_advisory_lock_identity(987654321),
+            "helcim:refund:987654321"
+        );
+
+        let source = include_str!("transactions.rs");
+        let reservation = source
+            .rsplit_once("async fn create_pending_card_refund_attempt(")
+            .expect("refund reservation helper")
+            .1
+            .split_once("async fn mark_card_refund_attempt_failed(")
+            .expect("end of refund reservation helper")
+            .0;
+        assert!(reservation.contains("pg_advisory_xact_lock"));
+        assert!(reservation.contains("SUM(ppa.amount_cents)"));
+        assert!(reservation.contains("ppa.provider_transaction_id = $1"));
+        assert!(reservation.contains("ppa.status = 'pending'"));
+        assert!(reservation.contains("ppa.status IN ('approved', 'captured')"));
+    }
+
+    #[test]
     fn card_refund_audit_reference_scopes_attempt_to_refund_queue() {
         let transaction_id = Uuid::parse_str("22222222-2222-2222-2222-222222222222").unwrap();
         let refund_queue_id = Uuid::parse_str("33333333-3333-3333-3333-333333333333").unwrap();
@@ -1271,15 +1355,105 @@ mod tests {
             status: "approved".to_string(),
             idempotency_key: "key".to_string(),
             provider_payment_id: Some("refund-1".to_string()),
-            provider_transaction_id: Some("refund-1".to_string()),
+            provider_transaction_id: Some("original-1".to_string()),
+            error_code: None,
+            created_at: Utc::now(),
         };
         assert!(base.is_approved());
+
+        let mismatched = DurableCardRefundAttempt {
+            id: Uuid::new_v4(),
+            status: "approved".to_string(),
+            idempotency_key: "mismatched-key".to_string(),
+            provider_payment_id: Some("refund-mismatch".to_string()),
+            provider_transaction_id: Some("original-1".to_string()),
+            error_code: Some("provider_identity_mismatch".to_string()),
+            created_at: Utc::now(),
+        };
+        assert!(!mismatched.is_approved());
+        assert!(mismatched.has_blocking_provider_identity_mismatch());
 
         let failed = DurableCardRefundAttempt {
             status: "failed".to_string(),
             ..base
         };
         assert!(!failed.is_approved());
+    }
+
+    #[test]
+    fn unresolved_card_refund_replay_keeps_provider_safety_margin() {
+        let now = Utc::now();
+        let attempt = DurableCardRefundAttempt {
+            id: Uuid::new_v4(),
+            status: "pending".to_string(),
+            idempotency_key: "same-provider-request".to_string(),
+            provider_payment_id: None,
+            provider_transaction_id: Some("original-1".to_string()),
+            error_code: Some("outcome_unknown".to_string()),
+            created_at: now - chrono::Duration::seconds(119),
+        };
+        assert!(card_refund_attempt_within_idempotency_window(&attempt, now));
+
+        let expired = DurableCardRefundAttempt {
+            created_at: now - chrono::Duration::seconds(120),
+            ..attempt
+        };
+        assert!(!card_refund_attempt_within_idempotency_window(
+            &expired, now
+        ));
+    }
+
+    #[test]
+    fn only_pre_provider_failures_can_reuse_an_old_refund_attempt() {
+        let base = DurableCardRefundAttempt {
+            id: Uuid::new_v4(),
+            status: "failed".to_string(),
+            idempotency_key: "same-provider-request".to_string(),
+            provider_payment_id: None,
+            provider_transaction_id: Some("original-1".to_string()),
+            error_code: Some("transaction_lookup_failed".to_string()),
+            created_at: Utc::now() - chrono::Duration::hours(1),
+        };
+        assert!(card_refund_failure_happened_before_provider_call(&base));
+
+        let ambiguous = DurableCardRefundAttempt {
+            error_code: Some("outcome_unknown".to_string()),
+            ..base
+        };
+        assert!(!card_refund_failure_happened_before_provider_call(
+            &ambiguous
+        ));
+    }
+
+    #[test]
+    fn approved_helcim_return_requires_exact_new_movement_identity() {
+        let mut transaction =
+            helcim::simulated_card_transaction("refund-1", -12_34, "USD", "approved");
+        transaction
+            .extra
+            .insert("type".to_string(), json!("refund"));
+        assert!(helcim_return_response_identity_mismatch(
+            &transaction,
+            12_34,
+            helcim::HelcimCardReturnAction::Refund,
+        )
+        .is_none());
+
+        transaction
+            .extra
+            .insert("type".to_string(), json!("reverse"));
+        assert!(helcim_return_response_identity_mismatch(
+            &transaction,
+            12_34,
+            helcim::HelcimCardReturnAction::Refund,
+        )
+        .is_some());
+        assert!(helcim_return_response_identity_mismatch(
+            &transaction,
+            12_35,
+            helcim::HelcimCardReturnAction::Reverse,
+        )
+        .is_some());
     }
 
     #[tokio::test]
@@ -1290,6 +1464,7 @@ mod tests {
         let _env_guard = HELCIM_ENV_LOCK.lock().await;
         let previous_token = std::env::var("HELCIM_API_TOKEN").ok();
         let previous_base_url = std::env::var("HELCIM_API_BASE_URL").ok();
+        let previous_custom_base = std::env::var("HELCIM_ALLOW_CUSTOM_API_BASE_URL").ok();
 
         let pool = PgPool::connect(&database_url)
             .await
@@ -1297,6 +1472,7 @@ mod tests {
         let state = build_test_state(pool.clone());
         let mock = MockServer::start().await;
         std::env::set_var("HELCIM_API_TOKEN", "test-helcim-token");
+        std::env::set_var("HELCIM_ALLOW_CUSTOM_API_BASE_URL", "true");
         std::env::set_var("HELCIM_API_BASE_URL", mock.uri());
 
         Mock::given(method("POST"))
@@ -1677,6 +1853,10 @@ mod tests {
         match previous_base_url {
             Some(value) => std::env::set_var("HELCIM_API_BASE_URL", value),
             None => std::env::remove_var("HELCIM_API_BASE_URL"),
+        }
+        match previous_custom_base {
+            Some(value) => std::env::set_var("HELCIM_ALLOW_CUSTOM_API_BASE_URL", value),
+            None => std::env::remove_var("HELCIM_ALLOW_CUSTOM_API_BASE_URL"),
         }
     }
 
@@ -2131,12 +2311,64 @@ struct PaymentSummaryRow {
 
 #[derive(Debug, FromRow)]
 struct PickupGuardLine {
+    transaction_line_id: Uuid,
     sku: String,
     product_name: String,
     order_lifecycle_status: DbOrderItemLifecycleStatus,
     variant_id: Uuid,
     quantity: i32,
     stock_on_hand: i32,
+}
+
+const MAX_TRANSACTION_RELEASE_LINES: usize = 100;
+
+fn validate_release_line_scope(requested: &[Uuid], action: &str) -> Result<(), TransactionError> {
+    use std::collections::HashSet;
+
+    if requested.is_empty() {
+        return Err(TransactionError::InvalidPayload(format!(
+            "Select at least one open order line for {action}."
+        )));
+    }
+    if requested.len() > MAX_TRANSACTION_RELEASE_LINES {
+        return Err(TransactionError::InvalidPayload(format!(
+            "{action} is limited to {MAX_TRANSACTION_RELEASE_LINES} explicitly selected order lines at a time."
+        )));
+    }
+    if requested.iter().copied().collect::<HashSet<_>>().len() != requested.len() {
+        return Err(TransactionError::InvalidPayload(format!(
+            "{action} contains duplicate order-line IDs. Refresh Customer Orders and select each line once."
+        )));
+    }
+    Ok(())
+}
+
+fn requested_line_ids_match_validated(requested: &[Uuid], validated: &[Uuid]) -> bool {
+    use std::collections::HashSet;
+
+    if requested.len() != validated.len() {
+        return false;
+    }
+    let requested_ids = requested.iter().copied().collect::<HashSet<_>>();
+    let validated_ids = validated.iter().copied().collect::<HashSet<_>>();
+    requested_ids.len() == requested.len()
+        && validated_ids.len() == validated.len()
+        && requested_ids == validated_ids
+}
+
+fn validate_release_transaction_status(
+    status: DbOrderStatus,
+    action: &str,
+) -> Result<(), TransactionError> {
+    match status {
+        DbOrderStatus::Open => Ok(()),
+        DbOrderStatus::Cancelled => Err(TransactionError::InvalidPayload(format!(
+            "{action} blocked: cancelled Transaction Records cannot be released."
+        ))),
+        _ => Err(TransactionError::InvalidPayload(format!(
+            "{action} blocked: only open Transaction Records can be released."
+        ))),
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -2172,6 +2404,10 @@ pub struct PickupTransactionRequest {
     #[serde(default)]
     pub override_reason: Option<String>,
     #[serde(default)]
+    pub readiness_override_manager_staff_id: Option<Uuid>,
+    #[serde(default)]
+    pub readiness_override_manager_pin: Option<String>,
+    #[serde(default)]
     pub payment_override_manager_staff_id: Option<Uuid>,
     #[serde(default)]
     pub payment_override_manager_pin: Option<String>,
@@ -2195,6 +2431,10 @@ pub struct ShipTransactionRequest {
     pub override_readiness: bool,
     #[serde(default)]
     pub override_reason: Option<String>,
+    #[serde(default)]
+    pub readiness_override_manager_staff_id: Option<Uuid>,
+    #[serde(default)]
+    pub readiness_override_manager_pin: Option<String>,
     /// POS shipping release without BO headers when the register session is active.
     #[serde(default)]
     pub register_session_id: Option<Uuid>,
@@ -2805,11 +3045,23 @@ struct DurableCardRefundAttempt {
     idempotency_key: String,
     provider_payment_id: Option<String>,
     provider_transaction_id: Option<String>,
+    error_code: Option<String>,
+    created_at: DateTime<Utc>,
 }
 
 impl DurableCardRefundAttempt {
     fn is_approved(&self) -> bool {
         matches!(self.status.as_str(), "approved" | "captured")
+            && self.error_code.is_none()
+            && self
+                .provider_payment_id
+                .as_deref()
+                .map(str::trim)
+                .is_some_and(|value| !value.is_empty())
+    }
+
+    fn has_blocking_provider_identity_mismatch(&self) -> bool {
+        self.error_code.as_deref() == Some("provider_identity_mismatch")
     }
 }
 
@@ -2828,36 +3080,8 @@ fn card_refund_idempotency_key(
     )
 }
 
-fn is_payment_provider_idempotency_violation(error: &sqlx::Error) -> bool {
-    error
-        .as_database_error()
-        .and_then(|db_error| db_error.constraint())
-        == Some("uq_payment_provider_attempts_provider_idempotency")
-}
-
-async fn find_approved_card_refund_attempt(
-    db: &PgPool,
-    audit_reference: &str,
-    amount_cents: i64,
-) -> Result<Option<DurableCardRefundAttempt>, TransactionError> {
-    sqlx::query_as::<_, DurableCardRefundAttempt>(
-        r#"
-        SELECT id, status, idempotency_key, provider_payment_id, provider_transaction_id
-        FROM payment_provider_attempts
-        WHERE provider = 'helcim'
-          AND raw_audit_reference = $1
-          AND amount_cents = $2
-          AND status IN ('approved', 'captured')
-          AND provider_payment_id IS NOT NULL
-        ORDER BY completed_at DESC NULLS LAST, created_at DESC
-        LIMIT 1
-        "#,
-    )
-    .bind(audit_reference)
-    .bind(amount_cents)
-    .fetch_optional(db)
-    .await
-    .map_err(TransactionError::Database)
+fn card_refund_advisory_lock_identity(original_transaction_id: i64) -> String {
+    format!("helcim:refund:{original_transaction_id}")
 }
 
 async fn find_card_refund_attempt_by_key(
@@ -2866,7 +3090,8 @@ async fn find_card_refund_attempt_by_key(
 ) -> Result<Option<DurableCardRefundAttempt>, TransactionError> {
     sqlx::query_as::<_, DurableCardRefundAttempt>(
         r#"
-        SELECT id, status, idempotency_key, provider_payment_id, provider_transaction_id
+        SELECT id, status, idempotency_key, provider_payment_id, provider_transaction_id,
+               error_code, created_at
         FROM payment_provider_attempts
         WHERE provider = 'helcim'
           AND idempotency_key = $1
@@ -2879,6 +3104,91 @@ async fn find_card_refund_attempt_by_key(
     .map_err(TransactionError::Database)
 }
 
+fn card_refund_attempt_within_idempotency_window(
+    attempt: &DurableCardRefundAttempt,
+    now: DateTime<Utc>,
+) -> bool {
+    helcim::payment_idempotency_retry_is_safe(attempt.created_at, now)
+}
+
+fn helcim_return_response_identity_mismatch(
+    transaction: &helcim::HelcimCardTransaction,
+    expected_amount_cents: i64,
+    expected_action: helcim::HelcimCardReturnAction,
+) -> Option<String> {
+    let provider_transaction_id = transaction.transaction_id_string();
+    if provider_transaction_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_none()
+    {
+        return Some("Helcim did not return a new refund/reverse transaction ID.".to_string());
+    }
+    if transaction.amount_cents().map(i64::abs) != Some(expected_amount_cents.abs()) {
+        return Some(
+            "Helcim returned a refund/reverse amount that does not match the request.".to_string(),
+        );
+    }
+    if !transaction
+        .currency
+        .as_deref()
+        .is_some_and(|currency| currency.trim().eq_ignore_ascii_case("USD"))
+    {
+        return Some("Helcim returned a refund/reverse currency other than USD.".to_string());
+    }
+    let transaction_type = transaction
+        .transaction_type()
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    let type_matches = match expected_action {
+        helcim::HelcimCardReturnAction::Refund => {
+            matches!(transaction_type.as_str(), "refund" | "return")
+        }
+        helcim::HelcimCardReturnAction::Reverse => {
+            matches!(transaction_type.as_str(), "reverse" | "reversal")
+        }
+    };
+    if !type_matches {
+        return Some(
+            "Helcim returned a transaction type that does not match the requested refund/reverse."
+                .to_string(),
+        );
+    }
+    None
+}
+
+fn card_refund_failure_happened_before_provider_call(attempt: &DurableCardRefundAttempt) -> bool {
+    matches!(
+        attempt.error_code.as_deref(),
+        Some(
+            "transaction_lookup_failed"
+                | "batch_id_missing"
+                | "batch_lookup_failed"
+                | "invalid_batch_refund_action"
+                | "pre_provider_revalidation_failed"
+        )
+    ) && attempt.provider_payment_id.is_none()
+}
+
+async fn reset_card_refund_attempt_for_same_request(
+    db: &PgPool,
+    attempt_id: Uuid,
+) -> Result<(), TransactionError> {
+    sqlx::query(
+        r#"
+        UPDATE payment_provider_attempts
+        SET status = 'pending', error_code = NULL, error_message = NULL, completed_at = NULL
+        WHERE id = $1
+        "#,
+    )
+    .bind(attempt_id)
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
 async fn create_pending_card_refund_attempt(
     db: &PgPool,
     provider_attempt_id: Uuid,
@@ -2888,6 +3198,98 @@ async fn create_pending_card_refund_attempt(
     original_transaction_id: i64,
     audit_reference: &str,
 ) -> Result<Option<DurableCardRefundAttempt>, TransactionError> {
+    let mut tx = db.begin().await?;
+    let advisory_identity = card_refund_advisory_lock_identity(original_transaction_id);
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+        .bind(&advisory_identity)
+        .execute(&mut *tx)
+        .await?;
+
+    let existing = sqlx::query_as::<_, DurableCardRefundAttempt>(
+        r#"
+        SELECT id, status, idempotency_key, provider_payment_id, provider_transaction_id,
+               error_code, created_at
+        FROM payment_provider_attempts
+        WHERE provider = 'helcim'
+          AND idempotency_key = $1
+        FOR UPDATE
+        "#,
+    )
+    .bind(idempotency_key)
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    // The durable attempt is the reservation that survives after this advisory
+    // lock is released and while Helcim is processing the HTTP request. Any
+    // other unresolved or provider-approved-but-unattached return against the
+    // same original charge blocks a second dispatch, even with a different
+    // amount/idempotency key.
+    let reserved_amount_cents: i64 = sqlx::query_scalar(
+        r#"
+        SELECT COALESCE(SUM(ppa.amount_cents), 0)::bigint
+        FROM payment_provider_attempts ppa
+        WHERE ppa.provider = 'helcim'
+          AND ppa.provider_transaction_id = $1
+          AND ppa.raw_audit_reference LIKE 'helcim:transactionRefund:%'
+          AND ($2::uuid IS NULL OR ppa.id <> $2)
+          AND (
+              ppa.status = 'pending'
+              OR (
+                  ppa.status = 'failed'
+                  AND ppa.error_code IN ('outcome_unknown', 'request_failed')
+              )
+              OR (
+                  ppa.status IN ('approved', 'captured')
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM payment_transactions pt
+                      WHERE COALESCE(pt.payment_provider, '') = 'helcim'
+                        AND pt.status IN ('success', 'approved', 'captured')
+                        AND pt.amount < 0
+                        AND (
+                            pt.metadata->>'provider_attempt_id' = ppa.id::text
+                            OR pt.metadata->>'payment_provider_attempt_id' = ppa.id::text
+                            OR (
+                                ppa.provider_payment_id IS NOT NULL
+                                AND (
+                                    pt.provider_payment_id = ppa.provider_payment_id
+                                    OR pt.provider_transaction_id = ppa.provider_payment_id
+                                )
+                            )
+                        )
+                  )
+              )
+          )
+        "#,
+    )
+    .bind(original_transaction_id.to_string())
+    .bind(existing.as_ref().map(|attempt| attempt.id))
+    .fetch_one(&mut *tx)
+    .await?;
+    if reserved_amount_cents > 0 {
+        return Err(TransactionError::BadGateway(format!(
+            "Another Helcim refund of ${:.2} against this original card charge is unresolved or awaiting Riverside ledger attachment. No second refund was sent; reconcile it in Payments Health first.",
+            Decimal::new(reserved_amount_cents, 2)
+        )));
+    }
+
+    if let Some(existing) = existing {
+        if card_refund_failure_happened_before_provider_call(&existing) {
+            sqlx::query(
+                r#"
+                UPDATE payment_provider_attempts
+                SET status = 'pending', error_code = NULL, error_message = NULL, completed_at = NULL
+                WHERE id = $1
+                "#,
+            )
+            .bind(existing.id)
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+        return Ok(Some(existing));
+    }
+
     let insert_result = sqlx::query(
         r#"
         INSERT INTO payment_provider_attempts (
@@ -2903,16 +3305,14 @@ async fn create_pending_card_refund_attempt(
     .bind(idempotency_key)
     .bind(original_transaction_id.to_string())
     .bind(audit_reference)
-    .execute(db)
+    .execute(&mut *tx)
     .await;
 
     if let Err(error) = insert_result {
-        if is_payment_provider_idempotency_violation(&error) {
-            return find_card_refund_attempt_by_key(db, idempotency_key).await;
-        }
         return Err(TransactionError::Database(error));
     }
 
+    tx.commit().await?;
     Ok(None)
 }
 
@@ -2934,6 +3334,46 @@ async fn mark_card_refund_attempt_failed(
     )
     .bind(provider_attempt_id)
     .bind(error_code)
+    .bind(error_message)
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+async fn record_card_refund_pre_dispatch_failure(
+    db: &PgPool,
+    provider_attempt_id: Uuid,
+    attempt_may_have_been_dispatched: bool,
+    error_code: &str,
+    error_message: String,
+) -> Result<(), TransactionError> {
+    if attempt_may_have_been_dispatched {
+        tracing::warn!(
+            provider_attempt_id = %provider_attempt_id,
+            error_code,
+            "preserving unresolved Helcim refund state after a prior dispatch may have occurred"
+        );
+        return Ok(());
+    }
+    mark_card_refund_attempt_failed(db, provider_attempt_id, error_code, error_message).await
+}
+
+async fn mark_card_refund_attempt_outcome_unknown(
+    db: &PgPool,
+    provider_attempt_id: Uuid,
+    error_message: String,
+) -> Result<(), TransactionError> {
+    sqlx::query(
+        r#"
+        UPDATE payment_provider_attempts
+        SET status = 'pending',
+            error_code = 'outcome_unknown',
+            error_message = $2,
+            completed_at = NULL
+        WHERE id = $1
+        "#,
+    )
+    .bind(provider_attempt_id)
     .bind(error_message)
     .execute(db)
     .await?;
@@ -3422,6 +3862,7 @@ async fn mark_transaction_pickup(
     headers: HeaderMap,
     Json(body): Json<PickupTransactionRequest>,
 ) -> Result<Json<serde_json::Value>, TransactionError> {
+    validate_release_line_scope(&body.delivered_item_ids, "pickup")?;
     let register_session_id = body.register_session_id.ok_or_else(|| {
         TransactionError::InvalidPayload(
             "Pickup completion must be run from an open Register session.".to_string(),
@@ -3439,11 +3880,13 @@ async fn mark_transaction_pickup(
             .flatten();
 
     let mut tx = state.db.begin().await?;
-    let _locked_transaction: Uuid =
-        sqlx::query_scalar("SELECT id FROM transactions WHERE id = $1 FOR UPDATE")
+    let locked_status: Option<DbOrderStatus> =
+        sqlx::query_scalar("SELECT status FROM transactions WHERE id = $1 FOR UPDATE")
             .bind(transaction_id)
-            .fetch_one(&mut *tx)
+            .fetch_optional(&mut *tx)
             .await?;
+    let locked_status = locked_status.ok_or(TransactionError::NotFound)?;
+    validate_release_transaction_status(locked_status, "Pickup")?;
 
     if let Some(checkout_transaction_id) = body.checkout_transaction_id {
         let valid_checkout_link: bool = sqlx::query_scalar(
@@ -3476,6 +3919,7 @@ async fn mark_transaction_pickup(
         sqlx::query_as(
             r#"
             SELECT
+                oi.id AS transaction_line_id,
                 COALESCE(
                     CASE
                         WHEN COALESCE(pv.sku, '') = 'HIST-CP-FALLBACK'
@@ -3522,6 +3966,7 @@ async fn mark_transaction_pickup(
         sqlx::query_as(
             r#"
             SELECT
+                oi.id AS transaction_line_id,
                 COALESCE(
                     CASE
                         WHEN COALESCE(pv.sku, '') = 'HIST-CP-FALLBACK'
@@ -3568,6 +4013,17 @@ async fn mark_transaction_pickup(
         .await?
     };
 
+    let validated_pickup_line_ids = pickup_guard_lines
+        .iter()
+        .map(|line| line.transaction_line_id)
+        .collect::<Vec<_>>();
+    if !requested_line_ids_match_validated(&body.delivered_item_ids, &validated_pickup_line_ids) {
+        return Err(TransactionError::InvalidPayload(
+            "Every requested pickup line must be an open, non-internal line with quantity remaining. Refresh Customer Orders and select the lines again."
+                .to_string(),
+        ));
+    }
+
     let unready_lines = pickup_guard_lines
         .iter()
         .filter(|line| line.order_lifecycle_status != DbOrderItemLifecycleStatus::ReadyForPickup)
@@ -3593,11 +4049,35 @@ async fn mark_transaction_pickup(
             count = unready_lines.len()
         )));
     }
-    if !unready_lines.is_empty() && override_reason.len() < 12 {
-        return Err(TransactionError::InvalidPayload(
-            "Pickup readiness override requires a clear reason.".to_string(),
-        ));
-    }
+    let readiness_override_manager_staff_id = if body.override_readiness {
+        if override_reason.len() < 12 {
+            return Err(TransactionError::InvalidPayload(
+                "Pickup readiness override requires a clear reason.".to_string(),
+            ));
+        }
+        let (manager_staff_id, manager_pin) = body
+            .readiness_override_manager_staff_id
+            .zip(body.readiness_override_manager_pin.as_deref())
+            .or_else(|| {
+                body.payment_override_manager_staff_id
+                    .zip(body.payment_override_manager_pin.as_deref())
+            })
+            .ok_or_else(|| {
+                TransactionError::InvalidPayload(
+                    "Manager Access is required for a pickup readiness override.".to_string(),
+                )
+            })?;
+        let manager = authenticate_manager_approval(
+            &state,
+            manager_staff_id,
+            manager_pin,
+            "Manager Access approval permission required for pickup readiness override",
+        )
+        .await?;
+        Some(manager.id)
+    } else {
+        None
+    };
 
     let (
         amount_paid,
@@ -3744,59 +4224,46 @@ async fn mark_transaction_pickup(
         ))
     };
 
-    let claimed_fulfillment_line_ids: Vec<Uuid> = if body.delivered_item_ids.is_empty() {
-        sqlx::query_scalar(
-            r#"
-            WITH target AS (
-                SELECT id
-                FROM transaction_lines
-                WHERE transaction_id = $1
-                  AND is_fulfilled = FALSE
-                FOR UPDATE
-            ),
-            claimed AS (
-                UPDATE transaction_lines oi
-                SET
-                    is_fulfilled = TRUE,
-                    fulfilled_at = COALESCE(oi.fulfilled_at, CURRENT_TIMESTAMP)
-                FROM target
-                WHERE oi.id = target.id
-                RETURNING oi.id
-            )
-            SELECT id FROM claimed
-            "#,
+    let claimed_fulfillment_line_ids: Vec<Uuid> = sqlx::query_scalar(
+        r#"
+        WITH returned AS (
+            SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
+            FROM transaction_return_lines
+            GROUP BY transaction_line_id
+        ),
+        target AS (
+            SELECT oi.id
+            FROM transaction_lines oi
+            LEFT JOIN returned ON returned.transaction_line_id = oi.id
+            WHERE oi.transaction_id = $1
+              AND oi.id = ANY($2)
+              AND oi.is_fulfilled = FALSE
+              AND COALESCE(oi.is_internal, FALSE) = FALSE
+              AND GREATEST(oi.quantity - COALESCE(returned.returned, 0), 0) > 0
+            FOR UPDATE OF oi
+        ),
+        claimed AS (
+            UPDATE transaction_lines oi
+            SET
+                is_fulfilled = TRUE,
+                fulfilled_at = COALESCE(oi.fulfilled_at, CURRENT_TIMESTAMP)
+            FROM target
+            WHERE oi.id = target.id
+            RETURNING oi.id
         )
-        .bind(transaction_id)
-        .fetch_all(&mut *tx)
-        .await?
-    } else {
-        sqlx::query_scalar(
-            r#"
-            WITH target AS (
-                SELECT id
-                FROM transaction_lines
-                WHERE transaction_id = $1
-                  AND id = ANY($2)
-                  AND is_fulfilled = FALSE
-                FOR UPDATE
-            ),
-            claimed AS (
-                UPDATE transaction_lines oi
-                SET
-                    is_fulfilled = TRUE,
-                    fulfilled_at = COALESCE(oi.fulfilled_at, CURRENT_TIMESTAMP)
-                FROM target
-                WHERE oi.id = target.id
-                RETURNING oi.id
-            )
-            SELECT id FROM claimed
-            "#,
-        )
-        .bind(transaction_id)
-        .bind(&body.delivered_item_ids)
-        .fetch_all(&mut *tx)
-        .await?
-    };
+        SELECT id FROM claimed
+        "#,
+    )
+    .bind(transaction_id)
+    .bind(&validated_pickup_line_ids)
+    .fetch_all(&mut *tx)
+    .await?;
+    if claimed_fulfillment_line_ids.len() != validated_pickup_line_ids.len() {
+        return Err(TransactionError::InvalidPayload(
+            "Pickup lines changed before release. Refresh Customer Orders and try again."
+                .to_string(),
+        ));
+    }
 
     let remaining_unfulfilled: i64 = sqlx::query_scalar(
         r#"
@@ -3951,6 +4418,7 @@ async fn mark_transaction_pickup(
             "requested_delivered_item_count": body.delivered_item_ids.len(),
             "readiness_override": body.override_readiness,
             "override_reason": if body.override_readiness { Some(override_reason) } else { None::<&str> },
+            "readiness_override_manager_staff_id": readiness_override_manager_staff_id,
             "payment_override": pickup_payment_override_metadata.is_some(),
             "payment_override_detail": pickup_payment_override_metadata,
             "inventory_shortage_warning": has_inventory_shortage,
@@ -4030,6 +4498,7 @@ async fn mark_transaction_ship(
     headers: HeaderMap,
     Json(body): Json<ShipTransactionRequest>,
 ) -> Result<Json<serde_json::Value>, TransactionError> {
+    validate_release_line_scope(&body.shipped_item_ids, "shipping")?;
     let register_session_id = body.register_session_id.ok_or_else(|| {
         TransactionError::InvalidPayload(
             "Shipping completion must be run from an open Register session.".to_string(),
@@ -4047,11 +4516,13 @@ async fn mark_transaction_ship(
             .flatten();
 
     let mut tx = state.db.begin().await?;
-    let _locked_transaction: Uuid =
-        sqlx::query_scalar("SELECT id FROM transactions WHERE id = $1 FOR UPDATE")
+    let locked_status: Option<DbOrderStatus> =
+        sqlx::query_scalar("SELECT status FROM transactions WHERE id = $1 FOR UPDATE")
             .bind(transaction_id)
-            .fetch_one(&mut *tx)
+            .fetch_optional(&mut *tx)
             .await?;
+    let locked_status = locked_status.ok_or(TransactionError::NotFound)?;
+    validate_release_transaction_status(locked_status, "Shipping")?;
 
     if let Some(shipment_id) = body.shipment_id {
         let shipment_transaction_id: Option<Uuid> =
@@ -4071,6 +4542,7 @@ async fn mark_transaction_ship(
         sqlx::query_as(
             r#"
             SELECT
+                oi.id AS transaction_line_id,
                 COALESCE(
                     CASE
                         WHEN COALESCE(pv.sku, '') = 'HIST-CP-FALLBACK'
@@ -4117,6 +4589,7 @@ async fn mark_transaction_ship(
         sqlx::query_as(
             r#"
             SELECT
+                oi.id AS transaction_line_id,
                 COALESCE(
                     CASE
                         WHEN COALESCE(pv.sku, '') = 'HIST-CP-FALLBACK'
@@ -4163,6 +4636,19 @@ async fn mark_transaction_ship(
         .await?
     };
 
+    let validated_ship_line_ids = ship_guard_lines
+        .iter()
+        .map(|line| line.transaction_line_id)
+        .collect::<Vec<_>>();
+    if !body.shipped_item_ids.is_empty()
+        && !requested_line_ids_match_validated(&body.shipped_item_ids, &validated_ship_line_ids)
+    {
+        return Err(TransactionError::InvalidPayload(
+            "Every requested shipping line must be an open, non-internal line with quantity remaining. Refresh Customer Orders and select the lines again."
+                .to_string(),
+        ));
+    }
+
     if ship_guard_lines.is_empty() {
         return Err(TransactionError::InvalidPayload(
             "No open order lines are available for shipping.".to_string(),
@@ -4193,11 +4679,31 @@ async fn mark_transaction_ship(
             count = unready_lines.len()
         )));
     }
-    if !unready_lines.is_empty() && override_reason.len() < 12 {
-        return Err(TransactionError::InvalidPayload(
-            "Shipping readiness override requires a clear reason.".to_string(),
-        ));
-    }
+    let readiness_override_manager_staff_id = if body.override_readiness {
+        if override_reason.len() < 12 {
+            return Err(TransactionError::InvalidPayload(
+                "Shipping readiness override requires a clear reason.".to_string(),
+            ));
+        }
+        let (manager_staff_id, manager_pin) = body
+            .readiness_override_manager_staff_id
+            .zip(body.readiness_override_manager_pin.as_deref())
+            .ok_or_else(|| {
+                TransactionError::InvalidPayload(
+                    "Manager Access is required for a shipping readiness override.".to_string(),
+                )
+            })?;
+        let manager = authenticate_manager_approval(
+            &state,
+            manager_staff_id,
+            manager_pin,
+            "Manager Access approval permission required for shipping readiness override",
+        )
+        .await?;
+        Some(manager.id)
+    } else {
+        None
+    };
 
     let (
         amount_paid,
@@ -4310,69 +4816,51 @@ async fn mark_transaction_ship(
         ))
     };
 
-    let shipped_ids: Vec<Uuid> = if body.shipped_item_ids.is_empty() {
-        sqlx::query_scalar(
-            r#"
-            WITH target AS (
-                SELECT id
-                FROM transaction_lines
-                WHERE transaction_id = $1
-                  AND is_fulfilled = FALSE
-                FOR UPDATE
-            ),
-            claimed AS (
-                UPDATE transaction_lines oi
-                SET
-                    is_fulfilled = TRUE,
-                    fulfilled_at = COALESCE(oi.fulfilled_at, CURRENT_TIMESTAMP),
-                    shipped_at = COALESCE(oi.shipped_at, CURRENT_TIMESTAMP),
-                    shipped_by = COALESCE(oi.shipped_by, $2),
-                    shipment_id = COALESCE(oi.shipment_id, $3)
-                FROM target
-                WHERE oi.id = target.id
-                RETURNING oi.id
-            )
-            SELECT id FROM claimed
-            "#,
+    let shipped_ids: Vec<Uuid> = sqlx::query_scalar(
+        r#"
+        WITH returned AS (
+            SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
+            FROM transaction_return_lines
+            GROUP BY transaction_line_id
+        ),
+        target AS (
+            SELECT oi.id
+            FROM transaction_lines oi
+            LEFT JOIN returned ON returned.transaction_line_id = oi.id
+            WHERE oi.transaction_id = $1
+              AND oi.id = ANY($2)
+              AND oi.is_fulfilled = FALSE
+              AND COALESCE(oi.is_internal, FALSE) = FALSE
+              AND GREATEST(oi.quantity - COALESCE(returned.returned, 0), 0) > 0
+            FOR UPDATE OF oi
+        ),
+        claimed AS (
+            UPDATE transaction_lines oi
+            SET
+                is_fulfilled = TRUE,
+                fulfilled_at = COALESCE(oi.fulfilled_at, CURRENT_TIMESTAMP),
+                shipped_at = COALESCE(oi.shipped_at, CURRENT_TIMESTAMP),
+                shipped_by = COALESCE(oi.shipped_by, $3),
+                shipment_id = COALESCE(oi.shipment_id, $4)
+            FROM target
+            WHERE oi.id = target.id
+            RETURNING oi.id
         )
-        .bind(transaction_id)
-        .bind(actor_staff_id)
-        .bind(body.shipment_id)
-        .fetch_all(&mut *tx)
-        .await?
-    } else {
-        sqlx::query_scalar(
-            r#"
-            WITH target AS (
-                SELECT id
-                FROM transaction_lines
-                WHERE transaction_id = $1
-                  AND id = ANY($2)
-                  AND is_fulfilled = FALSE
-                FOR UPDATE
-            ),
-            claimed AS (
-                UPDATE transaction_lines oi
-                SET
-                    is_fulfilled = TRUE,
-                    fulfilled_at = COALESCE(oi.fulfilled_at, CURRENT_TIMESTAMP),
-                    shipped_at = COALESCE(oi.shipped_at, CURRENT_TIMESTAMP),
-                    shipped_by = COALESCE(oi.shipped_by, $3),
-                    shipment_id = COALESCE(oi.shipment_id, $4)
-                FROM target
-                WHERE oi.id = target.id
-                RETURNING oi.id
-            )
-            SELECT id FROM claimed
-            "#,
-        )
-        .bind(transaction_id)
-        .bind(&body.shipped_item_ids)
-        .bind(actor_staff_id)
-        .bind(body.shipment_id)
-        .fetch_all(&mut *tx)
-        .await?
-    };
+        SELECT id FROM claimed
+        "#,
+    )
+    .bind(transaction_id)
+    .bind(&validated_ship_line_ids)
+    .bind(actor_staff_id)
+    .bind(body.shipment_id)
+    .fetch_all(&mut *tx)
+    .await?;
+    if shipped_ids.len() != validated_ship_line_ids.len() {
+        return Err(TransactionError::InvalidPayload(
+            "Shipping lines changed before release. Refresh Customer Orders and try again."
+                .to_string(),
+        ));
+    }
 
     let remaining_unfulfilled: i64 = sqlx::query_scalar(
         r#"
@@ -4542,6 +5030,7 @@ async fn mark_transaction_ship(
             "tracking_number": body.tracking_number.as_deref().map(str::trim).filter(|v| !v.is_empty()),
             "readiness_override": body.override_readiness,
             "override_reason": if body.override_readiness { Some(override_reason) } else { None::<&str> },
+            "readiness_override_manager_staff_id": readiness_override_manager_staff_id,
             "inventory_shortage_warning": has_inventory_shortage,
             "inventory_shortage_lines": inventory_shortage_details,
         }),
@@ -5117,110 +5606,27 @@ async fn post_transaction_void(
                 pop_cash_drawer = true;
             }
         } else if payment.payment_provider.as_deref() == Some("helcim") {
-            if let Some(ref prov_tx_id) = payment.provider_transaction_id {
-                let config = helcim::HelcimConfig::from_env();
-                if config.simulator_enabled() {
-                    sqlx::query(
-                        r#"
-                        UPDATE payment_transactions
-                        SET status = 'canceled',
-                            amount = 0,
-                            net_amount = 0,
-                            metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb
-                        WHERE id = $1
-                        "#,
-                    )
-                    .bind(payment.id)
-                    .bind(json!({
-                        "voided_by_transaction_id": transaction_id,
-                        "voided_at": Utc::now(),
-                        "helcim_reverse_simulated": true
-                    }))
-                    .execute(&mut *tx)
-                    .await?;
-                } else {
-                    let original_tx_id = prov_tx_id.trim().parse::<i64>().map_err(|_| {
-                        TransactionError::InvalidPayload(
-                            "Invalid Helcim transaction ID format".to_string(),
-                        )
-                    })?;
-
-                    let request = helcim::HelcimCardReverseRequest {
-                        card_transaction_id: original_tx_id,
-                        ip_address: "127.0.0.1".to_string(),
-                        ecommerce: false,
-                    };
-
-                    let attempt_id = Uuid::new_v4();
-                    let idempotency_key = format!("helcim-void-reversal-{attempt_id}");
-
-                    match helcim::process_card_reverse(
-                        &state.http_client,
-                        &config,
-                        request,
-                        &idempotency_key,
-                    )
-                    .await
-                    {
-                        Ok(transaction) => {
-                            let status = transaction.normalized_status();
-                            sqlx::query(
-                                r#"
-                                UPDATE payment_transactions
-                                SET status = 'canceled',
-                                    amount = 0,
-                                    net_amount = 0,
-                                    metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb
-                                WHERE id = $1
-                                "#,
-                            )
-                            .bind(payment.id)
-                            .bind(json!({
-                                "voided_by_transaction_id": transaction_id,
-                                "voided_at": Utc::now(),
-                                "helcim_reversed_status": status,
-                                "helcim_reversed_transaction_id": transaction.transaction_id_string()
-                            }))
-                            .execute(&mut *tx)
-                            .await?;
-                        }
-                        Err(error) => {
-                            let err_lower = error.to_lowercase();
-                            if err_lower.contains("settled")
-                                || err_lower.contains("batch closed")
-                                || err_lower.contains("cannot reverse")
-                            {
-                                return Err(TransactionError::InvalidPayload(
-                                    "This card transaction has already been settled and cannot be voided. Please use the Refund workflow instead.".to_string()
-                                ));
-                            } else {
-                                return Err(TransactionError::InvalidPayload(format!(
-                                    "Helcim card reversal failed: {error}"
-                                )));
-                            }
-                        }
-                    }
-                }
-            } else {
-                sqlx::query(
-                    r#"
-                    UPDATE payment_transactions
-                    SET status = 'canceled',
-                        amount = 0,
-                        net_amount = 0,
-                        metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb
-                    WHERE id = $1
-                    "#,
-                )
-                .bind(payment.id)
-                .bind(json!({
-                    "voided_by_transaction_id": transaction_id,
-                    "voided_at": Utc::now(),
-                    "missing_provider_tx_id": true
-                }))
-                .execute(&mut *tx)
-                .await?;
-            }
+            // The void establishes the merchandise/ledger intent. Actual Helcim
+            // money movement must use the durable refund queue processor below,
+            // which owns provider idempotency and approved-result recovery.
+            // Keep the original approved payment intact until that linked refund
+            // commits its negative payment and allocation rows.
+            sqlx::query(
+                r#"
+                UPDATE payment_transactions
+                SET metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb
+                WHERE id = $1
+                "#,
+            )
+            .bind(payment.id)
+            .bind(json!({
+                "voided_by_transaction_id": transaction_id,
+                "voided_at": Utc::now(),
+                "helcim_refund_queued": true,
+                "original_provider_transaction_id": payment.provider_transaction_id,
+            }))
+            .execute(&mut *tx)
+            .await?;
         } else if payment.payment_method == "gift_card" {
             let gc_code = payment
                 .metadata
@@ -5767,44 +6173,50 @@ async fn process_refund(
 
         let cards: Vec<CardCapacityRow> = sqlx::query_as(
             r#"
+            WITH original_cards AS (
+                SELECT
+                    pt.provider_transaction_id,
+                    MAX(pt.provider_card_type) AS provider_card_type,
+                    ROUND(SUM(pa.amount_allocated) * 100)::bigint AS original_amount_cents
+                FROM payment_allocations pa
+                INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
+                WHERE pa.target_transaction_id = $1
+                  AND pa.amount_allocated > 0
+                  AND pt.payment_provider = 'helcim'
+                  AND pt.status IN ('success', 'approved', 'captured')
+                  AND pt.amount > 0
+                  AND pt.provider_transaction_id IS NOT NULL
+                GROUP BY pt.provider_transaction_id
+            )
             SELECT
-                pt.provider_transaction_id,
-                pt.provider_card_type,
-                ROUND(SUM(pa.amount_allocated) * 100)::bigint AS original_amount_cents,
+                original.provider_transaction_id,
+                original.provider_card_type,
+                original.original_amount_cents,
                 COALESCE(
-                    ROUND(SUM(
-                        CASE
-                            WHEN ref_pt.amount < 0
-                             AND ref_pt.payment_provider = 'helcim'
-                             AND (ref_pt.metadata->>'original_provider_transaction_id') = pt.provider_transaction_id
-                            THEN ABS(ref_pt.amount)
-                            ELSE 0
-                        END
-                    ) * 100),
+                    (
+                        SELECT ROUND(SUM(ABS(ref_pt.amount)) * 100)::bigint
+                        FROM payment_transactions ref_pt
+                        WHERE ref_pt.payment_provider = 'helcim'
+                          AND ref_pt.status IN ('success', 'approved', 'captured')
+                          AND ref_pt.amount < 0
+                          AND (ref_pt.metadata->>'original_provider_transaction_id') = original.provider_transaction_id
+                    ),
                     0
                 )::bigint AS already_refunded_cents
-            FROM payment_allocations pa
-            INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
-            LEFT JOIN payment_transactions ref_pt
-                ON ref_pt.payment_provider = 'helcim'
-               AND (ref_pt.metadata->>'original_provider_transaction_id') = pt.provider_transaction_id
-            WHERE pa.target_transaction_id = $1
-              AND pa.amount_allocated > 0
-              AND pt.payment_provider = 'helcim'
-              AND pt.provider_transaction_id IS NOT NULL
-            GROUP BY pt.provider_transaction_id, pt.provider_card_type
+            FROM original_cards original
             ORDER BY
-                (ROUND(SUM(pa.amount_allocated) * 100)::bigint
-                 - COALESCE(ROUND(SUM(
-                       CASE
-                           WHEN ref_pt.amount < 0
-                            AND ref_pt.payment_provider = 'helcim'
-                            AND (ref_pt.metadata->>'original_provider_transaction_id') = pt.provider_transaction_id
-                           THEN ABS(ref_pt.amount)
-                           ELSE 0
-                       END
-                   ) * 100), 0)::bigint) DESC,
-                pt.provider_transaction_id ASC
+                (original.original_amount_cents - COALESCE(
+                    (
+                        SELECT ROUND(SUM(ABS(ref_pt.amount)) * 100)::bigint
+                        FROM payment_transactions ref_pt
+                        WHERE ref_pt.payment_provider = 'helcim'
+                          AND ref_pt.status IN ('success', 'approved', 'captured')
+                          AND ref_pt.amount < 0
+                          AND (ref_pt.metadata->>'original_provider_transaction_id') = original.provider_transaction_id
+                    ),
+                    0
+                )::bigint) DESC,
+                original.provider_transaction_id ASC
             "#,
         )
         .bind(transaction_id)
@@ -6187,16 +6599,28 @@ async fn process_refund(
         );
         let audit_reference = card_refund_audit_reference(transaction_id, refund.id);
 
-        let approved_attempt =
-            find_approved_card_refund_attempt(&state.db, &audit_reference, amount_cents).await?;
+        let existing_base_attempt =
+            find_card_refund_attempt_by_key(&state.db, &base_idempotency_key).await?;
+        if existing_base_attempt
+            .as_ref()
+            .is_some_and(DurableCardRefundAttempt::has_blocking_provider_identity_mismatch)
+        {
+            return Err(TransactionError::BadGateway(
+                "The approved Helcim refund result does not match the requested movement and cannot be attached. Reconcile it in Payments Health before another refund."
+                    .to_string(),
+            ));
+        }
+        let approved_attempt = existing_base_attempt.filter(DurableCardRefundAttempt::is_approved);
+        let mut provider_attempt_may_have_been_dispatched = false;
 
         let (
             provider_attempt_id,
             idempotency_key,
             approved_provider_payment_id,
-            approved_provider_transaction_id,
+            _approved_provider_transaction_id,
             approved_provider_status,
         ) = if let Some(attempt) = approved_attempt {
+            provider_attempt_may_have_been_dispatched = true;
             (
                 attempt.id,
                 attempt.idempotency_key,
@@ -6222,7 +6646,13 @@ async fn process_refund(
             )
             .await?
             {
-                if existing.is_approved() {
+                if existing.has_blocking_provider_identity_mismatch() {
+                    return Err(TransactionError::BadGateway(
+                        "The approved Helcim refund result does not match the requested movement and cannot be attached. Reconcile it in Payments Health before another refund."
+                            .to_string(),
+                    ));
+                } else if existing.is_approved() {
+                    provider_attempt_may_have_been_dispatched = true;
                     (
                         existing.id,
                         existing.idempotency_key,
@@ -6231,9 +6661,54 @@ async fn process_refund(
                         Some(existing.status),
                     )
                 } else if existing.status == "pending" {
-                    return Err(TransactionError::BadGateway(
-                        "Helcim refund is already being processed. Check the refund queue before retrying.".to_string(),
-                    ));
+                    provider_attempt_may_have_been_dispatched = true;
+                    if existing.error_code.as_deref() != Some("outcome_unknown") {
+                        return Err(TransactionError::BadGateway(
+                            "This Helcim refund is already in progress. No second provider request was sent; check its status in Payments Health."
+                                .to_string(),
+                        ));
+                    }
+                    if !card_refund_attempt_within_idempotency_window(&existing, Utc::now()) {
+                        return Err(TransactionError::BadGateway(
+                            "The Helcim refund outcome is unresolved and ROS's safe replay window has closed. No new refund was sent. Reconcile the provider result in Payments Health before continuing."
+                                .to_string(),
+                        ));
+                    }
+                    (
+                        existing.id,
+                        existing.idempotency_key,
+                        None,
+                        existing.provider_transaction_id,
+                        None,
+                    )
+                } else if card_refund_failure_happened_before_provider_call(&existing) {
+                    reset_card_refund_attempt_for_same_request(&state.db, existing.id).await?;
+                    (
+                        existing.id,
+                        existing.idempotency_key,
+                        None,
+                        existing.provider_transaction_id,
+                        None,
+                    )
+                } else if matches!(
+                    existing.error_code.as_deref(),
+                    Some("outcome_unknown" | "request_failed")
+                ) {
+                    provider_attempt_may_have_been_dispatched = true;
+                    if !card_refund_attempt_within_idempotency_window(&existing, Utc::now()) {
+                        return Err(TransactionError::BadGateway(
+                            "The Helcim refund outcome is unresolved and ROS's safe replay window has closed. No new refund was sent. Reconcile the provider result in Payments Health before continuing."
+                                .to_string(),
+                        ));
+                    }
+                    reset_card_refund_attempt_for_same_request(&state.db, existing.id).await?;
+                    (
+                        existing.id,
+                        existing.idempotency_key,
+                        None,
+                        existing.provider_transaction_id,
+                        None,
+                    )
                 } else {
                     provider_attempt_id = Uuid::new_v4();
                     idempotency_key = format!("{base_idempotency_key}-retry-{provider_attempt_id}");
@@ -6248,7 +6723,13 @@ async fn process_refund(
                     )
                     .await?
                     {
-                        if retry_existing.is_approved() {
+                        if retry_existing.has_blocking_provider_identity_mismatch() {
+                            return Err(TransactionError::BadGateway(
+                                "The approved Helcim refund result does not match the requested movement and cannot be attached. Reconcile it in Payments Health before another refund."
+                                    .to_string(),
+                            ));
+                        } else if retry_existing.is_approved() {
+                            provider_attempt_may_have_been_dispatched = true;
                             (
                                 retry_existing.id,
                                 retry_existing.idempotency_key,
@@ -6256,9 +6737,30 @@ async fn process_refund(
                                 retry_existing.provider_transaction_id,
                                 Some(retry_existing.status),
                             )
+                        } else if retry_existing.status == "pending"
+                            && card_refund_attempt_within_idempotency_window(
+                                &retry_existing,
+                                Utc::now(),
+                            )
+                        {
+                            provider_attempt_may_have_been_dispatched = true;
+                            if retry_existing.error_code.as_deref() != Some("outcome_unknown") {
+                                return Err(TransactionError::BadGateway(
+                                    "This Helcim refund retry is already in progress. No second provider request was sent; check its status in Payments Health."
+                                        .to_string(),
+                                ));
+                            }
+                            (
+                                retry_existing.id,
+                                retry_existing.idempotency_key,
+                                None,
+                                retry_existing.provider_transaction_id,
+                                None,
+                            )
                         } else {
                             return Err(TransactionError::BadGateway(
-                                "Helcim refund retry is already being processed. Check the refund queue before retrying.".to_string(),
+                                "The Helcim refund retry is unresolved. No new refund was sent; review Payments Health before continuing."
+                                    .to_string(),
                             ));
                         }
                     } else {
@@ -6282,12 +6784,20 @@ async fn process_refund(
             .fetch_optional(&mut *tx)
             .await?;
             if session_open != Some(true) {
+                record_card_refund_pre_dispatch_failure(
+                    &state.db,
+                    provider_attempt_id,
+                    provider_attempt_may_have_been_dispatched,
+                    "pre_provider_revalidation_failed",
+                    "Register session closed before the Helcim refund was sent.".to_string(),
+                )
+                .await?;
                 return Err(TransactionError::InvalidPayload(
                     "register session is not open".to_string(),
                 ));
             }
 
-            refund = sqlx::query_as(
+            let refreshed_refund: Option<RefundQueueRow> = sqlx::query_as(
                 r#"
                 SELECT id, transaction_id, customer_id, amount_due, amount_refunded, is_open, reason, created_at
                 FROM transaction_refund_queue
@@ -6299,11 +6809,23 @@ async fn process_refund(
             )
             .bind(transaction_id)
             .fetch_optional(&mut *tx)
-            .await?
-            .ok_or_else(|| {
-                TransactionError::InvalidPayload("no open refund for this order".to_string())
-            })?;
-            apply_refund_return_lines_in_tx(
+            .await?;
+            let Some(refreshed_refund) = refreshed_refund else {
+                record_card_refund_pre_dispatch_failure(
+                    &state.db,
+                    provider_attempt_id,
+                    provider_attempt_may_have_been_dispatched,
+                    "pre_provider_revalidation_failed",
+                    "The Riverside refund queue changed before the Helcim refund was sent."
+                        .to_string(),
+                )
+                .await?;
+                return Err(TransactionError::InvalidPayload(
+                    "no open refund for this order".to_string(),
+                ));
+            };
+            refund = refreshed_refund;
+            if let Err(error) = apply_refund_return_lines_in_tx(
                 &mut tx,
                 transaction_id,
                 staff.id,
@@ -6311,39 +6833,62 @@ async fn process_refund(
                 refund_event_id,
                 &body.return_lines,
             )
-            .await?;
-            capacity = validate_refund_capacity_in_tx(
+            .await
+            {
+                record_card_refund_pre_dispatch_failure(
+                    &state.db,
+                    provider_attempt_id,
+                    provider_attempt_may_have_been_dispatched,
+                    "pre_provider_revalidation_failed",
+                    error.to_string(),
+                )
+                .await?;
+                return Err(error);
+            }
+            capacity = match validate_refund_capacity_in_tx(
                 &mut tx,
                 transaction_id,
                 &refund,
                 exact_refund_amount,
             )
-            .await?;
+            .await
+            {
+                Ok(capacity) => capacity,
+                Err(error) => {
+                    record_card_refund_pre_dispatch_failure(
+                        &state.db,
+                        provider_attempt_id,
+                        provider_attempt_may_have_been_dispatched,
+                        "pre_provider_revalidation_failed",
+                        error.to_string(),
+                    )
+                    .await?;
+                    return Err(error);
+                }
+            };
 
             let refreshed_card_remaining: Option<i64> = sqlx::query_scalar(
                 r#"
                 SELECT
                     ROUND(SUM(pa.amount_allocated) * 100)::bigint
                     - COALESCE(
-                        ROUND(SUM(
-                            CASE
-                                WHEN ref_pt.amount < 0
-                                 AND ref_pt.payment_provider = 'helcim'
-                                 AND (ref_pt.metadata->>'original_provider_transaction_id') = pt.provider_transaction_id
-                                THEN ABS(ref_pt.amount)
-                                ELSE 0
-                            END
-                        ) * 100),
+                        (
+                            SELECT ROUND(SUM(ABS(ref_pt.amount)) * 100)::bigint
+                            FROM payment_transactions ref_pt
+                            WHERE ref_pt.payment_provider = 'helcim'
+                              AND ref_pt.status IN ('success', 'approved', 'captured')
+                              AND ref_pt.amount < 0
+                              AND (ref_pt.metadata->>'original_provider_transaction_id') = pt.provider_transaction_id
+                        ),
                         0
                     )::bigint AS remaining_cents
                 FROM payment_allocations pa
                 INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
-                LEFT JOIN payment_transactions ref_pt
-                    ON ref_pt.payment_provider = 'helcim'
-                   AND (ref_pt.metadata->>'original_provider_transaction_id') = pt.provider_transaction_id
                 WHERE pa.target_transaction_id = $1
                   AND pa.amount_allocated > 0
                   AND pt.payment_provider = 'helcim'
+                  AND pt.status IN ('success', 'approved', 'captured')
+                  AND pt.amount > 0
                   AND pt.provider_transaction_id = $2
                 GROUP BY pt.provider_transaction_id
                 "#,
@@ -6353,6 +6898,14 @@ async fn process_refund(
             .fetch_optional(&mut *tx)
             .await?;
             if amount_cents > refreshed_card_remaining.unwrap_or(0) {
+                record_card_refund_pre_dispatch_failure(
+                    &state.db,
+                    provider_attempt_id,
+                    provider_attempt_may_have_been_dispatched,
+                    "pre_provider_revalidation_failed",
+                    "Refundable Helcim card capacity changed before provider dispatch.".to_string(),
+                )
+                .await?;
                 return Err(TransactionError::InvalidPayload(
                     "refund exceeds the remaining refundable capacity on the original Helcim card"
                         .to_string(),
@@ -6365,6 +6918,30 @@ async fn process_refund(
         let provider_call_required = approved_provider_payment_id.is_none();
         let mut ledger_tx = Some(tx);
         if provider_call_required {
+            let attempt_created_at: DateTime<Utc> = sqlx::query_scalar(
+                "SELECT created_at FROM payment_provider_attempts WHERE id = $1",
+            )
+            .bind(provider_attempt_id)
+            .fetch_one(
+                &mut **ledger_tx
+                    .as_mut()
+                    .expect("refund ledger transaction exists before provider dispatch"),
+            )
+            .await?;
+            if !helcim::payment_idempotency_retry_is_safe(attempt_created_at, Utc::now()) {
+                record_card_refund_pre_dispatch_failure(
+                    &state.db,
+                    provider_attempt_id,
+                    provider_attempt_may_have_been_dispatched,
+                    "pre_provider_revalidation_failed",
+                    "ROS safe replay window closed before Helcim refund preparation.".to_string(),
+                )
+                .await?;
+                return Err(TransactionError::BadGateway(
+                    "The Helcim refund remains unresolved, but ROS's safe replay window closed before dispatch. No new refund was sent; reconcile it in Payments Health."
+                        .to_string(),
+                ));
+            }
             // The durable pending attempt serializes provider work. Never hold the register
             // session or refund-queue row locks while waiting on Helcim.
             ledger_tx
@@ -6400,9 +6977,10 @@ async fn process_refund(
                 Ok(transaction) => transaction,
                 Err(error) => {
                     let message = helcim::redact_provider_text(&error);
-                    mark_card_refund_attempt_failed(
+                    record_card_refund_pre_dispatch_failure(
                         &state.db,
                         provider_attempt_id,
+                        provider_attempt_may_have_been_dispatched,
                         "transaction_lookup_failed",
                         message.clone(),
                     )
@@ -6424,9 +7002,10 @@ async fn process_refund(
             else {
                 let message =
                     "Helcim transaction lookup did not return a card batch; no refund was sent";
-                mark_card_refund_attempt_failed(
+                record_card_refund_pre_dispatch_failure(
                     &state.db,
                     provider_attempt_id,
+                    provider_attempt_may_have_been_dispatched,
                     "batch_id_missing",
                     message.to_string(),
                 )
@@ -6438,9 +7017,10 @@ async fn process_refund(
                 Ok(batch) => batch,
                 Err(error) => {
                     let message = helcim::redact_provider_text(&error);
-                    mark_card_refund_attempt_failed(
+                    record_card_refund_pre_dispatch_failure(
                         &state.db,
                         provider_attempt_id,
+                        provider_attempt_may_have_been_dispatched,
                         "batch_lookup_failed",
                         message.clone(),
                     )
@@ -6458,9 +7038,10 @@ async fn process_refund(
             ) {
                 Ok(action) => action,
                 Err(message) => {
-                    mark_card_refund_attempt_failed(
+                    record_card_refund_pre_dispatch_failure(
                         &state.db,
                         provider_attempt_id,
+                        provider_attempt_may_have_been_dispatched,
                         "invalid_batch_refund_action",
                         message.clone(),
                     )
@@ -6468,6 +7049,28 @@ async fn process_refund(
                     return Err(TransactionError::InvalidPayload(message));
                 }
             };
+
+            let attempt_created_at: DateTime<Utc> = sqlx::query_scalar(
+                "SELECT created_at FROM payment_provider_attempts WHERE id = $1",
+            )
+            .bind(provider_attempt_id)
+            .fetch_one(&state.db)
+            .await?;
+            if !helcim::payment_idempotency_retry_is_safe(attempt_created_at, Utc::now()) {
+                record_card_refund_pre_dispatch_failure(
+                    &state.db,
+                    provider_attempt_id,
+                    provider_attempt_may_have_been_dispatched,
+                    "pre_provider_revalidation_failed",
+                    "ROS safe replay window closed after provider lookup and before refund dispatch."
+                        .to_string(),
+                )
+                .await?;
+                return Err(TransactionError::BadGateway(
+                    "The Helcim refund remains unresolved, but ROS's safe replay window closed before the Payment API dispatch. No new refund was sent; reconcile it in Payments Health."
+                        .to_string(),
+                ));
+            }
 
             let provider_started = std::time::Instant::now();
             let provider_result =
@@ -6511,20 +7114,39 @@ async fn process_refund(
             let refund_transaction = match provider_result {
                 Ok(transaction) => transaction,
                 Err(error) => {
-                    let persisted_message = helcim::redact_provider_text(&error)
+                    let persisted_message = helcim::redact_provider_text(&error.message)
                         .chars()
                         .take(500)
                         .collect::<String>();
-                    let staff_message = helcim::redact_provider_text(&error);
-                    mark_card_refund_attempt_failed(
-                        &state.db,
-                        provider_attempt_id,
-                        "request_failed",
-                        persisted_message,
-                    )
-                    .await?;
+                    let staff_message = helcim::redact_provider_text(&error.message);
+                    if error.outcome_unknown {
+                        mark_card_refund_attempt_outcome_unknown(
+                            &state.db,
+                            provider_attempt_id,
+                            persisted_message,
+                        )
+                        .await?;
+                    } else {
+                        mark_card_refund_attempt_failed(
+                            &state.db,
+                            provider_attempt_id,
+                            "request_rejected",
+                            persisted_message,
+                        )
+                        .await?;
+                    }
                     return Err(TransactionError::BadGateway(format!(
-                        "Helcim {provider_action} failed: {staff_message}"
+                        "Helcim {provider_action} {}: {staff_message}{}",
+                        if error.outcome_unknown {
+                            "outcome is unknown"
+                        } else {
+                            "request failed"
+                        },
+                        if error.outcome_unknown {
+                            ". Do not start another refund; retry the same refund promptly or reconcile it in Payments Health."
+                        } else {
+                            ""
+                        }
                     )));
                 }
             };
@@ -6537,12 +7159,40 @@ async fn process_refund(
                 .as_deref()
                 .map(helcim::redact_provider_text);
 
+            if matches!(refund_status.as_str(), "approved" | "captured") {
+                if let Some(mismatch) = helcim_return_response_identity_mismatch(
+                    &refund_transaction,
+                    amount_cents,
+                    provider_return_action,
+                ) {
+                    sqlx::query(
+                        r#"
+                        UPDATE payment_provider_attempts
+                        SET status = $4,
+                            provider_payment_id = $2,
+                            error_code = 'provider_identity_mismatch',
+                            error_message = $3,
+                            completed_at = now()
+                        WHERE id = $1
+                        "#,
+                    )
+                    .bind(provider_attempt_id)
+                    .bind(refund_provider_payment_id.as_deref())
+                    .bind(&mismatch)
+                    .bind(&refund_status)
+                    .execute(&state.db)
+                    .await?;
+                    return Err(TransactionError::BadGateway(format!(
+                        "{mismatch} The provider result was blocked from the Riverside refund ledger; reconcile it in Payments Health before another refund."
+                    )));
+                }
+            }
+
             sqlx::query(
                     r#"
                     UPDATE payment_provider_attempts
                     SET status = $2,
                         provider_payment_id = $3,
-                        provider_transaction_id = COALESCE($3, provider_transaction_id),
                         error_code = CASE WHEN $2 = 'failed' THEN 'declined' ELSE NULL END,
                         error_message = CASE WHEN $2 = 'failed' THEN COALESCE($4, 'Helcim refund was declined.') ELSE NULL END,
                         completed_at = now()
@@ -6635,25 +7285,23 @@ async fn process_refund(
                 SELECT
                     ROUND(SUM(pa.amount_allocated) * 100)::bigint
                     - COALESCE(
-                        ROUND(SUM(
-                            CASE
-                                WHEN ref_pt.amount < 0
-                                 AND ref_pt.payment_provider = 'helcim'
-                                 AND (ref_pt.metadata->>'original_provider_transaction_id') = pt.provider_transaction_id
-                                THEN ABS(ref_pt.amount)
-                                ELSE 0
-                            END
-                        ) * 100),
+                        (
+                            SELECT ROUND(SUM(ABS(ref_pt.amount)) * 100)::bigint
+                            FROM payment_transactions ref_pt
+                            WHERE ref_pt.payment_provider = 'helcim'
+                              AND ref_pt.status IN ('success', 'approved', 'captured')
+                              AND ref_pt.amount < 0
+                              AND (ref_pt.metadata->>'original_provider_transaction_id') = pt.provider_transaction_id
+                        ),
                         0
                     )::bigint AS remaining_cents
                 FROM payment_allocations pa
                 INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
-                LEFT JOIN payment_transactions ref_pt
-                    ON ref_pt.payment_provider = 'helcim'
-                   AND (ref_pt.metadata->>'original_provider_transaction_id') = pt.provider_transaction_id
                 WHERE pa.target_transaction_id = $1
                   AND pa.amount_allocated > 0
                   AND pt.payment_provider = 'helcim'
+                  AND pt.status IN ('success', 'approved', 'captured')
+                  AND pt.amount > 0
                   AND pt.provider_transaction_id = $2
                 GROUP BY pt.provider_transaction_id
                 "#,
@@ -6674,8 +7322,10 @@ async fn process_refund(
         tx = ledger_tx.expect("refund ledger transaction is restored after provider call");
 
         provider_payment_id = refund_provider_payment_id;
-        provider_transaction_id =
-            approved_provider_transaction_id.or_else(|| provider_payment_id.clone());
+        // `provider_payment_id` is the refund/reversal transaction. The attempt's
+        // `provider_transaction_id` remains the original charge for recovery and
+        // capacity evidence; never attach that original charge as the refund row.
+        provider_transaction_id = provider_payment_id.clone();
         provider_status = refund_provider_status;
 
         if let Some(object) = refund_metadata.as_object_mut() {

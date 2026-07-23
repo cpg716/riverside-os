@@ -36,8 +36,8 @@
 
 1. Runner-up reads **Reports** with closing lead.
 2. Confirm **no open carts** before trusting session totals.
-3. Follow **Z / close** on **Register #1**. If card review blocks close, use the close-drawer **Review** action or **POS → Payments** to record the terminal outcome before finalizing.
-4. The final Z-report includes cash/check review, all supported tender methods, a Credit Card Total that includes CC/Card Reader, Card Manual, Card Not Present, saved-card, and card-credit/refund entries, per-register Cash Total / CC Total, the Quick Look business boxes, transaction detail, pickups for the day, and QBO journal-entry preview. Hosted HelcimPay.js entries are labeled **Card Not Present**; only externally recorded/manual card entries are labeled **Card Manual**. It does not include non-sale inventory activity.
+3. Follow **Z / close** on **Register #1**. Use the close-drawer **Review** action or **POS → Payments** to repair or document card and recovery warnings when practical. Those warnings remain visible and fixable but do not disable an authorized ordinary close.
+4. The final Z-report includes cash/check review, all supported tender methods, a Credit Card Total that includes CC/Card Reader, Card Manual, Card Not Present, saved-card, and card-credit/refund entries, per-register Cash Total / CC Total, the Quick Look business boxes, transaction detail, pickups for the day, QBO journal-entry preview, and an immutable **Unresolved Issues at Close** section. Hosted HelcimPay.js entries are labeled **Card Not Present**; only externally recorded/manual card entries are labeled **Card Manual**. Closing does not resolve listed issues, and later repair does not rewrite the archived report. It does not include non-sale inventory activity.
 5. Riverside freezes every audited activity and pickup page after close. If it cannot prove that the set is complete, it saves no partial EOD snapshot and raises an operational alert; the completed drawer close itself is not rolled back.
 
 ## Helping a coworker
@@ -51,7 +51,7 @@
 |--------|-------------------|---------------|
 | Empty / 403 | **register.reports** + session | Manager uses BO path |
 | Totals don’t match cart | Complete or **park** open sales | — |
-| Card review blocks close | Use **Review** in Z-close or **POS → Payments** and record the terminal outcome | Manager checks Back Office Payments → Health if the issue still remains |
+| Card or recovery warning remains at close | Use **Review** in Z-close or **POS → Payments** and record the terminal outcome; ordinary close remains available | Manager checks Back Office Payments → Health and verifies the issue appears under **Unresolved Issues at Close** |
 | Voided sale still shows refund due | Complete the refund workflow tied to that void | Manager reviews the void record and refund queue |
 | Stale timestamp | **Refresh** | Network |
 | Two sessions confused | **Session ordinal** on report header | Lead identifies correct drawer |

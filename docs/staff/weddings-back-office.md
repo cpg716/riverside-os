@@ -87,8 +87,10 @@ Recommended review order:
 2. Link each member to the right ROS customer.
 3. Review suggested imported Transaction Records.
 4. Attach the correct order lines to the member.
-5. Confirm item status: **Needs measurements**, **Ready to order**, **Ordered**, **Received**, **Ready for pickup**, or **Picked up**.
-6. Leave uncertain matches unresolved for manager review.
+5. Select the exact Transaction Record lines (maximum 100) and confirm a status through **Ready for pickup**.
+6. Complete the Manager Access approval. An empty line selection is never treated as all lines.
+7. Complete **Picked Up** only through Register pickup so inventory, revenue, commissions, loyalty, and audit move together.
+8. Leave uncertain matches unresolved for manager review.
 
 Wedding placeholder suits should stay **Needs measurements** until measurements are complete and the exact variation is selected. After review, Wedding Readiness, Orders, Inventory, and Register should all read the same ROS lifecycle state.
 

@@ -1,0 +1,61 @@
+{
+  "evidence_version": 1,
+  "incident": "2026-07-21 Counterpoint financial repair false-fulfillment mutation",
+  "source": {
+    "kind": "local Codex append-only rollout transcript",
+    "session_id": "019f717d-c791-7933-b849-35e6969ba14b",
+    "rollout_file": "rollout-2026-07-17T15-11-36-019f717d-c791-7933-b849-35e6969ba14b.jsonl",
+    "rollout_sha256_observed_2026_07_22": "1c0ea657eeb3613fea88299743a00bce4526b7ccb959d9511800e4f96563e087",
+    "tool_call_jsonl_line": 7041,
+    "tool_result_jsonl_line": 7045,
+    "tool_call_id": "call_XEG7UqwciguDh6qXIRYCnaMK",
+    "connection_environment_redacted": true,
+    "redaction_reason": "The raw tool call contains database credentials. This evidence retains the executable action and result but never republishes credentials."
+  },
+  "initiating_action": {
+    "timestamp_utc": "2026-07-21T20:49:04.545Z",
+    "working_directory": "/Users/cpg/riverside-os",
+    "command_without_connection_credentials": "node scripts/repair-current-counterpoint-imports.mjs --skip-aliases --apply",
+    "target": "live Main Hub riverside_os PostgreSQL database",
+    "execution_context": "Codex repair session",
+    "authenticated_staff_actor_retained_by_ros": false,
+    "manager_approval_retained_by_ros": false,
+    "reason_retained_by_ros": false,
+    "correlation_id_retained_by_ros": false,
+    "human_initiator_identity_provable_from_database": false
+  },
+  "completion": {
+    "timestamp_utc": "2026-07-21T20:49:34.007Z",
+    "mode": "APPLY",
+    "transactions_scanned": 58305,
+    "line_updates": 903,
+    "transaction_updates": 585,
+    "price_changes": 903,
+    "tax_changes": 832,
+    "skipped": {
+      "missingCounterpointDoc": 141,
+      "lineCountMismatch": 1,
+      "unmatchedLines": 4
+    }
+  },
+  "executed_source_snapshot": {
+    "commit_created_after_apply": "d0ba724841917cf6fe6f515a2e21bbf57911cd6f",
+    "commit_created_at_utc": "2026-07-21T20:53:04.529Z",
+    "faulty_update": {
+      "table": "transactions",
+      "scope_source": "cp_transaction_repair",
+      "lifecycle_assignments": [
+        "status = 'fulfilled'::order_status",
+        "fulfilled_at = COALESCE(t.fulfilled_at, t.booked_at)"
+      ]
+    },
+    "corrective_commit": "b3050047467fc7cf0cf33754ca0c9b59ef7eb962",
+    "corrective_change": "Removed the unconditional status and fulfilled_at assignments from the repair UPDATE."
+  },
+  "scope_limit": {
+    "original_585_id_manifest_retained": false,
+    "before_state_retained": false,
+    "statement_level_row_count_proven": 585,
+    "exact_original_transaction_ids_provable_from_this_evidence": false
+  }
+}

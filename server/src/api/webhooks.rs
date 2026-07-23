@@ -30,6 +30,10 @@ use crate::logic::podium_webhook::{
 };
 
 const HELCIM_WEBHOOK_FALLBACK_MAX_AGE_MINUTES: i64 = 10;
+const HELCIM_WEBHOOK_PROCESSING_LEASE_SECONDS: i64 = 180;
+const HELCIM_WEBHOOK_PROCESSING_TIMEOUT_SECONDS: u64 = 150;
+const HELCIM_WEBHOOK_PROCESSING_CLAIM_KEY: &str = "__ros_internal_helcim_processing_claim_v1";
+const HELCIM_WEBHOOK_PROCESSING_CLAIM_OWNER: &str = "riverside-os-helcim-webhook-v1";
 const SHIPPO_WEBHOOK_SIGNATURE_HEADER: &str = "shippo-auth-signature";
 
 async fn get_edge_probe(Query(params): Query<HashMap<String, String>>) -> impl IntoResponse {
@@ -388,7 +392,9 @@ enum HelcimWebhookAction {
 struct HelcimEventLogRow {
     id: Uuid,
     processing_status: String,
-    created: bool,
+    payload_hash: String,
+    claimed: bool,
+    reclaimed: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -513,6 +519,17 @@ fn helcim_payload_hash(body: &[u8]) -> String {
     hex::encode(Sha256::digest(body))
 }
 
+fn helcim_payload_without_processing_claim(mut payload: Value) -> Value {
+    if let Value::Object(object) = &mut payload {
+        object.remove(HELCIM_WEBHOOK_PROCESSING_CLAIM_KEY);
+    }
+    payload
+}
+
+fn helcim_payload_uses_reserved_processing_claim(payload: &Value) -> bool {
+    payload.get(HELCIM_WEBHOOK_PROCESSING_CLAIM_KEY).is_some()
+}
+
 fn helcim_webhook_action(event_type: &str) -> HelcimWebhookAction {
     match event_type {
         "cardTransaction" => HelcimWebhookAction::CardTransaction,
@@ -525,8 +542,41 @@ fn helcim_event_is_final(status: &str) -> bool {
     matches!(status, "processed" | "ignored")
 }
 
-fn helcim_event_should_process(event: &HelcimEventLogRow) -> bool {
-    event.created
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HelcimEventDisposition {
+    Process,
+    DuplicateFinal,
+    Processing,
+    Retry,
+}
+
+fn helcim_event_disposition(event: &HelcimEventLogRow) -> HelcimEventDisposition {
+    if event.claimed {
+        HelcimEventDisposition::Process
+    } else if helcim_event_is_final(&event.processing_status) {
+        HelcimEventDisposition::DuplicateFinal
+    } else if event.processing_status == "received" {
+        HelcimEventDisposition::Processing
+    } else {
+        HelcimEventDisposition::Retry
+    }
+}
+
+fn helcim_active_processing_status() -> StatusCode {
+    StatusCode::SERVICE_UNAVAILABLE
+}
+
+#[cfg(test)]
+fn helcim_processing_claim_is_eligible(
+    processing_status: &str,
+    claimed_at_epoch: Option<i64>,
+    received_at_epoch: i64,
+    now_epoch: i64,
+) -> bool {
+    processing_status == "failed"
+        || (processing_status == "received"
+            && claimed_at_epoch.unwrap_or(received_at_epoch)
+                <= now_epoch - HELCIM_WEBHOOK_PROCESSING_LEASE_SECONDS)
 }
 
 fn helcim_webhook_event_id(value: &Value) -> Option<String> {
@@ -581,9 +631,17 @@ async fn record_helcim_event(
     body: &[u8],
     payload: &Value,
 ) -> Result<HelcimEventLogRow, sqlx::Error> {
-    // xmax = 0 identifies the inserted row; conflict returns the existing row
-    // so duplicate deliveries do not enter the mutation path.
-    sqlx::query_as::<_, HelcimEventLogRow>(
+    if helcim_payload_uses_reserved_processing_claim(payload) {
+        return Err(sqlx::Error::Protocol(
+            "Helcim payload uses a reserved ROS processing field".to_string(),
+        ));
+    }
+    let payload_hash = helcim_payload_hash(body);
+    // The conflict update is the processing lease. PostgreSQL locks the unique
+    // webhook row while evaluating this predicate, so exactly one delivery can
+    // claim a failed event or a received event whose prior worker exceeded the
+    // bounded processing window. Final events and active leases remain no-ops.
+    let claimed = sqlx::query_as::<_, HelcimEventLogRow>(
         r#"
         INSERT INTO helcim_event_log (
             provider,
@@ -595,17 +653,97 @@ async fn record_helcim_event(
             payload_json,
             processing_status
         )
-        VALUES ('helcim', $1, $2, $3, TRUE, $4, $5, 'received')
+        VALUES (
+            'helcim',
+            $1,
+            $2,
+            $3,
+            TRUE,
+            $4,
+            $5::jsonb || jsonb_build_object(
+                $7::text,
+                jsonb_build_object(
+                    'claimed_at_epoch', EXTRACT(EPOCH FROM now())::bigint,
+                    'owner', $8::text
+                )
+            ),
+            'received'
+        )
         ON CONFLICT (webhook_id) WHERE webhook_id IS NOT NULL DO UPDATE
-        SET webhook_id = helcim_event_log.webhook_id
-        RETURNING id, processing_status, (xmax = 0) AS created
+        SET processing_status = 'received',
+            error_message = NULL,
+            payload_json = helcim_event_log.payload_json || jsonb_build_object(
+                $7::text,
+                jsonb_build_object(
+                    'claimed_at_epoch', EXTRACT(EPOCH FROM now())::bigint,
+                    'owner', $8::text
+                )
+            )
+        WHERE helcim_event_log.payload_hash = EXCLUDED.payload_hash
+          AND (
+              NOT (helcim_event_log.payload_json ? ($7::text))
+              OR helcim_event_log.payload_json
+                    -> ($7::text) ->> 'owner' = $8::text
+          )
+          AND (
+              helcim_event_log.processing_status = 'failed'
+              OR (
+                  helcim_event_log.processing_status = 'received'
+                  AND COALESCE(
+                      CASE
+                          WHEN jsonb_typeof(
+                              helcim_event_log.payload_json
+                                  -> ($7::text) -> 'claimed_at_epoch'
+                          ) = 'number'
+                          THEN (
+                              helcim_event_log.payload_json
+                                  -> ($7::text) ->> 'claimed_at_epoch'
+                          )::numeric
+                      END,
+                      EXTRACT(EPOCH FROM helcim_event_log.received_at)
+                  ) <= EXTRACT(EPOCH FROM now()) - $6::bigint
+              )
+          )
+        RETURNING
+            id,
+            processing_status,
+            payload_hash,
+            TRUE AS claimed,
+            (xmax <> 0) AS reclaimed
         "#,
     )
     .bind(&verification.webhook_id)
     .bind(event_type)
     .bind(verification.webhook_timestamp)
-    .bind(helcim_payload_hash(body))
+    .bind(&payload_hash)
     .bind(helcim::redact_provider_payload(payload))
+    .bind(HELCIM_WEBHOOK_PROCESSING_LEASE_SECONDS)
+    .bind(HELCIM_WEBHOOK_PROCESSING_CLAIM_KEY)
+    .bind(HELCIM_WEBHOOK_PROCESSING_CLAIM_OWNER)
+    .fetch_optional(db)
+    .await?;
+
+    if let Some(event) = claimed {
+        return Ok(event);
+    }
+
+    // ON CONFLICT ... DO UPDATE ... WHERE returns no row when an active or
+    // final event is deliberately left untouched. Fetch it in a new statement
+    // so a concurrent inserter's committed row is visible under READ COMMITTED.
+    sqlx::query_as::<_, HelcimEventLogRow>(
+        r#"
+        SELECT
+            id,
+            processing_status,
+            payload_hash,
+            FALSE AS claimed,
+            FALSE AS reclaimed
+        FROM helcim_event_log
+        WHERE webhook_id = $1
+          AND provider = 'helcim'
+        "#,
+    )
+    .bind(&verification.webhook_id)
     .fetch_one(db)
     .await
 }
@@ -619,12 +757,15 @@ async fn mark_helcim_event_failed(
         r#"
         UPDATE helcim_event_log
         SET processing_status = 'failed',
-            error_message = $2
+            error_message = $2,
+            payload_json = payload_json - $3::text
         WHERE id = $1
+          AND processing_status = 'received'
         "#,
     )
     .bind(event_id)
     .bind(error_message)
+    .bind(HELCIM_WEBHOOK_PROCESSING_CLAIM_KEY)
     .execute(db)
     .await?;
     Ok(())
@@ -640,59 +781,96 @@ async fn mark_helcim_event_ignored(
         UPDATE helcim_event_log
         SET processing_status = 'ignored',
             error_message = NULL,
-            match_type = 'none'
+            match_type = 'none',
+            payload_json = payload_json - $2::text
         WHERE id = $1
         "#,
     )
     .bind(event_id)
+    .bind(HELCIM_WEBHOOK_PROCESSING_CLAIM_KEY)
     .execute(db)
     .await?;
     tracing::debug!(target = "helcim_webhook", event_type = %event_type, "stored unhandled Helcim event");
     Ok(())
 }
 
+async fn run_helcim_webhook_processing<F>(
+    processing: F,
+) -> Result<HelcimProcessingOutcome, sqlx::Error>
+where
+    F: std::future::Future<Output = Result<HelcimProcessingOutcome, sqlx::Error>>,
+{
+    tokio::time::timeout(
+        std::time::Duration::from_secs(HELCIM_WEBHOOK_PROCESSING_TIMEOUT_SECONDS),
+        processing,
+    )
+    .await
+    .map_err(|_| {
+        sqlx::Error::Protocol(format!(
+            "Helcim webhook processing exceeded {HELCIM_WEBHOOK_PROCESSING_TIMEOUT_SECONDS} seconds"
+        ))
+    })?
+}
+
 pub async fn replay_helcim_event(
     state: &AppState,
     event_id: Uuid,
 ) -> Result<HelcimReplayOutcome, sqlx::Error> {
-    let row: Option<(String, String, Value)> = sqlx::query_as(
-        r#"
-        SELECT event_type, processing_status, payload_json
-        FROM helcim_event_log
-        WHERE id = $1
-          AND provider = 'helcim'
-        "#,
-    )
-    .bind(event_id)
-    .fetch_optional(&state.db)
-    .await?;
-    let Some((event_type, processing_status, value)) = row else {
-        return Err(sqlx::Error::RowNotFound);
-    };
-    if processing_status != "failed" {
-        return Err(sqlx::Error::Protocol(
-            "Only failed Helcim events can be replayed.".to_string(),
-        ));
-    }
-
-    sqlx::query(
+    let row: Option<(String, Value)> = sqlx::query_as(
         r#"
         UPDATE helcim_event_log
         SET processing_status = 'received',
-            error_message = NULL
+            error_message = NULL,
+            payload_json = payload_json || jsonb_build_object(
+                $2::text,
+                jsonb_build_object(
+                    'claimed_at_epoch', EXTRACT(EPOCH FROM now())::bigint,
+                    'owner', $3::text
+                )
+            )
         WHERE id = $1
+          AND provider = 'helcim'
+          AND processing_status = 'failed'
+          AND NOT (payload_json ? ($2::text))
+        RETURNING event_type, payload_json - $2::text
         "#,
     )
     .bind(event_id)
-    .execute(&state.db)
+    .bind(HELCIM_WEBHOOK_PROCESSING_CLAIM_KEY)
+    .bind(HELCIM_WEBHOOK_PROCESSING_CLAIM_OWNER)
+    .fetch_optional(&state.db)
     .await?;
+    let Some((event_type, value)) = row else {
+        let current_status: Option<String> = sqlx::query_scalar(
+            "SELECT processing_status FROM helcim_event_log WHERE id = $1 AND provider = 'helcim'",
+        )
+        .bind(event_id)
+        .fetch_optional(&state.db)
+        .await?;
+        return match current_status {
+            Some(_) => Err(sqlx::Error::Protocol(
+                "Only failed Helcim events can be replayed.".to_string(),
+            )),
+            None => Err(sqlx::Error::RowNotFound),
+        };
+    };
+    let value = helcim_payload_without_processing_claim(value);
 
     match helcim_webhook_action(&event_type) {
         HelcimWebhookAction::CardTransaction => {
-            let transaction_id = helcim_webhook_event_id(&value).ok_or_else(|| {
-                sqlx::Error::Protocol("missing Helcim transaction id".to_string())
-            })?;
-            match handle_helcim_card_transaction(state, event_id, &transaction_id, &value).await {
+            let Some(transaction_id) = helcim_webhook_event_id(&value) else {
+                let message = "missing Helcim transaction id";
+                let _ = mark_helcim_event_failed(&state.db, event_id, message).await;
+                return Err(sqlx::Error::Protocol(message.to_string()));
+            };
+            match run_helcim_webhook_processing(handle_helcim_card_transaction(
+                state,
+                event_id,
+                &transaction_id,
+                &value,
+            ))
+            .await
+            {
                 Ok(outcome) => Ok(HelcimReplayOutcome {
                     ok: true,
                     processing_status: "processed".to_string(),
@@ -711,7 +889,11 @@ pub async fn replay_helcim_event(
             }
         }
         HelcimWebhookAction::TerminalCancel => {
-            match handle_helcim_terminal_cancel(state, event_id, &value).await {
+            match run_helcim_webhook_processing(handle_helcim_terminal_cancel(
+                state, event_id, &value,
+            ))
+            .await
+            {
                 Ok(outcome) => Ok(HelcimReplayOutcome {
                     ok: true,
                     processing_status: "processed".to_string(),
@@ -797,13 +979,66 @@ async fn post_helcim_webhook(
         }
     };
 
-    if !helcim_event_should_process(&event) || helcim_event_is_final(&event.processing_status) {
-        return Json(json!({
-            "ok": true,
-            "duplicate": true,
-            "processing_status": event.processing_status,
-        }))
-        .into_response();
+    let incoming_payload_hash = helcim_payload_hash(body.as_ref());
+    if event.payload_hash != incoming_payload_hash {
+        tracing::warn!(
+            target = "helcim_webhook",
+            event_id = %event.id,
+            webhook_id = %verification.webhook_id,
+            "refusing Helcim webhook id reused with a different payload"
+        );
+        return (
+            StatusCode::CONFLICT,
+            Json(json!({
+                "ok": false,
+                "error": "webhook id payload mismatch",
+            })),
+        )
+            .into_response();
+    }
+
+    match helcim_event_disposition(&event) {
+        HelcimEventDisposition::Process => {
+            if event.reclaimed {
+                tracing::info!(
+                    target = "helcim_webhook",
+                    event_id = %event.id,
+                    webhook_id = %verification.webhook_id,
+                    "reclaimed Helcim webhook for processing"
+                );
+            }
+        }
+        HelcimEventDisposition::DuplicateFinal => {
+            return Json(json!({
+                "ok": true,
+                "duplicate": true,
+                "processing_status": event.processing_status,
+            }))
+            .into_response();
+        }
+        HelcimEventDisposition::Processing => {
+            // Do not positively acknowledge an in-flight delivery. If the
+            // original worker disappeared, Helcim must retain its retry chain
+            // long enough for the bounded lease to become reclaimable.
+            return (
+                helcim_active_processing_status(),
+                Json(json!({
+                    "ok": false,
+                    "retry": true,
+                    "processing_status": event.processing_status,
+                })),
+            )
+                .into_response();
+        }
+        HelcimEventDisposition::Retry => {
+            tracing::error!(
+                target = "helcim_webhook",
+                event_id = %event.id,
+                processing_status = %event.processing_status,
+                "Helcim webhook was not claimed from a retryable state"
+            );
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
     }
 
     match helcim_webhook_action(event_type) {
@@ -814,7 +1049,14 @@ async fn post_helcim_webhook(
                         .await;
                 return StatusCode::BAD_REQUEST.into_response();
             };
-            match handle_helcim_card_transaction(&state, event.id, &transaction_id, &value).await {
+            match run_helcim_webhook_processing(handle_helcim_card_transaction(
+                &state,
+                event.id,
+                &transaction_id,
+                &value,
+            ))
+            .await
+            {
                 Ok(outcome) => Json(json!({
                     "ok": true,
                     "updated": outcome.updated,
@@ -838,7 +1080,11 @@ async fn post_helcim_webhook(
             }
         }
         HelcimWebhookAction::TerminalCancel => {
-            match handle_helcim_terminal_cancel(&state, event.id, &value).await {
+            match run_helcim_webhook_processing(handle_helcim_terminal_cancel(
+                &state, event.id, &value,
+            ))
+            .await
+            {
                 Ok(outcome) => Json(json!({
                     "ok": true,
                     "updated": outcome.updated,
@@ -876,6 +1122,125 @@ async fn post_helcim_webhook(
     }
 }
 
+fn helcim_attempt_reference_is_return(raw_audit_reference: Option<&str>) -> bool {
+    raw_audit_reference.is_some_and(|reference| {
+        let normalized = reference.to_ascii_lowercase();
+        normalized.contains("refund") || normalized.contains("reverse")
+    })
+}
+
+fn helcim_provider_transaction_is_return(transaction_type: Option<&str>) -> Option<bool> {
+    match transaction_type
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "purchase" | "sale" => Some(false),
+        "refund" | "return" | "reverse" | "reversal" => Some(true),
+        _ => None,
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HelcimRosInvoiceCorrelation {
+    None,
+    Attempt(Uuid),
+    Invalid,
+}
+
+fn helcim_ros_invoice_correlation(invoice_number: Option<&str>) -> HelcimRosInvoiceCorrelation {
+    let Some(invoice_number) = invoice_number
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return HelcimRosInvoiceCorrelation::None;
+    };
+    let Some(attempt_id) = invoice_number.strip_prefix("ROS-") else {
+        return HelcimRosInvoiceCorrelation::None;
+    };
+    if attempt_id.len() != 32 || !attempt_id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return HelcimRosInvoiceCorrelation::Invalid;
+    }
+    Uuid::parse_str(attempt_id)
+        .map(HelcimRosInvoiceCorrelation::Attempt)
+        .unwrap_or(HelcimRosInvoiceCorrelation::Invalid)
+}
+
+fn helcim_webhook_transaction_id_mismatch(
+    requested_transaction_id: &str,
+    fetched_transaction_id: Option<&str>,
+) -> Option<String> {
+    let requested_transaction_id = requested_transaction_id.trim();
+    let Some(fetched_transaction_id) = fetched_transaction_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return Some(
+            "Helcim did not return the transaction ID requested by this webhook; automatic ledger binding was blocked."
+                .to_string(),
+        );
+    };
+    (fetched_transaction_id != requested_transaction_id).then(|| {
+        "Helcim returned a transaction ID different from the webhook request; automatic ledger binding was blocked."
+            .to_string()
+    })
+}
+
+fn helcim_provider_result_mismatch_evidence(
+    expected_amount_cents: i64,
+    expected_currency: &str,
+    expected_return: bool,
+    provider_amount_cents: i64,
+    provider_currency: Option<&str>,
+    provider_transaction_type: Option<&str>,
+) -> Option<String> {
+    let mut mismatches = Vec::new();
+    if expected_amount_cents.unsigned_abs() != provider_amount_cents.unsigned_abs() {
+        mismatches.push(format!(
+            "absolute amount expected {} cents but provider returned {} cents",
+            expected_amount_cents.unsigned_abs(),
+            provider_amount_cents.unsigned_abs()
+        ));
+    }
+
+    let currency_matches = provider_currency.is_some_and(|currency| {
+        currency
+            .trim()
+            .eq_ignore_ascii_case(expected_currency.trim())
+    });
+    if !currency_matches {
+        mismatches.push(format!(
+            "currency did not equal {}",
+            expected_currency.trim().to_ascii_lowercase()
+        ));
+    }
+
+    let provider_return = helcim_provider_transaction_is_return(provider_transaction_type);
+    if provider_return != Some(expected_return) {
+        let expected = if expected_return {
+            "return"
+        } else {
+            "purchase"
+        };
+        let actual = match provider_return {
+            Some(true) => "return",
+            Some(false) => "purchase",
+            None => "unknown",
+        };
+        mismatches.push(format!(
+            "transaction purpose expected {expected} but provider returned {actual}"
+        ));
+    }
+
+    (!mismatches.is_empty()).then(|| {
+        format!(
+            "Helcim provider result did not match ROS attempt evidence: {}. Automatic ledger binding was blocked.",
+            mismatches.join("; ")
+        )
+    })
+}
+
 async fn handle_helcim_card_transaction(
     state: &AppState,
     event_id: Uuid,
@@ -894,20 +1259,28 @@ async fn handle_helcim_card_transaction(
     let currency = transaction
         .currency
         .as_deref()
-        .unwrap_or("usd")
-        .trim()
-        .to_ascii_lowercase();
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_ascii_lowercase);
+    let provider_transaction_type = transaction.transaction_type();
     let normalized_status = transaction.normalized_status();
-    let provider_transaction_id = transaction
+    let fetched_provider_transaction_id = transaction
         .transaction_id_string()
-        .unwrap_or_else(|| transaction_id.to_string());
-    let provider_payment_id = transaction
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let transaction_id_mismatch = helcim_webhook_transaction_id_mismatch(
+        transaction_id,
+        fetched_provider_transaction_id.as_deref(),
+    );
+    let provider_transaction_id = fetched_provider_transaction_id
+        .clone()
+        .unwrap_or_else(|| transaction_id.trim().to_string());
+    let invoice_number = transaction
         .invoice_number
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .map(str::to_string)
-        .unwrap_or_else(|| provider_transaction_id.clone());
+        .map(str::to_string);
     let audit_reference = transaction
         .audit_reference()
         .unwrap_or_else(|| format!("helcim:cardTransaction:{provider_transaction_id}"));
@@ -917,78 +1290,275 @@ async fn handle_helcim_card_transaction(
 
     let mut tx = state.db.begin().await?;
     let mut match_type = "provider_transaction_id";
-    let mut attempt_row: Option<(Uuid, Option<Uuid>)> = sqlx::query_as(
+    let provider_ids = vec![transaction_id_mismatch
+        .as_ref()
+        .map(|_| transaction_id.trim().to_string())
+        .unwrap_or_else(|| provider_transaction_id.clone())];
+    let mut direct_candidates: Vec<(
+        Uuid,
+        Option<Uuid>,
+        i64,
+        String,
+        Option<String>,
+        Option<String>,
+    )> = sqlx::query_as(
         r#"
-        UPDATE payment_provider_attempts
-        SET status = $1,
-            provider_transaction_id = $2,
-            provider_payment_id = $3,
-            raw_audit_reference = $4,
-            error_code = CASE WHEN $1 = 'failed' THEN COALESCE($5, 'declined') ELSE error_code END,
-            error_message = CASE WHEN $1 = 'failed' THEN COALESCE($6, 'Helcim payment was declined.') ELSE error_message END,
-            completed_at = now()
-        WHERE id = (
-            SELECT id
-            FROM payment_provider_attempts
-            WHERE provider = 'helcim'
-              AND (
-                  status = 'pending'
-                  OR (
-                      status = 'failed'
-                      AND $1 IN ('approved', 'captured')
-                      AND provider_payment_id = $3
+        SELECT id, checkout_client_id, amount_cents, currency, raw_audit_reference,
+               provider_payment_id
+        FROM payment_provider_attempts
+        WHERE provider = 'helcim'
+          AND (
+              (
+                  (
+                      LOWER(COALESCE(raw_audit_reference, '')) LIKE '%refund%'
+                      OR LOWER(COALESCE(raw_audit_reference, '')) LIKE '%reverse%'
                   )
+                  AND provider_payment_id = ANY($1::text[])
               )
-              AND (provider_transaction_id = $2 OR provider_payment_id = $3)
-            ORDER BY created_at ASC
-            LIMIT 1
-        )
-        RETURNING id, checkout_client_id
-        "#
+              OR (
+                  LOWER(COALESCE(raw_audit_reference, '')) NOT LIKE '%refund%'
+                  AND LOWER(COALESCE(raw_audit_reference, '')) NOT LIKE '%reverse%'
+                  AND provider_transaction_id = ANY($1::text[])
+              )
+          )
+        ORDER BY created_at ASC
+        FOR UPDATE
+        "#,
     )
+    .bind(&provider_ids)
+    .fetch_all(&mut *tx)
+    .await?;
+
+    let mut correlation_mismatch = transaction_id_mismatch;
+    if correlation_mismatch.is_none() {
+        match helcim_ros_invoice_correlation(invoice_number.as_deref()) {
+            HelcimRosInvoiceCorrelation::None => {}
+            HelcimRosInvoiceCorrelation::Invalid => {
+                correlation_mismatch = Some(
+                    "Helcim returned malformed ROS invoice correlation; automatic ledger binding was blocked."
+                        .to_string(),
+                );
+            }
+            HelcimRosInvoiceCorrelation::Attempt(invoice_attempt_id) => {
+                if !direct_candidates.is_empty() {
+                    if direct_candidates.len() != 1 || direct_candidates[0].0 != invoice_attempt_id
+                    {
+                        correlation_mismatch = Some(
+                            "Helcim provider transaction and ROS invoice correlation identified different payment attempts; automatic ledger binding was blocked."
+                                .to_string(),
+                        );
+                    }
+                } else {
+                    let invoice_candidate: Option<(
+                        Uuid,
+                        Option<Uuid>,
+                        i64,
+                        String,
+                        Option<String>,
+                        Option<String>,
+                    )> = sqlx::query_as(
+                        r#"
+                    SELECT id, checkout_client_id, amount_cents, currency, raw_audit_reference,
+                           provider_payment_id
+                    FROM payment_provider_attempts
+                    WHERE id = $1
+                      AND provider = 'helcim'
+                      AND (
+                          status = 'pending'
+                          OR (status = 'failed' AND error_code = 'outcome_unknown')
+                      )
+                      AND LOWER(COALESCE(raw_audit_reference, '')) NOT LIKE '%refund%'
+                      AND LOWER(COALESCE(raw_audit_reference, '')) NOT LIKE '%reverse%'
+                      AND NULLIF(TRIM(COALESCE(terminal_id, device_id, '')), '') IS NOT NULL
+                      AND ($2 = '' OR terminal_id = $2 OR device_id = $2)
+                    FOR UPDATE
+                    "#,
+                    )
+                    .bind(invoice_attempt_id)
+                    .bind(&terminal_id)
+                    .fetch_optional(&mut *tx)
+                    .await?;
+
+                    if let Some(candidate) = invoice_candidate {
+                        direct_candidates.push(candidate);
+                        match_type = "ros_invoice";
+                    } else {
+                        correlation_mismatch = Some(
+                            "Helcim ROS invoice correlation did not resolve to the matching active terminal purchase attempt; automatic ledger binding was blocked."
+                                .to_string(),
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    let evidence_mismatch = match direct_candidates.as_slice() {
+        [] => None,
+        [(_, _, expected_amount_cents, expected_currency, raw_audit_reference, _)] => {
+            helcim_provider_result_mismatch_evidence(
+                *expected_amount_cents,
+                expected_currency,
+                helcim_attempt_reference_is_return(raw_audit_reference.as_deref()),
+                amount_cents,
+                currency.as_deref(),
+                provider_transaction_type.as_deref(),
+            )
+        }
+        candidates => Some(format!(
+            "Helcim provider identifiers matched {} ROS payment attempts; automatic ledger binding was blocked.",
+            candidates.len()
+        )),
+    };
+    let direct_mismatch = correlation_mismatch.or(evidence_mismatch);
+
+    if let Some(error_message) = direct_mismatch {
+        let candidate_ids: Vec<Uuid> = direct_candidates
+            .iter()
+            .map(|candidate| candidate.0)
+            .collect();
+        sqlx::query(
+            r#"
+            UPDATE payment_provider_attempts
+            SET status = CASE
+                    WHEN $3 IN ('approved', 'captured') THEN $3
+                    WHEN status IN ('approved', 'captured') THEN status
+                    ELSE 'pending'
+                END,
+                error_code = 'provider_result_mismatch',
+                error_message = $2,
+                completed_at = CASE
+                    WHEN $3 IN ('approved', 'captured') THEN now()
+                    WHEN status IN ('approved', 'captured') THEN completed_at
+                    ELSE NULL
+                END
+            WHERE id = ANY($1::uuid[])
+            "#,
+        )
+        .bind(&candidate_ids)
+        .bind(&error_message)
         .bind(&normalized_status)
-        .bind(&provider_transaction_id)
-        .bind(&provider_payment_id)
-        .bind(&audit_reference)
-        .bind(provider_status.clone())
-        .bind(provider_warning.clone())
-        .fetch_optional(&mut *tx)
+        .execute(&mut *tx)
         .await?;
 
-    if attempt_row.is_none() {
-        match_type = "terminal_amount";
-        if let Some(candidate_id) = find_safe_helcim_terminal_fallback_candidate(
+        let mismatch_attempt_id = if candidate_ids.len() == 1 {
+            Some(candidate_ids[0])
+        } else {
+            None
+        };
+        tracing::error!(
+            target = "helcim_webhook",
+            provider_transaction_id,
+            candidate_count = candidate_ids.len(),
+            evidence = %error_message,
+            "blocked Helcim webhook result whose provider evidence did not match its ROS attempt"
+        );
+        mark_helcim_event_processed(
             &mut tx,
-            &terminal_id,
-            Some(amount_cents),
-            Some(&currency),
-            matches!(normalized_status.as_str(), "approved" | "captured"),
+            event_id,
+            Some(&provider_transaction_id),
+            mismatch_attempt_id,
+            None,
+            "provider_result_mismatch",
+            provider_status.as_deref(),
         )
-        .await?
-        {
-            attempt_row = sqlx::query_as(
+        .await?;
+        sqlx::query("UPDATE helcim_event_log SET error_message = $2 WHERE id = $1")
+            .bind(event_id)
+            .bind(&error_message)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        return Ok(HelcimProcessingOutcome {
+            updated: candidate_ids.len() as u64,
+            provider_transaction_id: Some(provider_transaction_id),
+            payment_provider_attempt_id: mismatch_attempt_id,
+            payment_transaction_id: None,
+            match_type: "provider_result_mismatch".to_string(),
+        });
+    }
+
+    let mut matched_attempt_is_return = false;
+    let mut attempt_row: Option<(Uuid, Option<Uuid>)> = None;
+    let mut provider_payment_id: Option<String> = None;
+    if let Some(candidate) = direct_candidates.first() {
+        matched_attempt_is_return = helcim_attempt_reference_is_return(candidate.4.as_deref());
+        let updated: Option<(Uuid, Option<Uuid>, Option<String>)> = sqlx::query_as(
             r#"
             UPDATE payment_provider_attempts
             SET status = $1,
-                provider_transaction_id = $2,
-                provider_payment_id = $3,
-                raw_audit_reference = $4,
-                error_code = CASE WHEN $1 = 'failed' THEN COALESCE($5, 'declined') ELSE NULL END,
-                error_message = CASE WHEN $1 = 'failed' THEN COALESCE($6, 'Helcim payment was declined.') ELSE NULL END,
+                provider_transaction_id = CASE WHEN $6 THEN provider_transaction_id ELSE $2 END,
+                provider_payment_id = CASE WHEN $6 THEN $2 ELSE provider_payment_id END,
+                raw_audit_reference = CASE WHEN $6 THEN raw_audit_reference ELSE $3 END,
+                error_code = CASE WHEN $1 = 'failed' THEN COALESCE($4, 'declined') ELSE NULL END,
+                error_message = CASE WHEN $1 = 'failed' THEN COALESCE($5, 'Helcim payment was declined.') ELSE NULL END,
                 completed_at = now()
             WHERE id = $7
-            RETURNING id, checkout_client_id
-            "#
+            RETURNING id, checkout_client_id, provider_payment_id
+            "#,
         )
-            .bind(&normalized_status)
-            .bind(&provider_transaction_id)
-            .bind(&provider_payment_id)
-            .bind(&audit_reference)
-            .bind(provider_status.clone())
-            .bind(provider_warning.clone())
-            .bind(candidate_id)
-            .fetch_optional(&mut *tx)
-            .await?;
+        .bind(&normalized_status)
+        .bind(&provider_transaction_id)
+        .bind(&audit_reference)
+        .bind(provider_status.clone())
+        .bind(provider_warning.clone())
+        .bind(matched_attempt_is_return)
+        .bind(candidate.0)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if let Some((id, checkout_client_id, stored_provider_payment_id)) = updated {
+            attempt_row = Some((id, checkout_client_id));
+            provider_payment_id = stored_provider_payment_id;
+        }
+    }
+
+    // Helcim's cardTransaction webhook does not document a device code. A
+    // terminal+amount fallback without one would search every ROS terminal and
+    // could bind an unrelated Helcim payment. New ROS Hardware requests carry
+    // the strict ROS invoice correlation above, so leave an event unmatched
+    // unless the webhook actually supplies authoritative terminal evidence.
+    if direct_candidates.is_empty() && !terminal_id.is_empty() {
+        match_type = "terminal_amount";
+        let provider_is_purchase =
+            helcim_provider_transaction_is_return(provider_transaction_type.as_deref())
+                == Some(false);
+        if let Some(provider_currency) = currency.as_deref().filter(|_| provider_is_purchase) {
+            if let Some(candidate_id) = find_safe_helcim_terminal_fallback_candidate(
+                &mut tx,
+                &terminal_id,
+                Some(amount_cents),
+                Some(provider_currency),
+                matches!(normalized_status.as_str(), "approved" | "captured"),
+                true,
+            )
+            .await?
+            {
+                let updated: Option<(Uuid, Option<Uuid>, Option<String>)> = sqlx::query_as(
+                    r#"
+                    UPDATE payment_provider_attempts
+                    SET status = $1,
+                        provider_transaction_id = $2,
+                        raw_audit_reference = $3,
+                        error_code = CASE WHEN $1 = 'failed' THEN COALESCE($4, 'declined') ELSE NULL END,
+                        error_message = CASE WHEN $1 = 'failed' THEN COALESCE($5, 'Helcim payment was declined.') ELSE NULL END,
+                        completed_at = now()
+                    WHERE id = $6
+                    RETURNING id, checkout_client_id, provider_payment_id
+                    "#,
+                )
+                .bind(&normalized_status)
+                .bind(&provider_transaction_id)
+                .bind(&audit_reference)
+                .bind(provider_status.clone())
+                .bind(provider_warning.clone())
+                .bind(candidate_id)
+                .fetch_optional(&mut *tx)
+                .await?;
+                if let Some((id, checkout_client_id, stored_provider_payment_id)) = updated {
+                    attempt_row = Some((id, checkout_client_id));
+                    provider_payment_id = stored_provider_payment_id;
+                }
+            }
         }
     }
 
@@ -1015,7 +1585,8 @@ async fn handle_helcim_card_transaction(
 
     let mut final_payment_transaction_id = payment_transaction_id;
 
-    if (normalized_status == "approved" || normalized_status == "captured")
+    if !matched_attempt_is_return
+        && (normalized_status == "approved" || normalized_status == "captured")
         && final_payment_transaction_id.is_none()
     {
         if let Some(client_id) = checkout_client_id {
@@ -1344,6 +1915,7 @@ async fn handle_helcim_terminal_cancel(
             amount_cents,
             currency.as_deref(),
             false,
+            false,
         )
         .await?
     {
@@ -1391,6 +1963,7 @@ async fn find_safe_helcim_terminal_fallback_candidate(
     amount_cents: Option<i64>,
     currency: Option<&str>,
     allow_failed_recovery: bool,
+    purchase_result_only: bool,
 ) -> Result<Option<Uuid>, sqlx::Error> {
     let pending_candidates: Vec<Uuid> = sqlx::query_scalar(
         r#"
@@ -1398,10 +1971,21 @@ async fn find_safe_helcim_terminal_fallback_candidate(
         FROM payment_provider_attempts
         WHERE provider = 'helcim'
           AND status = 'pending'
-          AND terminal_id = $1
+          AND ($1 = '' OR terminal_id = $1 OR device_id = $1)
           AND ($2::bigint IS NULL OR amount_cents = $2)
           AND ($3::text IS NULL OR currency = $3)
           AND created_at >= now() - ($4::bigint * interval '1 minute')
+          AND (
+              NOT $5
+              OR (
+                  LOWER(COALESCE(raw_audit_reference, '')) NOT LIKE '%refund%'
+                  AND LOWER(COALESCE(raw_audit_reference, '')) NOT LIKE '%reverse%'
+                  AND LOWER(COALESCE(raw_audit_reference, '')) NOT LIKE 'helcim-pay-js%'
+                  AND LOWER(COALESCE(raw_audit_reference, '')) NOT LIKE '%cardtoken%'
+                  AND NULLIF(TRIM(COALESCE(terminal_id, device_id, '')), '') IS NOT NULL
+                  AND NULLIF(TRIM(COALESCE(provider_transaction_id, '')), '') IS NULL
+              )
+          )
         ORDER BY created_at ASC
         LIMIT 2
         "#,
@@ -1410,6 +1994,7 @@ async fn find_safe_helcim_terminal_fallback_candidate(
     .bind(amount_cents)
     .bind(currency)
     .bind(HELCIM_WEBHOOK_FALLBACK_MAX_AGE_MINUTES)
+    .bind(purchase_result_only)
     .fetch_all(&mut **tx)
     .await?;
 
@@ -1420,10 +2005,22 @@ async fn find_safe_helcim_terminal_fallback_candidate(
             FROM payment_provider_attempts
             WHERE provider = 'helcim'
               AND status = 'failed'
-              AND terminal_id = $1
+              AND ($1 = '' OR terminal_id = $1 OR device_id = $1)
               AND ($2::bigint IS NULL OR amount_cents = $2)
               AND ($3::text IS NULL OR currency = $3)
               AND created_at >= now() - ($4::bigint * interval '1 minute')
+              AND (
+                  NOT $5
+                  OR (
+                      error_code IN ('outcome_unknown', 'terminal_pending_timeout')
+                      AND LOWER(COALESCE(raw_audit_reference, '')) NOT LIKE '%refund%'
+                      AND LOWER(COALESCE(raw_audit_reference, '')) NOT LIKE '%reverse%'
+                      AND LOWER(COALESCE(raw_audit_reference, '')) NOT LIKE 'helcim-pay-js%'
+                      AND LOWER(COALESCE(raw_audit_reference, '')) NOT LIKE '%cardtoken%'
+                      AND NULLIF(TRIM(COALESCE(terminal_id, device_id, '')), '') IS NOT NULL
+                      AND NULLIF(TRIM(COALESCE(provider_transaction_id, '')), '') IS NULL
+                  )
+              )
             ORDER BY created_at DESC
             LIMIT 2
             "#,
@@ -1432,6 +2029,7 @@ async fn find_safe_helcim_terminal_fallback_candidate(
         .bind(amount_cents)
         .bind(currency)
         .bind(HELCIM_WEBHOOK_FALLBACK_MAX_AGE_MINUTES)
+        .bind(purchase_result_only)
         .fetch_all(&mut **tx)
         .await?
     } else {
@@ -1517,8 +2115,9 @@ async fn mark_helcim_event_processed(
             payment_transaction_id = $4,
             match_type = $5,
             payload_json = CASE
-                WHEN $6::text IS NULL THEN payload_json
-                ELSE payload_json || jsonb_build_object('_ros_provider_status', $6::text)
+                WHEN $6::text IS NULL THEN payload_json - $7::text
+                ELSE (payload_json - $7::text)
+                    || jsonb_build_object('_ros_provider_status', $6::text)
             END
         WHERE id = $1
         "#,
@@ -1529,6 +2128,7 @@ async fn mark_helcim_event_processed(
     .bind(payment_transaction_id)
     .bind(match_type)
     .bind(provider_status)
+    .bind(HELCIM_WEBHOOK_PROCESSING_CLAIM_KEY)
     .execute(&mut **tx)
     .await?;
     Ok(())
@@ -1811,26 +2411,135 @@ mod tests {
     }
 
     #[test]
-    fn helcim_only_newly_created_event_enters_processing_path() {
+    fn helcim_claimed_events_enter_processing_path() {
         let new_event = HelcimEventLogRow {
             id: Uuid::new_v4(),
             processing_status: "received".to_string(),
-            created: true,
+            payload_hash: "hash".to_string(),
+            claimed: true,
+            reclaimed: false,
         };
         let duplicate_in_flight = HelcimEventLogRow {
             id: Uuid::new_v4(),
             processing_status: "received".to_string(),
-            created: false,
+            payload_hash: "hash".to_string(),
+            claimed: false,
+            reclaimed: false,
         };
-        let duplicate_failed = HelcimEventLogRow {
+        let reclaimed_failed = HelcimEventLogRow {
+            id: Uuid::new_v4(),
+            processing_status: "received".to_string(),
+            payload_hash: "hash".to_string(),
+            claimed: true,
+            reclaimed: true,
+        };
+        let duplicate_processed = HelcimEventLogRow {
+            id: Uuid::new_v4(),
+            processing_status: "processed".to_string(),
+            payload_hash: "hash".to_string(),
+            claimed: false,
+            reclaimed: false,
+        };
+        let duplicate_ignored = HelcimEventLogRow {
+            id: Uuid::new_v4(),
+            processing_status: "ignored".to_string(),
+            payload_hash: "hash".to_string(),
+            claimed: false,
+            reclaimed: false,
+        };
+        let unclaimed_failed = HelcimEventLogRow {
             id: Uuid::new_v4(),
             processing_status: "failed".to_string(),
-            created: false,
+            payload_hash: "hash".to_string(),
+            claimed: false,
+            reclaimed: false,
         };
 
-        assert!(helcim_event_should_process(&new_event));
-        assert!(!helcim_event_should_process(&duplicate_in_flight));
-        assert!(!helcim_event_should_process(&duplicate_failed));
+        assert_eq!(
+            helcim_event_disposition(&new_event),
+            HelcimEventDisposition::Process
+        );
+        assert_eq!(
+            helcim_event_disposition(&duplicate_in_flight),
+            HelcimEventDisposition::Processing
+        );
+        assert_eq!(
+            helcim_event_disposition(&reclaimed_failed),
+            HelcimEventDisposition::Process
+        );
+        assert_eq!(
+            helcim_event_disposition(&duplicate_processed),
+            HelcimEventDisposition::DuplicateFinal
+        );
+        assert_eq!(
+            helcim_event_disposition(&duplicate_ignored),
+            HelcimEventDisposition::DuplicateFinal
+        );
+        assert_eq!(
+            helcim_event_disposition(&unclaimed_failed),
+            HelcimEventDisposition::Retry
+        );
+    }
+
+    #[test]
+    fn helcim_processing_timeout_expires_before_lease() {
+        assert!(
+            HELCIM_WEBHOOK_PROCESSING_TIMEOUT_SECONDS
+                < HELCIM_WEBHOOK_PROCESSING_LEASE_SECONDS as u64
+        );
+    }
+
+    #[test]
+    fn helcim_failed_event_is_immediately_reclaimable() {
+        assert!(helcim_processing_claim_is_eligible(
+            "failed",
+            Some(1_000),
+            1_000,
+            1_001,
+        ));
+    }
+
+    #[test]
+    fn helcim_stale_received_event_is_reclaimable_after_lease() {
+        let now = 10_000;
+        assert!(helcim_processing_claim_is_eligible(
+            "received",
+            Some(now - HELCIM_WEBHOOK_PROCESSING_LEASE_SECONDS),
+            now - HELCIM_WEBHOOK_PROCESSING_LEASE_SECONDS,
+            now,
+        ));
+        assert!(!helcim_processing_claim_is_eligible(
+            "received",
+            Some(now - HELCIM_WEBHOOK_PROCESSING_LEASE_SECONDS + 1),
+            now - HELCIM_WEBHOOK_PROCESSING_LEASE_SECONDS,
+            now,
+        ));
+    }
+
+    #[test]
+    fn helcim_active_processing_lease_returns_retryable_status() {
+        assert_eq!(
+            helcim_active_processing_status(),
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+    }
+
+    #[test]
+    fn helcim_processing_claim_is_internal_and_removed_before_business_parsing() {
+        let payload = json!({
+            "type": "cardTransaction",
+            "id": "123",
+            (HELCIM_WEBHOOK_PROCESSING_CLAIM_KEY): {
+                "claimed_at_epoch": 1_000,
+                "owner": HELCIM_WEBHOOK_PROCESSING_CLAIM_OWNER,
+            },
+        });
+
+        assert!(helcim_payload_uses_reserved_processing_claim(&payload));
+        let cleaned = helcim_payload_without_processing_claim(payload);
+        assert!(!helcim_payload_uses_reserved_processing_claim(&cleaned));
+        assert_eq!(helcim_webhook_event_id(&cleaned).as_deref(), Some("123"));
+        assert_eq!(cleaned["type"], "cardTransaction");
     }
 
     #[test]
@@ -1850,6 +2559,161 @@ mod tests {
         assert_eq!(
             helcim_card_transaction_event_match_type(None, None, "none"),
             "none"
+        );
+    }
+
+    #[test]
+    fn helcim_provider_evidence_accepts_exact_purchase_and_return_results() {
+        assert_eq!(
+            helcim_provider_result_mismatch_evidence(
+                1_234,
+                "usd",
+                false,
+                -1_234,
+                Some("USD"),
+                Some("purchase"),
+            ),
+            None
+        );
+        assert_eq!(
+            helcim_provider_result_mismatch_evidence(
+                1_234,
+                "usd",
+                true,
+                -1_234,
+                Some("usd"),
+                Some("refund"),
+            ),
+            None
+        );
+        assert!(helcim_attempt_reference_is_return(Some(
+            "helcim:cardReverse:123"
+        )));
+        assert!(!helcim_attempt_reference_is_return(Some(
+            "helcim:cardTransaction:456"
+        )));
+    }
+
+    #[test]
+    fn helcim_provider_evidence_blocks_amount_currency_and_purpose_mismatches() {
+        let mismatch = helcim_provider_result_mismatch_evidence(
+            1_234,
+            "usd",
+            false,
+            9_999,
+            Some("cad"),
+            Some("refund"),
+        )
+        .expect("mismatched provider evidence is blocked");
+
+        assert!(mismatch.contains("absolute amount expected 1234 cents"));
+        assert!(mismatch.contains("currency did not equal usd"));
+        assert!(mismatch.contains("purpose expected purchase but provider returned return"));
+        assert!(mismatch.contains("Automatic ledger binding was blocked"));
+    }
+
+    #[test]
+    fn helcim_provider_evidence_requires_currency_and_known_transaction_type() {
+        let mismatch =
+            helcim_provider_result_mismatch_evidence(1_234, "usd", false, 1_234, None, None)
+                .expect("missing provider identity evidence is blocked");
+
+        assert!(mismatch.contains("currency did not equal usd"));
+        assert!(mismatch.contains("provider returned unknown"));
+    }
+
+    #[test]
+    fn helcim_ros_invoice_only_correlates_exact_attempt_uuid_format() {
+        let attempt_id = Uuid::parse_str("4b1c7a4f-3a1e-43dc-bb10-bfcb20c7b1e2").unwrap();
+
+        assert_eq!(
+            helcim_ros_invoice_correlation(Some("ROS-4b1c7a4f3a1e43dcbb10bfcb20c7b1e2")),
+            HelcimRosInvoiceCorrelation::Attempt(attempt_id)
+        );
+        assert_eq!(
+            helcim_ros_invoice_correlation(Some("provider-payment-id-123")),
+            HelcimRosInvoiceCorrelation::None
+        );
+        assert_eq!(
+            helcim_ros_invoice_correlation(Some("ROS-not-an-attempt-id")),
+            HelcimRosInvoiceCorrelation::Invalid
+        );
+    }
+
+    #[test]
+    fn helcim_fetched_transaction_id_must_equal_webhook_request() {
+        assert_eq!(
+            helcim_webhook_transaction_id_mismatch("123456", Some("123456")),
+            None
+        );
+        assert!(
+            helcim_webhook_transaction_id_mismatch("123456", Some("654321"))
+                .expect("different fetched transaction ID is blocked")
+                .contains("different")
+        );
+        assert!(helcim_webhook_transaction_id_mismatch("123456", None)
+            .expect("missing fetched transaction ID is blocked")
+            .contains("did not return"));
+    }
+
+    #[test]
+    fn helcim_card_webhook_fallback_requires_no_provider_id_owner() {
+        let source = include_str!("webhooks.rs");
+        let handler = source
+            .split("async fn handle_helcim_card_transaction")
+            .nth(1)
+            .expect("card transaction handler source")
+            .split("fn helcim_card_transaction_event_match_type")
+            .next()
+            .expect("bounded card transaction handler source");
+        let direct_lookup = handler
+            .find("direct_candidates: Vec<")
+            .expect("direct provider ownership lookup");
+        let fallback_gate = handler
+            .rfind("if direct_candidates.is_empty()")
+            .expect("fallback is gated on no direct owner");
+        let invoice_correlation = handler
+            .find("helcim_ros_invoice_correlation(invoice_number.as_deref())")
+            .expect("strict ROS invoice correlation");
+        let fallback_call = handler
+            .find("find_safe_helcim_terminal_fallback_candidate")
+            .expect("terminal fallback call");
+        let direct_id_lookup = &handler[direct_lookup..invoice_correlation];
+        let invoice_binding = &handler[invoice_correlation..fallback_gate];
+
+        assert!(direct_lookup < fallback_gate);
+        assert!(direct_lookup < invoice_correlation);
+        assert!(invoice_correlation < fallback_gate);
+        assert!(fallback_gate < fallback_call);
+        assert!(
+            handler[fallback_gate..fallback_call].contains("&& !terminal_id.is_empty()"),
+            "cardTransaction fallback must not search all terminals when Helcim omits deviceCode"
+        );
+        assert!(handler[..fallback_gate].contains("provider_result_mismatch"));
+        assert!(handler.contains("if !matched_attempt_is_return"));
+        assert!(!direct_id_lookup.contains("invoice_number.clone()"));
+        assert!(invoice_binding.contains("status = 'pending'"));
+        assert!(invoice_binding.contains("error_code = 'outcome_unknown'"));
+        assert!(invoice_binding.contains("$2 = '' OR terminal_id = $2 OR device_id = $2"));
+        assert!(invoice_binding
+            .contains("NULLIF(TRIM(COALESCE(terminal_id, device_id, '')), '') IS NOT NULL"));
+        assert!(invoice_binding.contains("NOT LIKE '%refund%'"));
+        assert!(invoice_binding.contains("direct_candidates[0].0 != invoice_attempt_id"));
+        assert!(!handler.contains("let provider_payment_id = provider_transaction_id.clone()"));
+        assert!(handler.contains("ELSE provider_payment_id END"));
+
+        let fallback = source
+            .split("async fn find_safe_helcim_terminal_fallback_candidate")
+            .nth(1)
+            .expect("terminal fallback helper source")
+            .split("async fn mark_helcim_event_processed")
+            .next()
+            .expect("bounded terminal fallback helper source");
+        assert!(fallback.contains("error_code IN ('outcome_unknown', 'terminal_pending_timeout')"));
+        assert!(fallback.contains("NOT LIKE 'helcim-pay-js%'"));
+        assert!(fallback.contains("NOT LIKE '%cardtoken%'"));
+        assert!(
+            fallback.contains("NULLIF(TRIM(COALESCE(provider_transaction_id, '')), '') IS NULL")
         );
     }
 

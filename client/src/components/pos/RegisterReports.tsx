@@ -25,7 +25,9 @@ import {
   Eye,
 } from "lucide-react";
 import ReceiptSummaryModal from "./ReceiptSummaryModal";
-import PosVoidTransactionModal, { type PosVoidTransactionTarget } from "./PosVoidTransactionModal";
+import PosVoidTransactionModal, {
+  type PosVoidTransactionTarget,
+} from "./PosVoidTransactionModal";
 import ProductHubDrawer from "../inventory/ProductHubDrawer";
 import TransactionDetailDrawer from "../orders/TransactionDetailDrawer";
 import {
@@ -51,7 +53,9 @@ function reportSummaryErrorMessage(error: unknown): string {
   if (error instanceof DOMException && error.name === "AbortError") {
     return "The Main Hub did not return this report basis within 15 seconds. Narrow the range or retry; no totals were substituted.";
   }
-  return error instanceof Error ? error.message : "The report basis could not be loaded.";
+  return error instanceof Error
+    ? error.message
+    : "The report basis could not be loaded.";
 }
 
 const isBookedToday = (occurredAtStr?: string | null) => {
@@ -75,8 +79,10 @@ const isBeforeBatchCloseout = () => {
   return hours < 21 || (hours === 21 && minutes < 30);
 };
 
-type PresetId = "today" | "yesterday" | "this_week" | "this_month" | "this_year" | "custom";
-type ZPresetId = "recent" | "today" | "yesterday" | "this_week" | "this_month" | "custom";
+type PresetId =
+  "today" | "yesterday" | "this_week" | "this_month" | "this_year" | "custom";
+type ZPresetId =
+  "recent" | "today" | "yesterday" | "this_week" | "this_month" | "custom";
 
 interface ActivityItemDetail {
   name: string;
@@ -179,7 +185,10 @@ function registerReportRowCount(summary: RegisterDaySummary): number {
   );
 }
 
-function assertRegisterReportOutputLimit(summary: RegisterDaySummary, outputLabel: string): void {
+function assertRegisterReportOutputLimit(
+  summary: RegisterDaySummary,
+  outputLabel: string,
+): void {
   const rowCount = registerReportRowCount(summary);
   if (rowCount > REGISTER_REPORT_OUTPUT_ROW_LIMIT) {
     throw new Error(
@@ -207,7 +216,9 @@ function registerReportSummaryTruth(summary: RegisterDaySummary): string {
     "pickups_today",
   ]);
   return JSON.stringify(
-    Object.fromEntries(Object.entries(summary).filter(([key]) => !pagedDetailKeys.has(key))),
+    Object.fromEntries(
+      Object.entries(summary).filter(([key]) => !pagedDetailKeys.has(key)),
+    ),
   );
 }
 
@@ -215,7 +226,8 @@ function createRegisterReportPageAccumulator(
   firstPage: RegisterDaySummary,
 ): RegisterReportPageAccumulator {
   return {
-    expectedActivityCount: firstPage.activity_total_count ?? firstPage.activities.length,
+    expectedActivityCount:
+      firstPage.activity_total_count ?? firstPage.activities.length,
     expectedPickupCount:
       firstPage.pickups_total_count ?? firstPage.pickups_today?.length ?? 0,
     expectedSummaryTruth: registerReportSummaryTruth(firstPage),
@@ -232,7 +244,8 @@ function appendStableRegisterReportPage(
   outputLabel: string,
 ): void {
   const activityCount = page.activity_total_count ?? page.activities.length;
-  const pickupCount = page.pickups_total_count ?? page.pickups_today?.length ?? 0;
+  const pickupCount =
+    page.pickups_total_count ?? page.pickups_today?.length ?? 0;
   const failChangedOutput = () => {
     throw new Error(
       `${outputLabel} changed while its audited detail was being prepared. Nothing was output; retry after current Register activity settles.`,
@@ -344,11 +357,51 @@ interface ZReportSnapshot {
   cash_deposit_amount?: string | null;
   closing_notes?: string | null;
   closing_comments?: string | null;
-  tenders?: Array<{ payment_method: string; total_amount: string; tx_count: number }>;
-  override_summary?: Array<{ reason: string; line_count: number; total_delta: string }>;
+  unresolved_close_issues?: {
+    recovery_job_keys: string[];
+    recovery_jobs?: Array<{
+      client_job_key: string;
+      kind: string;
+      status: string;
+      register_session_id: string | null;
+      transaction_id: string | null;
+      checkout_client_id: string | null;
+      station_key: string | null;
+      label: string | null;
+      last_error: string | null;
+      attempt_count: number;
+      first_seen_at: string;
+      last_seen_at: string;
+    }>;
+    station_warnings: string[];
+    helcim_attempts: Array<{
+      id: string;
+      register_session_id: string;
+      register_lane: number;
+      status: string;
+      amount_cents: number;
+      selected_terminal_key?: string | null;
+      review_reason: string;
+      created_at: string;
+    }>;
+  } | null;
+  tenders?: Array<{
+    payment_method: string;
+    total_amount: string;
+    tx_count: number;
+  }>;
+  override_summary?: Array<{
+    reason: string;
+    line_count: number;
+    total_delta: string;
+  }>;
   tenders_by_lane?: Array<{
     register_lane: number;
-    tenders: Array<{ payment_method: string; total_amount: string; tx_count: number }>;
+    tenders: Array<{
+      payment_method: string;
+      total_amount: string;
+      tx_count: number;
+    }>;
   }>;
   manual_drawer_opens?: Array<{
     id: string;
@@ -434,7 +487,8 @@ function kindPill(kind: string): string {
 
 function paymentIcon(method: string) {
   const m = method.toLowerCase();
-  if (m.includes("card") || m.includes("helcim")) return <CreditCard size={12} />;
+  if (m.includes("card") || m.includes("helcim"))
+    return <CreditCard size={12} />;
   if (m.includes("cash")) return <Banknote size={12} />;
   if (m.includes("gift")) return <Package size={12} />;
   return <CreditCard size={12} />;
@@ -463,7 +517,11 @@ function activityFulfillmentLabel(row: RegisterActivityItem): string | null {
   const explicit = fulfillmentDisplayLabel(row.fulfillment_type);
   if (explicit) return explicit;
   const itemLabels = Array.from(
-    new Set((row.items || []).map((item) => fulfillmentDisplayLabel(item.fulfillment)).filter(Boolean)),
+    new Set(
+      (row.items || [])
+        .map((item) => fulfillmentDisplayLabel(item.fulfillment))
+        .filter(Boolean),
+    ),
   ) as string[];
   if (itemLabels.length === 1) return itemLabels[0] ?? null;
   if (itemLabels.length > 1) return itemLabels.join(" + ");
@@ -479,16 +537,28 @@ function normalizeActivityId(value: unknown): string | null {
 }
 
 function activityTransactionId(row: RegisterActivityItem): string | null {
-  return normalizeActivityId(row.transaction_id) ?? normalizeActivityId(row.order_id);
+  return (
+    normalizeActivityId(row.transaction_id) ?? normalizeActivityId(row.order_id)
+  );
 }
 
-function activitySubtotalBeforeTaxCents(row: Pick<RegisterActivityItem, "items" | "sales_total" | "tax_total" | "transaction_total">): number {
+function activitySubtotalBeforeTaxCents(
+  row: Pick<
+    RegisterActivityItem,
+    "items" | "sales_total" | "tax_total" | "transaction_total"
+  >,
+): number {
   const itemSubtotal = (row.items ?? [])
     .filter((item) => !item.is_internal)
-    .reduce((sum, item) => sum + parseMoneyToCents(item.price) * item.quantity, 0);
+    .reduce(
+      (sum, item) => sum + parseMoneyToCents(item.price) * item.quantity,
+      0,
+    );
   if (itemSubtotal !== 0 || (row.items?.length ?? 0) > 0) return itemSubtotal;
 
-  const grossCents = parseMoneyToCents(row.transaction_total ?? row.sales_total ?? "0");
+  const grossCents = parseMoneyToCents(
+    row.transaction_total ?? row.sales_total ?? "0",
+  );
   const taxCents = parseMoneyToCents(row.tax_total ?? "0");
   return grossCents - taxCents;
 }
@@ -505,72 +575,129 @@ function moneyFromValue(value: string | null | undefined): string {
 function isCreditCardTender(method: string): boolean {
   const tender = method.toLowerCase().replace(/[^a-z0-9]/g, "");
   return new Set([
-    "card", "cardterminal", "cardreader", "cardmanual", "manualcard",
-    "cardnotpresent", "cnp", "cardsaved", "cardcredit", "offlinecc",
-    "cc", "credit", "creditcard", "creditcards", "creditdebitcard",
-    "debit", "helcim", "helcimcard", "visa", "mastercard", "mc",
-    "amex", "americanexpress", "discover",
+    "card",
+    "cardterminal",
+    "cardreader",
+    "cardmanual",
+    "manualcard",
+    "cardnotpresent",
+    "cnp",
+    "cardsaved",
+    "cardcredit",
+    "offlinecc",
+    "cc",
+    "credit",
+    "creditcard",
+    "creditcards",
+    "creditdebitcard",
+    "debit",
+    "helcim",
+    "helcimcard",
+    "visa",
+    "mastercard",
+    "mc",
+    "amex",
+    "americanexpress",
+    "discover",
   ]).has(tender);
 }
 
-function activityCreditCardTotalCents(activities: RegisterActivityItem[] | undefined): number {
+function activityCreditCardTotalCents(
+  activities: RegisterActivityItem[] | undefined,
+): number {
   return (activities ?? []).reduce((sum, row) => {
-    return sum + (row.payments ?? []).reduce((paymentSum, payment) => {
-      return isCreditCardTender(payment.method)
-        ? paymentSum + parseRegisterReportMoneyToCents(payment.amount_label)
-        : paymentSum;
-    }, 0);
+    return (
+      sum +
+      (row.payments ?? []).reduce((paymentSum, payment) => {
+        return isCreditCardTender(payment.method)
+          ? paymentSum + parseRegisterReportMoneyToCents(payment.amount_label)
+          : paymentSum;
+      }, 0)
+    );
   }, 0);
 }
 
 function isRmsChargeTender(method: string): boolean {
   const tender = method.toLowerCase().replace(/[\s_-]/g, "");
-  return tender === "rms" || tender === "rmscharge" || tender === "rms90" || tender.includes("rmscharge");
+  return (
+    tender === "rms" ||
+    tender === "rmscharge" ||
+    tender === "rms90" ||
+    tender.includes("rmscharge")
+  );
 }
 
-function activityRmsChargeTotalCents(activities: RegisterActivityItem[] | undefined): number {
+function activityRmsChargeTotalCents(
+  activities: RegisterActivityItem[] | undefined,
+): number {
   return (activities ?? []).reduce((sum, row) => {
-    return sum + (row.payments ?? []).reduce((paymentSum, payment) => {
-      return isRmsChargeTender(payment.method)
-        ? paymentSum + parseRegisterReportMoneyToCents(payment.amount_label)
-        : paymentSum;
-    }, 0);
+    return (
+      sum +
+      (row.payments ?? []).reduce((paymentSum, payment) => {
+        return isRmsChargeTender(payment.method)
+          ? paymentSum + parseRegisterReportMoneyToCents(payment.amount_label)
+          : paymentSum;
+      }, 0)
+    );
   }, 0);
 }
 
-function activityRmsPaymentTotalCents(activities: RegisterActivityItem[] | undefined): number {
+function activityRmsPaymentTotalCents(
+  activities: RegisterActivityItem[] | undefined,
+): number {
   return (activities ?? []).reduce((sum, row) => {
-    return sum + (row.items ?? []).reduce((itemSum, item) => {
-      return item.line_kind === "rms_charge_payment"
-        ? itemSum + parseMoneyToCents(item.price) * item.quantity
-        : itemSum;
-    }, 0);
+    return (
+      sum +
+      (row.items ?? []).reduce((itemSum, item) => {
+        return item.line_kind === "rms_charge_payment"
+          ? itemSum + parseMoneyToCents(item.price) * item.quantity
+          : itemSum;
+      }, 0)
+    );
   }, 0);
 }
 
-function activityNewLayawayCount(activities: RegisterActivityItem[] | undefined): number {
+function activityNewLayawayCount(
+  activities: RegisterActivityItem[] | undefined,
+): number {
   return (activities ?? []).filter((row) =>
     (row.items ?? []).some((item) => item.fulfillment === "layaway"),
   ).length;
 }
 
-function activityDiscountTotalCents(activities: RegisterActivityItem[] | undefined): number {
+function activityDiscountTotalCents(
+  activities: RegisterActivityItem[] | undefined,
+): number {
   return (activities ?? []).reduce((sum, row) => {
-    return sum + (row.items ?? []).reduce((itemSum, item) => {
-      const regularCents = parseMoneyToCents(item.reg_price || item.price);
-      const saleCents = parseMoneyToCents(item.price);
-      return itemSum + Math.max(regularCents - saleCents, 0) * Math.max(item.quantity, 0);
-    }, 0);
+    return (
+      sum +
+      (row.items ?? []).reduce((itemSum, item) => {
+        const regularCents = parseMoneyToCents(item.reg_price || item.price);
+        const saleCents = parseMoneyToCents(item.price);
+        return (
+          itemSum +
+          Math.max(regularCents - saleCents, 0) * Math.max(item.quantity, 0)
+        );
+      }, 0)
+    );
   }, 0);
 }
 
-function activityDiscountTransactionCount(activities: RegisterActivityItem[] | undefined): number {
+function activityDiscountTransactionCount(
+  activities: RegisterActivityItem[] | undefined,
+): number {
   return (activities ?? []).filter((row) =>
-    (row.items ?? []).some((item) => parseMoneyToCents(item.reg_price || item.price) > parseMoneyToCents(item.price)),
+    (row.items ?? []).some(
+      (item) =>
+        parseMoneyToCents(item.reg_price || item.price) >
+        parseMoneyToCents(item.price),
+    ),
   ).length;
 }
 
-function activityPickupTotalCents(pickups: RegisterActivityItem[] | undefined): number {
+function activityPickupTotalCents(
+  pickups: RegisterActivityItem[] | undefined,
+): number {
   return (pickups ?? []).reduce((sum, row) => {
     return (
       sum +
@@ -581,7 +708,9 @@ function activityPickupTotalCents(pickups: RegisterActivityItem[] | undefined): 
   }, 0);
 }
 
-function activityVoidTarget(row: RegisterActivityItem): PosVoidTransactionTarget | null {
+function activityVoidTarget(
+  row: RegisterActivityItem,
+): PosVoidTransactionTarget | null {
   const transactionId = activityTransactionId(row);
   if (!transactionId) return null;
   return {
@@ -661,7 +790,11 @@ function formatDepositDate(value?: string | null) {
 function primaryRegisterSession(
   sessions: OpenRegisterSessionRow[],
 ): OpenRegisterSessionRow | null {
-  return sessions.find((session) => session.register_lane === 1) ?? sessions[0] ?? null;
+  return (
+    sessions.find((session) => session.register_lane === 1) ??
+    sessions[0] ??
+    null
+  );
 }
 
 async function openZReportFromSession(
@@ -675,7 +808,8 @@ async function openZReportFromSession(
   );
   const actualCash = snapshot?.actual_cash ?? session.actual_cash;
   const discrepancy = snapshot?.discrepancy ?? session.discrepancy;
-  const cashDepositAmount = snapshot?.cash_deposit_amount ?? session.cash_deposit_amount;
+  const cashDepositAmount =
+    snapshot?.cash_deposit_amount ?? session.cash_deposit_amount;
   return openProfessionalZReportPrint({
     title: "Z-Report",
     sessionId: snapshot?.session_id ?? session.id,
@@ -683,21 +817,36 @@ async function openZReportFromSession(
     registerOrdinal: session.register_ordinal,
     cashierLabel: session.cashier_name,
     openedAt: session.opened_at,
-    openingCents: parseMoneyToCents(snapshot?.opening_float ?? session.opening_float),
+    openingCents: parseMoneyToCents(
+      snapshot?.opening_float ?? session.opening_float,
+    ),
     cashSalesCents: parseMoneyToCents(cashTender?.total_amount ?? "0"),
-    netAdjustmentsCents: parseMoneyToCents(snapshot?.net_cash_adjustments ?? "0"),
-    expectedCents: parseMoneyToCents(snapshot?.expected_cash ?? session.expected_cash ?? "0"),
+    netAdjustmentsCents: parseMoneyToCents(
+      snapshot?.net_cash_adjustments ?? "0",
+    ),
+    expectedCents: parseMoneyToCents(
+      snapshot?.expected_cash ?? session.expected_cash ?? "0",
+    ),
     actualCents: actualCash == null ? null : parseMoneyToCents(actualCash),
-    discrepancyCents: discrepancy == null ? null : parseMoneyToCents(discrepancy),
+    discrepancyCents:
+      discrepancy == null ? null : parseMoneyToCents(discrepancy),
     businessDate: snapshot?.business_date ?? session.business_date,
-    cashDepositDate: snapshot?.cash_deposit_date ?? session.cash_deposit_date ?? null,
-    cashDepositAmountCents: cashDepositAmount == null ? undefined : parseMoneyToCents(cashDepositAmount),
+    cashDepositDate:
+      snapshot?.cash_deposit_date ?? session.cash_deposit_date ?? null,
+    cashDepositAmountCents:
+      cashDepositAmount == null
+        ? undefined
+        : parseMoneyToCents(cashDepositAmount),
     closingNotes: snapshot?.closing_notes ?? session.closing_notes ?? null,
-    closingComments: snapshot?.closing_comments ?? session.closing_comments ?? null,
+    closingComments:
+      snapshot?.closing_comments ?? session.closing_comments ?? null,
+    unresolvedCloseIssues: snapshot?.unresolved_close_issues ?? null,
+    unresolvedIssuesContext: "closed",
     tenders: snapshot?.tenders ?? [],
     overrideSummary: snapshot?.override_summary ?? [],
     tendersByLane: snapshot?.tenders_by_lane ?? [],
     manualDrawerOpens: snapshot?.manual_drawer_opens ?? [],
+    includeSupplementalSummary: daySummary != null,
     newOrdersCount: daySummary?.special_order_sale_count,
     ordersPickedUpCount: daySummary?.pickup_count,
     todayAppointmentsCount: daySummary?.appointment_count ?? 0,
@@ -748,10 +897,13 @@ async function openZReportFromSession(
 function activityCustomer(row: RegisterActivityItem): Customer | null {
   const id = row.customer_id?.trim();
   if (!id) return null;
-  const fallbackLabel = row.customer_name?.trim() || row.customer_code?.trim() || "Customer";
+  const fallbackLabel =
+    row.customer_name?.trim() || row.customer_code?.trim() || "Customer";
   const fallbackParts = fallbackLabel.split(/\s+/).filter(Boolean);
-  const firstName = row.customer_first_name?.trim() || fallbackParts[0] || fallbackLabel;
-  const lastName = row.customer_last_name?.trim() || fallbackParts.slice(1).join(" ");
+  const firstName =
+    row.customer_first_name?.trim() || fallbackParts[0] || fallbackLabel;
+  const lastName =
+    row.customer_last_name?.trim() || fallbackParts.slice(1).join(" ");
   return {
     id,
     customer_code: row.customer_code ?? "",
@@ -777,19 +929,31 @@ export default function RegisterReports({
   onDeepLinkConsumed?: () => void;
   onOpenRefundInRegister?: (transactionId: string) => void;
 }) {
-  const [view, setView] = useState<"dashboard" | "activity" | "z-reports">("dashboard");
+  const [view, setView] = useState<"dashboard" | "activity" | "z-reports">(
+    "dashboard",
+  );
   const [preset, setPreset] = useState<PresetId>("today");
-  const [reportBasis, setReportBasis] = useState<"booked" | "fulfilled">("booked");
+  const [reportBasis, setReportBasis] = useState<"booked" | "fulfilled">(
+    "booked",
+  );
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
   const [summary, setSummary] = useState<RegisterDaySummary | null>(null);
-  const [summaryBooked, setSummaryBooked] = useState<RegisterDaySummary | null>(null);
+  const [summaryBooked, setSummaryBooked] = useState<RegisterDaySummary | null>(
+    null,
+  );
   const [zLogs, setZLogs] = useState<RegisterSessionRow[]>([]);
   const [zLogsError, setZLogsError] = useState<string | null>(null);
-  const [openSessions, setOpenSessions] = useState<OpenRegisterSessionRow[]>([]);
-  const [openSessionsError, setOpenSessionsError] = useState<string | null>(null);
+  const [openSessions, setOpenSessions] = useState<OpenRegisterSessionRow[]>(
+    [],
+  );
+  const [openSessionsError, setOpenSessionsError] = useState<string | null>(
+    null,
+  );
   const [loading, setLoading] = useState(true);
-  const [basisLoadError, setBasisLoadError] = useState<Partial<Record<"booked" | "fulfilled", string>>>({});
+  const [basisLoadError, setBasisLoadError] = useState<
+    Partial<Record<"booked" | "fulfilled", string>>
+  >({});
   const [zLoading, setZLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [receiptOrderId, setReceiptOrderId] = useState<string | null>(null);
@@ -802,117 +966,156 @@ export default function RegisterReports({
   const [debouncedActivitySearch, setDebouncedActivitySearch] = useState("");
   const [activityLoadingMore, setActivityLoadingMore] = useState(false);
   const [reportOutputBusy, setReportOutputBusy] = useState(false);
-  const summaryRequestRef = useRef<{ generation: number; controller: AbortController } | null>(null);
-  const loadMoreRequestRef = useRef<{ generation: number; controller: AbortController } | null>(null);
+  const summaryRequestRef = useRef<{
+    generation: number;
+    controller: AbortController;
+  } | null>(null);
+  const loadMoreRequestRef = useRef<{
+    generation: number;
+    controller: AbortController;
+  } | null>(null);
   const archivedZReportRequestRef = useRef<AbortController | null>(null);
   const zLogsRequestRef = useRef<AbortController | null>(null);
 
   const { backofficeHeaders } = useBackofficeAuth();
   const { toast } = useToast();
-  const apiAuth = useCallback(() => mergedPosStaffHeaders(backofficeHeaders), [backofficeHeaders]);
+  const apiAuth = useCallback(
+    () => mergedPosStaffHeaders(backofficeHeaders),
+    [backofficeHeaders],
+  );
   const selectedSummary = reportBasis === "booked" ? summaryBooked : summary;
-  const [voidTarget, setVoidTarget] = useState<PosVoidTransactionTarget | null>(null);
+  const [voidTarget, setVoidTarget] = useState<PosVoidTransactionTarget | null>(
+    null,
+  );
   const [voidBusy, setVoidBusy] = useState(false);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => setDebouncedActivitySearch(activitySearch.trim()), 250);
+    const timer = window.setTimeout(
+      () => setDebouncedActivitySearch(activitySearch.trim()),
+      250,
+    );
     return () => window.clearTimeout(timer);
   }, [activitySearch]);
 
-  const buildActivityParams = useCallback((
-    basis: "booked" | "fulfilled" = reportBasis,
-    options?: { offset?: number; limit?: number; search?: string; completeOutput?: boolean },
-  ) => {
-    const params = new URLSearchParams();
-    if (preset === "custom") {
-      if (!customFrom || !customTo) {
-        params.set("preset", "today");
+  const buildActivityParams = useCallback(
+    (
+      basis: "booked" | "fulfilled" = reportBasis,
+      options?: {
+        offset?: number;
+        limit?: number;
+        search?: string;
+        completeOutput?: boolean;
+      },
+    ) => {
+      const params = new URLSearchParams();
+      if (preset === "custom") {
+        if (!customFrom || !customTo) {
+          params.set("preset", "today");
+        } else {
+          params.set("preset", "custom");
+          params.set("from", customFrom);
+          params.set("to", customTo);
+        }
       } else {
-        params.set("preset", "custom");
-        params.set("from", customFrom);
-        params.set("to", customTo);
+        params.set("preset", preset);
       }
-    } else {
-      params.set("preset", preset);
-    }
-    if (sessionId) params.set("register_session_id", sessionId);
-    params.set("basis", basis);
-    params.set("activity_offset", String(options?.offset ?? 0));
-    params.set("activity_limit", String(options?.limit ?? ACTIVITY_PAGE_SIZE));
-    const search = options?.search?.trim();
-    if (search) params.set("activity_search", search);
-    if (options?.completeOutput) params.set("complete_output", "true");
-    return params;
-  }, [preset, customFrom, customTo, reportBasis, sessionId]);
-
-  const fetchSummary = useCallback(async (
-    basis?: "booked" | "fulfilled",
-    options?: {
-      offset?: number;
-      limit?: number;
-      search?: string;
-      signal?: AbortSignal;
-      completeOutput?: boolean;
+      if (sessionId) params.set("register_session_id", sessionId);
+      params.set("basis", basis);
+      params.set("activity_offset", String(options?.offset ?? 0));
+      params.set(
+        "activity_limit",
+        String(options?.limit ?? ACTIVITY_PAGE_SIZE),
+      );
+      const search = options?.search?.trim();
+      if (search) params.set("activity_search", search);
+      if (options?.completeOutput) params.set("complete_output", "true");
+      return params;
     },
-  ) => {
-    const targetBasis = basis || reportBasis;
-    const h = apiAuth();
-    const params = buildActivityParams(targetBasis, options);
-    const res = await fetchWithTimeout(`${baseUrl}/api/insights/register-day-activity?${params}`, {
-      headers: h,
-      signal: options?.signal,
-    }, SUMMARY_REQUEST_TIMEOUT_MS);
-    if (!res.ok) {
-      const j = (await res.json().catch(() => ({}))) as { error?: string };
-      throw new Error(j.error || "Failed to load activity");
-    }
-    return (await res.json()) as RegisterDaySummary;
-  }, [apiAuth, buildActivityParams, reportBasis]);
+    [preset, customFrom, customTo, reportBasis, sessionId],
+  );
 
-  const fetchBookedSummaryForDate = useCallback(async (businessDate: string) => {
-    archivedZReportRequestRef.current?.abort();
-    const controller = new AbortController();
-    archivedZReportRequestRef.current = controller;
-    try {
-      const params = new URLSearchParams({
-        preset: "custom",
-        from: businessDate,
-        to: businessDate,
-        basis: "booked",
-        activity_offset: "0",
-        activity_limit: String(ACTIVITY_EXPORT_PAGE_SIZE),
-        complete_output: "true",
-      });
+  const fetchSummary = useCallback(
+    async (
+      basis?: "booked" | "fulfilled",
+      options?: {
+        offset?: number;
+        limit?: number;
+        search?: string;
+        signal?: AbortSignal;
+        completeOutput?: boolean;
+      },
+    ) => {
+      const targetBasis = basis || reportBasis;
+      const h = apiAuth();
+      const params = buildActivityParams(targetBasis, options);
       const res = await fetchWithTimeout(
         `${baseUrl}/api/insights/register-day-activity?${params}`,
-        { headers: apiAuth(), signal: controller.signal },
+        {
+          headers: h,
+          signal: options?.signal,
+        },
         SUMMARY_REQUEST_TIMEOUT_MS,
       );
       if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(body.error || "Failed to load the Z-report business day.");
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(j.error || "Failed to load activity");
       }
-      return completeRegisterReportPayload(
-        (await res.json()) as RegisterDaySummary,
-        "This Z-report",
-      );
-    } catch (error) {
-      if (
-        error instanceof DOMException &&
-        error.name === "AbortError" &&
-        !controller.signal.aborted
-      ) {
-        throw new Error(
-          "The archived Z-report timed out while loading its complete database snapshot. Nothing was opened; retry or narrow the date range.",
+      return (await res.json()) as RegisterDaySummary;
+    },
+    [apiAuth, buildActivityParams, reportBasis],
+  );
+
+  const fetchBookedSummaryForDate = useCallback(
+    async (businessDate: string) => {
+      archivedZReportRequestRef.current?.abort();
+      const controller = new AbortController();
+      archivedZReportRequestRef.current = controller;
+      try {
+        const params = new URLSearchParams({
+          preset: "custom",
+          from: businessDate,
+          to: businessDate,
+          basis: "booked",
+          activity_offset: "0",
+          activity_limit: String(ACTIVITY_EXPORT_PAGE_SIZE),
+          complete_output: "true",
+        });
+        const res = await fetchWithTimeout(
+          `${baseUrl}/api/insights/register-day-activity?${params}`,
+          { headers: apiAuth(), signal: controller.signal },
+          SUMMARY_REQUEST_TIMEOUT_MS,
         );
+        if (!res.ok) {
+          const body = (await res.json().catch(() => ({}))) as {
+            error?: string;
+          };
+          throw new Error(
+            body.error || "Failed to load the Z-report business day.",
+          );
+        }
+        return completeRegisterReportPayload(
+          (await res.json()) as RegisterDaySummary,
+          "This Z-report",
+        );
+      } catch (error) {
+        if (
+          error instanceof DOMException &&
+          error.name === "AbortError" &&
+          !controller.signal.aborted
+        ) {
+          throw new Error(
+            "The archived Z-report timed out while loading its complete database snapshot. Nothing was opened; retry or narrow the date range.",
+          );
+        }
+        throw error;
+      } finally {
+        if (archivedZReportRequestRef.current === controller) {
+          archivedZReportRequestRef.current = null;
+        }
       }
-      throw error;
-    } finally {
-      if (archivedZReportRequestRef.current === controller) {
-        archivedZReportRequestRef.current = null;
-      }
-    }
-  }, [apiAuth]);
+    },
+    [apiAuth],
+  );
 
   const loadSummaries = useCallback(async () => {
     summaryRequestRef.current?.controller.abort();
@@ -926,7 +1129,10 @@ export default function RegisterReports({
     setSummaryBooked(null);
     setLoading(true);
     try {
-      const options = { search: debouncedActivitySearch, signal: controller.signal };
+      const options = {
+        search: debouncedActivitySearch,
+        signal: controller.signal,
+      };
       const primaryBasis = reportBasis;
       const secondaryBasis = primaryBasis === "booked" ? "fulfilled" : "booked";
       const primaryData = await fetchSummary(primaryBasis, options);
@@ -941,17 +1147,26 @@ export default function RegisterReports({
         if (secondaryBasis === "booked") setSummaryBooked(secondaryData);
         else setSummary(secondaryData);
       } catch (secondaryError) {
-        if (controller.signal.aborted || summaryRequestRef.current?.generation !== generation) return;
+        if (
+          controller.signal.aborted ||
+          summaryRequestRef.current?.generation !== generation
+        )
+          return;
         const message = reportSummaryErrorMessage(secondaryError);
         setBasisLoadError({ [secondaryBasis]: message });
       }
     } catch (e) {
-      if (controller.signal.aborted || summaryRequestRef.current?.generation !== generation) return;
+      if (
+        controller.signal.aborted ||
+        summaryRequestRef.current?.generation !== generation
+      )
+        return;
       const message = reportSummaryErrorMessage(e);
       setBasisLoadError({ [reportBasis]: message });
       setError(message);
     } finally {
-      if (summaryRequestRef.current?.generation === generation) setLoading(false);
+      if (summaryRequestRef.current?.generation === generation)
+        setLoading(false);
     }
   }, [debouncedActivitySearch, fetchSummary, reportBasis]);
 
@@ -971,23 +1186,28 @@ export default function RegisterReports({
     [],
   );
 
-  const fetchCompleteSummary = useCallback(async (
-    basis: "booked" | "fulfilled",
-    search = debouncedActivitySearch,
-  ): Promise<RegisterDaySummary> => {
-    const complete = await fetchSummary(basis, {
-      offset: 0,
-      limit: ACTIVITY_EXPORT_PAGE_SIZE,
-      search,
-      completeOutput: true,
-    });
-    return completeRegisterReportPayload(complete, "This report");
-  }, [debouncedActivitySearch, fetchSummary]);
+  const fetchCompleteSummary = useCallback(
+    async (
+      basis: "booked" | "fulfilled",
+      search = debouncedActivitySearch,
+    ): Promise<RegisterDaySummary> => {
+      const complete = await fetchSummary(basis, {
+        offset: 0,
+        limit: ACTIVITY_EXPORT_PAGE_SIZE,
+        search,
+        completeOutput: true,
+      });
+      return completeRegisterReportPayload(complete, "This report");
+    },
+    [debouncedActivitySearch, fetchSummary],
+  );
 
   const loadMoreActivity = useCallback(async () => {
     const current = reportBasis === "booked" ? summaryBooked : summary;
-    if (!current || (!current.activities_has_more && !current.pickups_has_more)) return;
-    const loadedRowCount = current.activities.length + (current.pickups_today?.length ?? 0);
+    if (!current || (!current.activities_has_more && !current.pickups_has_more))
+      return;
+    const loadedRowCount =
+      current.activities.length + (current.pickups_today?.length ?? 0);
     if (loadedRowCount >= ACTIVITY_INTERACTIVE_ROW_LIMIT) {
       toast(
         `The screen is limited to ${ACTIVITY_INTERACTIVE_ROW_LIMIT.toLocaleString()} detail rows for stability. Narrow the date range or search before loading more.`,
@@ -995,7 +1215,10 @@ export default function RegisterReports({
       );
       return;
     }
-    const offset = Math.max(current.activities.length, current.pickups_today?.length ?? 0);
+    const offset = Math.max(
+      current.activities.length,
+      current.pickups_today?.length ?? 0,
+    );
     loadMoreRequestRef.current?.controller.abort();
     const controller = new AbortController();
     const generation = (loadMoreRequestRef.current?.generation ?? 0) + 1;
@@ -1007,7 +1230,11 @@ export default function RegisterReports({
         search: debouncedActivitySearch,
         signal: controller.signal,
       });
-      if (controller.signal.aborted || loadMoreRequestRef.current?.generation !== generation) return;
+      if (
+        controller.signal.aborted ||
+        loadMoreRequestRef.current?.generation !== generation
+      )
+        return;
       if (
         (page.activity_total_count ?? page.activities.length) !==
           (current.activity_total_count ?? current.activities.length) ||
@@ -1020,7 +1247,9 @@ export default function RegisterReports({
         );
       }
       const activityIds = new Set(current.activities.map((row) => row.id));
-      const pickupIds = new Set((current.pickups_today ?? []).map((row) => row.id));
+      const pickupIds = new Set(
+        (current.pickups_today ?? []).map((row) => row.id),
+      );
       if (
         page.activities.some((row) => activityIds.has(row.id)) ||
         (page.pickups_today ?? []).some((row) => pickupIds.has(row.id))
@@ -1043,8 +1272,14 @@ export default function RegisterReports({
         0,
         ACTIVITY_INTERACTIVE_ROW_LIMIT - loadedRowCount,
       );
-      let activityTake = Math.min(page.activities.length, Math.ceil(remainingCapacity / 2));
-      let pickupTake = Math.min(nextPickups.length, remainingCapacity - activityTake);
+      let activityTake = Math.min(
+        page.activities.length,
+        Math.ceil(remainingCapacity / 2),
+      );
+      let pickupTake = Math.min(
+        nextPickups.length,
+        remainingCapacity - activityTake,
+      );
       activityTake += Math.min(
         page.activities.length - activityTake,
         remainingCapacity - activityTake - pickupTake,
@@ -1056,9 +1291,13 @@ export default function RegisterReports({
       const merged: RegisterDaySummary = {
         ...current,
         activity_offset: 0,
-        activities: [...current.activities, ...page.activities.slice(0, activityTake)],
+        activities: [
+          ...current.activities,
+          ...page.activities.slice(0, activityTake),
+        ],
         activities_has_more:
-          page.activities_has_more === true || activityTake < page.activities.length,
+          page.activities_has_more === true ||
+          activityTake < page.activities.length,
         pickups_today: [
           ...(current.pickups_today ?? []),
           ...nextPickups.slice(0, pickupTake),
@@ -1069,14 +1308,28 @@ export default function RegisterReports({
       if (reportBasis === "booked") setSummaryBooked(merged);
       else setSummary(merged);
     } catch (e) {
-      if (controller.signal.aborted || loadMoreRequestRef.current?.generation !== generation) return;
-      toast(e instanceof Error ? e.message : "More activity could not be loaded.", "error");
+      if (
+        controller.signal.aborted ||
+        loadMoreRequestRef.current?.generation !== generation
+      )
+        return;
+      toast(
+        e instanceof Error ? e.message : "More activity could not be loaded.",
+        "error",
+      );
     } finally {
       if (loadMoreRequestRef.current?.generation === generation) {
         setActivityLoadingMore(false);
       }
     }
-  }, [debouncedActivitySearch, fetchSummary, reportBasis, summary, summaryBooked, toast]);
+  }, [
+    debouncedActivitySearch,
+    fetchSummary,
+    reportBasis,
+    summary,
+    summaryBooked,
+    toast,
+  ]);
 
   const buildZLogParams = useCallback(() => {
     const params = new URLSearchParams({ limit: String(Z_LOG_LIMIT) });
@@ -1112,10 +1365,13 @@ export default function RegisterReports({
       );
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(body.error || `Z-report history failed (${res.status}).`);
+        throw new Error(
+          body.error || `Z-report history failed (${res.status}).`,
+        );
       }
       const data = (await res.json()) as unknown;
-      if (!Array.isArray(data)) throw new Error("The Main Hub returned invalid Z-report history.");
+      if (!Array.isArray(data))
+        throw new Error("The Main Hub returned invalid Z-report history.");
       if (zLogsRequestRef.current !== controller) return;
       setZLogs(data as RegisterSessionRow[]);
       setZLogsError(null);
@@ -1144,7 +1400,9 @@ export default function RegisterReports({
       });
       if (res.status === 401 || res.status === 403) {
         setOpenSessions([]);
-        setOpenSessionsError("Register coordination visibility requires attach access.");
+        setOpenSessionsError(
+          "Register coordination visibility requires attach access.",
+        );
         return;
       }
       if (!res.ok) throw new Error("Failed to fetch open register sessions");
@@ -1154,7 +1412,9 @@ export default function RegisterReports({
     } catch (error) {
       setOpenSessions([]);
       setOpenSessionsError(
-        error instanceof Error ? error.message : "Could not load active register sessions.",
+        error instanceof Error
+          ? error.message
+          : "Could not load active register sessions.",
       );
     }
   }, [apiAuth]);
@@ -1168,7 +1428,8 @@ export default function RegisterReports({
 
   const rangeLabel = useMemo(() => {
     if (!selectedSummary) return "";
-    if (selectedSummary.from_local === selectedSummary.to_local) return selectedSummary.from_local;
+    if (selectedSummary.from_local === selectedSummary.to_local)
+      return selectedSummary.from_local;
     return `${selectedSummary.from_local} → ${selectedSummary.to_local}`;
   }, [selectedSummary]);
 
@@ -1183,9 +1444,12 @@ export default function RegisterReports({
     const source = reportBasis === "booked" ? summaryBooked : summary;
     if (!source?.activities?.length) return [];
     const groups: Record<string, RegisterActivityItem[]> = {};
-    source.activities
-      .forEach((a) => {
-      const date = new Date(a.occurred_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    source.activities.forEach((a) => {
+      const date = new Date(a.occurred_at).toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      });
       if (!groups[date]) groups[date] = [];
       groups[date].push(a);
     });
@@ -1194,20 +1458,35 @@ export default function RegisterReports({
       label: date,
       activities: acts,
       total_sales: centsToFixed2(
-        acts.reduce((sum, activity) => sum + parseRegisterReportMoneyToCents(activity.sales_total), 0),
+        acts.reduce(
+          (sum, activity) =>
+            sum + parseRegisterReportMoneyToCents(activity.sales_total),
+          0,
+        ),
       ),
       total_tax: centsToFixed2(
-        acts.reduce((sum, activity) => sum + parseRegisterReportMoneyToCents(activity.tax_total), 0),
+        acts.reduce(
+          (sum, activity) =>
+            sum + parseRegisterReportMoneyToCents(activity.tax_total),
+          0,
+        ),
       ),
       count: acts.length,
     }));
   }, [summary, summaryBooked, reportBasis]);
   const filteredPickupsToday = useMemo(() => {
-    const source = (reportBasis === "booked" ? summaryBooked : summary)?.pickups_today ?? [];
+    const source =
+      (reportBasis === "booked" ? summaryBooked : summary)?.pickups_today ?? [];
     return source;
   }, [summary, summaryBooked, reportBasis]);
-  const activitySourceCount = selectedSummary?.activity_total_count ?? selectedSummary?.activities.length ?? 0;
-  const pickupSourceCount = selectedSummary?.pickups_total_count ?? selectedSummary?.pickups_today?.length ?? 0;
+  const activitySourceCount =
+    selectedSummary?.activity_total_count ??
+    selectedSummary?.activities.length ??
+    0;
+  const pickupSourceCount =
+    selectedSummary?.pickups_total_count ??
+    selectedSummary?.pickups_today?.length ??
+    0;
 
   const coordinationGroups = useMemo((): RegisterCoordinationGroup[] => {
     const grouped = new Map<string, OpenRegisterSessionRow[]>();
@@ -1219,15 +1498,22 @@ export default function RegisterReports({
     return Array.from(grouped.entries())
       .map(([tillCloseGroupId, sessions]) => ({
         tillCloseGroupId,
-        sessions: sessions.sort((left, right) => left.register_lane - right.register_lane),
+        sessions: sessions.sort(
+          (left, right) => left.register_lane - right.register_lane,
+        ),
       }))
-      .sort((left, right) => left.sessions[0]!.register_lane - right.sessions[0]!.register_lane);
+      .sort(
+        (left, right) =>
+          left.sessions[0]!.register_lane - right.sessions[0]!.register_lane,
+      );
   }, [openSessions]);
 
   const coordinationSummary = useMemo(() => {
     const openDrawerCount = coordinationGroups.length;
     const reconcilingGroups = coordinationGroups.filter((group) =>
-      group.sessions.some((session) => session.lifecycle_status === "reconciling"),
+      group.sessions.some(
+        (session) => session.lifecycle_status === "reconciling",
+      ),
     );
     return {
       activeSessions: openSessions.length,
@@ -1239,7 +1525,7 @@ export default function RegisterReports({
 
   const weatherDays = summaryBooked?.weather_days?.length
     ? summaryBooked.weather_days
-    : summary?.weather_days ?? [];
+    : (summary?.weather_days ?? []);
   const weatherSummaryLabel =
     summaryBooked?.weather_summary ?? summary?.weather_summary ?? null;
 
@@ -1252,81 +1538,92 @@ export default function RegisterReports({
     if (!selectedSummary || reportOutputBusy) return;
     setReportOutputBusy(true);
     try {
-    const detailFilter = activitySearch.trim();
-    const [printSummary, unfilteredPeriodSummary] = await Promise.all([
-      fetchCompleteSummary(reportBasis, detailFilter),
-      detailFilter
-        ? fetchSummary(reportBasis, { offset: 0, limit: 1 })
-        : Promise.resolve(null),
-    ]);
-    const periodSummary = unfilteredPeriodSummary ?? printSummary;
-    const printRangeLabel =
-      printSummary.from_local === printSummary.to_local
-        ? printSummary.from_local
-        : `${printSummary.from_local} → ${printSummary.to_local}`;
-    await openProfessionalDailySalesPrint({
-      title: `Daily Sales - ${printRangeLabel}`,
-      rangeLabel: printRangeLabel,
-      detailFilter: detailFilter || undefined,
-      action,
-      summary: {
-        sales_count: periodSummary.sales_count,
-        sales_subtotal_no_tax: periodSummary.sales_subtotal_no_tax,
-        sales_tax_total: periodSummary.sales_tax_total,
-        net_sales: periodSummary.net_sales,
-        shipping_total: periodSummary.shipping_total,
-        alterations_total: periodSummary.alterations_total,
-        gift_card_load_count: periodSummary.gift_card_load_count,
-        gift_card_load_total: periodSummary.gift_card_load_total,
-        appointment_count: periodSummary.appointment_count,
-        online_order_count: periodSummary.online_order_count,
-        pickup_count: periodSummary.pickup_count,
-        special_order_sale_count: periodSummary.special_order_sale_count,
-        new_wedding_parties_count: periodSummary.new_wedding_parties_count,
-        merchant_fees_total: periodSummary.merchant_fees_total,
-        cash_collected: periodSummary.cash_collected,
-        deposits_collected: periodSummary.deposits_collected,
-        new_appointment_count: periodSummary.new_appointment_count,
-        new_layaway_count: activityNewLayawayCount(printSummary.activities),
-        pickup_total: centsToFixed2(activityPickupTotalCents(printSummary.pickups_today)),
-        pickup_total_count: printSummary.pickups_today?.length ?? 0,
-        discount_total: centsToFixed2(activityDiscountTotalCents(printSummary.activities)),
-        discount_count: activityDiscountTransactionCount(printSummary.activities),
-      },
-      activities: printSummary.activities.map(a => ({
-        ...a,
-        subtotal_before_tax: centsToFixed2(activitySubtotalBeforeTaxCents(a)),
-        tax_total: a.tax_total,
-        items: a.items?.map(i => ({
-          name: i.name,
-          sku: i.sku,
-          quantity: i.quantity,
-          reg_price: i.reg_price || i.price,
-          price: i.price,
-          fulfillment: i.fulfillment,
-          line_kind: i.line_kind,
+      const detailFilter = activitySearch.trim();
+      const [printSummary, unfilteredPeriodSummary] = await Promise.all([
+        fetchCompleteSummary(reportBasis, detailFilter),
+        detailFilter
+          ? fetchSummary(reportBasis, { offset: 0, limit: 1 })
+          : Promise.resolve(null),
+      ]);
+      const periodSummary = unfilteredPeriodSummary ?? printSummary;
+      const printRangeLabel =
+        printSummary.from_local === printSummary.to_local
+          ? printSummary.from_local
+          : `${printSummary.from_local} → ${printSummary.to_local}`;
+      await openProfessionalDailySalesPrint({
+        title: `Daily Sales - ${printRangeLabel}`,
+        rangeLabel: printRangeLabel,
+        detailFilter: detailFilter || undefined,
+        action,
+        summary: {
+          sales_count: periodSummary.sales_count,
+          sales_subtotal_no_tax: periodSummary.sales_subtotal_no_tax,
+          sales_tax_total: periodSummary.sales_tax_total,
+          net_sales: periodSummary.net_sales,
+          shipping_total: periodSummary.shipping_total,
+          alterations_total: periodSummary.alterations_total,
+          gift_card_load_count: periodSummary.gift_card_load_count,
+          gift_card_load_total: periodSummary.gift_card_load_total,
+          appointment_count: periodSummary.appointment_count,
+          online_order_count: periodSummary.online_order_count,
+          pickup_count: periodSummary.pickup_count,
+          special_order_sale_count: periodSummary.special_order_sale_count,
+          new_wedding_parties_count: periodSummary.new_wedding_parties_count,
+          merchant_fees_total: periodSummary.merchant_fees_total,
+          cash_collected: periodSummary.cash_collected,
+          deposits_collected: periodSummary.deposits_collected,
+          new_appointment_count: periodSummary.new_appointment_count,
+          new_layaway_count: activityNewLayawayCount(printSummary.activities),
+          pickup_total: centsToFixed2(
+            activityPickupTotalCents(printSummary.pickups_today),
+          ),
+          pickup_total_count: printSummary.pickups_today?.length ?? 0,
+          discount_total: centsToFixed2(
+            activityDiscountTotalCents(printSummary.activities),
+          ),
+          discount_count: activityDiscountTransactionCount(
+            printSummary.activities,
+          ),
+        },
+        activities: printSummary.activities.map((a) => ({
+          ...a,
+          subtotal_before_tax: centsToFixed2(activitySubtotalBeforeTaxCents(a)),
+          tax_total: a.tax_total,
+          items: a.items?.map((i) => ({
+            name: i.name,
+            sku: i.sku,
+            quantity: i.quantity,
+            reg_price: i.reg_price || i.price,
+            price: i.price,
+            fulfillment: i.fulfillment,
+            line_kind: i.line_kind,
+          })),
+          fulfillment_label: activityFulfillmentLabel(a),
+          is_takeaway: a.is_takeaway,
+          channel: a.channel,
         })),
-        fulfillment_label: activityFulfillmentLabel(a),
-        is_takeaway: a.is_takeaway,
-        channel: a.channel,
-      })),
-      pickupsToday: (printSummary.pickups_today ?? []).map(a => ({
-        occurred_at: a.occurred_at,
-        customer_name: a.customer_name,
-        customer_code: a.customer_code,
-        short_id: a.short_id,
-        sales_total: a.sales_total,
-        transaction_total: a.transaction_total,
-        items: a.items?.map(i => ({
-          name: i.name,
-          sku: i.sku,
-          quantity: i.quantity,
-          fulfillment: i.fulfillment,
+        pickupsToday: (printSummary.pickups_today ?? []).map((a) => ({
+          occurred_at: a.occurred_at,
+          customer_name: a.customer_name,
+          customer_code: a.customer_code,
+          short_id: a.short_id,
+          sales_total: a.sales_total,
+          transaction_total: a.transaction_total,
+          items: a.items?.map((i) => ({
+            name: i.name,
+            sku: i.sku,
+            quantity: i.quantity,
+            fulfillment: i.fulfillment,
+          })),
         })),
-      }))
-    });
+      });
     } catch (e) {
-      toast(e instanceof Error ? e.message : "The complete audited report could not be prepared.", "error");
+      toast(
+        e instanceof Error
+          ? e.message
+          : "The complete audited report could not be prepared.",
+        "error",
+      );
     } finally {
       setReportOutputBusy(false);
     }
@@ -1336,149 +1633,230 @@ export default function RegisterReports({
     if (!selectedSummary || reportOutputBusy) return;
     setReportOutputBusy(true);
     try {
-    const exportSummary = await fetchCompleteSummary(reportBasis, activitySearch.trim());
-    if (!exportSummary.activities.length) {
-      toast("No matching activity is available to export.", "info");
-      return;
-    }
-    const rows = exportSummary.activities.flatMap(a => {
-      const items: Array<ActivityItemDetail | null> = a.items?.length ? a.items : [null];
-      const itemRows = items.map((item, idx) => ({
-        "Date": new Date(a.occurred_at).toLocaleDateString(),
-        "Time": new Date(a.occurred_at).toLocaleTimeString(),
-        "Transaction #": a.short_id || "",
-        "Imported At": idx === 0 && a.imported_at ? new Date(a.imported_at).toLocaleString() : "",
-        "Kind": a.kind,
-        "Order ID": a.order_id || "",
-        "Customer Name": a.customer_name || "",
-        "Customer #": a.customer_code || "",
-        "Wedding Party": a.wedding_party_name || "",
-        "Item": item?.name ?? "",
-        "SKU": item?.sku ?? "",
-        "Qty": item?.quantity ?? "",
-        "Reg Price": item?.reg_price ?? "",
-        "Sale Price": item?.price ?? "",
-        "Takeaway": a.is_takeaway ? "Yes" : "No",
-        "Fulfillment": a.fulfillment_type || "",
-        "Deposit Paid": idx === 0 ? (a.deposits_paid || "0") : "",
-        "Balance Due": idx === 0 ? (a.balance_due || "0") : "",
-        "Transaction Total": idx === 0 ? (a.transaction_total || a.amount_label || "0") : "",
-        "Wedding Deposits Placed": idx === 0 ? (a.wedding_deposit_contributions || "0") : "",
-        "Wedding Members Funded": idx === 0 ? (a.wedding_deposit_member_count || 0) : "",
-        "Total Tender Collected": idx === 0
-          ? centsToFixed2(
-              parseRegisterReportMoneyToCents(a.transaction_total || a.amount_label || "0")
-              + parseRegisterReportMoneyToCents(a.wedding_deposit_contributions || "0"),
-            )
-          : "",
-        "Sales Total": idx === 0 ? (a.sales_total || "0") : "",
-        "Tax": idx === 0 ? (a.tax_total || "0") : "",
-        "Net Total": idx === 0 ? (a.amount_label || "0") : "",
-      }));
-      return itemRows;
-    });
+      const exportSummary = await fetchCompleteSummary(
+        reportBasis,
+        activitySearch.trim(),
+      );
+      if (!exportSummary.activities.length) {
+        toast("No matching activity is available to export.", "info");
+        return;
+      }
+      const rows = exportSummary.activities.flatMap((a) => {
+        const items: Array<ActivityItemDetail | null> = a.items?.length
+          ? a.items
+          : [null];
+        const itemRows = items.map((item, idx) => ({
+          Date: new Date(a.occurred_at).toLocaleDateString(),
+          Time: new Date(a.occurred_at).toLocaleTimeString(),
+          "Transaction #": a.short_id || "",
+          "Imported At":
+            idx === 0 && a.imported_at
+              ? new Date(a.imported_at).toLocaleString()
+              : "",
+          Kind: a.kind,
+          "Order ID": a.order_id || "",
+          "Customer Name": a.customer_name || "",
+          "Customer #": a.customer_code || "",
+          "Wedding Party": a.wedding_party_name || "",
+          Item: item?.name ?? "",
+          SKU: item?.sku ?? "",
+          Qty: item?.quantity ?? "",
+          "Reg Price": item?.reg_price ?? "",
+          "Sale Price": item?.price ?? "",
+          Takeaway: a.is_takeaway ? "Yes" : "No",
+          Fulfillment: a.fulfillment_type || "",
+          "Deposit Paid": idx === 0 ? a.deposits_paid || "0" : "",
+          "Balance Due": idx === 0 ? a.balance_due || "0" : "",
+          "Transaction Total":
+            idx === 0 ? a.transaction_total || a.amount_label || "0" : "",
+          "Wedding Deposits Placed":
+            idx === 0 ? a.wedding_deposit_contributions || "0" : "",
+          "Wedding Members Funded":
+            idx === 0 ? a.wedding_deposit_member_count || 0 : "",
+          "Total Tender Collected":
+            idx === 0
+              ? centsToFixed2(
+                  parseRegisterReportMoneyToCents(
+                    a.transaction_total || a.amount_label || "0",
+                  ) +
+                    parseRegisterReportMoneyToCents(
+                      a.wedding_deposit_contributions || "0",
+                    ),
+                )
+              : "",
+          "Sales Total": idx === 0 ? a.sales_total || "0" : "",
+          Tax: idx === 0 ? a.tax_total || "0" : "",
+          "Net Total": idx === 0 ? a.amount_label || "0" : "",
+        }));
+        return itemRows;
+      });
 
-    // Calculate totals
-    const totalTransactionCents = exportSummary.activities.reduce(
-      (sum, activity) =>
-        sum +
-        parseRegisterReportMoneyToCents(
-          activity.transaction_total || activity.amount_label || "0",
+      // Calculate totals
+      const totalTransactionCents = exportSummary.activities.reduce(
+        (sum, activity) =>
+          sum +
+          parseRegisterReportMoneyToCents(
+            activity.transaction_total || activity.amount_label || "0",
+          ),
+        0,
+      );
+      const totalWeddingDepositsCents = exportSummary.activities.reduce(
+        (sum, activity) =>
+          sum +
+          parseRegisterReportMoneyToCents(
+            activity.wedding_deposit_contributions,
+          ),
+        0,
+      );
+      const totalSalesCents = exportSummary.activities.reduce(
+        (sum, activity) =>
+          sum + parseRegisterReportMoneyToCents(activity.sales_total),
+        0,
+      );
+      const totalTaxCents = exportSummary.activities.reduce(
+        (sum, activity) =>
+          sum + parseRegisterReportMoneyToCents(activity.tax_total),
+        0,
+      );
+      const totalNetCents = exportSummary.activities.reduce(
+        (sum, activity) =>
+          sum + parseRegisterReportMoneyToCents(activity.amount_label),
+        0,
+      );
+
+      const totalRow = {
+        Date: "TOTAL",
+        Time: "",
+        "Transaction #": "",
+        "Imported At": "",
+        Kind: "",
+        "Order ID": "",
+        "Customer Name": "",
+        "Customer #": "",
+        "Wedding Party": "",
+        Item: "",
+        SKU: "",
+        Qty: "",
+        "Reg Price": "",
+        "Sale Price": "",
+        Takeaway: "",
+        Fulfillment: "",
+        "Deposit Paid": "",
+        "Balance Due": "",
+        "Transaction Total": centsToFixed2(totalTransactionCents),
+        "Wedding Deposits Placed": centsToFixed2(totalWeddingDepositsCents),
+        "Wedding Members Funded": "",
+        "Total Tender Collected": centsToFixed2(
+          totalTransactionCents + totalWeddingDepositsCents,
         ),
-      0,
-    );
-    const totalWeddingDepositsCents = exportSummary.activities.reduce(
-      (sum, activity) =>
-        sum + parseRegisterReportMoneyToCents(activity.wedding_deposit_contributions),
-      0,
-    );
-    const totalSalesCents = exportSummary.activities.reduce(
-      (sum, activity) => sum + parseRegisterReportMoneyToCents(activity.sales_total),
-      0,
-    );
-    const totalTaxCents = exportSummary.activities.reduce(
-      (sum, activity) => sum + parseRegisterReportMoneyToCents(activity.tax_total),
-      0,
-    );
-    const totalNetCents = exportSummary.activities.reduce(
-      (sum, activity) => sum + parseRegisterReportMoneyToCents(activity.amount_label),
-      0,
-    );
+        "Sales Total": centsToFixed2(totalSalesCents),
+        Tax: centsToFixed2(totalTaxCents),
+        "Net Total": centsToFixed2(totalNetCents),
+      };
 
-    const totalRow = {
-      "Date": "TOTAL",
-      "Time": "",
-      "Transaction #": "",
-      "Imported At": "",
-      "Kind": "",
-      "Order ID": "",
-      "Customer Name": "",
-      "Customer #": "",
-      "Wedding Party": "",
-      "Item": "",
-      "SKU": "",
-      "Qty": "",
-      "Reg Price": "",
-      "Sale Price": "",
-      "Takeaway": "",
-      "Fulfillment": "",
-      "Deposit Paid": "",
-      "Balance Due": "",
-      "Transaction Total": centsToFixed2(totalTransactionCents),
-      "Wedding Deposits Placed": centsToFixed2(totalWeddingDepositsCents),
-      "Wedding Members Funded": "",
-      "Total Tender Collected": centsToFixed2(
-        totalTransactionCents + totalWeddingDepositsCents,
-      ),
-      "Sales Total": centsToFixed2(totalSalesCents),
-      "Tax": centsToFixed2(totalTaxCents),
-      "Net Total": centsToFixed2(totalNetCents),
-    };
+      const headers = [
+        "Date",
+        "Time",
+        "Transaction #",
+        "Imported At",
+        "Kind",
+        "Order ID",
+        "Customer Name",
+        "Customer #",
+        "Wedding Party",
+        "Item",
+        "SKU",
+        "Qty",
+        "Reg Price",
+        "Sale Price",
+        "Takeaway",
+        "Fulfillment",
+        "Deposit Paid",
+        "Balance Due",
+        "Transaction Total",
+        "Wedding Deposits Placed",
+        "Wedding Members Funded",
+        "Total Tender Collected",
+        "Sales Total",
+        "Tax",
+        "Net Total",
+      ];
+      const csv = [
+        headers.join(","),
+        ...rows.map((r) =>
+          headers
+            .map((h) => {
+              const v = r[h as keyof typeof r]?.toString() || "";
+              return /[",\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
+            })
+            .join(","),
+        ),
+        headers
+          .map((h) => {
+            const v = totalRow[h as keyof typeof totalRow]?.toString() || "";
+            return /[",\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
+          })
+          .join(","),
+      ].join("\n");
 
-    const headers = ["Date", "Time", "Transaction #", "Imported At", "Kind", "Order ID", "Customer Name", "Customer #", "Wedding Party", "Item", "SKU", "Qty", "Reg Price", "Sale Price", "Takeaway", "Fulfillment", "Deposit Paid", "Balance Due", "Transaction Total", "Wedding Deposits Placed", "Wedding Members Funded", "Total Tender Collected", "Sales Total", "Tax", "Net Total"];
-    const csv = [headers.join(","), ...rows.map(r => headers.map(h => {
-      const v = r[h as keyof typeof r]?.toString() || "";
-      return /[",\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
-    }).join(",")), headers.map(h => {
-      const v = totalRow[h as keyof typeof totalRow]?.toString() || "";
-      return /[",\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
-    }).join(",")].join("\n");
-
-    await downloadTextFile(`daily-sales-${preset}.csv`, csv, "text/csv;charset=utf-8", [
-      { name: "CSV", extensions: ["csv"] },
-    ]);
+      await downloadTextFile(
+        `daily-sales-${preset}.csv`,
+        csv,
+        "text/csv;charset=utf-8",
+        [{ name: "CSV", extensions: ["csv"] }],
+      );
     } catch (e) {
-      toast(e instanceof Error ? e.message : "The complete audited export could not be prepared.", "error");
+      toast(
+        e instanceof Error
+          ? e.message
+          : "The complete audited export could not be prepared.",
+        "error",
+      );
     } finally {
       setReportOutputBusy(false);
     }
   };
 
   const submitVoidTransaction = useCallback(
-    async (args: { managerStaffId: string; managerPin: string; reason: string }) => {
+    async (args: {
+      managerStaffId: string;
+      managerPin: string;
+      reason: string;
+    }) => {
       if (!voidTarget) return false;
       if (!sessionId) {
-        toast("Open or attach to a register before voiding a completed transaction.", "error");
+        toast(
+          "Open or attach to a register before voiding a completed transaction.",
+          "error",
+        );
         return false;
       }
       setVoidBusy(true);
       try {
-        const res = await fetch(`${baseUrl}/api/transactions/${voidTarget.transactionId}/void`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...apiAuth(),
+        const res = await fetch(
+          `${baseUrl}/api/transactions/${voidTarget.transactionId}/void`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...apiAuth(),
+            },
+            body: JSON.stringify({
+              register_session_id: sessionId,
+              manager_staff_id: args.managerStaffId,
+              manager_pin: args.managerPin,
+              reason: args.reason,
+            }),
           },
-          body: JSON.stringify({
-            register_session_id: sessionId,
-            manager_staff_id: args.managerStaffId,
-            manager_pin: args.managerPin,
-            reason: args.reason,
-          }),
-        });
+        );
         if (!res.ok) {
-          const payload = (await res.json().catch(() => ({}))) as { error?: string };
-          toast(payload.error || "Transaction void could not be completed.", "error");
+          const payload = (await res.json().catch(() => ({}))) as {
+            error?: string;
+          };
+          toast(
+            payload.error || "Transaction void could not be completed.",
+            "error",
+          );
           return false;
         }
         const payload = (await res.json()) as {
@@ -1491,14 +1869,17 @@ export default function RegisterReports({
 
         if (payload.pop_cash_drawer) {
           try {
-            const { printReceiptBase64 } = await import("../../lib/receiptPrint");
+            const { printReceiptBase64 } =
+              await import("../../lib/receiptPrint");
             await printReceiptBase64("G3AAMvo=");
           } catch (e) {
             console.error("Cash drawer pop failed during void", e);
           }
         }
 
-        const amount = payload.refundable_amount ? `$${payload.refundable_amount}` : "the paid balance";
+        const amount = payload.refundable_amount
+          ? `$${payload.refundable_amount}`
+          : "the paid balance";
         toast(
           payload.reversal_status === "no_refund_due"
             ? "Transaction voided. No refund balance remains."
@@ -1506,20 +1887,33 @@ export default function RegisterReports({
           "success",
         );
         setVoidTarget(null);
-        if (payload.reversal_status === "pending_refund" && onOpenRefundInRegister) {
+        if (
+          payload.reversal_status === "pending_refund" &&
+          onOpenRefundInRegister
+        ) {
           onOpenRefundInRegister(payload.transaction_id);
         } else {
           await loadSummaries();
         }
         return true;
       } catch {
-        toast("Transaction void is unavailable. Try again or call a manager.", "error");
+        toast(
+          "Transaction void is unavailable. Try again or call a manager.",
+          "error",
+        );
         return false;
       } finally {
         setVoidBusy(false);
       }
     },
-    [apiAuth, loadSummaries, sessionId, toast, voidTarget, onOpenRefundInRegister],
+    [
+      apiAuth,
+      loadSummaries,
+      sessionId,
+      toast,
+      voidTarget,
+      onOpenRefundInRegister,
+    ],
   );
 
   return (
@@ -1552,8 +1946,12 @@ export default function RegisterReports({
       <div className="mb-4 flex shrink-0 flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex flex-col gap-2">
           <div>
-            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">Register</p>
-            <h2 className="text-2xl font-black tracking-tight text-app-text">Daily Sales</h2>
+            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">
+              Register
+            </p>
+            <h2 className="text-2xl font-black tracking-tight text-app-text">
+              Daily Sales
+            </h2>
             {selectedSummary && (
               <p className="mt-1 text-xs font-semibold text-app-text-muted">
                 {rangeLabel}
@@ -1564,13 +1962,25 @@ export default function RegisterReports({
           </div>
         </div>
         <div className="flex gap-1 rounded-2xl border border-app-border bg-app-surface-2 p-1 shadow-inner">
-          <button type="button" onClick={() => setView("dashboard")} className={`rounded-xl px-4 py-2 text-sm font-bold transition-all ${view === "dashboard" ? "bg-app-surface text-app-accent shadow-sm" : "text-app-text-muted hover:bg-app-surface/60 hover:text-app-text"}`}>
+          <button
+            type="button"
+            onClick={() => setView("dashboard")}
+            className={`rounded-xl px-4 py-2 text-sm font-bold transition-all ${view === "dashboard" ? "bg-app-surface text-app-accent shadow-sm" : "text-app-text-muted hover:bg-app-surface/60 hover:text-app-text"}`}
+          >
             Dashboard
           </button>
-          <button type="button" onClick={() => setView("activity")} className={`rounded-xl px-4 py-2 text-sm font-bold transition-all ${view === "activity" ? "bg-app-surface text-app-accent shadow-sm" : "text-app-text-muted hover:bg-app-surface/60 hover:text-app-text"}`}>
+          <button
+            type="button"
+            onClick={() => setView("activity")}
+            className={`rounded-xl px-4 py-2 text-sm font-bold transition-all ${view === "activity" ? "bg-app-surface text-app-accent shadow-sm" : "text-app-text-muted hover:bg-app-surface/60 hover:text-app-text"}`}
+          >
             Activity
           </button>
-          <button type="button" onClick={() => setView("z-reports")} className={`rounded-xl px-4 py-2 text-sm font-bold transition-all ${view === "z-reports" ? "bg-app-surface text-app-accent shadow-sm" : "text-app-text-muted hover:bg-app-surface/60 hover:text-app-text"}`}>
+          <button
+            type="button"
+            onClick={() => setView("z-reports")}
+            className={`rounded-xl px-4 py-2 text-sm font-bold transition-all ${view === "z-reports" ? "bg-app-surface text-app-accent shadow-sm" : "text-app-text-muted hover:bg-app-surface/60 hover:text-app-text"}`}
+          >
             Z-Reports
           </button>
         </div>
@@ -1580,12 +1990,22 @@ export default function RegisterReports({
       {view === "activity" && (
         <div className="mb-4 shrink-0 flex flex-col gap-3">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[10px] font-black uppercase tracking-wider text-app-text-muted">View Mode</span>
+            <span className="text-[10px] font-black uppercase tracking-wider text-app-text-muted">
+              View Mode
+            </span>
             <div className="flex gap-1 rounded-2xl border border-app-border bg-app-surface-2 p-1">
-              <button type="button" onClick={() => setReportBasis("fulfilled")} className={`rounded-xl px-3 py-1.5 text-xs font-bold transition-all ${reportBasis === "fulfilled" ? "bg-app-surface text-app-accent shadow-sm" : "text-app-text-muted hover:text-app-text"}`}>
+              <button
+                type="button"
+                onClick={() => setReportBasis("fulfilled")}
+                className={`rounded-xl px-3 py-1.5 text-xs font-bold transition-all ${reportBasis === "fulfilled" ? "bg-app-surface text-app-accent shadow-sm" : "text-app-text-muted hover:text-app-text"}`}
+              >
                 Fulfilled (Pickup)
               </button>
-              <button type="button" onClick={() => setReportBasis("booked")} className={`rounded-xl px-3 py-1.5 text-xs font-bold transition-all ${reportBasis === "booked" ? "bg-app-surface text-app-accent shadow-sm" : "text-app-text-muted hover:text-app-text"}`}>
+              <button
+                type="button"
+                onClick={() => setReportBasis("booked")}
+                className={`rounded-xl px-3 py-1.5 text-xs font-bold transition-all ${reportBasis === "booked" ? "bg-app-surface text-app-accent shadow-sm" : "text-app-text-muted hover:text-app-text"}`}
+              >
                 Booked (Sale)
               </button>
             </div>
@@ -1597,7 +2017,12 @@ export default function RegisterReports({
           </div>
           <div className="flex flex-wrap gap-2">
             {PRESETS.map((p) => (
-              <button key={p.id} type="button" onClick={() => setPreset(p.id)} className={`rounded-full px-3.5 py-1.5 text-xs font-bold transition-all ${preset === p.id ? "bg-app-accent text-white shadow-md shadow-app-accent/25" : "border border-app-border bg-app-surface-2 text-app-text-muted hover:border-app-accent/40 hover:text-app-text"}`}>
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => setPreset(p.id)}
+                className={`rounded-full px-3.5 py-1.5 text-xs font-bold transition-all ${preset === p.id ? "bg-app-accent text-white shadow-md shadow-app-accent/25" : "border border-app-border bg-app-surface-2 text-app-text-muted hover:border-app-accent/40 hover:text-app-text"}`}
+              >
                 {p.label}
               </button>
             ))}
@@ -1609,7 +2034,12 @@ export default function RegisterReports({
         <div className="mb-4 shrink-0 flex flex-col gap-3">
           <div className="flex flex-wrap gap-2">
             {PRESETS.map((p) => (
-              <button key={p.id} type="button" onClick={() => setPreset(p.id)} className={`rounded-full px-3.5 py-1.5 text-xs font-bold transition-all ${preset === p.id ? "bg-app-accent text-white shadow-md shadow-app-accent/25" : "border border-app-border bg-app-surface-2 text-app-text-muted hover:border-app-accent/40 hover:text-app-text"}`}>
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => setPreset(p.id)}
+                className={`rounded-full px-3.5 py-1.5 text-xs font-bold transition-all ${preset === p.id ? "bg-app-accent text-white shadow-md shadow-app-accent/25" : "border border-app-border bg-app-surface-2 text-app-text-muted hover:border-app-accent/40 hover:text-app-text"}`}
+              >
                 {p.label}
               </button>
             ))}
@@ -1621,13 +2051,29 @@ export default function RegisterReports({
         <div className="mb-4 flex shrink-0 flex-wrap items-end gap-3 rounded-2xl border border-app-border bg-app-surface-2/80 p-4">
           <label className="flex flex-col gap-1 text-[10px] font-black uppercase tracking-wider text-app-text-muted">
             From
-            <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} className="ui-input rounded-xl px-3 py-2 text-sm font-semibold" />
+            <input
+              type="date"
+              value={customFrom}
+              onChange={(e) => setCustomFrom(e.target.value)}
+              className="ui-input rounded-xl px-3 py-2 text-sm font-semibold"
+            />
           </label>
           <label className="flex flex-col gap-1 text-[10px] font-black uppercase tracking-wider text-app-text-muted">
             To
-            <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} className="ui-input rounded-xl px-3 py-2 text-sm font-semibold" />
+            <input
+              type="date"
+              value={customTo}
+              onChange={(e) => setCustomTo(e.target.value)}
+              className="ui-input rounded-xl px-3 py-2 text-sm font-semibold"
+            />
           </label>
-          <button type="button" onClick={() => { void loadSummaries(); }} className="rounded-xl bg-app-success px-4 py-2 text-sm font-black text-white shadow-[0_4px_0_0_color-mix(in_srgb,var(--app-success)_58%,black)] transition hover:brightness-105">
+          <button
+            type="button"
+            onClick={() => {
+              void loadSummaries();
+            }}
+            className="rounded-xl bg-app-success px-4 py-2 text-sm font-black text-white shadow-[0_4px_0_0_color-mix(in_srgb,var(--app-success)_58%,black)] transition hover:brightness-105"
+          >
             Apply
           </button>
         </div>
@@ -1635,28 +2081,32 @@ export default function RegisterReports({
 
       {!sessionId && view !== "z-reports" && (
         <div className="mb-4 rounded-xl border border-app-warning/20 bg-app-warning/10 px-4 py-3 text-sm text-app-text">
-          <span className="font-bold">Store-wide view.</span> Managers with register.reports see every lane.
+          <span className="font-bold">Store-wide view.</span> Managers with
+          register.reports see every lane.
         </div>
       )}
 
-      {!loading && !error && (basisLoadError.booked || basisLoadError.fulfilled) ? (
+      {!loading &&
+      !error &&
+      (basisLoadError.booked || basisLoadError.fulfilled) ? (
         <div
           className="mb-4 rounded-xl border border-app-warning/25 bg-app-warning/10 px-4 py-3 text-sm text-app-text"
           role="status"
         >
           <span className="font-bold">
-            {basisLoadError.booked ? "Booked" : "Fulfilled"} comparison is temporarily unavailable.
+            {basisLoadError.booked ? "Booked" : "Fulfilled"} comparison is
+            temporarily unavailable.
           </span>{" "}
-          The loaded basis remains usable. Select the unavailable basis or refresh to retry; no totals were substituted.
+          The loaded basis remains usable. Select the unavailable basis or
+          refresh to retry; no totals were substituted.
         </div>
       ) : null}
 
       {/* Content Area */}
       <div className="ui-card ui-tint-neutral flex flex-1 flex-col rounded-[24px]">
-
         {/* Dashboard View */}
-        {view === "dashboard" && (
-          loading ? (
+        {view === "dashboard" &&
+          (loading ? (
             <div className="flex flex-1 items-center justify-center py-20">
               <Loader2 className="h-9 w-9 animate-spin text-app-accent" />
             </div>
@@ -1675,14 +2125,32 @@ export default function RegisterReports({
                 </div>
               ) : null}
               <div className="flex gap-2 mb-2">
-                <button type="button" disabled={reportOutputBusy || !selectedSummary} onClick={() => void handleReportOutput("preview")} className="ui-btn-secondary flex items-center gap-1.5 border-app-accent/20 px-3 py-1.5 text-xs font-black text-app-accent hover:bg-app-accent hover:text-white disabled:opacity-50">
-                  <Eye size={12} />View
+                <button
+                  type="button"
+                  disabled={reportOutputBusy || !selectedSummary}
+                  onClick={() => void handleReportOutput("preview")}
+                  className="ui-btn-secondary flex items-center gap-1.5 border-app-accent/20 px-3 py-1.5 text-xs font-black text-app-accent hover:bg-app-accent hover:text-white disabled:opacity-50"
+                >
+                  <Eye size={12} />
+                  View
                 </button>
-                <button type="button" disabled={reportOutputBusy || !selectedSummary} onClick={() => void handleReportOutput("print")} className="ui-btn-secondary flex items-center gap-1.5 border-app-success/20 px-3 py-1.5 text-xs font-black text-app-success hover:bg-app-success hover:text-white disabled:opacity-50">
-                  <Printer size={12} />Print
+                <button
+                  type="button"
+                  disabled={reportOutputBusy || !selectedSummary}
+                  onClick={() => void handleReportOutput("print")}
+                  className="ui-btn-secondary flex items-center gap-1.5 border-app-success/20 px-3 py-1.5 text-xs font-black text-app-success hover:bg-app-success hover:text-white disabled:opacity-50"
+                >
+                  <Printer size={12} />
+                  Print
                 </button>
-                <button type="button" disabled={reportOutputBusy || !selectedSummary} onClick={() => void handleExportCSV()} className="ui-btn-secondary flex items-center gap-1.5 border-app-border px-3 py-1.5 text-xs font-black text-app-text hover:bg-app-surface disabled:opacity-50">
-                  <Download size={12} />CSV
+                <button
+                  type="button"
+                  disabled={reportOutputBusy || !selectedSummary}
+                  onClick={() => void handleExportCSV()}
+                  className="ui-btn-secondary flex items-center gap-1.5 border-app-border px-3 py-1.5 text-xs font-black text-app-text hover:bg-app-surface disabled:opacity-50"
+                >
+                  <Download size={12} />
+                  CSV
                 </button>
               </div>
 
@@ -1690,28 +2158,42 @@ export default function RegisterReports({
                 <div className="ui-panel ui-tint-info p-3">
                   <div className="mb-2 flex items-center gap-1.5">
                     <CloudSun className="h-3 w-3 text-app-info" />
-                    <span className="text-xs font-bold text-app-info">Weather</span>
+                    <span className="text-xs font-bold text-app-info">
+                      Weather
+                    </span>
                     <span className="text-[10px] font-bold uppercase tracking-wider text-app-text-muted">
                       {weatherDays[0]?.source}
                     </span>
                   </div>
                   <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                     {weatherDays.slice(0, 6).map((day) => (
-                      <div key={day.date} className="ui-metric-cell ui-tint-info p-2">
-                        <div className="text-xs font-bold text-app-text-muted">{day.date}</div>
-                        <p className="mt-1 text-base font-black text-app-text">{day.condition}</p>
+                      <div
+                        key={day.date}
+                        className="ui-metric-cell ui-tint-info p-2"
+                      >
+                        <div className="text-xs font-bold text-app-text-muted">
+                          {day.date}
+                        </div>
+                        <p className="mt-1 text-base font-black text-app-text">
+                          {day.condition}
+                        </p>
                         <p className="mt-1 text-xs font-semibold text-app-text-muted">
-                          High {formatWeatherNumber(day.temp_high, 0)}° · Low {formatWeatherNumber(day.temp_low, 0)}° · Rain {formatWeatherNumber(day.precipitation_inches, 2)} in
+                          High {formatWeatherNumber(day.temp_high, 0)}° · Low{" "}
+                          {formatWeatherNumber(day.temp_low, 0)}° · Rain{" "}
+                          {formatWeatherNumber(day.precipitation_inches, 2)} in
                         </p>
                       </div>
                     ))}
                   </div>
                   {weatherDays.length > 6 ? (
                     <p className="mt-2 text-xs font-semibold text-app-text-muted">
-                      Showing first 6 weather days. Use Back Office Reports for the full date range.
+                      Showing first 6 weather days. Use Back Office Reports for
+                      the full date range.
                     </p>
                   ) : weatherSummaryLabel ? (
-                    <p className="mt-2 text-xs font-semibold text-app-text-muted">{weatherSummaryLabel}</p>
+                    <p className="mt-2 text-xs font-semibold text-app-text-muted">
+                      {weatherSummaryLabel}
+                    </p>
                   ) : null}
                 </div>
               ) : null}
@@ -1721,53 +2203,102 @@ export default function RegisterReports({
                 <div className="ui-panel ui-tint-success p-3">
                   <div className="flex items-center gap-1.5 mb-2">
                     <DollarSign className="h-3 w-3 text-app-success" />
-	                    <span className="text-xs font-bold text-app-success">Booked Sales</span>
+                    <span className="text-xs font-bold text-app-success">
+                      Booked Sales
+                    </span>
                   </div>
                   <div className="grid grid-cols-4 gap-2">
                     <div className="ui-metric-cell ui-tint-success p-2">
-	                      <div className="text-xs font-bold text-app-success">Sales</div>
-                      <p className="text-lg font-black text-app-text">{summaryBooked.sales_count}</p>
+                      <div className="text-xs font-bold text-app-success">
+                        Sales
+                      </div>
+                      <p className="text-lg font-black text-app-text">
+                        {summaryBooked.sales_count}
+                      </p>
                     </div>
                     <div className="ui-metric-cell ui-tint-success p-2">
-	                      <div className="text-xs font-bold text-app-success">Sales Total</div>
-                      <p className="text-lg font-black text-app-text">${centsToFixed2(parseMoneyToCents(summaryBooked.sales_subtotal_no_tax))}</p>
+                      <div className="text-xs font-bold text-app-success">
+                        Sales Total
+                      </div>
+                      <p className="text-lg font-black text-app-text">
+                        $
+                        {centsToFixed2(
+                          parseMoneyToCents(
+                            summaryBooked.sales_subtotal_no_tax,
+                          ),
+                        )}
+                      </p>
                     </div>
                     <div className="ui-metric-cell ui-tint-warning p-2">
-	                      <div className="text-xs font-bold text-app-warning">Tax</div>
-                      <p className="text-lg font-black text-app-text">${centsToFixed2(parseMoneyToCents(summaryBooked.sales_tax_total))}</p>
+                      <div className="text-xs font-bold text-app-warning">
+                        Tax
+                      </div>
+                      <p className="text-lg font-black text-app-text">
+                        $
+                        {centsToFixed2(
+                          parseMoneyToCents(summaryBooked.sales_tax_total),
+                        )}
+                      </p>
                     </div>
                     <div className="ui-metric-cell ui-tint-danger p-2">
-	                      <div className="text-xs font-bold text-app-danger">Credit Card Total</div>
-                      <p className="text-lg font-black text-app-text" title={summaryBooked.activities_has_more ? "Load all activity to calculate this filtered detail." : undefined}>
-                        {summaryBooked.activities_has_more ? "—" : `$${centsToFixed2(activityCreditCardTotalCents(summaryBooked.activities))}`}
+                      <div className="text-xs font-bold text-app-danger">
+                        Credit Card Total
+                      </div>
+                      <p
+                        className="text-lg font-black text-app-text"
+                        title={
+                          summaryBooked.activities_has_more
+                            ? "Load all activity to calculate this filtered detail."
+                            : undefined
+                        }
+                      >
+                        {summaryBooked.activities_has_more
+                          ? "—"
+                          : `$${centsToFixed2(activityCreditCardTotalCents(summaryBooked.activities))}`}
                       </p>
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-2 mt-2">
                     <div className="ui-metric-cell ui-tint-neutral p-2">
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-app-text-muted">Shipping</span>
-                        <span className="text-lg font-black text-app-text">${summaryBooked.shipping_total}</span>
+                        <span className="text-xs font-bold text-app-text-muted">
+                          Shipping
+                        </span>
+                        <span className="text-lg font-black text-app-text">
+                          ${summaryBooked.shipping_total}
+                        </span>
                       </div>
                     </div>
                     <div className="ui-metric-cell ui-tint-neutral p-2">
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-app-text-muted">Alterations</span>
-                        <span className="text-lg font-black text-app-text">${summaryBooked.alterations_total}</span>
+                        <span className="text-xs font-bold text-app-text-muted">
+                          Alterations
+                        </span>
+                        <span className="text-lg font-black text-app-text">
+                          ${summaryBooked.alterations_total}
+                        </span>
                       </div>
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-2 mt-2">
                     <div className="ui-metric-cell ui-tint-info p-2">
                       <div className="flex items-center justify-between">
-	                        <span className="text-xs font-bold text-app-info">Cash Taken</span>
-                        <span className="text-lg font-black text-app-text">${summaryBooked.cash_collected}</span>
+                        <span className="text-xs font-bold text-app-info">
+                          Cash Taken
+                        </span>
+                        <span className="text-lg font-black text-app-text">
+                          ${summaryBooked.cash_collected}
+                        </span>
                       </div>
                     </div>
                     <div className="ui-metric-cell ui-tint-success p-2">
                       <div className="flex items-center justify-between">
-	                        <span className="text-xs font-bold text-app-success">Deposits Taken</span>
-                        <span className="text-lg font-black text-app-text">${summaryBooked.deposits_collected}</span>
+                        <span className="text-xs font-bold text-app-success">
+                          Deposits Taken
+                        </span>
+                        <span className="text-lg font-black text-app-text">
+                          ${summaryBooked.deposits_collected}
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -1779,37 +2310,67 @@ export default function RegisterReports({
                 <div className="ui-panel ui-tint-info p-3">
                   <div className="flex items-center gap-1.5 mb-2">
                     <Truck className="h-3 w-3 text-app-info" />
-	                    <span className="text-xs font-bold text-app-info">Completed</span>
+                    <span className="text-xs font-bold text-app-info">
+                      Completed
+                    </span>
                   </div>
                   <div className="grid grid-cols-4 gap-2">
                     <div className="ui-metric-cell ui-tint-info p-2">
-	                      <div className="text-xs font-bold text-app-info">Orders</div>
-                      <p className="text-lg font-black text-app-text">{summary.pickup_count || 0}</p>
+                      <div className="text-xs font-bold text-app-info">
+                        Orders
+                      </div>
+                      <p className="text-lg font-black text-app-text">
+                        {summary.pickup_count || 0}
+                      </p>
                     </div>
                     <div className="ui-metric-cell ui-tint-info p-2">
-	                      <div className="text-xs font-bold text-app-info">Revenue</div>
-                      <p className="text-lg font-black text-app-text">${centsToFixed2(parseMoneyToCents(summary.sales_subtotal_no_tax))}</p>
+                      <div className="text-xs font-bold text-app-info">
+                        Revenue
+                      </div>
+                      <p className="text-lg font-black text-app-text">
+                        $
+                        {centsToFixed2(
+                          parseMoneyToCents(summary.sales_subtotal_no_tax),
+                        )}
+                      </p>
                     </div>
                     <div className="ui-metric-cell ui-tint-info p-2">
-	                      <div className="text-xs font-bold text-app-info">Tax</div>
-                      <p className="text-lg font-black text-app-text">${centsToFixed2(parseMoneyToCents(summary.sales_tax_total))}</p>
+                      <div className="text-xs font-bold text-app-info">Tax</div>
+                      <p className="text-lg font-black text-app-text">
+                        $
+                        {centsToFixed2(
+                          parseMoneyToCents(summary.sales_tax_total),
+                        )}
+                      </p>
                     </div>
                     <div className="ui-metric-cell ui-tint-success p-2">
-	                      <div className="text-xs font-bold text-app-success">Net</div>
-                      <p className="text-lg font-black text-app-text">${centsToFixed2(parseMoneyToCents(summary.net_sales))}</p>
+                      <div className="text-xs font-bold text-app-success">
+                        Net
+                      </div>
+                      <p className="text-lg font-black text-app-text">
+                        ${centsToFixed2(parseMoneyToCents(summary.net_sales))}
+                      </p>
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-2 mt-2">
                     <div className="ui-metric-cell ui-tint-neutral p-2">
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-app-text-muted">Shipping</span>
-                        <span className="text-lg font-black text-app-text">${summary.shipping_total}</span>
+                        <span className="text-xs font-bold text-app-text-muted">
+                          Shipping
+                        </span>
+                        <span className="text-lg font-black text-app-text">
+                          ${summary.shipping_total}
+                        </span>
                       </div>
                     </div>
                     <div className="ui-metric-cell ui-tint-neutral p-2">
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-app-text-muted">Alterations</span>
-                        <span className="text-lg font-black text-app-text">${summary.alterations_total}</span>
+                        <span className="text-xs font-bold text-app-text-muted">
+                          Alterations
+                        </span>
+                        <span className="text-lg font-black text-app-text">
+                          ${summary.alterations_total}
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -1818,65 +2379,118 @@ export default function RegisterReports({
 
               {/* Additional Metrics - Compact */}
               <div className="grid grid-cols-4 gap-2">
-	                <div className="ui-metric-cell ui-tint-neutral p-2">
-		                  <div className="flex items-center gap-1 text-xs font-bold text-app-text-muted"><Package className="h-3 w-3" />New Orders</div>
-	                  <p className="text-base font-black">{summaryBooked ? summaryBooked.special_order_sale_count : "—"}</p>
-	                </div>
-	                <div className="ui-metric-cell ui-tint-info p-2">
-		                  <div className="flex items-center gap-1 text-xs font-bold text-app-text-muted"><Truck className="h-3 w-3" />Orders Picked Up</div>
-	                  <p className="text-base font-black">{summaryBooked ? summaryBooked.pickup_count : "—"}</p>
-	                </div>
-	                <div className="ui-metric-cell ui-tint-accent p-2">
-		                  <div className="flex items-center gap-1 text-xs font-bold text-app-text-muted"><DollarSign className="h-3 w-3" />RMS Payments</div>
-	                  <p className="text-base font-black">{!summaryBooked || summaryBooked.activities_has_more ? "—" : `$${centsToFixed2(activityRmsPaymentTotalCents(summaryBooked.activities))}`}</p>
-	                </div>
-	                <div className="ui-metric-cell ui-tint-warning p-2">
-		                  <div className="flex items-center gap-1 text-xs font-bold text-app-text-muted"><DollarSign className="h-3 w-3" />RMS Charge</div>
-	                  <p className="text-base font-black">{!summaryBooked || summaryBooked.activities_has_more ? "—" : `$${centsToFixed2(activityRmsChargeTotalCents(summaryBooked.activities))}`}</p>
-	                </div>
-	                <div className="ui-metric-cell ui-tint-neutral p-2">
-		                  <div className="flex items-center gap-1 text-xs font-bold text-app-text-muted"><Clock className="h-3 w-3" />New Appts</div>
-	                  <p className="text-base font-black">{summaryBooked ? summaryBooked.new_appointment_count : "—"}</p>
-	                </div>
-	                <div className="ui-metric-cell ui-tint-neutral p-2">
-		                  <div className="flex items-center gap-1 text-xs font-bold text-app-text-muted"><Package className="h-3 w-3" />New Layaways</div>
-	                  <p className="text-base font-black">{!summaryBooked || summaryBooked.activities_has_more ? "—" : activityNewLayawayCount(summaryBooked.activities)}</p>
-	                </div>
-                <div className="ui-metric-cell ui-tint-info p-2">
-	                  <div className="flex items-center gap-1 text-xs font-bold text-app-text-muted"><Truck className="h-3 w-3" />Picked Up $</div>
+                <div className="ui-metric-cell ui-tint-neutral p-2">
+                  <div className="flex items-center gap-1 text-xs font-bold text-app-text-muted">
+                    <Package className="h-3 w-3" />
+                    New Orders
+                  </div>
                   <p className="text-base font-black">
-	                    {!summaryBooked || summaryBooked.pickups_has_more
-	                      ? "—"
-	                      : `$${centsToFixed2(activityPickupTotalCents(summaryBooked.pickups_today))} (${summaryBooked.pickups_total_count ?? summaryBooked.pickups_today?.length ?? 0})`}
+                    {summaryBooked
+                      ? summaryBooked.special_order_sale_count
+                      : "—"}
+                  </p>
+                </div>
+                <div className="ui-metric-cell ui-tint-info p-2">
+                  <div className="flex items-center gap-1 text-xs font-bold text-app-text-muted">
+                    <Truck className="h-3 w-3" />
+                    Orders Picked Up
+                  </div>
+                  <p className="text-base font-black">
+                    {summaryBooked ? summaryBooked.pickup_count : "—"}
+                  </p>
+                </div>
+                <div className="ui-metric-cell ui-tint-accent p-2">
+                  <div className="flex items-center gap-1 text-xs font-bold text-app-text-muted">
+                    <DollarSign className="h-3 w-3" />
+                    RMS Payments
+                  </div>
+                  <p className="text-base font-black">
+                    {!summaryBooked || summaryBooked.activities_has_more
+                      ? "—"
+                      : `$${centsToFixed2(activityRmsPaymentTotalCents(summaryBooked.activities))}`}
                   </p>
                 </div>
                 <div className="ui-metric-cell ui-tint-warning p-2">
-	                  <div className="flex items-center gap-1 text-xs font-bold text-app-text-muted"><DollarSign className="h-3 w-3" />Discounts</div>
+                  <div className="flex items-center gap-1 text-xs font-bold text-app-text-muted">
+                    <DollarSign className="h-3 w-3" />
+                    RMS Charge
+                  </div>
                   <p className="text-base font-black">
-	                    {!summaryBooked || summaryBooked.activities_has_more
-	                      ? "—"
-	                      : `$${centsToFixed2(activityDiscountTotalCents(summaryBooked.activities))} (${activityDiscountTransactionCount(summaryBooked.activities)})`}
+                    {!summaryBooked || summaryBooked.activities_has_more
+                      ? "—"
+                      : `$${centsToFixed2(activityRmsChargeTotalCents(summaryBooked.activities))}`}
+                  </p>
+                </div>
+                <div className="ui-metric-cell ui-tint-neutral p-2">
+                  <div className="flex items-center gap-1 text-xs font-bold text-app-text-muted">
+                    <Clock className="h-3 w-3" />
+                    New Appts
+                  </div>
+                  <p className="text-base font-black">
+                    {summaryBooked ? summaryBooked.new_appointment_count : "—"}
+                  </p>
+                </div>
+                <div className="ui-metric-cell ui-tint-neutral p-2">
+                  <div className="flex items-center gap-1 text-xs font-bold text-app-text-muted">
+                    <Package className="h-3 w-3" />
+                    New Layaways
+                  </div>
+                  <p className="text-base font-black">
+                    {!summaryBooked || summaryBooked.activities_has_more
+                      ? "—"
+                      : activityNewLayawayCount(summaryBooked.activities)}
+                  </p>
+                </div>
+                <div className="ui-metric-cell ui-tint-info p-2">
+                  <div className="flex items-center gap-1 text-xs font-bold text-app-text-muted">
+                    <Truck className="h-3 w-3" />
+                    Picked Up $
+                  </div>
+                  <p className="text-base font-black">
+                    {!summaryBooked || summaryBooked.pickups_has_more
+                      ? "—"
+                      : `$${centsToFixed2(activityPickupTotalCents(summaryBooked.pickups_today))} (${summaryBooked.pickups_total_count ?? summaryBooked.pickups_today?.length ?? 0})`}
+                  </p>
+                </div>
+                <div className="ui-metric-cell ui-tint-warning p-2">
+                  <div className="flex items-center gap-1 text-xs font-bold text-app-text-muted">
+                    <DollarSign className="h-3 w-3" />
+                    Discounts
+                  </div>
+                  <p className="text-base font-black">
+                    {!summaryBooked || summaryBooked.activities_has_more
+                      ? "—"
+                      : `$${centsToFixed2(activityDiscountTotalCents(summaryBooked.activities))} (${activityDiscountTransactionCount(summaryBooked.activities)})`}
                   </p>
                 </div>
               </div>
               {/* Combined Totals Placeholder - already handled by individual summary boxes */}
             </div>
-          )
-        )}
+          ))}
 
         {/* Activity View */}
-        {view === "activity" && (
-          loading ? (
+        {view === "activity" &&
+          (loading ? (
             <div className="flex flex-1 items-center justify-center py-20">
               <Loader2 className="h-9 w-9 animate-spin text-app-accent" />
             </div>
           ) : error ? (
             <div className="flex flex-1 flex-col items-center justify-center p-8 text-center">
               <p className="font-bold text-app-text">{error}</p>
-              <button type="button" onClick={() => void loadSummaries()} className="mt-4 text-sm font-bold text-app-accent hover:underline">Try again</button>
+              <button
+                type="button"
+                onClick={() => void loadSummaries()}
+                className="mt-4 text-sm font-bold text-app-accent hover:underline"
+              >
+                Try again
+              </button>
             </div>
-          ) : activitySourceCount === 0 && pickupSourceCount === 0 && !debouncedActivitySearch ? (
-            <div className="flex flex-1 flex-col items-center justify-center py-20 text-app-text-muted">No activity in this range.</div>
+          ) : activitySourceCount === 0 &&
+            pickupSourceCount === 0 &&
+            !debouncedActivitySearch ? (
+            <div className="flex flex-1 flex-col items-center justify-center py-20 text-app-text-muted">
+              No activity in this range.
+            </div>
           ) : (
             <div className="flex flex-col gap-4 p-3 sm:p-4">
               <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
@@ -1895,205 +2509,308 @@ export default function RegisterReports({
                     aria-label="Search daily sales activity"
                   />
                 </label>
-              <div className="flex justify-end gap-2">
-                <button type="button" disabled={reportOutputBusy || !selectedSummary} onClick={() => void handleReportOutput("preview")} className="ui-btn-secondary flex items-center gap-2 border-app-accent/20 px-3 py-1.5 text-xs font-black text-app-accent hover:bg-app-accent hover:text-white disabled:opacity-50">
-                  <Eye size={12} />View
-                </button>
-                <button type="button" disabled={reportOutputBusy || !selectedSummary} onClick={() => void handleReportOutput("print")} className="ui-btn-secondary flex items-center gap-2 border-app-success/20 px-3 py-1.5 text-xs font-black text-app-success hover:bg-app-success hover:text-white disabled:opacity-50">
-                  <Printer size={12} />Print
-                </button>
-                <button type="button" disabled={reportOutputBusy || !selectedSummary} onClick={() => void handleExportCSV()} className="ui-btn-secondary flex items-center gap-2 border-app-border px-3 py-1.5 text-xs font-black text-app-text hover:bg-app-surface disabled:opacity-50">
-                  <Download size={12} />Export
-                </button>
+                <div className="flex justify-end gap-2">
+                  <button
+                    type="button"
+                    disabled={reportOutputBusy || !selectedSummary}
+                    onClick={() => void handleReportOutput("preview")}
+                    className="ui-btn-secondary flex items-center gap-2 border-app-accent/20 px-3 py-1.5 text-xs font-black text-app-accent hover:bg-app-accent hover:text-white disabled:opacity-50"
+                  >
+                    <Eye size={12} />
+                    View
+                  </button>
+                  <button
+                    type="button"
+                    disabled={reportOutputBusy || !selectedSummary}
+                    onClick={() => void handleReportOutput("print")}
+                    className="ui-btn-secondary flex items-center gap-2 border-app-success/20 px-3 py-1.5 text-xs font-black text-app-success hover:bg-app-success hover:text-white disabled:opacity-50"
+                  >
+                    <Printer size={12} />
+                    Print
+                  </button>
+                  <button
+                    type="button"
+                    disabled={reportOutputBusy || !selectedSummary}
+                    onClick={() => void handleExportCSV()}
+                    className="ui-btn-secondary flex items-center gap-2 border-app-border px-3 py-1.5 text-xs font-black text-app-text hover:bg-app-surface disabled:opacity-50"
+                  >
+                    <Download size={12} />
+                    Export
+                  </button>
+                </div>
+                <p className="text-xs font-semibold text-app-text-muted">
+                  Showing {selectedSummary?.activities.length ?? 0} of{" "}
+                  {activitySourceCount} matching activity records
+                  {pickupSourceCount > 0
+                    ? ` and ${selectedSummary?.pickups_today?.length ?? 0} of ${pickupSourceCount} pickups`
+                    : ""}
+                  .
+                </p>
               </div>
-              <p className="text-xs font-semibold text-app-text-muted">
-                Showing {selectedSummary?.activities.length ?? 0} of {activitySourceCount} matching activity records
-                {pickupSourceCount > 0 ? ` and ${selectedSummary?.pickups_today?.length ?? 0} of ${pickupSourceCount} pickups` : ""}.
-              </p>
-              </div>
-              {groupedActivities.length === 0 && filteredPickupsToday.length === 0 ? (
+              {groupedActivities.length === 0 &&
+              filteredPickupsToday.length === 0 ? (
                 <div className="flex flex-1 flex-col items-center justify-center py-20 text-app-text-muted">
                   No daily sales activity matches this search.
                 </div>
               ) : (
                 <>
-                {groupedActivities.map((group) => (
-                <div key={group.date} className="flex flex-col gap-2">
-                  <div className="flex items-center justify-between border-b border-app-border pb-2">
-                    <div>
-                      <span className="text-xs font-black uppercase tracking-wider text-app-text">{group.label}</span>
-                      <span className="ml-2 text-[10px] text-app-text-muted">({group.count} activity records)</span>
-                    </div>
-                    <div className="text-right">
-                      <span className="text-xs font-black text-app-text-muted">Total: </span>
-                      <span className="text-sm font-black text-app-accent">${group.total_sales}</span>
-                    </div>
-                  </div>
-                  {group.activities.map((row) => (
-                    <div
-                      key={row.id}
-                      className="ui-card ui-tint-neutral group relative mb-4 flex flex-col transition-all"
-                    >
-                      <div className="flex flex-col lg:flex-row lg:items-stretch divide-y lg:divide-y-0 lg:divide-x divide-app-border">
-                        {/* 1. Transaction Overview (Left) */}
-                        <div className="flex flex-col justify-between bg-app-surface-2/60 p-5 lg:w-1/4">
-                          <div>
-                            <div className="flex items-center gap-2 mb-3">
-                               <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ring-1 shadow-sm ${kindPill(row.kind)}`}>
-                                 {row.title}
-                               </span>
-                               <span className="text-[10px] font-bold text-app-text-muted flex items-center gap-1 opacity-60">
-                                 <Clock size={10} />
-                                 {new Date(row.occurred_at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
-                               </span>
-                            </div>
-                            <div className="flex flex-col gap-1">
-                               {activityCustomer(row) && onOpenCustomerHub ? (
-                                 <button
-                                   type="button"
-                                   onClick={(e) => {
-                                     e.stopPropagation();
-                                     const customer = activityCustomer(row);
-                                     if (customer) onOpenCustomerHub(customer);
-                                   }}
-                                   className="group/customer flex min-w-0 items-start gap-2 text-left text-base font-black tracking-tight text-app-text transition-colors hover:text-app-accent"
-                                 >
-                                   <User size={16} className="mt-0.5 shrink-0 text-app-text-muted opacity-30" />
-                                   <span className="truncate underline-offset-4 group-hover/customer:underline">
-                                     {row.customer_name || "Walk-in Customer"}
-                                   </span>
-                                 </button>
-                               ) : (
-                                 <h4 className="text-base font-black text-app-text tracking-tight flex items-start gap-2">
-                                   <User size={16} className="text-app-text-muted opacity-30 mt-0.5 shrink-0" />
-                                   <span className="truncate">{row.customer_name || "Walk-in Customer"}</span>
-                                 </h4>
-                               )}
-                               <div className="flex flex-wrap items-center gap-1.5 mt-1">
-	                                 {row.customer_code && (activityCustomer(row) && onOpenCustomerHub ? (
-                                     <button
-                                       type="button"
-                                       onClick={(e) => {
-                                         e.stopPropagation();
-                                         const customer = activityCustomer(row);
-                                         if (customer) onOpenCustomerHub(customer);
-                                       }}
-                                       className="ui-pill bg-app-surface-3 text-xs font-bold text-app-text-muted transition-colors hover:bg-app-accent/10 hover:text-app-accent"
-                                     >
-                                       #{row.customer_code}
-                                     </button>
-                                   ) : (
-                                     <span className="ui-pill bg-app-surface-3 text-xs font-bold text-app-text-muted">#{row.customer_code}</span>
-                                   ))}
-                                 {row.wedding_party_name && (
-                                   <button
-                                     type="button"
-                                     onClick={(e) => {
-                                       e.stopPropagation();
-                                       if (row.wedding_party_id && onOpenWeddingParty) onOpenWeddingParty(row.wedding_party_id);
-                                     }}
-	                                     className="flex min-h-8 items-center gap-1 rounded bg-app-danger/6 px-2 py-0.5 text-xs font-bold text-app-danger ring-1 ring-app-danger/20 transition-colors hover:bg-app-danger/10"
-                                   >
-                                     <Heart size={10} /> {row.wedding_party_name}
-                                   </button>
-                                 )}
-                               </div>
-                               <div className="mt-3 flex items-center gap-1.5 flex-wrap">
-                                  <span className="font-mono text-[10px] font-black text-app-text uppercase tracking-tighter bg-app-surface-2 px-1.5 py-0.5 rounded">
-                                    {row.short_id ? `Transaction ${row.short_id}` : `#${activityTransactionId(row)?.slice(0, 8)}`}
-                                  </span>
-                                  {row.imported_at && (
-                                    <span className="rounded bg-app-info/10 px-1.5 py-0.5 text-xs font-bold leading-none text-app-info">
-                                      Imported at {new Date(row.imported_at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
-                                    </span>
-                                  )}
-                                  {activityFulfillmentLabel(row) && (
-                                    <span className="rounded bg-app-warning/10 px-1.5 py-0.5 text-xs font-bold leading-none text-app-warning">
-                                      {activityFulfillmentLabel(row)}
-                                    </span>
-                                  )}
-	                                  {row.channel === 'web' && <span className="flex items-center gap-1 rounded bg-app-info/10 px-1.5 py-0.5 text-xs font-bold leading-none text-app-info"><Globe size={10}/> Online</span>}
-                               </div>
-                            </div>
-                          </div>
-
-                          <div className="mt-4 grid gap-2 border-t border-app-border/40 pt-4">
-	                             <button type="button" onClick={() => {
-                                const transactionId = activityTransactionId(row);
-                                if (transactionId) setReceiptOrderId(transactionId);
-                              }} disabled={!activityTransactionId(row)} className="ui-btn-secondary flex min-h-11 w-full items-center justify-center gap-2 py-2 text-sm font-bold shadow-sm transition-all hover:bg-app-accent hover:text-white disabled:cursor-not-allowed disabled:opacity-40">
-                                <Receipt size={14} />
-                                Receipt
-                             </button>
-                             <button
-                               type="button"
-                               onClick={() => {
-                                 const transactionId = activityTransactionId(row);
-                                 if (transactionId) setDetailOrderId(transactionId);
-                               }}
-                               disabled={!activityTransactionId(row)}
-                               className="ui-btn-secondary flex min-h-11 w-full items-center justify-center gap-2 py-2 text-sm font-bold shadow-sm transition-all hover:bg-app-accent hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-                             >
-                               <Search size={14} /> Detail
-                             </button>
-                             {(() => {
-                                const transactionId = activityTransactionId(row);
-                                if (row.kind === "payment") return null;
-                                const canVoid = isBookedToday(row.occurred_at) && isBeforeBatchCloseout();
-                                return canVoid ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      const target = activityVoidTarget(row);
-                                      if (target) setVoidTarget(target);
-                                    }}
-                                    disabled={!transactionId}
-                                    className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-app-danger/30 bg-app-danger/10 px-3 py-2 text-sm font-black text-app-danger shadow-sm transition-all hover:bg-app-danger hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-                                  >
-                                    <ShieldAlert size={14} /> Void
-                                  </button>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      if (transactionId && onOpenRefundInRegister) {
-                                        onOpenRefundInRegister(transactionId);
-                                      }
-                                    }}
-                                    disabled={!transactionId}
-                                    className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm font-black text-emerald-500 shadow-sm transition-all hover:bg-emerald-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-                                  >
-                                    <RefreshCw size={14} /> Refund
-                                  </button>
-                                );
-                              })()}
-                            </div>
+                  {groupedActivities.map((group) => (
+                    <div key={group.date} className="flex flex-col gap-2">
+                      <div className="flex items-center justify-between border-b border-app-border pb-2">
+                        <div>
+                          <span className="text-xs font-black uppercase tracking-wider text-app-text">
+                            {group.label}
+                          </span>
+                          <span className="ml-2 text-[10px] text-app-text-muted">
+                            ({group.count} activity records)
+                          </span>
                         </div>
+                        <div className="text-right">
+                          <span className="text-xs font-black text-app-text-muted">
+                            Total:{" "}
+                          </span>
+                          <span className="text-sm font-black text-app-accent">
+                            ${group.total_sales}
+                          </span>
+                        </div>
+                      </div>
+                      {group.activities.map((row) => (
+                        <div
+                          key={row.id}
+                          className="ui-card ui-tint-neutral group relative mb-4 flex flex-col transition-all"
+                        >
+                          <div className="flex flex-col lg:flex-row lg:items-stretch divide-y lg:divide-y-0 lg:divide-x divide-app-border">
+                            {/* 1. Transaction Overview (Left) */}
+                            <div className="flex flex-col justify-between bg-app-surface-2/60 p-5 lg:w-1/4">
+                              <div>
+                                <div className="flex items-center gap-2 mb-3">
+                                  <span
+                                    className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ring-1 shadow-sm ${kindPill(row.kind)}`}
+                                  >
+                                    {row.title}
+                                  </span>
+                                  <span className="text-[10px] font-bold text-app-text-muted flex items-center gap-1 opacity-60">
+                                    <Clock size={10} />
+                                    {new Date(
+                                      row.occurred_at,
+                                    ).toLocaleTimeString(undefined, {
+                                      hour: "2-digit",
+                                      minute: "2-digit",
+                                    })}
+                                  </span>
+                                </div>
+                                <div className="flex flex-col gap-1">
+                                  {activityCustomer(row) &&
+                                  onOpenCustomerHub ? (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        const customer = activityCustomer(row);
+                                        if (customer)
+                                          onOpenCustomerHub(customer);
+                                      }}
+                                      className="group/customer flex min-w-0 items-start gap-2 text-left text-base font-black tracking-tight text-app-text transition-colors hover:text-app-accent"
+                                    >
+                                      <User
+                                        size={16}
+                                        className="mt-0.5 shrink-0 text-app-text-muted opacity-30"
+                                      />
+                                      <span className="truncate underline-offset-4 group-hover/customer:underline">
+                                        {row.customer_name ||
+                                          "Walk-in Customer"}
+                                      </span>
+                                    </button>
+                                  ) : (
+                                    <h4 className="text-base font-black text-app-text tracking-tight flex items-start gap-2">
+                                      <User
+                                        size={16}
+                                        className="text-app-text-muted opacity-30 mt-0.5 shrink-0"
+                                      />
+                                      <span className="truncate">
+                                        {row.customer_name ||
+                                          "Walk-in Customer"}
+                                      </span>
+                                    </h4>
+                                  )}
+                                  <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                                    {row.customer_code &&
+                                      (activityCustomer(row) &&
+                                      onOpenCustomerHub ? (
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            const customer =
+                                              activityCustomer(row);
+                                            if (customer)
+                                              onOpenCustomerHub(customer);
+                                          }}
+                                          className="ui-pill bg-app-surface-3 text-xs font-bold text-app-text-muted transition-colors hover:bg-app-accent/10 hover:text-app-accent"
+                                        >
+                                          #{row.customer_code}
+                                        </button>
+                                      ) : (
+                                        <span className="ui-pill bg-app-surface-3 text-xs font-bold text-app-text-muted">
+                                          #{row.customer_code}
+                                        </span>
+                                      ))}
+                                    {row.wedding_party_name && (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          if (
+                                            row.wedding_party_id &&
+                                            onOpenWeddingParty
+                                          )
+                                            onOpenWeddingParty(
+                                              row.wedding_party_id,
+                                            );
+                                        }}
+                                        className="flex min-h-8 items-center gap-1 rounded bg-app-danger/6 px-2 py-0.5 text-xs font-bold text-app-danger ring-1 ring-app-danger/20 transition-colors hover:bg-app-danger/10"
+                                      >
+                                        <Heart size={10} />{" "}
+                                        {row.wedding_party_name}
+                                      </button>
+                                    )}
+                                  </div>
+                                  <div className="mt-3 flex items-center gap-1.5 flex-wrap">
+                                    <span className="font-mono text-[10px] font-black text-app-text uppercase tracking-tighter bg-app-surface-2 px-1.5 py-0.5 rounded">
+                                      {row.short_id
+                                        ? `Transaction ${row.short_id}`
+                                        : `#${activityTransactionId(row)?.slice(0, 8)}`}
+                                    </span>
+                                    {row.imported_at && (
+                                      <span className="rounded bg-app-info/10 px-1.5 py-0.5 text-xs font-bold leading-none text-app-info">
+                                        Imported at{" "}
+                                        {new Date(
+                                          row.imported_at,
+                                        ).toLocaleTimeString(undefined, {
+                                          hour: "2-digit",
+                                          minute: "2-digit",
+                                        })}
+                                      </span>
+                                    )}
+                                    {activityFulfillmentLabel(row) && (
+                                      <span className="rounded bg-app-warning/10 px-1.5 py-0.5 text-xs font-bold leading-none text-app-warning">
+                                        {activityFulfillmentLabel(row)}
+                                      </span>
+                                    )}
+                                    {row.channel === "web" && (
+                                      <span className="flex items-center gap-1 rounded bg-app-info/10 px-1.5 py-0.5 text-xs font-bold leading-none text-app-info">
+                                        <Globe size={10} /> Online
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
 
-                        {/* 2. Items Ledger (Middle) */}
-                        <div className="p-5 flex-1 lg:max-w-xl">
-                           <div className="mb-3 flex items-center justify-between">
-	                              <h5 className="text-sm font-black text-app-text-muted">Line Items</h5>
-	                              <span className="text-xs font-semibold text-app-text-muted opacity-70">({row.items?.length || 0} units)</span>
-                           </div>
-                           <table className="w-full text-left">
-                              <thead>
-	                                 <tr className="border-b border-app-border/40 pb-2 text-xs font-bold text-app-text-muted">
+                              <div className="mt-4 grid gap-2 border-t border-app-border/40 pt-4">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const transactionId =
+                                      activityTransactionId(row);
+                                    if (transactionId)
+                                      setReceiptOrderId(transactionId);
+                                  }}
+                                  disabled={!activityTransactionId(row)}
+                                  className="ui-btn-secondary flex min-h-11 w-full items-center justify-center gap-2 py-2 text-sm font-bold shadow-sm transition-all hover:bg-app-accent hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                                >
+                                  <Receipt size={14} />
+                                  Receipt
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const transactionId =
+                                      activityTransactionId(row);
+                                    if (transactionId)
+                                      setDetailOrderId(transactionId);
+                                  }}
+                                  disabled={!activityTransactionId(row)}
+                                  className="ui-btn-secondary flex min-h-11 w-full items-center justify-center gap-2 py-2 text-sm font-bold shadow-sm transition-all hover:bg-app-accent hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                                >
+                                  <Search size={14} /> Detail
+                                </button>
+                                {(() => {
+                                  const transactionId =
+                                    activityTransactionId(row);
+                                  if (row.kind === "payment") return null;
+                                  const canVoid =
+                                    isBookedToday(row.occurred_at) &&
+                                    isBeforeBatchCloseout();
+                                  return canVoid ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const target = activityVoidTarget(row);
+                                        if (target) setVoidTarget(target);
+                                      }}
+                                      disabled={!transactionId}
+                                      className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-app-danger/30 bg-app-danger/10 px-3 py-2 text-sm font-black text-app-danger shadow-sm transition-all hover:bg-app-danger hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                                    >
+                                      <ShieldAlert size={14} /> Void
+                                    </button>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        if (
+                                          transactionId &&
+                                          onOpenRefundInRegister
+                                        ) {
+                                          onOpenRefundInRegister(transactionId);
+                                        }
+                                      }}
+                                      disabled={!transactionId}
+                                      className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm font-black text-emerald-500 shadow-sm transition-all hover:bg-emerald-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                                    >
+                                      <RefreshCw size={14} /> Refund
+                                    </button>
+                                  );
+                                })()}
+                              </div>
+                            </div>
+
+                            {/* 2. Items Ledger (Middle) */}
+                            <div className="p-5 flex-1 lg:max-w-xl">
+                              <div className="mb-3 flex items-center justify-between">
+                                <h5 className="text-sm font-black text-app-text-muted">
+                                  Line Items
+                                </h5>
+                                <span className="text-xs font-semibold text-app-text-muted opacity-70">
+                                  ({row.items?.length || 0} units)
+                                </span>
+                              </div>
+                              <table className="w-full text-left">
+                                <thead>
+                                  <tr className="border-b border-app-border/40 pb-2 text-xs font-bold text-app-text-muted">
                                     <th className="pb-2">Description / SKU</th>
                                     <th className="pb-2 text-center">Qty</th>
                                     <th className="pb-2 text-center">Reg</th>
                                     <th className="pb-2 text-center">Sale</th>
-                                    <th className="pb-2 text-right">Fulfillment</th>
-                                 </tr>
-                              </thead>
-                              <tbody className="divide-y divide-app-border/20">
-                                 {row.items?.map((it, i) => {
-                                  const lineKindLabel = registerLineKindLabel(it.line_kind);
-                                  return (
-                                    <tr key={i} className="text-[11px] hover:bg-app-surface-2/30 transition-colors">
-                                       <td className="py-2.5 pr-4">
-                                          <div className="font-black text-app-text leading-snug">{it.name}</div>
-	                                          <div className="mt-0.5 flex flex-wrap items-center gap-1.5 font-mono text-xs text-app-text-muted opacity-70">
+                                    <th className="pb-2 text-right">
+                                      Fulfillment
+                                    </th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-app-border/20">
+                                  {row.items?.map((it, i) => {
+                                    const lineKindLabel = registerLineKindLabel(
+                                      it.line_kind,
+                                    );
+                                    return (
+                                      <tr
+                                        key={i}
+                                        className="text-[11px] hover:bg-app-surface-2/30 transition-colors"
+                                      >
+                                        <td className="py-2.5 pr-4">
+                                          <div className="font-black text-app-text leading-snug">
+                                            {it.name}
+                                          </div>
+                                          <div className="mt-0.5 flex flex-wrap items-center gap-1.5 font-mono text-xs text-app-text-muted opacity-70">
                                             <span>{it.sku}</span>
                                             {lineKindLabel ? (
                                               <span className="rounded bg-app-info/10 px-1.5 py-0.5 font-sans text-[9px] font-black uppercase tracking-widest text-app-info">
@@ -2101,203 +2818,335 @@ export default function RegisterReports({
                                               </span>
                                             ) : null}
                                           </div>
-                                       </td>
-                                       <td className="py-2.5 text-center align-top font-bold text-app-text">{it.quantity}</td>
-                                       <td className="py-2.5 text-center align-top text-app-text-muted/60 line-through font-medium tracking-tighter tabular-nums">${it.reg_price}</td>
-                                       <td className="py-2.5 text-center align-top font-black text-app-text tracking-tighter tabular-nums">${it.price}</td>
-                                       <td className="py-2.5 text-right align-top">
-	                                          <span className={`rounded px-2 py-0.5 text-xs font-bold ${
-                                             it.fulfillment === 'takeaway' ? 'bg-app-warning/10 text-app-warning' :
-                                             it.fulfillment === 'special_order' || it.fulfillment === 'custom' ? 'bg-app-info/10 text-app-info' :
-                                             it.fulfillment === 'layaway' ? 'bg-app-accent/10 text-app-accent' : it.fulfillment === 'pickup' ? 'bg-app-success/10 text-app-success' :
-                                             'bg-app-surface-2 text-app-text-muted font-bold'
-                                          }`}>
-	                                             {it.fulfillment === 'takeaway' ? 'Taken' : it.fulfillment === 'special_order' || it.fulfillment === 'custom' ? 'Ordered' : it.fulfillment === 'layaway' ? 'Layaway' : it.fulfillment === 'pickup' ? 'Pickup' : it.fulfillment || 'Unknown'}
+                                        </td>
+                                        <td className="py-2.5 text-center align-top font-bold text-app-text">
+                                          {it.quantity}
+                                        </td>
+                                        <td className="py-2.5 text-center align-top text-app-text-muted/60 line-through font-medium tracking-tighter tabular-nums">
+                                          ${it.reg_price}
+                                        </td>
+                                        <td className="py-2.5 text-center align-top font-black text-app-text tracking-tighter tabular-nums">
+                                          ${it.price}
+                                        </td>
+                                        <td className="py-2.5 text-right align-top">
+                                          <span
+                                            className={`rounded px-2 py-0.5 text-xs font-bold ${
+                                              it.fulfillment === "takeaway"
+                                                ? "bg-app-warning/10 text-app-warning"
+                                                : it.fulfillment ===
+                                                      "special_order" ||
+                                                    it.fulfillment === "custom"
+                                                  ? "bg-app-info/10 text-app-info"
+                                                  : it.fulfillment === "layaway"
+                                                    ? "bg-app-accent/10 text-app-accent"
+                                                    : it.fulfillment ===
+                                                        "pickup"
+                                                      ? "bg-app-success/10 text-app-success"
+                                                      : "bg-app-surface-2 text-app-text-muted font-bold"
+                                            }`}
+                                          >
+                                            {it.fulfillment === "takeaway"
+                                              ? "Taken"
+                                              : it.fulfillment ===
+                                                    "special_order" ||
+                                                  it.fulfillment === "custom"
+                                                ? "Ordered"
+                                                : it.fulfillment === "layaway"
+                                                  ? "Layaway"
+                                                  : it.fulfillment === "pickup"
+                                                    ? "Pickup"
+                                                    : it.fulfillment ||
+                                                      "Unknown"}
                                           </span>
-                                       </td>
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                  {!row.items?.length && (
+                                    <tr>
+                                      <td
+                                        colSpan={5}
+                                        className="py-8 text-center text-xs italic text-app-text-muted opacity-40"
+                                      >
+                                        No item details recorded for this
+                                        transaction
+                                      </td>
                                     </tr>
-                                  );
-                                 })}
-                                 {!row.items?.length && (
-                                   <tr>
-                                      <td colSpan={5} className="py-8 text-center text-xs italic text-app-text-muted opacity-40">No item details recorded for this transaction</td>
-                                   </tr>
-                                 )}
-                              </tbody>
-                           </table>
-                        </div>
+                                  )}
+                                </tbody>
+                              </table>
+                            </div>
 
-                        {/* 3. Financial Breakdown (Right) */}
-                        <div className="flex flex-col justify-between bg-app-surface-2/60 p-5 lg:w-1/4">
-                           <div className="space-y-3">
-	                              <div className="flex flex-col items-end gap-0.5">
-	                                 <span className="text-xs font-bold text-app-text-muted">Subtotal Before Tax</span>
-	                                 <span className="text-base font-black text-app-text tabular-nums leading-none tracking-tighter">
-	                                   {moneyFromCents(activitySubtotalBeforeTaxCents(row))}
-	                                 </span>
-	                                 {row.tax_total ? (
-	                                   <span className="text-[11px] font-bold text-app-text-muted tabular-nums">
-	                                     Tax {moneyFromValue(row.tax_total)}
-	                                   </span>
-	                                 ) : null}
-	                              </div>
-
-	                              <div className="flex flex-col items-end gap-0.5 pt-2 border-t border-app-border/40">
-		                                 <span className="text-xs font-bold text-app-text-muted">Sales Total (Booked)</span>
-	                                 <span className="text-lg font-black text-app-text tabular-nums leading-none tracking-tighter">
-	                                   {moneyFromValue(row.sales_total || "0.00")}
-	                                 </span>
-	                              </div>
-
-	                              <div className="flex flex-col items-end gap-0.5 pt-2 border-t border-app-border/40">
-	                                 <span className="text-xs font-bold text-app-success">Paid on this Transaction</span>
-                                 <span className="text-base font-black text-app-text tabular-nums leading-none tracking-tighter">
-                                   {moneyFromValue(row.transaction_total || "0.00")}
-                                 </span>
-	                                 <div className="mt-1 flex flex-col items-end gap-0.5 text-xs font-semibold text-app-text-muted opacity-80">
-                                    {row.payments?.length
-                                       ? row.payments.map((payment, idx) => (
-                                          <span key={`${payment.method}-${idx}`} className="inline-flex items-center gap-1 uppercase tracking-tighter tabular-nums">
-                                             {paymentIcon(payment.method)}
-                                             <span>{payment.method} ${payment.amount_label}</span>
-                                          </span>
-                                       ))
-                                       : row.payment_summary && (
-                                          <span className="inline-flex items-center gap-1 uppercase tracking-tighter tabular-nums">
-                                             {paymentIcon(row.payment_summary)}
-                                             <span>{row.payment_summary}</span>
-                                          </span>
-                                       )}
-                                 </div>
-                              </div>
-                              {parseMoneyToCents(row.wedding_deposit_contributions || "0") > 0 ? (
-                                <div className="flex flex-col items-end gap-0.5 border-t border-app-border/40 pt-2">
-                                  <span className="text-xs font-bold text-app-info">Wedding Deposits Placed</span>
+                            {/* 3. Financial Breakdown (Right) */}
+                            <div className="flex flex-col justify-between bg-app-surface-2/60 p-5 lg:w-1/4">
+                              <div className="space-y-3">
+                                <div className="flex flex-col items-end gap-0.5">
+                                  <span className="text-xs font-bold text-app-text-muted">
+                                    Subtotal Before Tax
+                                  </span>
                                   <span className="text-base font-black text-app-text tabular-nums leading-none tracking-tighter">
-                                    {moneyFromValue(row.wedding_deposit_contributions)}
-                                  </span>
-                                  <span className="text-[11px] font-bold text-app-text-muted">
-                                    {row.wedding_deposit_member_count || 0} party member{row.wedding_deposit_member_count === 1 ? "" : "s"} funded
-                                  </span>
-                                  <span className="mt-1 text-[11px] font-black uppercase tracking-wider text-app-text-muted">
-                                    Total tender collected {moneyFromCents(
-                                      parseMoneyToCents(row.transaction_total || "0")
-                                      + parseMoneyToCents(row.wedding_deposit_contributions || "0"),
+                                    {moneyFromCents(
+                                      activitySubtotalBeforeTaxCents(row),
                                     )}
                                   </span>
+                                  {row.tax_total ? (
+                                    <span className="text-[11px] font-bold text-app-text-muted tabular-nums">
+                                      Tax {moneyFromValue(row.tax_total)}
+                                    </span>
+                                  ) : null}
                                 </div>
-                              ) : null}
-                           </div>
 
-                           <div className="mt-6 pt-4 border-t-2 border-app-border flex flex-col items-end">
-	                              <span className="mb-1 text-xs font-bold text-app-text-muted">Balance Due</span>
-                              <span className="text-3xl font-black text-app-accent tabular-nums tracking-tighter leading-none">
-                                 ${row.balance_due || "0.00"}
-                              </span>
-                           </div>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                ))}
-                {filteredPickupsToday.length > 0 && (
-                  <div className="ui-panel ui-tint-success mt-2 flex flex-col gap-3 p-4">
-                    <div className="flex items-center justify-between border-b border-app-border pb-2">
-                      <div>
-                        <span className="text-xs font-black uppercase tracking-wider text-app-success">Pickups Today</span>
-                        <span className="ml-2 text-[10px] text-app-text-muted">({filteredPickupsToday.length} pickup{filteredPickupsToday.length === 1 ? "" : "s"})</span>
-                      </div>
-                    </div>
-                    <div className="divide-y divide-app-border/40">
-                      {filteredPickupsToday.map((pickup) => (
-                        <div key={`pickup-${pickup.id}`} className="grid gap-3 py-3 lg:grid-cols-[220px_1fr]">
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
-                              <Clock size={11} />
-                              {new Date(pickup.occurred_at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
-                            </div>
-                            <div className="mt-1 truncate text-sm font-black text-app-text">
-                              {pickup.customer_name || "Walk-in Customer"}
-                            </div>
-                            <div className="mt-1 flex flex-wrap gap-1.5">
-                              {pickup.customer_code ? (
-                                <span className="ui-pill bg-app-surface-3 text-xs font-bold text-app-text-muted">#{pickup.customer_code}</span>
-                              ) : null}
-                              {pickup.short_id ? (
-                                <span className="ui-pill bg-app-surface-3 font-mono text-xs font-bold text-app-text-muted">{pickup.short_id}</span>
-                              ) : null}
-                            </div>
-                          </div>
-                          <div className="min-w-0">
-                            <div className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Items picked up</div>
-                            <div className="mt-2 flex flex-col gap-1">
-                              {(pickup.items ?? []).map((item, index) => (
-                                <div key={`${pickup.id}-${item.sku}-${index}`} className="flex items-start justify-between gap-3 rounded-lg bg-app-surface-2 px-3 py-2">
-                                  <div className="min-w-0">
-                                    <div className="truncate text-xs font-black text-app-text">{item.name}</div>
-                                    <div className="font-mono text-[10px] text-app-text-muted">{item.sku}</div>
-                                  </div>
-                                  <div className="shrink-0 text-xs font-black text-app-text">x{item.quantity}</div>
+                                <div className="flex flex-col items-end gap-0.5 pt-2 border-t border-app-border/40">
+                                  <span className="text-xs font-bold text-app-text-muted">
+                                    Sales Total (Booked)
+                                  </span>
+                                  <span className="text-lg font-black text-app-text tabular-nums leading-none tracking-tighter">
+                                    {moneyFromValue(row.sales_total || "0.00")}
+                                  </span>
                                 </div>
-                              ))}
-                              {!pickup.items?.length && (
-                                <div className="rounded-lg bg-app-surface-2 px-3 py-2 text-xs text-app-text-muted">No picked-up item details recorded.</div>
-                              )}
+
+                                <div className="flex flex-col items-end gap-0.5 pt-2 border-t border-app-border/40">
+                                  <span className="text-xs font-bold text-app-success">
+                                    Paid on this Transaction
+                                  </span>
+                                  <span className="text-base font-black text-app-text tabular-nums leading-none tracking-tighter">
+                                    {moneyFromValue(
+                                      row.transaction_total || "0.00",
+                                    )}
+                                  </span>
+                                  <div className="mt-1 flex flex-col items-end gap-0.5 text-xs font-semibold text-app-text-muted opacity-80">
+                                    {row.payments?.length
+                                      ? row.payments.map((payment, idx) => (
+                                          <span
+                                            key={`${payment.method}-${idx}`}
+                                            className="inline-flex items-center gap-1 uppercase tracking-tighter tabular-nums"
+                                          >
+                                            {paymentIcon(payment.method)}
+                                            <span>
+                                              {payment.method} $
+                                              {payment.amount_label}
+                                            </span>
+                                          </span>
+                                        ))
+                                      : row.payment_summary && (
+                                          <span className="inline-flex items-center gap-1 uppercase tracking-tighter tabular-nums">
+                                            {paymentIcon(row.payment_summary)}
+                                            <span>{row.payment_summary}</span>
+                                          </span>
+                                        )}
+                                  </div>
+                                </div>
+                                {parseMoneyToCents(
+                                  row.wedding_deposit_contributions || "0",
+                                ) > 0 ? (
+                                  <div className="flex flex-col items-end gap-0.5 border-t border-app-border/40 pt-2">
+                                    <span className="text-xs font-bold text-app-info">
+                                      Wedding Deposits Placed
+                                    </span>
+                                    <span className="text-base font-black text-app-text tabular-nums leading-none tracking-tighter">
+                                      {moneyFromValue(
+                                        row.wedding_deposit_contributions,
+                                      )}
+                                    </span>
+                                    <span className="text-[11px] font-bold text-app-text-muted">
+                                      {row.wedding_deposit_member_count || 0}{" "}
+                                      party member
+                                      {row.wedding_deposit_member_count === 1
+                                        ? ""
+                                        : "s"}{" "}
+                                      funded
+                                    </span>
+                                    <span className="mt-1 text-[11px] font-black uppercase tracking-wider text-app-text-muted">
+                                      Total tender collected{" "}
+                                      {moneyFromCents(
+                                        parseMoneyToCents(
+                                          row.transaction_total || "0",
+                                        ) +
+                                          parseMoneyToCents(
+                                            row.wedding_deposit_contributions ||
+                                              "0",
+                                          ),
+                                      )}
+                                    </span>
+                                  </div>
+                                ) : null}
+                              </div>
+
+                              <div className="mt-6 pt-4 border-t-2 border-app-border flex flex-col items-end">
+                                <span className="mb-1 text-xs font-bold text-app-text-muted">
+                                  Balance Due
+                                </span>
+                                <span className="text-3xl font-black text-app-accent tabular-nums tracking-tighter leading-none">
+                                  ${row.balance_due || "0.00"}
+                                </span>
+                              </div>
                             </div>
                           </div>
                         </div>
                       ))}
                     </div>
-                  </div>
-                )}
+                  ))}
+                  {filteredPickupsToday.length > 0 && (
+                    <div className="ui-panel ui-tint-success mt-2 flex flex-col gap-3 p-4">
+                      <div className="flex items-center justify-between border-b border-app-border pb-2">
+                        <div>
+                          <span className="text-xs font-black uppercase tracking-wider text-app-success">
+                            Pickups Today
+                          </span>
+                          <span className="ml-2 text-[10px] text-app-text-muted">
+                            ({filteredPickupsToday.length} pickup
+                            {filteredPickupsToday.length === 1 ? "" : "s"})
+                          </span>
+                        </div>
+                      </div>
+                      <div className="divide-y divide-app-border/40">
+                        {filteredPickupsToday.map((pickup) => (
+                          <div
+                            key={`pickup-${pickup.id}`}
+                            className="grid gap-3 py-3 lg:grid-cols-[220px_1fr]"
+                          >
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
+                                <Clock size={11} />
+                                {new Date(
+                                  pickup.occurred_at,
+                                ).toLocaleTimeString(undefined, {
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                })}
+                              </div>
+                              <div className="mt-1 truncate text-sm font-black text-app-text">
+                                {pickup.customer_name || "Walk-in Customer"}
+                              </div>
+                              <div className="mt-1 flex flex-wrap gap-1.5">
+                                {pickup.customer_code ? (
+                                  <span className="ui-pill bg-app-surface-3 text-xs font-bold text-app-text-muted">
+                                    #{pickup.customer_code}
+                                  </span>
+                                ) : null}
+                                {pickup.short_id ? (
+                                  <span className="ui-pill bg-app-surface-3 font-mono text-xs font-bold text-app-text-muted">
+                                    {pickup.short_id}
+                                  </span>
+                                ) : null}
+                              </div>
+                            </div>
+                            <div className="min-w-0">
+                              <div className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                                Items picked up
+                              </div>
+                              <div className="mt-2 flex flex-col gap-1">
+                                {(pickup.items ?? []).map((item, index) => (
+                                  <div
+                                    key={`${pickup.id}-${item.sku}-${index}`}
+                                    className="flex items-start justify-between gap-3 rounded-lg bg-app-surface-2 px-3 py-2"
+                                  >
+                                    <div className="min-w-0">
+                                      <div className="truncate text-xs font-black text-app-text">
+                                        {item.name}
+                                      </div>
+                                      <div className="font-mono text-[10px] text-app-text-muted">
+                                        {item.sku}
+                                      </div>
+                                    </div>
+                                    <div className="shrink-0 text-xs font-black text-app-text">
+                                      x{item.quantity}
+                                    </div>
+                                  </div>
+                                ))}
+                                {!pickup.items?.length && (
+                                  <div className="rounded-lg bg-app-surface-2 px-3 py-2 text-xs text-app-text-muted">
+                                    No picked-up item details recorded.
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </>
               )}
-              {(selectedSummary?.activities_has_more || selectedSummary?.pickups_has_more) && (
+              {(selectedSummary?.activities_has_more ||
+                selectedSummary?.pickups_has_more) && (
                 <button
                   type="button"
                   disabled={activityLoadingMore}
                   onClick={() => void loadMoreActivity()}
                   className="ui-btn-secondary mx-auto flex items-center gap-2 px-4 py-2 text-xs font-black disabled:opacity-50"
                 >
-                  {activityLoadingMore ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+                  {activityLoadingMore ? (
+                    <Loader2 size={14} className="animate-spin" />
+                  ) : (
+                    <RefreshCw size={14} />
+                  )}
                   Load more audited activity
                 </button>
               )}
               {/* Grand Total */}
-              {reportBasis === "booked" ? summaryBooked && (
-                <div className="ui-panel ui-tint-success mt-4 flex items-center justify-between px-4 py-3">
-                  <span className="text-sm font-black uppercase text-app-success">Daily Summary ({summaryBooked.activity_total_count ?? summaryBooked.activities.length} activity records)</span>
-                  <div className="text-right">
-                    <span className="text-xs font-black text-app-text-muted">Net Retail: ${centsToFixed2(parseMoneyToCents(summaryBooked.net_sales))}</span>
-                    <span className="mx-2">|</span>
-                    <span className="text-sm font-black text-app-text">Tax: ${centsToFixed2(parseMoneyToCents(summaryBooked.sales_tax_total))}</span>
-                  </div>
-                </div>
-              ) : summary && (
-                <div className="ui-panel ui-tint-info mt-4 flex items-center justify-between px-4 py-3">
-                  <span className="text-sm font-black uppercase text-app-info">Daily Summary ({summary.activity_total_count ?? summary.activities.length} activity records)</span>
-                  <div className="text-right">
-                    <span className="text-xs font-black text-app-text-muted">Net Retail: ${centsToFixed2(parseMoneyToCents(summary.net_sales))}</span>
-                    <span className="mx-2">|</span>
-                    <span className="text-sm font-black text-app-text">Tax: ${centsToFixed2(parseMoneyToCents(summary.sales_tax_total))}</span>
-                  </div>
-                </div>
-              )}
+              {reportBasis === "booked"
+                ? summaryBooked && (
+                    <div className="ui-panel ui-tint-success mt-4 flex items-center justify-between px-4 py-3">
+                      <span className="text-sm font-black uppercase text-app-success">
+                        Daily Summary (
+                        {summaryBooked.activity_total_count ??
+                          summaryBooked.activities.length}{" "}
+                        activity records)
+                      </span>
+                      <div className="text-right">
+                        <span className="text-xs font-black text-app-text-muted">
+                          Net Retail: $
+                          {centsToFixed2(
+                            parseMoneyToCents(summaryBooked.net_sales),
+                          )}
+                        </span>
+                        <span className="mx-2">|</span>
+                        <span className="text-sm font-black text-app-text">
+                          Tax: $
+                          {centsToFixed2(
+                            parseMoneyToCents(summaryBooked.sales_tax_total),
+                          )}
+                        </span>
+                      </div>
+                    </div>
+                  )
+                : summary && (
+                    <div className="ui-panel ui-tint-info mt-4 flex items-center justify-between px-4 py-3">
+                      <span className="text-sm font-black uppercase text-app-info">
+                        Daily Summary (
+                        {summary.activity_total_count ??
+                          summary.activities.length}{" "}
+                        activity records)
+                      </span>
+                      <div className="text-right">
+                        <span className="text-xs font-black text-app-text-muted">
+                          Net Retail: $
+                          {centsToFixed2(parseMoneyToCents(summary.net_sales))}
+                        </span>
+                        <span className="mx-2">|</span>
+                        <span className="text-sm font-black text-app-text">
+                          Tax: $
+                          {centsToFixed2(
+                            parseMoneyToCents(summary.sales_tax_total),
+                          )}
+                        </span>
+                      </div>
+                    </div>
+                  )}
             </div>
-          )
-        )}
+          ))}
 
         {/* Z-Reports View */}
-        {view === "z-reports" && (
-          zLoading ? (
+        {view === "z-reports" &&
+          (zLoading ? (
             <div className="flex flex-1 items-center justify-center py-20">
               <Loader2 className="h-9 w-9 animate-spin text-app-accent" />
             </div>
           ) : (
             <div className="flex flex-col">
               <div className="flex flex-wrap items-center gap-2 border-b border-app-border bg-app-surface-2 px-4 py-3 sm:px-6">
-	                <div className="no-scrollbar flex flex-wrap gap-1 rounded-xl border border-app-border bg-app-surface-2 p-1">
+                <div className="no-scrollbar flex flex-wrap gap-1 rounded-xl border border-app-border bg-app-surface-2 p-1">
                   {[
                     { id: "recent" as const, label: "Recent" },
                     { id: "today" as const, label: "Today" },
@@ -2306,41 +3155,70 @@ export default function RegisterReports({
                     { id: "this_month" as const, label: "Month" },
                     { id: "custom" as const, label: "Custom" },
                   ].map((p) => (
-	                    <button key={p.id} type="button" onClick={() => setZPreset(p.id)} className={`min-h-9 rounded-lg px-3 py-1.5 text-xs font-bold transition-all ${zPreset === p.id ? "bg-app-surface text-app-accent shadow-sm" : "text-app-text-muted hover:text-app-text"}`}>
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => setZPreset(p.id)}
+                      className={`min-h-9 rounded-lg px-3 py-1.5 text-xs font-bold transition-all ${zPreset === p.id ? "bg-app-surface text-app-accent shadow-sm" : "text-app-text-muted hover:text-app-text"}`}
+                    >
                       {p.label}
                     </button>
                   ))}
                 </div>
                 {zPreset === "custom" && (
                   <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
-                    <input type="date" value={customFromZ} onChange={(e) => setCustomFromZ(e.target.value)} className="ui-input rounded-lg px-3 py-2 text-sm" />
+                    <input
+                      type="date"
+                      value={customFromZ}
+                      onChange={(e) => setCustomFromZ(e.target.value)}
+                      className="ui-input rounded-lg px-3 py-2 text-sm"
+                    />
                     <span className="text-app-text-muted">to</span>
-                    <input type="date" value={customToZ} onChange={(e) => setCustomToZ(e.target.value)} className="ui-input rounded-lg px-3 py-2 text-sm" />
-                    <button type="button" onClick={() => void fetchZLogs()} className="rounded-lg bg-app-success px-4 py-2 text-sm font-bold text-white hover:brightness-105">Apply</button>
+                    <input
+                      type="date"
+                      value={customToZ}
+                      onChange={(e) => setCustomToZ(e.target.value)}
+                      className="ui-input rounded-lg px-3 py-2 text-sm"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void fetchZLogs()}
+                      className="rounded-lg bg-app-success px-4 py-2 text-sm font-bold text-white hover:brightness-105"
+                    >
+                      Apply
+                    </button>
                   </div>
                 )}
               </div>
               <div className="border-b border-app-border bg-app-surface-2 px-4 py-4 sm:px-6">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-	                    <p className="text-xs font-bold text-app-text-muted">
+                    <p className="text-xs font-bold text-app-text-muted">
                       Register coordination
                     </p>
                     <p className="mt-1 text-sm font-semibold text-app-text">
-                      See which drawers are still open, which till group is already closing, and where staff should avoid duplicate close work.
+                      See which drawers are still open, which till group is
+                      already closing, and where staff should avoid duplicate
+                      close work.
                     </p>
                   </div>
                   <div className="grid w-full gap-2 sm:w-auto sm:grid-cols-3">
                     {[
-                      ["Active sessions", String(coordinationSummary.activeSessions)],
+                      [
+                        "Active sessions",
+                        String(coordinationSummary.activeSessions),
+                      ],
                       ["Open drawers", String(coordinationSummary.openDrawers)],
-                      ["Pending closes", String(coordinationSummary.pendingCloses)],
+                      [
+                        "Pending closes",
+                        String(coordinationSummary.pendingCloses),
+                      ],
                     ].map(([label, value]) => (
                       <div
                         key={label}
                         className="ui-metric-cell ui-tint-neutral px-3 py-3 text-center"
                       >
-	                        <p className="text-xs font-bold text-app-text-muted">
+                        <p className="text-xs font-bold text-app-text-muted">
                           {label}
                         </p>
                         <p className="mt-1 text-lg font-black tabular-nums text-app-text">
@@ -2352,20 +3230,24 @@ export default function RegisterReports({
                 </div>
                 {coordinationSummary.pendingCloses > 0 ? (
                   <div className="mt-3 rounded-xl border border-app-warning/20 bg-app-warning/10 px-4 py-3 text-sm text-app-text">
-	                    <p className="text-xs font-bold">
+                    <p className="text-xs font-bold">
                       Pending close in progress
                     </p>
                     <p className="mt-1 font-semibold leading-relaxed">
-                      One or more till groups are already reconciling. Finish the active close from Register #1 before another staff member starts a second Z-close attempt.
+                      One or more till groups are already reconciling. Finish
+                      the active close from Register #1 before another staff
+                      member starts a second Z-close attempt.
                     </p>
                   </div>
                 ) : null}
                 <div className="ui-panel ui-tint-info mt-3 px-4 py-3 text-sm text-app-text-muted">
-	                  <p className="text-xs font-bold text-app-text">
+                  <p className="text-xs font-bold text-app-text">
                     Shared drawer rule
                   </p>
                   <p className="mt-1 leading-relaxed">
-                    Each till group has one physical drawer. Satellite lanes stay visible here, but final Z-close still runs once from Register #1 for the whole group.
+                    Each till group has one physical drawer. Satellite lanes
+                    stay visible here, but final Z-close still runs once from
+                    Register #1 for the whole group.
                   </p>
                 </div>
                 <div className="mt-3 rounded-xl border border-app-warning/20 bg-app-warning/10 px-4 py-3 text-sm text-app-text-muted">
@@ -2373,7 +3255,10 @@ export default function RegisterReports({
                     Accounting handoff after close
                   </p>
                   <p className="mt-1 leading-relaxed">
-                    A saved Z-report confirms the register close. QBO staging is reviewed separately in the QBO workspace; accounting should confirm the journal is pending, failed, or posted before clearing the day.
+                    A saved Z-report confirms the register close. QBO staging is
+                    reviewed separately in the QBO workspace; accounting should
+                    confirm the journal is pending, failed, or posted before
+                    clearing the day.
                   </p>
                 </div>
                 {openSessionsError ? (
@@ -2390,7 +3275,9 @@ export default function RegisterReports({
                       const isReconciling = group.sessions.some(
                         (session) => session.lifecycle_status === "reconciling",
                       );
-                      const primarySession = primaryRegisterSession(group.sessions);
+                      const primarySession = primaryRegisterSession(
+                        group.sessions,
+                      );
                       return (
                         <div
                           key={group.tillCloseGroupId}
@@ -2398,7 +3285,7 @@ export default function RegisterReports({
                         >
                           <div className="flex items-start justify-between gap-3">
                             <div>
-	                              <p className="text-xs font-bold text-app-text-muted">
+                              <p className="text-xs font-bold text-app-text-muted">
                                 Drawer group
                               </p>
                               <p className="mt-1 text-sm font-black text-app-text">
@@ -2407,11 +3294,11 @@ export default function RegisterReports({
                                   : "Shared till group"}
                               </p>
                               <p className="mt-1 text-[11px] font-semibold text-app-text-muted">
-	                                Shift {group.tillCloseGroupId.slice(0, 8)}…
+                                Shift {group.tillCloseGroupId.slice(0, 8)}…
                               </p>
                             </div>
                             <span
-	                              className={`rounded-full border px-3 py-1 text-xs font-bold ${
+                              className={`rounded-full border px-3 py-1 text-xs font-bold ${
                                 isReconciling
                                   ? "border-app-warning/20 bg-app-warning/10 text-app-warning"
                                   : "border-app-info/20 bg-app-info/10 text-app-info"
@@ -2432,25 +3319,30 @@ export default function RegisterReports({
                                   </p>
                                   <p className="text-[11px] font-semibold text-app-text-muted">
                                     {session.cashier_name} · opened{" "}
-                                    {new Date(session.opened_at).toLocaleString(undefined, {
-                                      dateStyle: "medium",
-                                      timeStyle: "short",
-                                    })}
+                                    {new Date(session.opened_at).toLocaleString(
+                                      undefined,
+                                      {
+                                        dateStyle: "medium",
+                                        timeStyle: "short",
+                                      },
+                                    )}
                                   </p>
                                 </div>
                                 <span
-	                                  className={`rounded-full border px-2.5 py-1 text-xs font-bold ${registerLifecycleTone(
+                                  className={`rounded-full border px-2.5 py-1 text-xs font-bold ${registerLifecycleTone(
                                     session.lifecycle_status,
                                   )}`}
                                 >
-                                  {registerLifecycleLabel(session.lifecycle_status)}
+                                  {registerLifecycleLabel(
+                                    session.lifecycle_status,
+                                  )}
                                 </span>
                               </div>
                             ))}
                           </div>
                           <p className="mt-3 text-[11px] font-medium leading-relaxed text-app-text-muted">
                             {isReconciling
-	                              ? "This group is already closing. Avoid starting another close from a linked register."
+                              ? "This group is already closing. Avoid starting another close from a linked register."
                               : "Close this shared drawer from Register #1 when every linked lane in the till group is ready."}
                           </p>
                         </div>
@@ -2465,7 +3357,9 @@ export default function RegisterReports({
                   role="alert"
                 >
                   <p className="font-black">Z-report history is unavailable.</p>
-                  <p className="mt-1 font-semibold text-app-text-muted">{zLogsError}</p>
+                  <p className="mt-1 font-semibold text-app-text-muted">
+                    {zLogsError}
+                  </p>
                   <button
                     type="button"
                     onClick={() => void fetchZLogs()}
@@ -2481,110 +3375,167 @@ export default function RegisterReports({
               ) : (
                 <div>
                   <p className="border-b border-app-border bg-app-surface px-4 py-2 text-xs font-semibold text-app-text-muted sm:px-6">
-                    Showing up to the newest {Z_LOG_LIMIT} Z-reports in this range. Narrow the dates to review older history.
+                    Showing up to the newest {Z_LOG_LIMIT} Z-reports in this
+                    range. Narrow the dates to review older history.
                   </p>
                   <ul className="flex flex-col divide-y divide-app-border overflow-y-auto">
                     {zLogs.map((session) => {
-                    const depositDate = session.z_report_json?.cash_deposit_date ?? session.cash_deposit_date ?? null;
-                    const depositAmount = session.z_report_json?.cash_deposit_amount ?? session.cash_deposit_amount ?? "0";
-                    return (
-                    <li key={session.id} className="flex items-center gap-4 px-4 py-4 sm:px-6 hover:bg-app-surface-2/70">
-                      <div className="flex-1">
-                        <p className="text-xs font-bold text-app-text-muted">
-                          Register #{session.register_lane} · Session #{session.register_ordinal}
-                        </p>
-                        <p className="font-black text-app-accent">Z-Report {session.business_date}</p>
-                        <p className="font-black text-app-text">{session.cashier_name}</p>
-                        <p className="text-sm text-app-text-muted">
-                          Opened {new Date(session.opened_at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-xs text-app-text-muted">Closed at</p>
-                        <p className="font-bold text-app-text">
-                          {session.closed_at
-                            ? new Date(session.closed_at).toLocaleString(undefined, {
-                                dateStyle: "medium",
-                                timeStyle: "short",
-                              })
-                            : "Still open"}
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <p className="mb-1">
-	                          <span className="rounded-full border border-app-border bg-app-surface-3 px-2.5 py-1 text-xs font-bold text-app-text-muted">
-                            Z-close anchor
-                          </span>
-                        </p>
-                        <p className="text-xl font-black tabular-nums text-app-accent">${centsToFixed2(parseMoneyToCents(session.total_sales))}</p>
-                        <p className="text-xs text-app-text-muted">Exp. cash ${centsToFixed2(parseMoneyToCents(session.expected_cash ?? "0"))}</p>
-                        <p className="text-xs font-semibold text-app-text-muted">
-                          Deposit {formatDepositDate(depositDate)} · ${centsToFixed2(parseMoneyToCents(depositAmount))}
-                        </p>
-                        <div className="mt-2 flex flex-col items-end gap-1">
-                          <span className={`rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-widest ${qboStatusTone(session.qbo_status)}`}>
-                            {qboStatusLabel(session.qbo_status)}
-                          </span>
-                          {session.qbo_sync_date ? (
-                            <span className="text-[10px] font-semibold text-app-text-muted">
-                              Business date {session.qbo_sync_date}
-                            </span>
-                          ) : null}
-                          {session.qbo_journal_entry_id ? (
-                            <span className="text-[10px] font-mono text-app-text-muted">
-                              JE {session.qbo_journal_entry_id}
-                            </span>
-                          ) : null}
-                          {session.qbo_error_message ? (
-                            <span className="max-w-48 text-right text-[10px] font-semibold text-app-danger">
-                              {session.qbo_error_message}
-                            </span>
-                          ) : null}
-                        </div>
-                        {session.discrepancy &&
-                        Math.abs(parseMoneyToCents(session.discrepancy)) > 0 ? (
-                          <p className="text-xs font-black text-app-warning">
-                            Discrepancy ${centsToFixed2(parseMoneyToCents(session.discrepancy))}
-                          </p>
-                        ) : null}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            void fetchBookedSummaryForDate(session.business_date)
-                              .then((businessDaySummary) => openZReportFromSession(session, "preview", businessDaySummary))
-                              .then((opened) => {
-                                if (opened) {
-                                  toast("Z-report opened for review.", "success");
-                                  return;
-                                }
-                                toast("Z-report could not open. Check the Reports printer setup.", "error");
-                              })
-                              .catch((error) => {
-                                if (error instanceof DOMException && error.name === "AbortError") {
-                                  return;
-                                }
-                                toast(
-                                  error instanceof Error
-                                    ? error.message
-                                    : "Z-report could not open.",
-                                  "error",
-                                );
-                              });
-                          }}
-                          className="mt-2 rounded-lg border border-app-accent/25 bg-app-accent/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-app-accent hover:bg-app-accent hover:text-white"
+                      const depositDate =
+                        session.z_report_json?.cash_deposit_date ??
+                        session.cash_deposit_date ??
+                        null;
+                      const depositAmount =
+                        session.z_report_json?.cash_deposit_amount ??
+                        session.cash_deposit_amount ??
+                        "0";
+                      return (
+                        <li
+                          key={session.id}
+                          className="flex items-center gap-4 px-4 py-4 sm:px-6 hover:bg-app-surface-2/70"
                         >
-                          Open Report
-                        </button>
-                      </div>
-                    </li>
-                    );
+                          <div className="flex-1">
+                            <p className="text-xs font-bold text-app-text-muted">
+                              Register #{session.register_lane} · Session #
+                              {session.register_ordinal}
+                            </p>
+                            <p className="font-black text-app-accent">
+                              Z-Report {session.business_date}
+                            </p>
+                            <p className="font-black text-app-text">
+                              {session.cashier_name}
+                            </p>
+                            <p className="text-sm text-app-text-muted">
+                              Opened{" "}
+                              {new Date(session.opened_at).toLocaleString(
+                                undefined,
+                                { dateStyle: "medium", timeStyle: "short" },
+                              )}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-xs text-app-text-muted">
+                              Closed at
+                            </p>
+                            <p className="font-bold text-app-text">
+                              {session.closed_at
+                                ? new Date(session.closed_at).toLocaleString(
+                                    undefined,
+                                    {
+                                      dateStyle: "medium",
+                                      timeStyle: "short",
+                                    },
+                                  )
+                                : "Still open"}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="mb-1">
+                              <span className="rounded-full border border-app-border bg-app-surface-3 px-2.5 py-1 text-xs font-bold text-app-text-muted">
+                                Z-close anchor
+                              </span>
+                            </p>
+                            <p className="text-xl font-black tabular-nums text-app-accent">
+                              $
+                              {centsToFixed2(
+                                parseMoneyToCents(session.total_sales),
+                              )}
+                            </p>
+                            <p className="text-xs text-app-text-muted">
+                              Exp. cash $
+                              {centsToFixed2(
+                                parseMoneyToCents(session.expected_cash ?? "0"),
+                              )}
+                            </p>
+                            <p className="text-xs font-semibold text-app-text-muted">
+                              Deposit {formatDepositDate(depositDate)} · $
+                              {centsToFixed2(parseMoneyToCents(depositAmount))}
+                            </p>
+                            <div className="mt-2 flex flex-col items-end gap-1">
+                              <span
+                                className={`rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-widest ${qboStatusTone(session.qbo_status)}`}
+                              >
+                                {qboStatusLabel(session.qbo_status)}
+                              </span>
+                              {session.qbo_sync_date ? (
+                                <span className="text-[10px] font-semibold text-app-text-muted">
+                                  Business date {session.qbo_sync_date}
+                                </span>
+                              ) : null}
+                              {session.qbo_journal_entry_id ? (
+                                <span className="text-[10px] font-mono text-app-text-muted">
+                                  JE {session.qbo_journal_entry_id}
+                                </span>
+                              ) : null}
+                              {session.qbo_error_message ? (
+                                <span className="max-w-48 text-right text-[10px] font-semibold text-app-danger">
+                                  {session.qbo_error_message}
+                                </span>
+                              ) : null}
+                            </div>
+                            {session.discrepancy &&
+                            Math.abs(parseMoneyToCents(session.discrepancy)) >
+                              0 ? (
+                              <p className="text-xs font-black text-app-warning">
+                                Discrepancy $
+                                {centsToFixed2(
+                                  parseMoneyToCents(session.discrepancy),
+                                )}
+                              </p>
+                            ) : null}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                void fetchBookedSummaryForDate(
+                                  session.business_date,
+                                )
+                                  .then((businessDaySummary) =>
+                                    openZReportFromSession(
+                                      session,
+                                      "preview",
+                                      businessDaySummary,
+                                    ),
+                                  )
+                                  .then((opened) => {
+                                    if (opened) {
+                                      toast(
+                                        "Z-report opened for review.",
+                                        "success",
+                                      );
+                                      return;
+                                    }
+                                    toast(
+                                      "Z-report could not open. Check the Reports printer setup.",
+                                      "error",
+                                    );
+                                  })
+                                  .catch((error) => {
+                                    if (
+                                      error instanceof DOMException &&
+                                      error.name === "AbortError"
+                                    ) {
+                                      return;
+                                    }
+                                    toast(
+                                      error instanceof Error
+                                        ? error.message
+                                        : "Z-report could not open.",
+                                      "error",
+                                    );
+                                  });
+                              }}
+                              className="mt-2 rounded-lg border border-app-accent/25 bg-app-accent/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-app-accent hover:bg-app-accent hover:text-white"
+                            >
+                              Open Report
+                            </button>
+                          </div>
+                        </li>
+                      );
                     })}
                   </ul>
                 </div>
               )}
             </div>
-          )
-        )}
+          ))}
       </div>
 
       <ProductHubDrawer

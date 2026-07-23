@@ -1,0 +1,107 @@
+{
+  "evidence_type": "production_read_only",
+  "observed_at_utc": "2026-07-23T02:49:40Z",
+  "source": {
+    "system": "authorized Main Hub API",
+    "queries": [
+      "GET /api/qbo/staging?from=2026-07-01&to=2026-07-31",
+      "GET /api/staff/admin/access-log?limit=1000",
+      "GET /api/search/universal?q=journal&limit=25"
+    ],
+    "july_qbo_rows_inspected": 19,
+    "july_qbo_current_status_counts": {
+      "needs_review": 19
+    },
+    "july_qbo_rows_with_journal_entry_id": 0
+  },
+  "incident_windows_utc": {
+    "bad_apply": {
+      "start": "2026-07-21T20:49:04.545Z",
+      "end": "2026-07-21T20:49:35Z",
+      "qbo_rows_created": 0,
+      "qbo_payloads_generated": 0,
+      "observed_qbo_staff_audit_events": 0
+    },
+    "exposure_through_first_recovery": {
+      "start": "2026-07-21T20:49:04.545Z",
+      "end": "2026-07-22T21:20:15Z",
+      "qbo_rows_created": 2,
+      "qbo_payloads_generated": 2,
+      "observed_qbo_staff_audit_events": 0,
+      "rows": [
+        {
+          "id": "5abe9669-b747-4e0c-b575-d9a601a9546e",
+          "sync_date": "2026-07-21",
+          "created_at": "2026-07-21T21:58:24.726007Z",
+          "payload_generated_at": "2026-07-21T21:58:31.675501800Z",
+          "current_status": "needs_review",
+          "journal_entry_id": null,
+          "line_count": 0,
+          "payload_totals": {
+            "debits": "0",
+            "credits": "0",
+            "balanced": true
+          },
+          "approval_audit": null,
+          "sync_audit": null
+        },
+        {
+          "id": "a4104986-9032-4acb-a0bc-ba62f946628c",
+          "sync_date": "2026-07-22",
+          "created_at": "2026-07-22T15:51:50.493838Z",
+          "payload_generated_at": "2026-07-22T15:51:56.119769100Z",
+          "current_status": "needs_review",
+          "journal_entry_id": null,
+          "line_count": 0,
+          "payload_totals": {
+            "debits": "0",
+            "credits": "0",
+            "balanced": true
+          },
+          "approval_audit": null,
+          "sync_audit": null
+        }
+      ]
+    },
+    "recovery": {
+      "start": "2026-07-22T21:20:15Z",
+      "end": "2026-07-22T21:21:36Z",
+      "qbo_rows_created": 0,
+      "qbo_payloads_generated": 0,
+      "observed_qbo_staff_audit_events": 0
+    }
+  },
+  "staff_audit_observation": {
+    "rows_inspected": 1000,
+    "oldest_event_at": "2026-07-16T15:59:05.102983Z",
+    "newest_event_at": "2026-07-23T02:21:08.657841Z",
+    "qbo_prefixed_events_in_result": 0,
+    "window_covered": true,
+    "meaning": "No qbo propose, approve, sync, retry, revert, or void staff action was present in the returned audit window."
+  },
+  "recovery_cohort_current_aggregate": {
+    "source_file": "2026-07-22-counterpoint-status-recovery-cross-ledger.csv",
+    "source_sha256": "60d5a1684b1b16b95efb6177933175e35301633e87e64363baf71240ae93846b",
+    "unique_transactions": 567,
+    "current_status_counts": {
+      "open": 558,
+      "fulfilled": 9
+    },
+    "current_total_price": "172351.61",
+    "current_amount_paid": "129656.84",
+    "current_balance_due": "43574.64",
+    "current_allocated_tender_total": "129824.06",
+    "qualification": "These are current values at verification time. They are not before-state values, incident deltas, or proof that the bad status mutation changed these amounts."
+  },
+  "per_transaction_qbo_traceability": {
+    "recovery_transaction_ids_embedded_in_current_july_qbo_payloads": 0,
+    "schema_limit": "qbo_sync_logs has no transaction_id foreign key and stores daily aggregate journal payloads.",
+    "drilldown_limit": "The drilldown endpoint recomputes contributors from current transaction state; it does not preserve the contributor set that existed when the historical payload was generated.",
+    "conclusion": "The inspected evidence does not show a posted QBO journal from this incident, but the current aggregate QBO schema cannot prove historical per-transaction inclusion or exclusion for all 567 transactions."
+  },
+  "remaining_limits": [
+    "The staging list endpoint does not expose qbo_sync_logs.updated_at, approved_at, or approved_by_staff_id.",
+    "No direct database read of those fields was performed for this artifact.",
+    "The observed current status, null journal_entry_id, zero-line payloads, null approval and sync audit metadata, and absence of qbo staff audit events are strong negative evidence, but they are not an immutable QBO status-transition history."
+  ]
+}

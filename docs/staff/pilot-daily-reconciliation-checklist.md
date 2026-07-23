@@ -56,7 +56,7 @@
 | Blocked checkout items reviewed | | |
 | Parked sales reviewed | | |
 | Interrupted exchange/refund flows reviewed | | |
-| Unresolved register close blockers documented | | |
+| Unresolved register close warnings documented and present on the archived Z-Report | | |
 
 ---
 

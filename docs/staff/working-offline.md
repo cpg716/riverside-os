@@ -47,7 +47,7 @@ Read this **before** a storm or ISP outage. Know what you **can** promise custom
 | Symptom | What to try first | If that fails |
 |--------|-------------------|---------------|
 | Sales stuck “pending sync” | Wait; move device to stronger Wi‑Fi | Manager — do not double-charge |
-| Checkout recovery blocked | Stop and call manager | Manager reviews/retries/exports; do not close register |
+| Checkout recovery needs review | Stop duplicate attempts and call a manager | Manager reviews/retries/exports; if it remains open, close normally and verify it appears under **Unresolved Issues at Close** |
 | Duplicate charge fear | Compare **receipt #** on paper vs screen | Orders lead |
 | “Online only” error on BO | Expected | Wait for network |
 | Tailscale down | Check phone **cellular** | See [`REMOTE_ACCESS_GUIDE.md`](../REMOTE_ACCESS_GUIDE.md) |
@@ -56,7 +56,7 @@ Read this **before** a storm or ISP outage. Know what you **can** promise custom
 
 - **Any** customer dispute about **whether payment posted**.
 - Outage **longer than SOP threshold** (e.g. 30 minutes).
-- Register close is blocked because checkout recovery still has pending or blocked rows.
+- Checkout recovery remains unclear after review. Assign an owner before handoff; the authorized ordinary close remains available and records the exact warning on the Z-Report without resolving it.
 
 ---
 

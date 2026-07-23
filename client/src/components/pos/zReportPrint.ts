@@ -4,7 +4,10 @@ import { dispatchAppToast } from "../ui/ToastProviderLogic";
 import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
 import { printReportDocument } from "../../lib/reportPrint";
 import type { ReportPrintAction } from "../../lib/reportPrint";
-import { describePrinterTarget, resolvePrinterTarget } from "../../lib/printerBridge";
+import {
+  describePrinterTarget,
+  resolvePrinterTarget,
+} from "../../lib/printerBridge";
 
 export const REGISTER_REPORT_OUTPUT_ROW_LIMIT = 20_000;
 
@@ -13,9 +16,15 @@ export function parseRegisterReportMoneyToCents(
 ): number {
   if (typeof value !== "string") return parseMoneyToCents(value);
   const trimmed = value.trim();
-  const isParenthesizedNegative = trimmed.startsWith("(") && trimmed.endsWith(")");
-  const normalized = trimmed.replaceAll("$", "").replaceAll(",", "").replace(/[()]/g, "");
-  return parseMoneyToCents(isParenthesizedNegative ? `-${normalized}` : normalized);
+  const isParenthesizedNegative =
+    trimmed.startsWith("(") && trimmed.endsWith(")");
+  const normalized = trimmed
+    .replaceAll("$", "")
+    .replaceAll(",", "")
+    .replace(/[()]/g, "");
+  return parseMoneyToCents(
+    isParenthesizedNegative ? `-${normalized}` : normalized,
+  );
 }
 
 export function registerReportCombinedRowCount(
@@ -79,6 +88,39 @@ export interface ZReportInventoryActivityRow {
   staff_name?: string | null;
 }
 
+export interface ZReportHelcimCloseIssue {
+  id: string;
+  register_session_id: string;
+  register_lane: number;
+  status: string;
+  amount_cents: number;
+  selected_terminal_key?: string | null;
+  review_reason: string;
+  created_at: string;
+}
+
+export interface ZReportRecoveryJobEvidence {
+  client_job_key: string;
+  kind: string;
+  status: string;
+  register_session_id: string | null;
+  transaction_id: string | null;
+  checkout_client_id: string | null;
+  station_key: string | null;
+  label: string | null;
+  last_error: string | null;
+  attempt_count: number;
+  first_seen_at: string | null;
+  last_seen_at: string | null;
+}
+
+export interface ZReportUnresolvedCloseIssues {
+  recovery_job_keys: string[];
+  recovery_jobs?: ZReportRecoveryJobEvidence[];
+  station_warnings: string[];
+  helcim_attempts: ZReportHelcimCloseIssue[];
+}
+
 type ZReportAuditItem = {
   name: string;
   sku: string;
@@ -101,9 +143,16 @@ function escapeReportHtml(value: string): string {
 }
 
 function formatReportMoney(value: string | number): string {
-  const cents = typeof value === "number" ? value : parseRegisterReportMoneyToCents(value);
+  const cents =
+    typeof value === "number" ? value : parseRegisterReportMoneyToCents(value);
   const sign = cents < 0 ? "-" : "";
   return `${sign}$${centsToFixed2(Math.abs(cents))}`;
+}
+
+function formatReportTimestamp(value: string | null | undefined): string {
+  if (!value) return "Not recorded";
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
 }
 
 function isCreditCardTender(method: string): boolean {
@@ -157,12 +206,19 @@ type ZReportTenderKey =
 function normalizedTenderKey(method: string): ZReportTenderKey | "other" {
   const tender = method.toLowerCase().replace(/[^a-z0-9]/g, "");
   if (tender === "cash") return "cash";
-  if (tender.includes("manualcard") || tender.includes("cardmanual") || tender === "cardterminalmanual") return "card_manual";
-  if (tender.includes("cardnotpresent") || tender === "cnp") return "card_not_present";
+  if (
+    tender.includes("manualcard") ||
+    tender.includes("cardmanual") ||
+    tender === "cardterminalmanual"
+  )
+    return "card_manual";
+  if (tender.includes("cardnotpresent") || tender === "cnp")
+    return "card_not_present";
   if (tender === "check" || tender === "cheque") return "check";
   if (tender.includes("gift")) return "gift_card";
   if (tender.includes("storecredit") || tender === "sc") return "store_credit";
-  if (tender === "opendeposit" || tender === "depositledger") return "deposit_applied";
+  if (tender === "opendeposit" || tender === "depositledger")
+    return "deposit_applied";
   if (tender === "exchangecredit") return "exchange_credit";
   if (tender.includes("rmspayment")) return "rms_payment";
   if (tender.includes("rms")) return "rms_charge";
@@ -230,9 +286,14 @@ function emptyTenderFamilySummary(): TenderFamilySummary {
   };
 }
 
-function summarizeTenderFamilies(tenders: ZReportTenderRow[]): TenderFamilySummary {
+function summarizeTenderFamilies(
+  tenders: ZReportTenderRow[],
+): TenderFamilySummary {
   const summary = emptyTenderFamilySummary();
-  const informational = new Map<string, { amountCents: number; txCount: number }>();
+  const informational = new Map<
+    string,
+    { amountCents: number; txCount: number }
+  >();
   for (const tender of tenders) {
     const amountCents = parseMoneyToCents(tender.total_amount);
     const txCount = tender.tx_count;
@@ -243,7 +304,11 @@ function summarizeTenderFamilies(tenders: ZReportTenderRow[]): TenderFamilySumma
     } else if (key === "check") {
       summary.checks.amountCents += amountCents;
       summary.checks.txCount += txCount;
-    } else if (key === "card_reader" || key === "card_not_present" || key === "card_manual") {
+    } else if (
+      key === "card_reader" ||
+      key === "card_not_present" ||
+      key === "card_manual"
+    ) {
       summary.card.amountCents += amountCents;
       summary.card.txCount += txCount;
       if (amountCents < 0) {
@@ -261,13 +326,18 @@ function summarizeTenderFamilies(tenders: ZReportTenderRow[]): TenderFamilySumma
       }
     } else {
       const label = tenderKeyLabel(key);
-      const existing = informational.get(label) ?? { amountCents: 0, txCount: 0 };
+      const existing = informational.get(label) ?? {
+        amountCents: 0,
+        txCount: 0,
+      };
       existing.amountCents += amountCents;
       existing.txCount += txCount;
       informational.set(label, existing);
     }
   }
-  summary.informational = Array.from(informational.entries()).map(([label, value]) => ({ label, ...value }));
+  summary.informational = Array.from(informational.entries()).map(
+    ([label, value]) => ({ label, ...value }),
+  );
   return summary;
 }
 
@@ -283,22 +353,29 @@ function tenderFamilyRows(summary: TenderFamilySummary): string[] {
   ];
   if (summary.informational.length > 0) {
     rows.push("INFORMATIONAL ACTIVITY (NOT ADDITIVE)");
-    rows.push(...summary.informational.map((row) =>
-      `  ${row.label} | Transactions: ${row.txCount} | Activity: ${formatReportMoney(row.amountCents)}`,
-    ));
+    rows.push(
+      ...summary.informational.map(
+        (row) =>
+          `  ${row.label} | Transactions: ${row.txCount} | Activity: ${formatReportMoney(row.amountCents)}`,
+      ),
+    );
   }
   return rows;
 }
 
 function creditCardTenderTotalCents(tenders: ZReportTenderRow[]): number {
   return tenders.reduce((sum, tender) => {
-    return isCreditCardTender(tender.payment_method) ? sum + parseMoneyToCents(tender.total_amount) : sum;
+    return isCreditCardTender(tender.payment_method)
+      ? sum + parseMoneyToCents(tender.total_amount)
+      : sum;
   }, 0);
 }
 
 function creditCardTenderCount(tenders: ZReportTenderRow[]): number {
   return tenders.reduce((sum, tender) => {
-    return isCreditCardTender(tender.payment_method) ? sum + tender.tx_count : sum;
+    return isCreditCardTender(tender.payment_method)
+      ? sum + tender.tx_count
+      : sum;
   }, 0);
 }
 
@@ -308,7 +385,12 @@ function moneyWithCount(cents: number, count: number): string {
 
 function isRmsChargeTender(method: string): boolean {
   const tender = method.toLowerCase().replace(/[\s_-]/g, "");
-  return tender === "rms" || tender === "rmscharge" || tender === "rms90" || tender.includes("rmscharge");
+  return (
+    tender === "rms" ||
+    tender === "rmscharge" ||
+    tender === "rms90" ||
+    tender.includes("rmscharge")
+  );
 }
 
 function textValue(value: string | number | null | undefined): string {
@@ -320,13 +402,21 @@ function isVisibleAuditItem(item: ZReportAuditItem): boolean {
   return !item.is_internal || item.line_kind === "rms_charge_payment";
 }
 
-function auditItemsSubtotalBeforeTaxCents(items: ZReportAuditItem[] | null | undefined): number {
+function auditItemsSubtotalBeforeTaxCents(
+  items: ZReportAuditItem[] | null | undefined,
+): number {
   return (items ?? [])
     .filter((item) => !item.is_internal)
-    .reduce((lineTotal, item) => lineTotal + parseMoneyToCents(item.unit_price) * item.quantity, 0);
+    .reduce(
+      (lineTotal, item) =>
+        lineTotal + parseMoneyToCents(item.unit_price) * item.quantity,
+      0,
+    );
 }
 
-function auditSubtotalBeforeTaxCents(transactions: { items?: ZReportAuditItem[] | null }[] | undefined): number {
+function auditSubtotalBeforeTaxCents(
+  transactions: { items?: ZReportAuditItem[] | null }[] | undefined,
+): number {
   return (transactions ?? []).reduce((total, transaction) => {
     return total + auditItemsSubtotalBeforeTaxCents(transaction.items);
   }, 0);
@@ -341,7 +431,10 @@ function auditItemKindLabel(item: ZReportAuditItem): string | null {
 
 function notifyPrintDialogFailure(error: unknown): void {
   console.error("Print failed:", error);
-  dispatchAppToast("Report could not be printed. Please check the Reports printer setup.", "error");
+  dispatchAppToast(
+    "Report could not be printed. Please check the Reports printer setup.",
+    "error",
+  );
 }
 
 function createPrintDocument(title: string) {
@@ -444,7 +537,9 @@ function reportLabel(value: string | null | undefined): string {
     case "(unset)":
       return "Unspecified price change";
     default:
-      return value!.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+      return value!
+        .replace(/_/g, " ")
+        .replace(/\b\w/g, (char) => char.toUpperCase());
   }
 }
 
@@ -454,16 +549,23 @@ function discountPercentLabel(regularCents: number, saleCents: number): string {
   if (regularAbs <= 0 || saleAbs >= regularAbs) return "0%";
   const percent = ((regularAbs - saleAbs) / regularAbs) * 100;
   const rounded = Math.round(percent * 10) / 10;
-  return Number.isInteger(rounded) ? `${rounded.toFixed(0)}%` : `${rounded.toFixed(1)}%`;
+  return Number.isInteger(rounded)
+    ? `${rounded.toFixed(0)}%`
+    : `${rounded.toFixed(1)}%`;
 }
 
 function linePriceBreakdown(
   salePrice: string | number,
   regularPrice?: string | number | null,
 ): { saleCents: number; regularCents: number; discountPercent: string } {
-  const saleCents = typeof salePrice === "number" ? salePrice : parseMoneyToCents(String(salePrice));
+  const saleCents =
+    typeof salePrice === "number"
+      ? salePrice
+      : parseMoneyToCents(String(salePrice));
   const regularCents =
-    regularPrice === null || regularPrice === undefined || String(regularPrice).trim() === ""
+    regularPrice === null ||
+    regularPrice === undefined ||
+    String(regularPrice).trim() === ""
       ? saleCents
       : typeof regularPrice === "number"
         ? regularPrice
@@ -475,7 +577,10 @@ function linePriceBreakdown(
   };
 }
 
-function linePriceBreakdownHtml(salePrice: string | number, regularPrice?: string | number | null): string {
+function linePriceBreakdownHtml(
+  salePrice: string | number,
+  regularPrice?: string | number | null,
+): string {
   const price = linePriceBreakdown(salePrice, regularPrice);
   return `
     <span class="line-price-block">
@@ -485,7 +590,10 @@ function linePriceBreakdownHtml(salePrice: string | number, regularPrice?: strin
   `;
 }
 
-function linePriceBreakdownText(salePrice: string | number, regularPrice?: string | number | null): string {
+function linePriceBreakdownText(
+  salePrice: string | number,
+  regularPrice?: string | number | null,
+): string {
   const price = linePriceBreakdown(salePrice, regularPrice);
   return `Reg ${formatReportMoney(price.regularCents)} | Discount ${price.discountPercent} | Paid ${formatReportMoney(price.saleCents)}`;
 }
@@ -511,11 +619,13 @@ type ZReportPrintTransaction = {
   created_at: string;
   payment_method: string;
   amount: string;
-  payments?: {
-    payment_method: string;
-    amount: string;
-    check_number?: string | null;
-  }[] | null;
+  payments?:
+    | {
+        payment_method: string;
+        amount: string;
+        check_number?: string | null;
+      }[]
+    | null;
   customer_name: string;
   transaction_display_id?: string | null;
   transaction_status?: string | null;
@@ -540,21 +650,27 @@ function zReportTransactionKey(transaction: ZReportPrintTransaction): string {
 
 function tenderLinesForTransaction(transaction: ZReportPrintTransaction) {
   if (transaction.payments?.length) return transaction.payments;
-  return [{
-    payment_method: transaction.payment_method,
-    amount: transaction.amount,
-    check_number: null,
-  }];
+  return [
+    {
+      payment_method: transaction.payment_method,
+      amount: transaction.amount,
+      check_number: null,
+    },
+  ];
 }
 
-function transactionPaymentMethod(transaction: ZReportPrintTransaction): string {
+function transactionPaymentMethod(
+  transaction: ZReportPrintTransaction,
+): string {
   const payments = tenderLinesForTransaction(transaction);
   return payments.length > 1
     ? "split"
-    : payments[0]?.payment_method ?? transaction.payment_method;
+    : (payments[0]?.payment_method ?? transaction.payment_method);
 }
 
-function normalizeZReportTransactions(transactions: ZReportPrintTransaction[]): ZReportPrintTransaction[] {
+function normalizeZReportTransactions(
+  transactions: ZReportPrintTransaction[],
+): ZReportPrintTransaction[] {
   const grouped = new Map<string, ZReportPrintTransaction>();
   for (const transaction of transactions) {
     const key = zReportTransactionKey(transaction);
@@ -569,8 +685,18 @@ function normalizeZReportTransactions(transactions: ZReportPrintTransaction[]): 
       continue;
     }
 
-    const mergedPayments = [...tenderLinesForTransaction(existing), ...tenderLines];
-    const paymentTotals = new Map<string, { payment_method: string; amountCents: number; check_number?: string | null }>();
+    const mergedPayments = [
+      ...tenderLinesForTransaction(existing),
+      ...tenderLines,
+    ];
+    const paymentTotals = new Map<
+      string,
+      {
+        payment_method: string;
+        amountCents: number;
+        check_number?: string | null;
+      }
+    >();
     for (const payment of mergedPayments) {
       const method = payment.payment_method || "unknown";
       const checkNumber = payment.check_number?.trim() || null;
@@ -588,24 +714,37 @@ function normalizeZReportTransactions(transactions: ZReportPrintTransaction[]): 
       amount: centsToFixed2(payment.amountCents),
       check_number: payment.check_number,
     }));
-    const amountCents = payments.reduce((sum, payment) => sum + parseMoneyToCents(payment.amount), 0);
+    const amountCents = payments.reduce(
+      (sum, payment) => sum + parseMoneyToCents(payment.amount),
+      0,
+    );
     grouped.set(key, {
       ...existing,
       amount: centsToFixed2(amountCents),
-      payment_method: payments.length > 1 ? "split" : payments[0]?.payment_method ?? existing.payment_method,
+      payment_method:
+        payments.length > 1
+          ? "split"
+          : (payments[0]?.payment_method ?? existing.payment_method),
       payments,
       items: existing.items?.length ? existing.items : transaction.items,
-      transaction_total: existing.transaction_total ?? transaction.transaction_total,
-      transaction_paid: existing.transaction_paid ?? transaction.transaction_paid,
-      transaction_balance_due: existing.transaction_balance_due ?? transaction.transaction_balance_due,
+      transaction_total:
+        existing.transaction_total ?? transaction.transaction_total,
+      transaction_paid:
+        existing.transaction_paid ?? transaction.transaction_paid,
+      transaction_balance_due:
+        existing.transaction_balance_due ?? transaction.transaction_balance_due,
     });
   }
   return Array.from(grouped.values());
 }
 
-function zReportPaymentTextRows(transaction: ZReportPrintTransaction): string[] {
+function zReportPaymentTextRows(
+  transaction: ZReportPrintTransaction,
+): string[] {
   return tenderLinesForTransaction(transaction).map((payment) => {
-    const check = payment.check_number?.trim() ? ` #${payment.check_number.trim()}` : "";
+    const check = payment.check_number?.trim()
+      ? ` #${payment.check_number.trim()}`
+      : "";
     return `Payment: ${reportLabel(payment.payment_method)}${check} ${formatReportMoney(payment.amount)}`;
   });
 }
@@ -644,41 +783,50 @@ export async function openProfessionalZReportPrint(opts: {
   qboJournal?: ZReportQboJournal | null;
   qboJournalError?: string | null;
   inventoryActivity?: ZReportInventoryActivityRow[];
+  /** Unresolved payment/recovery evidence for the selected preview or closed snapshot. */
+  unresolvedCloseIssues?: ZReportUnresolvedCloseIssues | null;
+  /** Distinguishes live pre-close review from an immutable closed Z snapshot. */
+  unresolvedIssuesContext: "preview" | "closed";
   /** Optional payment lines for audit trail. */
   transactions?: ZReportPrintTransaction[];
-	  pickupsToday?: {
-	    occurred_at: string;
-	    customer_name?: string | null;
-	    customer_code?: string | null;
-	    short_id?: string | null;
-	    sales_total?: string | null;
-	    transaction_total?: string | null;
-	    items?: {
-	      name: string;
-	      sku: string;
-	      quantity: number;
-	    }[] | null;
+  pickupsToday?: {
+    occurred_at: string;
+    customer_name?: string | null;
+    customer_code?: string | null;
+    short_id?: string | null;
+    sales_total?: string | null;
+    transaction_total?: string | null;
+    items?:
+      | {
+          name: string;
+          sku: string;
+          quantity: number;
+        }[]
+      | null;
   }[];
   newOrdersCount?: number;
   ordersPickedUpCount?: number;
   todayAppointmentsCount?: number;
-	  newAppointmentsCount?: number;
-	  newWeddingPartiesCount?: number;
-	  newInvoicesCount?: number;
-	  salesCount?: number;
-	  salesTaxTotal?: string | null;
-	  cashCollected?: string | null;
-	  depositsCollected?: string | null;
-	  netSales?: string | null;
-	  shippingTotal?: string | null;
-	  alterationsTotal?: string | null;
-	  giftCardLoadCount?: number;
-	  giftCardLoadTotal?: string | null;
-	}): Promise<boolean> {
+  newAppointmentsCount?: number;
+  newWeddingPartiesCount?: number;
+  newInvoicesCount?: number;
+  salesCount?: number;
+  salesTaxTotal?: string | null;
+  cashCollected?: string | null;
+  depositsCollected?: string | null;
+  netSales?: string | null;
+  shippingTotal?: string | null;
+  alterationsTotal?: string | null;
+  giftCardLoadCount?: number;
+  giftCardLoadTotal?: string | null;
+  /** Show business-day Quick Look metrics only when a complete summary was supplied. */
+  includeSupplementalSummary?: boolean;
+}): Promise<boolean> {
   const target = createPrintDocument(`${opts.title} — ${opts.sessionId}`);
 
   const ord = opts.registerOrdinal != null ? ` #${opts.registerOrdinal}` : "";
   const reportPrinter = reportPrinterName();
+  const includeSupplementalSummary = opts.includeSupplementalSummary !== false;
 
   const overrideRows = opts.overrideSummary
     .map(
@@ -698,82 +846,138 @@ export async function openProfessionalZReportPrint(opts: {
     .join("");
 
   const transactions = normalizeZReportTransactions(opts.transactions ?? []);
-  const transactionHasFulfillment = (transaction: ZReportPrintTransaction, fulfillment: string): boolean =>
+  const transactionHasFulfillment = (
+    transaction: ZReportPrintTransaction,
+    fulfillment: string,
+  ): boolean =>
     (transaction.items ?? []).some((item) => item.fulfillment === fulfillment);
   const newOrderCount = transactions.filter((transaction) =>
-    (transaction.items ?? []).some((item) => ["special_order", "custom", "wedding_order", "layaway"].includes(item.fulfillment)),
+    (transaction.items ?? []).some((item) =>
+      ["special_order", "custom", "wedding_order", "layaway"].includes(
+        item.fulfillment,
+      ),
+    ),
   ).length;
-  const ordersPickedUpCount = transactions.filter((transaction) =>
-    transaction.transaction_status === "fulfilled" || transactionHasFulfillment(transaction, "pickup"),
+  const ordersPickedUpCount = transactions.filter(
+    (transaction) =>
+      transaction.transaction_status === "fulfilled" ||
+      transactionHasFulfillment(transaction, "pickup"),
   ).length;
   const alterationCount = transactions.reduce((sum, transaction) => {
-    return sum + (transaction.items ?? []).reduce((itemSum, item) => {
-      return item.line_kind === "alteration_service" ? itemSum + Math.max(item.quantity, 0) : itemSum;
-    }, 0);
+    return (
+      sum +
+      (transaction.items ?? []).reduce((itemSum, item) => {
+        return item.line_kind === "alteration_service"
+          ? itemSum + Math.max(item.quantity, 0)
+          : itemSum;
+      }, 0)
+    );
   }, 0);
   const shippingTotalCents = transactions.reduce(
-    (sum, transaction) => sum + parseMoneyToCents(transaction.shipping_amount ?? "0"),
+    (sum, transaction) =>
+      sum + parseMoneyToCents(transaction.shipping_amount ?? "0"),
     0,
   );
-	  const alterationTotalCents = transactions.reduce((sum, transaction) => {
-	    return sum + (transaction.items ?? []).reduce((itemSum, item) => {
-	      return item.line_kind === "alteration_service"
-	        ? itemSum + parseMoneyToCents(item.unit_price) * Math.max(item.quantity, 0)
-	        : itemSum;
-	    }, 0);
-	  }, 0);
-	  const reportShippingTotal = opts.shippingTotal ?? formatReportMoney(shippingTotalCents);
-	  const reportAlterationsTotal = opts.alterationsTotal ?? formatReportMoney(alterationTotalCents);
-	  const reportGiftCardLoadTotal = opts.giftCardLoadTotal ?? "0.00";
-	  const discountTotalCents = transactions.reduce((sum, transaction) => {
-	    return sum + (transaction.items ?? []).reduce((itemSum, item) => {
-	      const regularCents = parseMoneyToCents(item.original_unit_price ?? item.unit_price);
-	      const saleCents = parseMoneyToCents(item.overridden_unit_price ?? item.unit_price);
-	      return itemSum + Math.max(regularCents - saleCents, 0) * Math.max(item.quantity, 0);
-	    }, 0);
-	  }, 0);
+  const alterationTotalCents = transactions.reduce((sum, transaction) => {
+    return (
+      sum +
+      (transaction.items ?? []).reduce((itemSum, item) => {
+        return item.line_kind === "alteration_service"
+          ? itemSum +
+              parseMoneyToCents(item.unit_price) * Math.max(item.quantity, 0)
+          : itemSum;
+      }, 0)
+    );
+  }, 0);
+  const reportShippingTotal =
+    opts.shippingTotal ?? formatReportMoney(shippingTotalCents);
+  const reportAlterationsTotal =
+    opts.alterationsTotal ?? formatReportMoney(alterationTotalCents);
+  const reportGiftCardLoadTotal = opts.giftCardLoadTotal ?? "0.00";
+  const discountTotalCents = transactions.reduce((sum, transaction) => {
+    return (
+      sum +
+      (transaction.items ?? []).reduce((itemSum, item) => {
+        const regularCents = parseMoneyToCents(
+          item.original_unit_price ?? item.unit_price,
+        );
+        const saleCents = parseMoneyToCents(
+          item.overridden_unit_price ?? item.unit_price,
+        );
+        return (
+          itemSum +
+          Math.max(regularCents - saleCents, 0) * Math.max(item.quantity, 0)
+        );
+      }, 0)
+    );
+  }, 0);
   const discountTransactionCount = transactions.filter((transaction) =>
     (transaction.items ?? []).some((item) => {
-      const regularCents = parseMoneyToCents(item.original_unit_price ?? item.unit_price);
-      const saleCents = parseMoneyToCents(item.overridden_unit_price ?? item.unit_price);
+      const regularCents = parseMoneyToCents(
+        item.original_unit_price ?? item.unit_price,
+      );
+      const saleCents = parseMoneyToCents(
+        item.overridden_unit_price ?? item.unit_price,
+      );
       return regularCents > saleCents;
     }),
   ).length;
-  const transactionCreditCardTotalCents = transactions.reduce((sum, transaction) => {
-    return sum + tenderLinesForTransaction(transaction).reduce((paymentSum, payment) => {
-      return isCreditCardTender(payment.payment_method)
-        ? paymentSum + parseMoneyToCents(payment.amount)
-        : paymentSum;
-    }, 0);
-  }, 0);
+  const transactionCreditCardTotalCents = transactions.reduce(
+    (sum, transaction) => {
+      return (
+        sum +
+        tenderLinesForTransaction(transaction).reduce((paymentSum, payment) => {
+          return isCreditCardTender(payment.payment_method)
+            ? paymentSum + parseMoneyToCents(payment.amount)
+            : paymentSum;
+        }, 0)
+      );
+    },
+    0,
+  );
   const rmsChargeTotalCents = transactions.reduce((sum, transaction) => {
-    return sum + tenderLinesForTransaction(transaction).reduce((paymentSum, payment) => {
-      return isRmsChargeTender(payment.payment_method)
-        ? paymentSum + parseMoneyToCents(payment.amount)
-        : paymentSum;
-    }, 0);
+    return (
+      sum +
+      tenderLinesForTransaction(transaction).reduce((paymentSum, payment) => {
+        return isRmsChargeTender(payment.payment_method)
+          ? paymentSum + parseMoneyToCents(payment.amount)
+          : paymentSum;
+      }, 0)
+    );
   }, 0);
-	  const rmsPaymentTotalCents = transactions.reduce((sum, transaction) => {
-	    return sum + (transaction.items ?? []).reduce((itemSum, item) => {
-	      return item.line_kind === "rms_charge_payment"
-	        ? itemSum + parseMoneyToCents(item.unit_price) * Math.max(item.quantity, 0)
-	        : itemSum;
-	    }, 0);
-	  }, 0);
-	  const newLayawayCount = transactions.filter((transaction) =>
-	    (transaction.items ?? []).some((item) => item.fulfillment === "layaway"),
-	  ).length;
-	  const pickupTotalCents = (opts.pickupsToday ?? []).reduce(
-	    (sum, pickup) => sum + parseMoneyToCents(pickup.sales_total ?? pickup.transaction_total ?? "0"),
-	    0,
-	  );
-	  const pickupTotalCount = opts.pickupsToday?.length ?? 0;
-	  const newOrdersDisplayCount = opts.newOrdersCount ?? newOrderCount;
-  const ordersPickedUpDisplayCount = opts.ordersPickedUpCount ?? ordersPickedUpCount;
-  const creditCardTotalCents = creditCardTenderTotalCents(opts.tenders) || transactionCreditCardTotalCents;
-  const creditCardTxCount = creditCardTenderCount(opts.tenders) || transactions.filter((transaction) =>
-    tenderLinesForTransaction(transaction).some((payment) => isCreditCardTender(payment.payment_method)),
+  const rmsPaymentTotalCents = transactions.reduce((sum, transaction) => {
+    return (
+      sum +
+      (transaction.items ?? []).reduce((itemSum, item) => {
+        return item.line_kind === "rms_charge_payment"
+          ? itemSum +
+              parseMoneyToCents(item.unit_price) * Math.max(item.quantity, 0)
+          : itemSum;
+      }, 0)
+    );
+  }, 0);
+  const newLayawayCount = transactions.filter((transaction) =>
+    (transaction.items ?? []).some((item) => item.fulfillment === "layaway"),
   ).length;
+  const pickupTotalCents = (opts.pickupsToday ?? []).reduce(
+    (sum, pickup) =>
+      sum +
+      parseMoneyToCents(pickup.sales_total ?? pickup.transaction_total ?? "0"),
+    0,
+  );
+  const pickupTotalCount = opts.pickupsToday?.length ?? 0;
+  const newOrdersDisplayCount = opts.newOrdersCount ?? newOrderCount;
+  const ordersPickedUpDisplayCount =
+    opts.ordersPickedUpCount ?? ordersPickedUpCount;
+  const creditCardTotalCents =
+    creditCardTenderTotalCents(opts.tenders) || transactionCreditCardTotalCents;
+  const creditCardTxCount =
+    creditCardTenderCount(opts.tenders) ||
+    transactions.filter((transaction) =>
+      tenderLinesForTransaction(transaction).some((payment) =>
+        isCreditCardTender(payment.payment_method),
+      ),
+    ).length;
   const tenderFamilySummary = summarizeTenderFamilies(opts.tenders);
   if (rmsPaymentTotalCents !== 0) {
     tenderFamilySummary.informational.push({
@@ -795,10 +999,15 @@ export async function openProfessionalZReportPrint(opts: {
     return `<tr><td>${escapeReportHtml(label as string)}</td><td class="center">${row.txCount}</td><td class="money">${formatReportMoney(row.amountCents)}</td></tr>`;
   });
   if (tenderFamilySummary.informational.length > 0) {
-    tenderSummaryRows.push(`<tr><td colspan="3" class="muted"><strong>Informational Activity (not additive)</strong></td></tr>`);
-    tenderSummaryRows.push(...tenderFamilySummary.informational.map((row) =>
-      `<tr><td>&nbsp;&nbsp;${escapeReportHtml(row.label)}</td><td class="center">${row.txCount}</td><td class="money">${formatReportMoney(row.amountCents)}</td></tr>`,
-    ));
+    tenderSummaryRows.push(
+      `<tr><td colspan="3" class="muted"><strong>Informational Activity (not additive)</strong></td></tr>`,
+    );
+    tenderSummaryRows.push(
+      ...tenderFamilySummary.informational.map(
+        (row) =>
+          `<tr><td>&nbsp;&nbsp;${escapeReportHtml(row.label)}</td><td class="center">${row.txCount}</td><td class="money">${formatReportMoney(row.amountCents)}</td></tr>`,
+      ),
+    );
   }
   const tendersRows = tenderSummaryRows.join("");
   const byLaneSections =
@@ -806,10 +1015,19 @@ export async function openProfessionalZReportPrint(opts: {
       ? opts.tendersByLane
           .map((lane) => {
             const cashTotal = lane.tenders
-              .filter((tender) => normalizedTenderKey(tender.payment_method) === "cash")
-              .reduce((sum, tender) => sum + parseMoneyToCents(tender.total_amount), 0);
+              .filter(
+                (tender) =>
+                  normalizedTenderKey(tender.payment_method) === "cash",
+              )
+              .reduce(
+                (sum, tender) => sum + parseMoneyToCents(tender.total_amount),
+                0,
+              );
             const cashCount = lane.tenders
-              .filter((tender) => normalizedTenderKey(tender.payment_method) === "cash")
+              .filter(
+                (tender) =>
+                  normalizedTenderKey(tender.payment_method) === "cash",
+              )
               .reduce((sum, tender) => sum + tender.tx_count, 0);
             const ccTotal = creditCardTenderTotalCents(lane.tenders);
             const ccCount = creditCardTenderCount(lane.tenders);
@@ -838,28 +1056,50 @@ export async function openProfessionalZReportPrint(opts: {
               hour: "2-digit",
               minute: "2-digit",
             });
-            const transactionSubtotalBeforeTaxCents = auditItemsSubtotalBeforeTaxCents(t.items);
-            const visibleItems = (t.items ?? []).filter(isVisibleAuditItem).slice(0, 4);
-            const internalItems = (t.items ?? []).filter((item) => item.is_internal);
-            const giftCardIssued = internalItems.find((item) => item.line_kind === "pos_gift_card_load");
+            const transactionSubtotalBeforeTaxCents =
+              auditItemsSubtotalBeforeTaxCents(t.items);
+            const visibleItems = (t.items ?? [])
+              .filter(isVisibleAuditItem)
+              .slice(0, 4);
+            const internalItems = (t.items ?? []).filter(
+              (item) => item.is_internal,
+            );
+            const giftCardIssued = internalItems.find(
+              (item) => item.line_kind === "pos_gift_card_load",
+            );
 
-            const itemsHtml = visibleItems.map(item => `
+            const itemsHtml = visibleItems
+              .map(
+                (item) => `
               <div class="print-item-row">
                 <span><strong>${item.quantity}× ${item.name}</strong><br><span class="muted mono">${item.sku}${auditItemKindLabel(item) ? ` · ${auditItemKindLabel(item)}` : ""}${item.fulfillment ? ` · ${fulfillmentLabel(item.fulfillment)}` : ""}</span></span>
                 ${linePriceBreakdownHtml(item.unit_price, item.original_unit_price ?? item.unit_price)}
               </div>
-            `).join("");
+            `,
+              )
+              .join("");
 
-            const extraCount = Math.max(0, (t.items ?? []).filter(isVisibleAuditItem).length - visibleItems.length);
+            const extraCount = Math.max(
+              0,
+              (t.items ?? []).filter(isVisibleAuditItem).length -
+                visibleItems.length,
+            );
             const notes = [
-              extraCount > 0 ? `+${extraCount} more line${extraCount === 1 ? "" : "s"}` : null,
+              extraCount > 0
+                ? `+${extraCount} more line${extraCount === 1 ? "" : "s"}`
+                : null,
               giftCardIssued ? "Gift card issued on this sale" : null,
-            ].filter(Boolean).join(" · ");
+            ]
+              .filter(Boolean)
+              .join(" · ");
 
             const paymentRows = zReportPaymentRows(t);
             const chips = [
               t.transaction_status ? reportLabel(t.transaction_status) : null,
-            ].filter(Boolean).map((chip) => `<span class="chip">${chip}</span>`).join("");
+            ]
+              .filter(Boolean)
+              .map((chip) => `<span class="chip">${chip}</span>`)
+              .join("");
 
             return `
               <section class="activity-card">
@@ -899,13 +1139,19 @@ export async function openProfessionalZReportPrint(opts: {
       const customerInfo = [
         pickup.customer_name,
         pickup.customer_code ? `(#${pickup.customer_code})` : null,
-      ].filter(Boolean).join(" ");
-      const itemRows = (pickup.items ?? []).map((item) => `
+      ]
+        .filter(Boolean)
+        .join(" ");
+      const itemRows = (pickup.items ?? [])
+        .map(
+          (item) => `
         <div class="pickup-item">
           <span><strong>${escapeReportHtml(`${item.quantity}x ${item.name}`)}</strong></span>
           <span class="mono muted">${escapeReportHtml(item.sku)}</span>
         </div>
-      `).join("");
+      `,
+        )
+        .join("");
       return `
         <section class="pickup-row">
           <div>
@@ -922,28 +1168,107 @@ export async function openProfessionalZReportPrint(opts: {
   const qboJournalRows =
     opts.qboJournal && opts.qboJournal.lines.length > 0
       ? opts.qboJournal.lines
-          .map((line) => `<tr>
+          .map(
+            (line) => `<tr>
             <td><strong>${escapeReportHtml(line.qbo_account_name)}</strong><br><span class="muted mono">${escapeReportHtml(line.qbo_account_id)}</span></td>
             <td>${escapeReportHtml(line.memo)}</td>
             <td class="money">${parseMoneyToCents(line.debit) !== 0 ? formatReportMoney(line.debit) : ""}</td>
             <td class="money">${parseMoneyToCents(line.credit) !== 0 ? formatReportMoney(line.credit) : ""}</td>
-          </tr>`)
+          </tr>`,
+          )
           .join("")
       : "";
 
   const qboWarnings = opts.qboJournal?.warnings?.length
-    ? opts.qboJournal.warnings.map((warning) => `<li>${escapeReportHtml(warning)}</li>`).join("")
+    ? opts.qboJournal.warnings
+        .map((warning) => `<li>${escapeReportHtml(warning)}</li>`)
+        .join("")
     : "";
 
+  const unresolvedCloseIssues = opts.unresolvedCloseIssues;
+  const unresolvedRecoveryKeys = unresolvedCloseIssues?.recovery_job_keys ?? [];
+  const unresolvedRecoveryJobs = unresolvedCloseIssues?.recovery_jobs ?? [];
+  const detailedRecoveryKeys = new Set(
+    unresolvedRecoveryJobs.map((job) => job.client_job_key),
+  );
+  const legacyRecoveryKeys = unresolvedRecoveryKeys.filter(
+    (key) => !detailedRecoveryKeys.has(key),
+  );
+  const unresolvedStationWarnings =
+    unresolvedCloseIssues?.station_warnings ?? [];
+  const unresolvedHelcimAttempts = unresolvedCloseIssues?.helcim_attempts ?? [];
+  const hasUnresolvedCloseIssues =
+    unresolvedRecoveryKeys.length > 0 ||
+    unresolvedRecoveryJobs.length > 0 ||
+    unresolvedStationWarnings.length > 0 ||
+    unresolvedHelcimAttempts.length > 0;
+  const issuesAreClosedSnapshot = opts.unresolvedIssuesContext === "closed";
+  const unresolvedIssueHeading = issuesAreClosedSnapshot
+    ? "Unresolved Issues at Close"
+    : "Unresolved Issues Currently Visible (Preview)";
+  const unresolvedIssueTextHeading = issuesAreClosedSnapshot
+    ? "UNRESOLVED ISSUES AT CLOSE"
+    : "UNRESOLVED ISSUES CURRENTLY VISIBLE (PREVIEW)";
+  const unresolvedIssueStatement = issuesAreClosedSnapshot
+    ? "These items were still unresolved when the register closed. Closing did not resolve or dismiss them."
+    : "These items are unresolved in this pre-close preview. If they remain unresolved, the Main Hub will freeze their close-time evidence in the final Z-Report. Previewing does not resolve or dismiss them.";
+  const unresolvedCloseIssueRows = [
+    ...unresolvedRecoveryJobs.map((job) => {
+      const identities = [
+        job.transaction_id ? `Transaction ${job.transaction_id}` : null,
+        job.checkout_client_id ? `Checkout ${job.checkout_client_id}` : null,
+        job.register_session_id ? `Session ${job.register_session_id}` : null,
+        job.station_key ? `Workstation ${job.station_key}` : null,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+      const error = job.last_error?.trim()
+        ? ` · Last error: ${escapeReportHtml(job.last_error.trim())}`
+        : "";
+      return `<li><strong>Recovery:</strong> ${escapeReportHtml(job.label?.trim() || "Recovery record")} · ${escapeReportHtml(reportLabel(job.kind))} · ${escapeReportHtml(reportLabel(job.status))} · Key <span class="mono">${escapeReportHtml(job.client_job_key)}</span> · First seen ${escapeReportHtml(formatReportTimestamp(job.first_seen_at))} · Last seen ${escapeReportHtml(formatReportTimestamp(job.last_seen_at))} · Attempts ${job.attempt_count}${identities ? ` · ${escapeReportHtml(identities)}` : ""}${error}</li>`;
+    }),
+    ...legacyRecoveryKeys.map(
+      (key) =>
+        `<li><strong>Recovery record:</strong> <span class="mono">${escapeReportHtml(key)}</span></li>`,
+    ),
+    ...unresolvedStationWarnings.map(
+      (warning) =>
+        `<li><strong>Workstation warning:</strong> ${escapeReportHtml(warning)}</li>`,
+    ),
+    ...unresolvedHelcimAttempts.map((attempt) => {
+      const terminal = attempt.selected_terminal_key?.trim()
+        ? ` · Terminal ${escapeReportHtml(attempt.selected_terminal_key.trim())}`
+        : "";
+      return `<li><strong>Card review:</strong> Register #${attempt.register_lane} · ${formatReportMoney(
+        attempt.amount_cents,
+      )} · ${escapeReportHtml(reportLabel(attempt.status))} · ${escapeReportHtml(
+        reportLabel(attempt.review_reason),
+      )}${terminal} · ${escapeReportHtml(formatReportTimestamp(attempt.created_at))} · Session <span class="mono">${escapeReportHtml(
+        attempt.register_session_id,
+      )}</span> · Attempt <span class="mono">${escapeReportHtml(attempt.id)}</span></li>`;
+    }),
+  ].join("");
+
   const dc = opts.discrepancyCents;
-  const statusLabel = dc == null ? "HISTORICAL COUNT NOT CAPTURED" : dc === 0 ? "BALANCED" : dc < 0 ? "SHORTFALL" : "OVERAGE";
+  const statusLabel =
+    dc == null
+      ? "HISTORICAL COUNT NOT CAPTURED"
+      : dc === 0
+        ? "BALANCED"
+        : dc < 0
+          ? "SHORTFALL"
+          : "OVERAGE";
   const statusColor = dc == null ? "#b45309" : dc === 0 ? "#059669" : "#dc2626";
   const closingNotes = opts.closingNotes?.trim();
   const closingComments = opts.closingComments?.trim();
   const cashDepositDate = opts.cashDepositDate?.trim()
     ? new Date(`${opts.cashDepositDate}T00:00:00`).toLocaleDateString()
     : "Not recorded";
-  const cashDepositAmountCents = opts.cashDepositAmountCents ?? (opts.actualCents == null ? null : Math.max(0, opts.actualCents - opts.openingCents));
+  const cashDepositAmountCents =
+    opts.cashDepositAmountCents ??
+    (opts.actualCents == null
+      ? null
+      : Math.max(0, opts.actualCents - opts.openingCents));
   const generatedAt = new Date().toLocaleString();
   const subtotalBeforeTaxCents = auditSubtotalBeforeTaxCents(transactions);
   const zReportTextLines = [
@@ -954,32 +1279,43 @@ export async function openProfessionalZReportPrint(opts: {
     `Report ID: ${opts.sessionId}`,
     `Register Group: ${ord ? `Register Group${ord}` : "Register Group"}`,
     `Shift Staff Member: ${opts.cashierLabel || "System Admin"}`,
-    opts.openedAt ? `Shift Start: ${new Date(opts.openedAt).toLocaleString()}` : "",
+    opts.openedAt
+      ? `Shift Start: ${new Date(opts.openedAt).toLocaleString()}`
+      : "",
     `Assigned Reports Printer: ${reportPrinter}`,
     "",
-    "SALES SUMMARY",
-    `Transactions: ${opts.salesCount ?? transactions.length}`,
-    `Tax Collected: ${formatReportMoney(opts.salesTaxTotal ?? "0")}`,
-    `Cash Collected: ${formatReportMoney(opts.cashCollected ?? opts.cashSalesCents)}`,
-    `Deposits Taken: ${formatReportMoney(opts.depositsCollected ?? "0")}`,
-    `New Vendor Invoices: ${opts.newInvoicesCount ?? 0}`,
-    `New Orders: ${newOrdersDisplayCount}`,
-    `Orders Picked Up: ${ordersPickedUpDisplayCount}`,
-    `Credit Card Total: ${moneyWithCount(creditCardTotalCents, creditCardTxCount)}`,
-    `RMS Payments: ${formatReportMoney(rmsPaymentTotalCents)}`,
-    `RMS Charge: ${formatReportMoney(rmsChargeTotalCents)}`,
-    `Today's Appointments: ${opts.todayAppointmentsCount ?? 0}`,
-    `New Appointments: ${opts.newAppointmentsCount ?? 0}`,
-    `New Layaways: ${newLayawayCount}`,
-    `Picked Up: ${moneyWithCount(pickupTotalCents, pickupTotalCount)}`,
-    `Total Alterations: ${alterationCount}`,
-    `New Wedding Parties: ${opts.newWeddingPartiesCount ?? 0}`,
-    `Alterations Total: ${reportAlterationsTotal}`,
-    `Shipping Total: ${reportShippingTotal}`,
-    `Gift Card Loads: ${moneyWithCount(parseMoneyToCents(reportGiftCardLoadTotal), opts.giftCardLoadCount ?? 0)}`,
-    `Discounts Total: ${moneyWithCount(discountTotalCents, discountTransactionCount)}`,
-    `Subtotal Before Tax: ${formatReportMoney(opts.netSales ?? subtotalBeforeTaxCents)}`,
-    `Merchandise Subtotal: ${formatReportMoney(opts.netSales ?? subtotalBeforeTaxCents)}`,
+    ...(includeSupplementalSummary
+      ? [
+          "SALES SUMMARY",
+          `Transactions: ${opts.salesCount ?? transactions.length}`,
+          `Tax Collected: ${formatReportMoney(opts.salesTaxTotal ?? "0")}`,
+          `Cash Collected: ${formatReportMoney(opts.cashCollected ?? opts.cashSalesCents)}`,
+          `Deposits Taken: ${formatReportMoney(opts.depositsCollected ?? "0")}`,
+          `New Vendor Invoices: ${opts.newInvoicesCount ?? 0}`,
+          `New Orders: ${newOrdersDisplayCount}`,
+          `Orders Picked Up: ${ordersPickedUpDisplayCount}`,
+          `Credit Card Total: ${moneyWithCount(creditCardTotalCents, creditCardTxCount)}`,
+          `RMS Payments: ${formatReportMoney(rmsPaymentTotalCents)}`,
+          `RMS Charge: ${formatReportMoney(rmsChargeTotalCents)}`,
+          `Today's Appointments: ${opts.todayAppointmentsCount ?? 0}`,
+          `New Appointments: ${opts.newAppointmentsCount ?? 0}`,
+          `New Layaways: ${newLayawayCount}`,
+          `Picked Up: ${moneyWithCount(pickupTotalCents, pickupTotalCount)}`,
+          `Total Alterations: ${alterationCount}`,
+          `New Wedding Parties: ${opts.newWeddingPartiesCount ?? 0}`,
+          `Alterations Total: ${reportAlterationsTotal}`,
+          `Shipping Total: ${reportShippingTotal}`,
+          `Gift Card Loads: ${moneyWithCount(parseMoneyToCents(reportGiftCardLoadTotal), opts.giftCardLoadCount ?? 0)}`,
+          `Discounts Total: ${moneyWithCount(discountTotalCents, discountTransactionCount)}`,
+          `Subtotal Before Tax: ${formatReportMoney(opts.netSales ?? subtotalBeforeTaxCents)}`,
+          `Merchandise Subtotal: ${formatReportMoney(opts.netSales ?? subtotalBeforeTaxCents)}`,
+        ]
+      : [
+          "CLOSE-TIME TENDER SUMMARY",
+          `Cash Collected: ${formatReportMoney(opts.cashSalesCents)}`,
+          `Credit Card Total: ${moneyWithCount(creditCardTotalCents, creditCardTxCount)}`,
+          "Supplemental business-day metrics are pending the immutable archived EOD snapshot; no live values were substituted.",
+        ]),
     "",
     "COMBINED TENDERS",
     ...tenderFamilyRows(tenderFamilySummary),
@@ -989,10 +1325,19 @@ export async function openProfessionalZReportPrint(opts: {
           "BREAKDOWN BY REGISTER",
           ...opts.tendersByLane.flatMap((lane) => {
             const cashTotal = lane.tenders
-              .filter((tender) => normalizedTenderKey(tender.payment_method) === "cash")
-              .reduce((sum, tender) => sum + parseMoneyToCents(tender.total_amount), 0);
+              .filter(
+                (tender) =>
+                  normalizedTenderKey(tender.payment_method) === "cash",
+              )
+              .reduce(
+                (sum, tender) => sum + parseMoneyToCents(tender.total_amount),
+                0,
+              );
             const cashCount = lane.tenders
-              .filter((tender) => normalizedTenderKey(tender.payment_method) === "cash")
+              .filter(
+                (tender) =>
+                  normalizedTenderKey(tender.payment_method) === "cash",
+              )
               .reduce((sum, tender) => sum + tender.tx_count, 0);
             const ccTotal = creditCardTenderTotalCents(lane.tenders);
             const ccCount = creditCardTenderCount(lane.tenders);
@@ -1019,6 +1364,40 @@ export async function openProfessionalZReportPrint(opts: {
     `Status: ${statusLabel}`,
     `Over/Short: ${dc == null ? "Not available" : formatReportMoney(dc)}`,
     "",
+    ...(hasUnresolvedCloseIssues
+      ? [
+          unresolvedIssueTextHeading,
+          unresolvedIssueStatement,
+          ...unresolvedRecoveryJobs.map((job) => {
+            const identities = [
+              job.transaction_id ? `Transaction ${job.transaction_id}` : null,
+              job.checkout_client_id
+                ? `Checkout ${job.checkout_client_id}`
+                : null,
+              job.register_session_id
+                ? `Session ${job.register_session_id}`
+                : null,
+              job.station_key ? `Workstation ${job.station_key}` : null,
+            ]
+              .filter(Boolean)
+              .join(" | ");
+            return `Recovery: ${textValue(job.label?.trim() || "Recovery record")} | Kind: ${reportLabel(job.kind)} | Status: ${reportLabel(job.status)} | Key: ${job.client_job_key} | First seen: ${formatReportTimestamp(job.first_seen_at)} | Last seen: ${formatReportTimestamp(job.last_seen_at)} | Attempts: ${job.attempt_count}${identities ? ` | ${identities}` : ""}${job.last_error?.trim() ? ` | Last error: ${textValue(job.last_error.trim())}` : ""}`;
+          }),
+          ...legacyRecoveryKeys.map((key) => `Recovery record: ${key}`),
+          ...unresolvedStationWarnings.map(
+            (warning) => `Workstation warning: ${warning}`,
+          ),
+          ...unresolvedHelcimAttempts.map(
+            (attempt) =>
+              `Card review: Register #${attempt.register_lane} | ${formatReportMoney(attempt.amount_cents)} | ${reportLabel(
+                attempt.status,
+              )} | ${reportLabel(attempt.review_reason)} | ${formatReportTimestamp(attempt.created_at)} | Session ${
+                attempt.register_session_id
+              } | Attempt ${attempt.id}`,
+          ),
+          "",
+        ]
+      : []),
     ...(opts.overrideSummary.length > 0
       ? [
           "PRICE OVERRIDE AUDIT",
@@ -1055,11 +1434,14 @@ export async function openProfessionalZReportPrint(opts: {
       ? [
           "TRANSACTION LIST",
           ...transactions.flatMap((tx) => {
-            const transactionSubtotalBeforeTaxCents = auditItemsSubtotalBeforeTaxCents(tx.items);
+            const transactionSubtotalBeforeTaxCents =
+              auditItemsSubtotalBeforeTaxCents(tx.items);
             const header = `${new Date(tx.created_at).toLocaleString()} | ${reportLabel(transactionPaymentMethod(tx))} | ${
               tx.customer_name || "Walk-in Customer"
             } | Lane #${tx.register_lane} | Amount: ${formatReportMoney(tx.amount)}${
-              tx.transaction_display_id ? ` | Transaction: ${tx.transaction_display_id}` : ""
+              tx.transaction_display_id
+                ? ` | Transaction: ${tx.transaction_display_id}`
+                : ""
             }`;
             const items = (tx.items ?? [])
               .filter(isVisibleAuditItem)
@@ -1083,15 +1465,26 @@ export async function openProfessionalZReportPrint(opts: {
       ? [
           "PICKUPS TODAY",
           ...opts.pickupsToday.flatMap((pickup) => {
-            const customer = [
-              pickup.customer_name,
-              pickup.customer_code ? `(#${pickup.customer_code})` : null,
-            ].filter(Boolean).join(" ") || "Walk-in Customer";
+            const customer =
+              [
+                pickup.customer_name,
+                pickup.customer_code ? `(#${pickup.customer_code})` : null,
+              ]
+                .filter(Boolean)
+                .join(" ") || "Walk-in Customer";
             const header = `${new Date(pickup.occurred_at).toLocaleString()} | ${customer}${
               pickup.short_id ? ` | Transaction: ${pickup.short_id}` : ""
             }`;
-            const items = (pickup.items ?? []).map((item) => `  ${item.quantity}x ${textValue(item.name)} | ${textValue(item.sku)}`);
-            return [header, ...(items.length > 0 ? items : ["  No picked-up item details recorded"])];
+            const items = (pickup.items ?? []).map(
+              (item) =>
+                `  ${item.quantity}x ${textValue(item.name)} | ${textValue(item.sku)}`,
+            );
+            return [
+              header,
+              ...(items.length > 0
+                ? items
+                : ["  No picked-up item details recorded"]),
+            ];
           }),
           "",
         ]
@@ -1115,7 +1508,9 @@ export async function openProfessionalZReportPrint(opts: {
                 line.credit ? formatReportMoney(line.credit) : ""
               }`,
           ),
-          ...(opts.qboJournal?.warnings ?? []).map((warning) => `Warning: ${warning}`),
+          ...(opts.qboJournal?.warnings ?? []).map(
+            (warning) => `Warning: ${warning}`,
+          ),
           "",
         ]
       : []),
@@ -1123,7 +1518,8 @@ export async function openProfessionalZReportPrint(opts: {
     "Date of Verification: ___________________________",
   ];
 
-  target.doc.write(`<!DOCTYPE html><html><head><title>${opts.title} — ${opts.sessionId}</title>
+  target.doc
+    .write(`<!DOCTYPE html><html><head><title>${opts.title} — ${opts.sessionId}</title>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800&family=JetBrains+Mono:wght@400;700&display=swap');
     @page { size: letter portrait; margin: 0.38in; }
@@ -1222,11 +1618,15 @@ export async function openProfessionalZReportPrint(opts: {
           <span class="muted">Cash Sales (Gross)</span>
           <span class="mono" style="font-weight: 700;">+${formatReportMoney(opts.cashSalesCents)}</span>
         </div>
-        ${opts.roundingAdjustmentsCents !== undefined ? `
+        ${
+          opts.roundingAdjustmentsCents !== undefined
+            ? `
         <div class="cash-line">
           <span class="muted">Cash Rounding</span>
           <span class="mono" style="font-weight: 700;">${opts.roundingAdjustmentsCents >= 0 ? "+" : ""}${formatReportMoney(opts.roundingAdjustmentsCents)}</span>
-        </div>` : ""}
+        </div>`
+            : ""
+        }
         <div class="cash-line">
           <span class="muted">Drawer Adjustments</span>
           <span class="mono" style="font-weight: 700;">${opts.netAdjustmentsCents >= 0 ? "+" : ""}${formatReportMoney(opts.netAdjustmentsCents)}</span>
@@ -1260,7 +1660,21 @@ export async function openProfessionalZReportPrint(opts: {
     </div>
   </div>
 
-  ${overrideRows ? `
+  ${
+    hasUnresolvedCloseIssues
+      ? `
+    <div style="margin-top:14px;border:1.5px solid #f59e0b;background:#fffbeb;border-radius:10px;padding:10px 12px;break-inside:avoid;">
+      <h2 style="border-color:#f59e0b;color:#92400e;margin-top:0;">${escapeReportHtml(unresolvedIssueHeading)}</h2>
+      <p style="color:#78350f;font-weight:700;margin:0 0 7px;">${escapeReportHtml(unresolvedIssueStatement)}</p>
+      <ul style="color:#78350f;margin:0;padding-left:18px;">${unresolvedCloseIssueRows}</ul>
+    </div>
+  `
+      : ""
+  }
+
+  ${
+    overrideRows
+      ? `
     <div style="margin-top: 14px; break-inside: avoid;">
       <h2>Price Override Audit</h2>
       <table>
@@ -1268,9 +1682,13 @@ export async function openProfessionalZReportPrint(opts: {
         <tbody>${overrideRows}</tbody>
       </table>
     </div>
-  ` : ""}
+  `
+      : ""
+  }
 
-  ${manualDrawerRows ? `
+  ${
+    manualDrawerRows
+      ? `
     <div style="margin-top: 14px; break-inside: avoid;">
       <h2>Manual Drawer Opens</h2>
       <table>
@@ -1278,17 +1696,25 @@ export async function openProfessionalZReportPrint(opts: {
         <tbody>${manualDrawerRows}</tbody>
       </table>
     </div>
-  ` : ""}
+  `
+      : ""
+  }
 
-  ${closingNotes || closingComments ? `
+  ${
+    closingNotes || closingComments
+      ? `
     <div style="margin-top: 14px; break-inside: avoid;">
       <h2>Closing Notes</h2>
       ${closingNotes ? `<p class="stat-label">Internal Shift Notes</p><div style="border:1px solid #e2e8f0;border-radius:8px;padding:9px 10px;white-space:pre-wrap;">${escapeReportHtml(closingNotes)}</div>` : ""}
       ${closingComments ? `<p class="stat-label" style="margin-top:10px;">Closing Comments</p><div style="border:1px solid #e2e8f0;border-radius:8px;padding:9px 10px;white-space:pre-wrap;">${escapeReportHtml(closingComments)}</div>` : ""}
     </div>
-  ` : ""}
+  `
+      : ""
+  }
 
-  <div class="page-break">
+  ${
+    includeSupplementalSummary
+      ? `<div class="page-break">
 	    <h2>Quick Look</h2>
 	    <div class="quick-look-grid">
 	      <div class="summary-card"><p class="stat-label">Transactions</p><p class="stat-value">${opts.salesCount ?? transactions.length}</p></div>
@@ -1314,36 +1740,54 @@ export async function openProfessionalZReportPrint(opts: {
 	      <div class="summary-card"><p class="stat-label">Shipping Total</p><p class="stat-value">${formatReportMoney(reportShippingTotal)}</p></div>
 	      <div class="summary-card"><p class="stat-label">Gift Card Loads</p><p class="stat-value">${moneyWithCount(parseMoneyToCents(reportGiftCardLoadTotal), opts.giftCardLoadCount ?? 0)}</p></div>
 	    </div>
-	  </div>
+	  </div>`
+      : `<div class="page-break"><h2>Quick Look</h2><div style="border:1px solid #94a3b8;border-radius:8px;padding:10px;color:#475569;">Supplemental business-day metrics are pending the immutable archived EOD snapshot. This immediate close report does not substitute live or partial values.</div></div>`
+  }
 
-  ${txAuditRows ? `
+  ${
+    txAuditRows
+      ? `
     <div style="margin-top: 14px; page-break-before: auto;">
       <h2>Transaction List</h2>
       ${txAuditRows}
     </div>
-  ` : ""}
+  `
+      : ""
+  }
 
-  ${pickupRows ? `
+  ${
+    pickupRows
+      ? `
     <div style="margin-top: 14px;">
       <h2>Pickups Today</h2>
       ${pickupRows}
     </div>
-  ` : ""}
+  `
+      : ""
+  }
 
-  ${qboJournalRows || opts.qboJournalError ? `
+  ${
+    qboJournalRows || opts.qboJournalError
+      ? `
     <div style="margin-top: 14px; break-inside: avoid;">
       <h2>QBO Journal Entry Preview</h2>
       ${opts.qboJournalError ? `<div style="border:1px solid #fecaca;background:#fef2f2;border-radius:8px;color:#991b1b;font-weight:700;padding:8px 10px;">${escapeReportHtml(opts.qboJournalError)}</div>` : ""}
-      ${qboJournalRows ? `
+      ${
+        qboJournalRows
+          ? `
         <p class="muted" style="margin:0 0 5px;">Activity Date: <strong>${escapeReportHtml(opts.qboActivityDate ?? opts.qboJournal?.activity_date ?? "—")}</strong> · Debits ${formatReportMoney(opts.qboJournal?.totals.debits ?? "0")} · Credits ${formatReportMoney(opts.qboJournal?.totals.credits ?? "0")} · ${opts.qboJournal?.totals.balanced ? "Balanced" : "Needs review"}</p>
         <table style="font-size: 8.2px;">
           <thead><tr><th>Account</th><th>Memo</th><th style="text-align:right">Debit</th><th style="text-align:right">Credit</th></tr></thead>
           <tbody>${qboJournalRows}</tbody>
         </table>
-      ` : ""}
+      `
+          : ""
+      }
       ${qboWarnings ? `<ul class="muted" style="margin:6px 0 0 14px;padding:0;">${qboWarnings}</ul>` : ""}
     </div>
-  ` : ""}
+  `
+      : ""
+  }
 
   <div class="signature-grid">
     <div>
@@ -1356,9 +1800,14 @@ export async function openProfessionalZReportPrint(opts: {
     </div>
   </div>
   </body></html>`);
-  return finishPrintDocument(target, `z-report-${opts.sessionId.slice(0, 8)}.html`, zReportTextLines.join("\n"), {
-    action: opts.action ?? "print",
-  });
+  return finishPrintDocument(
+    target,
+    `z-report-${opts.sessionId.slice(0, 8)}.html`,
+    zReportTextLines.join("\n"),
+    {
+      action: opts.action ?? "print",
+    },
+  );
 }
 
 export async function openProfessionalDailySalesPrint(opts: {
@@ -1399,10 +1848,12 @@ export async function openProfessionalDailySalesPrint(opts: {
     tax_total?: string | null;
     kind: string;
     payment_summary?: string | null;
-    payments?: {
-      method: string;
-      amount_label: string;
-    }[] | null;
+    payments?:
+      | {
+          method: string;
+          amount_label: string;
+        }[]
+      | null;
     customer_name?: string | null;
     customer_code?: string | null;
     wedding_party_name?: string | null;
@@ -1417,27 +1868,31 @@ export async function openProfessionalDailySalesPrint(opts: {
     fulfillment_label?: string | null;
     is_takeaway?: boolean | null;
     channel?: string | null;
-    items?: {
-      name: string;
-      sku: string;
-      quantity: number;
-      reg_price: string;
-      price: string;
-      fulfillment?: string | null;
-      line_kind?: string | null;
-    }[] | null;
+    items?:
+      | {
+          name: string;
+          sku: string;
+          quantity: number;
+          reg_price: string;
+          price: string;
+          fulfillment?: string | null;
+          line_kind?: string | null;
+        }[]
+      | null;
   }[];
   pickupsToday?: {
     occurred_at: string;
     customer_name?: string | null;
     customer_code?: string | null;
     short_id?: string | null;
-    items?: {
-      name: string;
-      sku: string;
-      quantity: number;
-      fulfillment?: string | null;
-    }[] | null;
+    items?:
+      | {
+          name: string;
+          sku: string;
+          quantity: number;
+          fulfillment?: string | null;
+        }[]
+      | null;
     sales_total?: string | null;
     transaction_total?: string | null;
   }[];
@@ -1449,10 +1904,14 @@ export async function openProfessionalDailySalesPrint(opts: {
   const reportPrinter = reportPrinterName();
   const { summary, activities, pickupsToday = [] } = opts;
   const detailFilter = opts.detailFilter?.trim() || null;
-  const detailScopeLabel = detailFilter ? `Filtered detail: ${detailFilter}` : "All activity detail";
+  const detailScopeLabel = detailFilter
+    ? `Filtered detail: ${detailFilter}`
+    : "All activity detail";
   const detailMetricPrefix = detailFilter ? "Filtered " : "";
 
-  const groupedActivities = activities.reduce<Record<string, typeof activities>>((groups, row) => {
+  const groupedActivities = activities.reduce<
+    Record<string, typeof activities>
+  >((groups, row) => {
     const date = new Date(row.occurred_at).toLocaleDateString("en-US", {
       month: "short",
       day: "numeric",
@@ -1468,46 +1927,56 @@ export async function openProfessionalDailySalesPrint(opts: {
         (sum, row) => sum + parseRegisterReportMoneyToCents(row.sales_total),
         0,
       );
-      const cards = rows.map((row) => {
-      const tm = new Date(row.occurred_at).toLocaleString([], {
-        month: "short",
-        day: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      });
-      const customerInfo = [
-        row.customer_name,
-        row.customer_code ? `(#${row.customer_code})` : null,
-        row.wedding_party_name ? `• ${row.wedding_party_name}` : null
-      ].filter(Boolean).join(" ");
+      const cards = rows
+        .map((row) => {
+          const tm = new Date(row.occurred_at).toLocaleString([], {
+            month: "short",
+            day: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+          });
+          const customerInfo = [
+            row.customer_name,
+            row.customer_code ? `(#${row.customer_code})` : null,
+            row.wedding_party_name ? `• ${row.wedding_party_name}` : null,
+          ]
+            .filter(Boolean)
+            .join(" ");
 
-      const itemsHtml = (row.items || []).map(item => `
+          const itemsHtml = (row.items || [])
+            .map(
+              (item) => `
         <div class="print-item-row">
           <span><strong>${item.quantity}× ${item.name}</strong><br><span class="muted mono">${item.sku}${item.fulfillment ? ` · ${item.fulfillment.replace(/_/g, " ")}` : ""}</span></span>
           ${linePriceBreakdownHtml(item.price, item.reg_price || item.price)}
         </div>
-      `).join("");
-      const chips = [
-        row.fulfillment_label,
-        row.imported_at
-          ? `Imported at ${new Date(row.imported_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
-          : null,
-        row.channel === "web" ? "Online" : null,
-      ].filter(Boolean).map((chip) => `<span class="chip">${chip}</span>`).join("");
+      `,
+            )
+            .join("");
+          const chips = [
+            row.fulfillment_label,
+            row.imported_at
+              ? `Imported at ${new Date(row.imported_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+              : null,
+            row.channel === "web" ? "Online" : null,
+          ]
+            .filter(Boolean)
+            .map((chip) => `<span class="chip">${chip}</span>`)
+            .join("");
 
-      const paymentRows =
-        row.payments && row.payments.length > 0
-          ? row.payments
-              .map(
-                (payment) =>
-                  `<div class="money-sub">${escapeReportHtml(payment.method)} ${formatReportMoney(payment.amount_label)}</div>`,
-              )
-              .join("")
-          : row.payment_summary
-            ? `<div class="money-sub">${escapeReportHtml(row.payment_summary)}</div>`
-            : "";
+          const paymentRows =
+            row.payments && row.payments.length > 0
+              ? row.payments
+                  .map(
+                    (payment) =>
+                      `<div class="money-sub">${escapeReportHtml(payment.method)} ${formatReportMoney(payment.amount_label)}</div>`,
+                  )
+                  .join("")
+              : row.payment_summary
+                ? `<div class="money-sub">${escapeReportHtml(row.payment_summary)}</div>`
+                : "";
 
-      return `
+          return `
         <section class="activity-card">
           <div class="activity-left">
             <div class="pill">${row.title}</div>
@@ -1533,7 +2002,8 @@ export async function openProfessionalDailySalesPrint(opts: {
           </div>
         </section>
       `;
-      }).join("");
+        })
+        .join("");
       return `
         <section class="activity-group">
           <div class="group-head">
@@ -1560,13 +2030,19 @@ export async function openProfessionalDailySalesPrint(opts: {
       const customerInfo = [
         pickup.customer_name,
         pickup.customer_code ? `(#${pickup.customer_code})` : null,
-      ].filter(Boolean).join(" ");
-      const itemRows = (pickup.items ?? []).map((item) => `
+      ]
+        .filter(Boolean)
+        .join(" ");
+      const itemRows = (pickup.items ?? [])
+        .map(
+          (item) => `
         <div class="pickup-item">
           <span><strong>${escapeReportHtml(`${item.quantity}x ${item.name}`)}</strong></span>
           <span class="mono muted">${escapeReportHtml(item.sku)}</span>
         </div>
-      `).join("");
+      `,
+        )
+        .join("");
       return `
         <section class="pickup-row">
           <div>
@@ -1583,39 +2059,56 @@ export async function openProfessionalDailySalesPrint(opts: {
   // Calculate grand total across all groups
   const grandTotalCents = Object.values(groupedActivities)
     .flat()
-    .reduce((sum, row) => sum + parseRegisterReportMoneyToCents(row.sales_total), 0);
+    .reduce(
+      (sum, row) => sum + parseRegisterReportMoneyToCents(row.sales_total),
+      0,
+    );
   const creditCardTotalCents = activities.reduce((sum, row) => {
-    return sum + (row.payments ?? []).reduce((paymentSum, payment) => {
-      return isCreditCardTender(payment.method)
-        ? paymentSum + parseRegisterReportMoneyToCents(payment.amount_label)
-        : paymentSum;
-    }, 0);
+    return (
+      sum +
+      (row.payments ?? []).reduce((paymentSum, payment) => {
+        return isCreditCardTender(payment.method)
+          ? paymentSum + parseRegisterReportMoneyToCents(payment.amount_label)
+          : paymentSum;
+      }, 0)
+    );
   }, 0);
   const rmsChargeTotalCents = activities.reduce((sum, row) => {
-    return sum + (row.payments ?? []).reduce((paymentSum, payment) => {
-      return isRmsChargeTender(payment.method)
-        ? paymentSum + parseRegisterReportMoneyToCents(payment.amount_label)
-        : paymentSum;
-    }, 0);
+    return (
+      sum +
+      (row.payments ?? []).reduce((paymentSum, payment) => {
+        return isRmsChargeTender(payment.method)
+          ? paymentSum + parseRegisterReportMoneyToCents(payment.amount_label)
+          : paymentSum;
+      }, 0)
+    );
   }, 0);
   const rmsPaymentTotalCents = activities.reduce((sum, row) => {
-    return sum + (row.items ?? []).reduce((itemSum, item) => {
-      return item.line_kind === "rms_charge_payment"
-        ? itemSum + parseMoneyToCents(item.price) * item.quantity
-        : itemSum;
-    }, 0);
+    return (
+      sum +
+      (row.items ?? []).reduce((itemSum, item) => {
+        return item.line_kind === "rms_charge_payment"
+          ? itemSum + parseMoneyToCents(item.price) * item.quantity
+          : itemSum;
+      }, 0)
+    );
   }, 0);
   const creditCardPaymentCount = activities.filter((row) =>
     (row.payments ?? []).some((payment) => isCreditCardTender(payment.method)),
   ).length;
-  const newLayawayCount = summary.new_layaway_count ?? activities.filter((row) =>
-    (row.items ?? []).some((item) => item.fulfillment === "layaway"),
-  ).length;
+  const newLayawayCount =
+    summary.new_layaway_count ??
+    activities.filter((row) =>
+      (row.items ?? []).some((item) => item.fulfillment === "layaway"),
+    ).length;
   const pickupTotalCents = summary.pickup_total
     ? parseRegisterReportMoneyToCents(summary.pickup_total)
     : pickupsToday.reduce(
         (sum, pickup) =>
-          sum + parseRegisterReportMoneyToCents(pickup.sales_total ?? pickup.transaction_total),
+          sum +
+          parseRegisterReportMoneyToCents(
+            pickup.sales_total ?? pickup.transaction_total,
+          ),
         0,
       );
   const pickupTotalCount = summary.pickup_total_count ?? pickupsToday.length;
@@ -1625,13 +2118,22 @@ export async function openProfessionalDailySalesPrint(opts: {
         const rowDiscount = (row.items ?? []).reduce((itemSum, item) => {
           const regularCents = parseMoneyToCents(item.reg_price || item.price);
           const saleCents = parseMoneyToCents(item.price);
-          return itemSum + Math.max(regularCents - saleCents, 0) * Math.max(item.quantity, 0);
+          return (
+            itemSum +
+            Math.max(regularCents - saleCents, 0) * Math.max(item.quantity, 0)
+          );
         }, 0);
         return sum + rowDiscount;
       }, 0);
-  const discountCount = summary.discount_count ?? activities.filter((row) =>
-    (row.items ?? []).some((item) => parseMoneyToCents(item.reg_price || item.price) > parseMoneyToCents(item.price)),
-  ).length;
+  const discountCount =
+    summary.discount_count ??
+    activities.filter((row) =>
+      (row.items ?? []).some(
+        (item) =>
+          parseMoneyToCents(item.reg_price || item.price) >
+          parseMoneyToCents(item.price),
+      ),
+    ).length;
   const generatedAt = new Date().toLocaleString();
   const dailyReportTextLines = [
     "RIVERSIDE MEN'S SHOP",
@@ -1664,7 +2166,9 @@ export async function openProfessionalDailySalesPrint(opts: {
     `${detailMetricPrefix}Picked Up: ${moneyWithCount(pickupTotalCents, pickupTotalCount)}`,
     `${detailMetricPrefix}Discounts: ${moneyWithCount(discountTotalCents, discountCount)}`,
     "",
-    detailFilter ? `FILTERED TRANSACTION LIST (${detailFilter})` : "TRANSACTION LIST",
+    detailFilter
+      ? `FILTERED TRANSACTION LIST (${detailFilter})`
+      : "TRANSACTION LIST",
     ...(activities.length > 0
       ? activities.flatMap((row) => {
           const customerInfo = [
@@ -1682,29 +2186,41 @@ export async function openProfessionalDailySalesPrint(opts: {
           const paymentDetails =
             row.payments && row.payments.length > 0
               ? row.payments.map(
-                  (payment) => `Payment: ${payment.method} ${formatReportMoney(payment.amount_label)}`,
+                  (payment) =>
+                    `Payment: ${payment.method} ${formatReportMoney(payment.amount_label)}`,
                 )
               : row.payment_summary
                 ? [`Payment: ${row.payment_summary}`]
                 : [];
           const details = [
             row.short_id ? `Transaction: ${row.short_id}` : "",
-            row.imported_at ? `Imported at: ${new Date(row.imported_at).toLocaleString()}` : "",
+            row.imported_at
+              ? `Imported at: ${new Date(row.imported_at).toLocaleString()}`
+              : "",
             ...paymentDetails,
-            row.subtotal_before_tax ? `Subtotal Before Tax: ${formatReportMoney(row.subtotal_before_tax)}` : "",
+            row.subtotal_before_tax
+              ? `Subtotal Before Tax: ${formatReportMoney(row.subtotal_before_tax)}`
+              : "",
             row.tax_total ? `Tax: ${formatReportMoney(row.tax_total)}` : "",
-            row.transaction_total ? `Transaction Total: ${formatReportMoney(row.transaction_total)}` : "",
+            row.transaction_total
+              ? `Transaction Total: ${formatReportMoney(row.transaction_total)}`
+              : "",
             row.wedding_deposit_contributions
               ? `Wedding Deposits Placed: ${formatReportMoney(row.wedding_deposit_contributions)} for ${row.wedding_deposit_member_count ?? 0} members`
               : "",
             row.wedding_deposit_contributions
               ? `Total Tender Collected: ${formatReportMoney(parseRegisterReportMoneyToCents(row.transaction_total) + parseRegisterReportMoneyToCents(row.wedding_deposit_contributions))}`
               : "",
-            row.deposits_paid ? `Paid: ${formatReportMoney(row.deposits_paid)}` : "",
-            row.balance_due && parseRegisterReportMoneyToCents(row.balance_due) > 0
+            row.deposits_paid
+              ? `Paid: ${formatReportMoney(row.deposits_paid)}`
+              : "",
+            row.balance_due &&
+            parseRegisterReportMoneyToCents(row.balance_due) > 0
               ? `Balance: ${formatReportMoney(row.balance_due)}`
               : "",
-            row.fulfillment_label ? `Fulfillment: ${row.fulfillment_label}` : "",
+            row.fulfillment_label
+              ? `Fulfillment: ${row.fulfillment_label}`
+              : "",
             row.channel ? `Channel: ${row.channel}` : "",
           ].filter(Boolean);
           const items = (row.items ?? []).map(
@@ -1713,7 +2229,11 @@ export async function openProfessionalDailySalesPrint(opts: {
                 item.fulfillment ? fulfillmentLabel(item.fulfillment) : ""
               } | ${linePriceBreakdownText(item.price, item.reg_price || item.price)}`,
           );
-          return [header, ...details.map((detail) => `  ${detail}`), ...(items.length > 0 ? items : [])];
+          return [
+            header,
+            ...details.map((detail) => `  ${detail}`),
+            ...(items.length > 0 ? items : []),
+          ];
         })
       : ["No activity recorded for this period."]),
     "",
@@ -1723,14 +2243,22 @@ export async function openProfessionalDailySalesPrint(opts: {
           const customerInfo = [
             pickup.customer_name,
             pickup.customer_code ? `#${pickup.customer_code}` : null,
-          ].filter(Boolean).join(" | ");
+          ]
+            .filter(Boolean)
+            .join(" | ");
           const header = `${new Date(pickup.occurred_at).toLocaleString()}${
             pickup.short_id ? ` | Transaction: ${pickup.short_id}` : ""
           } | ${customerInfo || "Walk-in Customer"}`;
           const items = (pickup.items ?? []).map(
-            (item) => `  ${item.quantity}x ${textValue(item.name)} | ${textValue(item.sku)}`,
+            (item) =>
+              `  ${item.quantity}x ${textValue(item.name)} | ${textValue(item.sku)}`,
           );
-          return [header, ...(items.length > 0 ? items : ["  No picked-up item details recorded."])];
+          return [
+            header,
+            ...(items.length > 0
+              ? items
+              : ["  No picked-up item details recorded."]),
+          ];
         })
       : ["No pickups recorded for this period."]),
     "",
@@ -1881,19 +2409,28 @@ export async function openProfessionalDailySalesPrint(opts: {
   <h2>Pickups Today</h2>
   ${pickupRows || "<div class='muted' style='padding:20px 0;'>No pickups recorded for this period.</div>"}
 
-  ${activityRows ? `
+  ${
+    activityRows
+      ? `
   <div style="margin-top: 30px; border-top: 2px solid #e2e8f0; padding-top: 20px; text-align: right;">
     <p style="font-size: 14px; font-weight: 800; color: #0f172a; margin: 0;">${detailFilter ? "Filtered Detail Total" : "Grand Total"}: ${formatReportMoney(grandTotalCents)}</p>
   </div>
-  ` : ""}
+  `
+      : ""
+  }
 
   <div style="margin-top: 60px; border-top: 1px solid #e2e8f0; padding-top: 20px; text-align: center;">
     <p class="muted" style="font-size: 10px;">End of Summary Audit · Riverside Men's Shop · Generated: ${generatedAt}</p>
   </div>
   </body></html>`);
-  return finishPrintDocument(target, "daily-sales-report.html", dailyReportTextLines.join("\n"), {
-    action: opts.action ?? "print",
-  });
+  return finishPrintDocument(
+    target,
+    "daily-sales-report.html",
+    dailyReportTextLines.join("\n"),
+    {
+      action: opts.action ?? "print",
+    },
+  );
 }
 
 export async function openProfessionalTablePrint(opts: {
@@ -1917,7 +2454,10 @@ export async function openProfessionalTablePrint(opts: {
       .replaceAll("'", "&#39;");
 
   const headerCells = opts.columns
-    .map((c) => `<th style="text-align:left;padding:12px 8px;border-bottom:2px solid #e2e8f0;white-space:nowrap">${escapeHtml(c.replace(/_/g, " ").toUpperCase())}</th>`)
+    .map(
+      (c) =>
+        `<th style="text-align:left;padding:12px 8px;border-bottom:2px solid #e2e8f0;white-space:nowrap">${escapeHtml(c.replace(/_/g, " ").toUpperCase())}</th>`,
+    )
     .join("");
 
   const bodyRows = opts.rows
@@ -1939,23 +2479,27 @@ export async function openProfessionalTablePrint(opts: {
     `Reporting Station: ${reportPrinter}`,
     `Generated: ${new Date().toLocaleString()}`,
     "",
-    opts.columns.map((column) => column.replace(/_/g, " ").toUpperCase()).join("\t"),
+    opts.columns
+      .map((column) => column.replace(/_/g, " ").toUpperCase())
+      .join("\t"),
     ...(opts.rows.length > 0
       ? opts.rows.map((row) =>
           opts.columns
             .map((column) => {
               const value = row[column];
-              return value === null || value === undefined ? "" : String(value).replace(/\s+/g, " ").trim();
+              return value === null || value === undefined
+                ? ""
+                : String(value).replace(/\s+/g, " ").trim();
             })
             .join("\t"),
         )
       : ["No records found"]),
     "",
     "End of Report - Riverside Men's Shop Proprietary Document",
-  ]
-    .join("\n");
+  ].join("\n");
 
-  target.doc.write(`<!DOCTYPE html><html><head><title>${escapeHtml(opts.title)}</title>
+  target.doc
+    .write(`<!DOCTYPE html><html><head><title>${escapeHtml(opts.title)}</title>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800&family=JetBrains+Mono:wght@400;700&display=swap');
     body { font-family: 'Inter', system-ui, sans-serif; font-size: 11px; line-height: 1.4; color: #0f172a; padding: 40px; }
@@ -1988,7 +2532,12 @@ export async function openProfessionalTablePrint(opts: {
     <p class="muted" style="font-size: 9px;">End of Report · Riverside Men's Shop Proprietary Document</p>
   </div>
   </body></html>`);
-  return finishPrintDocument(target, `${opts.title.replace(/[^a-z0-9]/gi, "_")}.html`, tableReportText, {
-    action: opts.action ?? "print",
-  });
+  return finishPrintDocument(
+    target,
+    `${opts.title.replace(/[^a-z0-9]/gi, "_")}.html`,
+    tableReportText,
+    {
+      action: opts.action ?? "print",
+    },
+  );
 }

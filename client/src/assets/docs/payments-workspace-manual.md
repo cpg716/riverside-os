@@ -25,12 +25,13 @@ Payments Operations is the Back Office workspace for reviewing Riverside card ac
 
 When a POS customer is selected, Riverside now creates or reuses that customer's Helcim profile before starting a terminal purchase and sends the Helcim customer code with the payment. This is what allows Helcim's Contact Name/Cardholder Name columns to be populated consistently; older guest payments cannot be renamed retroactively by Riverside.
 
-Use the Register checkout drawer to collect payment. Use Payments Operations to review what happened and resolve evidence safely.
+Use the Register checkout drawer to collect payment. Start card refunds from the original Transaction Record through the guided return or exchange workflow. Payments Operations remains a review and recovery workspace; it does not offer a standalone provider-refund form.
 
 ## Before you start
 
 - Viewing requires payment access; syncing, linking, resolving, or accepting differences requires the matching elevated permission.
 - Never enter a full card number, CVV, provider token, or private credential in Riverside notes.
+- Never type a Helcim transaction ID into a standalone refund form. Open the original Transaction Record so ROS can preserve merchandise, tender, settlement, and audit links together.
 - Missing fee or net information means **not ready**, not `$0.00`.
 - A batch fee or net is copied to the Riverside payment only when one current Helcim row uniquely links by provider transaction ID and its gross amount, USD currency, final status, and purchase/refund direction agree with Riverside. Any missing, duplicate, or conflicting evidence opens an issue and leaves the payment ledger unchanged. **Unavailable from provider** is not counted as synchronized or as a zero fee, and scheduled retries are paced to avoid provider throttling.
 - Automatic deposit links require current USD evidence and either an explicit provider deposit/net amount or a complete net total from all current successful batch transactions. Helcim **net sales** is not treated as bank-deposit evidence. If that evidence later regresses, Riverside marks the imported deposit **Needs review**, unlinks the batch, and records the change in its audit history; verified evidence can relink it later.
@@ -86,7 +87,7 @@ Use this only when **Health → Helcim Terminal Review** shows an approved charg
 5. Wait for the recovered Transaction number. Do not run the card again.
 6. Open the recovered Transaction and confirm its lines, customer, payment, balance, order status, and Helcim reference.
 
-ROS refuses recovery when the retained cart is missing or ambiguous, the cart total differs from the approval, the register sessions differ, the provider transaction is already linked, or the cart needs a specialized Wedding or Alterations workflow. A successful recovery creates the sale through normal checkout logic and records the manager, original operator, original approval time, parked cart, payment allocation, and Helcim match in one audited database transaction.
+ROS refuses recovery when the retained cart is missing or ambiguous, the cart total differs from the approval, the register sessions differ, the provider transaction is already linked, the processor evidence is not one approved USD purchase, or the cart needs a specialized Wedding or Alterations workflow. Refund, reverse, non-USD, declined, and identity-mismatched processor rows cannot be recovered as a sale. A successful recovery creates the sale through normal checkout logic and records the manager, original operator, original approval time, parked cart, payment allocation, and Helcim match in one audited database transaction.
 
 ## Card Not Present checkout handoff
 
@@ -96,7 +97,7 @@ ROS refuses recovery when the retained cart is missing or ambiguous, the cart to
 4. If the handoff is interrupted, use **Recover Payment** or **Check Status** from the same checkout. These actions reuse the existing Helcim approval and are safe to repeat; they do not create a second charge.
 5. If the payment was approved but cannot be attached, stop retrying the card and use **Health → Helcim Terminal Review** to recover it to the exact retained checkout or target Transaction Record.
 
-The Card Not Present flow must never be routed to a physical terminal. A successful approval is not complete in Riverside until the payment appears in the checkout ledger and the resulting Transaction Record shows the Helcim provider reference. Completing or clearing the sale resets the hosted handoff; a delayed approval from that prior sale is rejected from the next sale and remains available in Payments Health for audited recovery or refund.
+The Card Not Present flow must never be routed to a physical terminal. A successful approval is not complete in Riverside until the payment appears in the checkout ledger and the resulting Transaction Record shows the Helcim provider reference. After the approval is attached—or provider recovery proves a definitive decline/cancel—completing or clearing the sale resets the hosted handoff. An unresolved result keeps the sale locked and visible in Payments Health.
 
 ## Recover an approved card payment onto an existing order
 
@@ -116,9 +117,9 @@ ROS refuses recovery when the target is missing, closed, belongs to no customer,
 - Processor update received, checkout attached, and provider reference saved are different states.
 - A normal decline or cancellation is not an approved payment.
 - Never retry blindly after a terminal approval that Riverside has not attached.
-- Approved provider payments cannot be removed, parked, or transferred to another customer. **Clear Sale** may release the local cart and tender display so the Register can continue, but it does not delete, dismiss, or move the processor evidence; review that approval in Payments Health before running the card again.
+- Approved provider payments cannot be removed, parked, or transferred to another customer. **Clear Sale**, another tender, and **Record Sale** remain unavailable while a card request is pending or unverified, or while an approval is still unattached. Continue only after ROS attaches the approval or recovers a definitive provider decline/cancel; live pending attempts cannot be released locally. Use Payments Health when the checkout cannot recover the result.
 - Never use paid-sale recovery to force a near match. The exact retained-cart banner must be present.
-- Standalone processor refunds verify the Helcim batch before sending, retain the original provider transaction on the audit attempt, and cap later ROS attempts to the remaining tracked amount. They do not automatically create a sales return or rewrite merchandise history.
+- Card refunds must originate from the original Transaction Record and remain part of the guided return or exchange settlement. Payments Operations shows the resulting provider and recovery evidence without creating a separate processor-only refund.
 - Do not resolve a reconciliation warning merely to make the dashboard green.
 - Batches, deposits, and payment transactions load in pages. Search is applied by the Main Hub to the full matching record set; select **Apply**, then use **Previous** or **Next** instead of treating the current page as the complete history.
 - Deposit summary cards labeled **Page** total only the records on the current page. If refresh fails, Riverside identifies the data as last loaded instead of presenting it as current.

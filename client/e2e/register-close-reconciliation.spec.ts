@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { expect, test, type APIResponse } from "@playwright/test";
 import { resetOpenRegisterSessions } from "./helpers/rmsCharge";
 
@@ -7,6 +8,34 @@ function apiBase(): string {
     process.env.VITE_API_BASE?.trim() ||
     "http://127.0.0.1:43300";
   return raw.replace(/\/$/, "");
+}
+
+function databaseUrl(): string {
+  const dbName =
+    process.env.RIVERSIDE_DB_NAME?.trim() ||
+    process.env.E2E_DB_NAME?.trim() ||
+    "riverside_os_e2e";
+  return (
+    process.env.E2E_DATABASE_URL?.trim() ||
+    process.env.DATABASE_URL?.trim() ||
+    `postgres://postgres:password@127.0.0.1:5433/${dbName}`
+  );
+}
+
+function sqlLiteral(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`;
+}
+
+function runSql(sql: string): string {
+  return execFileSync(
+    "psql",
+    ["-v", "ON_ERROR_STOP=1", "-q", "-At", "-f", "-", databaseUrl()],
+    {
+      encoding: "utf8",
+      input: sql,
+      stdio: ["pipe", "pipe", "pipe"],
+    },
+  ).trim();
 }
 
 function e2eAdminCode(): string {
@@ -137,6 +166,7 @@ type ReconciliationResponse = {
   physical_expected_cash: string;
   qbo_activity_date: string;
   pending_business_dates: string[];
+  unresolved_close_issues: UnresolvedCloseIssues | null;
   unresolved_helcim_attempts: Array<{
     id: string;
     review_reason: string;
@@ -176,7 +206,41 @@ type RegisterSessionHistoryRow = {
   total_sales: string;
   z_report_json?: {
     session_id?: string;
+    unresolved_close_issues?: UnresolvedCloseIssues | null;
   } | null;
+};
+
+type UnresolvedCloseIssues = {
+  recovery_job_keys: string[];
+  recovery_jobs: Array<{
+    client_job_key: string;
+    kind: string;
+    status: string;
+    register_session_id: string | null;
+    transaction_id: string | null;
+    checkout_client_id: string | null;
+    station_key: string | null;
+    label: string | null;
+    last_error: string | null;
+    attempt_count: number;
+    first_seen_at: string;
+    last_seen_at: string;
+  }>;
+  station_warnings: string[];
+  helcim_attempts: Array<{
+    id: string;
+    review_reason: string;
+  }>;
+};
+
+type CloseSessionResponse = {
+  status: string;
+  till_group_closed: boolean;
+  unresolved_close_issues: UnresolvedCloseIssues | null;
+  reconciliation: ReconciliationResponse;
+  z_report_snapshot: {
+    unresolved_close_issues: UnresolvedCloseIssues | null;
+  };
 };
 
 let serverReachable = false;
@@ -338,7 +402,7 @@ async function closeRegisterGroup(
   request: Parameters<typeof test>[0]["request"],
   sessionId: string,
   sessionToken: string,
-): Promise<void> {
+): Promise<CloseSessionResponse> {
   await prepareGroupForClose(request, sessionId, sessionToken);
   const recon = await fetchReconciliation(request, sessionId, sessionToken);
   const res = await request.post(
@@ -358,7 +422,9 @@ async function closeRegisterGroup(
       failOnStatusCode: false,
     },
   );
-  expect(res.status()).toBe(200);
+  const bodyText = await res.text();
+  expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
+  return JSON.parse(bodyText) as CloseSessionResponse;
 }
 
 async function startHelcimPurchaseOrSkip(
@@ -845,7 +911,7 @@ test.describe("Register close / reconciliation", () => {
     expect(withNotes.status()).toBe(200);
   });
 
-  test("partial business-day close requires a fresh reconciliation and workstation acknowledgement", async ({
+  test("partial business-day close records a missing fresh acknowledgement on the next close", async ({
     request,
   }) => {
     await closeAnyExistingOpenGroup(request);
@@ -935,29 +1001,22 @@ test.describe("Register close / reconciliation", () => {
     ).toBeTruthy();
 
     const staleClose = await closeCurrentBusinessDate();
+    expect(staleClose.reconciliation.pending_business_dates).toHaveLength(1);
     expect(
       staleClose.response.status(),
       staleClose.bodyText.slice(0, 1000),
-    ).toBe(409);
-    expect(staleClose.bodyText).toMatch(/acknowledgement missing/i);
-
-    await prepareGroupForClose(
-      request,
-      opened.session_id,
-      opened.pos_api_token ?? "",
-    );
-    const finalClose = await closeCurrentBusinessDate();
-    expect(finalClose.reconciliation.pending_business_dates).toHaveLength(1);
-    expect(
-      finalClose.response.status(),
-      finalClose.bodyText.slice(0, 1000),
     ).toBe(200);
-    expect(JSON.parse(finalClose.bodyText)).toMatchObject({
+    expect(JSON.parse(staleClose.bodyText)).toMatchObject({
       till_group_closed: true,
+      unresolved_close_issues: {
+        station_warnings: expect.arrayContaining([
+          expect.stringMatching(/acknowledgement missing/i),
+        ]),
+      },
     });
   });
 
-  test("pending Helcim terminal attempt does not block Z-close", async ({
+  test("pending Helcim terminal attempt is captured without blocking Z-close", async ({
     request,
   }) => {
     await closeAnyExistingOpenGroup(request);
@@ -970,10 +1029,65 @@ test.describe("Register close / reconciliation", () => {
       10875,
     );
 
-    await closeRegisterGroup(
+    const pendingReview = await request.post(
+      `${apiBase()}/api/sessions/${opened.session_id}/helcim-close-review/${attempt.id}`,
+      {
+        headers: {
+          "Content-Type": "application/json",
+          "x-riverside-pos-session-id": opened.session_id,
+          "x-riverside-pos-session-token": opened.pos_api_token ?? "",
+          "x-riverside-station-key": "station-e2e",
+        },
+        data: { action: "reviewed", note: null },
+        failOnStatusCode: false,
+      },
+    );
+    const pendingReviewText = await pendingReview.text();
+    expect(pendingReview.status(), pendingReviewText.slice(0, 1000)).toBe(400);
+    expect(pendingReviewText).toMatch(
+      /pending terminal attempt cannot be marked reviewed/i,
+    );
+
+    const recon = await fetchReconciliation(
       request,
       opened.session_id,
       opened.pos_api_token ?? "",
+    );
+    expect(recon.unresolved_close_issues?.helcim_attempts).toContainEqual(
+      expect.objectContaining({
+        id: attempt.id,
+        review_reason: "waiting_on_terminal",
+      }),
+    );
+    const close = await closeRegisterGroup(
+      request,
+      opened.session_id,
+      opened.pos_api_token ?? "",
+    );
+    expect(close.unresolved_close_issues?.helcim_attempts).toContainEqual(
+      expect.objectContaining({
+        id: attempt.id,
+        review_reason: "waiting_on_terminal",
+      }),
+    );
+
+    const historyRes = await request.get(
+      `${apiBase()}/api/insights/register-sessions?limit=10`,
+      {
+        headers: adminHeaders(),
+        failOnStatusCode: false,
+      },
+    );
+    expect(historyRes.status()).toBe(200);
+    const history = (await historyRes.json()) as RegisterSessionHistoryRow[];
+    const snapshot = history.find(
+      (row) => row.z_report_json?.session_id === opened.session_id,
+    )?.z_report_json;
+    expect(snapshot?.unresolved_close_issues?.helcim_attempts).toContainEqual(
+      expect.objectContaining({
+        id: attempt.id,
+        review_reason: "waiting_on_terminal",
+      }),
     );
     await releaseHelcimAttemptAsStaff(request, attempt.id);
   });
@@ -1010,11 +1124,242 @@ test.describe("Register close / reconciliation", () => {
         review_reason: "approved_not_recorded",
       }),
     );
-    await closeRegisterGroup(
+    const review = await request.post(
+      `${apiBase()}/api/sessions/${opened.session_id}/helcim-close-review/${approvedAttempt.id}`,
+      {
+        headers: {
+          "Content-Type": "application/json",
+          "x-riverside-pos-session-id": opened.session_id,
+          "x-riverside-pos-session-token": opened.pos_api_token ?? "",
+          "x-riverside-station-key": "station-e2e",
+        },
+        data: {
+          action: "reviewed",
+          note: "E2E review does not establish ledger attachment",
+        },
+        failOnStatusCode: false,
+      },
+    );
+    const reviewText = await review.text();
+    expect(review.status(), reviewText.slice(0, 1000)).toBe(200);
+    const afterReview = await fetchReconciliation(
       request,
       opened.session_id,
       opened.pos_api_token ?? "",
     );
+    expect(afterReview.unresolved_helcim_attempts).toContainEqual(
+      expect.objectContaining({ id: approvedAttempt.id }),
+    );
+    const close = await closeRegisterGroup(
+      request,
+      opened.session_id,
+      opened.pos_api_token ?? "",
+    );
+    expect(close.unresolved_close_issues?.helcim_attempts).toContainEqual(
+      expect.objectContaining({
+        id: approvedAttempt.id,
+        review_reason: "approved_not_recorded",
+      }),
+    );
+
+    const historyRes = await request.get(
+      `${apiBase()}/api/insights/register-sessions?limit=10`,
+      {
+        headers: adminHeaders(),
+        failOnStatusCode: false,
+      },
+    );
+    expect(historyRes.status()).toBe(200);
+    const history = (await historyRes.json()) as RegisterSessionHistoryRow[];
+    const snapshot = history.find(
+      (row) => row.z_report_json?.session_id === opened.session_id,
+    )?.z_report_json;
+    expect(snapshot?.unresolved_close_issues?.helcim_attempts).toContainEqual(
+      expect.objectContaining({ id: approvedAttempt.id }),
+    );
+  });
+
+  test("matching Helcim tender without an allocation remains unresolved at Z-close", async ({
+    request,
+  }) => {
+    await closeAnyExistingOpenGroup(request);
+
+    const opened = await openFreshPrimarySession(request);
+    const pendingAttempt = await startHelcimPurchaseOrSkip(
+      request,
+      opened.session_id,
+      opened.pos_api_token ?? "",
+      10875,
+    );
+    const approvedAttempt = await simulateHelcimAttempt(
+      request,
+      opened.session_id,
+      opened.pos_api_token ?? "",
+      pendingAttempt,
+      "approve",
+    );
+    expect(approvedAttempt.status).toBe("approved");
+
+    const unallocatedPaymentId = crypto.randomUUID();
+    try {
+      runSql(`
+        INSERT INTO payment_transactions (
+          id, session_id, category, payment_method, amount, metadata, status,
+          payment_provider, provider_status
+        ) VALUES (
+          ${sqlLiteral(unallocatedPaymentId)}::uuid,
+          ${sqlLiteral(opened.session_id)}::uuid,
+          'retail_sale',
+          'card_terminal',
+          ${sqlLiteral((approvedAttempt.amount_cents / 100).toFixed(2))}::numeric,
+          jsonb_build_object(
+            'payment_provider_attempt_id', ${sqlLiteral(approvedAttempt.id)},
+            'e2e_unallocated_tender', true
+          ),
+          'success',
+          'helcim',
+          'approved'
+        );
+      `);
+    } catch (error) {
+      requireOrSkip(
+        false,
+        `Could not seed an unallocated Helcim tender: ${String(error)}`,
+      );
+    }
+
+    try {
+      const recon = await fetchReconciliation(
+        request,
+        opened.session_id,
+        opened.pos_api_token ?? "",
+      );
+      expect(recon.unresolved_close_issues?.helcim_attempts).toContainEqual(
+        expect.objectContaining({
+          id: approvedAttempt.id,
+          review_reason: "approved_not_recorded",
+        }),
+      );
+
+      const close = await closeRegisterGroup(
+        request,
+        opened.session_id,
+        opened.pos_api_token ?? "",
+      );
+      expect(close.unresolved_close_issues?.helcim_attempts).toContainEqual(
+        expect.objectContaining({
+          id: approvedAttempt.id,
+          review_reason: "approved_not_recorded",
+        }),
+      );
+    } finally {
+      runSql(`
+        DELETE FROM payment_transactions
+        WHERE id = ${sqlLiteral(unallocatedPaymentId)}::uuid;
+      `);
+    }
+  });
+
+  test("matching Helcim tender allocated to another checkout remains unresolved at Z-close", async ({
+    request,
+  }) => {
+    await closeAnyExistingOpenGroup(request);
+
+    const operatorStaffId = await verifyAdminStaffId(request);
+    const opened = await openFreshPrimarySession(request);
+    const product = await createDeterministicProduct(request, operatorStaffId);
+    const wrongTarget = await checkoutWithCash(
+      request,
+      opened.session_id,
+      opened.pos_api_token ?? "",
+      operatorStaffId,
+      product,
+    );
+    const pendingAttempt = await startHelcimPurchaseOrSkip(
+      request,
+      opened.session_id,
+      opened.pos_api_token ?? "",
+      10875,
+    );
+    const approvedAttempt = await simulateHelcimAttempt(
+      request,
+      opened.session_id,
+      opened.pos_api_token ?? "",
+      pendingAttempt,
+      "approve",
+    );
+    expect(approvedAttempt.status).toBe("approved");
+
+    const wrongPaymentId = crypto.randomUUID();
+    try {
+      runSql(`
+        INSERT INTO payment_transactions (
+          id, session_id, category, payment_method, amount, metadata, status,
+          payment_provider, provider_status
+        ) VALUES (
+          ${sqlLiteral(wrongPaymentId)}::uuid,
+          ${sqlLiteral(opened.session_id)}::uuid,
+          'retail_sale',
+          'card_terminal',
+          ${sqlLiteral((approvedAttempt.amount_cents / 100).toFixed(2))}::numeric,
+          jsonb_build_object(
+            'payment_provider_attempt_id', ${sqlLiteral(approvedAttempt.id)},
+            'e2e_wrong_checkout_tender', true
+          ),
+          'success',
+          'helcim',
+          'approved'
+        );
+        INSERT INTO payment_allocations (
+          transaction_id, target_transaction_id, amount_allocated
+        ) VALUES (
+          ${sqlLiteral(wrongPaymentId)}::uuid,
+          ${sqlLiteral(wrongTarget.transaction_id)}::uuid,
+          ${sqlLiteral((approvedAttempt.amount_cents / 100).toFixed(2))}::numeric
+        );
+      `);
+    } catch (error) {
+      requireOrSkip(
+        false,
+        `Could not seed a wrong-checkout Helcim allocation: ${String(error)}`,
+      );
+    }
+
+    try {
+      const recon = await fetchReconciliation(
+        request,
+        opened.session_id,
+        opened.pos_api_token ?? "",
+      );
+      expect(recon.unresolved_close_issues?.helcim_attempts).toContainEqual(
+        expect.objectContaining({
+          id: approvedAttempt.id,
+          review_reason: "approved_not_recorded",
+        }),
+      );
+
+      const close = await closeRegisterGroup(
+        request,
+        opened.session_id,
+        opened.pos_api_token ?? "",
+      );
+      expect(close.unresolved_close_issues?.helcim_attempts).toContainEqual(
+        expect.objectContaining({ id: approvedAttempt.id }),
+      );
+      expect(
+        close.reconciliation.unresolved_close_issues?.helcim_attempts,
+      ).toContainEqual(expect.objectContaining({ id: approvedAttempt.id }));
+      expect(
+        close.z_report_snapshot.unresolved_close_issues?.helcim_attempts,
+      ).toContainEqual(expect.objectContaining({ id: approvedAttempt.id }));
+    } finally {
+      runSql(`
+        DELETE FROM payment_allocations
+        WHERE transaction_id = ${sqlLiteral(wrongPaymentId)}::uuid;
+        DELETE FROM payment_transactions
+        WHERE id = ${sqlLiteral(wrongPaymentId)}::uuid;
+      `);
+    }
   });
 
   test("approved Helcim attempt cannot be used twice", async ({ request }) => {

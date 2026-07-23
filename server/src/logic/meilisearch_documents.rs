@@ -281,6 +281,7 @@ pub fn variant_doc_from_row(
     hidden_from_inventory: bool,
     stock_on_hand: i32,
     reserved_stock: i32,
+    on_layaway: i32,
     sku: &str,
     barcode: Option<&str>,
     vendor_upc: Option<&str>,
@@ -289,10 +290,14 @@ pub fn variant_doc_from_row(
     variation_label: Option<&str>,
     catalog_handle: Option<&str>,
 ) -> VariantDoc {
-    let available_stock = stock_on_hand.saturating_sub(reserved_stock).max(0);
+    let available_stock = crate::services::inventory::available_stock_units(
+        stock_on_hand,
+        reserved_stock,
+        on_layaway,
+    );
     let stock_status = if stock_on_hand < 0 {
         "negative"
-    } else if available_stock <= 0 {
+    } else if stock_on_hand == 0 {
         "out_of_stock"
     } else {
         "in_stock"
@@ -410,5 +415,32 @@ mod tests {
         assert!(t.contains("pat@example.com"));
         assert!(t.contains("71655514043"));
         assert!(t.contains("Hem pants"));
+    }
+
+    #[test]
+    fn variant_document_available_stock_includes_layaway_units() {
+        let doc = variant_doc_from_row(
+            uuid::Uuid::new_v4(),
+            uuid::Uuid::new_v4(),
+            None,
+            None,
+            false,
+            true,
+            true,
+            false,
+            10,
+            3,
+            2,
+            "SKU-1",
+            None,
+            None,
+            "Suit",
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(doc.available_stock, 5);
+        assert_eq!(doc.stock_status, "in_stock");
     }
 }

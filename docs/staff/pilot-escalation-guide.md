@@ -20,7 +20,7 @@ Manager:
 1. Check whether payment was attempted.
 2. Review recovery/payment status.
 3. Decide whether to resume, retry, park, or document.
-4. Do not close register until recovery is clear or assigned.
+4. Review or assign the recovery. Ordinary authorized close remains available and must record the unresolved issue on the Z-Report.
 
 ---
 
@@ -88,7 +88,7 @@ Manager:
 
 1. Review offline recovery.
 2. Resolve or assign.
-3. Register close waits for recovery clarity.
+3. Repair or assign the recovery before handoff when practical; unresolved work remains visible and does not block ordinary authorized close.
 
 ---
 
@@ -108,19 +108,19 @@ Manager:
 
 ---
 
-## Close blocker
+## Close warning
 
 Closing staff:
 
-1. Read the blocker.
-2. Do not force close.
+1. Read the warning and use any available repair action.
+2. Complete the true required close inputs, then use the ordinary authorized close if the warning remains.
 3. Call manager if not already manager.
 
 Manager:
 
-1. Identify owner.
+1. Identify an owner.
 2. Resolve if possible.
-3. If unresolved, document reason, owner, and next review time.
+3. If unresolved, document the reason and next review time, then verify the exact warning appears under **Unresolved Issues at Close**. Closing does not resolve it.
 
 ---
 

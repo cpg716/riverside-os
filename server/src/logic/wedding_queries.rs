@@ -1029,19 +1029,15 @@ pub async fn search_appointments_hybrid(
     let mut search_ids: Option<Vec<Uuid>> = None;
     if let Some(c) = meili {
         match crate::logic::meilisearch_search::appointment_search_ids(c, q).await {
-            Ok(ids)
-                if crate::logic::meilisearch_search::candidate_ids_may_be_truncated(
+            Ok(ids) => {
+                search_ids = crate::logic::meilisearch_search::authoritative_candidate_ids(
+                    pool,
+                    c,
                     crate::logic::meilisearch_client::INDEX_APPOINTMENTS,
-                    ids.len(),
-                ) =>
-            {
-                tracing::warn!(
-                    candidate_count = ids.len(),
-                    "Meilisearch appointment candidate cap reached; using PostgreSQL for complete results"
-                );
+                    ids,
+                )
+                .await;
             }
-            Ok(ids) if !ids.is_empty() => search_ids = Some(ids),
-            Ok(_) => {}
             Err(e) => {
                 tracing::warn!(
                     error = %e,

@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { useToast } from "../ui/ToastProviderLogic";
 import ConfirmationModal from "../ui/ConfirmationModal";
+import ManagerApprovalModal from "./ManagerApprovalModal";
 import {
   centsToFixed2,
   formatUsdFromCents,
@@ -382,13 +383,14 @@ export default function OrderLoadModal({
     items: OrderItem[],
     overrideReadiness: boolean,
     mode: ReleaseMode = orderReleaseMode(order),
-  ) => {
+    managerApproval?: { managerStaffId: string; managerPin: string },
+  ): Promise<boolean> => {
     const ids = items
       .map((item) => item.transaction_line_id)
       .filter((id): id is string => Boolean(id));
     if (ids.length === 0) {
       toast(`No open order lines are available to ${releaseLabel(mode).toLowerCase()}.`, "error");
-      return;
+      return false;
     }
     setPickupBusy(true);
     try {
@@ -407,6 +409,9 @@ export default function OrderLoadModal({
             override_reason: overrideReadiness
               ? `Register ${mode} override: customer received item before ready status; staff confirmed release.`
               : undefined,
+            readiness_override_manager_staff_id:
+              managerApproval?.managerStaffId,
+            readiness_override_manager_pin: managerApproval?.managerPin,
             register_session_id: registerSessionId ?? undefined,
           }),
         },
@@ -418,7 +423,7 @@ export default function OrderLoadModal({
             `${releaseLabel(mode)} could not be completed.`,
           "error",
         );
-        return;
+        return false;
       }
       toast(
         overrideReadiness
@@ -453,6 +458,7 @@ export default function OrderLoadModal({
           })),
         );
       }
+      return true;
     } finally {
       setLoading(false);
       setPickupBusy(false);
@@ -1454,27 +1460,22 @@ export default function OrderLoadModal({
         }}
       />
       {pickupConfirm && (
-        <ConfirmationModal
+        <ManagerApprovalModal
           isOpen={true}
-          title={`${releaseLabel(pickupConfirm.mode)} Readiness Override?`}
-          message={`${pickupConfirm.blockedItems.length} line(s) are not marked Ready for Pickup. Continue only if staff verified the customer is receiving the item now; this records an override and moves ${pickupConfirm.mode}/inventory/recognition.`}
-          confirmLabel={
-            pickupBusy
-              ? "Releasing..."
-              : `Release ${releaseLabel(pickupConfirm.mode)}`
-          }
-          onConfirm={() =>
-            void submitRelease(
+          title={`Manager Access: ${releaseLabel(pickupConfirm.mode)} Override`}
+          message={`${pickupConfirm.blockedItems.length} line(s) are not marked Ready for Pickup. Manager Access is required because this release moves ${pickupConfirm.mode}, inventory, and revenue recognition.`}
+          onApprove={(pin, managerId) =>
+            submitRelease(
               pickupConfirm.order,
               pickupConfirm.items,
               true,
               pickupConfirm.mode,
+              { managerStaffId: managerId, managerPin: pin },
             )
           }
           onClose={() => {
             if (!pickupBusy) setPickupConfirm(null);
           }}
-          variant="info"
         />
       )}
       {cancelOrder && (

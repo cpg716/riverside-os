@@ -1,0 +1,53 @@
+{
+  "evidence_type": "production_and_execution_host_read_only",
+  "observed_at_utc": "2026-07-23T03:33:39Z",
+  "incident_apply_at_utc": "2026-07-21T20:49:04.545Z",
+  "execution_host": {
+    "system": "authorized local macOS execution host",
+    "checks": [
+      "Spotlight filename lookup for transaction_updates.csv",
+      "filesystem search under the user Trash and macOS temporary roots for ros-cp-repair-* and transaction_updates.csv",
+      "tmutil listlocalsnapshots /",
+      "diskutil apfs listSnapshots /"
+    ],
+    "temporary_manifest_found": false,
+    "temporary_directory_found": false,
+    "time_machine_user_data_snapshot_found": false,
+    "snapshot_observation": "Only three com.apple.os.update system snapshots were listed; no dated Time Machine user-data snapshot was available for the incident window."
+  },
+  "main_hub_postgresql": {
+    "system": "authorized Main Hub PostgreSQL read-only session",
+    "server_version": "18.4",
+    "observed_at": "2026-07-22T23:33:39.377454-04:00",
+    "wal": {
+      "level": "replica",
+      "archive_mode": "off",
+      "archive_command_configured": false,
+      "archive_library_configured": false,
+      "wal_keep_size_mb": 0,
+      "archived_count_since_2026_07_19": 0,
+      "active_directory_file_count": 22,
+      "active_directory_bytes": 369098752,
+      "oldest_file_mtime": "2026-07-22T15:00:39-04:00",
+      "newest_file_mtime": "2026-07-22T23:33:34-04:00",
+      "current_wal_lsn": "37/AD6BD4D8",
+      "current_wal_file": "0000000100000037000000AD"
+    },
+    "statement_logging": {
+      "logging_collector": true,
+      "log_statement": "none",
+      "log_min_duration_statement_ms": -1,
+      "retained_log_file_count": 85,
+      "retained_log_bytes": 14938744,
+      "oldest_log_mtime": "2026-05-26T23:59:58-04:00",
+      "newest_log_mtime": "2026-07-22T23:32:48-04:00",
+      "statement_and_copy_payload_retained": false
+    }
+  },
+  "backup_api_evidence": "2026-07-22-backup-reconstruction-evidence.json",
+  "conclusion": "The script deleted its execution-host temporary directory, no local copy or usable user-data snapshot was found, production statement logging did not retain the UPDATE or COPY payload, active WAL files post-date the incident, WAL archiving was disabled, and the backup API exposed no restorable artifact. The exact original 585-ID manifest is not reconstructable from the inspected retained sources.",
+  "limits": [
+    "This does not rule out a copy held on an uninspected off-system device, third-party backup service, or other external evidence source.",
+    "No local snapshot, WAL file, log, backup, or production record was created, restored, deleted, or otherwise mutated by these checks."
+  ]
+}

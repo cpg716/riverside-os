@@ -1,0 +1,57 @@
+{
+  "evidence_version": 1,
+  "incident": "2026-07-21 Counterpoint false-fulfillment cross-ledger verification",
+  "source": {
+    "kind": "local Codex append-only rollout transcript",
+    "session_id": "019f8714-762f-7080-9332-77695116e052",
+    "rollout_file": "rollout-2026-07-21T19-48-12-019f8714-762f-7080-9332-77695116e052.jsonl",
+    "tool_call_jsonl_line": 25100,
+    "tool_call_id": "call_xnN44IvotGCdaZzcjZHZau4u",
+    "initial_tool_result_jsonl_line": 25101,
+    "wait_call_jsonl_line": 25104,
+    "wait_call_id": "call_LvOBIt0tot2VxhujayOFgYGB",
+    "completion_result_jsonl_line": 25105,
+    "connection_environment_redacted": true,
+    "redaction_reason": "The raw tool call obtains authorized Main Hub connection credentials from an earlier private session record. This artifact retains the target, read-only controls, SQL and output hashes, call identities, timestamps, and result without republishing credentials."
+  },
+  "execution": {
+    "tool_call_timestamp_utc": "2026-07-23T03:59:56.486Z",
+    "completion_timestamp_utc": "2026-07-23T04:00:22.298Z",
+    "working_directory": "/Users/cpg/riverside-os",
+    "target": "live Main Hub riverside_os PostgreSQL database",
+    "transport": "authorized WinRM session to Main Hub followed by local PostgreSQL psql execution on the Main Hub",
+    "read_only_controls": [
+      "PGOPTIONS=-c default_transaction_read_only=on",
+      "psql --no-psqlrc",
+      "psql -w"
+    ],
+    "production_mutation_performed": false,
+    "remote_sql_temp_removed": true
+  },
+  "query": {
+    "path": "scripts/audit-counterpoint-fulfillment-incident.sql",
+    "sha256": "830ed1e4334165a2d0ddc49b3bc0bd37d2abdcd76808bdfe1b4e28dab6bb1e54",
+    "sql_is_select_only": true,
+    "in_file_read_only_transaction_assertion": false,
+    "transfer": "The exact local SQL file bytes were base64-encoded, written to a temporary Main Hub file, executed by psql in CSV mode, and removed in a finally block."
+  },
+  "completion": {
+    "read_only_reported": true,
+    "rows": 567,
+    "bytes": 362860,
+    "verification_status_counts": {
+      "review_required_traceability_gaps": 557,
+      "review_required_current_exception": 1,
+      "failed_recovery_removed_fulfilled_recognition": 9,
+      "verified": 0
+    },
+    "local_temporary_output": "/tmp/riverside-counterpoint-status-recovery-cross-ledger-v4.csv"
+  },
+  "retained_output": {
+    "path": "docs/incidents/evidence/2026-07-22-counterpoint-status-recovery-cross-ledger-v4.csv",
+    "bytes": 362860,
+    "sha256": "5b446364230ec495e5c45eadd657ceec6d581db1c9ad81bb8e2c0fc920ed6f5c",
+    "line_endings": "LF enforced by .gitattributes"
+  },
+  "evidence_limit": "The local Codex transcript is append-only evidence of the production read and result, but it is not a database-signed attestation. The retained CSV hash proves the checked artifact bytes; the production database remains the source of the observed state at execution time."
+}

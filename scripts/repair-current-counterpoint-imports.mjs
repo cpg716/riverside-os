@@ -782,6 +782,11 @@ function summarizeMoneyDeltas(lineUpdates) {
 }
 
 async function main() {
+  if (apply && !skipFinancials) {
+    throw new Error(
+      "Direct Counterpoint financial repair apply is disabled. No approved production recovery workflow is currently available. Re-run without --apply for evidence only; --apply is permitted only with --skip-financials for barcode-alias repair.",
+    );
+  }
   console.log(`Mode: ${apply ? "APPLY" : "DRY RUN"}`);
   const pool = await connectCounterpoint();
   try {
@@ -885,7 +890,9 @@ async function main() {
       applyRepairs(financialPlan.lineUpdates, financialPlan.transactionUpdates, aliasPlan.inserts);
       console.log("Applied repair updates.");
     } else {
-      console.log("Dry run only. Re-run with --apply to update ROS.");
+      console.log(
+        "Dry run only. Financial output is evidence-only and cannot be applied directly; alias-only repair may use --skip-financials --apply.",
+      );
     }
   } finally {
     await pool.close();

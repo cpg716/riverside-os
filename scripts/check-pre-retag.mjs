@@ -19,6 +19,16 @@ const steps = [
     args: ["run", "check:go-live-blockers"],
   },
   {
+    label: "Counterpoint fulfillment incident release clearance",
+    command: "npm",
+    args: [
+      "run",
+      "check:counterpoint-fulfillment-incident",
+      "--",
+      "--require-release-clearance",
+    ],
+  },
+  {
     label: "print routing manifest",
     command: "npm",
     args: ["run", "check:print-routing"],

@@ -127,7 +127,7 @@ For releases touching checkout, payments, taxes, reports, or Help Center admin f
 
 For production/retail release candidates, also verify:
 
-1. **Offline recovery** keeps blocked checkout replay rows and blocks register close.
+1. **Offline recovery** keeps blocked checkout replay rows visible and repairable, leaves ordinary authorized register close available, and preserves exact pre-close warnings under **Unresolved Issues at Close** in immediate and archived Z-Reports without resolving them.
 2. **QBO staging** blocks unbalanced journals and uses store-local business-date cutoff.
 3. **Register close** purges server-backed parked sales with audit rows.
 4. **Inventory receiving/pickup/return** preserves stock truth and exact-once behavior.

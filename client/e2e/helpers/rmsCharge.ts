@@ -255,7 +255,6 @@ export async function resetOpenRegisterSessions(request: APIRequestContext) {
     return sessionToken;
   };
 
-  const managerStaffId = await verifyStaffId(request);
   let previousPendingDateCount: number | null = null;
   let previousClosedBusinessDate: string | null = null;
 
@@ -342,7 +341,8 @@ export async function resetOpenRegisterSessions(request: APIRequestContext) {
       !Array.isArray(pendingBusinessDates) ||
       pendingBusinessDates.length === 0 ||
       !pendingBusinessDates.every(
-        (value): value is string => typeof value === "string" && value.length > 0,
+        (value): value is string =>
+          typeof value === "string" && value.length > 0,
       )
     ) {
       throw new Error(
@@ -379,11 +379,6 @@ export async function resetOpenRegisterSessions(request: APIRequestContext) {
             actualCash === expectedCash
               ? "E2E RMS permissions reset"
               : "E2E RMS permissions reset; negative expected cash clamped to zero",
-          force_unresolved_recovery: true,
-          manager_staff_id: managerStaffId,
-          manager_pin: staffCode(),
-          manager_reason:
-            "E2E cleanup closes stale workstation sessions between isolated specs",
         },
         failOnStatusCode: false,
       },

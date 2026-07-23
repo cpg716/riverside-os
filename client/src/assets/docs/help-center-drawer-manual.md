@@ -89,7 +89,7 @@ While ROSIE is answering, the drawer shows visible thinking and then streams the
 
 Use Ask ROSIE sources to open the exact manual section ROSIE used. Non-manual sources, such as workflow playbooks or operational read tools, remain evidence only and do not replace the current workflow screen.
 
-ROSIE can show **Suggested Actions** for common recovery work, including register close blockers, refund recovery, inventory mismatches, QBO exceptions, receiving, inventory lookup, and appointment scheduling. Suggested Actions start a guided ROSIE follow-up; they do not submit workflow changes, approve exceptions, or bypass Manager Access.
+ROSIE can show **Suggested Actions** for common recovery work, including register close warnings, refund recovery, inventory mismatches, QBO exceptions, receiving, inventory lookup, and appointment scheduling. Suggested Actions start a guided ROSIE follow-up; they do not submit workflow changes, approve exceptions, or bypass Manager Access. Register recovery warnings remain informational for close eligibility and are preserved under **Unresolved Issues at Close** when still open.
 
 ## ROSIE Chat
 

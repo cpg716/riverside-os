@@ -37,6 +37,7 @@ struct VariantRow {
     hidden_from_inventory: bool,
     stock_on_hand: i32,
     reserved_stock: i32,
+    on_layaway: i32,
     sku: String,
     barcode: Option<String>,
     vendor_upc: Option<String>,
@@ -57,6 +58,7 @@ struct Row {
     hidden_from_inventory: bool,
     stock_on_hand: i32,
     reserved_stock: i32,
+    on_layaway: i32,
     sku: String,
     barcode: Option<String>,
     vendor_upc: Option<String>,
@@ -196,6 +198,7 @@ pub async fn upsert_variant_document(client: &Client, pool: &PgPool, variant_id:
             COALESCE(pv.hidden_from_inventory, false) AS hidden_from_inventory,
             COALESCE(pv.stock_on_hand, 0)::integer AS stock_on_hand,
             COALESCE(pv.reserved_stock, 0)::integer AS reserved_stock,
+            COALESCE(pv.on_layaway, 0)::integer AS on_layaway,
             pv.sku,
             pv.barcode,
             pv.vendor_upc,
@@ -242,6 +245,7 @@ pub async fn upsert_variant_document(client: &Client, pool: &PgPool, variant_id:
         row.hidden_from_inventory,
         row.stock_on_hand,
         row.reserved_stock,
+        row.on_layaway,
         &row.sku,
         row.barcode.as_deref(),
         row.vendor_upc.as_deref(),
@@ -1414,6 +1418,7 @@ async fn reindex_all_meilisearch_inner(client: &Client, pool: &PgPool) -> anyhow
             COALESCE(pv.hidden_from_inventory, false) AS hidden_from_inventory,
             COALESCE(pv.stock_on_hand, 0)::integer AS stock_on_hand,
             COALESCE(pv.reserved_stock, 0)::integer AS reserved_stock,
+            COALESCE(pv.on_layaway, 0)::integer AS on_layaway,
             pv.sku,
             pv.barcode,
             pv.vendor_upc,
@@ -1444,6 +1449,7 @@ async fn reindex_all_meilisearch_inner(client: &Client, pool: &PgPool) -> anyhow
             row.hidden_from_inventory,
             row.stock_on_hand,
             row.reserved_stock,
+            row.on_layaway,
             &row.sku,
             row.barcode.as_deref(),
             row.vendor_upc.as_deref(),
@@ -1964,7 +1970,8 @@ async fn reindex_all_meilisearch_inner(client: &Client, pool: &PgPool) -> anyhow
         "#,
     )
     .fetch(pool);
-    let mut appt_batch = Vec::new();
+    let mut appt_batch = Vec::with_capacity(500);
+    let mut n_appointments = 0usize;
     while let Some(res) = appt_stream.next().await {
         let row = res?;
         use sqlx::Row;
@@ -1990,20 +1997,19 @@ async fn reindex_all_meilisearch_inner(client: &Client, pool: &PgPool) -> anyhow
             is_cancelled,
             search_text,
         });
+        if appt_batch.len() >= 500 {
+            n_appointments += appt_batch.len();
+            enqueue_documents(&index_appointments, &appt_batch, &mut appointment_tasks).await?;
+            appt_batch.clear();
+        }
     }
     if !appt_batch.is_empty() {
+        n_appointments += appt_batch.len();
         enqueue_documents(&index_appointments, &appt_batch, &mut appointment_tasks).await?;
     }
     wait_pending_tasks(client, appointment_tasks).await?;
     swap_temp_into_live(client, INDEX_APPOINTMENTS, &temp_appointments).await?;
-    record_sync_status(
-        pool,
-        INDEX_APPOINTMENTS,
-        true,
-        appt_batch.len() as i64,
-        None,
-    )
-    .await;
+    record_sync_status(pool, INDEX_APPOINTMENTS, true, n_appointments as i64, None).await;
 
     // 12. Tasks
     let temp_tasks = reindex_temp_uid(INDEX_TASKS);
@@ -2018,7 +2024,8 @@ async fn reindex_all_meilisearch_inner(client: &Client, pool: &PgPool) -> anyhow
         "#,
     )
     .fetch(pool);
-    let mut task_batch = Vec::new();
+    let mut task_batch = Vec::with_capacity(500);
+    let mut n_tasks = 0usize;
     while let Some(res) = task_stream.next().await {
         let row = res?;
         use sqlx::Row;
@@ -2034,13 +2041,19 @@ async fn reindex_all_meilisearch_inner(client: &Client, pool: &PgPool) -> anyhow
                 .map(|id| id.to_string()),
             search_text,
         });
+        if task_batch.len() >= 500 {
+            n_tasks += task_batch.len();
+            enqueue_documents(&index_tasks, &task_batch, &mut task_tasks).await?;
+            task_batch.clear();
+        }
     }
     if !task_batch.is_empty() {
+        n_tasks += task_batch.len();
         enqueue_documents(&index_tasks, &task_batch, &mut task_tasks).await?;
     }
     wait_pending_tasks(client, task_tasks).await?;
     swap_temp_into_live(client, INDEX_TASKS, &temp_tasks).await?;
-    record_sync_status(pool, INDEX_TASKS, true, task_batch.len() as i64, None).await;
+    record_sync_status(pool, INDEX_TASKS, true, n_tasks as i64, None).await;
 
     // 13. Alterations
     #[derive(sqlx::FromRow)]
@@ -2094,7 +2107,8 @@ async fn reindex_all_meilisearch_inner(client: &Client, pool: &PgPool) -> anyhow
         "#,
     )
     .fetch(pool);
-    let mut alteration_batch = Vec::new();
+    let mut alteration_batch = Vec::with_capacity(500);
+    let mut n_alterations = 0usize;
     while let Some(res) = alteration_stream.next().await {
         let row = res?;
         let alteration_id_text = row.id.to_string();
@@ -2121,20 +2135,19 @@ async fn reindex_all_meilisearch_inner(client: &Client, pool: &PgPool) -> anyhow
             status_open: row.status != "picked_up",
             search_text,
         });
+        if alteration_batch.len() >= 500 {
+            n_alterations += alteration_batch.len();
+            enqueue_documents(&index_alterations, &alteration_batch, &mut alteration_tasks).await?;
+            alteration_batch.clear();
+        }
     }
     if !alteration_batch.is_empty() {
+        n_alterations += alteration_batch.len();
         enqueue_documents(&index_alterations, &alteration_batch, &mut alteration_tasks).await?;
     }
     wait_pending_tasks(client, alteration_tasks).await?;
     swap_temp_into_live(client, INDEX_ALTERATIONS, &temp_alterations).await?;
-    record_sync_status(
-        pool,
-        INDEX_ALTERATIONS,
-        true,
-        alteration_batch.len() as i64,
-        None,
-    )
-    .await;
+    record_sync_status(pool, INDEX_ALTERATIONS, true, n_alterations as i64, None).await;
 
     tracing::info!(variants = n_variants, "Meilisearch reindex completed");
     Ok(())

@@ -453,6 +453,27 @@ The automatic repair set is intentionally strict: the customer, order total, com
 
 Any record with multiple possible orders, mismatched lines, non-success payments, indistinguishable later payments, or a remaining total difference is report-only and requires Manager review. Do not merge ambiguous records by customer name, item description, or amount alone.
 
+### False-fulfillment recovery design is held
+
+False fulfillment is not part of normal Counterpoint reconciliation. There is
+currently no production false-fulfillment or pickup-recognition recovery API or
+Settings action. Do not repair fulfillment with direct SQL.
+
+The retained design accepts only search-selected Transaction Records, limits an
+operation to 1–100 exact IDs, binds the count, reason, actor, manager,
+correlation ID, and evidence digest, and rolls back the complete scope on stale
+or ineligible evidence. It also rejects every record with an existing payment
+allocation because `payment_allocations` has no attachment timestamp or mutation
+history. Daily QBO journals likewise lack a per-Transaction foreign key.
+
+That design is held outside the executable migration, router, and client. Its
+database trigger is only one-statement defense-in-depth: sequential one-row
+updates, fulfilled inserts/COPY, other recognition drivers, and the database
+owner trust boundary remain unresolved, while normal multi-Transaction writers
+can be rejected. Trigger-backed evidence is append-only against normal DML, not
+immutable against the database owner. Do not describe the held design as a
+shipped or universal safeguard.
+
 **Tax and discount import:** Auto Config now selects known Counterpoint header and line tax columns when those columns are visible in the live schema, and maps known regular-price / discount columns so ROS stores the effective discounted unit price instead of the regular price. If Counterpoint exposes only a header tax total, ROS allocates that tax across imported lines. If Counterpoint exposes no tax columns for a historical ticket, the imported line tax remains `0` and existing historical rows must be reimported or backfilled from Counterpoint before they become source-authoritative for tax history.
 
 **Provenance:** Imported Counterpoint Transaction Records have `is_counterpoint_import = true`. This flag ensures:

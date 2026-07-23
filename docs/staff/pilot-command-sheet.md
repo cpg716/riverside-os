@@ -57,7 +57,7 @@
 | Wedding pickup | Consultant | Do not release garment | Verify member, balance, and notes |
 | Alteration handoff | Tailor/cashier | Keep customer context visible | Assign schedule, ticket, or queue owner |
 | Receiving | Receiver | Do not post from memory | Review quantities, invoice, cost variance |
-| Register close | Closing manager | Do not force close | Resolve blocker or document owner |
+| Register close | Authorized closing staff | Use the ordinary close after required inputs | Repair warnings when practical; otherwise document the owner and verify **Unresolved Issues at Close** |
 | QBO staging | Accounting | Do not post warning-bearing rows casually | Review warnings and approve only when ready |
 
 ---
@@ -75,7 +75,7 @@
 ## Close responsibilities
 
 1. Finish or park active sales intentionally.
-2. Review offline recovery. Register close must not proceed with unresolved checkout recovery.
+2. Review offline recovery. Repair it when practical; otherwise assign an owner. The ordinary authorized close remains available and must preserve the exact warning under **Unresolved Issues at Close**.
 3. Review card/payment issues before final close.
 4. Count cash and enter close notes for over/short beyond store tolerance.
 5. Print or save the Z-report.

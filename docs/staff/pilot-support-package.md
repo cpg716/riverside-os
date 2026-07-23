@@ -90,7 +90,7 @@ Use after a workflow issue:
 Watch closely:
 
 - Refund/exchange confidence.
-- Register close blockers.
+- Register close warnings and **Unresolved Issues at Close** evidence.
 - Offline recovery and parked sales.
 - RMS account selection and reconciliation.
 - QBO staging and approval.

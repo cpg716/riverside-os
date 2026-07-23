@@ -1,0 +1,34 @@
+{
+  "evidence_type": "production_read_only",
+  "observed_at_utc": "2026-07-23T02:59:20Z",
+  "source": {
+    "system": "authorized Main Hub API",
+    "queries": [
+      "GET /api/settings/backups",
+      "GET /api/settings/backup/config",
+      "GET /api/ready"
+    ]
+  },
+  "backup_catalog": {
+    "artifact_count": 0,
+    "artifacts": []
+  },
+  "backup_configuration": {
+    "backup_dir": "backups",
+    "backup_dir_configured": false,
+    "backup_dir_explicit_required": false,
+    "schedule_cron": "0 2 * * *",
+    "cloud_storage_enabled": false,
+    "replication_target_count": 0,
+    "encryption_enabled": false
+  },
+  "readiness": {
+    "status": "ready",
+    "backup_worker_reported_running": true
+  },
+  "conclusion": "The Main Hub API exposed no cataloged backup artifact that could be restored to an isolated forensic database to reconstruct the deleted 585-row temporary manifest. A running backup worker is not proof that a restorable artifact exists.",
+  "limits": [
+    "This API observation does not prove that no uncataloged filesystem, volume, WAL archive, or off-system copy exists.",
+    "No backup was created, downloaded, restored, deleted, or otherwise mutated during this read-only audit."
+  ]
+}

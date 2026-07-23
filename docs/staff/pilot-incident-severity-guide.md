@@ -51,7 +51,7 @@ Use when store work slows, a manager must intervene, or the next step is unclear
 Examples:
 
 - Customer waits while staff determine whether a refund completed.
-- Register close has a blocker staff cannot identify.
+- Register close has a warning staff cannot identify, assign, or verify in the at-close evidence.
 - Receiving draft is left unfinished without owner.
 - RMS account selection or QBO staging requires same-day review.
 
@@ -59,7 +59,7 @@ Required action:
 
 1. Manager owns the issue.
 2. Record customer, transaction, amount, and next action.
-3. Resolve or assign before close.
+3. Resolve or assign before handoff when practical; ordinary authorized close remains available and records unresolved work.
 
 ---
 

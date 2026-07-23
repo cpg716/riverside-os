@@ -49,13 +49,61 @@ test.describe("Register recovery history UI contracts", () => {
       global[4],
     ]);
 
-    const blockerExpression = closeRegisterSource.slice(
-      closeRegisterSource.lastIndexOf("const hasRecoveryBlockers"),
-      closeRegisterSource.lastIndexOf("const closeBlockers"),
+    const currentIssueExpression = closeRegisterSource.slice(
+      closeRegisterSource.indexOf("const currentUnresolvedCloseIssues"),
+      closeRegisterSource.indexOf(
+        "const refreshUnresolvedCloseIssuesBeforeClose",
+      ),
     );
-    expect(blockerExpression).toContain("serverRecoveryJobs.length");
-    expect(blockerExpression).not.toContain("globalRecoveryJobs");
-    expect(blockerExpression).not.toContain("historicalRecoveryJobs");
+    expect(currentIssueExpression).toContain("serverRecoveryJobs");
+    expect(currentIssueExpression).not.toContain("globalRecoveryJobs");
+    expect(currentIssueExpression).not.toContain("historicalRecoveryJobs");
+
+    const blockerExpression = closeRegisterSource.slice(
+      closeRegisterSource.lastIndexOf("const closeBlockers"),
+      closeRegisterSource.lastIndexOf("const closeReady"),
+    );
+    expect(blockerExpression).not.toContain("hasUnresolvedCloseIssues");
+    expect(blockerExpression).not.toContain("Checkout recovery");
+  });
+
+  test("current recovery stays visible but cannot block ordinary Z-close", () => {
+    const countSubmit = closeRegisterSource.slice(
+      closeRegisterSource.indexOf("const handleBlindCountSubmit"),
+      closeRegisterSource.indexOf("const internalCancel"),
+    );
+    expect(countSubmit).toContain('setStep("checks")');
+    expect(countSubmit).not.toContain("blockForOfflineQueue");
+
+    const finalClose = closeRegisterSource.slice(
+      closeRegisterSource.indexOf("const handleFinalClose"),
+      closeRegisterSource.indexOf("const replayableRecoveryJobs"),
+    );
+    expect(finalClose).toContain("refreshUnresolvedCloseIssuesBeforeClose");
+    expect(finalClose).toContain("result.unresolved_close_issues ?? null");
+    expect(finalClose).toContain('"closed"');
+    expect(finalClose).not.toContain(
+      "result.unresolved_close_issues ?? preCloseUnresolvedIssues",
+    );
+    expect(finalClose).not.toContain("force_unresolved_recovery");
+    expect(finalClose).not.toContain("manager_pin");
+    expect(closeRegisterSource).not.toContain("Manager Force Z-Close");
+    expect(closeRegisterSource).not.toContain('"force_close"');
+    expect(closeRegisterSource).toContain("unresolvedCloseIssues");
+    expect(closeRegisterSource).toContain("Waiting on terminal outcome");
+    expect(closeRegisterSource).toContain("Approved not attached");
+    expect(closeRegisterSource).toContain(
+      'attempt.review_reason === "approved_not_recorded" ? (',
+    );
+    expect(closeRegisterSource).toContain("This pending attempt stays open");
+
+    const blockerExpression = closeRegisterSource.slice(
+      closeRegisterSource.lastIndexOf("const closeBlockers"),
+      closeRegisterSource.lastIndexOf("const closeReady"),
+    );
+    expect(blockerExpression).toContain("Check review");
+    expect(blockerExpression).toContain("Cash discrepancy note");
+    expect(blockerExpression).toContain("Cash deposit date");
   });
 
   test("current reads stay POS-scoped while global reads require Staff Access", () => {
@@ -68,11 +116,19 @@ test.describe("Register recovery history UI contracts", () => {
       serverRecoverySource.indexOf("async function recoveryResponseError"),
     );
 
-    expect(currentContext).toContain("const posHeaders = posRegisterAuthHeaders()");
+    expect(currentContext).toContain(
+      "const posHeaders = posRegisterAuthHeaders()",
+    );
     expect(currentContext).toContain("? posHeaders");
-    expect(globalContext).toContain('delete headers["x-riverside-pos-session-id"]');
-    expect(globalContext).toContain('delete headers["x-riverside-pos-session-token"]');
-    expect(serverRecoverySource).toContain("prior till-group recovery was not checked");
+    expect(globalContext).toContain(
+      'delete headers["x-riverside-pos-session-id"]',
+    );
+    expect(globalContext).toContain(
+      'delete headers["x-riverside-pos-session-token"]',
+    );
+    expect(serverRecoverySource).toContain(
+      "prior till-group recovery was not checked",
+    );
   });
 
   test("historical recovery reports errors and uses audited replay or evidence verification", () => {
@@ -92,10 +148,16 @@ test.describe("Register recovery history UI contracts", () => {
       /Complete every named step in Orders or Alterations first/,
     );
     expect(closeRegisterSource).toContain('"settle_historical_exchange"');
-    expect(closeRegisterSource).toMatch(/locked server record, verifies the original tender/);
-    expect(closeRegisterSource).toMatch(/receipt\s+print job from Print Recovery/);
+    expect(closeRegisterSource).toMatch(
+      /locked server record, verifies the original tender/,
+    );
+    expect(closeRegisterSource).toMatch(
+      /receipt\s+print job from Print Recovery/,
+    );
     expect(serverRecoverySource).toContain("/verify-follow-up");
-    expect(serverRecoverySource).toContain("manager_staff_id: approval.managerStaffId");
+    expect(serverRecoverySource).toContain(
+      "manager_staff_id: approval.managerStaffId",
+    );
   });
 
   test("existing-payment reconciliation requires exact server evidence and clears only its checkout", () => {
@@ -123,14 +185,12 @@ test.describe("Register recovery history UI contracts", () => {
     expect(closeRegisterSource).toMatch(
       /creates no new payment|No new charge or payment movement was created/,
     );
-    expect(closeRegisterSource).toContain(
-      "recoveryKey: job.client_job_key",
-    );
+    expect(closeRegisterSource).toContain("recoveryKey: job.client_job_key");
     expect(closeRegisterSource).toContain(
       "checkoutClientId: result.checkoutClientId",
     );
     expect(closeRegisterSource).toContain(
-      "checkoutClientId: job.checkout_client_id ?? \"\"",
+      'checkoutClientId: job.checkout_client_id ?? ""',
     );
     expect(closeRegisterSource).toContain(
       "transactionId: result.transactionId",
@@ -139,8 +199,15 @@ test.describe("Register recovery history UI contracts", () => {
 
   test("exchange recovery accepts only job identity, current posting session, and Manager approval", () => {
     const helper = serverRecoverySource.slice(
-      serverRecoverySource.indexOf("export async function recoverExchangeSettlementJob"),
-      serverRecoverySource.indexOf("/** Replay a recovery from outside", serverRecoverySource.indexOf("export async function recoverExchangeSettlementJob")),
+      serverRecoverySource.indexOf(
+        "export async function recoverExchangeSettlementJob",
+      ),
+      serverRecoverySource.indexOf(
+        "/** Replay a recovery from outside",
+        serverRecoverySource.indexOf(
+          "export async function recoverExchangeSettlementJob",
+        ),
+      ),
     );
     expect(helper).toContain("/api/transactions/exchange-settlement-recovery/");
     expect(helper).toContain("posting_session_id: postingSessionId");
@@ -152,11 +219,15 @@ test.describe("Register recovery history UI contracts", () => {
     expect(helper).not.toContain("return_lines");
 
     const recoveryExecutor = transactionsSource.slice(
-      transactionsSource.indexOf("async fn resolve_exchange_recovery_job_in_tx"),
+      transactionsSource.indexOf(
+        "async fn resolve_exchange_recovery_job_in_tx",
+      ),
       transactionsSource.indexOf("async fn get_transaction_receipt_escpos"),
     );
     expect(recoveryExecutor).toContain("FOR UPDATE");
-    expect(recoveryExecutor).toContain('client_job_key != format!("exchange:{job_checkout_client_id}")');
+    expect(recoveryExecutor).toContain(
+      'client_job_key != format!("exchange:{job_checkout_client_id}")',
+    );
     expect(recoveryExecutor).toContain("checkout_request_fingerprint");
     expect(recoveryExecutor).toContain("checkout_payment_fingerprint");
     expect(recoveryExecutor).toContain("origin_session_id");

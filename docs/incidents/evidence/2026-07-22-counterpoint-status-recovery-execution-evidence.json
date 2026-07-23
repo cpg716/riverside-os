@@ -1,0 +1,156 @@
+{
+  "evidence_version": 1,
+  "incident": "2026-07-22 Counterpoint false-fulfillment status recoveries",
+  "source": {
+    "kind": "local Codex append-only rollout transcript",
+    "session_id": "019f867f-4652-7821-87c8-9633e06b5560",
+    "rollout_file": "rollout-2026-07-21T17-05-15-019f867f-4652-7821-87c8-9633e06b5560.jsonl",
+    "rollout_sha256_observed_2026_07_22": "c2bf8aeb2a019604f7f14e40119e5138ab6cddce271ab5becc833c0747ee8484",
+    "connection_environment_redacted": true,
+    "redaction_reason": "The raw tool calls contain database credentials. This evidence retains the mutation predicates, assignments, transaction mechanics, initiating context, and results but never republishes credentials."
+  },
+  "execution_context": {
+    "working_directory": "/Users/cpg/riverside-os",
+    "target": "live Main Hub riverside_os PostgreSQL database",
+    "initiator": "Codex production repair session using direct psql as the postgres database role",
+    "normal_ros_api_or_staff_ui": false,
+    "authenticated_staff_actor_retained_by_ros": false,
+    "manager_approval_retained_by_ros": false,
+    "immutable_correlation_record_retained_by_ros": false,
+    "operation_reason_retained_in_mutable_metadata": true
+  },
+  "operations": [
+    {
+      "repair_id": "counterpoint-open-doc-status-2026-07-22",
+      "tool_call_timestamp_utc": "2026-07-22T21:20:15.781Z",
+      "completion_timestamp_utc": "2026-07-22T21:20:16.340Z",
+      "database_activity_created_at": "2026-07-22T17:20:14.773479-04:00",
+      "timestamp_note": "The tool-call timestamp is from the local Codex transcript and the activity timestamp is from the Main Hub database clock; their approximately one-second skew must not be treated as event reordering.",
+      "tool_call_jsonl_line": 6007,
+      "tool_result_jsonl_line": 6008,
+      "tool_call_id": "call_jyvMncn5neJFYS75F3VxRkSR",
+      "mutation_path": "direct psql transaction",
+      "transaction_controls": {
+        "begin_and_commit": true,
+        "on_error_stop": true,
+        "lock_timeout": "5s",
+        "statement_timeout": "60s",
+        "rollback_on_assertion_failure": true
+      },
+      "scope": {
+        "source": "query-derived temporary table cp_open_status_repair_20260722",
+        "explicit_id_manifest_supplied_before_update": false,
+        "predicates": [
+          "transactions.status = 'fulfilled'",
+          "transactions.counterpoint_doc_ref IS NOT NULL",
+          "open_line_count > 0",
+          "open_line_count counts non-internal, unfulfilled transaction lines with quantity minus returned quantity greater than zero"
+        ],
+        "asserted_record_count": 558
+      },
+      "transaction_header_update": {
+        "table": "transactions",
+        "join": "transactions.id = cp_open_status_repair_20260722.id",
+        "recheck": "transactions.status = 'fulfilled'",
+        "assignments": [
+          "status = 'open'::order_status",
+          "fulfilled_at = NULL",
+          "metadata.counterpoint_status_repair = repair ID, repair timestamp, prior status, prior fulfilled_at, and reason"
+        ]
+      },
+      "audit_write": {
+        "table": "transaction_activity_log",
+        "event_kind": "status_corrected",
+        "one_row_per_scoped_transaction": true,
+        "fields": [
+          "transaction_id",
+          "customer_id",
+          "repair_id",
+          "prior_status",
+          "new_status",
+          "prior_fulfilled_at",
+          "open_item_count",
+          "financial_values_changed=false"
+        ],
+        "immutable_under_production_schema": false,
+        "actor_or_manager_fields_written": false
+      },
+      "result": {
+        "temporary_scope_rows": 558,
+        "transaction_headers_updated": 558,
+        "activity_rows_inserted": 558,
+        "reported_remaining_fulfilled_with_open_line_violations": 0,
+        "committed": true
+      }
+    },
+    {
+      "repair_id": "counterpoint-open-doc-balance-status-2026-07-22",
+      "tool_call_timestamp_utc": "2026-07-22T21:21:34.198Z",
+      "completion_timestamp_utc": "2026-07-22T21:21:34.439Z",
+      "database_activity_created_at": "2026-07-22T17:21:33.226024-04:00",
+      "timestamp_note": "The tool-call timestamp is from the local Codex transcript and the activity timestamp is from the Main Hub database clock; their approximately one-second skew must not be treated as event reordering.",
+      "tool_call_jsonl_line": 6043,
+      "tool_result_jsonl_line": 6044,
+      "tool_call_id": "call_Hl4OMbc1hlCkVekyovX8Vo5d",
+      "mutation_path": "direct psql transaction",
+      "transaction_controls": {
+        "begin_and_commit": true,
+        "on_error_stop": true,
+        "lock_timeout": "5s",
+        "statement_timeout": "30s",
+        "rollback_on_assertion_failure": true
+      },
+      "scope": {
+        "source": "query-derived temporary table cp_unpaid_status_repair_20260722",
+        "explicit_id_manifest_supplied_before_update": false,
+        "predicates": [
+          "transactions.status = 'fulfilled'",
+          "transactions.counterpoint_doc_ref IS NOT NULL",
+          "COALESCE(transactions.balance_due, 0) > 0"
+        ],
+        "asserted_record_count": 10
+      },
+      "transaction_header_update": {
+        "table": "transactions",
+        "join": "transactions.id = cp_unpaid_status_repair_20260722.id",
+        "recheck": "transactions.status = 'fulfilled'",
+        "assignments": [
+          "status = 'open'::order_status",
+          "fulfilled_at = NULL",
+          "metadata.counterpoint_balance_status_repair = repair ID, repair timestamp, prior status, prior fulfilled_at, and reason"
+        ]
+      },
+      "audit_write": {
+        "table": "transaction_activity_log",
+        "event_kind": "status_corrected",
+        "one_row_per_scoped_transaction": true,
+        "fields": [
+          "transaction_id",
+          "customer_id",
+          "repair_id",
+          "prior_status",
+          "new_status",
+          "prior_fulfilled_at",
+          "balance_due",
+          "financial_values_changed=false"
+        ],
+        "immutable_under_production_schema": false,
+        "actor_or_manager_fields_written": false
+      },
+      "result": {
+        "temporary_scope_rows": 10,
+        "transaction_headers_updated": 10,
+        "activity_rows_inserted": 10,
+        "committed": true
+      }
+    }
+  ],
+  "combined_scope": {
+    "activity_rows": 568,
+    "unique_transaction_records": 567,
+    "overlap_count": 1,
+    "exact_ids_retained_in_later_hashed_manifest": "docs/incidents/evidence/2026-07-22-counterpoint-status-recovery-manifest.csv",
+    "manifest_sha256": "8310560c1c89350d4ab15ccb4f0a6f65d69dd4dc5775acfa0627bc3aa20eb21d",
+    "source_activity_rows_are_immutable": false
+  }
+}

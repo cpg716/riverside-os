@@ -96,7 +96,7 @@ Use realistic staff queries when certifying the corpus:
 - printer issue
 - customer merge
 - reprint receipt
-- register close blocker
+- register close warning
 - refund failed
 - inventory mismatch
 - journal failed

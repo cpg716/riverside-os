@@ -86,6 +86,21 @@ type OrderDetail = {
   payment_methods_summary?: string;
   refund_payment_methods_summary?: string;
   refund_total?: string;
+  payment_applications?: Array<{
+    target_transaction_id: string;
+    target_display_id: string;
+    amount: string;
+    remaining_balance: string;
+  }>;
+  pickup_applications?: Array<{
+    target_transaction_id: string;
+    target_display_id: string;
+    items: Array<{
+      product_name: string;
+      sku: string;
+      quantity: number;
+    }>;
+  }>;
   customer?: OrderCustomer | null;
   items?: OrderLineRow[];
   receipt_studio_layout_available?: boolean;
@@ -448,7 +463,7 @@ export default function ReceiptSummaryModal({
           opts?.gift ? "Gift receipt did not print" : "Receipt did not print",
         );
         setPrintingFailure(
-          `${message} The sale is already complete. Retry printing, run printer check, or send the receipt by SMS or email.`,
+          `${message} The transaction is already recorded. Retry printing, run printer check, or send the receipt by SMS or email.`,
         );
         const detail = e instanceof Error ? e.message : String(e);
         setPrintingFailureDetail(
@@ -725,10 +740,26 @@ export default function ReceiptSummaryModal({
     transactionDetail.status === "fulfilled" &&
     itemRows.length > 0 &&
     itemRows.filter((it) => !it.is_internal).every((it) => it.is_fulfilled === true);
-  const orderPaymentTotalCents = orderPaymentLines.reduce(
+  const serverOrderPayments = transactionDetail?.payment_applications ?? [];
+  const displayedOrderPayments =
+    serverOrderPayments.length > 0
+      ? serverOrderPayments.map((payment) => ({
+          key: `${payment.target_transaction_id}:${payment.target_display_id}`,
+          targetDisplayId: payment.target_display_id,
+          amount: payment.amount,
+          remainingBalance: payment.remaining_balance,
+        }))
+      : orderPaymentLines.map((line) => ({
+          key: line.cart_row_id,
+          targetDisplayId: line.target_display_id,
+          amount: line.amount,
+          remainingBalance: line.projected_balance_after,
+        }));
+  const orderPaymentTotalCents = displayedOrderPayments.reduce(
     (sum, line) => sum + parseMoneyToCents(line.amount),
     0,
   );
+  const pickupApplications = transactionDetail?.pickup_applications ?? [];
   const transactionTotalCents = parseMoneyToCents(transactionDetail?.total_price ?? "0");
   const refundCheckout =
     receiptTransactionLineIds.length > 0 &&
@@ -739,12 +770,21 @@ export default function ReceiptSummaryModal({
         parseMoneyToCents(item?.returned_total ?? "0") > 0
       );
     });
-  const pickupCheckout = !refundCheckout && receiptTransactionLineIds.length > 0;
+  const exchangeCheckout = !refundCheckout && Boolean(exchangeReturnTransactionId);
+  const pickupCheckout =
+    !refundCheckout && !exchangeCheckout && receiptTransactionLineIds.length > 0;
   const paymentOnlyCheckout =
     !refundCheckout &&
+    !exchangeCheckout &&
     !pickupCheckout &&
     transactionTotalCents === 0 &&
     orderPaymentTotalCents > 0;
+  const linkedPickupCheckout =
+    !refundCheckout && !exchangeCheckout && !pickupCheckout && pickupApplications.length > 0;
+  const giftReceiptAvailable =
+    !refundCheckout &&
+    !paymentOnlyCheckout &&
+    itemRows.some((item) => item.is_internal !== true);
   const currentCheckoutAmountCents = refundCheckout
     ? -Math.abs(parseMoneyToCents(transactionDetail?.refund_total ?? "0"))
     : pickupCheckout || paymentOnlyCheckout
@@ -752,25 +792,56 @@ export default function ReceiptSummaryModal({
       : parseMoneyToCents(transactionDetail?.amount_paid ?? "0");
   const activityLabel = refundCheckout
     ? "Return and refund recorded"
-    : pickupCheckout
-      ? currentCheckoutAmountCents > 0
-        ? "Pickup and payment recorded"
-        : "Pickup completed"
-      : paymentOnlyCheckout
-        ? "Payment recorded"
-        : orderPaymentTotalCents > 0
-          ? "Sale and order payment recorded"
-          : "Sale recorded";
+    : exchangeCheckout
+      ? "Return and replacement recorded"
+      : pickupCheckout
+        ? currentCheckoutAmountCents > 0
+          ? "Pickup and payment recorded"
+          : "Pickup completed"
+        : paymentOnlyCheckout
+          ? "Payment applied to an existing Transaction Record"
+          : linkedPickupCheckout && orderPaymentTotalCents > 0
+            ? "Sale, pickup, and payment recorded"
+            : linkedPickupCheckout
+              ? "Sale and pickup recorded"
+              : orderPaymentTotalCents > 0
+                ? "Sale and payment recorded"
+                : "Sale recorded";
+  const completionTitle = refundCheckout
+    ? "Refund complete"
+    : exchangeCheckout
+      ? "Exchange complete"
+      : pickupCheckout
+        ? "Pickup complete"
+        : paymentOnlyCheckout
+          ? "Payment recorded"
+          : linkedPickupCheckout
+            ? "Sale and pickup complete"
+            : orderPaymentTotalCents > 0
+              ? "Sale and payment complete"
+              : "Sale complete";
+  const completionKind = refundCheckout
+    ? "Refund"
+    : exchangeCheckout
+      ? "Exchange"
+      : pickupCheckout
+        ? "Pickup"
+        : paymentOnlyCheckout
+          ? "Payment"
+          : "Sale";
+  const totalLabel = refundCheckout
+    ? "Total refunded"
+    : exchangeCheckout
+      ? "Replacement total"
+      : pickupCheckout || paymentOnlyCheckout
+        ? "Collected now"
+        : "Sale total";
   const summaryTotal =
     refundCheckout || pickupCheckout || paymentOnlyCheckout
       ? centsToFixed2(currentCheckoutAmountCents)
       : transactionDetail?.total_price ?? transactionDetail?.amount_paid ?? "…";
-  const summaryPaid = refundCheckout || pickupCheckout || paymentOnlyCheckout
-    ? centsToFixed2(currentCheckoutAmountCents)
-    : transactionDetail?.amount_paid ?? "…";
-  const summaryBalance = refundCheckout || pickupCheckout || paymentOnlyCheckout
-    ? "0.00"
-    : transactionDetail?.balance_due ?? "…";
+  const summaryPaid = transactionDetail?.amount_paid ?? "…";
+  const summaryBalance = transactionDetail?.balance_due ?? "…";
   const customerName = transactionDetail?.customer
     ? `${transactionDetail.customer.first_name} ${transactionDetail.customer.last_name}`.trim()
     : "Walk-in customer";
@@ -904,436 +975,377 @@ export default function ReceiptSummaryModal({
   };
 
   const compactActionButton =
-    "inline-flex min-h-[56px] items-center justify-center gap-2 rounded-2xl border border-app-border bg-app-surface-2 px-3 text-[10px] font-black uppercase tracking-widest text-app-text shadow-sm transition-colors hover:bg-app-surface-3 disabled:opacity-50 touch-manipulation sm:text-[11px]";
+    "inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-app-border bg-app-surface-2 px-3 text-[10px] font-black uppercase tracking-widest text-app-text shadow-sm transition-colors hover:bg-app-surface-3 disabled:opacity-50 touch-manipulation";
 
   const root = document.getElementById("drawer-root");
   if (!root) return null;
 
   return createPortal(
     <>
-      <div className="ui-overlay-backdrop !z-[200]">
+      <div className="ui-overlay-backdrop !z-[200] p-2 sm:p-4">
         <div
-          className="w-full max-w-none overflow-hidden rounded-t-3xl border border-app-border bg-app-surface shadow-[0_32px_64px_-16px_rgba(0,0,0,0.35)] animate-in zoom-in-95 duration-200 dark:shadow-[0_32px_64px_-12px_rgba(0,0,0,0.65)] sm:max-w-2xl sm:rounded-[2rem] lg:max-w-4xl"
+          className="w-full max-w-none overflow-hidden rounded-3xl border border-app-border bg-app-surface shadow-[0_32px_64px_-16px_rgba(0,0,0,0.35)] animate-in zoom-in-95 duration-200 dark:shadow-[0_32px_64px_-12px_rgba(0,0,0,0.65)] sm:max-w-4xl"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="receipt-summary-title"
         >
-        <div className="relative flex max-h-[96dvh] flex-col gap-4 overflow-y-auto p-4 text-app-text sm:max-h-[min(90dvh,35rem)] sm:p-6 lg:p-7">
-          <button
-            type="button"
-            onClick={() => void closeWithReviewChoice()}
-            disabled={reviewInviteSaving}
-            className="absolute right-3 top-3 z-10 flex min-h-11 min-w-11 items-center justify-center rounded-full border border-app-border bg-app-surface-2 text-app-text-muted transition-colors hover:bg-app-surface-3 hover:text-app-text sm:right-4 sm:top-4 touch-manipulation disabled:opacity-50"
-            aria-label="Close"
+          <div
+            className="flex max-h-[calc(100dvh-1rem)] flex-col overflow-hidden text-app-text sm:max-h-[calc(100dvh-2rem)]"
+            data-testid="receipt-summary-modal"
           >
-            <X size={20} />
-          </button>
-
-          <div className="flex shrink-0 items-center gap-3 pr-11 sm:pr-14">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--app-success)_18%,var(--app-surface-2))] text-[var(--app-success)] ring-1 ring-[color-mix(in_srgb,var(--app-success)_35%,var(--app-border))] sm:h-14 sm:w-14 lg:h-16 lg:w-16">
-              <CheckCircle2 className="h-7 w-7 sm:h-8 sm:w-8 lg:h-9 lg:w-9" strokeWidth={1.5} />
-            </div>
-            <div className="min-w-0 text-left">
-              <h2 className="text-xl font-black uppercase italic tracking-tighter text-app-text sm:text-2xl lg:text-3xl">
-                {refundCheckout
-                  ? "Refund complete"
-                  : pickupCheckout
-                    ? "Pickup complete"
-                    : paymentOnlyCheckout
-                      ? "Payment recorded"
-                      : "Sale complete"}
-              </h2>
-              <p className="text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
-                {activityLabel} · Transaction #{transactionDetail?.transaction_display_id ?? transactionDisplayFallback(transactionId)}
-              </p>
-            </div>
-          </div>
-
-          <div className="grid gap-3 rounded-2xl border border-app-border bg-app-surface-2 px-4 py-3 sm:grid-cols-2 sm:px-5">
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Customer</p>
-              <p className="mt-1 truncate text-sm font-black text-app-text">{customerName}</p>
-            </div>
-            <div className="sm:text-right">
-              <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Transaction</p>
-              <p className="mt-1 truncate text-sm font-black text-app-text">
-                #{transactionDetail?.transaction_display_id ?? transactionDisplayFallback(transactionId)}
-              </p>
-            </div>
-          </div>
-
-          {printingFailure ? (
-            <div className="shrink-0 rounded-2xl border border-app-danger/30 bg-app-danger/10 px-4 py-3 sm:px-5 sm:py-4">
-              <div className="flex items-start gap-3">
-                <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-app-danger/15 text-app-danger">
-                  <AlertTriangle className="h-5 w-5" strokeWidth={2} />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-app-danger">
-                    {refundCheckout ? "Refund succeeded" : "Sale succeeded"}
-                  </p>
-                  <h3 className="mt-1 text-sm font-black uppercase tracking-tight text-app-text sm:text-base">
-                    {printingFailureTitle ?? "Receipt did not print"}
-                  </h3>
-                  <p className="mt-2 text-xs font-semibold leading-relaxed text-app-text">
-                    {printingFailure}
-                  </p>
-                  <p className="mt-2 text-[10px] font-bold uppercase tracking-wide text-app-text-muted">
-                    Recovery: retry {lastPrintAttemptLabel ?? "receipt"} print, run printer check, or send by SMS/email.
-                  </p>
-                </div>
+            <header className="relative flex shrink-0 items-center gap-3 border-b border-app-border px-3 py-3 pr-14 sm:px-5 sm:py-4 sm:pr-16">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--app-success)_18%,var(--app-surface-2))] text-[var(--app-success)] ring-1 ring-[color-mix(in_srgb,var(--app-success)_35%,var(--app-border))] sm:h-12 sm:w-12">
+                <CheckCircle2 className="h-6 w-6 sm:h-7 sm:w-7" strokeWidth={1.5} />
               </div>
-              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              <div className="min-w-0 text-left">
+                <h2
+                  id="receipt-summary-title"
+                  className="text-lg font-black uppercase italic tracking-tighter text-app-text sm:text-2xl"
+                >
+                  {completionTitle}
+                </h2>
+                <p className="line-clamp-2 text-[9px] font-bold uppercase tracking-wider text-app-text-muted sm:text-[10px] sm:tracking-widest">
+                  {activityLabel} · {customerName} · Transaction #{transactionDetail?.transaction_display_id ?? transactionDisplayFallback(transactionId)}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => void closeWithReviewChoice()}
+                disabled={reviewInviteSaving}
+                className="absolute right-3 top-3 flex min-h-10 min-w-10 items-center justify-center rounded-full border border-app-border bg-app-surface-2 text-app-text-muted transition-colors hover:bg-app-surface-3 hover:text-app-text sm:right-4 sm:top-4 touch-manipulation disabled:opacity-50"
+                aria-label="Close"
+              >
+                <X size={18} />
+              </button>
+            </header>
+
+            <section className="shrink-0 border-b border-app-border bg-app-surface px-3 py-2.5 sm:px-5 sm:py-3" aria-label="Receipt actions">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
                 <button
                   type="button"
-                  disabled={printing}
-                  onClick={() => void handlePrint(lastPrintRequest)}
-                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-app-danger/30 bg-app-surface px-3 text-[10px] font-black uppercase tracking-widest text-app-danger transition-colors hover:bg-app-danger/10 disabled:opacity-50"
+                  disabled={printing || !transactionDetail}
+                  onClick={() => void handlePrint()}
+                  className="col-span-2 inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border-b-4 border-emerald-800 bg-emerald-600 px-3 text-[10px] font-black uppercase tracking-widest text-white shadow-md transition-all hover:bg-emerald-500 active:scale-[0.99] disabled:opacity-60 touch-manipulation sm:col-span-1"
                 >
-                  <RefreshCw className="h-4 w-4" />
-                  {printing ? "Retrying…" : `Retry ${lastPrintAttemptLabel ?? "print"}`}
+                  <Printer className="h-4 w-4 shrink-0" />
+                  {printing ? "Generating…" : "Print receipt"}
                 </button>
                 <button
                   type="button"
-                  disabled={checkingPrinter}
-                  onClick={() => void runPrinterCheck()}
-                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-app-border bg-app-surface px-3 text-[10px] font-black uppercase tracking-widest text-app-text transition-colors hover:bg-app-surface-3 disabled:opacity-50"
+                  disabled={!transactionDetail}
+                  onClick={() => void openReceiptPreview()}
+                  className={compactActionButton}
                 >
-                  <Printer className="h-4 w-4" />
-                  {checkingPrinter ? "Checking printer…" : "Check station printer"}
+                  <Eye className="h-4 w-4 shrink-0" />
+                  View receipt
+                </button>
+                <button
+                  type="button"
+                  disabled={sendingSms || !transactionDetail || !hasSmsTarget}
+                  onClick={() => void sendSmsReceipt("standard")}
+                  className={compactActionButton}
+                >
+                  <MessageSquare className="h-4 w-4 shrink-0 text-emerald-700 dark:text-emerald-300" />
+                  {sendingSms ? "Sending…" : "Text receipt"}
+                </button>
+                <button
+                  type="button"
+                  disabled={sendingEmail || !transactionDetail || !hasEmailTarget}
+                  onClick={() => void sendEmailReceipt("standard")}
+                  className={compactActionButton}
+                >
+                  <Mail className="h-4 w-4 shrink-0 text-sky-700 dark:text-sky-300" />
+                  {sendingEmail ? "Sending…" : "Email receipt"}
+                </button>
+                <button
+                  type="button"
+                  disabled={!transactionDetail || !giftReceiptAvailable}
+                  onClick={() => setGiftDialogOpen(true)}
+                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-violet-500 bg-[color-mix(in_srgb,violet_16%,var(--app-surface-2))] px-3 text-[10px] font-black uppercase tracking-widest text-violet-800 shadow-sm transition-colors hover:bg-[color-mix(in_srgb,violet_24%,var(--app-surface-2))] disabled:opacity-50 dark:text-violet-200"
+                >
+                  <Gift className="h-4 w-4 shrink-0" />
+                  Gift receipt
                 </button>
               </div>
-              {printerCheckMessage ? (
-                <p className="mt-3 text-[10px] font-semibold leading-relaxed text-app-text-muted">
-                  {printerCheckMessage}
-                </p>
-              ) : null}
-              {printingFailureDetail ? (
-                <p className="mt-3 rounded-lg border border-app-border bg-app-surface-2 px-3 py-2 text-[10px] font-semibold leading-relaxed text-app-text-muted">
-                  {printingFailureDetail}
-                </p>
-              ) : null}
-            </div>
-          ) : printingSuccessMessage ? (
-            <div className="shrink-0 rounded-2xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 sm:px-5 sm:py-4">
-              <div className="flex items-start gap-3">
-                <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-200">
-                  <CheckCircle2 className="h-5 w-5" strokeWidth={2} />
-                </div>
-                <div className="min-w-0">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700 dark:text-emerald-200">
-                    Receipt delivery
-                  </p>
-                  <p className="mt-1 text-xs font-semibold leading-relaxed text-app-text">
+            </section>
+
+            <div className="grid min-h-0 flex-1 content-start gap-3 p-3 sm:grid-cols-[minmax(0,1.05fr)_minmax(18rem,0.95fr)] sm:p-4 lg:gap-4 lg:px-5">
+              <div className="min-w-0 space-y-3">
+                <section className="rounded-2xl border border-app-border bg-app-surface-2 px-3 py-3 sm:px-4" aria-label="Transaction summary">
+                  <div className="flex items-end justify-between gap-3">
+                    <div>
+                      <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted sm:text-[10px]">
+                        {totalLabel}
+                      </p>
+                      <p className="text-2xl font-black tabular-nums tracking-tighter text-app-text sm:text-3xl">
+                        {summaryTotal.startsWith("-")
+                          ? `-$${summaryTotal.slice(1)}`
+                          : `$${summaryTotal}`}
+                      </p>
+                    </div>
+                    <div className="min-w-0 max-w-[52%] text-right">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted sm:text-[10px]">
+                        {refundCheckout
+                          ? "Refund method"
+                          : pickupCheckout
+                            ? "Tender(s) on transaction"
+                            : "Tender"}
+                      </p>
+                      <p className="line-clamp-2 text-[11px] font-black uppercase tracking-tight text-app-text sm:text-sm">
+                        {refundCheckout
+                          ? (transactionDetail?.refund_payment_methods_summary ?? "…")
+                          : (transactionDetail?.payment_methods_summary ?? "…")}
+                      </p>
+                    </div>
+                  </div>
+                  {!paymentOnlyCheckout ? (
+                    <div className="mt-2.5 grid grid-cols-2 gap-3 border-t border-app-border/50 pt-2.5">
+                      <div>
+                        <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                          Paid on transaction
+                        </p>
+                        <p className="mt-0.5 text-base font-black tabular-nums text-app-success sm:text-lg">
+                          {summaryPaid.startsWith("-")
+                            ? `-$${summaryPaid.slice(1)}`
+                            : `$${summaryPaid}`}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                          Balance due
+                        </p>
+                        <p className="mt-0.5 text-base font-black tabular-nums text-app-warning sm:text-lg">
+                          ${summaryBalance}
+                        </p>
+                      </div>
+                    </div>
+                  ) : null}
+                </section>
+
+                {printingFailure ? (
+                  <section className="rounded-2xl border border-app-danger/30 bg-app-danger/10 px-3 py-3" aria-label="Receipt print recovery">
+                    <div className="flex items-start gap-2.5">
+                      <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-app-danger" strokeWidth={2} />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-app-danger">
+                          {completionKind} succeeded · {printingFailureTitle ?? "Receipt did not print"}
+                        </p>
+                        <p className="mt-1 text-[11px] font-semibold leading-relaxed text-app-text">
+                          {printingFailure}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        disabled={printing}
+                        onClick={() => void handlePrint(lastPrintRequest)}
+                        className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-app-danger/30 bg-app-surface px-2 text-[9px] font-black uppercase tracking-wider text-app-danger transition-colors hover:bg-app-danger/10 disabled:opacity-50"
+                      >
+                        <RefreshCw className="h-4 w-4" />
+                        {printing ? "Retrying…" : `Retry ${lastPrintAttemptLabel ?? "print"}`}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={checkingPrinter}
+                        onClick={() => void runPrinterCheck()}
+                        className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-app-border bg-app-surface px-2 text-[9px] font-black uppercase tracking-wider text-app-text transition-colors hover:bg-app-surface-3 disabled:opacity-50"
+                      >
+                        <Printer className="h-4 w-4" />
+                        {checkingPrinter ? "Checking…" : "Check printer"}
+                      </button>
+                    </div>
+                    {printerCheckMessage ? (
+                      <p className="mt-2 text-[9px] font-semibold leading-relaxed text-app-text-muted">
+                        {printerCheckMessage}
+                      </p>
+                    ) : null}
+                    {printingFailureDetail ? (
+                      <p className="mt-2 break-words text-[9px] font-semibold leading-relaxed text-app-text-muted">
+                        {printingFailureDetail}
+                      </p>
+                    ) : null}
+                  </section>
+                ) : printingSuccessMessage ? (
+                  <p className="flex items-center gap-2 rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-[10px] font-bold text-app-text">
+                    <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-700 dark:text-emerald-200" />
                     {printingSuccessMessage}
                   </p>
-                </div>
-              </div>
-            </div>
-          ) : null}
+                ) : null}
 
-          <div className="shrink-0 rounded-2xl border border-app-border bg-app-surface-2 px-4 py-3 sm:px-5 sm:py-4 lg:px-6 lg:py-5">
-            <div className="flex flex-wrap items-end justify-between gap-3 lg:gap-6">
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted lg:text-[11px]">
-                  {refundCheckout
-                    ? "Refunded now"
-                    : pickupCheckout || paymentOnlyCheckout
-                      ? "Collected now"
-                      : "Sale total"}
-                </p>
-                <p className="text-2xl font-black tabular-nums tracking-tighter text-app-text sm:text-3xl lg:text-4xl">
-                  {summaryTotal.startsWith("-")
-                    ? `-$${summaryTotal.slice(1)}`
-                    : `$${summaryTotal}`}
-                </p>
+                {(cashChangeDueCents > 0 ||
+                  loadedGiftCards.length > 0 ||
+                  displayedOrderPayments.length > 0 ||
+                  pickupApplications.length > 0) ? (
+                  <section className="space-y-2 rounded-2xl border border-app-border bg-app-surface-2 px-3 py-2.5" aria-label="Completion details">
+                    {cashChangeDueCents > 0 ? (
+                      <div className="flex items-center justify-between gap-3 text-sm font-black text-emerald-700 dark:text-emerald-200">
+                        <span>Change due</span>
+                        <span className="tabular-nums">${centsToFixed2(cashChangeDueCents)}</span>
+                      </div>
+                    ) : null}
+                    {loadedGiftCards.length > 0 ? (
+                      <div className="text-[10px] font-semibold text-app-text">
+                        <span className="font-black uppercase tracking-wider text-violet-700 dark:text-violet-300">
+                          Gift card loaded ·
+                        </span>{" "}
+                        {loadedGiftCards.join(", ")}
+                      </div>
+                    ) : null}
+                    {displayedOrderPayments.map((payment) => (
+                      <div key={payment.key} className="flex items-baseline justify-between gap-3 text-[10px] font-bold text-app-text">
+                        <span className="min-w-0 truncate">Payment on {payment.targetDisplayId}</span>
+                        <span className="shrink-0 tabular-nums">
+                          ${payment.amount} · ${payment.remainingBalance} due
+                        </span>
+                      </div>
+                    ))}
+                    {pickupApplications.map((pickup) => {
+                      const itemCount = pickup.items.reduce(
+                        (sum, item) => sum + Math.max(0, item.quantity),
+                        0,
+                      );
+                      return (
+                        <div key={pickup.target_transaction_id} className="flex items-baseline justify-between gap-3 text-[10px] font-bold text-app-text">
+                          <span className="min-w-0 truncate">Picked up from {pickup.target_display_id}</span>
+                          <span className="shrink-0 tabular-nums">
+                            {itemCount} {itemCount === 1 ? "item" : "items"}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </section>
+                ) : null}
               </div>
-              <div className="min-w-0 max-w-full text-right md:max-w-[50%]">
-                <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted lg:text-[11px]">
-                  Tender
-                </p>
-                <p className="line-clamp-2 text-xs font-black uppercase tracking-tight text-app-text sm:text-sm lg:text-base">
-                  {refundCheckout
-                    ? (transactionDetail?.refund_payment_methods_summary ?? "…")
-                    : (transactionDetail?.payment_methods_summary ?? "…")}
-                </p>
+
+              <div className="min-w-0 space-y-3">
+                {cust ? (
+                  <section className="rounded-2xl border border-app-border bg-app-surface-2 p-3" aria-label="Receipt delivery contact">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="min-w-0 truncate text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                        Receipt contact · {cust.first_name} {cust.last_name}
+                      </p>
+                      <p className="shrink-0 text-[8px] font-semibold text-app-text-muted">Save changes to profile</p>
+                    </div>
+                    <div className="mt-2 grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-2">
+                      <label className="min-w-0">
+                        <span className="text-[8px] font-bold uppercase tracking-wider text-app-text-muted">Mobile</span>
+                        <input
+                          type="tel"
+                          value={phoneDraft}
+                          onChange={(e) => setPhoneDraft(e.target.value)}
+                          className="ui-input mt-0.5 min-h-9 w-full px-2 text-xs"
+                          placeholder="Mobile"
+                          autoComplete="tel"
+                        />
+                      </label>
+                      <label className="min-w-0">
+                        <span className="text-[8px] font-bold uppercase tracking-wider text-app-text-muted">Email</span>
+                        <input
+                          type="email"
+                          value={emailDraft}
+                          onChange={(e) => setEmailDraft(e.target.value)}
+                          className="ui-input mt-0.5 min-h-9 w-full px-2 text-xs"
+                          placeholder="Email"
+                          autoComplete="email"
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => void saveCustomerContact()}
+                        disabled={savingContact || !contactChanged}
+                        className="mt-[14px] inline-flex min-h-9 items-center justify-center gap-1 rounded-xl border border-app-border bg-app-surface px-2 text-[8px] font-black uppercase tracking-wider text-app-text transition-colors hover:bg-app-surface-3 disabled:opacity-50 touch-manipulation"
+                      >
+                        <Save size={12} />
+                        {savingContact ? "Saving…" : "Save"}
+                      </button>
+                    </div>
+                    {!hasSmsTarget || !hasEmailTarget ? (
+                      <p className="mt-1.5 text-[9px] font-semibold text-app-warning">
+                        Add the missing {(!hasSmsTarget && !hasEmailTarget) ? "mobile and email" : !hasSmsTarget ? "mobile" : "email"} to enable that receipt option.
+                      </p>
+                    ) : null}
+                  </section>
+                ) : (
+                  <p className="rounded-xl border border-amber-500/35 bg-[color-mix(in_srgb,var(--app-warning)_12%,var(--app-surface-2))] px-3 py-2 text-left text-[9px] font-semibold uppercase tracking-wide text-app-text">
+                    Walk-in — print and view remain available. Text and email require a customer on file.
+                  </p>
+                )}
+
+                {reviewInviteEligible ? (
+                  <section className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-app-border bg-app-surface-2 p-3" aria-label="Review request">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Review request</p>
+                      <p className="mt-0.5 text-[9px] font-semibold text-app-text-muted">Eligible after this completed handoff; at most once per 180 days.</p>
+                    </div>
+                    <div className="flex shrink-0 gap-1.5">
+                      <button
+                        type="button"
+                        aria-pressed={!skipReviewInvite}
+                        onClick={() => setSkipReviewInvite(false)}
+                        className={`min-h-9 rounded-xl border px-3 text-[9px] font-black uppercase tracking-wider ${
+                          !skipReviewInvite
+                            ? "border-app-success bg-app-success/10 text-app-success"
+                            : "border-app-border bg-app-surface text-app-text-muted"
+                        }`}
+                      >
+                        Send
+                      </button>
+                      <button
+                        type="button"
+                        aria-pressed={skipReviewInvite}
+                        onClick={() => setSkipReviewInvite(true)}
+                        className={`min-h-9 rounded-xl border px-3 text-[9px] font-black uppercase tracking-wider ${
+                          skipReviewInvite
+                            ? "border-app-warning bg-app-warning/10 text-app-warning"
+                            : "border-app-border bg-app-surface text-app-text-muted"
+                        }`}
+                      >
+                        Skip
+                      </button>
+                    </div>
+                  </section>
+                ) : transactionDetail?.customer_review_requests_opt_out === true ? (
+                  <p className="rounded-xl border border-app-warning/20 bg-app-warning/5 px-3 py-2 text-[9px] font-semibold uppercase tracking-wide text-app-warning">
+                    This customer has opted out of review requests.
+                  </p>
+                ) : transactionDetail?.review_invite_sent_at || transactionDetail?.review_invite_suppressed_at ? (
+                  <p className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-2 text-[9px] font-semibold uppercase tracking-wide text-app-text-muted">
+                    Review invite choice already saved for this transaction.
+                  </p>
+                ) : transactionDetail?.store_review_invites_enabled === false && transactionDetail?.status === "fulfilled" && !!transactionDetail?.customer ? (
+                  <p className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-2 text-[9px] font-semibold uppercase tracking-wide text-app-text-muted">
+                    Review invites are off in Back Office → Settings → Reviews.
+                  </p>
+                ) : null}
               </div>
             </div>
-            <div className="mt-3 grid grid-cols-2 gap-3 border-t border-app-border/50 pt-3">
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                  {refundCheckout ? "Refunded" : "Paid"}
-                </p>
-                <p className="mt-1 text-lg font-black tabular-nums text-app-success">
-                  {summaryPaid.startsWith("-")
-                    ? `-$${summaryPaid.slice(1)}`
-                    : `$${summaryPaid}`}
-                </p>
-              </div>
-              <div className="text-right">
-                <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Balance</p>
-                <p className="mt-1 text-lg font-black tabular-nums text-app-warning">${summaryBalance}</p>
-              </div>
-            </div>
-            {orderPaymentTotalCents > 0 && !paymentOnlyCheckout ? (
-              <div className="mt-3 rounded-xl border border-violet-500/20 bg-violet-500/10 px-3 py-2 text-left">
-                <div className="flex items-center justify-between gap-3 text-xs font-bold text-app-text">
-                  <span>Collected in this checkout</span>
-                  <span className="tabular-nums">
-                    ${centsToFixed2(parseMoneyToCents(summaryPaid) + orderPaymentTotalCents)}
+
+            {error && !printingFailure ? (
+              <p className="shrink-0 px-3 pb-2 text-center text-[9px] font-black uppercase tracking-widest text-[var(--app-danger)]">
+                {error}
+              </p>
+            ) : null}
+
+            <footer className="shrink-0 border-t border-app-border bg-app-surface px-3 py-2.5 sm:px-5 sm:py-3">
+              <button
+                type="button"
+                onClick={() => void closeWithReviewChoice()}
+                disabled={reviewInviteSaving}
+                className="group flex min-h-12 w-full items-center justify-between rounded-2xl bg-app-accent px-4 py-1.5 text-white shadow-lg transition-all hover:opacity-90 active:scale-[0.99] touch-manipulation disabled:opacity-60"
+              >
+                <div className="flex flex-col text-left">
+                  <span className="text-[8px] font-black uppercase tracking-widest text-white/80">Next guest</span>
+                  <span className="text-sm font-black tracking-tight">
+                    {reviewInviteSaving ? "Saving review preference…" : "Begin new sale"}
                   </span>
                 </div>
-                <p className="mt-1 text-[10px] font-semibold text-app-text-muted">
-                  Includes the payment(s) listed below for existing Transaction Records.
-                </p>
-              </div>
-            ) : null}
-            {loadedGiftCards.length > 0 ? (
-              <div className="mt-3 rounded-xl border border-violet-500/20 bg-violet-500/10 px-3 py-2 text-left">
-                <p className="text-[10px] font-black uppercase tracking-widest text-violet-700 dark:text-violet-300">
-                  Gift card loaded
-                </p>
-                <p className="mt-1 text-xs font-bold text-app-text">
-                  {loadedGiftCards.join(", ")}
-                </p>
-              </div>
-            ) : null}
-            {cashChangeDueCents > 0 ? (
-              <div className="mt-3 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-left">
-                <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700 dark:text-emerald-300">
-                  Change Due
-                </p>
-                <p className="mt-1 text-xl font-black tabular-nums text-app-text">
-                  ${centsToFixed2(cashChangeDueCents)}
-                </p>
-              </div>
-            ) : null}
-            {orderPaymentLines.length > 0 ? (
-              <div className="mt-3 rounded-xl border border-violet-500/20 bg-violet-500/10 px-3 py-2 text-left">
-                <p className="text-[10px] font-black uppercase tracking-widest text-violet-700 dark:text-violet-300">
-                  Existing order payments
-                </p>
-                <div className="mt-2 space-y-1">
-                  {orderPaymentLines.map((line) => (
-                    <div
-                      key={line.cart_row_id}
-                      className="flex items-baseline justify-between gap-3 text-xs font-bold text-app-text"
-                    >
-                      <span className="min-w-0 truncate">
-                        Payment on {line.target_display_id}
-                      </span>
-                      <span className="shrink-0 tabular-nums">
-                        ${line.amount} · remaining ${line.projected_balance_after}
-                      </span>
-                    </div>
-                  ))}
+                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-app-surface text-app-accent shadow-lg transition-transform group-hover:translate-x-0.5">
+                  <ArrowRight className="h-[18px] w-[18px]" />
                 </div>
-              </div>
-            ) : null}
+              </button>
+            </footer>
           </div>
-
-          <div className="shrink-0 rounded-xl border border-app-border bg-app-surface-2 px-3 py-2 text-[10px] font-bold uppercase tracking-wide text-app-text-muted">
-            Receipt actions are optional. Start the next guest whenever the sale handoff is done.
-          </div>
-
-          {reviewInviteEligible ? (
-            <div className="shrink-0 rounded-2xl border border-app-border bg-app-surface-2 p-3">
-              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                    Review Request
-                  </p>
-                  <p className="mt-1 text-xs font-semibold text-app-text-muted">
-                    Sends after completed or picked-up sales. Riverside only asks each customer once every 180 days.
-                  </p>
-                </div>
-              </div>
-              <div className="grid gap-2 sm:grid-cols-2">
-                <label
-                  className={`flex min-h-12 cursor-pointer items-center gap-3 rounded-xl border px-3 py-2 text-xs font-black uppercase tracking-widest transition-colors ${
-                    !skipReviewInvite
-                      ? "border-app-success bg-app-success/10 text-app-success"
-                      : "border-app-border bg-app-surface text-app-text-muted"
-                  }`}
-                >
-                  <input
-                    type="checkbox"
-                    checked={!skipReviewInvite}
-                    onChange={(event) => setSkipReviewInvite(!event.currentTarget.checked)}
-                    className="h-4 w-4 rounded border-app-border accent-[var(--app-success)]"
-                  />
-                  Send
-                </label>
-                <label
-                  className={`flex min-h-12 cursor-pointer items-center gap-3 rounded-xl border px-3 py-2 text-xs font-black uppercase tracking-widest transition-colors ${
-                    skipReviewInvite
-                      ? "border-app-warning bg-app-warning/10 text-app-warning"
-                      : "border-app-border bg-app-surface text-app-text-muted"
-                  }`}
-                >
-                  <input
-                    type="checkbox"
-                    checked={skipReviewInvite}
-                    onChange={(event) => setSkipReviewInvite(event.currentTarget.checked)}
-                    className="h-4 w-4 rounded border-app-border accent-[var(--app-warning)]"
-                  />
-                  Do not send
-                </label>
-              </div>
-            </div>
-          ) : transactionDetail?.customer_review_requests_opt_out === true ? (
-            <p className="shrink-0 rounded-xl border border-app-warning/20 bg-app-warning/5 px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-app-warning">
-              This customer has opted out of review requests in their profile.
-            </p>
-          ) : transactionDetail?.review_invite_sent_at || transactionDetail?.review_invite_suppressed_at ? (
-            <p className="shrink-0 rounded-xl border border-app-border bg-app-surface-2 px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">
-              Review invite choice already saved for this transaction.
-            </p>
-          ) : transactionDetail?.store_review_invites_enabled === false && transactionDetail?.status === "fulfilled" && !!transactionDetail?.customer ? (
-            <p className="shrink-0 rounded-xl border border-app-border bg-app-surface-2 px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">
-              Review invites are turned off in store settings. Enable them in Back Office → Settings → Reviews to collect feedback.
-            </p>
-          ) : null}
-
-          <div className="grid shrink-0 grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-5">
-            <button
-              type="button"
-              disabled={printing || !transactionDetail}
-              onClick={() => void handlePrint()}
-              className="inline-flex min-h-[56px] items-center justify-center gap-2 rounded-2xl border-b-8 border-emerald-800 bg-emerald-600 px-3 text-[10px] font-black uppercase tracking-widest text-white shadow-lg transition-all hover:bg-emerald-500 active:scale-[0.99] disabled:opacity-60 touch-manipulation sm:text-[11px]"
-            >
-              <Printer className="h-4 w-4 shrink-0" />
-              {printing ? "Generating…" : "Print receipt"}
-            </button>
-            <button
-              type="button"
-              disabled={!transactionDetail}
-              onClick={() => void openReceiptPreview()}
-              className={compactActionButton}
-            >
-              <Eye className="h-4 w-4 shrink-0" />
-              View receipt
-            </button>
-            <button
-              type="button"
-              disabled={sendingSms || !transactionDetail}
-              onClick={() => void sendSmsReceipt("standard")}
-              className={compactActionButton}
-            >
-              <MessageSquare className="h-4 w-4 shrink-0 text-emerald-700 dark:text-emerald-300" />
-              {sendingSms ? "Sending…" : "Text receipt"}
-            </button>
-            <button
-              type="button"
-              disabled={sendingEmail || !transactionDetail}
-              onClick={() => void sendEmailReceipt("standard")}
-              className={compactActionButton}
-            >
-              <Mail className="h-4 w-4 shrink-0 text-sky-700 dark:text-sky-300" />
-              {sendingEmail ? "Sending…" : "Email receipt"}
-            </button>
-            <button
-              type="button"
-              disabled={!transactionDetail || itemRows.length === 0}
-              onClick={() => setGiftDialogOpen(true)}
-              className="inline-flex min-h-[56px] items-center justify-center gap-2 rounded-2xl border-2 border-violet-500 bg-[color-mix(in_srgb,violet_16%,var(--app-surface-2))] px-3 text-[10px] font-black uppercase tracking-widest text-violet-800 shadow-sm transition-colors hover:bg-[color-mix(in_srgb,violet_24%,var(--app-surface-2))] disabled:opacity-50 dark:text-violet-200 sm:text-[11px]"
-            >
-              <Gift className="h-4 w-4 shrink-0" />
-              Gift receipt
-            </button>
-          </div>
-
-          {cust ? (
-            <div className="flex flex-col gap-3 rounded-2xl border border-app-border bg-app-surface-2 p-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="shrink-0 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                  Customer · {cust.first_name} {cust.last_name}
-                </p>
-                <p className="text-[9px] font-semibold text-app-text-muted">
-                  Profile contact is prefilled. Edits apply to this receipt unless saved.
-                </p>
-              </div>
-              <div className="grid grid-cols-1 gap-2 lg:grid-cols-[1fr_1fr_auto]">
-                <div className="min-w-0">
-                  <label className="block shrink-0">
-                    <span className="text-[9px] font-bold uppercase tracking-wider text-app-text-muted md:text-[10px]">
-                      Mobile
-                    </span>
-                    <input
-                      type="tel"
-                      value={phoneDraft}
-                      onChange={(e) => setPhoneDraft(e.target.value)}
-                      className="ui-input mt-1 min-h-10 w-full text-sm"
-                      placeholder="Mobile number"
-                      autoComplete="tel"
-                    />
-                  </label>
-                  {!hasSmsTarget ? (
-                    <p className="mt-2 rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-[10px] font-semibold leading-relaxed text-app-text">
-                      SMS receipt needs a phone number on file or entered above.
-                    </p>
-                  ) : null}
-                </div>
-                <div className="min-w-0">
-                  <label className="block shrink-0">
-                    <span className="text-[9px] font-bold uppercase tracking-wider text-app-text-muted md:text-[10px]">
-                      Email
-                    </span>
-                    <input
-                      type="email"
-                      value={emailDraft}
-                      onChange={(e) => setEmailDraft(e.target.value)}
-                      className="ui-input mt-1 min-h-10 w-full text-sm"
-                      placeholder="Email address"
-                      autoComplete="email"
-                    />
-                  </label>
-                  {!hasEmailTarget ? (
-                    <p className="mt-2 rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-[10px] font-semibold leading-relaxed text-app-text">
-                      Email receipt needs an address on file or entered above.
-                    </p>
-                  ) : null}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => void saveCustomerContact()}
-                  disabled={savingContact || !contactChanged}
-                  className="inline-flex min-h-10 items-center justify-center gap-2 self-end rounded-xl border border-app-border bg-app-surface px-3 text-[9px] font-black uppercase tracking-widest text-app-text transition-colors hover:bg-app-surface-3 disabled:opacity-50 touch-manipulation"
-                >
-                  <Save size={13} />
-                  {savingContact ? "Saving…" : "Save"}
-                </button>
-              </div>
-            </div>
-          ) : (
-            <p className="rounded-xl border border-amber-500/35 bg-[color-mix(in_srgb,var(--app-warning)_12%,var(--app-surface-2))] px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wide text-app-text">
-              Walk-in — no customer on file. Attach a customer on the next sale to send a receipt by
-              SMS or email.
-            </p>
-          )}
-
-          <button
-            type="button"
-            onClick={() => void closeWithReviewChoice()}
-            disabled={reviewInviteSaving}
-            className="group sticky bottom-0 z-10 flex min-h-[52px] w-full shrink-0 items-center justify-between rounded-2xl bg-app-accent px-4 py-2 text-white shadow-lg ring-4 ring-app-surface transition-all hover:opacity-90 active:scale-[0.99] sm:h-14 sm:min-h-0 lg:min-h-[3.75rem] touch-manipulation disabled:opacity-60"
-          >
-            <div className="flex flex-col text-left">
-              <span className="text-[9px] font-black uppercase tracking-widest text-white/80 lg:text-[10px]">
-                Next guest
-              </span>
-              <span className="text-sm font-black tracking-tight lg:text-base">
-                {reviewInviteSaving ? "Saving review preference…" : "Begin new sale"}
-              </span>
-            </div>
-            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-app-surface text-app-accent shadow-xl transition-transform group-hover:translate-x-0.5 sm:h-12 sm:w-12">
-              <ArrowRight className="h-[18px] w-[18px] sm:h-5 sm:w-5" />
-            </div>
-          </button>
-
-          {error && !printingFailure ? (
-            <p className="shrink-0 text-center text-[10px] font-black uppercase tracking-widest text-[var(--app-danger)]">
-              {error}
-            </p>
-          ) : null}
-        </div>
         </div>
       </div>
 

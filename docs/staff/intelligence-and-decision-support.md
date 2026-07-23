@@ -13,7 +13,7 @@
 
 ROSIE can now act as a guided operational copilot for common recovery questions:
 
-- close blockers
+- register close warnings and at-close evidence
 - refund or return recovery
 - inventory mismatch triage
 - QBO exception interpretation

@@ -26,7 +26,7 @@
 | Area | What to review | Status | Owner / notes |
 |------|----------------|--------|---------------|
 | Refunds / voids | Every refund, exchange, completed-sale void, tender, reason, approval, receipt, and unresolved reversal. | Clear / needs review |  |
-| Close blockers | Any close warning, cash discrepancy, manager approval, late close. | Clear / needs review |  |
+| Close warnings | Any recovery warning, cash discrepancy, required close input, late close, or **Unresolved Issues at Close** evidence. | Clear / needs review |  |
 | Offline recovery | Pending, blocked, resumed, or manually handled work. | Clear / needs review |  |
 | Parked sales | Open, resumed, abandoned, duplicate, customer waiting. | Clear / needs review |  |
 | RMS | Charge transactions, exceptions, reconciliation, unresolved customer accounts. | Clear / needs review |  |

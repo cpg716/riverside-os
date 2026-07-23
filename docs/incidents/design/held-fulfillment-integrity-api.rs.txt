@@ -1,0 +1,371 @@
+//! HELD DESIGN — NOT COMPILED OR ROUTED IN PRODUCTION.
+//! Staff-gated, manager-confirmed fulfillment integrity recovery endpoints.
+
+use axum::extract::{Path, State};
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::{IntoResponse, Response};
+use axum::routing::{get, post};
+use axum::{Json, Router};
+use serde::Deserialize;
+use serde_json::json;
+use tracing::error;
+use uuid::Uuid;
+
+use crate::api::AppState;
+use crate::auth::permissions::{
+    effective_permissions_for_staff, staff_can_approve_manager_access, SETTINGS_ADMIN,
+};
+use crate::auth::pins;
+use crate::logic::fulfillment_recovery::{
+    apply_counterpoint_false_fulfillment_recovery, apply_restore_pickup_recognition_evidence,
+    get_bulk_fulfillment_operation_audit, preview_counterpoint_false_fulfillment_recovery,
+    preview_restore_pickup_recognition_evidence, resolve_prior_pickup_recognition_correction,
+    FulfillmentRecoveryError, RecoveryReviewRequest, RestorePickupRecognitionReviewRequest,
+};
+use crate::middleware;
+
+#[derive(Debug, Deserialize)]
+struct PreviewRecoveryRequest {
+    transaction_ids: Vec<Uuid>,
+    expected_transaction_count: usize,
+    reason: String,
+    manager_staff_id: Uuid,
+    correlation_id: Option<Uuid>,
+    #[serde(default)]
+    acknowledge_qbo_traceability_gap: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct ApplyRecoveryRequest {
+    operation_id: Uuid,
+    correlation_id: Uuid,
+    transaction_ids: Vec<Uuid>,
+    expected_transaction_count: usize,
+    reason: String,
+    manager_staff_id: Uuid,
+    manager_pin: String,
+    expected_manifest_digest: String,
+    acknowledge_qbo_traceability_gap: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct PreviewPickupRecognitionRequest {
+    transaction_id: Uuid,
+    reason: String,
+    manager_staff_id: Uuid,
+    correlation_id: Option<Uuid>,
+    #[serde(default)]
+    acknowledge_qbo_traceability_gap: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct ApplyPickupRecognitionRequest {
+    operation_id: Uuid,
+    correlation_id: Uuid,
+    transaction_id: Uuid,
+    reason: String,
+    manager_staff_id: Uuid,
+    manager_pin: String,
+    expected_manifest_digest: String,
+    acknowledge_qbo_traceability_gap: bool,
+}
+
+fn recovery_error_response(error: FulfillmentRecoveryError) -> Response {
+    match error {
+        FulfillmentRecoveryError::InvalidRequest(message) => {
+            (StatusCode::BAD_REQUEST, Json(json!({ "error": message }))).into_response()
+        }
+        FulfillmentRecoveryError::StaleReview(message) => {
+            (StatusCode::CONFLICT, Json(json!({ "error": message }))).into_response()
+        }
+        FulfillmentRecoveryError::Ineligible(message) => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(json!({ "error": message })),
+        )
+            .into_response(),
+        FulfillmentRecoveryError::VerificationFailed(message) => {
+            (StatusCode::CONFLICT, Json(json!({ "error": message }))).into_response()
+        }
+        FulfillmentRecoveryError::Database(error) => {
+            error!(error = %error, "fulfillment recovery database failure");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "fulfillment recovery could not be completed" })),
+            )
+                .into_response()
+        }
+        FulfillmentRecoveryError::Serialization(error) => {
+            error!(error = %error, "fulfillment recovery evidence serialization failure");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "fulfillment recovery evidence could not be encoded" })),
+            )
+                .into_response()
+        }
+    }
+}
+
+async fn preview_recovery(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<PreviewRecoveryRequest>,
+) -> Response {
+    let actor =
+        match middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN).await {
+            Ok(staff) => staff,
+            Err(error) => return error.into_response(),
+        };
+    let request = RecoveryReviewRequest {
+        operation_id: Uuid::new_v4(),
+        correlation_id: body.correlation_id.unwrap_or_else(Uuid::new_v4),
+        transaction_ids: body.transaction_ids,
+        expected_transaction_count: body.expected_transaction_count,
+        actor_staff_id: actor.id,
+        confirming_manager_staff_id: body.manager_staff_id,
+        reason: body.reason,
+        acknowledge_qbo_traceability_gap: body.acknowledge_qbo_traceability_gap,
+    };
+
+    match preview_counterpoint_false_fulfillment_recovery(&state.db, &request).await {
+        Ok(preview) => Json(preview).into_response(),
+        Err(error) => recovery_error_response(error),
+    }
+}
+
+async fn apply_recovery(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<ApplyRecoveryRequest>,
+) -> Response {
+    let actor =
+        match middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN).await {
+            Ok(staff) => staff,
+            Err(error) => return error.into_response(),
+        };
+    let manager = match pins::authenticate_staff_by_id(
+        &state.db,
+        body.manager_staff_id,
+        Some(body.manager_pin.trim()),
+    )
+    .await
+    {
+        Ok(manager) => manager,
+        Err(_) => {
+            return (
+                StatusCode::FORBIDDEN,
+                Json(json!({ "error": "Manager Access was not approved" })),
+            )
+                .into_response();
+        }
+    };
+    let effective = match effective_permissions_for_staff(&state.db, manager.id, manager.role).await
+    {
+        Ok(effective) => effective,
+        Err(error) => {
+            error!(error = %error, "could not resolve fulfillment recovery manager permissions");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "Manager Access could not be verified" })),
+            )
+                .into_response();
+        }
+    };
+    if !staff_can_approve_manager_access(&effective, manager.role) {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({ "error": "manager.approval permission required" })),
+        )
+            .into_response();
+    }
+
+    let request = RecoveryReviewRequest {
+        operation_id: body.operation_id,
+        correlation_id: body.correlation_id,
+        transaction_ids: body.transaction_ids,
+        expected_transaction_count: body.expected_transaction_count,
+        actor_staff_id: actor.id,
+        confirming_manager_staff_id: manager.id,
+        reason: body.reason,
+        acknowledge_qbo_traceability_gap: body.acknowledge_qbo_traceability_gap,
+    };
+    match apply_counterpoint_false_fulfillment_recovery(
+        &state.db,
+        &request,
+        body.expected_manifest_digest.trim(),
+    )
+    .await
+    {
+        Ok(result) => {
+            let _ = pins::log_staff_access(
+                &state.db,
+                manager.id,
+                "bulk_fulfillment_recovery_approval",
+                json!({
+                    "operation_id": result.operation_id,
+                    "correlation_id": result.correlation_id,
+                    "actor_staff_id": actor.id,
+                    "corrected_transaction_count": result.corrected_transaction_count,
+                    "verification_id": result.verification_id,
+                    "verification_status": result.verification_status,
+                }),
+            )
+            .await;
+            Json(result).into_response()
+        }
+        Err(error) => recovery_error_response(error),
+    }
+}
+
+async fn preview_pickup_recognition(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<PreviewPickupRecognitionRequest>,
+) -> Response {
+    let actor =
+        match middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN).await {
+            Ok(staff) => staff,
+            Err(error) => return error.into_response(),
+        };
+    let prior_correction_activity_id =
+        match resolve_prior_pickup_recognition_correction(&state.db, body.transaction_id).await {
+            Ok(activity_id) => activity_id,
+            Err(error) => return recovery_error_response(error),
+        };
+    let request = RestorePickupRecognitionReviewRequest {
+        operation_id: Uuid::new_v4(),
+        correlation_id: body.correlation_id.unwrap_or_else(Uuid::new_v4),
+        transaction_id: body.transaction_id,
+        prior_correction_activity_id,
+        actor_staff_id: actor.id,
+        confirming_manager_staff_id: body.manager_staff_id,
+        reason: body.reason,
+        acknowledge_qbo_traceability_gap: body.acknowledge_qbo_traceability_gap,
+    };
+
+    match preview_restore_pickup_recognition_evidence(&state.db, &request).await {
+        Ok(preview) => Json(preview).into_response(),
+        Err(error) => recovery_error_response(error),
+    }
+}
+
+async fn apply_pickup_recognition(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<ApplyPickupRecognitionRequest>,
+) -> Response {
+    let actor =
+        match middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN).await {
+            Ok(staff) => staff,
+            Err(error) => return error.into_response(),
+        };
+    let manager = match pins::authenticate_staff_by_id(
+        &state.db,
+        body.manager_staff_id,
+        Some(body.manager_pin.trim()),
+    )
+    .await
+    {
+        Ok(manager) => manager,
+        Err(_) => {
+            return (
+                StatusCode::FORBIDDEN,
+                Json(json!({ "error": "Manager Access was not approved" })),
+            )
+                .into_response();
+        }
+    };
+    let effective = match effective_permissions_for_staff(&state.db, manager.id, manager.role).await
+    {
+        Ok(effective) => effective,
+        Err(error) => {
+            error!(error = %error, "could not resolve pickup recognition recovery manager permissions");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "Manager Access could not be verified" })),
+            )
+                .into_response();
+        }
+    };
+    if !staff_can_approve_manager_access(&effective, manager.role) {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({ "error": "manager.approval permission required" })),
+        )
+            .into_response();
+    }
+
+    let prior_correction_activity_id =
+        match resolve_prior_pickup_recognition_correction(&state.db, body.transaction_id).await {
+            Ok(activity_id) => activity_id,
+            Err(error) => return recovery_error_response(error),
+        };
+    let request = RestorePickupRecognitionReviewRequest {
+        operation_id: body.operation_id,
+        correlation_id: body.correlation_id,
+        transaction_id: body.transaction_id,
+        prior_correction_activity_id,
+        actor_staff_id: actor.id,
+        confirming_manager_staff_id: manager.id,
+        reason: body.reason,
+        acknowledge_qbo_traceability_gap: body.acknowledge_qbo_traceability_gap,
+    };
+    match apply_restore_pickup_recognition_evidence(
+        &state.db,
+        &request,
+        body.expected_manifest_digest.trim(),
+    )
+    .await
+    {
+        Ok(result) => {
+            let _ = pins::log_staff_access(
+                &state.db,
+                manager.id,
+                "pickup_recognition_recovery_approval",
+                json!({
+                    "operation_id": result.operation_id,
+                    "correlation_id": result.correlation_id,
+                    "actor_staff_id": actor.id,
+                    "transaction_id": body.transaction_id,
+                    "verification_id": result.verification_id,
+                    "verification_status": result.verification_status,
+                }),
+            )
+            .await;
+            Json(result).into_response()
+        }
+        Err(error) => recovery_error_response(error),
+    }
+}
+
+async fn get_operation_audit(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(operation_id): Path<Uuid>,
+) -> Response {
+    if let Err(error) =
+        middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN).await
+    {
+        return error.into_response();
+    }
+    match get_bulk_fulfillment_operation_audit(&state.db, operation_id).await {
+        Ok(Some(audit)) => Json(audit).into_response(),
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "fulfillment recovery operation not found" })),
+        )
+            .into_response(),
+        Err(error) => recovery_error_response(error),
+    }
+}
+
+pub fn router() -> Router<AppState> {
+    Router::new()
+        .route("/counterpoint-recovery/preview", post(preview_recovery))
+        .route("/counterpoint-recovery/apply", post(apply_recovery))
+        .route(
+            "/pickup-recognition/preview",
+            post(preview_pickup_recognition),
+        )
+        .route("/pickup-recognition/apply", post(apply_pickup_recognition))
+        .route("/operations/{operation_id}", get(get_operation_audit))
+}

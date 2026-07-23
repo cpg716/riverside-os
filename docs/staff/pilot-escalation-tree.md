@@ -32,7 +32,7 @@ Pause immediately when:
 
 - Payment result is unclear.
 - Refund amount or tender is unclear.
-- Register close shows unresolved blockers.
+- Register close shows an unresolved warning that staff cannot explain or assign.
 - Customer/member identity is uncertain.
 - Garment pickup has balance or status confusion.
 - Inventory or receiving post cannot be explained.

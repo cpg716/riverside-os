@@ -39,6 +39,9 @@ type MeilisearchStatusResponse = {
   configured: boolean;
   connection_ok?: boolean;
   connection_error?: string | null;
+  version?: string | null;
+  expected_version?: string;
+  version_supported?: boolean;
   indices: MeilisearchSyncRow[];
   is_indexing: boolean;
   full_rebuild_current?: boolean;
@@ -65,6 +68,13 @@ export default function MeilisearchSettingsPanel() {
   const [meiliConnectionError, setMeiliConnectionError] = useState<
     string | null
   >(null);
+  const [meiliVersion, setMeiliVersion] = useState<string | null>(null);
+  const [meiliExpectedVersion, setMeiliExpectedVersion] = useState<string | null>(
+    null,
+  );
+  const [meiliVersionSupported, setMeiliVersionSupported] = useState<
+    boolean | null
+  >(null);
   const [meiliIndices, setMeiliIndices] = useState<MeilisearchSyncRow[]>([]);
   const [isIndexing, setIsIndexing] = useState(false);
   const [meiliReindexBusy, setMeiliReindexBusy] = useState(false);
@@ -86,17 +96,26 @@ export default function MeilisearchSettingsPanel() {
             !j.connection_error,
         );
         setMeiliConnectionError(j.connection_error ?? null);
+        setMeiliVersion(j.version ?? null);
+        setMeiliExpectedVersion(j.expected_version ?? null);
+        setMeiliVersionSupported(j.version_supported ?? null);
         setMeiliIndices(j.indices || []);
         setIsIndexing(j.is_indexing);
       } else {
         setMeiliConfigured(null);
         setMeiliConnectionOk(null);
         setMeiliConnectionError(null);
+        setMeiliVersion(null);
+        setMeiliExpectedVersion(null);
+        setMeiliVersionSupported(null);
       }
     } catch {
       setMeiliConfigured(null);
       setMeiliConnectionOk(null);
       setMeiliConnectionError(null);
+      setMeiliVersion(null);
+      setMeiliExpectedVersion(null);
+      setMeiliVersionSupported(null);
       setMeiliIndices([]);
     } finally {
       setLoading(false);
@@ -157,7 +176,9 @@ export default function MeilisearchSettingsPanel() {
   }
 
   const meiliConnectionReady =
-    meiliConfigured === true && meiliConnectionOk === true;
+    meiliConfigured === true &&
+    meiliConnectionOk === true &&
+    meiliVersionSupported === true;
   const searchableIndices = meiliIndices.filter(
     (index) => index.index_name !== "ros_reindex_run",
   );
@@ -223,6 +244,8 @@ export default function MeilisearchSettingsPanel() {
                 "Status unknown"
               ) : meiliConnectionReady ? (
                 "Connected"
+              ) : meiliConnectionOk && meiliVersionSupported === false ? (
+                "Version mismatch"
               ) : meiliConfigured ? (
                 "Connection failed"
               ) : (
@@ -262,6 +285,19 @@ export default function MeilisearchSettingsPanel() {
             {meiliConnectionError}
           </div>
         )}
+
+        {meiliConfigured === true &&
+          meiliConnectionOk === true &&
+          meiliVersionSupported === false && (
+            <div className="ui-panel ui-tint-danger mb-8 px-4 py-3 text-xs text-app-text-muted leading-relaxed">
+              <p className="font-bold text-app-danger uppercase tracking-widest text-[10px] mb-1">
+                Search runtime update required
+              </p>
+              Main Hub is running Meilisearch {meiliVersion || "unknown"}; this
+              Riverside build requires {meiliExpectedVersion || "the packaged version"}.
+              Update the self-hosted runtime before rebuilding search.
+            </div>
+          )}
 
         <div className="mb-8">
           <IntegrationCredentialsCard

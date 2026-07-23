@@ -158,14 +158,6 @@ pub async fn rate_limit_handler(
         return response;
     }
 
-    if is_authenticated_counterpoint_bridge_request(&request) {
-        let mut response = next.run(request).await;
-        response
-            .headers_mut()
-            .insert("X-RateLimit-Bypass", "counterpoint-bridge".parse().unwrap());
-        return response;
-    }
-
     let now = Instant::now();
 
     // Extract client IP
@@ -303,34 +295,6 @@ fn is_health_probe_request(request: &Request) -> bool {
     )
 }
 
-fn is_authenticated_counterpoint_bridge_request(request: &Request) -> bool {
-    let path = request.uri().path();
-    if path != "/api/sync/counterpoint" && !path.starts_with("/api/sync/counterpoint/") {
-        return false;
-    }
-
-    if request
-        .headers()
-        .get("x-ros-sync-token")
-        .and_then(|value| value.to_str().ok())
-        .map(str::trim)
-        .is_some_and(|value| !value.is_empty())
-    {
-        return true;
-    }
-
-    request
-        .headers()
-        .get(axum::http::header::AUTHORIZATION)
-        .and_then(|value| value.to_str().ok())
-        .map(str::trim)
-        .is_some_and(|value| {
-            value
-                .strip_prefix("Bearer ")
-                .is_some_and(|token| !token.trim().is_empty())
-        })
-}
-
 fn extract_client_ip(request: &Request) -> String {
     // Forwarded headers are client-controlled unless a trusted reverse proxy overwrites them.
     if trust_proxy_headers() {
@@ -416,6 +380,10 @@ mod tests {
     #[test]
     fn ros_app_auth_headers_require_complete_credentials() {
         assert!(!has_ros_app_auth_headers(&request_for("/api/transactions")));
+        assert!(!has_ros_app_auth_headers(&request_with_headers(
+            "/api/sync/counterpoint/tickets",
+            &[("x-ros-sync-token", "unverified-at-middleware")]
+        )));
         assert!(!has_ros_app_auth_headers(&request_with_headers(
             "/api/transactions",
             &[("x-riverside-staff-code", "1234")]

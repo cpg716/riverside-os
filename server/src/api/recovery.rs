@@ -340,15 +340,17 @@ async fn report_station_close_status(
     let station_key = header_text(&headers, "x-riverside-station-key").ok_or_else(|| {
         RecoveryError::BadRequest("Register workstation identity is missing".to_string())
     })?;
+    let mut tx = state.db.begin().await?;
     let lifecycle: Option<(String, Option<chrono::DateTime<chrono::Utc>>)> = sqlx::query_as(
         r#"
         SELECT lifecycle_status, reconcile_started_at
         FROM register_sessions
         WHERE id = $1 AND is_open = true
+        FOR UPDATE
         "#,
     )
     .bind(session_id)
-    .fetch_optional(&state.db)
+    .fetch_optional(&mut *tx)
     .await?;
     let Some((lifecycle_status, reconcile_started_at)) = lifecycle else {
         return Err(RecoveryError::BadRequest(
@@ -375,9 +377,10 @@ async fn report_station_close_status(
         .bind(&station_key)
         .bind(request.pending_checkout_count)
         .bind(request.blocked_checkout_count)
-        .execute(&state.db)
+        .execute(&mut *tx)
         .await?;
     }
+    tx.commit().await?;
 
     Ok(Json(json!({
         "lifecycle_status": lifecycle_status,
@@ -2077,7 +2080,7 @@ async fn resolve_recovery_job(
 
     if request.status == "dismissed" && kind != "receipt_print" {
         return Err(RecoveryError::Forbidden(
-            "financial recovery records cannot be dismissed; complete recovery or use the audited Manager force-close workflow"
+            "financial recovery cannot be dismissed; complete it or leave it unresolved for audited follow-up after ordinary Z-close"
                 .to_string(),
         ));
     }

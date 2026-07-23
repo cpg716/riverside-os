@@ -21,10 +21,33 @@ type OpenSessionRow = {
   lifecycle_status: string;
 };
 
+type CloseRecoveryJobEvidence = {
+  client_job_key: string;
+  kind: string;
+  status: string;
+  register_session_id: string | null;
+  transaction_id: string | null;
+  checkout_client_id: string | null;
+  station_key: string | null;
+  label: string | null;
+  last_error: string | null;
+  attempt_count: number;
+  first_seen_at: string;
+  last_seen_at: string;
+};
+
+type UnresolvedCloseIssues = {
+  recovery_job_keys: string[];
+  recovery_jobs: CloseRecoveryJobEvidence[];
+  station_warnings: string[];
+  helcim_attempts: Array<{ id: string }>;
+};
+
 type ReconciliationResponse = {
   session_id: string;
   opening_float: string;
   expected_cash: string;
+  unresolved_close_issues: UnresolvedCloseIssues | null;
   tenders_by_lane: Array<{
     register_lane: number;
     tenders: Array<{
@@ -38,6 +61,18 @@ type ReconciliationResponse = {
 type CloseSessionResponse = {
   status: string;
   discrepancy: string;
+  unresolved_close_issues: UnresolvedCloseIssues | null;
+  reconciliation: ReconciliationResponse;
+  z_report_snapshot: {
+    unresolved_close_issues: UnresolvedCloseIssues | null;
+  };
+};
+
+type RegisterSessionHistoryRow = {
+  z_report_json?: {
+    session_id?: string;
+    unresolved_close_issues?: UnresolvedCloseIssues | null;
+  } | null;
 };
 
 type VerifyCashierResponse = {
@@ -606,7 +641,7 @@ test.describe("register audit contract", () => {
     expect(tokenAfterClose.status()).toBe(404);
   });
 
-  test("Z-close rejects a missing workstation empty-queue acknowledgement", async ({
+  test("Z-close records a missing workstation acknowledgement without blocking close", async ({
     request,
   }) => {
     test.setTimeout(90_000);
@@ -627,34 +662,127 @@ test.describe("register audit contract", () => {
       },
     );
     expect(begin.status()).toBe(200);
+    const recoveryJobKey = `e2e-close-warning-${crypto.randomUUID()}`;
+    const recoveryJob = await request.post(`${apiBase()}/api/recovery`, {
+      headers: {
+        "Content-Type": "application/json",
+        "x-riverside-pos-session-id": opened.session_id,
+        "x-riverside-pos-session-token": opened.pos_api_token ?? "",
+        "x-riverside-station-key": "station-e2e",
+      },
+      data: {
+        client_job_key: recoveryJobKey,
+        kind: "receipt_print",
+        status: "blocked",
+        register_session_id: opened.session_id,
+        label: "E2E unresolved close warning",
+        payload: {},
+        last_error: "E2E recovery evidence remains unresolved",
+        attempt_count: 2,
+      },
+      failOnStatusCode: false,
+    });
+    const recoveryJobText = await recoveryJob.text();
+    expect(recoveryJob.status(), recoveryJobText.slice(0, 1000)).toBe(200);
     const recon = await fetchReconciliation(
       request,
       opened.session_id,
       opened.pos_api_token ?? "",
     );
-    const blocked = await postStaffClose(
+    expect(recon.unresolved_close_issues?.recovery_job_keys).toEqual([
+      recoveryJobKey,
+    ]);
+    expect(recon.unresolved_close_issues?.recovery_jobs).toEqual([
+      expect.objectContaining({
+        client_job_key: recoveryJobKey,
+        kind: "receipt_print",
+        status: "blocked",
+        register_session_id: opened.session_id,
+        transaction_id: null,
+        checkout_client_id: null,
+        station_key: "station-e2e",
+        label: "E2E unresolved close warning",
+        last_error: "E2E recovery evidence remains unresolved",
+        attempt_count: 2,
+        first_seen_at: expect.any(String),
+        last_seen_at: expect.any(String),
+      }),
+    ]);
+    expect(recon.unresolved_close_issues?.station_warnings).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/acknowledgement missing/i),
+      ]),
+    );
+    const closeResult = await postStaffClose(
       request,
       opened.session_id,
       recon.expected_cash,
     );
-    expect(blocked.status).toBe(409);
-    const blockedBody = JSON.parse(blocked.bodyText) as {
-      error?: string;
-      station_blockers?: string[];
-    };
-    expect(blockedBody.error).toBe("checkout_recovery_blocks_close");
-    expect(blockedBody.station_blockers).toEqual(
+    expect(closeResult.status, closeResult.bodyText.slice(0, 1000)).toBe(200);
+    const closeBody = JSON.parse(closeResult.bodyText) as CloseSessionResponse;
+    expect(closeBody.status).toBe("closed");
+    expect(closeBody.unresolved_close_issues?.recovery_job_keys).toEqual([
+      recoveryJobKey,
+    ]);
+    expect(closeBody.unresolved_close_issues?.recovery_jobs).toEqual([
+      expect.objectContaining({
+        client_job_key: recoveryJobKey,
+        kind: "receipt_print",
+        status: "blocked",
+        register_session_id: opened.session_id,
+        transaction_id: null,
+        checkout_client_id: null,
+        station_key: "station-e2e",
+        label: "E2E unresolved close warning",
+        last_error: "E2E recovery evidence remains unresolved",
+        attempt_count: 2,
+        first_seen_at: expect.any(String),
+        last_seen_at: expect.any(String),
+      }),
+    ]);
+    expect(closeBody.unresolved_close_issues?.station_warnings).toEqual(
       expect.arrayContaining([
         expect.stringMatching(/acknowledgement missing/i),
       ]),
     );
 
-    const close = await closeGroupExactly(
-      request,
-      opened.session_id,
-      opened.pos_api_token ?? "",
+    const historyRes = await request.get(
+      `${apiBase()}/api/insights/register-sessions?limit=10`,
+      {
+        headers: staffHeaders(),
+        failOnStatusCode: false,
+      },
     );
-    expect(close.status).toBe("closed");
+    const historyText = await historyRes.text();
+    expect(historyRes.status(), historyText.slice(0, 1000)).toBe(200);
+    const history = JSON.parse(historyText) as RegisterSessionHistoryRow[];
+    const snapshot = history.find(
+      (row) => row.z_report_json?.session_id === opened.session_id,
+    )?.z_report_json;
+    expect(snapshot?.unresolved_close_issues?.station_warnings).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/acknowledgement missing/i),
+      ]),
+    );
+    expect(snapshot?.unresolved_close_issues?.recovery_job_keys).toEqual([
+      recoveryJobKey,
+    ]);
+    expect(snapshot?.unresolved_close_issues?.recovery_jobs).toEqual([
+      expect.objectContaining({
+        client_job_key: recoveryJobKey,
+        kind: "receipt_print",
+        status: "blocked",
+        register_session_id: opened.session_id,
+        transaction_id: null,
+        checkout_client_id: null,
+        station_key: "station-e2e",
+        label: "E2E unresolved close warning",
+        last_error: "E2E recovery evidence remains unresolved",
+        attempt_count: 2,
+        first_seen_at: expect.any(String),
+        last_seen_at: expect.any(String),
+      }),
+    ]);
   });
 
   test("simultaneous primary register closes leave one closed till group", async ({

@@ -80,13 +80,25 @@ for (const viewport of MODAL_VIEWPORTS) {
     });
     await checkout.getByTestId("pos-finalize-checkout").click({ force: true });
 
-    await expect(page.getByText(/sale complete/i)).toBeVisible({
+    const receiptSummary = page.getByTestId("receipt-summary-modal");
+    await expect(receiptSummary).toBeVisible({
       timeout: 20_000,
     });
-    await page.getByRole("button", { name: /begin new sale/i }).click();
-    await expect(page.getByText(/sale complete/i)).toBeHidden({
-      timeout: 10_000,
-    });
+    for (const buttonName of [
+      /print receipt/i,
+      /view receipt/i,
+      /text receipt/i,
+      /email receipt/i,
+      /gift receipt/i,
+      /begin new sale/i,
+    ]) {
+      await expect(receiptSummary.getByRole("button", { name: buttonName })).toBeInViewport();
+    }
+    const overflow = await receiptSummary.evaluate((element) => ({
+      horizontal: element.scrollWidth > element.clientWidth,
+      vertical: element.scrollHeight > element.clientHeight,
+    }));
+    expect(overflow).toEqual({ horizontal: false, vertical: false });
   });
 }
 

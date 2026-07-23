@@ -50,7 +50,7 @@ Do not:
 - Share Access PINs.
 - Retry uncertain card payments blindly.
 - Clear browser storage to fix checkout.
-- Force register close around blockers.
+- Dismiss or hide register-close warnings; use the ordinary authorized close and verify unresolved work is preserved on the Z-Report.
 - Release unpaid garments without approval.
 - Use vague inventory adjustment notes.
 - Post QBO rows with unresolved warnings just to finish the day.

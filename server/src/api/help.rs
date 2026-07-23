@@ -3975,6 +3975,22 @@ async fn search_help(
     let requested_limit = q.limit.clamp(1, 100);
     match help_search_hits(client, query, 100).await {
         Ok(rows) => {
+            if !crate::logic::meilisearch_search::index_results_are_authoritative(
+                &state.db,
+                client,
+                crate::logic::meilisearch_client::INDEX_HELP,
+            )
+            .await
+            {
+                tracing::warn!(
+                    query,
+                    "Meilisearch help index is not authoritative; using bundled Help fallback"
+                );
+                return Ok(Json(serde_json::json!({
+                    "hits": [],
+                    "search_mode": HelpSearchMode::Unavailable.as_str(),
+                })));
+            }
             let hits: Vec<HelpSearchHitOut> = rows
                 .into_iter()
                 .filter(|h| {

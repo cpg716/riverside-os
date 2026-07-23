@@ -25,8 +25,8 @@ The sale complete receipt preview shows the customer receipt after checkout. It 
 
 ## How to use it
 
-1. Review the sale total, tender, and transaction number on the sale complete screen.
-2. Choose print, view, text, email, gift receipt, or reports printer based on the customer request.
+1. Review the outcome label, transaction total or amount collected, tender, balance, customer, and Transaction number on the completion screen.
+2. Choose print, view, text, email, gift receipt, or reports printer from the receipt action bar, which stays visible without scrolling.
 3. Confirm the preview or printer path shows the formatted receipt before handing it off.
 
 ## Actions
@@ -50,7 +50,7 @@ Receipt line items keep the product name as the primary line, show quantity only
 
 Receipt totals are sourced from the completed transaction ledger. Shipping and alteration charges remain visible as separate non-merchandise lines, **Paid** and **Balance** reflect the transaction’s actual stored values, and payments applied to existing Transaction Records are listed separately. A payment-only receipt uses the actual applied payment amount instead of the new transaction header amount.
 
-The Sale Complete screen identifies the customer and transaction number and labels the completed event as a sale, payment, pickup, or combined sale/payment. Pickup handoffs show the amount collected during that pickup event, not the original order total.
+The completion screen identifies the customer and Transaction number and labels the completed event as a sale, payment, pickup, refund, exchange, or combined sale/pickup/payment outcome. Pickup handoffs show the amount collected during that pickup event and preserve the Transaction Record's actual remaining balance. Payment applications and linked pickups are read back from the completed transaction so their target Transaction numbers, applied amounts, remaining balances, and picked-up item counts match the saved result.
 
 When a customer picks up an order and buys new merchandise in the same checkout, the sale complete screen prints one checkout receipt. It includes the new sale lines plus the exact picked-up items and their source Transaction number. Daily Sales lists the checkout once, while **Pickups Today** preserves the fulfillment record. Pure pickup checkouts still print the pickup receipt for the original transaction.
 

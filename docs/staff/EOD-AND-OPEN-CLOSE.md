@@ -43,10 +43,12 @@
    - Closing the next morning still produces the report for the prior business date. The date the button is pressed does not rename the report.
 3. **Cash:** count bills and coins by denomination, or enter one drawer total.
 4. **Checks:** confirm each check number and dollar amount before moving to final review.
-5. **Card review:** if a Helcim terminal outcome blocks close, use **Review** inside the close flow, or go to **POS → Payments**, verify the terminal result, choose the outcome, and record it. Staff do not need Back Office Payments access for this daily close step.
-6. **Professional Z-Report**: the closing report routes to your assigned **Report Station** (Full-Page/Audit), includes the QBO journal-entry preview, and lists non-sale inventory moves for the business date such as Receiving, RTV, Damaged, Physical Count, and Adjustments.
+5. **Card and recovery review:** use **Review** inside the close flow or **POS → Payments** to verify and repair issues when practical. Unresolved issues remain visible and fixable but do not block an authorized ordinary close. Staff do not need Back Office Payments access for this daily close step.
+6. **Professional Z-Report**: the closing report routes to your assigned **Report Station** (Full-Page/Audit), includes the QBO journal-entry preview, lists non-sale inventory moves for the business date such as Receiving, RTV, Damaged, Physical Count, and Adjustments, and freezes the tender reconciliation together with every unresolved card, recovery, or linked-workstation warning under **Unresolved Issues at Close**. The immediate print and archived report use that same Main Hub close result. Supplemental Quick Look metrics are labeled pending on the immediate print until the immutable EOD snapshot is available; ROS does not substitute a new live summary. Closing does not resolve those warnings, and later repair does not rewrite the archived report.
 7. **Close register** only on the final **Close & Print Z-Report** page. **Cancel** on any earlier page exits the workflow without closing the drawer.
 8. If missed days are being caught up, finish every date shown by the system in order. Historical days without their own drawer count are labeled as not separately counted; ROS does not invent an over/short amount.
+
+Cash count, check review, the Daily Cash Deposit date, and a note for a cash discrepancy over $5 remain required inputs. Recovery warnings are informational and auditable rather than close gates.
 
 ---
 

@@ -2,6 +2,7 @@
 
 use meilisearch_sdk::client::Client;
 use meilisearch_sdk::errors::Error as MeiliError;
+use meilisearch_sdk::settings::PaginationSetting;
 use meilisearch_sdk::task_info::TaskInfo;
 use meilisearch_sdk::tasks::Task;
 use serde::Serialize;
@@ -23,6 +24,23 @@ pub const INDEX_CATEGORIES: &str = "ros_categories";
 pub const INDEX_APPOINTMENTS: &str = "ros_appointments";
 pub const INDEX_TASKS: &str = "ros_tasks";
 pub const INDEX_ALTERATIONS: &str = "ros_alterations";
+/// Meilisearch runtime pinned by Docker Compose and the Windows Main Hub package.
+pub const EXPECTED_MEILISEARCH_VERSION: &str = "1.49.0";
+
+async fn ensure_max_total_hits(
+    client: &Client,
+    index_uid: &str,
+    max_total_hits: usize,
+) -> Result<(), MeiliError> {
+    wait_task_ok(
+        client,
+        client
+            .index(index_uid)
+            .set_pagination(PaginationSetting { max_total_hits })
+            .await?,
+    )
+    .await
+}
 
 /// When `RIVERSIDE_MEILISEARCH_URL` is empty or client creation fails, search stays on PostgreSQL.
 pub fn meilisearch_from_env() -> Option<Client> {
@@ -117,6 +135,7 @@ async fn ensure_variant_index_settings_for_uid(
             .await?,
     )
     .await?;
+    ensure_max_total_hits(client, index_uid, 5_000).await?;
     Ok(())
 }
 
@@ -140,6 +159,7 @@ async fn ensure_store_products_index_settings_for_uid(
         index.set_filterable_attributes(["catalog_ok"]).await?,
     )
     .await?;
+    ensure_max_total_hits(client, index_uid, 500).await?;
     Ok(())
 }
 
@@ -168,6 +188,7 @@ async fn ensure_customers_index_settings_for_uid(
             .await?,
     )
     .await?;
+    ensure_max_total_hits(client, index_uid, 1_000).await?;
     Ok(())
 }
 
@@ -190,6 +211,7 @@ async fn ensure_wedding_parties_index_settings_for_uid(
         index.set_filterable_attributes(["is_deleted"]).await?,
     )
     .await?;
+    ensure_max_total_hits(client, index_uid, 1_000).await?;
     Ok(())
 }
 
@@ -220,6 +242,7 @@ async fn ensure_transactions_index_settings_for_uid(
         index.set_filterable_attributes(["status_open"]).await?,
     )
     .await?;
+    ensure_max_total_hits(client, index_uid, 2_000).await?;
     Ok(())
 }
 
@@ -250,6 +273,7 @@ async fn ensure_orders_index_settings_for_uid(
         index.set_filterable_attributes(["status_open"]).await?,
     )
     .await?;
+    ensure_max_total_hits(client, index_uid, 2_000).await?;
     Ok(())
 }
 
@@ -274,6 +298,7 @@ async fn ensure_help_index_settings_for_uid(
         index.set_filterable_attributes(["manual_id"]).await?,
     )
     .await?;
+    ensure_max_total_hits(client, index_uid, 100).await?;
     Ok(())
 }
 
@@ -298,6 +323,7 @@ async fn ensure_staff_index_settings_for_uid(
             .await?,
     )
     .await?;
+    ensure_max_total_hits(client, index_uid, 500).await?;
     Ok(())
 }
 
@@ -320,6 +346,7 @@ async fn ensure_vendors_index_settings_for_uid(
         index.set_filterable_attributes(["is_active"]).await?,
     )
     .await?;
+    ensure_max_total_hits(client, index_uid, 500).await?;
     Ok(())
 }
 
@@ -337,6 +364,7 @@ async fn ensure_categories_index_settings_for_uid(
         index.set_searchable_attributes(["search_text"]).await?,
     )
     .await?;
+    ensure_max_total_hits(client, index_uid, 500).await?;
     Ok(())
 }
 
@@ -359,6 +387,7 @@ async fn ensure_appointments_index_settings_for_uid(
         index.set_filterable_attributes(["is_cancelled"]).await?,
     )
     .await?;
+    ensure_max_total_hits(client, index_uid, 1_000).await?;
     Ok(())
 }
 
@@ -383,6 +412,7 @@ async fn ensure_tasks_index_settings_for_uid(
             .await?,
     )
     .await?;
+    ensure_max_total_hits(client, index_uid, 1_000).await?;
     Ok(())
 }
 
@@ -407,6 +437,7 @@ async fn ensure_alterations_index_settings_for_uid(
             .await?,
     )
     .await?;
+    ensure_max_total_hits(client, index_uid, 1_000).await?;
     Ok(())
 }
 
@@ -478,6 +509,8 @@ pub async fn is_indexing(client: &Client) -> bool {
 pub struct MeilisearchHealth {
     pub reachable: bool,
     pub indexing: bool,
+    pub version: Option<String>,
+    pub version_supported: bool,
     pub latency_ms: u64,
     pub message: String,
 }
@@ -485,6 +518,20 @@ pub struct MeilisearchHealth {
 /// Lightweight health check: attempts to list tasks and measures latency.
 pub async fn health_check(client: &Client) -> MeilisearchHealth {
     let start = std::time::Instant::now();
+    let version = match client.get_version().await {
+        Ok(version) => version.pkg_version,
+        Err(e) => {
+            return MeilisearchHealth {
+                reachable: false,
+                indexing: false,
+                version: None,
+                version_supported: false,
+                latency_ms: start.elapsed().as_millis() as u64,
+                message: format!("Meilisearch version check failed: {e}"),
+            };
+        }
+    };
+    let version_supported = version == EXPECTED_MEILISEARCH_VERSION;
     match client.get_tasks().await {
         Ok(tasks) => {
             let indexing = tasks
@@ -494,13 +541,23 @@ pub async fn health_check(client: &Client) -> MeilisearchHealth {
             MeilisearchHealth {
                 reachable: true,
                 indexing,
+                version: Some(version.clone()),
+                version_supported,
                 latency_ms: start.elapsed().as_millis() as u64,
-                message: "Meilisearch is reachable".to_string(),
+                message: if version_supported {
+                    format!("Meilisearch {version} is reachable")
+                } else {
+                    format!(
+                        "Meilisearch {version} is reachable, but Riverside requires {EXPECTED_MEILISEARCH_VERSION}"
+                    )
+                },
             }
         }
         Err(e) => MeilisearchHealth {
             reachable: false,
             indexing: false,
+            version: Some(version),
+            version_supported,
             latency_ms: start.elapsed().as_millis() as u64,
             message: format!("Meilisearch health check failed: {e}"),
         },

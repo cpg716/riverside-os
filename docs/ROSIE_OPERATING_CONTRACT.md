@@ -33,7 +33,7 @@ It never becomes a system of record and never mutates business logic autonomousl
 
 ## Operational Copilot Rules
 - ROSIE may use server-authored operational playbooks for recovery guidance.
-- Current playbook scope includes register close blockers, refund recovery, inventory mismatch triage, QBO exception interpretation, receiving assistance, inventory lookup, and appointment scheduling guidance.
+- Current playbook scope includes register close warnings and at-close evidence, refund recovery, inventory mismatch triage, QBO exception interpretation, receiving assistance, inventory lookup, and appointment scheduling guidance. Recovery warnings do not determine close eligibility.
 - Playbooks are guidance and citation material only; they do not authorize, mutate, close, refund, post, sync, or book anything.
 - Suggested actions may open a guided follow-up or point staff to the correct workflow surface, but final action remains in the normal Riverside OS screen.
 

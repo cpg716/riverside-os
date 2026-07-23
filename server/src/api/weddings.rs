@@ -28,9 +28,10 @@ use uuid::Uuid;
 
 use crate::api::AppState;
 use crate::auth::permissions::{
-    effective_permissions_for_staff, staff_has_permission, STAFF_MANAGE_ACCESS, TASKS_MANAGE,
-    WEDDINGS_MUTATE, WEDDINGS_VIEW,
+    effective_permissions_for_staff, staff_can_approve_manager_access, staff_has_permission,
+    STAFF_MANAGE_ACCESS, TASKS_MANAGE, WEDDINGS_MUTATE, WEDDINGS_VIEW,
 };
+use crate::auth::pins;
 use crate::logic::customers::{insert_customer, next_customer_code, InsertCustomerParams};
 use crate::logic::messaging::MessagingService;
 use crate::logic::staff_schedule;
@@ -815,11 +816,15 @@ struct CutoverLinkRequest {
     #[serde(default)]
     transaction_line_ids: Vec<Uuid>,
     lifecycle_status: String,
+    manager_staff_id: Uuid,
+    manager_pin: String,
     #[serde(default)]
     actor_name: Option<String>,
     #[serde(default)]
     note: Option<String>,
 }
+
+const MAX_CUTOVER_TRANSACTION_LINES: usize = 100;
 
 #[derive(Debug, Deserialize)]
 struct CutoverReviewRequest {
@@ -2945,7 +2950,10 @@ fn parse_cutover_lifecycle(value: &str) -> Result<DbOrderItemLifecycleStatus, We
         "ordered" => Ok(DbOrderItemLifecycleStatus::Ordered),
         "received" => Ok(DbOrderItemLifecycleStatus::Received),
         "ready_for_pickup" => Ok(DbOrderItemLifecycleStatus::ReadyForPickup),
-        "picked_up" => Ok(DbOrderItemLifecycleStatus::PickedUp),
+        "picked_up" => Err(WeddingError::BadRequest(
+            "Picked Up must be completed through Register pickup so inventory, revenue, commissions, loyalty, and audit move together."
+                .to_string(),
+        )),
         _ => Err(WeddingError::BadRequest(
             "Choose a valid item status before saving.".to_string(),
         )),
@@ -3294,9 +3302,48 @@ async fn post_cutover_link(
     headers: HeaderMap,
     Json(body): Json<CutoverLinkRequest>,
 ) -> Result<Json<serde_json::Value>, WeddingError> {
-    require_weddings_mutate(&state, &headers).await?;
+    let actor_staff = middleware::require_staff_with_permission(&state, &headers, WEDDINGS_MUTATE)
+        .await
+        .map_err(map_wed_perm)?;
     let lifecycle = parse_cutover_lifecycle(&body.lifecycle_status)?;
-    let actor = resolve_actor(body.actor_name.clone());
+    if body.transaction_line_ids.is_empty() {
+        return Err(WeddingError::BadRequest(
+            "Select the exact Transaction Record items to link; an empty selection is never treated as all items."
+                .to_string(),
+        ));
+    }
+    if body.transaction_line_ids.len() > MAX_CUTOVER_TRANSACTION_LINES {
+        return Err(WeddingError::BadRequest(format!(
+            "A cutover link may include at most {MAX_CUTOVER_TRANSACTION_LINES} explicitly selected items."
+        )));
+    }
+    let mut unique_line_ids = body.transaction_line_ids.clone();
+    unique_line_ids.sort_unstable();
+    unique_line_ids.dedup();
+    if unique_line_ids.len() != body.transaction_line_ids.len() {
+        return Err(WeddingError::BadRequest(
+            "Each selected Transaction Record item must appear exactly once.".to_string(),
+        ));
+    }
+    let manager_pin = body.manager_pin.trim();
+    if manager_pin.is_empty() {
+        return Err(WeddingError::BadRequest(
+            "Manager Access approval is required for cutover fulfillment changes.".to_string(),
+        ));
+    }
+    let manager =
+        pins::authenticate_staff_by_id(&state.db, body.manager_staff_id, Some(manager_pin))
+            .await
+            .map_err(|_| WeddingError::Forbidden("Manager Access was not approved.".to_string()))?;
+    let manager_permissions =
+        effective_permissions_for_staff(&state.db, manager.id, manager.role).await?;
+    if !staff_can_approve_manager_access(&manager_permissions, manager.role) {
+        return Err(WeddingError::Forbidden(
+            "manager.approval permission required".to_string(),
+        ));
+    }
+    let correlation_id = Uuid::new_v4();
+    let actor = actor_staff.full_name.clone();
     let mut tx = state.db.begin().await?;
 
     let member_party: Option<Uuid> =
@@ -3333,21 +3380,7 @@ async fn post_cutover_link(
         .execute(&mut *tx)
         .await?;
 
-    let mut line_ids = body.transaction_line_ids.clone();
-    if line_ids.is_empty() {
-        line_ids = sqlx::query_scalar(
-            r#"
-            SELECT id
-            FROM transaction_lines
-            WHERE transaction_id = $1
-              AND fulfillment::text <> 'takeaway'
-            ORDER BY line_display_id NULLS LAST, id
-            "#,
-        )
-        .bind(body.transaction_id)
-        .fetch_all(&mut *tx)
-        .await?;
-    }
+    let line_ids = body.transaction_line_ids.clone();
 
     if !line_ids.is_empty() {
         let count: i64 = sqlx::query_scalar(
@@ -3400,7 +3433,9 @@ async fn post_cutover_link(
                 "party_id": body.party_id,
                 "wedding_member_id": body.member_id,
                 "transaction_id": body.transaction_id,
-                "actor_name": actor,
+                "actor_staff_id": actor_staff.id,
+                "manager_staff_id": manager.id,
+                "correlation_id": correlation_id,
             }),
         )
         .await?;
@@ -3429,7 +3464,13 @@ async fn post_cutover_link(
         SELECT
             $1, $2, t.customer_id, $3, line_id, 'high',
             'Accepted during Cutover Review', 'accepted', $4, NOW(),
-            jsonb_build_object('lifecycle_status', $5::text, 'note', $6::text)
+            jsonb_build_object(
+                'lifecycle_status', $5::text,
+                'note', $6::text,
+                'actor_staff_id', $8::uuid,
+                'manager_staff_id', $9::uuid,
+                'correlation_id', $10::uuid
+            )
         FROM transactions t
         CROSS JOIN unnest(CASE WHEN cardinality($7::uuid[]) = 0 THEN ARRAY[NULL]::uuid[] ELSE $7::uuid[] END) AS line_id
         WHERE t.id = $3
@@ -3443,6 +3484,9 @@ async fn post_cutover_link(
     .bind(lifecycle.as_str())
     .bind(body.note.clone())
     .bind(&line_ids)
+    .bind(actor_staff.id)
+    .bind(manager.id)
+    .bind(correlation_id)
     .execute(&mut *tx)
     .await?;
 
@@ -3457,6 +3501,9 @@ async fn post_cutover_link(
             "transaction_id": body.transaction_id,
             "line_count": line_ids.len(),
             "lifecycle_status": lifecycle.as_str(),
+            "actor_staff_id": actor_staff.id,
+            "manager_staff_id": manager.id,
+            "correlation_id": correlation_id,
         }),
     )
     .await
@@ -3469,9 +3516,11 @@ async fn post_cutover_link(
         .wedding_events
         .parties_updated(wedding_client_sender(&headers).as_deref());
     spawn_meilisearch_wedding_party(&state, body.party_id);
-    Ok(Json(
-        json!({ "status": "linked", "line_count": line_ids.len() }),
-    ))
+    Ok(Json(json!({
+        "status": "linked",
+        "line_count": line_ids.len(),
+        "correlation_id": correlation_id,
+    })))
 }
 
 async fn post_party_cutover_review(

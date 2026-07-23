@@ -640,22 +640,28 @@ function checkCounterpointBridgeDeploymentPackaging() {
 function checkCounterpointRateLimitBypass() {
   const file = "server/src/middleware/rate_limit.rs";
   const content = read(file);
-  const bypassIndex = content.indexOf("if is_authenticated_counterpoint_bridge_request(&request)");
-  const limitIndex = content.indexOf("state.check_ip_limit");
+  const authHeaderStart = content.indexOf("fn has_ros_app_auth_headers");
+  const authHeaderEnd = content.indexOf("fn authenticated_bucket_key", authHeaderStart);
+  const authHeaderBody =
+    authHeaderStart >= 0 && authHeaderEnd > authHeaderStart
+      ? content.slice(authHeaderStart, authHeaderEnd)
+      : "";
   assert(
-    bypassIndex >= 0 && limitIndex >= 0 && bypassIndex < limitIndex,
-    "Counterpoint bridge tokened requests bypass the generic IP rate limiter before 429 can fire",
+    !content.includes("is_authenticated_counterpoint_bridge_request") &&
+      !content.includes('"counterpoint-bridge".parse()'),
+    "Counterpoint bridge requests remain rate limited until route authentication",
     file,
-    "The bypass must run before state.check_ip_limit so high-volume inventory ingest is not cut off.",
+    "Middleware must not trust token-header presence as authentication or bypass the generic rate limiter.",
   );
   assert(
-    content.includes("/api/sync/counterpoint") &&
-      content.includes("x-ros-sync-token") &&
-      content.includes("AUTHORIZATION") &&
-      content.includes("X-RateLimit-Bypass"),
-    "Counterpoint rate-limit bypass is scoped to authenticated bridge traffic",
+    authHeaderBody.length > 0 &&
+      !authHeaderBody.includes("x-ros-sync-token") &&
+      !authHeaderBody.includes("AUTHORIZATION") &&
+      content.includes('"/api/sync/counterpoint/tickets"') &&
+      content.includes('"unverified-at-middleware"'),
+    "Counterpoint token presence is not treated as authenticated middleware identity",
     file,
-    "The bypass must be limited to /api/sync/counterpoint and token-bearing requests.",
+    "Only the route handler can validate the bridge token; generic middleware must keep the request in the anonymous bucket until then.",
   );
 }
 

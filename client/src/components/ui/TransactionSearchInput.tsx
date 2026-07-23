@@ -5,8 +5,9 @@ import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { formatMoney, parseMoney } from "../../lib/money";
 
-interface TransactionSearchResult {
+export interface TransactionSearchResult {
   transaction_id: string;
+  display_id?: string;
   booked_at: string;
   status: string;
   total_price: string;
@@ -160,7 +161,8 @@ export default function TransactionSearchInput({
                     type="button"
                     onClick={() => {
                       onSelect(o);
-                      const selectedLabel = o.customer_name ?? o.transaction_id.slice(0, 8);
+                      const selectedLabel =
+                        o.display_id ?? o.customer_name ?? "Transaction Record";
                       suppressNextSearchRef.current = selectedLabel !== query;
                       setQuery(selectedLabel);
                       setResults([]);
@@ -182,7 +184,7 @@ export default function TransactionSearchInput({
                        </div>
                        <div className="flex items-center gap-2 mt-0.5">
                          <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-60">
-                           #{o.transaction_id.slice(0, 8)}
+                           {o.display_id ?? "Transaction Record"}
                          </span>
                          {o.party_name && (
                            <span className="text-[9px] font-bold text-app-warning truncate border-l border-app-border pl-2">

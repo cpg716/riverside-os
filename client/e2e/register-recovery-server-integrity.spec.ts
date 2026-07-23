@@ -462,10 +462,7 @@ test("external checkout recovery requires exact final payment evidence and commi
   try {
     const missingTargetEvidence = await resolveExternal();
     const missingTargetEvidenceText = await missingTargetEvidence.text();
-    expect(
-      missingTargetEvidence.status(),
-      missingTargetEvidenceText,
-    ).toBe(400);
+    expect(missingTargetEvidence.status(), missingTargetEvidenceText).toBe(400);
     expect(missingTargetEvidenceText).toContain(
       "different or unknown Register session",
     );
@@ -477,10 +474,9 @@ test("external checkout recovery requires exact final payment evidence and commi
     `);
     const missingCheckoutEvidence = await resolveExternal();
     const missingCheckoutEvidenceText = await missingCheckoutEvidence.text();
-    expect(
-      missingCheckoutEvidence.status(),
-      missingCheckoutEvidenceText,
-    ).toBe(400);
+    expect(missingCheckoutEvidence.status(), missingCheckoutEvidenceText).toBe(
+      400,
+    );
     expect(missingCheckoutEvidenceText).toContain(
       "different or unknown checkout",
     );
@@ -659,7 +655,7 @@ test("external checkout recovery requires exact final payment evidence and commi
   ).toEqual({ audit_count: 1, audit_reason: reason, job_reason: reason });
 });
 
-test("Register recovery remains session-scoped, identity-exact, verifiable, and recoverable after force-close", async ({
+test("Register recovery remains session-scoped, identity-exact, verifiable, and recoverable after ordinary close", async ({
   request,
 }) => {
   test.setTimeout(120_000);
@@ -1153,7 +1149,7 @@ test("Register recovery remains session-scoped, identity-exact, verifiable, and 
   const expectedCash = (
     JSON.parse(reconciliationText) as { expected_cash: string }
   ).expected_cash;
-  const forcedClose = await request.post(
+  const ordinaryClose = await request.post(
     `${apiBase()}/api/sessions/${sessionId}/close`,
     {
       headers: {
@@ -1162,20 +1158,34 @@ test("Register recovery remains session-scoped, identity-exact, verifiable, and 
       },
       data: {
         actual_cash: expectedCash,
-        closing_notes: "E2E audited recovery force-close",
+        closing_notes: "E2E ordinary close with visible recovery",
         closing_comments: "Recovery remains globally visible",
-        force_unresolved_recovery: true,
-        manager_staff_id: managerStaffId,
-        manager_pin: staffCode(),
-        manager_reason:
-          "E2E preserves the exact checkout for post-close replay",
       },
       failOnStatusCode: false,
     },
   );
-  const closeBodyText = await forcedClose.text();
-  expect(forcedClose.status(), closeBodyText.slice(0, 1000)).toBe(200);
-  expect(JSON.parse(closeBodyText)).toMatchObject({ till_group_closed: true });
+  const closeBodyText = await ordinaryClose.text();
+  expect(ordinaryClose.status(), closeBodyText.slice(0, 1000)).toBe(200);
+  const closeBody = JSON.parse(closeBodyText) as {
+    till_group_closed: boolean;
+    unresolved_close_issues?: { recovery_job_keys?: string[] } | null;
+  };
+  expect(closeBody.till_group_closed).toBe(true);
+  expect(closeBody.unresolved_close_issues?.recovery_job_keys).toEqual(
+    expect.arrayContaining([replayKey, duplicateReplayKey]),
+  );
+  const closeSnapshot = selectJson<{
+    unresolved_close_issues?: { recovery_job_keys?: string[] } | null;
+  }>(`
+    SELECT z_report_json
+    FROM register_business_day_z_reports
+    WHERE primary_register_session_id = ${sqlLiteral(sessionId)}::uuid
+    ORDER BY closed_at DESC
+    LIMIT 1;
+  `);
+  expect(closeSnapshot.unresolved_close_issues?.recovery_job_keys).toEqual(
+    expect.arrayContaining([replayKey, duplicateReplayKey]),
+  );
 
   const globalList = await request.get(`${apiBase()}/api/recovery`, {
     headers: staffHeaders(),
@@ -1189,7 +1199,7 @@ test("Register recovery remains session-scoped, identity-exact, verifiable, and 
   expect(globalJobs.some((job) => job.client_job_key === replayKey)).toBe(true);
 
   const replayReason =
-    "E2E exact concurrent recovery after audited force-close";
+    "E2E exact concurrent recovery after ordinary audited close";
   const replayRequestFor = (jobKey: string, managerReason = replayReason) =>
     replayCheckoutRequestFor(jobKey, managerReason);
   const replayRequest = () => replayRequestFor(replayKey);

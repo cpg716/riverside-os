@@ -1,7 +1,7 @@
 //! Meilisearch query helpers — return ordered UUID primary keys for hybrid SQL hydration.
 
 use meilisearch_sdk::client::Client;
-use meilisearch_sdk::search::Selectors;
+use meilisearch_sdk::search::{MatchingStrategies, Selectors};
 use serde::Deserialize;
 use sqlx::PgPool;
 use std::collections::HashSet;
@@ -26,6 +26,7 @@ const TASK_MEILI_HIT_CAP: usize = 1_000;
 const APPOINTMENT_MEILI_HIT_CAP: usize = 1_000;
 const ALTERATION_MEILI_HIT_CAP: usize = 1_000;
 const ID_ATTRIBUTES: &[&str] = &["id"];
+const CUSTOMER_NAME_ATTRIBUTES: &[&str] = &["first_name", "last_name", "full_name"];
 pub const AUTHORITATIVE_INDEX_MAX_AGE_HOURS: i64 = 36;
 const INDEX_STATS_TIMEOUT: Duration = Duration::from_millis(250);
 const FUTURE_PROOF_CLOCK_SKEW_MINUTES: i64 = 5;
@@ -195,11 +196,71 @@ struct ControlBoardMeiliFilters<'a> {
 fn parse_hit_ids(hits: &[meilisearch_sdk::search::SearchResult<IdHit>]) -> Vec<Uuid> {
     let mut out = Vec::with_capacity(hits.len());
     for h in hits {
-        if let Ok(u) = Uuid::parse_str(&h.result.id) {
-            out.push(u);
-        }
+        // Preserve malformed hits as an invalid sentinel. Silently dropping one would let a
+        // partially malformed candidate page appear complete to the SQL hydration guard.
+        out.push(Uuid::parse_str(&h.result.id).unwrap_or_else(|_| Uuid::nil()));
     }
     out
+}
+
+/// Multi-token human-name queries get prefix matching on every term. Meilisearch's normal prefix
+/// search applies only to the final query word, which makes cashier shorthand such as `C Garcia`
+/// and `Ch Gar` unnecessarily rigid.
+pub fn customer_name_query_tokens(query: &str) -> Option<Vec<&str>> {
+    let tokens = query.split_whitespace().collect::<Vec<_>>();
+    if !(2..=4).contains(&tokens.len())
+        || tokens.iter().any(|token| {
+            token.chars().count() > 64
+                || !token
+                    .chars()
+                    .all(|c| c.is_alphabetic() || matches!(c, '\'' | '-' | '’'))
+        })
+    {
+        return None;
+    }
+    Some(tokens)
+}
+
+fn structurally_valid_candidate_ids(ids: &[Uuid]) -> bool {
+    ids.iter().all(|id| !id.is_nil())
+        && ids.iter().copied().collect::<HashSet<_>>().len() == ids.len()
+}
+
+fn merge_customer_search_result_sets(mut result_sets: Vec<Vec<Uuid>>) -> Vec<Uuid> {
+    if result_sets.len() < 3
+        || result_sets.iter().any(|ids| {
+            ids.len() >= CUSTOMER_MEILI_HIT_CAP || !structurally_valid_candidate_ids(ids)
+        })
+    {
+        // Force the shared authority gate to use SQL rather than trust a truncated or malformed
+        // component of the multi-search intersection.
+        return vec![Uuid::nil()];
+    }
+
+    let exact_ids = result_sets.remove(0);
+    let smallest_set_index = result_sets
+        .iter()
+        .enumerate()
+        .min_by_key(|(_, ids)| ids.len())
+        .map(|(index, _)| index)
+        .unwrap_or(0);
+    let ranked_name_ids = result_sets[smallest_set_index].clone();
+    let other_sets = result_sets
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| *index != smallest_set_index)
+        .map(|(_, ids)| ids.iter().copied().collect::<HashSet<_>>())
+        .collect::<Vec<_>>();
+
+    let mut seen = HashSet::new();
+    let mut merged = ranked_name_ids
+        .into_iter()
+        .filter(|id| other_sets.iter().all(|ids| ids.contains(id)))
+        .filter(|id| seen.insert(*id))
+        .collect::<Vec<_>>();
+    merged.extend(exact_ids.into_iter().filter(|id| seen.insert(*id)));
+    merged.truncate(CUSTOMER_MEILI_HIT_CAP);
+    merged
 }
 
 /// Candidate IDs must be valid and unique before a Meilisearch response can constrain SQL.
@@ -284,6 +345,39 @@ pub async fn index_results_are_authoritative(
     )
 }
 
+/// Apply the shared safety gate before a Meilisearch candidate list may constrain PostgreSQL.
+/// Empty lists are authoritative only when the same live index is fresh and count-verified.
+pub async fn authoritative_candidate_ids(
+    pool: &PgPool,
+    client: &Client,
+    index_name: &str,
+    ids: Vec<Uuid>,
+) -> Option<Vec<Uuid>> {
+    if candidate_ids_may_be_truncated(index_name, ids.len()) {
+        tracing::warn!(
+            index = index_name,
+            candidate_count = ids.len(),
+            "Meilisearch candidate cap reached; using PostgreSQL for complete results"
+        );
+        return None;
+    }
+    if !index_results_are_authoritative(pool, client, index_name).await {
+        tracing::warn!(
+            index = index_name,
+            "Meilisearch index is not fresh and count-verified; using PostgreSQL"
+        );
+        return None;
+    }
+    if !ids.is_empty() && !candidate_ids_are_unique(&ids) {
+        tracing::warn!(
+            index = index_name,
+            "Meilisearch candidate IDs are invalid or duplicated; using PostgreSQL"
+        );
+        return None;
+    }
+    Some(ids)
+}
+
 /// Build Meilisearch filter for control-board flags we can express exactly.
 fn control_board_meili_filter_parts(filters: &ControlBoardMeiliFilters<'_>) -> Option<String> {
     let mut parts: Vec<String> = Vec::new();
@@ -303,11 +397,14 @@ fn control_board_meili_filter_parts(filters: &ControlBoardMeiliFilters<'_>) -> O
     if filters.clothing_only || filters.filter_flag == Some("clothing") {
         parts.push("is_clothing_footwear = true".to_string());
     }
-    if filters.oos_only == Some(true) {
-        parts.push("stock_status = \"out_of_stock\"".to_string());
+    if filters.oos_only == Some(true) || filters.filter_flag == Some("oos") {
+        parts.push("(stock_status = \"out_of_stock\" OR stock_status = \"negative\")".to_string());
     }
-    if filters.negative_stock_only == Some(true) {
+    if filters.negative_stock_only == Some(true) || filters.filter_flag == Some("negative") {
         parts.push("stock_status = \"negative\"".to_string());
+    }
+    if !filters.include_hidden {
+        parts.push("hidden_from_inventory = false".to_string());
     }
     if parts.is_empty() {
         None
@@ -375,14 +472,48 @@ pub async fn customer_search_ids(
     query_text: &str,
 ) -> Result<Vec<Uuid>, meilisearch_sdk::errors::Error> {
     let index = client.index(INDEX_CUSTOMERS);
-    let res = index
-        .search()
+    let Some(name_tokens) = customer_name_query_tokens(query_text) else {
+        let res = index
+            .search()
+            .with_query(query_text)
+            .with_attributes_to_retrieve(Selectors::Some(ID_ATTRIBUTES))
+            .with_limit(CUSTOMER_MEILI_HIT_CAP)
+            .execute::<IdHit>()
+            .await?;
+        return Ok(parse_hit_ids(&res.hits));
+    };
+
+    let mut exact_query = index.search();
+    exact_query
         .with_query(query_text)
+        .with_matching_strategy(MatchingStrategies::ALL)
         .with_attributes_to_retrieve(Selectors::Some(ID_ATTRIBUTES))
-        .with_limit(CUSTOMER_MEILI_HIT_CAP)
-        .execute::<IdHit>()
-        .await?;
-    Ok(parse_hit_ids(&res.hits))
+        .with_limit(CUSTOMER_MEILI_HIT_CAP);
+
+    let expected_result_count = name_tokens.len() + 1;
+    let mut multi_search = client.multi_search();
+    multi_search.with_search_query(exact_query);
+    for token in name_tokens {
+        let mut prefix_query = index.search();
+        prefix_query
+            .with_query(token)
+            .with_attributes_to_search_on(CUSTOMER_NAME_ATTRIBUTES)
+            .with_attributes_to_retrieve(Selectors::Some(ID_ATTRIBUTES))
+            .with_limit(CUSTOMER_MEILI_HIT_CAP);
+        multi_search.with_search_query(prefix_query);
+    }
+
+    let response = multi_search.execute::<IdHit>().await?;
+    if response.results.len() != expected_result_count {
+        return Ok(vec![Uuid::nil()]);
+    }
+    Ok(merge_customer_search_result_sets(
+        response
+            .results
+            .iter()
+            .map(|result| parse_hit_ids(&result.hits))
+            .collect(),
+    ))
 }
 
 pub async fn wedding_party_search_ids(
@@ -548,6 +679,7 @@ pub async fn alteration_search_ids(
 mod tests {
     use super::{
         candidate_ids_are_unique, candidate_ids_may_be_truncated, classify_full_reindex_proof,
+        customer_name_query_tokens, merge_customer_search_result_sets,
         recorded_index_health_allows_authority, FullReindexProofRow, FullReindexProofStatus,
         SearchHealthRow, CUSTOMER_MEILI_HIT_CAP,
     };
@@ -576,6 +708,36 @@ mod tests {
         assert!(!candidate_ids_are_unique(&[first, first]));
         assert!(!candidate_ids_are_unique(&[first, Uuid::nil()]));
         assert!(!candidate_ids_are_unique(&[]));
+    }
+
+    #[test]
+    fn customer_name_queries_allow_initials_and_partial_terms() {
+        assert_eq!(
+            customer_name_query_tokens("C Garcia"),
+            Some(vec!["C", "Garcia"])
+        );
+        assert_eq!(
+            customer_name_query_tokens("Ch Gar"),
+            Some(vec!["Ch", "Gar"])
+        );
+        assert_eq!(customer_name_query_tokens("Chris"), None);
+        assert_eq!(customer_name_query_tokens("chris@example.com Garcia"), None);
+    }
+
+    #[test]
+    fn customer_prefix_search_intersects_every_name_term() {
+        let target = Uuid::from_u128(1);
+        let other_initial = Uuid::from_u128(2);
+        let other_last_name = Uuid::from_u128(3);
+        let exact_company_match = Uuid::from_u128(4);
+
+        let merged = merge_customer_search_result_sets(vec![
+            vec![exact_company_match],
+            vec![other_initial, target],
+            vec![target, other_last_name],
+        ]);
+
+        assert_eq!(merged, vec![target, exact_company_match]);
     }
 
     #[test]

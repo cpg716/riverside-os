@@ -178,6 +178,16 @@ fn literal_ilike_pattern(value: &str) -> String {
             .replace('_', "\\_")
     )
 }
+
+fn literal_ilike_prefix_pattern(value: &str) -> String {
+    format!(
+        "{}%",
+        value
+            .replace('\\', "\\\\")
+            .replace('%', "\\%")
+            .replace('_', "\\_")
+    )
+}
 const ADDRESS_LOOKUP_PROVIDER_LIMIT: usize = 10;
 const ADDRESS_LOOKUP_RADIUS_METERS: &str = "120000";
 const ADDRESS_LOOKUP_STORE_LAT: &str = "42.9056";
@@ -3180,20 +3190,15 @@ async fn list_rms_charge_records(
     let meili_rms_customer_ids: Option<Vec<uuid::Uuid>> = if let Some(qs) = q_trim {
         if let Some(c) = state.meilisearch.as_ref() {
             match crate::logic::meilisearch_search::customer_search_ids(c, qs).await {
-                Ok(ids)
-                    if crate::logic::meilisearch_search::candidate_ids_may_be_truncated(
+                Ok(ids) => {
+                    crate::logic::meilisearch_search::authoritative_candidate_ids(
+                        &state.db,
+                        c,
                         crate::logic::meilisearch_client::INDEX_CUSTOMERS,
-                        ids.len(),
-                    ) =>
-                {
-                    tracing::warn!(
-                        candidate_count = ids.len(),
-                        "Meilisearch RMS charge candidate cap reached; using PostgreSQL for complete pagination"
-                    );
-                    None
+                        ids,
+                    )
+                    .await
                 }
-                Ok(ids) if !ids.is_empty() => Some(ids),
-                Ok(_) => None,
                 Err(e) => {
                     tracing::warn!(
                         error = %e,
@@ -3836,39 +3841,33 @@ async fn browse_customers(
         .map(|s| s.to_string());
     let lifecycle_filter = normalize_customer_lifecycle_filter(query.lifecycle.as_deref());
 
-    let meili_browse_ids: Option<Vec<uuid::Uuid>> = if search_raw.is_some()
-        && party_search_raw.is_none()
-    {
-        if let (Some(qs), Some(c)) = (search_raw, state.meilisearch.as_ref()) {
-            match crate::logic::meilisearch_search::customer_search_ids(c, qs).await {
-                Ok(ids)
-                    if crate::logic::meilisearch_search::candidate_ids_may_be_truncated(
-                        crate::logic::meilisearch_client::INDEX_CUSTOMERS,
-                        ids.len(),
-                    ) =>
-                {
-                    tracing::warn!(
-                            candidate_count = ids.len(),
-                            "Meilisearch customer browse candidate cap reached; using PostgreSQL for complete pagination"
+    let meili_browse_ids: Option<Vec<uuid::Uuid>> =
+        if search_raw.is_some() && party_search_raw.is_none() {
+            if let (Some(qs), Some(c)) = (search_raw, state.meilisearch.as_ref()) {
+                match crate::logic::meilisearch_search::customer_search_ids(c, qs).await {
+                    Ok(ids) => {
+                        crate::logic::meilisearch_search::authoritative_candidate_ids(
+                            &state.db,
+                            c,
+                            crate::logic::meilisearch_client::INDEX_CUSTOMERS,
+                            ids,
+                        )
+                        .await
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            error = %e,
+                            "Meilisearch customer browse failed; using PostgreSQL ILIKE"
                         );
-                    None
+                        None
+                    }
                 }
-                Ok(ids) if !ids.is_empty() => Some(ids),
-                Ok(_) => None,
-                Err(e) => {
-                    tracing::warn!(
-                        error = %e,
-                        "Meilisearch customer browse failed; using PostgreSQL ILIKE"
-                    );
-                    None
-                }
+            } else {
+                None
             }
         } else {
             None
-        }
-    } else {
-        None
-    };
+        };
 
     let rows = if let Some(ids) = meili_browse_ids {
         sqlx::query_as::<_, CustomerBrowseRow>(&format!(
@@ -4766,20 +4765,15 @@ async fn search_customers(
 
     let meili_ids: Option<Vec<uuid::Uuid>> = if let Some(c) = state.meilisearch.as_ref() {
         match crate::logic::meilisearch_search::customer_search_ids(c, q).await {
-            Ok(ids)
-                if crate::logic::meilisearch_search::candidate_ids_may_be_truncated(
+            Ok(ids) => {
+                crate::logic::meilisearch_search::authoritative_candidate_ids(
+                    &state.db,
+                    c,
                     crate::logic::meilisearch_client::INDEX_CUSTOMERS,
-                    ids.len(),
-                ) =>
-            {
-                tracing::warn!(
-                    candidate_count = ids.len(),
-                    "Meilisearch customer search candidate cap reached; using PostgreSQL for complete pagination"
-                );
-                None
+                    ids,
+                )
+                .await
             }
-            Ok(ids) if !ids.is_empty() => Some(ids),
-            Ok(_) => None,
             Err(e) => {
                 tracing::warn!(
                     error = %e,
@@ -4866,6 +4860,11 @@ async fn search_customers(
         .await?
     } else {
         let search_term = literal_ilike_pattern(q);
+        let name_prefixes = crate::logic::meilisearch_search::customer_name_query_tokens(q)
+            .unwrap_or_default()
+            .into_iter()
+            .map(literal_ilike_prefix_pattern)
+            .collect::<Vec<_>>();
         sqlx::query_as::<_, Customer>(&format!(
             r#"
             SELECT
@@ -4954,12 +4953,28 @@ async fn search_customers(
                         OR wp.groom_name ILIKE $1
                       )
                 )
+                OR (
+                    COALESCE(array_length($2::text[], 1), 0) >= 2
+                    AND NOT EXISTS (
+                        SELECT 1
+                        FROM unnest($2::text[]) AS wanted(prefix)
+                        WHERE NOT EXISTS (
+                            SELECT 1
+                            FROM regexp_split_to_table(
+                                CONCAT_WS(' ', c.first_name, c.last_name),
+                                '[[:space:]-]+'
+                            ) AS name_part(value)
+                            WHERE name_part.value ILIKE wanted.prefix
+                        )
+                    )
+                )
               )
             ORDER BY c.created_at DESC, c.id DESC
-            LIMIT $2 OFFSET $3
+            LIMIT $3 OFFSET $4
             "#
         ))
         .bind(search_term)
+        .bind(name_prefixes)
         .bind(limit)
         .bind(offset)
         .fetch_all(&state.db)
@@ -7653,7 +7668,7 @@ async fn post_customer_timeline_note(
 #[cfg(test)]
 mod customer_timeline_tests {
     use super::{
-        literal_ilike_pattern, open_deposit_timeline_summary,
+        literal_ilike_pattern, literal_ilike_prefix_pattern, open_deposit_timeline_summary,
         wedding_deposit_contribution_timeline_summary,
     };
     use rust_decimal::Decimal;
@@ -7661,6 +7676,7 @@ mod customer_timeline_tests {
     #[test]
     fn customer_sql_search_treats_wildcards_as_literal_text() {
         assert_eq!(literal_ilike_pattern(r"A%_B\C"), r"%A\%\_B\\C%");
+        assert_eq!(literal_ilike_prefix_pattern(r"A%_B\C"), r"A\%\_B\\C%");
     }
 
     #[test]

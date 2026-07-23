@@ -7,6 +7,8 @@ use axum::routing::{get, patch, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
+use subtle::ConstantTimeEq;
 use uuid::Uuid;
 
 use crate::api::AppState;
@@ -56,6 +58,8 @@ use crate::logic::counterpoint_sync::{
 use crate::middleware;
 
 const STALE_STAGING_APPLY_AFTER_MINUTES: i32 = 15;
+const MAX_COUNTERPOINT_INGEST_BATCH_RECORDS: usize = 2_000;
+const COUNTERPOINT_SYNC_TOKEN_HEADER: &str = "x-ros-sync-token";
 
 const VALID_GIFT_CARD_KINDS: [&str; 4] = [
     "purchased",
@@ -64,11 +68,88 @@ const VALID_GIFT_CARD_KINDS: [&str; 4] = [
     "promo_gift_card",
 ];
 
-async fn validate_sync_token(
-    _state: &AppState,
-    _headers: &HeaderMap,
-) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
+fn sync_unauthorized() -> (StatusCode, Json<Value>) {
+    (
+        StatusCode::UNAUTHORIZED,
+        Json(json!({ "error": "unauthorized" })),
+    )
+}
+
+fn provided_sync_token(headers: &HeaderMap) -> Option<&str> {
+    if let Some(token) = headers
+        .get(COUNTERPOINT_SYNC_TOKEN_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|token| !token.is_empty())
+    {
+        return Some(token);
+    }
+
+    headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .map(str::trim)
+        .filter(|token| !token.is_empty())
+}
+
+fn sync_tokens_match(expected: &str, provided: &str) -> bool {
+    let expected_digest = Sha256::digest(expected.as_bytes());
+    let provided_digest = Sha256::digest(provided.as_bytes());
+    bool::from(expected_digest.as_slice().ct_eq(provided_digest.as_slice()))
+}
+
+fn validate_sync_token_value(
+    configured_token: Option<&str>,
+    headers: &HeaderMap,
+) -> Result<(), (StatusCode, Json<Value>)> {
+    let expected = configured_token
+        .map(str::trim)
+        .filter(|token| !token.is_empty())
+        .ok_or_else(sync_unauthorized)?;
+    let provided = provided_sync_token(headers).ok_or_else(sync_unauthorized)?;
+
+    if !sync_tokens_match(expected, provided) {
+        return Err(sync_unauthorized());
+    }
     Ok(())
+}
+
+async fn validate_sync_token(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<(), (StatusCode, Json<Value>)> {
+    validate_sync_token_value(state.counterpoint_sync_token.as_deref(), headers)
+}
+
+fn validate_ingest_batch_size(record_count: usize) -> Result<(), (StatusCode, Json<Value>)> {
+    if record_count <= MAX_COUNTERPOINT_INGEST_BATCH_RECORDS {
+        return Ok(());
+    }
+
+    Err((
+        StatusCode::PAYLOAD_TOO_LARGE,
+        Json(json!({
+            "error": format!(
+                "Counterpoint ingest batch exceeds the {MAX_COUNTERPOINT_INGEST_BATCH_RECORDS}-record limit; split the batch and retry"
+            ),
+            "max_records": MAX_COUNTERPOINT_INGEST_BATCH_RECORDS,
+            "received_records": record_count,
+        })),
+    ))
+}
+
+fn validate_value_ingest_batch_size(payload: &Value) -> Result<(), (StatusCode, Json<Value>)> {
+    let record_count = payload
+        .get("rows")
+        .and_then(Value::as_array)
+        .map(Vec::len)
+        .or_else(|| payload.get("codes").and_then(Value::as_array).map(Vec::len));
+
+    match record_count {
+        Some(record_count) => validate_ingest_batch_size(record_count),
+        None => Ok(()),
+    }
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -105,6 +186,7 @@ async fn cp_staging(
     Json(body): Json<CpStagingIngestBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     validate_sync_token(&state, &headers).await?;
+    validate_value_ingest_batch_size(&body.payload)?;
     let staging_on = counterpoint_staging::counterpoint_staging_enabled(&state.db)
         .await
         .map_err(|e| {
@@ -302,6 +384,7 @@ async fn cp_import_batch(
             Json(json!({ "error": "entity required" })),
         ));
     }
+    validate_value_ingest_batch_size(&body.payload)?;
     let requested_run_id = body
         .import_run_id
         .or_else(|| import_run_id_from_headers(&headers));
@@ -364,6 +447,7 @@ async fn cp_fidelity_diagnostics(
     Json(payload): Json<CounterpointFidelityDiagnosticPayload>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     validate_sync_token(&state, &headers).await?;
+    validate_ingest_batch_size(payload.rows.len())?;
     let report = counterpoint_sync::record_counterpoint_fidelity_diagnostics(&state.db, payload)
         .await
         .map_err(cp_err)?;
@@ -377,6 +461,7 @@ async fn cp_customers(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     validate_sync_token(&state, &headers).await?;
     let n = payload.rows.len();
+    validate_ingest_batch_size(n)?;
     let res = execute_counterpoint_customer_batch(&state.db, payload).await;
     match res {
         Ok(summary) => {
@@ -414,6 +499,7 @@ async fn cp_inventory(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     validate_sync_token(&state, &headers).await?;
     let n = payload.rows.len();
+    validate_ingest_batch_size(n)?;
     let res = execute_counterpoint_inventory_batch(&state.db, payload).await;
     match res {
         Ok(summary) => {
@@ -448,6 +534,7 @@ async fn cp_inventory_preflight(
     Json(payload): Json<CounterpointInventoryPayload>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     validate_sync_token(&state, &headers).await?;
+    validate_ingest_batch_size(payload.rows.len())?;
     validate_counterpoint_inventory_identity_preflight(&payload)
         .map(|report| Json(serde_json::to_value(report).unwrap_or_default()))
         .map_err(cp_err)
@@ -460,6 +547,7 @@ async fn cp_category_masters(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     validate_sync_token(&state, &headers).await?;
     let n = payload.rows.len();
+    validate_ingest_batch_size(n)?;
     let res = execute_counterpoint_category_masters_batch(&state.db, payload).await;
     match res {
         Ok(summary) => {
@@ -503,6 +591,7 @@ async fn cp_catalog(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     validate_sync_token(&state, &headers).await?;
     let n = payload.rows.len();
+    validate_ingest_batch_size(n)?;
     let res = execute_counterpoint_catalog_batch(&state.db, payload).await;
     match res {
         Ok(summary) => {
@@ -540,6 +629,7 @@ async fn cp_catalog_preflight(
     Json(payload): Json<CounterpointCatalogPayload>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     validate_sync_token(&state, &headers).await?;
+    validate_ingest_batch_size(payload.rows.len())?;
     validate_counterpoint_catalog_identity_preflight(&payload)
         .map(|report| Json(serde_json::to_value(report).unwrap_or_default()))
         .map_err(cp_err)
@@ -600,6 +690,7 @@ async fn cp_gift_cards(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     validate_sync_token(&state, &headers).await?;
     let n = payload.rows.len();
+    validate_ingest_batch_size(n)?;
     let res = execute_counterpoint_gift_card_batch(&state.db, payload).await;
     match res {
         Ok(summary) => {
@@ -637,6 +728,7 @@ async fn cp_tickets(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     validate_sync_token(&state, &headers).await?;
     let n = payload.rows.len();
+    validate_ingest_batch_size(n)?;
     let res = execute_counterpoint_ticket_batch(&state.db, payload).await;
     match res {
         Ok(summary) => {
@@ -676,6 +768,7 @@ async fn cp_store_credit_opening(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     validate_sync_token(&state, &headers).await?;
     let n = payload.rows.len();
+    validate_ingest_batch_size(n)?;
     let res = execute_counterpoint_store_credit_opening_batch(&state.db, payload).await;
     match res {
         Ok(summary) => {
@@ -718,6 +811,7 @@ async fn cp_open_docs(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     validate_sync_token(&state, &headers).await?;
     let n = payload.rows.len();
+    validate_ingest_batch_size(n)?;
     let res = execute_counterpoint_open_doc_batch(&state.db, payload).await;
     match res {
         Ok(summary) => {
@@ -761,6 +855,7 @@ async fn cp_vendors(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     validate_sync_token(&state, &headers).await?;
     let n = payload.rows.len();
+    validate_ingest_batch_size(n)?;
     let res = execute_counterpoint_vendor_batch(&state.db, payload).await;
     match res {
         Ok(summary) => {
@@ -796,6 +891,7 @@ async fn cp_customer_notes(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     validate_sync_token(&state, &headers).await?;
     let n = payload.rows.len();
+    validate_ingest_batch_size(n)?;
     let res = execute_counterpoint_customer_notes_batch(&state.db, payload).await;
     match res {
         Ok(summary) => {
@@ -830,6 +926,7 @@ async fn cp_loyalty_hist(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     validate_sync_token(&state, &headers).await?;
     let n = payload.rows.len();
+    validate_ingest_batch_size(n)?;
     let res = execute_counterpoint_loyalty_hist_batch(&state.db, payload).await;
     match res {
         Ok(summary) => {
@@ -865,6 +962,7 @@ async fn cp_vendor_items(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     validate_sync_token(&state, &headers).await?;
     let n = payload.rows.len();
+    validate_ingest_batch_size(n)?;
     let res = execute_counterpoint_vendor_item_batch(&state.db, payload).await;
     match res {
         Ok(summary) => {
@@ -900,6 +998,7 @@ async fn cp_sales_rep_stubs(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     validate_sync_token(&state, &headers).await?;
     let n = payload.codes.len();
+    validate_ingest_batch_size(n)?;
     let res = execute_counterpoint_sls_rep_stub_batch(&state.db, payload).await;
     match res {
         Ok(summary) => {
@@ -942,6 +1041,7 @@ async fn cp_staff(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     validate_sync_token(&state, &headers).await?;
     let n = payload.rows.len();
+    validate_ingest_batch_size(n)?;
     let res = execute_counterpoint_staff_batch(&state.db, payload).await;
     match res {
         Ok(summary) => {
@@ -2035,6 +2135,119 @@ mod tests {
     use std::sync::Arc;
     use tokio::sync::Mutex;
     use uuid::Uuid;
+
+    fn assert_generic_sync_unauthorized(result: Result<(), (StatusCode, Json<Value>)>) {
+        let (status, Json(body)) = result.expect_err("request must be unauthorized");
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert_eq!(body, json!({ "error": "unauthorized" }));
+    }
+
+    #[test]
+    fn counterpoint_sync_auth_accepts_established_header_and_bearer() {
+        let mut sync_header = HeaderMap::new();
+        sync_header.insert(
+            COUNTERPOINT_SYNC_TOKEN_HEADER,
+            HeaderValue::from_static("bridge-secret"),
+        );
+        assert!(validate_sync_token_value(Some("bridge-secret"), &sync_header).is_ok());
+
+        let mut bearer_header = HeaderMap::new();
+        bearer_header.insert(
+            axum::http::header::AUTHORIZATION,
+            HeaderValue::from_static("Bearer bridge-secret"),
+        );
+        assert!(validate_sync_token_value(Some("bridge-secret"), &bearer_header).is_ok());
+    }
+
+    #[test]
+    fn counterpoint_sync_auth_fails_closed_with_generic_errors() {
+        let no_headers = HeaderMap::new();
+        assert_generic_sync_unauthorized(validate_sync_token_value(None, &no_headers));
+        assert_generic_sync_unauthorized(validate_sync_token_value(Some(""), &no_headers));
+        assert_generic_sync_unauthorized(validate_sync_token_value(
+            Some("bridge-secret"),
+            &no_headers,
+        ));
+
+        let mut wrong_token = HeaderMap::new();
+        wrong_token.insert(
+            COUNTERPOINT_SYNC_TOKEN_HEADER,
+            HeaderValue::from_static("wrong-secret"),
+        );
+        assert_generic_sync_unauthorized(validate_sync_token_value(
+            Some("bridge-secret"),
+            &wrong_token,
+        ));
+
+        let mut unsupported_header = HeaderMap::new();
+        unsupported_header.insert(
+            "x-counterpoint-sync-token",
+            HeaderValue::from_static("bridge-secret"),
+        );
+        assert_generic_sync_unauthorized(validate_sync_token_value(
+            Some("bridge-secret"),
+            &unsupported_header,
+        ));
+
+        let mut unsupported_bearer_format = HeaderMap::new();
+        unsupported_bearer_format.insert(
+            axum::http::header::AUTHORIZATION,
+            HeaderValue::from_static("bearer bridge-secret"),
+        );
+        assert_generic_sync_unauthorized(validate_sync_token_value(
+            Some("bridge-secret"),
+            &unsupported_bearer_format,
+        ));
+    }
+
+    #[test]
+    fn counterpoint_sync_auth_does_not_fall_through_conflicting_headers() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            COUNTERPOINT_SYNC_TOKEN_HEADER,
+            HeaderValue::from_static("wrong-secret"),
+        );
+        headers.insert(
+            axum::http::header::AUTHORIZATION,
+            HeaderValue::from_static("Bearer bridge-secret"),
+        );
+
+        assert_generic_sync_unauthorized(validate_sync_token_value(
+            Some("bridge-secret"),
+            &headers,
+        ));
+    }
+
+    #[test]
+    fn counterpoint_ingest_batch_limit_accepts_boundary_and_rejects_overflow() {
+        assert!(validate_ingest_batch_size(MAX_COUNTERPOINT_INGEST_BATCH_RECORDS).is_ok());
+
+        let received = MAX_COUNTERPOINT_INGEST_BATCH_RECORDS + 1;
+        let (status, Json(body)) =
+            validate_ingest_batch_size(received).expect_err("oversized batch must be rejected");
+        assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+        assert_eq!(
+            body["max_records"],
+            json!(MAX_COUNTERPOINT_INGEST_BATCH_RECORDS)
+        );
+        assert_eq!(body["received_records"], json!(received));
+        assert_eq!(
+            body["error"],
+            json!(format!(
+                "Counterpoint ingest batch exceeds the {MAX_COUNTERPOINT_INGEST_BATCH_RECORDS}-record limit; split the batch and retry"
+            ))
+        );
+    }
+
+    #[test]
+    fn counterpoint_ingest_batch_limit_reads_rows_and_codes_wrappers() {
+        let oversized = vec![Value::Null; MAX_COUNTERPOINT_INGEST_BATCH_RECORDS + 1];
+        assert!(validate_value_ingest_batch_size(&json!({ "rows": oversized })).is_err());
+
+        let oversized = vec![Value::Null; MAX_COUNTERPOINT_INGEST_BATCH_RECORDS + 1];
+        assert!(validate_value_ingest_batch_size(&json!({ "codes": oversized })).is_err());
+        assert!(validate_value_ingest_batch_size(&json!({ "metadata": {} })).is_ok());
+    }
 
     async fn connect_test_db() -> PgPool {
         let _ =

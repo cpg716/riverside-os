@@ -51,7 +51,8 @@ Use this panel when inventory, customer, wedding, order, transaction, alteration
 - Refresh only reloads this dashboard. It does not push new data into Meilisearch.
 - Rebuild all indices pushes PostgreSQL records into Meilisearch and refreshes row counts.
 - If the panel says the saved API key was rejected, enter the current Meilisearch API key and save credentials. Restart the API if the rejection remains after saving.
-- **Search ready** means the search service is reachable, no index job is still running, the latest full rebuild is no more than 36 hours old, and the live document count matches the PostgreSQL count captured by that rebuild.
+- If the panel says **Search runtime update required**, the self-hosted Meilisearch version does not match the version packaged for this Riverside build. Update the Main Hub search runtime before rebuilding; a rebuild does not repair a version mismatch.
+- **Search ready** means the search service is reachable on the Riverside-pinned runtime version, no index job is still running, the latest full rebuild is no more than 36 hours old, and the live document count matches the PostgreSQL count captured by that rebuild.
 - A warning names the fact that could not be verified: an old rebuild, a count mismatch, a failed or processing job, an unavailable live count, or a connection failure. Refresh rechecks those facts; it does not repair them.
 - Normal incremental changes can make the stored rebuild count differ until the next automatic daily rebuild. Riverside safely confirms empty searches through PostgreSQL while parity is not verified. Rebuild manually when staff need the warning cleared immediately or results remain wrong.
 - Back Office Orders are indexed as `ros_orders`; financial Transactions are indexed as `ros_transactions`. Orders should match unfulfilled Special, Custom, and Wedding order work in the Orders workspace, while Transactions includes all checkout records.

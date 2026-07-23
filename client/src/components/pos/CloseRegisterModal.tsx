@@ -1,5 +1,11 @@
 import { getBaseUrl } from "../../lib/apiConfig";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { createPortal } from "react-dom";
 import { useShellBackdropLayer } from "../layout/ShellBackdropContextLogic";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
@@ -18,6 +24,7 @@ import {
 import {
   listGlobalRegisterRecoveryJobs,
   listCurrentRegisterRecoveryJobs,
+  listCurrentRegisterRecoveryJobsAuthoritative,
   recoverExchangeSettlementJob,
   recoveryJobsOutsideCurrentTillGroup,
   replayCheckoutRecoveryJob,
@@ -83,6 +90,7 @@ interface Reconciliation {
   transactions: TransactionLine[];
   inventory_activity?: InventoryActivityLine[];
   unresolved_helcim_attempts?: HelcimCloseReviewAttempt[];
+  unresolved_close_issues?: UnresolvedCloseIssues | null;
 }
 
 interface CloseSessionResult {
@@ -91,6 +99,47 @@ interface CloseSessionResult {
   next_business_date?: string | null;
   discrepancy?: string | null;
   till_group_closed: boolean;
+  unresolved_close_issues?: UnresolvedCloseIssues | null;
+  reconciliation?: Reconciliation;
+  z_report_snapshot?: CloseZReportSnapshot;
+}
+
+interface CloseZReportSnapshot {
+  business_date: string;
+  session_id: string;
+  opening_float: string | number;
+  net_cash_adjustments: string | number;
+  total_rounding_adjustments: string | number;
+  expected_cash: string | number;
+  actual_cash: string | number | null;
+  discrepancy: string | number | null;
+  cash_deposit_date: string | null;
+  cash_deposit_amount: string | number | null;
+  closing_notes: string | null;
+  closing_comments: string | null;
+  unresolved_close_issues: UnresolvedCloseIssues | null;
+}
+
+interface UnresolvedCloseIssues {
+  recovery_job_keys: string[];
+  recovery_jobs: CloseRecoveryJobEvidence[];
+  station_warnings: string[];
+  helcim_attempts: HelcimCloseReviewAttempt[];
+}
+
+interface CloseRecoveryJobEvidence {
+  client_job_key: string;
+  kind: string;
+  status: string;
+  register_session_id: string | null;
+  transaction_id: string | null;
+  checkout_client_id: string | null;
+  station_key: string | null;
+  label: string | null;
+  last_error: string | null;
+  attempt_count: number;
+  first_seen_at: string | null;
+  last_seen_at: string | null;
 }
 
 interface QboJournalProposal {
@@ -137,7 +186,11 @@ interface HelcimCloseReviewAttempt {
   status: string;
   amount_cents: number;
   selected_terminal_key?: string | null;
-  review_reason: "waiting_on_terminal" | "approved_not_recorded" | "outcome_needs_review" | string;
+  review_reason:
+    | "waiting_on_terminal"
+    | "approved_not_recorded"
+    | "outcome_needs_review"
+    | string;
   created_at: string;
 }
 
@@ -170,11 +223,13 @@ interface TransactionLine {
   created_at: string;
   payment_method: string;
   amount: string;
-  payments?: {
-    payment_method: string;
-    amount: string;
-    check_number?: string | null;
-  }[] | null;
+  payments?:
+    | {
+        payment_method: string;
+        amount: string;
+        check_number?: string | null;
+      }[]
+    | null;
   check_number?: string | null;
   order_id?: string | null;
   transaction_display_id?: string | null;
@@ -223,21 +278,10 @@ interface CloseRegisterModalProps {
   onCancel: () => void;
 }
 
-type DenomKey =
-  | "c100"
-  | "c50"
-  | "c20"
-  | "c10"
-  | "c5"
-  | "c1";
+type DenomKey = "c100" | "c50" | "c20" | "c10" | "c5" | "c1";
 
 type CoinDenomKey =
-  | "coin100"
-  | "coin50"
-  | "coin25"
-  | "coin10"
-  | "coin5"
-  | "coin1";
+  "coin100" | "coin50" | "coin25" | "coin10" | "coin5" | "coin1";
 
 type EntryTarget =
   | { mode: "count"; group: "bill"; key: DenomKey }
@@ -265,19 +309,7 @@ type RecoveryManagerMode =
   | "settle_current_exchange"
   | "settle_historical_exchange"
   | "verify_current_follow_up"
-  | "verify_historical_follow_up"
-  | "force_close";
-
-interface CloseRecoveryBlockDetails {
-  recoveryJobKeys: string[];
-  stationBlockers: string[];
-}
-
-interface RecoveryManagerApproval {
-  managerStaffId: string;
-  managerPin: string;
-  reason: string;
-}
+  | "verify_historical_follow_up";
 
 interface ExternalRecoveryDraft {
   clientJobKey: string;
@@ -285,7 +317,10 @@ interface ExternalRecoveryDraft {
   providerTransactionId: string;
 }
 
-const HELCIM_CLOSE_REVIEW_ACTIONS: { value: HelcimCloseReviewAction; label: string }[] = [
+const HELCIM_CLOSE_REVIEW_ACTIONS: {
+  value: HelcimCloseReviewAction;
+  label: string;
+}[] = [
   { value: "reviewed", label: "Reviewed" },
   { value: "resolved_no_action", label: "Reviewed: no ROS action" },
   { value: "provider_charge_confirmed", label: "Charge confirmed" },
@@ -302,14 +337,15 @@ const DENOMS: { key: DenomKey; label: string; valueCents: number }[] = [
   { key: "c1", label: "$1", valueCents: 100 },
 ];
 
-const COIN_DENOMS: { key: CoinDenomKey; label: string; valueCents: number }[] = [
-  { key: "coin100", label: "$1", valueCents: 100 },
-  { key: "coin50", label: "50c", valueCents: 50 },
-  { key: "coin25", label: "25c", valueCents: 25 },
-  { key: "coin10", label: "10c", valueCents: 10 },
-  { key: "coin5", label: "5c", valueCents: 5 },
-  { key: "coin1", label: "1c", valueCents: 1 },
-];
+const COIN_DENOMS: { key: CoinDenomKey; label: string; valueCents: number }[] =
+  [
+    { key: "coin100", label: "$1", valueCents: 100 },
+    { key: "coin50", label: "50c", valueCents: 50 },
+    { key: "coin25", label: "25c", valueCents: 25 },
+    { key: "coin10", label: "10c", valueCents: 10 },
+    { key: "coin5", label: "5c", valueCents: 5 },
+    { key: "coin1", label: "1c", valueCents: 1 },
+  ];
 
 const todayLocalDateInput = () => {
   const now = new Date();
@@ -349,7 +385,11 @@ function normalizeCountInput(value: string): string {
 }
 
 function paymentLineId(line: TransactionLine): string {
-  return line.payment_transaction_id ?? line.transaction_id ?? `${line.created_at}-${line.payment_method}-${line.amount}`;
+  return (
+    line.payment_transaction_id ??
+    line.transaction_id ??
+    `${line.created_at}-${line.payment_method}-${line.amount}`
+  );
 }
 
 function mapCloseSessionError(message: string): string {
@@ -442,11 +482,81 @@ function recoveryProviderTransactionId(job: ServerRecoveryJob): string {
     const providerTransactionId = (metadata as Record<string, unknown>)[
       "provider_transaction_id"
     ];
-    if (typeof providerTransactionId === "string" && providerTransactionId.trim()) {
+    if (
+      typeof providerTransactionId === "string" &&
+      providerTransactionId.trim()
+    ) {
       return providerTransactionId.trim();
     }
   }
   return "";
+}
+
+function buildUnresolvedCloseIssues(
+  summary: CheckoutQueueSummary,
+  recoveryJobs: ServerRecoveryJob[],
+  helcimAttempts: HelcimCloseReviewAttempt[],
+  stationWarnings: string[] = [],
+  serverIssues: UnresolvedCloseIssues | null = null,
+): UnresolvedCloseIssues | null {
+  const warnings = [
+    ...(serverIssues?.station_warnings ?? []),
+    ...stationWarnings,
+  ]
+    .map((warning) => warning.trim())
+    .filter(Boolean);
+  if (summary.totalCount > 0) {
+    warnings.push(
+      `This workstation reports ${summary.pendingCount} pending and ${summary.blockedCount} blocked checkout recovery item${summary.totalCount === 1 ? "" : "s"}.`,
+    );
+  }
+  const recoveryEvidence = recoveryJobs.map(
+    (job): CloseRecoveryJobEvidence => ({
+      client_job_key: job.client_job_key,
+      kind: job.kind,
+      status: job.status,
+      register_session_id: job.register_session_id ?? null,
+      transaction_id: job.transaction_id ?? null,
+      checkout_client_id: job.checkout_client_id ?? null,
+      station_key: job.station_key ?? null,
+      label: job.label ?? null,
+      last_error: job.last_error ?? null,
+      attempt_count: job.attempt_count,
+      first_seen_at: job.first_seen_at ?? null,
+      last_seen_at: job.last_seen_at ?? null,
+    }),
+  );
+  const recoveryJobEvidence = Array.from(
+    new Map(
+      [...recoveryEvidence, ...(serverIssues?.recovery_jobs ?? [])].map(
+        (job) => [job.client_job_key, job],
+      ),
+    ).values(),
+  );
+  const issues: UnresolvedCloseIssues = {
+    recovery_job_keys: Array.from(
+      new Set([
+        ...(serverIssues?.recovery_job_keys ?? []),
+        ...recoveryJobs.map((job) => job.client_job_key),
+        ...recoveryJobEvidence.map((job) => job.client_job_key),
+      ]),
+    ),
+    recovery_jobs: recoveryJobEvidence,
+    station_warnings: Array.from(new Set(warnings)),
+    helcim_attempts: Array.from(
+      new Map(
+        [...(serverIssues?.helcim_attempts ?? []), ...helcimAttempts].map(
+          (attempt) => [attempt.id, attempt],
+        ),
+      ).values(),
+    ),
+  };
+  return issues.recovery_job_keys.length > 0 ||
+    issues.recovery_jobs.length > 0 ||
+    issues.station_warnings.length > 0 ||
+    issues.helcim_attempts.length > 0
+    ? issues
+    : null;
 }
 
 export default function CloseRegisterModal({
@@ -469,26 +579,32 @@ export default function CloseRegisterModal({
     return h;
   }, [backofficeHeaders]);
 
-  const fetchBookedDaySummaryForZ = useCallback(async (businessDate?: string | null): Promise<ZReportDaySummary | null> => {
-    const params = new URLSearchParams({ basis: "booked" });
-    if (businessDate?.trim()) {
-      params.set("preset", "custom");
-      params.set("from", businessDate.trim());
-      params.set("to", businessDate.trim());
-    } else {
-      params.set("preset", "today");
-    }
-    try {
-      const res = await fetch(`${baseUrl}/api/insights/register-day-activity?${params}`, {
-        headers: mergedPosStaffHeaders(backofficeHeaders),
-      });
-      if (!res.ok) return null;
-      return (await res.json()) as ZReportDaySummary;
-    } catch (error) {
-      console.warn("Failed to load Z-report day summary counters", error);
-      return null;
-    }
-  }, [backofficeHeaders, baseUrl]);
+  const fetchBookedDaySummaryForZ = useCallback(
+    async (businessDate?: string | null): Promise<ZReportDaySummary | null> => {
+      const params = new URLSearchParams({ basis: "booked" });
+      if (businessDate?.trim()) {
+        params.set("preset", "custom");
+        params.set("from", businessDate.trim());
+        params.set("to", businessDate.trim());
+      } else {
+        params.set("preset", "today");
+      }
+      try {
+        const res = await fetch(
+          `${baseUrl}/api/insights/register-day-activity?${params}`,
+          {
+            headers: mergedPosStaffHeaders(backofficeHeaders),
+          },
+        );
+        if (!res.ok) return null;
+        return (await res.json()) as ZReportDaySummary;
+      } catch (error) {
+        console.warn("Failed to load Z-report day summary counters", error);
+        return null;
+      }
+    },
+    [backofficeHeaders, baseUrl],
+  );
 
   const [step, setStep] = useState<"count" | "checks" | "report">("count");
   const [actualCash, setActualCash] = useState("");
@@ -524,30 +640,48 @@ export default function CloseRegisterModal({
   const [fullDrawerTotal, setFullDrawerTotal] = useState("");
   const [activeEntry, setActiveEntry] = useState<EntryTarget | null>(null);
   const [freshEntry, setFreshEntry] = useState(false);
-  const [checkReview, setCheckReview] = useState<Record<string, CheckReviewEntry>>({});
-  const [activeHelcimReviewId, setActiveHelcimReviewId] = useState<string | null>(null);
-  const [helcimReviewAction, setHelcimReviewAction] = useState<HelcimCloseReviewAction>("reviewed");
+  const [checkReview, setCheckReview] = useState<
+    Record<string, CheckReviewEntry>
+  >({});
+  const [activeHelcimReviewId, setActiveHelcimReviewId] = useState<
+    string | null
+  >(null);
+  const [helcimReviewAction, setHelcimReviewAction] =
+    useState<HelcimCloseReviewAction>("reviewed");
   const [helcimReviewNote, setHelcimReviewNote] = useState("");
   const [helcimReviewSubmitting, setHelcimReviewSubmitting] = useState(false);
   const [showFinalConfirm, setShowFinalConfirm] = useState(false);
-  const [offlineQueueSummary, setOfflineQueueSummary] = useState<CheckoutQueueSummary>({
-    totalCount: 0,
-    pendingCount: 0,
-    blockedCount: 0,
-  });
-  const [serverRecoveryJobs, setServerRecoveryJobs] = useState<ServerRecoveryJob[]>([]);
-  const [globalRecoveryJobs, setGlobalRecoveryJobs] = useState<ServerRecoveryJob[]>([]);
+  const [offlineQueueSummary, setOfflineQueueSummary] =
+    useState<CheckoutQueueSummary>({
+      totalCount: 0,
+      pendingCount: 0,
+      blockedCount: 0,
+    });
+  const [serverRecoveryJobs, setServerRecoveryJobs] = useState<
+    ServerRecoveryJob[]
+  >([]);
+  const [globalRecoveryJobs, setGlobalRecoveryJobs] = useState<
+    ServerRecoveryJob[]
+  >([]);
   const [globalRecoveryStatus, setGlobalRecoveryStatus] = useState<
     "loading" | "available" | "error"
   >("loading");
-  const [globalRecoveryError, setGlobalRecoveryError] = useState<string | null>(null);
-  const [recoveryManagerMode, setRecoveryManagerMode] = useState<RecoveryManagerMode | null>(null);
-  const [recoveryManagerJobKeys, setRecoveryManagerJobKeys] = useState<string[]>([]);
+  const [globalRecoveryError, setGlobalRecoveryError] = useState<string | null>(
+    null,
+  );
+  const [recoveryManagerMode, setRecoveryManagerMode] =
+    useState<RecoveryManagerMode | null>(null);
+  const [recoveryManagerJobKeys, setRecoveryManagerJobKeys] = useState<
+    string[]
+  >([]);
   const [recoveryManagerReason, setRecoveryManagerReason] = useState("");
   const [externalRecoveryDraft, setExternalRecoveryDraft] =
     useState<ExternalRecoveryDraft | null>(null);
-  const [exchangeProviderRefundNotice, setExchangeProviderRefundNotice] = useState<string | null>(null);
-  const [closeRecoveryBlock, setCloseRecoveryBlock] = useState<CloseRecoveryBlockDetails | null>(null);
+  const [exchangeProviderRefundNotice, setExchangeProviderRefundNotice] =
+    useState<string | null>(null);
+  const [closeIssueRefreshWarning, setCloseIssueRefreshWarning] = useState<
+    string | null
+  >(null);
 
   const onReconcilingBegunRef = useRef(onReconcilingBegun);
   onReconcilingBegunRef.current = onReconcilingBegun;
@@ -562,23 +696,31 @@ export default function CloseRegisterModal({
         ]);
         setOfflineQueueSummary(summary);
         setServerRecoveryJobs(jobs);
-        const res = await fetch(`${baseUrl}/api/sessions/${sessionId}/begin-reconcile`, {
-          method: "POST",
-          headers: jsonAuthHeaders(),
-          body: JSON.stringify({ active: true }),
-        });
+        const res = await fetch(
+          `${baseUrl}/api/sessions/${sessionId}/begin-reconcile`,
+          {
+            method: "POST",
+            headers: jsonAuthHeaders(),
+            body: JSON.stringify({ active: true }),
+          },
+        );
         if (res.ok) {
           onReconcilingBegunRef.current?.();
           await reportStationCloseStatus(summary);
         }
-      } catch { /* optional */ }
+      } catch {
+        /* optional */
+      }
     })();
   }, [sessionId, baseUrl, jsonAuthHeaders, registerLane]);
 
   const refreshReconciliation = useCallback(async () => {
-    const res = await fetch(`${baseUrl}/api/sessions/${sessionId}/reconciliation`, {
-      headers: mergedPosStaffHeaders(backofficeHeaders),
-    });
+    const res = await fetch(
+      `${baseUrl}/api/sessions/${sessionId}/reconciliation`,
+      {
+        headers: mergedPosStaffHeaders(backofficeHeaders),
+      },
+    );
     if (!res.ok) {
       const body = (await res.json().catch(() => ({}))) as { error?: string };
       throw new Error(body.error ?? `HTTP ${res.status}`);
@@ -587,6 +729,23 @@ export default function CloseRegisterModal({
     setRecon(data);
     return data;
   }, [backofficeHeaders, baseUrl, sessionId]);
+
+  const enterReportStep = useCallback(async () => {
+    setStep("report");
+    try {
+      await refreshReconciliation();
+    } catch {
+      const warning =
+        "The latest Main Hub reconciliation and linked-workstation warnings could not be refreshed before Z-Report review.";
+      setCloseIssueRefreshWarning((current) =>
+        Array.from(new Set([current, warning].filter(Boolean))).join(" "),
+      );
+      toast(
+        `${warning} Z-close can continue. The immediate preview may show this warning; the Main Hub will capture the close-time evidence it can verify.`,
+        "info",
+      );
+    }
+  }, [refreshReconciliation, toast]);
 
   useEffect(() => {
     if (registerLane != null && registerLane !== 1) return;
@@ -599,10 +758,14 @@ export default function CloseRegisterModal({
       .catch((err: unknown) => {
         if (!cancelled) {
           console.error("Failed to fetch reconciliation", err);
-          setReconError(err instanceof Error ? err.message : "Reconciliation failed");
+          setReconError(
+            err instanceof Error ? err.message : "Reconciliation failed",
+          );
         }
       });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [refreshReconciliation, registerLane]);
 
   const refreshGlobalRecoveryJobs = useCallback(async () => {
@@ -672,33 +835,126 @@ export default function CloseRegisterModal({
 
   useEffect(() => {
     if (!recon || cashDepositEdited) return;
-    const countedLessFloat = parseMoneyToCents(actualCash) - parseMoneyToCents(recon.opening_float);
+    const countedLessFloat =
+      parseMoneyToCents(actualCash) - parseMoneyToCents(recon.opening_float);
     setCashDepositAmount(centsToFixed2(Math.max(0, countedLessFloat)));
   }, [actualCash, cashDepositEdited, recon]);
 
-  const blockForOfflineQueue = useCallback(async () => {
-    const { summary, jobs } = await refreshOfflineQueueSummary();
-    if (summary.totalCount === 0 && jobs.length === 0) return false;
-    const message =
-      summary.blockedCount > 0
-        ? `${summary.blockedCount} completed checkout${summary.blockedCount === 1 ? "" : "s"} need manager recovery before Z-close.`
-        : jobs.length > 0
-          ? `${jobs.length} server recovery item${jobs.length === 1 ? "" : "s"} must be resolved before Z-close.`
-          : `${summary.pendingCount} completed checkout${summary.pendingCount === 1 ? "" : "s"} still need to sync before Z-close.`;
-    toast(message, "error");
-    return true;
-  }, [refreshOfflineQueueSummary, toast]);
-
   const unresolvedHelcimAttempts = useMemo(
-    () => recon?.unresolved_helcim_attempts ?? [],
-    [recon?.unresolved_helcim_attempts],
+    () =>
+      Array.from(
+        new Map(
+          [
+            ...(recon?.unresolved_close_issues?.helcim_attempts ?? []),
+            ...(recon?.unresolved_helcim_attempts ?? []),
+          ].map((attempt) => [attempt.id, attempt]),
+        ).values(),
+      ),
+    [
+      recon?.unresolved_close_issues?.helcim_attempts,
+      recon?.unresolved_helcim_attempts,
+    ],
   );
+  const currentUnresolvedCloseIssues = useMemo(
+    () =>
+      buildUnresolvedCloseIssues(
+        offlineQueueSummary,
+        serverRecoveryJobs,
+        unresolvedHelcimAttempts,
+        closeIssueRefreshWarning ? [closeIssueRefreshWarning] : [],
+        recon?.unresolved_close_issues ?? null,
+      ),
+    [
+      closeIssueRefreshWarning,
+      offlineQueueSummary,
+      recon?.unresolved_close_issues,
+      serverRecoveryJobs,
+      unresolvedHelcimAttempts,
+    ],
+  );
+  const refreshUnresolvedCloseIssuesBeforeClose = useCallback(async () => {
+    let summary = offlineQueueSummary;
+    let jobs = serverRecoveryJobs;
+    const refreshWarnings: string[] = [];
+
+    try {
+      summary = await getCheckoutQueueSummary();
+      setOfflineQueueSummary(summary);
+    } catch {
+      refreshWarnings.push(
+        "This workstation could not refresh its local checkout recovery queue before close.",
+      );
+    }
+
+    try {
+      const authoritativeJobs =
+        await listCurrentRegisterRecoveryJobsAuthoritative();
+      if (authoritativeJobs) {
+        jobs = authoritativeJobs;
+        setServerRecoveryJobs(authoritativeJobs);
+      } else {
+        refreshWarnings.push(
+          "The Main Hub recovery list could not be refreshed before close.",
+        );
+      }
+    } catch {
+      refreshWarnings.push(
+        "The Main Hub recovery list could not be refreshed before close.",
+      );
+    }
+
+    try {
+      if (!(await reportStationCloseStatus(summary))) {
+        refreshWarnings.push(
+          "This workstation could not refresh its close acknowledgement with the Main Hub.",
+        );
+      }
+    } catch {
+      refreshWarnings.push(
+        "This workstation could not refresh its close acknowledgement with the Main Hub.",
+      );
+    }
+
+    const refreshWarning = Array.from(new Set(refreshWarnings)).join(" ");
+    setCloseIssueRefreshWarning(refreshWarning || null);
+    if (refreshWarning) {
+      toast(
+        `${refreshWarning} Z-close will continue. The immediate preview may show this warning; the Main Hub will capture the close-time evidence it can verify.`,
+        "info",
+      );
+    }
+    return buildUnresolvedCloseIssues(
+      summary,
+      jobs,
+      unresolvedHelcimAttempts,
+      refreshWarning ? [refreshWarning] : [],
+      recon?.unresolved_close_issues ?? null,
+    );
+  }, [
+    offlineQueueSummary,
+    recon?.unresolved_close_issues,
+    serverRecoveryJobs,
+    toast,
+    unresolvedHelcimAttempts,
+  ]);
   const helcimReviewMessage = useMemo(() => {
     if (unresolvedHelcimAttempts.length === 0) return null;
-    const approved = unresolvedHelcimAttempts.filter((attempt) => attempt.review_reason === "approved_not_recorded").length;
+    const waiting = unresolvedHelcimAttempts.filter(
+      (attempt) => attempt.review_reason === "waiting_on_terminal",
+    ).length;
+    const approved = unresolvedHelcimAttempts.filter(
+      (attempt) => attempt.review_reason === "approved_not_recorded",
+    ).length;
+    const other = unresolvedHelcimAttempts.length - waiting - approved;
     const parts: string[] = [];
-    if (approved > 0) parts.push(`${approved} card approval${approved === 1 ? "" : "s"} not recorded in ROS`);
-    return `Helcim approval review: ${parts.join(", ")}. Repair or add a close note so accounting can follow up.`;
+    if (waiting > 0) parts.push(`${waiting} waiting on terminal outcome`);
+    if (approved > 0)
+      parts.push(
+        `${approved} card approval${approved === 1 ? "" : "s"} not recorded in ROS`,
+      );
+    if (other > 0)
+      parts.push(`${other} outcome${other === 1 ? "" : "s"} needing review`);
+    return `Helcim payment review: ${parts.join(", ")}. Follow up from Payments Health; these items do not block Z-close.`;
   }, [unresolvedHelcimAttempts]);
 
   const checkPayments = useMemo(
@@ -737,46 +993,73 @@ export default function CloseRegisterModal({
     [checkPayments, checkReview],
   );
 
-  const recordHelcimCloseReview = useCallback(async (attemptId: string) => {
-    if (helcimReviewSubmitting) return;
-    if (helcimReviewAction !== "reviewed" && !helcimReviewNote.trim()) {
-      toast("Add a note for this card review outcome.", "error");
-      return;
-    }
-    setHelcimReviewSubmitting(true);
-    try {
-      const res = await fetch(`${baseUrl}/api/sessions/${sessionId}/helcim-close-review/${attemptId}`, {
-        method: "POST",
-        headers: jsonAuthHeaders(),
-        body: JSON.stringify({
-          action: helcimReviewAction,
-          note: helcimReviewNote.trim() || null,
-        }),
-      });
-      if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(body.error ?? "Card review could not be recorded.");
+  const recordHelcimCloseReview = useCallback(
+    async (attemptId: string) => {
+      if (helcimReviewSubmitting) return;
+      const attempt = unresolvedHelcimAttempts.find(
+        (item) => item.id === attemptId,
+      );
+      if (attempt?.review_reason !== "approved_not_recorded") {
+        toast(
+          "Wait for a final terminal outcome. Pending Helcim attempts remain open in Payments Health and cannot be cleared from Z-close.",
+          "info",
+        );
+        return;
       }
-      setActiveHelcimReviewId(null);
-      setHelcimReviewAction("reviewed");
-      setHelcimReviewNote("");
-      await refreshReconciliation();
-      toast("Card review cleared for Z-close.", "success");
-    } catch (err) {
-      toast(err instanceof Error ? err.message : "Card review could not be recorded.", "error");
-    } finally {
-      setHelcimReviewSubmitting(false);
-    }
-  }, [
-    baseUrl,
-    helcimReviewAction,
-    helcimReviewNote,
-    helcimReviewSubmitting,
-    jsonAuthHeaders,
-    refreshReconciliation,
-    sessionId,
-    toast,
-  ]);
+      if (helcimReviewAction !== "reviewed" && !helcimReviewNote.trim()) {
+        toast("Add a note for this card review outcome.", "error");
+        return;
+      }
+      setHelcimReviewSubmitting(true);
+      try {
+        const res = await fetch(
+          `${baseUrl}/api/sessions/${sessionId}/helcim-close-review/${attemptId}`,
+          {
+            method: "POST",
+            headers: jsonAuthHeaders(),
+            body: JSON.stringify({
+              action: helcimReviewAction,
+              note: helcimReviewNote.trim() || null,
+            }),
+          },
+        );
+        if (!res.ok) {
+          const body = (await res.json().catch(() => ({}))) as {
+            error?: string;
+          };
+          throw new Error(body.error ?? "Card review could not be recorded.");
+        }
+        setActiveHelcimReviewId(null);
+        setHelcimReviewAction("reviewed");
+        setHelcimReviewNote("");
+        await refreshReconciliation();
+        toast(
+          "Card review recorded. The item remains visible until payment or provider evidence resolves it.",
+          "success",
+        );
+      } catch (err) {
+        toast(
+          err instanceof Error
+            ? err.message
+            : "Card review could not be recorded.",
+          "error",
+        );
+      } finally {
+        setHelcimReviewSubmitting(false);
+      }
+    },
+    [
+      baseUrl,
+      helcimReviewAction,
+      helcimReviewNote,
+      helcimReviewSubmitting,
+      jsonAuthHeaders,
+      refreshReconciliation,
+      sessionId,
+      toast,
+      unresolvedHelcimAttempts,
+    ],
+  );
 
   const applyKeypadInput = (token: string) => {
     if (!activeEntry) return;
@@ -822,9 +1105,7 @@ export default function CloseRegisterModal({
   const handleBlindCountSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const fullDrawerCents =
-      fullDrawerTotal.trim() === ""
-        ? null
-        : parseMoneyToCents(fullDrawerTotal);
+      fullDrawerTotal.trim() === "" ? null : parseMoneyToCents(fullDrawerTotal);
     const totalCents =
       fullDrawerCents !== null && fullDrawerTotal.trim() !== ""
         ? fullDrawerCents
@@ -832,11 +1113,8 @@ export default function CloseRegisterModal({
           ? denominationTotalCents
           : null;
     if (totalCents == null || totalCents < 0) return;
-    void (async () => {
-      if (await blockForOfflineQueue()) return;
-      setActualCash(centsToFixed2(totalCents));
-      setStep("checks");
-    })();
+    setActualCash(centsToFixed2(totalCents));
+    setStep("checks");
   };
 
   const internalCancel = async () => {
@@ -849,7 +1127,9 @@ export default function CloseRegisterModal({
         });
         await reportStationCloseStatus(offlineQueueSummary);
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     onCancel();
   };
 
@@ -864,109 +1144,197 @@ export default function CloseRegisterModal({
     const countEditNote = countEditReason.trim()
       ? `Count edit note: ${countEditReason.trim()}`
       : "";
-    const checkReviewNote = checkPayments.length > 0
-      ? `Check review: ${checkPayments.map((line) => {
-          const review = checkReview[paymentLineId(line)];
-          return `#${review?.checkNumber.trim() || "missing"} $${centsToFixed2(parseMoneyToCents(line.amount))}`;
-        }).join(", ")}`
-      : "";
-    return [notes.trim(), countEditNote, checkReviewNote].filter(Boolean).join("\n");
+    const checkReviewNote =
+      checkPayments.length > 0
+        ? `Check review: ${checkPayments
+            .map((line) => {
+              const review = checkReview[paymentLineId(line)];
+              return `#${review?.checkNumber.trim() || "missing"} $${centsToFixed2(parseMoneyToCents(line.amount))}`;
+            })
+            .join(", ")}`
+        : "";
+    return [notes.trim(), countEditNote, checkReviewNote]
+      .filter(Boolean)
+      .join("\n");
   }, [checkPayments, checkReview, countEditReason, notes]);
 
-  const openCurrentZReportPrint = useCallback(async (
-    currentRecon: Reconciliation | null = recon,
-    action: ReportPrintAction = "print",
-  ) => {
-    if (!currentRecon) return false;
-    const currentExpectedCents = parseMoneyToCents(currentRecon.expected_cash);
-    const currentActualCents = parseMoneyToCents(actualCash);
-    const cashCountIsSingleDay = currentRecon.cash_count_is_single_day ?? true;
-    const currentOpeningCents = parseMoneyToCents(currentRecon.opening_float);
-    const currentNetAdjCents = parseMoneyToCents(currentRecon.net_cash_adjustments ?? "0");
-    const currentRoundingCents = parseMoneyToCents(currentRecon.total_rounding_adjustments ?? "0");
-    const currentCashSalesCents = currentExpectedCents - currentOpeningCents - currentNetAdjCents - currentRoundingCents;
-    const closingNotesForReport = buildClosingNotesForReport();
-    const daySummary = await fetchBookedDaySummaryForZ(
-      currentRecon.qbo_activity_date ?? currentRecon.qbo_journal?.activity_date ?? null,
-    );
-    const opened = await openProfessionalZReportPrint({
-      title: "Z-Report",
-      sessionId: currentRecon.session_id,
-      action,
-      registerOrdinal,
-      cashierLabel: cashierName,
-      openedAt: null,
-      openingCents: currentOpeningCents,
-      cashSalesCents: currentCashSalesCents,
-      netAdjustmentsCents: currentNetAdjCents,
-      roundingAdjustmentsCents: currentRoundingCents,
-      expectedCents: currentExpectedCents,
-      actualCents: cashCountIsSingleDay ? currentActualCents : null,
-      discrepancyCents: cashCountIsSingleDay ? currentActualCents - currentExpectedCents : null,
-      businessDate: currentRecon.qbo_activity_date ?? null,
-      cashDepositDate: cashCountIsSingleDay ? cashDepositDate.trim() || null : null,
-      cashDepositAmountCents: cashCountIsSingleDay ? parseMoneyToCents(cashDepositAmount) : undefined,
-      closingNotes: closingNotesForReport || null,
-      closingComments: closingComments.trim() || null,
-      tenders: currentRecon.tenders,
-      overrideSummary: currentRecon.override_summary ?? [],
-      tendersByLane: currentRecon.tenders_by_lane,
-      manualDrawerOpens: currentRecon.manual_drawer_opens ?? [],
-      newOrdersCount: daySummary?.special_order_sale_count,
-      ordersPickedUpCount: daySummary?.pickup_count,
-      todayAppointmentsCount: daySummary?.appointment_count ?? 0,
-      newAppointmentsCount: daySummary?.new_appointment_count ?? 0,
-      newWeddingPartiesCount: daySummary?.new_wedding_parties_count ?? 0,
-      newInvoicesCount: daySummary?.new_invoice_count ?? 0,
-      salesCount: daySummary?.sales_count,
-      salesTaxTotal: daySummary?.sales_tax_total,
-      cashCollected: daySummary?.cash_collected,
-      depositsCollected: daySummary?.deposits_collected,
-      netSales: daySummary?.net_sales,
-      pickupsToday: (daySummary?.pickups_today ?? []).map((pickup) => ({
-        occurred_at: pickup.occurred_at,
-        customer_name: pickup.customer_name,
-        customer_code: pickup.customer_code,
-        short_id: pickup.short_id,
-        sales_total: pickup.sales_total,
-        transaction_total: pickup.transaction_total,
-        items: pickup.items?.map((item) => ({
-          name: item.name,
-          sku: item.sku,
-          quantity: item.quantity,
+  const openCurrentZReportPrint = useCallback(
+    async (
+      currentRecon: Reconciliation | null = recon,
+      action: ReportPrintAction = "print",
+      unresolvedCloseIssues: UnresolvedCloseIssues | null = currentUnresolvedCloseIssues,
+      unresolvedIssuesContext: "preview" | "closed" = "preview",
+      closedSnapshot: CloseZReportSnapshot | null = null,
+    ) => {
+      if (!currentRecon) return false;
+      const isClosedOutput = unresolvedIssuesContext === "closed";
+      if (isClosedOutput && !closedSnapshot) return false;
+      const currentExpectedCents = parseMoneyToCents(
+        String(closedSnapshot?.expected_cash ?? currentRecon.expected_cash),
+      );
+      const currentActualCents = isClosedOutput
+        ? closedSnapshot?.actual_cash == null
+          ? null
+          : parseMoneyToCents(String(closedSnapshot.actual_cash))
+        : parseMoneyToCents(actualCash);
+      const cashCountIsSingleDay = isClosedOutput
+        ? closedSnapshot?.actual_cash != null
+        : (currentRecon.cash_count_is_single_day ?? true);
+      const currentOpeningCents = parseMoneyToCents(
+        String(closedSnapshot?.opening_float ?? currentRecon.opening_float),
+      );
+      const currentNetAdjCents = parseMoneyToCents(
+        String(
+          closedSnapshot?.net_cash_adjustments ??
+            currentRecon.net_cash_adjustments ??
+            "0",
+        ),
+      );
+      const currentRoundingCents = parseMoneyToCents(
+        String(
+          closedSnapshot?.total_rounding_adjustments ??
+            currentRecon.total_rounding_adjustments ??
+            "0",
+        ),
+      );
+      const currentCashSalesCents =
+        currentExpectedCents -
+        currentOpeningCents -
+        currentNetAdjCents -
+        currentRoundingCents;
+      const closingNotesForReport = isClosedOutput
+        ? (closedSnapshot?.closing_notes ?? "")
+        : buildClosingNotesForReport();
+      const daySummary = isClosedOutput
+        ? null
+        : await fetchBookedDaySummaryForZ(
+            currentRecon.qbo_activity_date ??
+              currentRecon.qbo_journal?.activity_date ??
+              null,
+          );
+      const closedDiscrepancyCents =
+        closedSnapshot?.discrepancy == null
+          ? null
+          : parseMoneyToCents(String(closedSnapshot.discrepancy));
+      const closeIssuesForPrint = isClosedOutput
+        ? (closedSnapshot?.unresolved_close_issues ?? null)
+        : unresolvedCloseIssues;
+      const opened = await openProfessionalZReportPrint({
+        title: "Z-Report",
+        sessionId: currentRecon.session_id,
+        action,
+        registerOrdinal,
+        cashierLabel: cashierName,
+        openedAt: null,
+        openingCents: currentOpeningCents,
+        cashSalesCents: currentCashSalesCents,
+        netAdjustmentsCents: currentNetAdjCents,
+        roundingAdjustmentsCents: currentRoundingCents,
+        expectedCents: currentExpectedCents,
+        actualCents: cashCountIsSingleDay ? currentActualCents : null,
+        discrepancyCents: isClosedOutput
+          ? closedDiscrepancyCents
+          : cashCountIsSingleDay && currentActualCents != null
+            ? currentActualCents - currentExpectedCents
+            : null,
+        businessDate:
+          closedSnapshot?.business_date ??
+          currentRecon.qbo_activity_date ??
+          null,
+        cashDepositDate: cashCountIsSingleDay
+          ? isClosedOutput
+            ? (closedSnapshot?.cash_deposit_date ?? null)
+            : cashDepositDate.trim() || null
+          : null,
+        cashDepositAmountCents: cashCountIsSingleDay
+          ? isClosedOutput
+            ? closedSnapshot?.cash_deposit_amount == null
+              ? undefined
+              : parseMoneyToCents(String(closedSnapshot.cash_deposit_amount))
+            : parseMoneyToCents(cashDepositAmount)
+          : undefined,
+        closingNotes: closingNotesForReport || null,
+        closingComments: isClosedOutput
+          ? (closedSnapshot?.closing_comments ?? null)
+          : closingComments.trim() || null,
+        tenders: currentRecon.tenders,
+        overrideSummary: currentRecon.override_summary ?? [],
+        tendersByLane: currentRecon.tenders_by_lane,
+        manualDrawerOpens: currentRecon.manual_drawer_opens ?? [],
+        includeSupplementalSummary: daySummary != null,
+        newOrdersCount: daySummary?.special_order_sale_count,
+        ordersPickedUpCount: daySummary?.pickup_count,
+        todayAppointmentsCount: daySummary?.appointment_count,
+        newAppointmentsCount: daySummary?.new_appointment_count,
+        newWeddingPartiesCount: daySummary?.new_wedding_parties_count,
+        newInvoicesCount: daySummary?.new_invoice_count,
+        salesCount: daySummary?.sales_count,
+        salesTaxTotal: daySummary?.sales_tax_total,
+        cashCollected: daySummary?.cash_collected,
+        depositsCollected: daySummary?.deposits_collected,
+        netSales: daySummary?.net_sales,
+        pickupsToday: daySummary
+          ? (daySummary.pickups_today ?? []).map((pickup) => ({
+              occurred_at: pickup.occurred_at,
+              customer_name: pickup.customer_name,
+              customer_code: pickup.customer_code,
+              short_id: pickup.short_id,
+              sales_total: pickup.sales_total,
+              transaction_total: pickup.transaction_total,
+              items: pickup.items?.map((item) => ({
+                name: item.name,
+                sku: item.sku,
+                quantity: item.quantity,
+              })),
+            }))
+          : undefined,
+        qboActivityDate:
+          currentRecon.qbo_activity_date ??
+          currentRecon.qbo_journal?.activity_date ??
+          null,
+        qboJournal: currentRecon.qbo_journal ?? null,
+        qboJournalError: currentRecon.qbo_journal_error ?? null,
+        unresolvedCloseIssues: closeIssuesForPrint,
+        unresolvedIssuesContext,
+        inventoryActivity: currentRecon.inventory_activity ?? [],
+        transactions: currentRecon.transactions.map((t) => ({
+          created_at: t.created_at,
+          payment_method: t.payment_method,
+          amount: t.amount,
+          payments: t.payments ?? null,
+          customer_name: t.customer_name,
+          transaction_display_id: t.transaction_display_id,
+          transaction_status: t.transaction_status,
+          transaction_total: t.transaction_total,
+          transaction_paid: t.transaction_paid,
+          transaction_balance_due: t.transaction_balance_due,
+          shipping_amount: t.shipping_amount,
+          items: t.items ?? [],
+          register_lane: t.register_lane ?? 1,
         })),
-      })),
-      qboActivityDate: currentRecon.qbo_activity_date ?? currentRecon.qbo_journal?.activity_date ?? null,
-      qboJournal: currentRecon.qbo_journal ?? null,
-      qboJournalError: currentRecon.qbo_journal_error ?? null,
-      inventoryActivity: currentRecon.inventory_activity ?? [],
-      transactions: currentRecon.transactions.map((t) => ({
-        created_at: t.created_at,
-        payment_method: t.payment_method,
-        amount: t.amount,
-        payments: t.payments ?? null,
-        customer_name: t.customer_name,
-        transaction_display_id: t.transaction_display_id,
-        transaction_status: t.transaction_status,
-        transaction_total: t.transaction_total,
-        transaction_paid: t.transaction_paid,
-        transaction_balance_due: t.transaction_balance_due,
-        shipping_amount: t.shipping_amount,
-        items: t.items ?? [],
-        register_lane: t.register_lane ?? 1,
-      })),
-    });
-    if (opened) {
-      toast("Z-report opened for review.", "success");
-    }
-    return opened;
-  }, [actualCash, buildClosingNotesForReport, cashDepositAmount, cashDepositDate, cashierName, closingComments, fetchBookedDaySummaryForZ, recon, registerOrdinal, toast]);
+      });
+      if (opened) {
+        toast("Z-report opened for review.", "success");
+      }
+      return opened;
+    },
+    [
+      actualCash,
+      buildClosingNotesForReport,
+      cashDepositAmount,
+      cashDepositDate,
+      cashierName,
+      closingComments,
+      currentUnresolvedCloseIssues,
+      fetchBookedDaySummaryForZ,
+      recon,
+      registerOrdinal,
+      toast,
+    ],
+  );
 
-  const handleFinalClose = async (
-    forceApproval?: RecoveryManagerApproval,
-  ): Promise<boolean> => {
+  const handleFinalClose = async (): Promise<boolean> => {
     setShowFinalConfirm(false);
-    if (!forceApproval && await blockForOfflineQueue()) return false;
     if (!cashDepositDate.trim()) {
       toast("Enter the Daily Cash Deposit date before closing.", "error");
       return false;
@@ -976,21 +1344,23 @@ export default function CloseRegisterModal({
       return false;
     }
     if (recon) {
-      const expected = parseMoneyToCents(recon.physical_expected_cash ?? recon.expected_cash);
+      const expected = parseMoneyToCents(
+        recon.physical_expected_cash ?? recon.expected_cash,
+      );
       const discrepancy = parseMoneyToCents(actualCash) - expected;
-      if (Math.abs(discrepancy) > MANDATORY_NOTE_OVER_USD * 100 && !notes.trim()) {
+      if (
+        Math.abs(discrepancy) > MANDATORY_NOTE_OVER_USD * 100 &&
+        !notes.trim()
+      ) {
         toast("Add a cash discrepancy note before closing.", "error");
         return false;
       }
-    }
-    if (forceApproval && recoveryReasonLength(forceApproval.reason) < 12) {
-      toast("Enter at least 12 characters explaining the forced recovery close.", "error");
-      return false;
     }
     setLoading(true);
     const closingNotesForReport = buildClosingNotesForReport();
     const cashDepositCentsForClose = parseMoneyToCents(cashDepositAmount);
     try {
+      await refreshUnresolvedCloseIssuesBeforeClose();
       const res = await fetch(`${baseUrl}/api/sessions/${sessionId}/close`, {
         method: "POST",
         headers: jsonAuthHeaders(),
@@ -1000,33 +1370,40 @@ export default function CloseRegisterModal({
           cash_deposit_amount: centsToFixed2(cashDepositCentsForClose),
           closing_notes: closingNotesForReport || null,
           closing_comments: closingComments.trim() || null,
-          force_unresolved_recovery: Boolean(forceApproval),
-          manager_staff_id: forceApproval?.managerStaffId ?? null,
-          manager_pin: forceApproval?.managerPin ?? null,
-          manager_reason: forceApproval?.reason.trim() || null,
         }),
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as {
           error?: string;
           message?: string;
-          recovery_job_keys?: string[];
-          station_blockers?: string[];
         };
-        if (body.error === "checkout_recovery_blocks_close") {
-          setCloseRecoveryBlock({
-            recoveryJobKeys: body.recovery_job_keys ?? [],
-            stationBlockers: body.station_blockers ?? [],
-          });
-          await refreshOfflineQueueSummary();
-        }
-        const errorMessage = body.message ?? body.error ?? "Failed to close session";
+        const errorMessage =
+          body.message ?? body.error ?? "Failed to close session";
         throw new Error(mapCloseSessionError(errorMessage));
       }
       const result = (await res.json()) as CloseSessionResult;
-      const opened = await openCurrentZReportPrint(recon);
-      if (!opened) {
-        toast("Z-report could not open. Check the Reports printer setup.", "error");
+      const closedReconciliation = result.reconciliation;
+      const closedSnapshot = result.z_report_snapshot;
+      const opened =
+        closedReconciliation && closedSnapshot
+          ? await openCurrentZReportPrint(
+              closedReconciliation,
+              "print",
+              result.unresolved_close_issues ?? null,
+              "closed",
+              closedSnapshot,
+            )
+          : false;
+      if (!closedReconciliation || !closedSnapshot) {
+        toast(
+          "Register closed, but the server did not return the immutable Z snapshot for immediate printing. Open the archived Z-Report from Register Reports.",
+          "error",
+        );
+      } else if (!opened) {
+        toast(
+          "Z-report could not open. Check the Reports printer setup.",
+          "error",
+        );
       }
       if (!result.till_group_closed) {
         const nextRecon = await refreshReconciliation();
@@ -1043,14 +1420,18 @@ export default function CloseRegisterModal({
       onCloseComplete();
       return true;
     } catch (err: unknown) {
-      toast(err instanceof Error ? err.message : "Failed to close session", "error");
+      toast(
+        err instanceof Error ? err.message : "Failed to close session",
+        "error",
+      );
       setLoading(false);
       return false;
     }
   };
 
   const replayableRecoveryJobs = serverRecoveryJobs.filter(
-    (job) => job.kind === "checkout_offline" || job.kind === "checkout_unconfirmed",
+    (job) =>
+      job.kind === "checkout_offline" || job.kind === "checkout_unconfirmed",
   );
   const currentExternalRecoveryJobs = serverRecoveryJobs.filter(
     (job) => job.kind === "checkout_unconfirmed",
@@ -1066,7 +1447,8 @@ export default function CloseRegisterModal({
     globalRecoveryJobs,
   );
   const historicalReplayableRecoveryJobs = historicalRecoveryJobs.filter(
-    (job) => job.kind === "checkout_offline" || job.kind === "checkout_unconfirmed",
+    (job) =>
+      job.kind === "checkout_offline" || job.kind === "checkout_unconfirmed",
   );
   const historicalExternalRecoveryJobs = historicalRecoveryJobs.filter(
     (job) => job.kind === "checkout_unconfirmed",
@@ -1109,14 +1491,9 @@ export default function CloseRegisterModal({
   ): Promise<boolean> => {
     const reason = recoveryManagerReason.trim();
     if (recoveryReasonLength(reason) < 12) {
-      throw new Error("Enter at least 12 characters explaining this recovery action.");
-    }
-    if (recoveryManagerMode === "force_close") {
-      return handleFinalClose({
-        managerStaffId: managerId,
-        managerPin: pin,
-        reason,
-      });
+      throw new Error(
+        "Enter at least 12 characters explaining this recovery action.",
+      );
     }
     const approval = {
       managerStaffId: managerId,
@@ -1127,12 +1504,15 @@ export default function CloseRegisterModal({
       recoveryManagerMode === "reconcile_external_current" ||
       recoveryManagerMode === "reconcile_external_historical"
     ) {
-      const isHistorical = recoveryManagerMode === "reconcile_external_historical";
+      const isHistorical =
+        recoveryManagerMode === "reconcile_external_historical";
       const jobs = isHistorical
         ? historicalExternalRecoveryJobs
         : currentExternalRecoveryJobs;
       const selectedKeys = new Set(recoveryManagerJobKeys);
-      const selectedJobs = jobs.filter((job) => selectedKeys.has(job.client_job_key));
+      const selectedJobs = jobs.filter((job) =>
+        selectedKeys.has(job.client_job_key),
+      );
       if (
         recoveryManagerJobKeys.length !== 1 ||
         selectedJobs.length !== 1 ||
@@ -1144,7 +1524,8 @@ export default function CloseRegisterModal({
       }
       const targetTransactionDisplayId =
         externalRecoveryDraft.targetTransactionDisplayId.trim().toUpperCase();
-      const providerTransactionId = externalRecoveryDraft.providerTransactionId.trim();
+      const providerTransactionId =
+        externalRecoveryDraft.providerTransactionId.trim();
       if (!targetTransactionDisplayId || !providerTransactionId) {
         throw new Error(
           "Enter the exact Transaction Record and Helcim provider transaction before approval.",
@@ -1169,7 +1550,6 @@ export default function CloseRegisterModal({
         refreshReconciliation(),
       ]);
       setExternalRecoveryDraft(null);
-      setCloseRecoveryBlock(null);
       toast(
         `${result.displayId} was already paid and is now linked to the exact checkout recovery. No new charge or payment movement was created.`,
         "success",
@@ -1185,7 +1565,9 @@ export default function CloseRegisterModal({
           ? currentExchangeSettlementJobs
           : historicalExchangeSettlementJobs;
       const selectedKeys = new Set(recoveryManagerJobKeys);
-      const selectedJobs = jobs.filter((job) => selectedKeys.has(job.client_job_key));
+      const selectedJobs = jobs.filter((job) =>
+        selectedKeys.has(job.client_job_key),
+      );
       if (
         recoveryManagerJobKeys.length === 0 ||
         selectedJobs.length !== recoveryManagerJobKeys.length
@@ -1220,7 +1602,7 @@ export default function CloseRegisterModal({
       ]);
       if (deferredCardRefundCents > 0) {
         setExchangeProviderRefundNotice(
-          `$${centsToFixed2(deferredCardRefundCents)} of linked card refund remains due. Open each original Transaction Record and complete its card refund workflow before Z-close.`,
+          `$${centsToFixed2(deferredCardRefundCents)} of linked card refund remains due. Open each original Transaction Record and complete its card refund workflow as soon as possible; Z-close remains available.`,
         );
       }
       if (settled > 0) {
@@ -1228,7 +1610,8 @@ export default function CloseRegisterModal({
           await refreshReconciliation();
           setReconError(null);
         } catch (error) {
-          const message = error instanceof Error ? error.message : "unknown error";
+          const message =
+            error instanceof Error ? error.message : "unknown error";
           setReconError(message);
           throw new Error(
             `${settled} exchange settlement${settled === 1 ? " was" : "s were"} completed and audited, but Z-close totals could not refresh: ${message}. Refresh the close screen before continuing.`,
@@ -1246,7 +1629,6 @@ export default function CloseRegisterModal({
             : message,
         );
       }
-      setCloseRecoveryBlock(null);
       toast(
         `${settled} exchange settlement${settled === 1 ? "" : "s"} completed from the saved Main Hub record and audited to this Register session.`,
         "success",
@@ -1268,7 +1650,9 @@ export default function CloseRegisterModal({
           ? currentPickupFollowUpJobs
           : historicalPickupFollowUpJobs;
       const selectedKeys = new Set(recoveryManagerJobKeys);
-      const selectedJobs = jobs.filter((job) => selectedKeys.has(job.client_job_key));
+      const selectedJobs = jobs.filter((job) =>
+        selectedKeys.has(job.client_job_key),
+      );
       if (
         recoveryManagerJobKeys.length === 0 ||
         selectedJobs.length !== recoveryManagerJobKeys.length
@@ -1289,7 +1673,8 @@ export default function CloseRegisterModal({
           verified += 1;
         }
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Verification failed.";
+        const message =
+          error instanceof Error ? error.message : "Verification failed.";
         throw new Error(
           verified > 0
             ? `${verified} follow-up record${verified === 1 ? " was" : "s were"} verified before the next record failed: ${message}`
@@ -1301,7 +1686,6 @@ export default function CloseRegisterModal({
           refreshGlobalRecoveryJobs().catch(() => []),
         ]);
       }
-      setCloseRecoveryBlock(null);
       toast(
         `${verified} paid follow-up record${verified === 1 ? "" : "s"} verified against completed Orders/Alterations work and audited.`,
         "success",
@@ -1316,7 +1700,9 @@ export default function CloseRegisterModal({
         ? replayableRecoveryJobs
         : [];
     const selectedKeys = new Set(recoveryManagerJobKeys);
-    const selectedJobs = jobs.filter((job) => selectedKeys.has(job.client_job_key));
+    const selectedJobs = jobs.filter((job) =>
+      selectedKeys.has(job.client_job_key),
+    );
     if (
       recoveryManagerJobKeys.length === 0 ||
       selectedJobs.length !== recoveryManagerJobKeys.length
@@ -1347,7 +1733,8 @@ export default function CloseRegisterModal({
         if (result.postClose) postClose += 1;
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Checkout recovery failed.";
+      const message =
+        error instanceof Error ? error.message : "Checkout recovery failed.";
       throw new Error(
         recovered > 0
           ? `${recovered} checkout${recovered === 1 ? " was" : "s were"} recovered before the next record failed: ${message}`
@@ -1359,7 +1746,6 @@ export default function CloseRegisterModal({
         refreshGlobalRecoveryJobs().catch(() => []),
       ]);
     }
-    setCloseRecoveryBlock(null);
     toast(
       `${recovered} checkout${recovered === 1 ? "" : "s"} recovered and audited${postClose > 0 ? `; ${postClose} recorded as post-close supplements` : ""}.`,
       "success",
@@ -1377,26 +1763,20 @@ export default function CloseRegisterModal({
     const isExchangeSettlement =
       recoveryManagerMode === "settle_current_exchange" ||
       recoveryManagerMode === "settle_historical_exchange";
-    const title =
-      recoveryManagerMode === "force_close"
-        ? "Force Z-Close"
-        : isExternalReconciliation
-          ? "Confirm Existing Paid Transaction"
-        : isExchangeSettlement
-          ? "Complete Exchange Settlement"
-          : isFollowUpVerification
-            ? "Verify Completed Follow-up"
-            : "Recover Checkout Sales";
-    const message =
-      recoveryManagerMode === "force_close"
-        ? "Authorize an audited Z-close while preserving every unresolved recovery record for follow-up. This does not dismiss, alter, or hide the outstanding work."
-        : isExternalReconciliation
-          ? "Authorize resolution only after the named Transaction Record, checkout identity, customer, amount, Register session, currency, and final Helcim provider transaction all match the immutable recovery evidence. Riverside does not create, move, retry, or refund a payment in this step."
-        : isExchangeSettlement
-          ? "Authorize completion from the locked Main Hub exchange record. Riverside verifies the original exchange-credit tender against its origin Register session and records any new relief or refund movement in this current Register session. No financial amount comes from this approval screen."
-          : isFollowUpVerification
-            ? "Confirm the named Orders/Alterations work was already completed. Riverside checks recorded database evidence before resolving the recovery record; this approval does not perform or assume the work."
-            : "Authorize exact replay of the saved checkout identity and payment snapshot. Duplicate or changed payloads are rejected, and prior-group results remain tied to the original Register session.";
+    const title = isExternalReconciliation
+      ? "Confirm Existing Paid Transaction"
+      : isExchangeSettlement
+        ? "Complete Exchange Settlement"
+        : isFollowUpVerification
+          ? "Verify Completed Follow-up"
+          : "Recover Checkout Sales";
+    const message = isExternalReconciliation
+      ? "Authorize resolution only after the named Transaction Record, checkout identity, customer, amount, Register session, currency, and final Helcim provider transaction all match the immutable recovery evidence. Riverside does not create, move, retry, or refund a payment in this step."
+      : isExchangeSettlement
+        ? "Authorize completion from the locked Main Hub exchange record. Riverside verifies the original exchange-credit tender against its origin Register session and records any new relief or refund movement in this current Register session. No financial amount comes from this approval screen."
+        : isFollowUpVerification
+          ? "Confirm the named Orders/Alterations work was already completed. Riverside checks recorded database evidence before resolving the recovery record; this approval does not perform or assume the work."
+          : "Authorize exact replay of the saved checkout identity and payment snapshot. Duplicate or changed payloads are rejected, and prior-group results remain tied to the original Register session.";
     return (
       <ManagerApprovalModal
         isOpen={recoveryManagerMode != null}
@@ -1411,7 +1791,9 @@ export default function CloseRegisterModal({
     );
   };
 
-  const renderWorkflowSummary = (currentStep: "count" | "checks" | "report") => {
+  const renderWorkflowSummary = (
+    currentStep: "count" | "checks" | "report",
+  ) => {
     const currentIndex = REGISTER_CLOSE_STEPS.findIndex(
       (stepItem) => stepItem.id === currentStep,
     );
@@ -1422,7 +1804,9 @@ export default function CloseRegisterModal({
 
     return (
       <div className="rounded-2xl border border-app-border bg-app-surface/70 p-3">
-        <p className="mb-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">Close steps</p>
+        <p className="mb-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+          Close steps
+        </p>
         <div className="grid gap-2">
           {REGISTER_CLOSE_STEPS.map((stepItem, index) => {
             const isCurrent = stepItem.id === currentStep;
@@ -1476,15 +1860,20 @@ export default function CloseRegisterModal({
         </button>
       );
     }
-    const targetReady = externalRecoveryDraft.targetTransactionDisplayId.trim().length > 0;
-    const providerReady = externalRecoveryDraft.providerTransactionId.trim().length > 0;
+    const targetReady =
+      externalRecoveryDraft.targetTransactionDisplayId.trim().length > 0;
+    const providerReady =
+      externalRecoveryDraft.providerTransactionId.trim().length > 0;
     return (
       <div className="mt-2 rounded-xl border border-app-warning/30 bg-app-surface/90 p-3">
-        <p className="font-black text-app-text">Exact existing-payment evidence</p>
+        <p className="font-black text-app-text">
+          Exact existing-payment evidence
+        </p>
         <p className="mt-1 font-semibold">
-          Use only when Payments Health and the completed Transaction Record show the same customer,
-          amount, Register session, checkout identity, currency, and final Helcim provider transaction.
-          Riverside verifies those facts before closing this recovery and creates no new payment.
+          Use only when Payments Health and the completed Transaction Record
+          show the same customer, amount, Register session, checkout identity,
+          currency, and final Helcim provider transaction. Riverside verifies
+          those facts before closing this recovery and creates no new payment.
         </p>
         <div className="mt-3 grid gap-2 sm:grid-cols-2">
           <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
@@ -1494,7 +1883,10 @@ export default function CloseRegisterModal({
               onChange={(event) =>
                 setExternalRecoveryDraft((current) =>
                   current
-                    ? { ...current, targetTransactionDisplayId: event.target.value }
+                    ? {
+                        ...current,
+                        targetTransactionDisplayId: event.target.value,
+                      }
                     : current,
                 )
               }
@@ -1509,7 +1901,9 @@ export default function CloseRegisterModal({
               value={externalRecoveryDraft.providerTransactionId}
               onChange={(event) =>
                 setExternalRecoveryDraft((current) =>
-                  current ? { ...current, providerTransactionId: event.target.value } : current,
+                  current
+                    ? { ...current, providerTransactionId: event.target.value }
+                    : current,
                 )
               }
               maxLength={128}
@@ -1553,34 +1947,60 @@ export default function CloseRegisterModal({
   };
 
   const renderOfflineQueueBlocker = () => {
-    const hasRecoveryBlocker =
+    const stationWarnings =
+      currentUnresolvedCloseIssues?.station_warnings ?? [];
+    const listedRecoveryKeys = new Set(
+      serverRecoveryJobs.map((job) => job.client_job_key),
+    );
+    const snapshotOnlyRecoveryKeys = (
+      currentUnresolvedCloseIssues?.recovery_job_keys ?? []
+    ).filter((key) => !listedRecoveryKeys.has(key));
+    const hasRecoveryIssue =
       offlineQueueSummary.totalCount > 0 ||
       serverRecoveryJobs.length > 0 ||
-      (closeRecoveryBlock?.stationBlockers.length ?? 0) > 0;
-    if (!hasRecoveryBlocker) return null;
+      snapshotOnlyRecoveryKeys.length > 0 ||
+      stationWarnings.length > 0;
+    if (!hasRecoveryIssue) return null;
     const nonReplayableJobs = serverRecoveryJobs.filter(
-      (job) => job.kind !== "checkout_offline" && job.kind !== "checkout_unconfirmed",
+      (job) =>
+        job.kind !== "checkout_offline" && job.kind !== "checkout_unconfirmed",
     );
     return (
-      <div className="ui-panel ui-tint-danger p-3 text-xs text-app-text-muted">
+      <div className="ui-panel ui-tint-warning p-3 text-xs text-app-text-muted">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-[10px] font-black uppercase tracking-widest text-app-danger">
-            Current till-group recovery
+          <p className="text-[10px] font-black uppercase tracking-widest text-app-warning">
+            Current till-group follow-up
           </p>
-          <span className="rounded-full border border-app-danger/25 bg-app-danger/10 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-app-danger">
-            Manager
+          <span className="rounded-full border border-app-warning/25 bg-app-warning/10 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-app-warning">
+            Nonblocking review
           </span>
         </div>
         <p className="mt-1 font-semibold">
-          {offlineQueueSummary.blockedCount > 0 ? `${offlineQueueSummary.blockedCount} need recovery.` : ""}
-          {offlineQueueSummary.pendingCount > 0 ? ` ${offlineQueueSummary.pendingCount} still syncing.` : ""}
-          {serverRecoveryJobs.length > 0 ? ` ${serverRecoveryJobs.length} durable Main Hub recovery item${serverRecoveryJobs.length === 1 ? "" : "s"} remain.` : ""}
-          {" "}Resolve before close when possible. An audited Manager force-close preserves unresolved work for later recovery; it does not dismiss it.
+          {offlineQueueSummary.blockedCount > 0
+            ? `${offlineQueueSummary.blockedCount} need recovery.`
+            : ""}
+          {offlineQueueSummary.pendingCount > 0
+            ? ` ${offlineQueueSummary.pendingCount} still syncing.`
+            : ""}
+          {serverRecoveryJobs.length > 0
+            ? ` ${serverRecoveryJobs.length} durable Main Hub recovery item${serverRecoveryJobs.length === 1 ? "" : "s"} remain.`
+            : ""}{" "}
+          Resolve before close when possible. Z-close can continue without
+          dismissing or hiding the work. The Main Hub captures the close-time
+          recovery and card evidence it can verify; client refresh warnings
+          apply to this preview.
         </p>
-        {closeRecoveryBlock?.stationBlockers.length ? (
-          <ul className="mt-2 list-disc space-y-1 pl-5 font-semibold text-app-danger">
-            {closeRecoveryBlock.stationBlockers.map((blocker) => (
-              <li key={blocker}>{blocker}</li>
+        {stationWarnings.length ? (
+          <ul className="mt-2 list-disc space-y-1 pl-5 font-semibold text-app-warning">
+            {stationWarnings.map((warning) => (
+              <li key={warning}>{warning}</li>
+            ))}
+          </ul>
+        ) : null}
+        {snapshotOnlyRecoveryKeys.length ? (
+          <ul className="mt-2 list-disc space-y-1 pl-5 font-mono text-[10px] text-app-warning">
+            {snapshotOnlyRecoveryKeys.map((key) => (
+              <li key={key}>Main Hub recovery key: {key}</li>
             ))}
           </ul>
         ) : null}
@@ -1589,13 +2009,15 @@ export default function CloseRegisterModal({
             {nonReplayableJobs.some((job) => job.kind === "exchange_settlement")
               ? "An exchange replacement is saved, but its return settlement still needs completion. "
               : ""}
-            {nonReplayableJobs.some((job) => job.kind === "pickup_after_payment")
+            {nonReplayableJobs.some(
+              (job) => job.kind === "pickup_after_payment",
+            )
               ? "A paid order follow-up still needs completion in Orders/Alterations, then audited verification here. "
               : ""}
             {nonReplayableJobs.some((job) => job.kind === "receipt_print")
               ? "A receipt print retry remains queued. "
               : ""}
-            These records remain fully visible after a forced Z-close.
+            These records remain fully visible after Z-close.
           </p>
         ) : null}
         {currentExternalRecoveryJobs.map((job) => (
@@ -1610,9 +2032,9 @@ export default function CloseRegisterModal({
               Recovery key: {job.client_job_key}
             </p>
             <p className="mt-1 font-semibold">
-              Try exact replay first. If the payment was already reconciled into a completed
-              Transaction Record, use the verified existing-payment path below instead of recording
-              another sale or card charge.
+              Try exact replay first. If the payment was already reconciled into
+              a completed Transaction Record, use the verified existing-payment
+              path below instead of recording another sale or card charge.
             </p>
             {job.last_error?.trim() ? (
               <p className="mt-1 font-semibold text-app-danger">
@@ -1630,10 +2052,12 @@ export default function CloseRegisterModal({
               className="mt-2 rounded-xl border border-app-warning/25 bg-app-warning/10 p-2"
             >
               <p className="font-black text-app-text">
-                {job.label?.trim() || recoveryKindLabel(job.kind)} · {job.status}
+                {job.label?.trim() || recoveryKindLabel(job.kind)} ·{" "}
+                {job.status}
               </p>
               <p className="mt-1 font-semibold">
-                Complete the named work in Orders or Alterations before selecting verification.
+                Complete the named work in Orders or Alterations before
+                selecting verification.
               </p>
               {steps.length > 0 ? (
                 <ul className="mt-1 list-disc space-y-1 pl-5 font-mono text-[10px]">
@@ -1656,7 +2080,7 @@ export default function CloseRegisterModal({
             value={recoveryManagerReason}
             onChange={(event) => setRecoveryManagerReason(event.target.value)}
             maxLength={500}
-            placeholder="Explain the recovery or why Z-close must continue (minimum 12 characters)."
+            placeholder="Explain the recovery action (minimum 12 characters)."
             className="ui-input mt-2 min-h-20 w-full p-3 text-xs normal-case tracking-normal"
           />
         </label>
@@ -1664,19 +2088,27 @@ export default function CloseRegisterModal({
           {replayableRecoveryJobs.length > 0 ? (
             <button
               type="button"
-              disabled={loading || recoveryReasonLength(recoveryManagerReason) < 12}
+              disabled={
+                loading || recoveryReasonLength(recoveryManagerReason) < 12
+              }
               onClick={() =>
-                openRecoveryManagerApproval("replay_current", replayableRecoveryJobs)
+                openRecoveryManagerApproval(
+                  "replay_current",
+                  replayableRecoveryJobs,
+                )
               }
               className="ui-btn-primary px-3 py-2 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
             >
-              Manager Recover {replayableRecoveryJobs.length} Sale{replayableRecoveryJobs.length === 1 ? "" : "s"}
+              Manager Recover {replayableRecoveryJobs.length} Sale
+              {replayableRecoveryJobs.length === 1 ? "" : "s"}
             </button>
           ) : null}
           {currentExchangeSettlementJobs.length > 0 ? (
             <button
               type="button"
-              disabled={loading || recoveryReasonLength(recoveryManagerReason) < 12}
+              disabled={
+                loading || recoveryReasonLength(recoveryManagerReason) < 12
+              }
               onClick={() =>
                 openRecoveryManagerApproval(
                   "settle_current_exchange",
@@ -1685,13 +2117,16 @@ export default function CloseRegisterModal({
               }
               className="ui-btn-primary px-3 py-2 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
             >
-              Complete {currentExchangeSettlementJobs.length} Exchange Settlement{currentExchangeSettlementJobs.length === 1 ? "" : "s"}
+              Complete {currentExchangeSettlementJobs.length} Exchange
+              Settlement{currentExchangeSettlementJobs.length === 1 ? "" : "s"}
             </button>
           ) : null}
           {currentPickupFollowUpJobs.length > 0 ? (
             <button
               type="button"
-              disabled={loading || recoveryReasonLength(recoveryManagerReason) < 12}
+              disabled={
+                loading || recoveryReasonLength(recoveryManagerReason) < 12
+              }
               onClick={() =>
                 openRecoveryManagerApproval(
                   "verify_current_follow_up",
@@ -1700,17 +2135,8 @@ export default function CloseRegisterModal({
               }
               className="ui-btn-primary px-3 py-2 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
             >
-              Verify {currentPickupFollowUpJobs.length} Completed Follow-up{currentPickupFollowUpJobs.length === 1 ? "" : "s"}
-            </button>
-          ) : null}
-          {step === "report" ? (
-            <button
-              type="button"
-              disabled={loading || recoveryReasonLength(recoveryManagerReason) < 12}
-              onClick={() => openRecoveryManagerApproval("force_close")}
-              className="ui-btn-secondary border-app-danger/30 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-danger disabled:opacity-50"
-            >
-              Manager Force Z-Close
+              Verify {currentPickupFollowUpJobs.length} Completed Follow-up
+              {currentPickupFollowUpJobs.length === 1 ? "" : "s"}
             </button>
           ) : null}
         </div>
@@ -1722,7 +2148,8 @@ export default function CloseRegisterModal({
     const hasCurrentRecoveryPanel =
       offlineQueueSummary.totalCount > 0 ||
       serverRecoveryJobs.length > 0 ||
-      (closeRecoveryBlock?.stationBlockers.length ?? 0) > 0;
+      (currentUnresolvedCloseIssues?.recovery_job_keys.length ?? 0) > 0 ||
+      (currentUnresolvedCloseIssues?.station_warnings.length ?? 0) > 0;
     const canAct =
       globalRecoveryStatus === "available" &&
       recoveryReasonLength(recoveryManagerReason) >= 12 &&
@@ -1735,8 +2162,8 @@ export default function CloseRegisterModal({
               Prior or other till-group recovery
             </p>
             <p className="mt-1 font-semibold">
-              Informational for this close. These records are outside the current till group and do
-              not block its Z-close.
+              Informational for this close. These records are outside the
+              current till group and do not block its Z-close.
             </p>
           </div>
           {globalRecoveryStatus === "error" ? (
@@ -1757,8 +2184,9 @@ export default function CloseRegisterModal({
         ) : null}
         {globalRecoveryStatus === "error" ? (
           <p className="mt-2 rounded-xl border border-app-danger/25 bg-app-danger/10 p-2 font-semibold text-app-danger">
-            Global recovery list unavailable: {globalRecoveryError ?? "Unknown error"} This is not
-            confirmation that no prior recovery exists.
+            Global recovery list unavailable:{" "}
+            {globalRecoveryError ?? "Unknown error"} This is not confirmation
+            that no prior recovery exists.
             {globalRecoveryJobs.length > 0
               ? " The last visible records below may be stale until Retry Check succeeds."
               : ""}
@@ -1769,10 +2197,11 @@ export default function CloseRegisterModal({
             Exchange settlement completed, but {exchangeProviderRefundNotice}
           </p>
         ) : null}
-        {globalRecoveryStatus === "available" && historicalRecoveryJobs.length === 0 ? (
+        {globalRecoveryStatus === "available" &&
+        historicalRecoveryJobs.length === 0 ? (
           <p className="mt-2 rounded-xl border border-app-success/25 bg-app-success/10 p-2 font-semibold text-app-success">
-            Main Hub reports no checkout, exchange settlement, receipt retry, or paid follow-up
-            recovery outside this till group.
+            Main Hub reports no checkout, exchange settlement, receipt retry, or
+            paid follow-up recovery outside this till group.
           </p>
         ) : null}
 
@@ -1801,25 +2230,30 @@ export default function CloseRegisterModal({
                   </p>
                   {job.kind === "pickup_after_payment" ? (
                     <p className="mt-2 font-semibold">
-                      Complete every named step in Orders or Alterations first. Manager verification
-                      checks recorded database evidence; it does not perform or assume the work.
+                      Complete every named step in Orders or Alterations first.
+                      Manager verification checks recorded database evidence; it
+                      does not perform or assume the work.
                     </p>
                   ) : job.kind === "exchange_settlement" ? (
                     <p className="mt-2 font-semibold">
-                      The replacement Transaction Record is saved, but the original return and
-                      exchange settlement are still incomplete. Manager completion below uses the
-                      locked server record, verifies the original tender, and posts any new refund
-                      movement to this current Register session. Do not record another replacement sale.
+                      The replacement Transaction Record is saved, but the
+                      original return and exchange settlement are still
+                      incomplete. Manager completion below uses the locked
+                      server record, verifies the original tender, and posts any
+                      new refund movement to this current Register session. Do
+                      not record another replacement sale.
                     </p>
                   ) : job.kind === "receipt_print" ? (
                     <p className="mt-2 font-semibold">
-                      The financial Transaction Record is saved. Retry or dismiss only the receipt
-                      print job from Print Recovery; do not record another sale.
+                      The financial Transaction Record is saved. Retry or
+                      dismiss only the receipt print job from Print Recovery; do
+                      not record another sale.
                     </p>
                   ) : (
                     <p className="mt-2 font-semibold">
-                      Manager recovery replays the exact saved checkout and records any post-close
-                      result against its original Register session.
+                      Manager recovery replays the exact saved checkout and
+                      records any post-close result against its original
+                      Register session.
                     </p>
                   )}
                   {steps.length > 0 ? (
@@ -1855,7 +2289,8 @@ export default function CloseRegisterModal({
         ) : null}
         {historicalRecoveryJobs.length > 0 && hasCurrentRecoveryPanel ? (
           <p className="mt-3 font-semibold">
-            Use the Manager recovery reason in the current till-group section above for either action.
+            Use the Manager recovery reason in the current till-group section
+            above for either action.
           </p>
         ) : null}
         {historicalRecoveryJobs.length > 0 ? (
@@ -1872,7 +2307,8 @@ export default function CloseRegisterModal({
                 }
                 className="ui-btn-primary px-3 py-2 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
               >
-                Recover {historicalReplayableRecoveryJobs.length} Prior Sale{historicalReplayableRecoveryJobs.length === 1 ? "" : "s"}
+                Recover {historicalReplayableRecoveryJobs.length} Prior Sale
+                {historicalReplayableRecoveryJobs.length === 1 ? "" : "s"}
               </button>
             ) : null}
             {historicalExchangeSettlementJobs.length > 0 ? (
@@ -1887,7 +2323,9 @@ export default function CloseRegisterModal({
                 }
                 className="ui-btn-primary px-3 py-2 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
               >
-                Complete {historicalExchangeSettlementJobs.length} Prior Exchange Settlement{historicalExchangeSettlementJobs.length === 1 ? "" : "s"}
+                Complete {historicalExchangeSettlementJobs.length} Prior
+                Exchange Settlement
+                {historicalExchangeSettlementJobs.length === 1 ? "" : "s"}
               </button>
             ) : null}
             {historicalPickupFollowUpJobs.length > 0 ? (
@@ -1902,7 +2340,8 @@ export default function CloseRegisterModal({
                 }
                 className="ui-btn-primary px-3 py-2 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
               >
-                Verify {historicalPickupFollowUpJobs.length} Completed Follow-up{historicalPickupFollowUpJobs.length === 1 ? "" : "s"}
+                Verify {historicalPickupFollowUpJobs.length} Completed Follow-up
+                {historicalPickupFollowUpJobs.length === 1 ? "" : "s"}
               </button>
             ) : null}
           </div>
@@ -1917,48 +2356,94 @@ export default function CloseRegisterModal({
       <div className="ui-panel ui-tint-warning p-3 text-xs text-app-text-muted">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-[10px] font-black uppercase tracking-widest text-app-warning">
-            Card approval review
+            Card payment review
           </p>
-          <span className="rounded-full border border-app-warning/25 bg-app-warning/10 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-app-warning">Close review</span>
+          <span className="rounded-full border border-app-warning/25 bg-app-warning/10 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-app-warning">
+            Close review
+          </span>
         </div>
         <p className="mt-1 font-semibold">
-          {unresolvedHelcimAttempts.length} approved Helcim card payment{unresolvedHelcimAttempts.length === 1 ? "" : "s"} need repair or a close note. Z-close can continue.
+          {unresolvedHelcimAttempts.length} Helcim card payment
+          {unresolvedHelcimAttempts.length === 1 ? "" : "s"} need terminal,
+          attachment, or accounting follow-up. Z-close can continue.
         </p>
         <div className="mt-2 space-y-2">
           {unresolvedHelcimAttempts.slice(0, 4).map((attempt) => (
-            <div key={attempt.id} className="rounded-2xl border border-app-border bg-app-surface/80 p-2">
+            <div
+              key={attempt.id}
+              className="rounded-2xl border border-app-border bg-app-surface/80 p-2"
+            >
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="font-black text-app-text">
-                  Reg #{attempt.register_lane} · ${centsToFixed2(Math.abs(attempt.amount_cents))} · Approved not attached
+                  Reg #{attempt.register_lane} · $
+                  {centsToFixed2(Math.abs(attempt.amount_cents))} ·{" "}
+                  {attempt.review_reason === "waiting_on_terminal"
+                    ? "Waiting on terminal outcome"
+                    : attempt.review_reason === "approved_not_recorded"
+                      ? "Approved not attached"
+                      : "Outcome needs review"}
                 </p>
-                <button
-                  type="button"
-                  onClick={() => setActiveHelcimReviewId((current) => current === attempt.id ? null : attempt.id)}
-                  className="rounded-full border border-app-border bg-app-surface px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-text"
-                >
-                  Review
-                </button>
+                {attempt.review_reason === "approved_not_recorded" ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setActiveHelcimReviewId((current) =>
+                        current === attempt.id ? null : attempt.id,
+                      )
+                    }
+                    className="rounded-full border border-app-border bg-app-surface px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-text"
+                  >
+                    Review
+                  </button>
+                ) : (
+                  <span className="rounded-full border border-app-warning/25 bg-app-warning/10 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-warning">
+                    Payments Health
+                  </span>
+                )}
               </div>
-              {activeHelcimReviewId === attempt.id ? (
+              {attempt.review_reason === "waiting_on_terminal" ? (
+                <p className="mt-2 font-semibold text-app-warning">
+                  Wait for the actual provider outcome in Payments Health. This
+                  pending attempt stays open and cannot be cleared from Z-close.
+                </p>
+              ) : null}
+              {attempt.review_reason === "approved_not_recorded" &&
+              activeHelcimReviewId === attempt.id ? (
                 <div className="mt-3 grid gap-2">
                   <select
                     value={helcimReviewAction}
-                    onChange={(event) => setHelcimReviewAction(event.target.value as HelcimCloseReviewAction)}
+                    onChange={(event) =>
+                      setHelcimReviewAction(
+                        event.target.value as HelcimCloseReviewAction,
+                      )
+                    }
                     className="ui-input w-full px-3 py-2 text-xs font-bold"
                   >
                     {HELCIM_CLOSE_REVIEW_ACTIONS.map((action) => (
-                      <option key={action.value} value={action.value}>{action.label}</option>
+                      <option key={action.value} value={action.value}>
+                        {action.label}
+                      </option>
                     ))}
                   </select>
                   <textarea
                     value={helcimReviewNote}
-                    onChange={(event) => setHelcimReviewNote(event.target.value)}
-                    placeholder={helcimReviewAction === "reviewed" ? "Optional note" : "Required note"}
+                    onChange={(event) =>
+                      setHelcimReviewNote(event.target.value)
+                    }
+                    placeholder={
+                      helcimReviewAction === "reviewed"
+                        ? "Optional note"
+                        : "Required note"
+                    }
                     className="ui-input min-h-16 w-full p-3 text-xs"
                   />
                   <button
                     type="button"
-                    disabled={helcimReviewSubmitting || (helcimReviewAction !== "reviewed" && !helcimReviewNote.trim())}
+                    disabled={
+                      helcimReviewSubmitting ||
+                      (helcimReviewAction !== "reviewed" &&
+                        !helcimReviewNote.trim())
+                    }
                     onClick={() => void recordHelcimCloseReview(attempt.id)}
                     className="ui-btn-primary py-2 text-xs font-black uppercase tracking-widest disabled:opacity-50"
                   >
@@ -1979,10 +2464,7 @@ export default function CloseRegisterModal({
   if (registerLane != null && registerLane !== 1) {
     return createPortal(
       <div className="ui-overlay-backdrop !z-[200]">
-        <div
-          className="absolute inset-0 bg-black/50"
-          aria-hidden="true"
-        />
+        <div className="absolute inset-0 bg-black/50" aria-hidden="true" />
         <div
           ref={dialogRef}
           role="dialog"
@@ -1998,19 +2480,23 @@ export default function CloseRegisterModal({
           </div>
           <div className="ui-modal-body space-y-3 text-sm text-app-text-muted">
             <p>
-              You are on Register #{registerLane}. End-of-shift Z-close and the single cash drawer
-              count happen on the primary lane (Register #1). Use shift handoff or attach to Register
-              #1 to close the till.
+              You are on Register #{registerLane}. End-of-shift Z-close and the
+              single cash drawer count happen on the primary lane (Register #1).
+              Use shift handoff or attach to Register #1 to close the till.
             </p>
           </div>
           <div className="ui-modal-footer">
-            <button type="button" onClick={() => void internalCancel()} className="ui-btn-primary w-full py-3">
+            <button
+              type="button"
+              onClick={() => void internalCancel()}
+              className="ui-btn-primary w-full py-3"
+            >
               OK
             </button>
           </div>
         </div>
       </div>,
-      root
+      root,
     );
   }
 
@@ -2022,10 +2508,7 @@ export default function CloseRegisterModal({
 
     return createPortal(
       <div className="ui-overlay-backdrop !z-[200]">
-        <div
-          className="absolute inset-0 bg-black/50"
-          aria-hidden="true"
-        />
+        <div className="absolute inset-0 bg-black/50" aria-hidden="true" />
         <div
           ref={dialogRef}
           role="dialog"
@@ -2037,9 +2520,14 @@ export default function CloseRegisterModal({
           <div className="ui-modal-header flex items-center justify-between">
             <div className="flex gap-2">
               <span className="ui-pill ui-status-warn">Reconciling</span>
-              <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Step 1 of 3</span>
+              <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                Step 1 of 3
+              </span>
             </div>
-            <h2 id={titleId} className="text-sm font-black text-app-text uppercase tracking-widest">
+            <h2
+              id={titleId}
+              className="text-sm font-black text-app-text uppercase tracking-widest"
+            >
               End of Shift
             </h2>
           </div>
@@ -2048,7 +2536,9 @@ export default function CloseRegisterModal({
               {registerLane != null ? (
                 <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                   Register #{registerLane}
-                  {registerOrdinal != null ? ` · Session #${registerOrdinal}` : ""}
+                  {registerOrdinal != null
+                    ? ` · Session #${registerOrdinal}`
+                    : ""}
                 </p>
               ) : null}
               {renderWorkflowSummary("count")}
@@ -2067,27 +2557,44 @@ export default function CloseRegisterModal({
               <div className="space-y-3">
                 <div className="ui-panel ui-tint-neutral p-3">
                   <div className="mb-3 flex items-center justify-between gap-3">
-                    <p className="text-[10px] font-black uppercase text-app-text-muted tracking-widest">Bills</p>
-                    <p className="font-mono text-sm font-black text-app-success">${centsToFixed2(billTotalCents)}</p>
+                    <p className="text-[10px] font-black uppercase text-app-text-muted tracking-widest">
+                      Bills
+                    </p>
+                    <p className="font-mono text-sm font-black text-app-success">
+                      ${centsToFixed2(billTotalCents)}
+                    </p>
                   </div>
                   <div className="grid grid-cols-3 gap-2">
                     {DENOMS.map((d) => {
-                      const active = activeEntry?.mode === "count" && activeEntry.group === "bill" && activeEntry.key === d.key;
+                      const active =
+                        activeEntry?.mode === "count" &&
+                        activeEntry.group === "bill" &&
+                        activeEntry.key === d.key;
                       return (
-                        <label key={d.key} className="flex flex-col gap-1 text-[10px] font-bold text-app-text-muted">
+                        <label
+                          key={d.key}
+                          className="flex flex-col gap-1 text-[10px] font-bold text-app-text-muted"
+                        >
                           {d.label}
                           <input
                             type="text"
                             inputMode="numeric"
                             value={denomCounts[d.key]}
                             onFocus={(event) => {
-                              setActiveEntry({ mode: "count", group: "bill", key: d.key });
+                              setActiveEntry({
+                                mode: "count",
+                                group: "bill",
+                                key: d.key,
+                              });
                               setFreshEntry(true);
                               event.currentTarget.select();
                             }}
-                            onChange={e => {
+                            onChange={(e) => {
                               setFreshEntry(false);
-                              setDenomCounts(prev => ({ ...prev, [d.key]: normalizeCountInput(e.target.value) }));
+                              setDenomCounts((prev) => ({
+                                ...prev,
+                                [d.key]: normalizeCountInput(e.target.value),
+                              }));
                             }}
                             className={`ui-input w-full p-3 text-center font-mono text-lg ${active ? "border-app-accent ring-2 ring-app-accent/20" : ""}`}
                           />
@@ -2099,27 +2606,44 @@ export default function CloseRegisterModal({
 
                 <div className="ui-panel ui-tint-neutral p-3">
                   <div className="mb-3 flex items-center justify-between gap-3">
-                    <p className="text-[10px] font-black uppercase text-app-text-muted tracking-widest">Coins</p>
-                    <p className="font-mono text-sm font-black text-app-success">${centsToFixed2(coinTotalCents)}</p>
+                    <p className="text-[10px] font-black uppercase text-app-text-muted tracking-widest">
+                      Coins
+                    </p>
+                    <p className="font-mono text-sm font-black text-app-success">
+                      ${centsToFixed2(coinTotalCents)}
+                    </p>
                   </div>
                   <div className="grid grid-cols-3 gap-2">
                     {COIN_DENOMS.map((d) => {
-                      const active = activeEntry?.mode === "count" && activeEntry.group === "coin" && activeEntry.key === d.key;
+                      const active =
+                        activeEntry?.mode === "count" &&
+                        activeEntry.group === "coin" &&
+                        activeEntry.key === d.key;
                       return (
-                        <label key={d.key} className="flex flex-col gap-1 text-[10px] font-bold text-app-text-muted">
+                        <label
+                          key={d.key}
+                          className="flex flex-col gap-1 text-[10px] font-bold text-app-text-muted"
+                        >
                           {d.label}
                           <input
                             type="text"
                             inputMode="numeric"
                             value={coinCounts[d.key]}
                             onFocus={(event) => {
-                              setActiveEntry({ mode: "count", group: "coin", key: d.key });
+                              setActiveEntry({
+                                mode: "count",
+                                group: "coin",
+                                key: d.key,
+                              });
                               setFreshEntry(true);
                               event.currentTarget.select();
                             }}
-                            onChange={e => {
+                            onChange={(e) => {
                               setFreshEntry(false);
-                              setCoinCounts(prev => ({ ...prev, [d.key]: normalizeCountInput(e.target.value) }));
+                              setCoinCounts((prev) => ({
+                                ...prev,
+                                [d.key]: normalizeCountInput(e.target.value),
+                              }));
                             }}
                             className={`ui-input w-full p-3 text-center font-mono text-lg ${active ? "border-app-accent ring-2 ring-app-accent/20" : ""}`}
                           />
@@ -2131,8 +2655,12 @@ export default function CloseRegisterModal({
 
                 <div className="ui-panel ui-tint-neutral p-3">
                   <div className="mb-3 flex items-center justify-between gap-3">
-                    <label className="block text-[10px] font-black uppercase text-app-text-muted tracking-widest">Drawer total instead</label>
-                    <p className="font-mono text-sm font-black text-app-text">${centsToFixed2(denominationTotalCents)}</p>
+                    <label className="block text-[10px] font-black uppercase text-app-text-muted tracking-widest">
+                      Drawer total instead
+                    </label>
+                    <p className="font-mono text-sm font-black text-app-text">
+                      ${centsToFixed2(denominationTotalCents)}
+                    </p>
                   </div>
                   <input
                     type="text"
@@ -2143,7 +2671,7 @@ export default function CloseRegisterModal({
                       setFreshEntry(true);
                       event.currentTarget.select();
                     }}
-                    onChange={e => {
+                    onChange={(e) => {
                       setFreshEntry(false);
                       setFullDrawerTotal(e.target.value.replace(/[^\d.]/g, ""));
                     }}
@@ -2155,53 +2683,94 @@ export default function CloseRegisterModal({
 
               <div className="ui-panel ui-tint-neutral flex min-h-[520px] flex-col gap-3 p-4">
                 <div className="flex items-center justify-between">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Keypad</p>
-                  <p className="rounded-full bg-app-surface px-2 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">{activeEntryLabel}</p>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                    Keypad
+                  </p>
+                  <p className="rounded-full bg-app-surface px-2 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                    {activeEntryLabel}
+                  </p>
                 </div>
                 <div className="grid grid-cols-3 gap-2">
-                  {["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "back"].map((key) => (
+                  {[
+                    "1",
+                    "2",
+                    "3",
+                    "4",
+                    "5",
+                    "6",
+                    "7",
+                    "8",
+                    "9",
+                    ".",
+                    "0",
+                    "back",
+                  ].map((key) => (
                     <button
                       key={key}
                       type="button"
                       onClick={() => applyKeypadInput(key)}
-                      disabled={!activeEntry || (key === "." && activeEntry.mode !== "money")}
+                      disabled={
+                        !activeEntry ||
+                        (key === "." && activeEntry.mode !== "money")
+                      }
                       className="rounded-xl border border-app-border bg-app-surface px-3 py-5 text-2xl font-black text-app-text shadow-sm disabled:opacity-30"
                     >
                       {key === "back" ? "Back" : key}
                     </button>
                   ))}
                 </div>
-                <button type="button" onClick={() => applyKeypadInput("clear")} disabled={!activeEntry} className="ui-btn-secondary py-3 text-xs font-black uppercase tracking-widest">
+                <button
+                  type="button"
+                  onClick={() => applyKeypadInput("clear")}
+                  disabled={!activeEntry}
+                  className="ui-btn-secondary py-3 text-xs font-black uppercase tracking-widest"
+                >
                   Clear
                 </button>
                 <div className="mt-auto rounded-2xl border border-app-border bg-app-surface px-3 py-3">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Counted</p>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                    Counted
+                  </p>
                   <p className="font-mono text-2xl font-black text-app-text">
-                    ${centsToFixed2(fullOk ? parseMoneyToCents(fullDrawerTotal) : denominationTotalCents)}
+                    $
+                    {centsToFixed2(
+                      fullOk
+                        ? parseMoneyToCents(fullDrawerTotal)
+                        : denominationTotalCents,
+                    )}
                   </p>
                 </div>
               </div>
 
               <div className="sticky bottom-0 -mx-4 flex gap-3 border-t border-app-border bg-app-surface/95 px-4 py-3 backdrop-blur lg:col-span-2 lg:col-start-2">
-                <button type="button" onClick={internalCancel} className="ui-btn-secondary flex-1 py-3">Cancel</button>
-                <button type="submit" disabled={!canSubmitDenom} className="ui-btn-primary flex-1 py-3 text-sm font-black">Next: Checks</button>
+                <button
+                  type="button"
+                  onClick={internalCancel}
+                  className="ui-btn-secondary flex-1 py-3"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={!canSubmitDenom}
+                  className="ui-btn-primary flex-1 py-3 text-sm font-black"
+                >
+                  Next: Checks
+                </button>
               </div>
             </form>
           </div>
         </div>
         {renderRecoveryManagerModal()}
       </div>,
-      root
+      root,
     );
   }
 
   if (reconError) {
     return createPortal(
       <div className="ui-overlay-backdrop !z-[200]">
-        <div
-          className="absolute inset-0 bg-black/50"
-          aria-hidden="true"
-        />
+        <div className="absolute inset-0 bg-black/50" aria-hidden="true" />
         <div
           ref={dialogRef}
           role="dialog"
@@ -2216,17 +2785,25 @@ export default function CloseRegisterModal({
           <div className="ui-modal-body text-center py-10">
             <p className="text-sm text-app-text mb-6">{reconError}</p>
             <div className="flex gap-3">
-              <button type="button" onClick={() => void internalCancel()} className="ui-btn-secondary flex-1">
+              <button
+                type="button"
+                onClick={() => void internalCancel()}
+                className="ui-btn-secondary flex-1"
+              >
                 Close
               </button>
-              <button type="button" onClick={() => setStep("count")} className="ui-btn-primary flex-1">
+              <button
+                type="button"
+                onClick={() => setStep("count")}
+                className="ui-btn-primary flex-1"
+              >
                 Back
               </button>
             </div>
           </div>
         </div>
       </div>,
-      root
+      root,
     );
   }
 
@@ -2246,56 +2823,79 @@ export default function CloseRegisterModal({
             Calculating reconciliation
           </h2>
           <div className="h-8 w-8 animate-spin rounded-full border-2 border-app-border border-t-app-accent" />
-          <p className="text-xs font-black uppercase tracking-widest text-app-text-muted">Calculating...</p>
+          <p className="text-xs font-black uppercase tracking-widest text-app-text-muted">
+            Calculating...
+          </p>
         </div>
       </div>,
-      root
+      root,
     );
   }
 
   const expectedCents = parseMoneyToCents(recon.expected_cash);
-  const physicalExpectedCents = parseMoneyToCents(recon.physical_expected_cash ?? recon.expected_cash);
+  const physicalExpectedCents = parseMoneyToCents(
+    recon.physical_expected_cash ?? recon.expected_cash,
+  );
   const actualCents = parseMoneyToCents(actualCash);
   const discrepancyCents = actualCents - physicalExpectedCents;
   const cashCountIsSingleDay = recon.cash_count_is_single_day ?? true;
   const isOff = discrepancyCents !== 0;
   const openingCents = parseMoneyToCents(recon.opening_float);
   const netAdjCents = parseMoneyToCents(recon.net_cash_adjustments ?? "0");
-  const roundingCents = parseMoneyToCents(recon.total_rounding_adjustments ?? "0");
-  const cashSalesCents = expectedCents - openingCents - netAdjCents - roundingCents;
+  const roundingCents = parseMoneyToCents(
+    recon.total_rounding_adjustments ?? "0",
+  );
+  const cashSalesCents =
+    expectedCents - openingCents - netAdjCents - roundingCents;
   const cashDepositCents = parseMoneyToCents(cashDepositAmount);
-  const needsNote =
-    Math.abs(discrepancyCents) > MANDATORY_NOTE_OVER_USD * 100;
-  const hasRecoveryBlockers =
-    offlineQueueSummary.totalCount > 0 ||
-    serverRecoveryJobs.length > 0 ||
-    (closeRecoveryBlock?.stationBlockers.length ?? 0) > 0;
+  const needsNote = Math.abs(discrepancyCents) > MANDATORY_NOTE_OVER_USD * 100;
+  const hasUnresolvedCloseIssues = currentUnresolvedCloseIssues != null;
   const closeBlockers = [
-    hasRecoveryBlockers ? "Checkout recovery" : null,
     checkPayments.length > 0 && !checksReady ? "Check review" : null,
     needsNote && notes.trim() === "" ? "Cash discrepancy note" : null,
     cashDepositDate.trim() === "" ? "Cash deposit date" : null,
   ].filter(Boolean);
   const closeReady = closeBlockers.length === 0;
+  const unresolvedIssueConfirmation = hasUnresolvedCloseIssues
+    ? " Unresolved checkout, workstation, and card follow-up remains open. The Main Hub will capture the close-time evidence it can verify; any client refresh warning shown here applies to this preview."
+    : "";
   const closeInsightFacts = {
     title: `Register #${registerOrdinal ?? registerLane ?? "?"} close review`,
     metrics: [
-      { id: "expected-cash", label: "Expected cash", value: `$${centsToFixed2(expectedCents)}` },
-      { id: "actual-cash", label: "Actual counted", value: `$${centsToFixed2(actualCents)}` },
-      { id: "cash-deposit", label: "Daily cash deposit", value: `${cashDepositDate || "No date"} · $${centsToFixed2(cashDepositCents)}` },
+      {
+        id: "expected-cash",
+        label: "Expected cash",
+        value: `$${centsToFixed2(expectedCents)}`,
+      },
+      {
+        id: "actual-cash",
+        label: "Actual counted",
+        value: `$${centsToFixed2(actualCents)}`,
+      },
+      {
+        id: "cash-deposit",
+        label: "Daily cash deposit",
+        value: `${cashDepositDate || "No date"} · $${centsToFixed2(cashDepositCents)}`,
+      },
       {
         id: "cash-discrepancy",
         label: "Cash over or short",
         value: `${discrepancyCents < 0 ? "-" : "+"}$${centsToFixed2(Math.abs(discrepancyCents))}`,
         tone: isOff ? "warning" : "success",
       },
-      { id: "tender-count", label: "Tender families", value: String(recon.tenders.length) },
+      {
+        id: "tender-count",
+        label: "Tender families",
+        value: String(recon.tenders.length),
+      },
     ],
     bullets: [
       {
         id: "close-ready",
         label: closeReady
-          ? "All close blockers are clear; staff still reviews the Z-report before final close."
+          ? hasUnresolvedCloseIssues
+            ? "Required close fields are complete. Visible recovery and payment follow-up is nonblocking; the Main Hub captures close-time evidence it can verify."
+            : "All required close fields are complete; staff still reviews the Z-report before final close."
           : `Close is blocked by ${closeBlockers.join(", ")}.`,
         severity: closeReady ? "success" : "warning",
       },
@@ -2308,16 +2908,17 @@ export default function CloseRegisterModal({
       },
       {
         id: "card-review",
-        label: helcimReviewMessage ?? "No approved Helcim card payments are missing from ROS.",
+        label:
+          helcimReviewMessage ??
+          "No approved Helcim card payments are missing from ROS.",
         severity: helcimReviewMessage ? "info" : "success",
       },
       {
         id: "offline-queue",
-        label:
-          hasRecoveryBlockers
-            ? `${offlineQueueSummary.totalCount} local, ${serverRecoveryJobs.length} Main Hub, and ${closeRecoveryBlock?.stationBlockers.length ?? 0} linked-workstation recovery records must clear or receive audited Manager force-close approval.`
-            : "No checkout recovery items are blocking close.",
-        severity: hasRecoveryBlockers ? "warning" : "success",
+        label: hasUnresolvedCloseIssues
+          ? `${offlineQueueSummary.totalCount} local checkout, ${currentUnresolvedCloseIssues?.recovery_job_keys.length ?? 0} Main Hub recovery, ${currentUnresolvedCloseIssues?.station_warnings.length ?? 0} workstation warning, and ${currentUnresolvedCloseIssues?.helcim_attempts.length ?? 0} Helcim review item${(currentUnresolvedCloseIssues?.helcim_attempts.length ?? 0) === 1 ? "" : "s"} remain visible without blocking close.`
+          : "No unresolved checkout, workstation, or Helcim follow-up is visible.",
+        severity: hasUnresolvedCloseIssues ? "warning" : "success",
       },
     ],
     disclaimers: [
@@ -2328,10 +2929,7 @@ export default function CloseRegisterModal({
   if (step === "checks") {
     return createPortal(
       <div className="ui-overlay-backdrop !z-[200]">
-        <div
-          className="absolute inset-0 bg-black/50"
-          aria-hidden="true"
-        />
+        <div className="absolute inset-0 bg-black/50" aria-hidden="true" />
         <div
           ref={dialogRef}
           role="dialog"
@@ -2343,9 +2941,14 @@ export default function CloseRegisterModal({
           <div className="ui-modal-header flex items-center justify-between">
             <div className="flex gap-2">
               <span className="ui-pill ui-status-warn">Reconciling</span>
-              <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Step 2 of 3</span>
+              <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                Step 2 of 3
+              </span>
             </div>
-            <h2 id={titleId} className="text-sm font-black uppercase tracking-widest text-app-text">
+            <h2
+              id={titleId}
+              className="text-sm font-black uppercase tracking-widest text-app-text"
+            >
               Check Review
             </h2>
           </div>
@@ -2364,8 +2967,12 @@ export default function CloseRegisterModal({
 
                 {checkPayments.length === 0 ? (
                   <div className="rounded-2xl border border-app-border bg-app-surface px-4 py-8 text-center">
-                    <p className="text-sm font-black text-app-text">No checks this shift</p>
-                    <p className="mt-1 text-xs font-semibold text-app-text-muted">Continue to final review.</p>
+                    <p className="text-sm font-black text-app-text">
+                      No checks this shift
+                    </p>
+                    <p className="mt-1 text-xs font-semibold text-app-text-muted">
+                      Continue to final review.
+                    </p>
                   </div>
                 ) : (
                   <div className="space-y-3">
@@ -2376,10 +2983,15 @@ export default function CloseRegisterModal({
                         amount: centsToFixed2(parseMoneyToCents(line.amount)),
                         confirmed: false,
                       };
-                      const amountMatches = parseMoneyToCents(review.amount) === parseMoneyToCents(line.amount);
+                      const amountMatches =
+                        parseMoneyToCents(review.amount) ===
+                        parseMoneyToCents(line.amount);
                       const numberReady = review.checkNumber.trim() !== "";
                       return (
-                        <div key={id} className="rounded-2xl border border-app-border bg-app-surface p-3">
+                        <div
+                          key={id}
+                          className="rounded-2xl border border-app-border bg-app-surface p-3"
+                        >
                           <div className="mb-3 flex items-center justify-between gap-3">
                             <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                               Check {index + 1}
@@ -2396,7 +3008,11 @@ export default function CloseRegisterModal({
                                 onChange={(event) =>
                                   setCheckReview((prev) => ({
                                     ...prev,
-                                    [id]: { ...review, checkNumber: event.target.value, confirmed: false },
+                                    [id]: {
+                                      ...review,
+                                      checkNumber: event.target.value,
+                                      confirmed: false,
+                                    },
                                   }))
                                 }
                                 className="ui-input mt-1 w-full p-3 font-mono text-sm"
@@ -2409,14 +3025,23 @@ export default function CloseRegisterModal({
                                 onChange={(event) =>
                                   setCheckReview((prev) => ({
                                     ...prev,
-                                    [id]: { ...review, amount: event.target.value.replace(/[^\d.]/g, ""), confirmed: false },
+                                    [id]: {
+                                      ...review,
+                                      amount: event.target.value.replace(
+                                        /[^\d.]/g,
+                                        "",
+                                      ),
+                                      confirmed: false,
+                                    },
                                   }))
                                 }
                                 className={`ui-input mt-1 w-full p-3 text-right font-mono text-sm ${amountMatches ? "" : "border-app-danger"}`}
                                 inputMode="decimal"
                               />
                             </label>
-                            <label className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-3 text-xs font-black uppercase tracking-widest ${review.confirmed ? "border-app-success/30 bg-app-success/10 text-app-success" : "border-app-border bg-app-surface-2 text-app-text-muted"}`}>
+                            <label
+                              className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-3 text-xs font-black uppercase tracking-widest ${review.confirmed ? "border-app-success/30 bg-app-success/10 text-app-success" : "border-app-border bg-app-surface-2 text-app-text-muted"}`}
+                            >
                               <input
                                 type="checkbox"
                                 checked={review.confirmed}
@@ -2424,7 +3049,10 @@ export default function CloseRegisterModal({
                                 onChange={(event) =>
                                   setCheckReview((prev) => ({
                                     ...prev,
-                                    [id]: { ...review, confirmed: event.target.checked },
+                                    [id]: {
+                                      ...review,
+                                      confirmed: event.target.checked,
+                                    },
                                   }))
                                 }
                               />
@@ -2433,7 +3061,9 @@ export default function CloseRegisterModal({
                           </div>
                           {!amountMatches || !numberReady ? (
                             <p className="mt-2 text-[10px] font-bold text-app-danger">
-                              {numberReady ? "Amount must match the recorded check payment." : "Check number required."}
+                              {numberReady
+                                ? "Amount must match the recorded check payment."
+                                : "Check number required."}
                             </p>
                           ) : null}
                         </div>
@@ -2445,9 +3075,17 @@ export default function CloseRegisterModal({
 
               <div className="ui-panel ui-tint-info flex flex-col justify-between gap-3 p-4">
                 <div>
-                  <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Check total</p>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                    Check total
+                  </p>
                   <p className="mt-1 font-mono text-2xl font-black text-app-text">
-                    ${centsToFixed2(checkPayments.reduce((sum, line) => sum + parseMoneyToCents(line.amount), 0))}
+                    $
+                    {centsToFixed2(
+                      checkPayments.reduce(
+                        (sum, line) => sum + parseMoneyToCents(line.amount),
+                        0,
+                      ),
+                    )}
                   </p>
                 </div>
                 <p className="text-xs font-semibold text-app-text-muted">
@@ -2457,13 +3095,26 @@ export default function CloseRegisterModal({
             </div>
 
             <div className="sticky bottom-0 -mx-1 flex gap-3 border-t border-app-border bg-app-surface/95 px-1 py-4 backdrop-blur">
-              <button type="button" onClick={() => void internalCancel()} className="ui-btn-secondary flex-1 py-3">
+              <button
+                type="button"
+                onClick={() => void internalCancel()}
+                className="ui-btn-secondary flex-1 py-3"
+              >
                 Cancel
               </button>
-              <button type="button" onClick={() => setStep("count")} className="ui-btn-secondary flex-1 py-3">
+              <button
+                type="button"
+                onClick={() => setStep("count")}
+                className="ui-btn-secondary flex-1 py-3"
+              >
                 Back
               </button>
-              <button type="button" onClick={() => setStep("report")} disabled={!checksReady} className="ui-btn-primary flex-1 py-3 text-sm font-black">
+              <button
+                type="button"
+                onClick={() => void enterReportStep()}
+                disabled={!checksReady}
+                className="ui-btn-primary flex-1 py-3 text-sm font-black"
+              >
                 Next: Z-Report
               </button>
             </div>
@@ -2476,10 +3127,7 @@ export default function CloseRegisterModal({
 
   return createPortal(
     <div className="ui-overlay-backdrop !z-[200]">
-      <div
-        className="absolute inset-0 bg-black/50"
-        aria-hidden="true"
-      />
+      <div className="absolute inset-0 bg-black/50" aria-hidden="true" />
       <div
         ref={dialogRef}
         role="dialog"
@@ -2492,7 +3140,9 @@ export default function CloseRegisterModal({
           <div>
             <div className="mb-1 flex items-center gap-2">
               <span className="ui-pill ui-status-warn">Reconciling</span>
-              <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Step 3 of 3</span>
+              <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                Step 3 of 3
+              </span>
             </div>
             <h2 id={titleId} className="text-xl font-black text-app-text">
               Z-Report
@@ -2534,7 +3184,10 @@ export default function CloseRegisterModal({
               </p>
               {(recon.pending_business_dates?.length ?? 0) > 1 ? (
                 <p className="mt-1 font-semibold leading-relaxed text-app-text-muted">
-                  {recon.pending_business_dates!.length} business days are waiting to close. This report contains only {recon.qbo_activity_date}; after it closes, {recon.pending_business_dates![1]} must be closed separately.
+                  {recon.pending_business_dates!.length} business days are
+                  waiting to close. This report contains only{" "}
+                  {recon.qbo_activity_date}; after it closes,{" "}
+                  {recon.pending_business_dates![1]} must be closed separately.
                 </p>
               ) : (
                 <p className="mt-1 font-semibold text-app-text-muted">
@@ -2555,12 +3208,16 @@ export default function CloseRegisterModal({
                 {closeReady ? "Ready to close" : "Close blocked"}
               </p>
               <span className="rounded-full bg-app-surface/70 px-2.5 py-1 text-[10px] font-black uppercase tracking-widest">
-                {closeReady ? "All checks clear" : `${closeBlockers.length} action${closeBlockers.length === 1 ? "" : "s"}`}
+                {closeReady
+                  ? "All checks clear"
+                  : `${closeBlockers.length} action${closeBlockers.length === 1 ? "" : "s"}`}
               </span>
             </div>
             <p className="mt-1 text-sm font-semibold">
               {closeReady
-                ? "Required close checks are clear."
+                ? hasUnresolvedCloseIssues
+                  ? "Required close checks are clear. Visible follow-up remains open; the Main Hub captures close-time evidence it can verify."
+                  : "Required close checks are clear."
                 : `Before closing: ${closeBlockers.join(", ")}.`}
             </p>
           </div>
@@ -2570,8 +3227,9 @@ export default function CloseRegisterModal({
               Register close explainer
             </p>
             <p className="mt-1 text-xs font-semibold text-app-text-muted">
-              ROSIE explains the visible close facts only. Final close, cash counts, and payment
-              outcomes stay in the normal manager-reviewed workflow.
+              ROSIE explains the visible close facts only. Final close, cash
+              counts, and payment outcomes stay in the normal manager-reviewed
+              workflow.
             </p>
             <RosieInsightSummary
               surface="register_close_review"
@@ -2591,24 +3249,76 @@ export default function CloseRegisterModal({
                 One physical drawer
               </p>
               <p>
-                Expected cash includes cash tendered on linked registers in this till shift. Finalizing
-                closes every open lane in the group.
+                Expected cash includes cash tendered on linked registers in this
+                till shift. Finalizing closes every open lane in the group.
               </p>
             </div>
           ) : null}
-          <div className={`ui-panel p-5 ${isOff ? "ui-tint-danger" : "ui-tint-success"}`}>
-            <h3 className="mb-4 text-[10px] font-black uppercase tracking-widest text-app-text-muted border-b border-app-border pb-2">Cash drawer count</h3>
+          <div
+            className={`ui-panel p-5 ${isOff ? "ui-tint-danger" : "ui-tint-success"}`}
+          >
+            <h3 className="mb-4 text-[10px] font-black uppercase tracking-widest text-app-text-muted border-b border-app-border pb-2">
+              Cash drawer count
+            </h3>
             <div className="space-y-2.5 text-sm">
-              <div className="flex justify-between text-app-text-muted font-medium"><span>Opening Float:</span><span className="font-mono">${centsToFixed2(openingCents)}</span></div>
-              <div className="flex justify-between text-app-text-muted font-medium"><span>Cash Sales (Gross):</span><span className="font-mono text-app-success">+ ${centsToFixed2(cashSalesCents)}</span></div>
-              <div className="flex justify-between text-app-text-muted font-medium"><span>Cash Rounding:</span><span className="font-mono text-app-warning">{roundingCents < 0 ? "-" : "+"}${centsToFixed2(Math.abs(roundingCents))}</span></div>
-              <div className="flex justify-between text-app-text-muted font-medium"><span>Net adjustments:</span><span className="font-mono text-app-warning">{netAdjCents < 0 ? "-" : "+"}${centsToFixed2(Math.abs(netAdjCents))}</span></div>
-              <div className="flex justify-between pt-3 border-t border-app-border font-black text-app-text uppercase text-xs"><span>{cashCountIsSingleDay ? "Expected Cash:" : `Expected Cash for ${recon.qbo_activity_date}:`}</span><span className="font-mono">${centsToFixed2(expectedCents)}</span></div>
+              <div className="flex justify-between text-app-text-muted font-medium">
+                <span>Opening Float:</span>
+                <span className="font-mono">
+                  ${centsToFixed2(openingCents)}
+                </span>
+              </div>
+              <div className="flex justify-between text-app-text-muted font-medium">
+                <span>Cash Sales (Gross):</span>
+                <span className="font-mono text-app-success">
+                  + ${centsToFixed2(cashSalesCents)}
+                </span>
+              </div>
+              <div className="flex justify-between text-app-text-muted font-medium">
+                <span>Cash Rounding:</span>
+                <span className="font-mono text-app-warning">
+                  {roundingCents < 0 ? "-" : "+"}$
+                  {centsToFixed2(Math.abs(roundingCents))}
+                </span>
+              </div>
+              <div className="flex justify-between text-app-text-muted font-medium">
+                <span>Net adjustments:</span>
+                <span className="font-mono text-app-warning">
+                  {netAdjCents < 0 ? "-" : "+"}$
+                  {centsToFixed2(Math.abs(netAdjCents))}
+                </span>
+              </div>
+              <div className="flex justify-between pt-3 border-t border-app-border font-black text-app-text uppercase text-xs">
+                <span>
+                  {cashCountIsSingleDay
+                    ? "Expected Cash:"
+                    : `Expected Cash for ${recon.qbo_activity_date}:`}
+                </span>
+                <span className="font-mono">
+                  ${centsToFixed2(expectedCents)}
+                </span>
+              </div>
               {!cashCountIsSingleDay ? (
-                <div className="flex justify-between text-app-warning font-black text-xs"><span>Current drawer expected across missed days:</span><span className="font-mono">${centsToFixed2(physicalExpectedCents)}</span></div>
+                <div className="flex justify-between text-app-warning font-black text-xs">
+                  <span>Current drawer expected across missed days:</span>
+                  <span className="font-mono">
+                    ${centsToFixed2(physicalExpectedCents)}
+                  </span>
+                </div>
               ) : null}
-              <div className="flex justify-between pt-1 font-black text-app-accent text-lg"><span>Actual Counted:</span><span className="font-mono">${centsToFixed2(actualCents)}</span></div>
-              <div className="flex justify-between pt-2 text-app-text font-bold"><span>{cashCountIsSingleDay ? "Daily Cash Deposit:" : "Current combined cash deposit:"}</span><span className="font-mono">${centsToFixed2(cashDepositCents)}</span></div>
+              <div className="flex justify-between pt-1 font-black text-app-accent text-lg">
+                <span>Actual Counted:</span>
+                <span className="font-mono">${centsToFixed2(actualCents)}</span>
+              </div>
+              <div className="flex justify-between pt-2 text-app-text font-bold">
+                <span>
+                  {cashCountIsSingleDay
+                    ? "Daily Cash Deposit:"
+                    : "Current combined cash deposit:"}
+                </span>
+                <span className="font-mono">
+                  ${centsToFixed2(cashDepositCents)}
+                </span>
+              </div>
             </div>
             <div className="mt-4 rounded-2xl border border-app-border bg-app-surface/70 p-3">
               <div className="grid gap-3 sm:grid-cols-[1fr_1fr]">
@@ -2656,7 +3366,10 @@ export default function CloseRegisterModal({
                   type="button"
                   onClick={() => {
                     if (!countEditReason.trim()) {
-                      toast("Add a reason before editing the counted amount.", "error");
+                      toast(
+                        "Add a reason before editing the counted amount.",
+                        "error",
+                      );
                       return;
                     }
                     setStep("count");
@@ -2668,23 +3381,31 @@ export default function CloseRegisterModal({
               </div>
               {countEditReason.trim() ? (
                 <p className="mt-2 text-[10px] font-bold text-app-text-muted">
-                  This reason will be saved in the internal Z-report notes with the staff member closing the shift.
+                  This reason will be saved in the internal Z-report notes with
+                  the staff member closing the shift.
                 </p>
               ) : null}
             </div>
             {isOff && (
               <div className="ui-panel ui-tint-danger mt-4 p-4">
                 <div className="flex justify-between text-app-danger font-black text-xs uppercase tracking-widest">
-                  <span>Discrepancy ({discrepancyCents < 0 ? "Short" : "Over"}):</span>
-                  <span className="font-mono">${centsToFixed2(Math.abs(discrepancyCents))}</span>
+                  <span>
+                    Discrepancy ({discrepancyCents < 0 ? "Short" : "Over"}):
+                  </span>
+                  <span className="font-mono">
+                    ${centsToFixed2(Math.abs(discrepancyCents))}
+                  </span>
                 </div>
                 {needsNote ? (
                   <p className="text-[10px] font-bold mt-2 text-app-danger/80 leading-relaxed">
-                    Cash discrepancy blocker: closing notes are required because cash is over or short by more than $5.00. Explain the likely cause before you finalize the shift.
+                    Cash discrepancy blocker: closing notes are required because
+                    cash is over or short by more than $5.00. Explain the likely
+                    cause before you finalize the shift.
                   </p>
                 ) : (
                   <p className="text-[10px] font-semibold mt-2 text-app-danger/75 leading-relaxed">
-                    Review the over or short amount before finalizing so the next team understands what changed in the drawer.
+                    Review the over or short amount before finalizing so the
+                    next team understands what changed in the drawer.
                   </p>
                 )}
               </div>
@@ -2693,13 +3414,32 @@ export default function CloseRegisterModal({
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-4 md:col-span-2">
-              <h3 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Tender breakdown (all lanes)</h3>
+              <h3 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                Tender breakdown (all lanes)
+              </h3>
               <div className="ui-panel overflow-hidden border-app-border/40">
                 <table className="w-full text-xs">
-                  <thead className="bg-app-surface-2 border-b border-app-border text-app-text-muted"><tr><th className="px-3 py-2">Method</th><th className="px-3 py-2 text-center">Txs</th><th className="px-3 py-2 text-right">Total</th></tr></thead>
+                  <thead className="bg-app-surface-2 border-b border-app-border text-app-text-muted">
+                    <tr>
+                      <th className="px-3 py-2">Method</th>
+                      <th className="px-3 py-2 text-center">Txs</th>
+                      <th className="px-3 py-2 text-right">Total</th>
+                    </tr>
+                  </thead>
                   <tbody className="divide-y divide-app-border/30">
-                    {recon.tenders.map(t => (
-                      <tr key={t.payment_method} className="hover:bg-app-surface/40 transition-colors"><td className="px-3 py-2 font-bold capitalize">{t.payment_method}</td><td className="px-3 py-2 text-center">{t.tx_count}</td><td className="px-3 py-2 text-right font-mono font-bold">${centsToFixed2(parseMoneyToCents(t.total_amount))}</td></tr>
+                    {recon.tenders.map((t) => (
+                      <tr
+                        key={t.payment_method}
+                        className="hover:bg-app-surface/40 transition-colors"
+                      >
+                        <td className="px-3 py-2 font-bold capitalize">
+                          {t.payment_method}
+                        </td>
+                        <td className="px-3 py-2 text-center">{t.tx_count}</td>
+                        <td className="px-3 py-2 text-right font-mono font-bold">
+                          ${centsToFixed2(parseMoneyToCents(t.total_amount))}
+                        </td>
+                      </tr>
                     ))}
                   </tbody>
                 </table>
@@ -2708,21 +3448,43 @@ export default function CloseRegisterModal({
 
             {(recon.tenders_by_lane?.length ?? 0) > 0 ? (
               <div className="space-y-4 md:col-span-2">
-                <h3 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">By register</h3>
+                <h3 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                  By register
+                </h3>
                 <div className="grid gap-4 sm:grid-cols-2">
                   {recon.tenders_by_lane!.map((row) => (
-                    <div key={row.register_lane} className="ui-panel overflow-hidden border-app-border/40">
+                    <div
+                      key={row.register_lane}
+                      className="ui-panel overflow-hidden border-app-border/40"
+                    >
                       <p className="border-b border-app-border bg-app-surface-2 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                         Register #{row.register_lane}
                       </p>
                       <table className="w-full text-xs">
-                        <thead className="text-app-text-muted"><tr><th className="px-3 py-2">Method</th><th className="px-3 py-2 text-center">Txs</th><th className="px-3 py-2 text-right">Total</th></tr></thead>
+                        <thead className="text-app-text-muted">
+                          <tr>
+                            <th className="px-3 py-2">Method</th>
+                            <th className="px-3 py-2 text-center">Txs</th>
+                            <th className="px-3 py-2 text-right">Total</th>
+                          </tr>
+                        </thead>
                         <tbody className="divide-y divide-app-border/30">
                           {row.tenders.map((t) => (
-                            <tr key={`${row.register_lane}-${t.payment_method}`}>
-                              <td className="px-3 py-2 font-bold capitalize">{t.payment_method}</td>
-                              <td className="px-3 py-2 text-center">{t.tx_count}</td>
-                              <td className="px-3 py-2 text-right font-mono font-bold">${centsToFixed2(parseMoneyToCents(t.total_amount))}</td>
+                            <tr
+                              key={`${row.register_lane}-${t.payment_method}`}
+                            >
+                              <td className="px-3 py-2 font-bold capitalize">
+                                {t.payment_method}
+                              </td>
+                              <td className="px-3 py-2 text-center">
+                                {t.tx_count}
+                              </td>
+                              <td className="px-3 py-2 text-right font-mono font-bold">
+                                $
+                                {centsToFixed2(
+                                  parseMoneyToCents(t.total_amount),
+                                )}
+                              </td>
                             </tr>
                           ))}
                         </tbody>
@@ -2734,40 +3496,74 @@ export default function CloseRegisterModal({
             ) : null}
 
             <div className="space-y-4 md:col-span-2">
-              <h3 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Overrides & Adjusts</h3>
+              <h3 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                Overrides & Adjusts
+              </h3>
               <div className="ui-panel p-3 space-y-4 max-h-[160px] overflow-y-auto">
-                {recon.cash_adjustments?.map(a => (
-                  <div key={a.id} className="flex justify-between items-start gap-2 border-b border-app-border/30 pb-2 last:border-0 last:pb-0">
-                    <span className="text-[10px] text-app-text uppercase font-bold leading-tight">{a.reason}<br/><span className="text-app-text-muted font-normal text-[9px] capitalize">{a.direction}</span></span>
-                    <span className={`font-mono text-[10px] font-black ${a.direction === 'paid_in' ? 'text-app-success' : 'text-app-danger'}`}>${centsToFixed2(parseMoneyToCents(a.amount))}</span>
+                {recon.cash_adjustments?.map((a) => (
+                  <div
+                    key={a.id}
+                    className="flex justify-between items-start gap-2 border-b border-app-border/30 pb-2 last:border-0 last:pb-0"
+                  >
+                    <span className="text-[10px] text-app-text uppercase font-bold leading-tight">
+                      {a.reason}
+                      <br />
+                      <span className="text-app-text-muted font-normal text-[9px] capitalize">
+                        {a.direction}
+                      </span>
+                    </span>
+                    <span
+                      className={`font-mono text-[10px] font-black ${a.direction === "paid_in" ? "text-app-success" : "text-app-danger"}`}
+                    >
+                      ${centsToFixed2(parseMoneyToCents(a.amount))}
+                    </span>
                   </div>
                 ))}
-                {(recon.cash_adjustments?.length ?? 0) === 0 && <p className="text-[10px] text-center text-app-text-muted py-4">No adjustments recorded</p>}
+                {(recon.cash_adjustments?.length ?? 0) === 0 && (
+                  <p className="text-[10px] text-center text-app-text-muted py-4">
+                    No adjustments recorded
+                  </p>
+                )}
               </div>
             </div>
 
             <div className="space-y-4 md:col-span-2">
-              <h3 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Manual Drawer Opens</h3>
+              <h3 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                Manual Drawer Opens
+              </h3>
               <div className="ui-panel p-3 space-y-4 max-h-[160px] overflow-y-auto">
                 {recon.manual_drawer_opens?.map((event) => (
-                  <div key={event.id} className="flex justify-between items-start gap-2 border-b border-app-border/30 pb-2 last:border-0 last:pb-0">
+                  <div
+                    key={event.id}
+                    className="flex justify-between items-start gap-2 border-b border-app-border/30 pb-2 last:border-0 last:pb-0"
+                  >
                     <span className="text-[10px] text-app-text uppercase font-bold leading-tight">
                       {event.reason}
                       <br />
                       <span className="text-app-text-muted font-normal text-[9px] normal-case">
-                        {event.staff_name} · {new Date(event.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                        {event.staff_name} ·{" "}
+                        {new Date(event.created_at).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
                       </span>
                     </span>
                   </div>
                 ))}
-                {(recon.manual_drawer_opens?.length ?? 0) === 0 && <p className="text-[10px] text-center text-app-text-muted py-4">No manual drawer opens recorded</p>}
+                {(recon.manual_drawer_opens?.length ?? 0) === 0 && (
+                  <p className="text-[10px] text-center text-app-text-muted py-4">
+                    No manual drawer opens recorded
+                  </p>
+                )}
               </div>
             </div>
           </div>
 
           {recon.transactions.length > 0 ? (
             <div className="space-y-2">
-              <h3 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Payments (shift)</h3>
+              <h3 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                Payments (shift)
+              </h3>
               <div className="ui-panel max-h-48 overflow-auto border-app-border/40">
                 <table className="w-full text-[10px]">
                   <thead className="sticky top-0 bg-app-surface-2 text-app-text-muted">
@@ -2783,12 +3579,23 @@ export default function CloseRegisterModal({
                     {recon.transactions.map((t) => (
                       <tr key={paymentLineId(t)}>
                         <td className="px-2 py-1.5 font-mono text-app-text-muted whitespace-nowrap">
-                          {new Date(t.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                          {new Date(t.created_at).toLocaleTimeString([], {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
                         </td>
-                        <td className="px-2 py-1.5 font-bold text-app-text">#{t.register_lane ?? 1}</td>
-                        <td className="px-2 py-1.5 capitalize text-app-text">{t.payment_method}</td>
-                        <td className="px-2 py-1.5 text-right font-mono font-bold text-app-text">${centsToFixed2(parseMoneyToCents(t.amount))}</td>
-                        <td className="px-2 py-1.5 truncate text-app-text-muted">{t.customer_name}</td>
+                        <td className="px-2 py-1.5 font-bold text-app-text">
+                          #{t.register_lane ?? 1}
+                        </td>
+                        <td className="px-2 py-1.5 capitalize text-app-text">
+                          {t.payment_method}
+                        </td>
+                        <td className="px-2 py-1.5 text-right font-mono font-bold text-app-text">
+                          ${centsToFixed2(parseMoneyToCents(t.amount))}
+                        </td>
+                        <td className="px-2 py-1.5 truncate text-app-text-muted">
+                          {t.customer_name}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -2798,19 +3605,54 @@ export default function CloseRegisterModal({
           ) : null}
 
           <div className="space-y-3 pt-2">
-            <label className="block text-[10px] font-black uppercase text-app-text-muted tracking-widest">Shift Notes (Internal)</label>
-            <textarea value={notes} onChange={e => setNotes(e.target.value)} className="ui-input w-full p-4 text-xs min-h-[80px]" placeholder="Explain any discrepancy or shift events..." />
+            <label className="block text-[10px] font-black uppercase text-app-text-muted tracking-widest">
+              Shift Notes (Internal)
+            </label>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              className="ui-input w-full p-4 text-xs min-h-[80px]"
+              placeholder="Explain any discrepancy or shift events..."
+            />
           </div>
 
           <div className="space-y-3">
-            <label className="block text-[10px] font-black uppercase text-app-text-muted tracking-widest">Closing Comments (Public)</label>
-            <textarea value={closingComments} onChange={e => setClosingComments(e.target.value)} className="ui-input w-full p-4 text-xs min-h-[60px]" placeholder="Add comments for the Z report..." />
+            <label className="block text-[10px] font-black uppercase text-app-text-muted tracking-widest">
+              Closing Comments (Public)
+            </label>
+            <textarea
+              value={closingComments}
+              onChange={(e) => setClosingComments(e.target.value)}
+              className="ui-input w-full p-4 text-xs min-h-[60px]"
+              placeholder="Add comments for the Z report..."
+            />
           </div>
 
           <div className="sticky bottom-0 -mx-1 flex gap-3 border-t border-app-border bg-app-surface/95 px-1 py-4 backdrop-blur">
-            <button type="button" onClick={() => void internalCancel()} disabled={loading} className="ui-btn-secondary flex-1 py-4 text-sm font-bold">Cancel</button>
-            <button type="button" onClick={() => setStep("checks")} disabled={loading} className="ui-btn-secondary flex-1 py-4 text-sm font-bold">Back</button>
-            <button type="button" onClick={() => setShowFinalConfirm(true)} disabled={loading || !closeReady} className="ui-btn-primary flex-1 py-4 text-sm font-black shadow-lg shadow-app-accent/20">Close & Print Z-Report</button>
+            <button
+              type="button"
+              onClick={() => void internalCancel()}
+              disabled={loading}
+              className="ui-btn-secondary flex-1 py-4 text-sm font-bold"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => setStep("checks")}
+              disabled={loading}
+              className="ui-btn-secondary flex-1 py-4 text-sm font-bold"
+            >
+              Back
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowFinalConfirm(true)}
+              disabled={loading || !closeReady}
+              className="ui-btn-primary flex-1 py-4 text-sm font-black shadow-lg shadow-app-accent/20"
+            >
+              Close & Print Z-Report
+            </button>
           </div>
         </div>
       </div>
@@ -2819,8 +3661,8 @@ export default function CloseRegisterModal({
         title="Close and print?"
         message={
           (recon?.pending_business_dates?.length ?? 0) > 1
-            ? `This closes only ${recon?.qbo_activity_date}. ${recon?.pending_business_dates?.[1]} will remain waiting for its own separate Z-Report.`
-            : `This closes the till group and creates the Z-Report for ${recon?.qbo_activity_date ?? "the business day"}.`
+            ? `This closes only ${recon?.qbo_activity_date}. ${recon?.pending_business_dates?.[1]} will remain waiting for its own separate Z-Report.${unresolvedIssueConfirmation}`
+            : `This closes the till group and creates the Z-Report for ${recon?.qbo_activity_date ?? "the business day"}.${unresolvedIssueConfirmation}`
         }
         confirmLabel="Close & Print"
         variant="danger"
@@ -2829,6 +3671,6 @@ export default function CloseRegisterModal({
       />
       {renderRecoveryManagerModal()}
     </div>,
-    root
+    root,
   );
 }

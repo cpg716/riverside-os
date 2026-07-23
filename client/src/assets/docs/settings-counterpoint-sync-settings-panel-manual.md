@@ -51,6 +51,26 @@ An exact match requires the same customer, order total, merchandise lines, an or
 
 Rows marked **Manager review** are not changed. Common reasons include multiple possible orders, mismatched merchandise, indistinguishable later payments, or payment totals that do not exactly equal the order total. Do not force a repair from the database; investigate the receipt and ROS transaction records first.
 
+### Fulfillment incident recovery is held
+
+There is no live bulk false-fulfillment or pickup-recognition recovery control
+in this release. A prototype was removed from the executable migration, API,
+and Settings paths after validation proved that it did not cover every writer
+and could block legitimate Counterpoint, checkout, wedding, or exchange work.
+
+Do not change fulfillment with direct SQL. Escalate the exact `TXN-` number and
+retain its transaction, line, payment, inventory, revenue, commission, loyalty,
+activity, and QBO evidence. `payment_allocations` does not retain attachment
+time or mutation history, so any affected record with an allocation remains
+blocked from automated recovery; current allocation agreement is not historical
+proof. Manager review is required but cannot override missing provenance.
+
+The held design requires explicit search-selected scope, count, reason,
+correlation ID, Manager Access, rollback, and per-record verification. It is not
+available to staff and must not be described as a shipped safeguard until the
+runtime database role and every fulfillment/recognition writer use a trusted,
+tested mutation boundary.
+
 ### Imported financial integrity
 
 The financial-integrity section separates each Transaction Record's immutable Counterpoint import snapshot from its current net lines, payments, returns, refunds, and booking timestamps. A later audited return or refund is current operational history, not a broken import.

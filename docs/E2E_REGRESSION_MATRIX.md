@@ -175,7 +175,7 @@ How to verify in ROS Dev Center:
 | **`tax-audit-contract.spec.ts`** | NYS/Erie clothing threshold, discount crossing, stale client tax rejection, return tax reversal, and QBO tax liability mapping | Production hardening audit contract |
 | **`commission-audit-contract.spec.ts`** | Fulfillment-based commission timing, rate specificity order, finalized payout immutability, and internal SPIFF receipt exclusion | Production hardening audit contract |
 | **`inventory-audit-contract.spec.ts`** | Order-style no-decrement checkout, pickup stock decrement, duplicate PO receipt retry, and return/restock refund truth | Production hardening audit contract |
-| **`offline-recovery-contract.spec.ts`** | 4xx checkout replay retention as blocked recovery and register close blocking while checkout recovery is pending/blocked | Production hardening audit contract |
+| **`offline-recovery-contract.spec.ts`** | 4xx checkout replay retention as blocked recovery, visible repair actions, nonblocking authorized close, and immutable **Unresolved Issues at Close** Z-report evidence | Production hardening audit contract |
 | **`qbo-audit-contract.spec.ts`** | Balanced staged proposal, mapped accounts, dedupe, staging visibility, drilldown tender linkage, one-time approval, and store-local business-date cutoff | Production hardening audit contract |
 | **`register-audit-contract.spec.ts`** | Register #1/till group lifecycle, closed-token rejection, and Z-close parked-sale purge/audit rows | Production hardening audit contract |
 | **`intelligence-and-finance.spec.ts`** | Wedding health, inventory brain, commission trace rationale, Helcim setup/payment config auth/secret hygiene, and product intelligence payloads | API-centric intelligence/finance contract |

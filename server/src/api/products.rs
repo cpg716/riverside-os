@@ -1646,20 +1646,15 @@ pub async fn list_control_board(
             )
             .await
             {
-                Ok(ids)
-                    if crate::logic::meilisearch_search::candidate_ids_may_be_truncated(
+                Ok(ids) => {
+                    crate::logic::meilisearch_search::authoritative_candidate_ids(
+                        &state.db,
+                        c,
                         crate::logic::meilisearch_client::INDEX_VARIANTS,
-                        ids.len(),
-                    ) =>
-                {
-                    tracing::warn!(
-                        candidate_count = ids.len(),
-                        "Meilisearch inventory candidate cap reached; using PostgreSQL for complete pagination"
-                    );
-                    None
+                        ids,
+                    )
+                    .await
                 }
-                Ok(ids) if !ids.is_empty() => Some(ids),
-                Ok(_) => None,
                 Err(e) => {
                     tracing::warn!(
                         error = %e,
@@ -1791,6 +1786,9 @@ pub async fn list_control_board(
         );
     }
     qb.push(" WHERE p.is_active = true ");
+    if !include_hidden {
+        qb.push(" AND COALESCE(pv.hidden_from_inventory, false) = false ");
+    }
 
     if let Some(ids) = &meili_variant_ids {
         if ids.is_empty() {

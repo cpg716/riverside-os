@@ -95,8 +95,10 @@ Use **Cutover** when Riverside is taking over parties that were already active i
 1. Confirm the imported party and member list.
 2. Link each member to the correct Riverside Customer.
 3. Review suggested imported Transaction Records and fulfillment lines.
-4. Confirm measurements, ordering, receiving, fitting, and pickup state from evidence.
-5. Leave ambiguous matches unresolved for manager review.
+4. Select the exact Transaction Record lines to link (maximum 100) and choose only a pre-pickup status through **Ready for pickup**.
+5. Complete the Manager Access approval. An empty selection is never treated as all lines.
+6. Complete **Picked Up** only through Register pickup so inventory, revenue, commissions, loyalty, and audit move together.
+7. Leave ambiguous matches unresolved for manager review.
 
 ## What to watch for
 

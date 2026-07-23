@@ -658,6 +658,7 @@ RIVERSIDE_JOB_MAX_CONCURRENT=10
 ```bash
 # Meilisearch
 RIVERSIDE_MEILISEARCH_URL=http://localhost:7700
+RIVERSIDE_MEILISEARCH_API_KEY=<match-the-private-self-hosted-service-key>
 
 # QBO Integration
 RIVERSIDE_QBO_CLIENT_ID=your_client_id

@@ -185,12 +185,11 @@ async function beginReconciliation(
   expect(acknowledgement.status(), await acknowledgement.text()).toBe(200);
 }
 
-async function forceCloseWithRecovery(
+async function closeWithRecoveryWarning(
   request: APIRequestContext,
   sessionId: string,
   sessionToken: string,
-  managerStaffId: string,
-): Promise<void> {
+): Promise<{ recovery_job_keys?: string[] }> {
   const headers = posHeaders(sessionId, sessionToken);
   const reconciliation = await request.get(
     `${apiBase()}/api/sessions/${sessionId}/reconciliation`,
@@ -209,18 +208,18 @@ async function forceCloseWithRecovery(
         actual_cash: expectedCash,
         closing_notes: "E2E preserves unfinished exchange settlement",
         closing_comments: "Historical exchange recovery integrity test",
-        force_unresolved_recovery: true,
-        manager_staff_id: managerStaffId,
-        manager_pin: staffCode(),
-        manager_reason:
-          "E2E preserves the server-owned exchange for audited recovery",
       },
       failOnStatusCode: false,
     },
   );
   const closeText = await close.text();
   expect(close.status(), closeText.slice(0, 1200)).toBe(200);
-  expect(JSON.parse(closeText)).toMatchObject({ till_group_closed: true });
+  const closeBody = JSON.parse(closeText) as {
+    till_group_closed: boolean;
+    unresolved_close_issues?: { recovery_job_keys?: string[] } | null;
+  };
+  expect(closeBody.till_group_closed).toBe(true);
+  return closeBody.unresolved_close_issues ?? {};
 }
 
 test.describe.configure({ mode: "serial" });
@@ -314,12 +313,22 @@ test("historical exchange recovery posts exact ledgers to the current Register a
     ),
   ).toBe("blocked");
   await beginReconciliation(request, origin.sessionId, origin.sessionToken);
-  await forceCloseWithRecovery(
+  const closeIssues = await closeWithRecoveryWarning(
     request,
     origin.sessionId,
     origin.sessionToken,
-    managerStaffId,
   );
+  expect(closeIssues.recovery_job_keys).toContain(recoveryKey);
+  const archivedCloseIssues = selectJson<{
+    recovery_job_keys?: string[];
+  }>(`
+    SELECT z_report_json->'unresolved_close_issues'
+    FROM register_business_day_z_reports
+    WHERE primary_register_session_id = ${sqlLiteral(origin.sessionId)}::uuid
+    ORDER BY closed_at DESC
+    LIMIT 1;
+  `);
+  expect(archivedCloseIssues.recovery_job_keys).toContain(recoveryKey);
   expect(
     runSql(
       `SELECT (NOT is_open)::text || '|' || lifecycle_status FROM register_sessions WHERE id = ${sqlLiteral(origin.sessionId)}::uuid;`,

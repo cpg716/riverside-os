@@ -822,6 +822,8 @@ export default function Cart({
     setEditingOrderPaymentAmount("");
     setManagerOverrideApproved(false);
     setManagerOverrideReason("");
+    setManagerOverrideManagerStaffId("");
+    setManagerOverrideManagerPin("");
     setPickupTransactionId(null);
     setPickupTransactions([]);
     setPickupPaidAmountCents(0);
@@ -2082,6 +2084,8 @@ export default function Cart({
   const [showReadinessOverrideModal, setShowReadinessOverrideModal] = useState(false);
   const [managerOverrideApproved, setManagerOverrideApproved] = useState(false);
   const [managerOverrideReason, setManagerOverrideReason] = useState("");
+  const [managerOverrideManagerStaffId, setManagerOverrideManagerStaffId] = useState("");
+  const [managerOverrideManagerPin, setManagerOverrideManagerPin] = useState("");
   const [pickupDepositApprovalRequest, setPickupDepositApprovalRequest] = useState<{
     message: string;
     resolve: (approval: NonNullable<PosOrderOptions["pickupPaymentOverride"]> | null) => void;
@@ -2317,6 +2321,8 @@ export default function Cart({
           setPickupTransactionId(null);
           setManagerOverrideApproved(false);
           setManagerOverrideReason("");
+          setManagerOverrideManagerStaffId("");
+          setManagerOverrideManagerPin("");
           toast(
             "This order has no open lines available for pickup. It may already be picked up or closed.",
             "info",
@@ -2359,6 +2365,8 @@ export default function Cart({
         setPickupReadyAlterations((detail.linked_alterations ?? []).filter((alteration) => alteration.status === "ready"));
         setManagerOverrideApproved(false);
         setManagerOverrideReason("");
+        setManagerOverrideManagerStaffId("");
+        setManagerOverrideManagerPin("");
         const balanceDueCents = parseMoneyToCents(detail.balance_due ?? "0");
 
         if (detail.primary_salesperson_id) {
@@ -2462,6 +2470,8 @@ export default function Cart({
       if (res.ok) {
         setManagerOverrideApproved(true);
         setManagerOverrideReason("Register pickup override: manager approved release for unready items.");
+        setManagerOverrideManagerStaffId(managerId);
+        setManagerOverrideManagerPin(pin);
         setShowReadinessOverrideModal(false);
         // Open checkout drawer
         setCheckoutDrawerOpen(true);
@@ -3970,6 +3980,10 @@ export default function Cart({
                       {
                         overrideReadiness: managerOverrideApproved,
                         overrideReason: managerOverrideReason || undefined,
+                        readinessOverrideManagerStaffId:
+                          managerOverrideManagerStaffId || undefined,
+                        readinessOverrideManagerPin:
+                          managerOverrideManagerPin || undefined,
                       },
                     );
                     if (completedTransactionId) setCheckoutDrawerOpen(false);
@@ -4462,6 +4476,10 @@ export default function Cart({
             ...(checkoutOrderOptions || {}),
             overrideReadiness: managerOverrideApproved,
             overrideReason: managerOverrideReason || undefined,
+            readinessOverrideManagerStaffId:
+              managerOverrideManagerStaffId || undefined,
+            readinessOverrideManagerPin:
+              managerOverrideManagerPin || undefined,
           });
           if (completedTransactionId) setCheckoutDrawerOpen(false);
         }}
@@ -5547,6 +5565,8 @@ export default function Cart({
                 setPickupReadyAlterations(loaded.flatMap(({ detail }) => (detail.linked_alterations ?? []).filter((alteration) => alteration.status === "ready")));
                 setManagerOverrideApproved(false);
                 setManagerOverrideReason("");
+                setManagerOverrideManagerStaffId("");
+                setManagerOverrideManagerPin("");
                 setLines(cartLines);
                 setOrderPaymentLines(paymentLines);
                 setCheckoutDrawerOpen(true);

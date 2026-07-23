@@ -13,7 +13,7 @@ The manager is responsible for:
 - Approving exceptions.
 - Owning blocked workflows.
 - Keeping staff from retrying uncertain payments.
-- Reviewing register close blockers.
+- Reviewing register close warnings and their archived evidence.
 - Reviewing refunds, RMS Charge, QBO, inventory adjustments, and unresolved work daily.
 - Recording repeat confusion for pilot follow-up.
 
@@ -41,16 +41,16 @@ Do not approve:
 
 ---
 
-## Close blockers
+## Close warnings
 
-If close is blocked:
+If close shows a warning:
 
-1. Identify blocker type: checkout recovery, payment review, cash discrepancy, or manager approval.
+1. Identify whether it is a nonblocking checkout/payment recovery warning or a true required input: cash count, check review, Daily Cash Deposit date, or an over-$5 discrepancy note.
 2. Assign one owner.
-3. Resolve the blocker before final close whenever possible.
+3. Resolve recovery warnings before final close whenever practical.
 4. If unresolved at close, document why, who owns it, and next review time.
 
-Do not force a close to make the day look clean. The blocker is the work.
+Use the ordinary authorized close after required inputs are complete. Never dismiss or hide a warning to make the day look clean; verify it appears under **Unresolved Issues at Close**, where later repair cannot rewrite the archived evidence.
 
 ---
 
@@ -88,7 +88,7 @@ When recovery is pending or blocked:
 4. Resolve before register close when possible.
 5. If it cannot be resolved, document owner and next action.
 
-Close should not proceed with unknown completed sales.
+Never recreate an unknown completed sale. Assign it for recovery and verify it appears under **Unresolved Issues at Close**; ordinary authorized close remains available and does not resolve the sale.
 
 ---
 

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import Icon from './Icon';
 import { api } from '../lib/api';
+import ManagerApprovalModal from '../../pos/ManagerApprovalModal';
 
 const LIFECYCLE_OPTIONS = [
     { value: 'needs_measurements', label: 'Needs measurements' },
@@ -8,7 +9,6 @@ const LIFECYCLE_OPTIONS = [
     { value: 'ordered', label: 'Ordered' },
     { value: 'received', label: 'Received' },
     { value: 'ready_for_pickup', label: 'Ready for pickup' },
-    { value: 'picked_up', label: 'Picked up' },
 ];
 
 const STATUS_LABELS = {
@@ -45,6 +45,7 @@ export default function CutoverReviewPanel() {
     const [error, setError] = useState('');
     const [savingId, setSavingId] = useState(null);
     const [statusByTransaction, setStatusByTransaction] = useState({});
+    const [approvalCandidate, setApprovalCandidate] = useState(null);
 
     const loadSummary = async () => {
         setLoading(true);
@@ -104,10 +105,14 @@ export default function CutoverReviewPanel() {
         return { needsReview, candidates, measurement, ntbo };
     }, [parties]);
 
-    const acceptCandidate = async (candidate) => {
+    const acceptCandidate = async (candidate, managerPin, managerStaffId) => {
         const lineIds = (Array.isArray(candidate.lines) ? candidate.lines : [])
             .map((line) => line?.line_id)
             .filter(Boolean);
+        if (!lineIds.length) {
+            setError('This Transaction Record has no explicit eligible item selection. Nothing was changed.');
+            return false;
+        }
         setSavingId(candidate.transaction_id);
         setError('');
         try {
@@ -117,13 +122,17 @@ export default function CutoverReviewPanel() {
                 transaction_id: candidate.transaction_id,
                 transaction_line_ids: lineIds,
                 lifecycle_status: statusByTransaction[candidate.transaction_id] || 'needs_measurements',
-                actor_name: 'Cutover Review',
+                manager_staff_id: managerStaffId,
+                manager_pin: managerPin,
             });
             await loadSummary();
             const refreshed = await api.getPartyCutover(detail.party.party_id);
             setDetail(refreshed);
+            setApprovalCandidate(null);
+            return true;
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Could not link this Transaction Record.');
+            return false;
         } finally {
             setSavingId(null);
         }
@@ -309,7 +318,7 @@ export default function CutoverReviewPanel() {
                                                         <button
                                                             type="button"
                                                             disabled={savingId === candidate.transaction_id}
-                                                            onClick={() => acceptCandidate(candidate)}
+                                                            onClick={() => setApprovalCandidate(candidate)}
                                                             className="min-h-[42px] rounded-lg bg-navy-900 px-4 text-xs font-black uppercase tracking-widest text-white disabled:opacity-50"
                                                         >
                                                             {savingId === candidate.transaction_id ? 'Saving...' : 'Link'}
@@ -338,6 +347,18 @@ export default function CutoverReviewPanel() {
                     )}
                 </div>
             </div>
+            <ManagerApprovalModal
+                isOpen={Boolean(approvalCandidate)}
+                onClose={() => setApprovalCandidate(null)}
+                title="Approve exact cutover scope"
+                message={approvalCandidate
+                    ? `Approve linking exactly ${(approvalCandidate.lines || []).length} item(s) on ${approvalCandidate.display_id}. Picked Up is intentionally unavailable here and must be completed through Register pickup.`
+                    : ''}
+                onApprove={async (pin, managerId) => {
+                    if (!approvalCandidate) return false;
+                    return acceptCandidate(approvalCandidate, pin, managerId);
+                }}
+            />
         </div>
     );
 }

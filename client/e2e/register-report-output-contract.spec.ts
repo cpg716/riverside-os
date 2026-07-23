@@ -15,6 +15,10 @@ const reportPrintSource = readFileSync(
   new URL("../src/components/pos/zReportPrint.ts", import.meta.url),
   "utf8",
 );
+const closeRegisterSource = readFileSync(
+  new URL("../src/components/pos/CloseRegisterModal.tsx", import.meta.url),
+  "utf8",
+);
 const reportsWorkspaceSource = readFileSync(
   new URL("../src/components/reports/ReportsWorkspace.tsx", import.meta.url),
   "utf8",
@@ -29,6 +33,10 @@ const insightsServerSource = readFileSync(
 );
 const registerDayServerSource = readFileSync(
   new URL("../../server/src/logic/register_day_activity.rs", import.meta.url),
+  "utf8",
+);
+const sessionsServerSource = readFileSync(
+  new URL("../../server/src/api/sessions.rs", import.meta.url),
   "utf8",
 );
 
@@ -50,7 +58,9 @@ test.describe("Register report output integrity contracts", () => {
 
   test("complete output rejects duplicate rows and incomplete detail", () => {
     expect(registerReportsSource).toContain("appendStableRegisterReportPage");
-    expect(registerReportsSource).toContain("assertCompleteRegisterReportPages");
+    expect(registerReportsSource).toContain(
+      "assertCompleteRegisterReportPages",
+    );
     expect(registerReportsSource).toContain("completeRegisterReportPayload");
     expect(registerReportsSource).toContain('complete_output", "true"');
     expect(registerReportsSource).toContain("completeOutput: true");
@@ -62,7 +72,9 @@ test.describe("Register report output integrity contracts", () => {
     expect(registerReportsSource).toContain(
       "pickupCount !== accumulator.expectedPickupCount",
     );
-    expect(registerReportsSource).toContain("did not return one complete database snapshot");
+    expect(registerReportsSource).toContain(
+      "did not return one complete database snapshot",
+    );
   });
 
   test("filtered output keeps full-period summary and filtered detail scopes separate", () => {
@@ -72,7 +84,9 @@ test.describe("Register report output integrity contracts", () => {
     );
 
     expect(printHandler).toContain("unfilteredPeriodSummary");
-    expect(printHandler).toContain("const periodSummary = unfilteredPeriodSummary ?? printSummary");
+    expect(printHandler).toContain(
+      "const periodSummary = unfilteredPeriodSummary ?? printSummary",
+    );
     expect(printHandler).toContain("detailFilter: detailFilter || undefined");
     expect(reportPrintSource).toContain("Period Summary (All Activity)");
     expect(reportPrintSource).toContain("Filtered Transaction List");
@@ -111,7 +125,9 @@ test.describe("Register report output integrity contracts", () => {
     expect(reportsWorkspaceSource).toContain("REGISTER_DAY_PAGE_SIZE");
     expect(reportsWorkspaceSource).toContain("loadMoreRegisterDay");
     expect(reportsWorkspaceSource).toContain("REGISTER_DAY_INTERACTIVE_LIMIT");
-    expect(reportsWorkspaceSource).not.toContain("while ((activitiesHaveMore || pickupsHaveMore)");
+    expect(reportsWorkspaceSource).not.toContain(
+      "while ((activitiesHaveMore || pickupsHaveMore)",
+    );
   });
 
   test("Reports Workspace output reloads complete stable Register detail including pickups", () => {
@@ -126,8 +142,12 @@ test.describe("Register report output integrity contracts", () => {
 
     expect(completeOutputLoader).toContain("REGISTER_REPORT_OUTPUT_ROW_LIMIT");
     expect(completeOutputLoader).toContain("complete_output=true");
-    expect(completeOutputLoader).toContain("activities.length !== expectedActivityCount");
-    expect(completeOutputLoader).toContain("pickups.length !== expectedPickupCount");
+    expect(completeOutputLoader).toContain(
+      "activities.length !== expectedActivityCount",
+    );
+    expect(completeOutputLoader).toContain(
+      "pickups.length !== expectedPickupCount",
+    );
     expect(completeOutputLoader).toContain("activityIds.has(id)");
     expect(completeOutputLoader).toContain("pickupIds.has(id)");
     expect(completeOutputLoader).not.toContain("while (true)");
@@ -139,22 +159,37 @@ test.describe("Register report output integrity contracts", () => {
 
   test("Register aggregation and complete output share repeatable-read snapshots", () => {
     const completeLoader = registerDayServerSource.slice(
-      registerDayServerSource.indexOf("async fn fetch_complete_register_day_summary_bounded"),
-      registerDayServerSource.indexOf("pub async fn fetch_complete_register_day_summary("),
+      registerDayServerSource.indexOf(
+        "async fn fetch_complete_register_day_summary_bounded",
+      ),
+      registerDayServerSource.indexOf(
+        "pub async fn fetch_complete_register_day_summary(",
+      ),
     );
     const pageLoader = registerDayServerSource.slice(
-      registerDayServerSource.indexOf("pub async fn fetch_register_day_summary_page("),
-      registerDayServerSource.indexOf("#[derive(Debug, Clone)]", registerDayServerSource.indexOf("pub async fn fetch_register_day_summary_page(")),
+      registerDayServerSource.indexOf(
+        "pub async fn fetch_register_day_summary_page(",
+      ),
+      registerDayServerSource.indexOf(
+        "#[derive(Debug, Clone)]",
+        registerDayServerSource.indexOf(
+          "pub async fn fetch_register_day_summary_page(",
+        ),
+      ),
     );
 
     expect(registerDayServerSource).toContain(
       "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY",
     );
-    expect(completeLoader).toContain("fetch_register_day_summary_page_on_connection");
+    expect(completeLoader).toContain(
+      "fetch_register_day_summary_page_on_connection",
+    );
     expect(completeLoader).toContain("transaction.commit().await");
     expect(completeLoader).toContain("validate_complete_row_bounds");
     expect(registerDayServerSource).toContain("combined_total");
-    expect(pageLoader).toContain("fetch_register_day_summary_page_on_connection");
+    expect(pageLoader).toContain(
+      "fetch_register_day_summary_page_on_connection",
+    );
     expect(pageLoader).toContain("transaction.commit().await");
   });
 
@@ -185,12 +220,18 @@ test.describe("Register report output integrity contracts", () => {
     expect(additionalMetrics).toContain(
       'summaryBooked ? summaryBooked.pickup_count : "—"',
     );
-    expect(additionalMetrics).not.toContain("summaryBooked?.special_order_sale_count || 0");
-    expect(additionalMetrics).not.toContain("summaryBooked?.new_appointment_count || 0");
+    expect(additionalMetrics).not.toContain(
+      "summaryBooked?.special_order_sale_count || 0",
+    );
+    expect(additionalMetrics).not.toContain(
+      "summaryBooked?.new_appointment_count || 0",
+    );
   });
 
   test("refunds-owed chart uses the remaining obligation", () => {
-    const report = REPORTS_CATALOG.find((candidate) => candidate.id === "returns_exchanges_refunds");
+    const report = REPORTS_CATALOG.find(
+      (candidate) => candidate.id === "returns_exchanges_refunds",
+    );
 
     expect(report?.chartConfigs?.[0]).toMatchObject({
       title: "Refunds owed by day",
@@ -202,11 +243,15 @@ test.describe("Register report output integrity contracts", () => {
 
   test("returns and refunds load a complete stable bounded snapshot before rendering or output", () => {
     const loader = reportsWorkspaceSource.slice(
-      reportsWorkspaceSource.indexOf("async function fetchCompleteAuditedRowsPayload"),
+      reportsWorkspaceSource.indexOf(
+        "async function fetchCompleteAuditedRowsPayload",
+      ),
       reportsWorkspaceSource.indexOf("function registerDayPageTruth"),
     );
     const serverReport = insightsServerSource.slice(
-      insightsServerSource.indexOf("const RETURNS_EXCHANGES_REFUNDS_ACTIVITY_CTE"),
+      insightsServerSource.indexOf(
+        "const RETURNS_EXCHANGES_REFUNDS_ACTIVITY_CTE",
+      ),
       insightsServerSource.indexOf("pub struct DonationPaymentReportRow"),
     );
 
@@ -216,7 +261,9 @@ test.describe("Register report output integrity contracts", () => {
     expect(loader).toContain("rows.length !== expectedTotal");
     expect(loader).toContain("Nothing was displayed or output");
     expect(reportsWorkspaceSource).toContain("Complete audited set:");
-    expect(insightsServerSource).toContain("RETURNS_REPORT_MAX_ROWS: i64 = 20_000");
+    expect(insightsServerSource).toContain(
+      "RETURNS_REPORT_MAX_ROWS: i64 = 20_000",
+    );
     expect(serverReport).toContain("REPEATABLE READ READ ONLY");
     expect(serverReport).toContain("STRING_AGG(ROW_TO_JSON(report_row)::text");
     expect(serverReport).toContain("ORDER BY activity_at DESC, row_id ASC");
@@ -249,7 +296,9 @@ test.describe("Register report output integrity contracts", () => {
       registerReportsSource.indexOf("const fetchOpenSessions"),
     );
 
-    expect(archivedLoader).toContain("archivedZReportRequestRef.current?.abort()");
+    expect(archivedLoader).toContain(
+      "archivedZReportRequestRef.current?.abort()",
+    );
     expect(archivedLoader).toContain("fetchWithTimeout");
     expect(archivedLoader).toContain("signal: controller.signal");
     expect(archivedLoader).toContain("archived Z-report timed out");
@@ -258,12 +307,89 @@ test.describe("Register report output integrity contracts", () => {
     expect(historyLoader).toContain("fetchWithTimeout");
     expect(historyLoader).toContain("setZLogsError");
     expect(registerReportsSource).toContain("Z-report history is unavailable.");
-    expect(registerReportsSource).toContain("Showing up to the newest {Z_LOG_LIMIT}");
+    expect(registerReportsSource).toContain(
+      "Showing up to the newest {Z_LOG_LIMIT}",
+    );
+  });
+
+  test("immediate and archived Z-reports print immutable unresolved close issues", () => {
+    expect(reportPrintSource).toContain("UNRESOLVED ISSUES AT CLOSE");
+    expect(reportPrintSource).toContain("Unresolved Issues at Close");
+    expect(reportPrintSource).toContain(
+      "UNRESOLVED ISSUES CURRENTLY VISIBLE (PREVIEW)",
+    );
+    expect(reportPrintSource).toContain(
+      "These items are unresolved in this pre-close preview.",
+    );
+    expect(reportPrintSource).toContain(
+      "Closing did not resolve or dismiss them.",
+    );
+    expect(reportPrintSource).toContain("unresolvedRecoveryKeys");
+    expect(reportPrintSource).toContain("unresolvedRecoveryJobs");
+    expect(reportPrintSource).toContain("unresolvedStationWarnings");
+    expect(reportPrintSource).toContain("unresolvedHelcimAttempts");
+    expect(registerReportsSource).toContain(
+      "unresolvedCloseIssues: snapshot?.unresolved_close_issues ?? null",
+    );
+    expect(registerReportsSource).toContain(
+      'unresolvedIssuesContext: "closed"',
+    );
+    expect(closeRegisterSource).toContain(
+      "const closedReconciliation = result.reconciliation",
+    );
+    expect(closeRegisterSource).toContain(
+      "const closedSnapshot = result.z_report_snapshot",
+    );
+    expect(closeRegisterSource).toContain(
+      "openCurrentZReportPrint(\n            closedReconciliation",
+    );
+    expect(closeRegisterSource).toContain(
+      "const daySummary = isClosedOutput\n        ? null",
+    );
+    expect(closeRegisterSource).toContain(
+      "closedSnapshot?.unresolved_close_issues ?? null",
+    );
+    expect(closeRegisterSource).toContain(
+      "includeSupplementalSummary: daySummary != null",
+    );
+    expect(reportPrintSource).toContain(
+      "This immediate close report does not substitute live or partial values.",
+    );
+    expect(closeRegisterSource).not.toContain(
+      'openCurrentZReportPrint(\n        recon,\n        "print"',
+    );
+
+    const closeHandler = sessionsServerSource.slice(
+      sessionsServerSource.indexOf("async fn close_session("),
+      sessionsServerSource.indexOf(
+        "async fn",
+        sessionsServerSource.indexOf("async fn close_session(") + 1,
+      ),
+    );
+    const groupLock = closeHandler.indexOf("FOR UPDATE");
+    const recoveryLock = closeHandler.indexOf("OPEN_RECOVERY_JOBS_SQL");
+    const helcimLock = closeHandler.indexOf("UNRESOLVED_HELCIM_ATTEMPTS_SQL");
+    const reconciliationRead = closeHandler.indexOf("build_reconciliation(");
+    expect(groupLock).toBeGreaterThanOrEqual(0);
+    expect(recoveryLock).toBeGreaterThan(groupLock);
+    expect(helcimLock).toBeGreaterThan(recoveryLock);
+    expect(reconciliationRead).toBeGreaterThan(helcimLock);
+    expect(sessionsServerSource).toContain(
+      "target.checkout_client_id IS DISTINCT FROM ppa.checkout_client_id",
+    );
+    expect(sessionsServerSource).toContain(
+      "AND ppa.checkout_client_id IS NOT NULL",
+    );
+    expect(sessionsServerSource).toContain("z_report_snapshot: z_snapshot");
   });
 
   test("the dashboard distinguishes a physical Register from its session sequence", () => {
-    expect(registerDashboardSource).toContain('Register #{registerLane ?? "?"}');
+    expect(registerDashboardSource).toContain(
+      'Register #{registerLane ?? "?"}',
+    );
     expect(registerDashboardSource).toContain("Session #${registerOrdinal}");
-    expect(registerDashboardSource).not.toContain('Register {registerOrdinal ?? "0"}');
+    expect(registerDashboardSource).not.toContain(
+      'Register {registerOrdinal ?? "0"}',
+    );
   });
 });

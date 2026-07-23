@@ -15,6 +15,7 @@
     "check:help-impact": "node scripts/check-help-impact.mjs",
     "check:staff-customer-save-contracts": "node scripts/check-staff-customer-save-contracts.mjs",
     "check:financial-invariants": "node scripts/check-financial-invariants.mjs",
+    "check:counterpoint-fulfillment-incident": "node scripts/check-counterpoint-fulfillment-incident-evidence.mjs",
     "check:go-live-blockers": "node scripts/check-go-live-blockers.mjs",
     "check:dirty-migration-rehearsal": "node scripts/check-dirty-migration-rehearsal.mjs",
     "check:pre-retag": "node scripts/check-pre-retag.mjs",

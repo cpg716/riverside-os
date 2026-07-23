@@ -3241,6 +3241,9 @@ pub struct MeilisearchStatusResponse {
     pub configured: bool,
     pub connection_ok: bool,
     pub connection_error: Option<String>,
+    pub version: Option<String>,
+    pub expected_version: &'static str,
+    pub version_supported: bool,
     pub indices: Vec<MeilisearchSyncRow>,
     pub is_indexing: bool,
     pub full_rebuild_current: bool,
@@ -3327,6 +3330,7 @@ async fn get_meilisearch_status(
     let mut latest_by_index: HashMap<String, MeilisearchTaskSummary> = HashMap::new();
     let mut latest_failed_by_index: HashMap<String, MeilisearchTaskSummary> = HashMap::new();
     let mut connection_error: Option<String> = None;
+    let mut runtime_version: Option<String> = None;
 
     let meilisearch_client = state
         .meilisearch
@@ -3335,29 +3339,35 @@ async fn get_meilisearch_status(
 
     let mut is_indexing = false;
     if let Some(client) = &meilisearch_client {
-        match client.get_tasks().await {
-            Ok(tasks) => {
-                is_indexing = tasks.results.iter().any(|t| {
-                    matches!(
-                        t,
-                        meilisearch_sdk::tasks::Task::Enqueued { .. }
-                            | meilisearch_sdk::tasks::Task::Processing { .. }
-                    )
-                });
-                for task in tasks.results {
-                    let summary = meili_task_summary(&task);
-                    if let Some(index_uid) = summary.index_uid.clone() {
-                        latest_by_index
-                            .entry(index_uid.clone())
-                            .or_insert_with(|| summary.clone());
-                        if summary.status == "failed" {
-                            latest_failed_by_index.entry(index_uid).or_insert(summary);
+        match client.get_version().await {
+            Ok(version) => runtime_version = Some(version.pkg_version),
+            Err(e) => connection_error = Some(meili_connection_error_message(&e)),
+        }
+        if connection_error.is_none() {
+            match client.get_tasks().await {
+                Ok(tasks) => {
+                    is_indexing = tasks.results.iter().any(|t| {
+                        matches!(
+                            t,
+                            meilisearch_sdk::tasks::Task::Enqueued { .. }
+                                | meilisearch_sdk::tasks::Task::Processing { .. }
+                        )
+                    });
+                    for task in tasks.results {
+                        let summary = meili_task_summary(&task);
+                        if let Some(index_uid) = summary.index_uid.clone() {
+                            latest_by_index
+                                .entry(index_uid.clone())
+                                .or_insert_with(|| summary.clone());
+                            if summary.status == "failed" {
+                                latest_failed_by_index.entry(index_uid).or_insert(summary);
+                            }
                         }
                     }
                 }
-            }
-            Err(e) => {
-                connection_error = Some(meili_connection_error_message(&e));
+                Err(e) => {
+                    connection_error = Some(meili_connection_error_message(&e));
+                }
             }
         }
         if connection_error.is_none() {
@@ -3375,6 +3385,8 @@ async fn get_meilisearch_status(
 
     let configured = meilisearch_client.is_some();
     let connection_ok = configured && connection_error.is_none();
+    let version_supported = runtime_version.as_deref()
+        == Some(crate::logic::meilisearch_client::EXPECTED_MEILISEARCH_VERSION);
     let cutoff = chrono::Utc::now() - chrono::Duration::hours(36);
     let rebuild_sync = sync_by_index.get("ros_reindex_run");
     let full_rebuild_current = rebuild_sync.is_some_and(|row| {
@@ -3400,9 +3412,10 @@ async fn get_meilisearch_status(
                 .get(&index_name)
                 .is_some_and(|task| task.status == "failed");
             let search_ready = if index_name == "ros_reindex_run" {
-                connection_ok && !is_indexing && full_rebuild_current
+                connection_ok && version_supported && !is_indexing && full_rebuild_current
             } else {
                 connection_ok
+                    && version_supported
                     && !is_indexing
                     && sync_success
                     && recent_enough
@@ -3414,6 +3427,12 @@ async fn get_meilisearch_status(
                 "Search service is not configured.".to_string()
             } else if !connection_ok {
                 "Live search service status is unavailable.".to_string()
+            } else if !version_supported {
+                format!(
+                    "Search runtime {} does not match the Riverside {} pin.",
+                    runtime_version.as_deref().unwrap_or("unknown"),
+                    crate::logic::meilisearch_client::EXPECTED_MEILISEARCH_VERSION
+                )
             } else if is_indexing {
                 "Search index update is still processing.".to_string()
             } else if !sync_success {
@@ -3460,6 +3479,9 @@ async fn get_meilisearch_status(
         configured,
         connection_ok,
         connection_error,
+        version: runtime_version,
+        expected_version: crate::logic::meilisearch_client::EXPECTED_MEILISEARCH_VERSION,
+        version_supported,
         indices,
         is_indexing,
         full_rebuild_current,

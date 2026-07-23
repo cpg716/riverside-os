@@ -19,7 +19,7 @@
 2. If checkout **queues**, keep the device online long enough for the Main Hub recovery copy to appear. Do not clear browser storage until sync completes; note the **pending count** for the next manager handoff.
 3. For **open orders** that need payment or edits, move to a **connected terminal** or wait for connectivity rather than duplicating work on paper.
 4. After an outage, confirm **`pending sync`** and **blocked recovery** counts are **zero** and spot-check **Orders** in Back Office for the affected period.
-5. Do not close the register while checkout recovery is pending or blocked; the close flow blocks Z-close until recovery is resolved.
+5. Review and repair pending or blocked checkout recovery before close when practical. If work remains, assign an owner and use the ordinary authorized close. Riverside keeps the recovery available and freezes the exact warning under **Unresolved Issues at Close** in the immediate and archived Z-Report; close never resolves or dismisses it.
 
 ## Engineering notes
 

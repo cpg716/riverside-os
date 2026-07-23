@@ -74,6 +74,7 @@ pub async fn recalc_transaction_totals(
                 GROUP BY transaction_line_id
             ) orl ON orl.transaction_line_id = oi.id
             WHERE oi.transaction_id = $1
+              AND NOT COALESCE(oi.is_internal, FALSE)
         )
         UPDATE transactions t
         SET

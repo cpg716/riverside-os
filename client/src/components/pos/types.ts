@@ -226,6 +226,8 @@ export interface PosOrderOptions {
   ship_to?: PosShipToForm | null;
   overrideReadiness?: boolean;
   overrideReason?: string;
+  readinessOverrideManagerStaffId?: string;
+  readinessOverrideManagerPin?: string;
   pickupPaymentOverride?: {
     managerStaffId: string;
     managerPin: string;

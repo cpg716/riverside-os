@@ -302,7 +302,7 @@ Key variables (full table in [`DEVELOPER.md`](../DEVELOPER.md)):
 |----------|---------|
 | **`DATABASE_URL`** | PostgreSQL connection string (server only). |
 | **`RIVERSIDE_MEILISEARCH_URL`** | Windows Main Hub default: `http://127.0.0.1:7700`. The installer writes this and starts the local Meilisearch task. Docker/local-dev may use `http://meilisearch:7700`. |
-| **`RIVERSIDE_MEILISEARCH_API_KEY`** | Windows Main Hub default: `dev_master_key_change_me`. The saved encrypted key in **Settings → Integrations → Meilisearch** must match the running Meilisearch `MEILI_MASTER_KEY`; the env value is the deployment fallback when no saved value exists. |
+| **`RIVERSIDE_MEILISEARCH_API_KEY`** | New Windows Main Hub installs generate a unique 48-character key. The saved encrypted key in **Settings → Integrations → Meilisearch** must match the running Meilisearch master/API key; the env value is the deployment fallback when no saved value exists. |
 | **`RIVERSIDE_CORS_ORIGINS`** | Required for browser-facing production when paired with **`RIVERSIDE_STRICT_PRODUCTION=true`**. Comma-separated **browser** origins (e.g. `https://app.example.com,http://192.168.1.50:3000`). |
 | **`RIVERSIDE_STRICT_PRODUCTION`** | Recommended production hardening switch. Refuses startup without **`RIVERSIDE_CORS_ORIGINS`**, **`RIVERSIDE_STORE_CUSTOMER_JWT_SECRET`**, and a valid **`FRONTEND_DIST`**. |
 | **`RIVERSIDE_STORE_CUSTOMER_JWT_SECRET`** | Required if the online store/customer-account routes are reachable. Use a long random secret; never rely on the development fallback in production. |

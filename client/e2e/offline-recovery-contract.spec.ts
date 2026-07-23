@@ -580,10 +580,12 @@ test.describe("offline checkout recovery contract", () => {
       if (!queue) throw new Error("E2E queue harness is unavailable");
       await queue.syncCheckoutRecoveryWithServer();
     });
-    await expect.poll(() => getCheckoutQueueItem(page, item.id)).toMatchObject({
-      id: item.id,
-      status: "blocked",
-    });
+    await expect
+      .poll(() => getCheckoutQueueItem(page, item.id))
+      .toMatchObject({
+        id: item.id,
+        status: "blocked",
+      });
 
     includeTransactionEvidence = true;
     const resolvedEvent = page.evaluate(
@@ -592,9 +594,7 @@ test.describe("offline checkout recovery contract", () => {
           window.addEventListener(
             eventName,
             (event) =>
-              resolve(
-                (event as CustomEvent<Record<string, string>>).detail,
-              ),
+              resolve((event as CustomEvent<Record<string, string>>).detail),
             { once: true },
           );
         }),
@@ -658,12 +658,14 @@ test.describe("offline checkout recovery contract", () => {
       if (!queue) throw new Error("E2E queue harness is unavailable");
       await queue.syncCheckoutRecoveryWithServer();
     });
-    await expect.poll(() => getCheckoutQueueItem(page, item.id)).toMatchObject({
-      id: item.id,
-      status: "blocked",
-      recoveryKind: "online_unconfirmed",
-      lastErrorMessage: "Checkout outcome is still unknown",
-    });
+    await expect
+      .poll(() => getCheckoutQueueItem(page, item.id))
+      .toMatchObject({
+        id: item.id,
+        status: "blocked",
+        recoveryKind: "online_unconfirmed",
+        lastErrorMessage: "Checkout outcome is still unknown",
+      });
   });
 
   test("concurrent flush triggers share one checkout replay", async ({
@@ -786,7 +788,7 @@ test.describe("offline checkout recovery contract", () => {
     expect(item?.lastErrorMessage).toBeTruthy();
   });
 
-  test("register close modal blocks Z-close while checkout recovery queue has pending or blocked rows", async ({
+  test("register close keeps recovery visible while ordinary Z-close remains available", async ({
     page,
     request,
   }) => {
@@ -841,12 +843,40 @@ test.describe("offline checkout recovery contract", () => {
     await expect(dialogs).toHaveCount(1, { timeout: 15_000 });
     const dialog = dialogs.first();
     await expect(
-      dialog.getByText(/current till-group recovery/i),
+      dialog.getByText(/current till-group follow-up/i),
     ).toBeVisible();
     await expect(dialog.getByText(/1 need recovery/i)).toBeVisible();
     await expect(dialog.getByText(/resolve before close/i)).toBeVisible();
+    await expect(dialog.getByText(/Z-close can continue/i)).toBeVisible();
 
-    await dialog.getByRole("button", { name: /^cancel$/i }).click();
-    await expect(dialog).toBeHidden();
+    await dialog.locator('input[placeholder="---"]').fill("0.00");
+    await dialog.getByRole("button", { name: /next: checks/i }).click();
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: /next: z-report/i })
+      .click();
+
+    const reportDialog = page.getByRole("dialog").first();
+    await reportDialog
+      .locator('textarea[placeholder^="Explain any discrepancy"]')
+      .fill("Recovery remains listed for follow-up after ordinary close.");
+    const closeAndPrint = reportDialog.getByRole("button", {
+      name: /close & print z-report/i,
+    });
+    await expect(closeAndPrint).toBeEnabled();
+    await expect(
+      reportDialog.getByRole("button", { name: /manager force z-close/i }),
+    ).toHaveCount(0);
+    await closeAndPrint.click();
+    await expect(
+      page.getByRole("dialog").getByText(/follow-up remains open/i),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("dialog").getByText(/close-time evidence it can verify/i),
+    ).toBeVisible();
+
+    await page.keyboard.press("Escape");
+    await reportDialog.getByRole("button", { name: /^cancel$/i }).click();
+    await expect(reportDialog).toBeHidden();
   });
 });

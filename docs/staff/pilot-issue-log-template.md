@@ -84,7 +84,7 @@ Do not ask staff to repeat a payment, refund, inventory post, QBO approval, RMS 
 
 | Issue type | Owner |
 |------------|-------|
-| Checkout, refund, parked sale, close blocker | Manager on duty |
+| Checkout, refund, parked sale, close warning | Manager on duty |
 | RMS account charge or reconciliation | Manager on duty plus RMS/accounting owner |
 | QBO staging, posting, mapping, reconciliation | Accounting owner |
 | Wedding pickup, wrong member, balance confusion | Wedding lead plus manager |

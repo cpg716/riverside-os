@@ -43,6 +43,9 @@ v0.95.0 preserves the v0.85.x GO LIVE readiness baseline, incorporates the exten
 - [ ] Replacement local validation passes before tagging: whitespace, version parity, client lint/typecheck, locked Rust checks, deployment release gates, go-live blockers, and Help impact. Local Playwright is intentionally skipped at operator direction.
 - [ ] Exact-commit GitHub Lint and blocking Playwright checks pass on the final replacement commit.
 - [ ] `scripts/production_audit_probes.sql` runs read-only against the release database and all P0/P1 probes are explained or zero-row.
+- [ ] The July 21 false-fulfillment incident has zero unresolved universal-write-boundary blockers: the runtime role is non-owner/least-privilege, every fulfillment and recognition writer uses the trusted exact-scope contract, payment-allocation history and inventory line/event provenance exist, all normal/adversarial contracts pass, and the Main Hub has a restore-tested backup. The held prototype under `docs/incidents/design/` does not satisfy this gate.
+- [ ] The 567-record recovery cohort is dispositioned from retained evidence. Current state is 557 traceability reviews, one current-exception review, nine failed recognition recoveries, and zero verified; none may be status-edited or called corrected without complete provenance.
+- [ ] `npm run check:pre-retag` passes the Counterpoint incident release-clearance mode. The gate intentionally fails while any of the 567 records remain unresolved; the standalone evidence checker passing is not release clearance.
 
 ## In-App Update System (v0.80.9+)
 
@@ -79,7 +82,9 @@ v0.95.0 preserves the v0.85.x GO LIVE readiness baseline, incorporates the exten
 - [ ] Complete odd-cent cash sale with rounding off and verify exact-cent checkout, receipt, reporting, and QBO staging.
 - [ ] Close exact-cash Z report.
 - [ ] Close cash-discrepancy Z report and verify notes + notification.
-- [ ] Confirm register close is blocked while checkout queue has pending or blocked entries.
+- [ ] Confirm pending or blocked checkout recovery remains visible with its repair actions while ordinary authorized close stays available.
+- [ ] Confirm the immediate and archived Z-Report preserve the exact pre-close recovery warnings under **Unresolved Issues at Close** without resolving them.
+- [ ] Confirm cash count, check review, Daily Cash Deposit date, and an over-$5 discrepancy note remain required close inputs.
 
 ## Inventory Drill
 

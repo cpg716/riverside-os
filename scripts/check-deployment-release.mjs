@@ -243,6 +243,11 @@ assertIncludes(
   '"language": "epl"',
   "deployment config example must carry the Riverside LP 2844 EPL tag-printer default",
 );
+assertNotIncludes(
+  deploymentConfigExample,
+  '"RIVERSIDE_MEILISEARCH_API_KEY": "dev_master_key_change_me"',
+  "new Main Hub installs must generate a private Meilisearch key",
+);
 
 const counterpointTender092 = "migrations/092_counterpoint_live_tender_aliases.sql";
 const counterpointSquare093 = "migrations/093_counterpoint_square_tender_alias.sql";
@@ -325,6 +330,24 @@ for (const copy of [
     deploymentPackageBuilder,
     copy,
     "Windows deployment package must include the local Meilisearch runtime used by Main Hub search",
+  );
+}
+const meilisearchVersionMatch = read(deploymentPackageBuilder).match(
+  /\$meiliVersion = "([^"]+)"/,
+);
+if (!meilisearchVersionMatch) {
+  fail(`${deploymentPackageBuilder}: unable to resolve the pinned Meilisearch version`);
+} else {
+  const meilisearchVersion = meilisearchVersionMatch[1];
+  assertIncludes(
+    "docker-compose.yml",
+    `getmeili/meilisearch:v${meilisearchVersion}`,
+    "Docker and Windows Main Hub must use the same Meilisearch runtime",
+  );
+  assertIncludes(
+    "server/src/logic/meilisearch_client.rs",
+    `EXPECTED_MEILISEARCH_VERSION: &str = "${meilisearchVersion}"`,
+    "runtime health checks must enforce the packaged Meilisearch version",
   );
 }
 assertIncludes(
@@ -477,6 +500,8 @@ for (const copy of [
   "Wait-MeilisearchReady",
   "Repair-MeilisearchDataCompatibility",
   "data-incompatible-",
+  "--no-analytics",
+  "--schedule-snapshot=86400",
 ]) {
   assertIncludes(
     mainHubInstaller,

@@ -1114,9 +1114,18 @@ function Ensure-MeilisearchServerEnvironment($Config) {
     $url = "http://127.0.0.1:7700"
     $script:meilisearchConfigModified = $true
   }
-  if ([string]::IsNullOrWhiteSpace($apiKey)) {
-    $apiKey = "dev_master_key_change_me"
+  $meiliInstallRoot = "$($Config.server.installRoot)".Trim()
+  if ([string]::IsNullOrWhiteSpace($meiliInstallRoot)) {
+    $meiliInstallRoot = "C:\RiversideOS"
+  }
+  $existingMeiliVersion = Join-Path $meiliInstallRoot "meilisearch\data\VERSION"
+  $isDevelopmentDefault = $apiKey -eq "dev_master_key_change_me"
+  if ([string]::IsNullOrWhiteSpace($apiKey) -or ($isDevelopmentDefault -and -not (Test-Path $existingMeiliVersion))) {
+    $apiKey = New-RiversideSecret 48
     $script:meilisearchConfigModified = $true
+    Write-Host "Auto-generated a private Meilisearch master key for this Main Hub." -ForegroundColor Green
+  } elseif ($isDevelopmentDefault) {
+    Write-Warning "This existing Main Hub still uses the legacy development Meilisearch key. Preserve it for this update, then rotate the Meilisearch service key and saved Search credential together during a maintenance window."
   }
 
   if (-not $envObj.PSObject.Properties["RIVERSIDE_MEILISEARCH_URL"] -or "$($envObj.RIVERSIDE_MEILISEARCH_URL)" -ne $url) {
@@ -1232,6 +1241,8 @@ function Ensure-RiversideMeilisearchHost(
   $meiliDir = Join-Path $InstallRoot "meilisearch"
   $meiliExe = Join-Path $meiliDir "meilisearch.exe"
   $dataDir = Join-Path $meiliDir "data"
+  $snapshotDir = Join-Path $meiliDir "snapshots"
+  $dumpDir = Join-Path $meiliDir "dumps"
 
   if ((-not (Test-Path $meiliSrc)) -and (-not (Test-Path $meiliExe))) {
     throw "Meilisearch runtime is missing from the deployment package: $meiliSrc"
@@ -1249,8 +1260,10 @@ function Ensure-RiversideMeilisearchHost(
   }
   Repair-MeilisearchDataCompatibility $meiliExe $dataDir $meiliDir
   New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
+  New-Item -ItemType Directory -Force -Path $snapshotDir | Out-Null
+  New-Item -ItemType Directory -Force -Path $dumpDir | Out-Null
 
-  $argument = "--http-addr 127.0.0.1:$port --master-key `"$apiKey`" --db-path `"$dataDir`" --env production"
+  $argument = "--http-addr 127.0.0.1:$port --master-key `"$apiKey`" --db-path `"$dataDir`" --snapshot-dir `"$snapshotDir`" --dump-dir `"$dumpDir`" --schedule-snapshot=86400 --no-analytics --env production"
   Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
   $action = New-ScheduledTaskAction -Execute $meiliExe -Argument $argument -WorkingDirectory $meiliDir
   $trigger = New-ScheduledTaskTrigger -AtStartup
@@ -1797,10 +1810,19 @@ if ($packageManifest -and $packageManifest.releaseVersion) {
 
 function New-RiversideSecret([int]$Length) {
   $chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-  $random = New-Object System.Random
+  $bytes = New-Object byte[] 1
+  $random = [System.Security.Cryptography.RandomNumberGenerator]::Create()
   $result = ""
-  for ($i = 0; $i -lt $Length; $i++) {
-    $result += $chars[$random.Next(0, $chars.Length)]
+  try {
+    while ($result.Length -lt $Length) {
+      $random.GetBytes($bytes)
+      # Reject the top eight byte values so modulo 62 is unbiased.
+      if ($bytes[0] -lt 248) {
+        $result += $chars[$bytes[0] % $chars.Length]
+      }
+    }
+  } finally {
+    $random.Dispose()
   }
   return $result
 }

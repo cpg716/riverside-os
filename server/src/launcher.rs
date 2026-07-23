@@ -383,6 +383,13 @@ async fn resolve_meilisearch_client(
 
     let health = crate::logic::meilisearch_client::health_check(&client).await;
     if health.reachable {
+        if !health.version_supported {
+            let msg = health.message.clone();
+            if strict_production {
+                return Err(msg.into());
+            }
+            tracing::warn!(message = %msg, "Meilisearch runtime version differs from the Riverside pin");
+        }
         return Ok(Some(client));
     }
 

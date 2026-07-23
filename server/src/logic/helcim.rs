@@ -3,7 +3,14 @@ use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::PgPool;
-use std::str::FromStr;
+use std::{
+    collections::VecDeque,
+    net::IpAddr,
+    str::FromStr,
+    sync::OnceLock,
+    time::{Duration, Instant},
+};
+use tokio::sync::{Mutex, Semaphore, SemaphorePermit};
 
 use crate::logic::integration_credentials::{self, IntegrationCredentialError};
 
@@ -13,6 +20,15 @@ pub const SIMULATOR_DEVICE_CODE: &str = "SIM1";
 
 const HELCIM_MAX_RETRIES: u32 = 3;
 const HELCIM_BASE_RETRY_DELAY_MS: u64 = 500;
+const HELCIM_PAYMENT_IDEMPOTENCY_WINDOW_SECONDS: i64 = 5 * 60;
+// The shared HTTP client allows 25 seconds per request and Payment API calls
+// may make four total attempts with backoff. Stop replaying well before
+// Helcim clears the key so the complete retry sequence remains inside the
+// provider's five-minute idempotency window, even with limiter contention.
+const HELCIM_PAYMENT_IDEMPOTENCY_RETRY_RESERVE_SECONDS: i64 = 3 * 60;
+const HELCIM_MAX_CONCURRENT_REQUESTS: usize = 5;
+const HELCIM_MINUTE_REQUEST_LIMIT: u32 = 100;
+const HELCIM_HOUR_REQUEST_LIMIT: u32 = 3_000;
 
 #[derive(Debug, Clone)]
 pub struct HelcimConfig {
@@ -62,6 +78,94 @@ pub struct HelcimTerminalRequestError {
     pub status: Option<reqwest::StatusCode>,
     pub message: String,
     pub raw_text: Option<String>,
+    /// The request may have reached Helcim even though ROS did not receive a
+    /// definitive response. Hardware requests must be recovered, not retried.
+    pub outcome_unknown: bool,
+}
+
+#[derive(Debug)]
+pub struct HelcimPaymentRequestError {
+    pub status: Option<reqwest::StatusCode>,
+    pub message: String,
+    /// True only when the Payment API request may have reached Helcim or a
+    /// successful provider response could not be decoded. Callers must retain
+    /// the same attempt/idempotency key for recovery instead of starting over.
+    pub outcome_unknown: bool,
+}
+
+impl std::fmt::Display for HelcimPaymentRequestError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for HelcimPaymentRequestError {}
+
+#[derive(Debug)]
+struct HelcimRateState {
+    minute_requests: VecDeque<Instant>,
+    hour_requests: VecDeque<Instant>,
+    provider_minute_remaining: Option<(u32, Instant)>,
+    provider_hour_remaining: Option<(u32, Instant)>,
+    blocked_until: Option<Instant>,
+}
+
+impl HelcimRateState {
+    fn new() -> Self {
+        Self {
+            minute_requests: VecDeque::new(),
+            hour_requests: VecDeque::new(),
+            provider_minute_remaining: None,
+            provider_hour_remaining: None,
+            blocked_until: None,
+        }
+    }
+
+    fn refresh_windows(&mut self, now: Instant) {
+        while self
+            .minute_requests
+            .front()
+            .is_some_and(|sent_at| now.duration_since(*sent_at) >= Duration::from_secs(60))
+        {
+            self.minute_requests.pop_front();
+        }
+        while self
+            .hour_requests
+            .front()
+            .is_some_and(|sent_at| now.duration_since(*sent_at) >= Duration::from_secs(60 * 60))
+        {
+            self.hour_requests.pop_front();
+        }
+        if self
+            .provider_minute_remaining
+            .is_some_and(|(_, observed_at)| {
+                now.duration_since(observed_at) >= Duration::from_secs(60)
+            })
+        {
+            self.provider_minute_remaining = None;
+        }
+        if self
+            .provider_hour_remaining
+            .is_some_and(|(_, observed_at)| {
+                now.duration_since(observed_at) >= Duration::from_secs(60 * 60)
+            })
+        {
+            self.provider_hour_remaining = None;
+        }
+        if self
+            .blocked_until
+            .is_some_and(|blocked_until| blocked_until <= now)
+        {
+            self.blocked_until = None;
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct HelcimQuotaHeaders {
+    retry_after_seconds: Option<u64>,
+    minute_remaining: Option<u32>,
+    hour_remaining: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -280,6 +384,7 @@ pub struct HelcimCardTransactionsQuery {
     pub date_from: Option<NaiveDate>,
     pub date_to: Option<NaiveDate>,
     pub card_batch_id: Option<String>,
+    pub invoice_number: Option<String>,
     pub limit: Option<i32>,
     pub page: Option<i32>,
 }
@@ -293,28 +398,23 @@ pub struct HelcimDevicesQuery {
 
 impl HelcimConfig {
     pub fn from_env() -> Self {
-        let api_token = non_empty_env("HELCIM_API_TOKEN");
+        let mut api_token = non_empty_env("HELCIM_API_TOKEN");
         let terminal_1_device_code = non_empty_env("HELCIM_TERMINAL_1_DEVICE_CODE");
         let terminal_2_device_code = non_empty_env("HELCIM_TERMINAL_2_DEVICE_CODE");
-        let mut api_base_url = non_empty_env("HELCIM_API_BASE_URL")
-            .unwrap_or_else(|| DEFAULT_HELCIM_API_BASE_URL.to_string())
-            .trim_end_matches('/')
-            .to_string();
-
-        // Normalize Helcim API URL: ensure api. prefix and /v2 suffix
-        let host = api_base_url
-            .trim_start_matches("https://")
-            .trim_start_matches("http://");
-
-        if host.starts_with("helcim.com") || host.starts_with("helcim.app") {
-            api_base_url = api_base_url.replace("helcim.", "api.helcim.");
-        }
-
-        if (api_base_url.contains("api.helcim.com") || api_base_url.contains("helcim.app"))
-            && !api_base_url.ends_with("/v2")
-        {
-            api_base_url.push_str("/v2");
-        }
+        let api_base_url = non_empty_env("HELCIM_API_BASE_URL")
+            .map(|value| match validate_helcim_api_base_url(&value) {
+                Ok(value) => value,
+                Err(error) => {
+                    // An explicit but invalid development/test override must
+                    // not silently redirect a real credential to production.
+                    // Keep the canonical URL for status display, but disable
+                    // live API calls until the override is corrected.
+                    api_token = None;
+                    tracing::error!(%error, "Disabling Helcim API because its explicit base URL is unsafe");
+                    DEFAULT_HELCIM_API_BASE_URL.to_string()
+                }
+            })
+            .unwrap_or_else(|| DEFAULT_HELCIM_API_BASE_URL.to_string());
 
         Self {
             api_token,
@@ -387,6 +487,13 @@ impl HelcimConfig {
             terminal_1_device_configured || terminal_2_device_configured;
         let live_terminal_payments_ready = api_token_configured && any_terminal_device_configured;
 
+        if let Some(explicit_base_url) = non_empty_env("HELCIM_API_BASE_URL") {
+            if let Err(error) = validate_helcim_api_base_url(&explicit_base_url) {
+                missing_config.push(format!(
+                    "Helcim API host is invalid; live calls are disabled. {error}"
+                ));
+            }
+        }
         if !simulator_enabled && !api_token_configured {
             missing_config
                 .push("Helcim API token is not saved in Backoffice Settings.".to_string());
@@ -422,6 +529,57 @@ impl HelcimConfig {
             missing_config,
         }
     }
+}
+
+pub fn helcim_custom_api_base_url_allowed() -> bool {
+    !env_truthy("RIVERSIDE_STRICT_PRODUCTION") && env_truthy("HELCIM_ALLOW_CUSTOM_API_BASE_URL")
+}
+
+pub fn validate_helcim_api_base_url(value: &str) -> Result<String, String> {
+    let normalized = value.trim().trim_end_matches('/');
+    if normalized == DEFAULT_HELCIM_API_BASE_URL {
+        return Ok(DEFAULT_HELCIM_API_BASE_URL.to_string());
+    }
+    if env_truthy("RIVERSIDE_STRICT_PRODUCTION") {
+        return Err(format!(
+            "Strict production requires the Helcim API host {DEFAULT_HELCIM_API_BASE_URL}."
+        ));
+    }
+    if !helcim_custom_api_base_url_allowed() {
+        return Err(format!(
+            "Custom Helcim API hosts are disabled. Use {DEFAULT_HELCIM_API_BASE_URL}, or explicitly enable HELCIM_ALLOW_CUSTOM_API_BASE_URL only in development/test."
+        ));
+    }
+
+    let parsed = reqwest::Url::parse(normalized)
+        .map_err(|_| "Helcim API host must be a valid URL.".to_string())?;
+    if parsed.username() != "" || parsed.password().is_some() {
+        return Err("Helcim API host must not include URL credentials.".to_string());
+    }
+    if parsed.query().is_some() || parsed.fragment().is_some() {
+        return Err("Helcim API host must not include a query or fragment.".to_string());
+    }
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| "Helcim API host must include a hostname.".to_string())?;
+    let loopback = host.eq_ignore_ascii_case("localhost")
+        || host
+            .parse::<IpAddr>()
+            .map(|address| address.is_loopback())
+            .unwrap_or(false);
+    match parsed.scheme() {
+        "https" => {}
+        "http" if loopback => {}
+        "http" => {
+            return Err(
+                "Custom non-HTTPS Helcim API hosts are allowed only on loopback in development/test."
+                    .to_string(),
+            );
+        }
+        _ => return Err("Helcim API host must use HTTPS.".to_string()),
+    }
+
+    Ok(normalized.to_string())
 }
 
 pub fn redact_provider_payload(value: &Value) -> Value {
@@ -579,6 +737,14 @@ impl HelcimCardTransactionsQuery {
             .filter(|value| !value.is_empty())
         {
             query.push(("cardBatchId", batch_id.to_string()));
+        }
+        if let Some(invoice_number) = self
+            .invoice_number
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            query.push(("invoiceNumber", invoice_number.to_string()));
         }
         if let Some(limit) = self.limit {
             query.push(("limit", limit.to_string()));
@@ -1002,6 +1168,137 @@ fn timestamp_from_value(value: &Value) -> Option<DateTime<Utc>> {
         })
 }
 
+fn helcim_request_semaphore() -> &'static Semaphore {
+    static SEMAPHORE: OnceLock<Semaphore> = OnceLock::new();
+    SEMAPHORE.get_or_init(|| Semaphore::new(HELCIM_MAX_CONCURRENT_REQUESTS))
+}
+
+fn helcim_rate_state() -> &'static Mutex<HelcimRateState> {
+    static STATE: OnceLock<Mutex<HelcimRateState>> = OnceLock::new();
+    STATE.get_or_init(|| Mutex::new(HelcimRateState::new()))
+}
+
+async fn acquire_helcim_request_permit(context: &str) -> Result<SemaphorePermit<'static>, String> {
+    let permit = helcim_request_semaphore()
+        .acquire()
+        .await
+        .map_err(|_| format!("{context} could not acquire the Helcim request limiter"))?;
+
+    let now = Instant::now();
+    let mut state = helcim_rate_state().lock().await;
+    state.refresh_windows(now);
+    if let Some(blocked_until) = state.blocked_until {
+        let retry_after = blocked_until
+            .duration_since(now)
+            .as_secs()
+            .saturating_add(1);
+        return Err(format!(
+            "{context} paused by Helcim rate limiting; retry after {retry_after} seconds"
+        ));
+    }
+    if let Some((0, observed_at)) = state.provider_minute_remaining {
+        let retry_after = Duration::from_secs(60)
+            .saturating_sub(now.duration_since(observed_at))
+            .as_secs()
+            .saturating_add(1);
+        return Err(format!(
+            "{context} paused because Helcim reports no minute quota remaining; retry after {retry_after} seconds"
+        ));
+    }
+    if let Some((0, observed_at)) = state.provider_hour_remaining {
+        let retry_after = Duration::from_secs(60 * 60)
+            .saturating_sub(now.duration_since(observed_at))
+            .as_secs()
+            .saturating_add(1);
+        return Err(format!(
+            "{context} paused because Helcim reports no hourly quota remaining; retry after {retry_after} seconds"
+        ));
+    }
+    if state.minute_requests.len() >= HELCIM_MINUTE_REQUEST_LIMIT as usize {
+        let oldest = *state
+            .minute_requests
+            .front()
+            .expect("minute request window is non-empty at its limit");
+        let retry_after = Duration::from_secs(60)
+            .saturating_sub(now.duration_since(oldest))
+            .as_secs()
+            .saturating_add(1);
+        return Err(format!(
+            "{context} paused before exceeding Helcim's 100 requests/minute limit; retry after {retry_after} seconds"
+        ));
+    }
+    if state.hour_requests.len() >= HELCIM_HOUR_REQUEST_LIMIT as usize {
+        let oldest = *state
+            .hour_requests
+            .front()
+            .expect("hour request window is non-empty at its limit");
+        let retry_after = Duration::from_secs(60 * 60)
+            .saturating_sub(now.duration_since(oldest))
+            .as_secs()
+            .saturating_add(1);
+        return Err(format!(
+            "{context} paused before exceeding Helcim's 3000 requests/hour limit; retry after {retry_after} seconds"
+        ));
+    }
+    state.minute_requests.push_back(now);
+    state.hour_requests.push_back(now);
+    if let Some((remaining, observed_at)) = state.provider_minute_remaining {
+        state.provider_minute_remaining = Some((remaining.saturating_sub(1), observed_at));
+    }
+    if let Some((remaining, observed_at)) = state.provider_hour_remaining {
+        state.provider_hour_remaining = Some((remaining.saturating_sub(1), observed_at));
+    }
+    drop(state);
+    Ok(permit)
+}
+
+fn parse_quota_header<T>(headers: &reqwest::header::HeaderMap, name: &str) -> Option<T>
+where
+    T: FromStr,
+{
+    headers.get(name)?.to_str().ok()?.trim().parse::<T>().ok()
+}
+
+fn helcim_quota_headers(headers: &reqwest::header::HeaderMap) -> HelcimQuotaHeaders {
+    HelcimQuotaHeaders {
+        retry_after_seconds: parse_quota_header(headers, "retry-after"),
+        minute_remaining: parse_quota_header(headers, "minute-limit-remaining"),
+        hour_remaining: parse_quota_header(headers, "hour-limit-remaining"),
+    }
+}
+
+async fn observe_helcim_quota_headers(
+    headers: &reqwest::header::HeaderMap,
+    status: reqwest::StatusCode,
+) -> HelcimQuotaHeaders {
+    let quota = helcim_quota_headers(headers);
+    let now = Instant::now();
+    let mut state = helcim_rate_state().lock().await;
+    state.refresh_windows(now);
+    if let Some(remaining) = quota.minute_remaining {
+        state.provider_minute_remaining = Some((remaining.min(HELCIM_MINUTE_REQUEST_LIMIT), now));
+    }
+    if let Some(remaining) = quota.hour_remaining {
+        state.provider_hour_remaining = Some((remaining.min(HELCIM_HOUR_REQUEST_LIMIT), now));
+    }
+    if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+        let retry_after_seconds = quota.retry_after_seconds.unwrap_or_else(|| {
+            if quota.hour_remaining == Some(0) {
+                60 * 60
+            } else {
+                60
+            }
+        });
+        let candidate = now + Duration::from_secs(retry_after_seconds);
+        state.blocked_until = Some(
+            state
+                .blocked_until
+                .map_or(candidate, |current| current.max(candidate)),
+        );
+    }
+    quota
+}
+
 async fn send_request_with_retry<F, Fut>(
     context: &str,
     make_request: F,
@@ -1016,6 +1313,7 @@ where
             tokio::time::sleep(helcim_retry_delay(attempt - 1)).await;
             tracing::info!(attempt, context, "Retrying Helcim request");
         }
+        let _permit = acquire_helcim_request_permit(context).await?;
         let response = match make_request().await {
             Ok(r) => r,
             Err(e) => {
@@ -1027,13 +1325,16 @@ where
             }
         };
         let status = response.status();
+        let quota = observe_helcim_quota_headers(response.headers(), status).await;
         if !status.is_success() {
             let raw_text = response.text().await.unwrap_or_default();
             if is_retryable_helcim_error(status, Some(&raw_text)) && attempt < HELCIM_MAX_RETRIES {
-                last_error = response_error_message_sync(context, status, &raw_text);
+                last_error = response_error_message_sync(context, status, &raw_text, &quota);
                 continue;
             }
-            return Err(response_error_message_sync(context, status, &raw_text));
+            return Err(response_error_message_sync(
+                context, status, &raw_text, &quota,
+            ));
         }
         return Ok(response);
     }
@@ -1114,6 +1415,7 @@ pub async fn ensure_customer_profile(
     if let Some(phone) = phone.map(str::trim).filter(|value| !value.is_empty()) {
         body.insert("cellPhone".to_string(), Value::String(phone.to_string()));
     }
+    let _permit = acquire_helcim_request_permit("Helcim customer creation").await?;
     let response = http
         .post(format!("{}/customers", config.api_base_url()))
         .header(reqwest::header::ACCEPT, "application/json")
@@ -1123,9 +1425,16 @@ pub async fn ensure_customer_profile(
         .send()
         .await
         .map_err(|e| format!("Helcim customer request failed: {e}"))?;
-    if !response.status().is_success() {
+    let status = response.status();
+    let quota = observe_helcim_quota_headers(response.headers(), status).await;
+    if !status.is_success() {
         let raw_text = response.text().await.unwrap_or_default();
-        return Err(format!("Helcim customer creation failed: {raw_text}"));
+        return Err(response_error_message_sync(
+            "Helcim customer creation",
+            status,
+            &raw_text,
+            &quota,
+        ));
     }
     Ok(customer_code.to_string())
 }
@@ -1247,6 +1556,7 @@ pub async fn list_card_transactions_for_batch(
             date_from: None,
             date_to: None,
             card_batch_id: Some(card_batch_id.to_string()),
+            invoice_number: None,
             limit,
             page,
         },
@@ -1376,7 +1686,7 @@ pub async fn process_card_token_purchase(
     config: &HelcimConfig,
     request: HelcimCardPurchaseRequest,
     idempotency_key: &str,
-) -> Result<HelcimCardTransaction, String> {
+) -> Result<HelcimCardTransaction, HelcimPaymentRequestError> {
     send_payment_request(http, config, "payment/purchase", &request, idempotency_key).await
 }
 
@@ -1385,7 +1695,7 @@ pub async fn process_card_refund(
     config: &HelcimConfig,
     request: HelcimCardRefundRequest,
     idempotency_key: &str,
-) -> Result<HelcimCardTransaction, String> {
+) -> Result<HelcimCardTransaction, HelcimPaymentRequestError> {
     send_payment_request(http, config, "payment/refund", &request, idempotency_key).await
 }
 
@@ -1394,7 +1704,7 @@ pub async fn process_card_reverse(
     config: &HelcimConfig,
     request: HelcimCardReverseRequest,
     idempotency_key: &str,
-) -> Result<HelcimCardTransaction, String> {
+) -> Result<HelcimCardTransaction, HelcimPaymentRequestError> {
     send_payment_request(http, config, "payment/reverse", &request, idempotency_key).await
 }
 
@@ -1403,13 +1713,14 @@ pub async fn start_terminal_purchase(
     config: &HelcimConfig,
     device_code: &str,
     request: HelcimPurchaseRequest,
-    idempotency_key: &str,
+    _idempotency_key: &str,
 ) -> Result<HelcimAcceptedPurchaseResponse, HelcimTerminalRequestError> {
     let device_code =
         normalize_device_code(device_code).map_err(|message| HelcimTerminalRequestError {
             status: None,
             message,
             raw_text: None,
+            outcome_unknown: false,
         })?;
     let token = config
         .api_token()
@@ -1417,6 +1728,7 @@ pub async fn start_terminal_purchase(
             status: None,
             message: "Helcim API token is not saved in Backoffice Settings.".to_string(),
             raw_text: None,
+            outcome_unknown: false,
         })?;
     let url = format!(
         "{}/devices/{device_code}/payment/purchase",
@@ -1427,75 +1739,59 @@ pub async fn start_terminal_purchase(
             status: None,
             message,
             raw_text: None,
+            outcome_unknown: false,
         })?;
-    let provider_idempotency_key = provider_idempotency_key(idempotency_key);
+    let _permit = acquire_helcim_request_permit("Helcim terminal purchase")
+        .await
+        .map_err(|message| HelcimTerminalRequestError {
+            status: None,
+            message,
+            raw_text: None,
+            outcome_unknown: false,
+        })?;
+    let response = http
+        .post(&url)
+        .header(reqwest::header::ACCEPT, "application/json")
+        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .header("api-token", token)
+        .body(body)
+        .send()
+        .await
+        .map_err(|error| HelcimTerminalRequestError {
+            status: None,
+            message: format!(
+                "Helcim terminal purchase outcome is unknown after a network error: {error}. Do not start another card payment; use Recover payment."
+            ),
+            raw_text: None,
+            outcome_unknown: true,
+        })?;
 
-    let mut last_error = String::new();
-    for attempt in 0..=HELCIM_MAX_RETRIES {
-        if attempt > 0 {
-            tokio::time::sleep(helcim_retry_delay(attempt - 1)).await;
-            tracing::info!(attempt, "Retrying Helcim terminal purchase");
-        }
-        let response = match http
-            .post(&url)
-            .header(reqwest::header::ACCEPT, "application/json")
-            .header(reqwest::header::CONTENT_TYPE, "application/json")
-            .header("api-token", token)
-            .header("idempotency-key", &provider_idempotency_key)
-            .body(body.clone())
-            .send()
-            .await
-        {
-            Ok(response) => response,
-            Err(error) => {
-                let message = if error.is_timeout() || error.is_connect() {
-                    format!("Helcim terminal purchase network error: {error}")
-                } else {
-                    format!("Helcim terminal purchase failed: {error}")
-                };
-                if error.is_timeout() || error.is_connect() {
-                    last_error = message;
-                    continue;
-                }
-                return Err(HelcimTerminalRequestError {
-                    status: None,
-                    message,
-                    raw_text: None,
-                });
-            }
-        };
-
-        let status = response.status();
-        if status != reqwest::StatusCode::ACCEPTED {
-            let raw_text = response.text().await.unwrap_or_default();
-            if is_retryable_helcim_error(status, Some(&raw_text)) && attempt < HELCIM_MAX_RETRIES {
-                last_error =
-                    response_error_message_sync("Helcim terminal purchase", status, &raw_text);
-                continue;
-            }
-            return Err(HelcimTerminalRequestError {
-                status: Some(status),
-                message: response_error_message_sync("Helcim terminal purchase", status, &raw_text),
-                raw_text: Some(raw_text),
-            });
-        }
-
-        return Ok(response
-            .json::<HelcimAcceptedPurchaseResponse>()
-            .await
-            .unwrap_or(HelcimAcceptedPurchaseResponse {
-                status: Some("accepted".to_string()),
-                payment_id: None,
-                transaction_id: None,
-                audit_reference: None,
-            }));
+    let status = response.status();
+    let quota = observe_helcim_quota_headers(response.headers(), status).await;
+    if status != reqwest::StatusCode::ACCEPTED {
+        let raw_text = response.text().await.unwrap_or_default();
+        return Err(HelcimTerminalRequestError {
+            status: Some(status),
+            message: response_error_message_sync(
+                "Helcim terminal purchase",
+                status,
+                &raw_text,
+                &quota,
+            ),
+            raw_text: Some(raw_text),
+            outcome_unknown: status.is_server_error(),
+        });
     }
 
-    Err(HelcimTerminalRequestError {
-        status: None,
-        message: format!("Helcim terminal purchase failed after retries: {last_error}"),
-        raw_text: None,
-    })
+    Ok(response
+        .json::<HelcimAcceptedPurchaseResponse>()
+        .await
+        .unwrap_or(HelcimAcceptedPurchaseResponse {
+            status: Some("accepted".to_string()),
+            payment_id: None,
+            transaction_id: None,
+            audit_reference: None,
+        }))
 }
 
 pub async fn start_terminal_refund(
@@ -1503,33 +1799,73 @@ pub async fn start_terminal_refund(
     config: &HelcimConfig,
     device_code: &str,
     request: HelcimTerminalRefundRequest,
-    idempotency_key: &str,
-) -> Result<HelcimAcceptedPurchaseResponse, String> {
-    let device_code = normalize_device_code(device_code)?;
+    _idempotency_key: &str,
+) -> Result<HelcimAcceptedPurchaseResponse, HelcimTerminalRequestError> {
+    let device_code =
+        normalize_device_code(device_code).map_err(|message| HelcimTerminalRequestError {
+            status: None,
+            message,
+            raw_text: None,
+            outcome_unknown: false,
+        })?;
     let token = config
         .api_token()
-        .ok_or_else(|| "Helcim API token is not saved in Backoffice Settings.".to_string())?;
+        .ok_or_else(|| HelcimTerminalRequestError {
+            status: None,
+            message: "Helcim API token is not saved in Backoffice Settings.".to_string(),
+            raw_text: None,
+            outcome_unknown: false,
+        })?;
     let url = format!(
         "{}/devices/{device_code}/payment/refund",
         config.api_base_url()
     );
-    let body = terminal_refund_request_body(&request)?;
-    let provider_idempotency_key = provider_idempotency_key(idempotency_key);
-    let response = send_request_with_retry("Helcim terminal refund", || {
-        http.post(&url)
-            .header(reqwest::header::ACCEPT, "application/json")
-            .header(reqwest::header::CONTENT_TYPE, "application/json")
-            .header("api-token", token)
-            .header("idempotency-key", &provider_idempotency_key)
-            .body(body.clone())
-            .send()
-    })
-    .await?;
-    if response.status() != reqwest::StatusCode::ACCEPTED {
-        return Err(format!(
-            "Helcim terminal refund returned HTTP {}",
-            response.status()
-        ));
+    let body =
+        terminal_refund_request_body(&request).map_err(|message| HelcimTerminalRequestError {
+            status: None,
+            message,
+            raw_text: None,
+            outcome_unknown: false,
+        })?;
+    let _permit = acquire_helcim_request_permit("Helcim terminal refund")
+        .await
+        .map_err(|message| HelcimTerminalRequestError {
+            status: None,
+            message,
+            raw_text: None,
+            outcome_unknown: false,
+        })?;
+    let response = http
+        .post(&url)
+        .header(reqwest::header::ACCEPT, "application/json")
+        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .header("api-token", token)
+        .body(body)
+        .send()
+        .await
+        .map_err(|error| HelcimTerminalRequestError {
+            status: None,
+            message: format!(
+                "Helcim terminal refund outcome is unknown after a network error: {error}. Do not start another refund; recover the original attempt."
+            ),
+            raw_text: None,
+            outcome_unknown: true,
+        })?;
+    let status = response.status();
+    let quota = observe_helcim_quota_headers(response.headers(), status).await;
+    if status != reqwest::StatusCode::ACCEPTED {
+        let raw_text = response.text().await.unwrap_or_default();
+        return Err(HelcimTerminalRequestError {
+            status: Some(status),
+            message: response_error_message_sync(
+                "Helcim terminal refund",
+                status,
+                &raw_text,
+                &quota,
+            ),
+            raw_text: Some(raw_text),
+            outcome_unknown: status.is_server_error(),
+        });
     }
     Ok(response
         .json::<HelcimAcceptedPurchaseResponse>()
@@ -1606,25 +1942,51 @@ pub fn provider_idempotency_key(local_key: &str) -> String {
     }
 }
 
+/// Whether an existing Payment API attempt is still young enough for ROS to
+/// safely run its complete same-key retry sequence before Helcim clears the
+/// idempotency key. New attempts do not need this gate; callers use it only
+/// when replaying an outcome-unknown request.
+pub fn payment_idempotency_retry_is_safe(created_at: DateTime<Utc>, now: DateTime<Utc>) -> bool {
+    let age = now.signed_duration_since(created_at);
+    let safe_replay_seconds = HELCIM_PAYMENT_IDEMPOTENCY_WINDOW_SECONDS
+        - HELCIM_PAYMENT_IDEMPOTENCY_RETRY_RESERVE_SECONDS;
+    age >= chrono::Duration::zero() && age < chrono::Duration::seconds(safe_replay_seconds)
+}
+
 async fn send_payment_request<T: Serialize + ?Sized>(
     http: &reqwest::Client,
     config: &HelcimConfig,
     path: &str,
     request: &T,
     idempotency_key: &str,
-) -> Result<HelcimCardTransaction, String> {
+) -> Result<HelcimCardTransaction, HelcimPaymentRequestError> {
     let token = config
         .api_token()
-        .ok_or_else(|| "Helcim API token is not saved in Backoffice Settings.".to_string())?;
+        .ok_or_else(|| HelcimPaymentRequestError {
+            status: None,
+            message: "Helcim API token is not saved in Backoffice Settings.".to_string(),
+            outcome_unknown: false,
+        })?;
     let url = format!("{}/{}", config.api_base_url(), path);
     let provider_idempotency_key = provider_idempotency_key(idempotency_key);
 
     let mut last_error = String::new();
+    let mut request_may_have_reached_provider = false;
     for attempt in 0..=HELCIM_MAX_RETRIES {
         if attempt > 0 {
             tokio::time::sleep(helcim_retry_delay(attempt - 1)).await;
             tracing::info!(attempt, "Retrying Helcim payment request");
         }
+        let _permit = match acquire_helcim_request_permit("Helcim payment request").await {
+            Ok(permit) => permit,
+            Err(message) => {
+                return Err(HelcimPaymentRequestError {
+                    status: None,
+                    message,
+                    outcome_unknown: request_may_have_reached_provider,
+                });
+            }
+        };
         let response = match http
             .post(&url)
             .header(reqwest::header::ACCEPT, "application/json")
@@ -1637,35 +1999,61 @@ async fn send_payment_request<T: Serialize + ?Sized>(
         {
             Ok(r) => r,
             Err(e) => {
-                if e.is_timeout() || e.is_connect() {
+                let current_outcome_unknown = !e.is_builder();
+                let outcome_unknown = request_may_have_reached_provider || current_outcome_unknown;
+                if current_outcome_unknown && attempt < HELCIM_MAX_RETRIES {
+                    request_may_have_reached_provider = true;
                     last_error = format!("Helcim payment request network error: {e}");
                     continue;
                 }
-                return Err(format!("Helcim payment request failed: {e}"));
+                return Err(HelcimPaymentRequestError {
+                    status: None,
+                    message: format!("Helcim payment request failed: {e}"),
+                    outcome_unknown,
+                });
             }
         };
         let status = response.status();
+        let quota = observe_helcim_quota_headers(response.headers(), status).await;
         if !status.is_success() {
             let raw_text = response.text().await.unwrap_or_default();
             if is_retryable_helcim_error(status, Some(&raw_text)) && attempt < HELCIM_MAX_RETRIES {
-                last_error =
-                    response_error_message_sync("Helcim payment request", status, &raw_text);
+                request_may_have_reached_provider = true;
+                last_error = response_error_message_sync(
+                    "Helcim payment request",
+                    status,
+                    &raw_text,
+                    &quota,
+                );
                 continue;
             }
-            return Err(response_error_message_sync(
-                "Helcim payment request",
-                status,
-                &raw_text,
-            ));
+            return Err(HelcimPaymentRequestError {
+                status: Some(status),
+                message: response_error_message_sync(
+                    "Helcim payment request",
+                    status,
+                    &raw_text,
+                    &quota,
+                ),
+                outcome_unknown: request_may_have_reached_provider || status.is_server_error(),
+            });
         }
         return response
             .json::<HelcimCardTransaction>()
             .await
-            .map_err(|e| e.to_string());
+            .map_err(|error| HelcimPaymentRequestError {
+                status: Some(status),
+                message: format!(
+                    "Helcim payment response could not be decoded; preserve this attempt for recovery: {error}"
+                ),
+                outcome_unknown: true,
+            });
     }
-    Err(format!(
-        "Helcim payment request failed after retries: {last_error}"
-    ))
+    Err(HelcimPaymentRequestError {
+        status: None,
+        message: format!("Helcim payment request failed after retries: {last_error}"),
+        outcome_unknown: true,
+    })
 }
 
 async fn send_get_request(
@@ -1685,6 +2073,7 @@ async fn send_get_request(
             tokio::time::sleep(helcim_retry_delay(attempt - 1)).await;
             tracing::info!(attempt, "Retrying Helcim GET request");
         }
+        let _permit = acquire_helcim_request_permit("Helcim GET request").await?;
         let response = match http
             .get(&url)
             .query(query)
@@ -1703,16 +2092,19 @@ async fn send_get_request(
             }
         };
         let status = response.status();
+        let quota = observe_helcim_quota_headers(response.headers(), status).await;
         if !status.is_success() {
             let raw_text = response.text().await.unwrap_or_default();
             if is_retryable_helcim_error(status, Some(&raw_text)) && attempt < HELCIM_MAX_RETRIES {
-                last_error = response_error_message_sync("Helcim GET request", status, &raw_text);
+                last_error =
+                    response_error_message_sync("Helcim GET request", status, &raw_text, &quota);
                 continue;
             }
             return Err(response_error_message_sync(
                 "Helcim GET request",
                 status,
                 &raw_text,
+                &quota,
             ));
         }
         return response.json::<Value>().await.map_err(|e| e.to_string());
@@ -1726,6 +2118,7 @@ fn response_error_message_sync(
     context: &str,
     status: reqwest::StatusCode,
     raw_text: &str,
+    quota: &HelcimQuotaHeaders,
 ) -> String {
     let is_html =
         raw_text.trim().starts_with("<!DOCTYPE html>") || raw_text.trim().starts_with("<html");
@@ -1736,6 +2129,15 @@ fn response_error_message_sync(
     }
     if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
         detail.push_str("; Helcim rate limit reached");
+    }
+    if let Some(retry_after_seconds) = quota.retry_after_seconds {
+        detail.push_str(&format!("; retry after {retry_after_seconds} seconds"));
+    }
+    if let Some(minute_remaining) = quota.minute_remaining {
+        detail.push_str(&format!("; minute quota remaining {minute_remaining}"));
+    }
+    if let Some(hour_remaining) = quota.hour_remaining {
+        detail.push_str(&format!("; hour quota remaining {hour_remaining}"));
     }
     if !message.trim().is_empty() {
         detail.push_str(&format!(": {message}"));
@@ -1971,6 +2373,8 @@ fn value_to_string(value: &Value) -> Option<String> {
 mod tests {
     use super::*;
     use std::sync::{Mutex, OnceLock};
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
 
     fn helcim_env_lock() -> std::sync::MutexGuard<'static, ()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -2038,6 +2442,82 @@ mod tests {
             std::env::set_var("RIVERSIDE_STRICT_PRODUCTION", v);
         } else {
             std::env::remove_var("RIVERSIDE_STRICT_PRODUCTION");
+        }
+    }
+
+    #[test]
+    fn custom_api_hosts_require_explicit_nonproduction_opt_in() {
+        let _guard = helcim_env_lock();
+        let previous_strict = std::env::var("RIVERSIDE_STRICT_PRODUCTION").ok();
+        let previous_allow = std::env::var("HELCIM_ALLOW_CUSTOM_API_BASE_URL").ok();
+
+        std::env::remove_var("RIVERSIDE_STRICT_PRODUCTION");
+        std::env::remove_var("HELCIM_ALLOW_CUSTOM_API_BASE_URL");
+        assert!(validate_helcim_api_base_url("https://sandbox.example.test/v2").is_err());
+
+        std::env::set_var("HELCIM_ALLOW_CUSTOM_API_BASE_URL", "true");
+        assert_eq!(
+            validate_helcim_api_base_url("http://127.0.0.1:9876/v2").unwrap(),
+            "http://127.0.0.1:9876/v2"
+        );
+        assert!(validate_helcim_api_base_url("http://example.test/v2").is_err());
+        assert_eq!(
+            validate_helcim_api_base_url("https://sandbox.example.test/v2").unwrap(),
+            "https://sandbox.example.test/v2"
+        );
+
+        std::env::set_var("RIVERSIDE_STRICT_PRODUCTION", "true");
+        assert!(validate_helcim_api_base_url("https://sandbox.example.test/v2").is_err());
+        assert_eq!(
+            validate_helcim_api_base_url(DEFAULT_HELCIM_API_BASE_URL).unwrap(),
+            DEFAULT_HELCIM_API_BASE_URL
+        );
+
+        if let Some(value) = previous_strict {
+            std::env::set_var("RIVERSIDE_STRICT_PRODUCTION", value);
+        } else {
+            std::env::remove_var("RIVERSIDE_STRICT_PRODUCTION");
+        }
+        if let Some(value) = previous_allow {
+            std::env::set_var("HELCIM_ALLOW_CUSTOM_API_BASE_URL", value);
+        } else {
+            std::env::remove_var("HELCIM_ALLOW_CUSTOM_API_BASE_URL");
+        }
+    }
+
+    #[test]
+    fn invalid_explicit_api_override_disables_live_credentials() {
+        let _guard = helcim_env_lock();
+        let previous_token = std::env::var("HELCIM_API_TOKEN").ok();
+        let previous_base = std::env::var("HELCIM_API_BASE_URL").ok();
+        let previous_allow = std::env::var("HELCIM_ALLOW_CUSTOM_API_BASE_URL").ok();
+        let previous_strict = std::env::var("RIVERSIDE_STRICT_PRODUCTION").ok();
+
+        std::env::set_var("HELCIM_API_TOKEN", "test-live-token");
+        std::env::set_var("HELCIM_API_BASE_URL", "http://untrusted.example/v2");
+        std::env::remove_var("HELCIM_ALLOW_CUSTOM_API_BASE_URL");
+        std::env::remove_var("RIVERSIDE_STRICT_PRODUCTION");
+
+        let config = HelcimConfig::from_env();
+        assert_eq!(config.api_base_url(), DEFAULT_HELCIM_API_BASE_URL);
+        assert!(config.api_token().is_none());
+        assert!(config
+            .status()
+            .missing_config
+            .iter()
+            .any(|message| message.contains("API host is invalid")));
+
+        for (name, previous) in [
+            ("HELCIM_API_TOKEN", previous_token),
+            ("HELCIM_API_BASE_URL", previous_base),
+            ("HELCIM_ALLOW_CUSTOM_API_BASE_URL", previous_allow),
+            ("RIVERSIDE_STRICT_PRODUCTION", previous_strict),
+        ] {
+            if let Some(value) = previous {
+                std::env::set_var(name, value);
+            } else {
+                std::env::remove_var(name);
+            }
         }
     }
     use serde_json::json;
@@ -2270,6 +2750,23 @@ mod tests {
     }
 
     #[test]
+    fn card_transaction_query_uses_provider_invoice_filter() {
+        let query = HelcimCardTransactionsQuery {
+            date_from: None,
+            date_to: None,
+            card_batch_id: None,
+            invoice_number: Some(" ROS-attempt-1 ".to_string()),
+            limit: Some(1000),
+            page: Some(2),
+        };
+        let params = query.query_params();
+
+        assert!(params
+            .iter()
+            .any(|(key, value)| *key == "invoiceNumber" && value == "ROS-attempt-1"));
+    }
+
+    #[test]
     fn timezone_free_helcim_timestamp_uses_mountain_time() {
         let parsed = timestamp_from_value(&json!("2026-07-11 10:48:28"))
             .expect("Helcim timestamp should parse");
@@ -2303,6 +2800,207 @@ mod tests {
     fn provider_idempotency_key_preserves_valid_provider_key() {
         let provider_key = "11111111-1111-4111-8111-111111111111";
         assert_eq!(provider_idempotency_key(provider_key), provider_key);
+    }
+
+    #[test]
+    fn payment_idempotency_replay_reserves_the_full_retry_budget() {
+        let now = Utc::now();
+        assert!(payment_idempotency_retry_is_safe(
+            now - chrono::Duration::seconds(119),
+            now,
+        ));
+        assert!(!payment_idempotency_retry_is_safe(
+            now - chrono::Duration::seconds(120),
+            now,
+        ));
+        assert!(!payment_idempotency_retry_is_safe(
+            now + chrono::Duration::seconds(1),
+            now,
+        ));
+    }
+
+    #[test]
+    fn parses_helcim_quota_headers() {
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert("retry-after", "12".parse().unwrap());
+        headers.insert("minute-limit-remaining", "41".parse().unwrap());
+        headers.insert("hour-limit-remaining", "2042".parse().unwrap());
+
+        assert_eq!(
+            helcim_quota_headers(&headers),
+            HelcimQuotaHeaders {
+                retry_after_seconds: Some(12),
+                minute_remaining: Some(41),
+                hour_remaining: Some(2042),
+            }
+        );
+    }
+
+    #[test]
+    fn rate_limit_error_includes_provider_quota_evidence() {
+        let message = response_error_message_sync(
+            "Helcim payment request",
+            reqwest::StatusCode::TOO_MANY_REQUESTS,
+            r#"{"errors":"slow down"}"#,
+            &HelcimQuotaHeaders {
+                retry_after_seconds: Some(8),
+                minute_remaining: Some(0),
+                hour_remaining: Some(2870),
+            },
+        );
+
+        assert!(message.contains("retry after 8 seconds"));
+        assert!(message.contains("minute quota remaining 0"));
+        assert!(message.contains("hour quota remaining 2870"));
+    }
+
+    fn test_card_purchase_request() -> HelcimCardPurchaseRequest {
+        HelcimCardPurchaseRequest {
+            ip_address: "127.0.0.1".to_string(),
+            ecommerce: true,
+            currency: "USD".to_string(),
+            amount: "10.00".to_string(),
+            customer_code: Some("ROS-TEST".to_string()),
+            invoice_number: Some("ROS-TEST-INVOICE".to_string()),
+            card_data: HelcimCardData {
+                card_token: "test-token-reference".to_string(),
+            },
+        }
+    }
+
+    #[tokio::test]
+    async fn payment_api_definite_4xx_is_not_an_unknown_outcome() {
+        let mock = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/payment/purchase"))
+            .respond_with(ResponseTemplate::new(400).set_body_string("invalid request"))
+            .expect(1)
+            .mount(&mock)
+            .await;
+        let config = HelcimConfig {
+            api_token: Some("test-token".to_string()),
+            terminal_1_device_code: None,
+            terminal_2_device_code: None,
+            api_base_url: mock.uri(),
+        };
+
+        let error = process_card_token_purchase(
+            &reqwest::Client::new(),
+            &config,
+            test_card_purchase_request(),
+            "payment-api-local-key",
+        )
+        .await
+        .expect_err("400 response must be definitive");
+
+        assert_eq!(error.status, Some(reqwest::StatusCode::BAD_REQUEST));
+        assert!(!error.outcome_unknown);
+    }
+
+    #[tokio::test]
+    async fn payment_api_exhausted_5xx_reuses_one_key_and_stays_unknown() {
+        let mock = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/payment/purchase"))
+            .respond_with(ResponseTemplate::new(500).set_body_string("provider unavailable"))
+            .expect((HELCIM_MAX_RETRIES + 1) as u64)
+            .mount(&mock)
+            .await;
+        let config = HelcimConfig {
+            api_token: Some("test-token".to_string()),
+            terminal_1_device_code: None,
+            terminal_2_device_code: None,
+            api_base_url: mock.uri(),
+        };
+
+        let error = process_card_token_purchase(
+            &reqwest::Client::new(),
+            &config,
+            test_card_purchase_request(),
+            "payment-api-local-key",
+        )
+        .await
+        .expect_err("exhausted 500 responses must stay unresolved");
+
+        assert_eq!(
+            error.status,
+            Some(reqwest::StatusCode::INTERNAL_SERVER_ERROR)
+        );
+        assert!(error.outcome_unknown);
+        let requests = mock.received_requests().await.expect("received requests");
+        assert_eq!(requests.len(), (HELCIM_MAX_RETRIES + 1) as usize);
+        let expected_key = provider_idempotency_key("payment-api-local-key");
+        assert!(requests.iter().all(|request| {
+            request
+                .headers
+                .get("idempotency-key")
+                .and_then(|value| value.to_str().ok())
+                == Some(expected_key.as_str())
+        }));
+    }
+
+    #[tokio::test]
+    async fn terminal_purchase_dispatches_once_without_payment_api_idempotency_header() {
+        let mock = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/devices/AB12/payment/purchase"))
+            .respond_with(ResponseTemplate::new(500).set_body_string("provider unavailable"))
+            .expect(1)
+            .mount(&mock)
+            .await;
+        let config = HelcimConfig {
+            api_token: Some("test-token".to_string()),
+            terminal_1_device_code: Some("AB12".to_string()),
+            terminal_2_device_code: None,
+            api_base_url: mock.uri(),
+        };
+
+        let error = start_terminal_purchase(
+            &reqwest::Client::new(),
+            &config,
+            "AB12",
+            build_purchase_request_payload(1_000, "USD", "ROS-TEST", None),
+            "local-attempt-key",
+        )
+        .await
+        .expect_err("500 response must stay unresolved");
+
+        assert!(error.outcome_unknown);
+        let requests = mock.received_requests().await.expect("received requests");
+        assert_eq!(requests.len(), 1);
+        assert!(requests[0].headers.get("idempotency-key").is_none());
+    }
+
+    #[tokio::test]
+    async fn terminal_refund_dispatches_once_without_payment_api_idempotency_header() {
+        let mock = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/devices/AB12/payment/refund"))
+            .respond_with(ResponseTemplate::new(500).set_body_string("provider unavailable"))
+            .expect(1)
+            .mount(&mock)
+            .await;
+        let config = HelcimConfig {
+            api_token: Some("test-token".to_string()),
+            terminal_1_device_code: Some("AB12".to_string()),
+            terminal_2_device_code: None,
+            api_base_url: mock.uri(),
+        };
+
+        let error = start_terminal_refund(
+            &reqwest::Client::new(),
+            &config,
+            "AB12",
+            build_terminal_refund_request_payload(1_000, 42),
+            "local-attempt-key",
+        )
+        .await
+        .expect_err("500 response must stay unresolved");
+
+        assert!(error.outcome_unknown);
+        let requests = mock.received_requests().await.expect("received requests");
+        assert_eq!(requests.len(), 1);
+        assert!(requests[0].headers.get("idempotency-key").is_none());
     }
 
     #[test]

@@ -316,6 +316,10 @@ export function useCartCheckout({
             override_reason: pickupOptions?.overrideReadiness
               ? (pickupOptions?.overrideReason ?? "Register pickup override: manager approved release for unready items.")
               : undefined,
+            readiness_override_manager_staff_id:
+              pickupOptions?.readinessOverrideManagerStaffId,
+            readiness_override_manager_pin:
+              pickupOptions?.readinessOverrideManagerPin,
             payment_override_manager_staff_id: pickupOptions?.pickupPaymentOverride?.managerStaffId,
             payment_override_manager_pin: pickupOptions?.pickupPaymentOverride?.managerPin,
             payment_override_reason: pickupOptions?.pickupPaymentOverride?.reason,
