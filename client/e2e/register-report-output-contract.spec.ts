@@ -282,6 +282,12 @@ test.describe("Register report output integrity contracts", () => {
     expect(handler).toContain("complete_output requires activity_offset=0");
     expect(handler).not.toContain("lifecycle_status = 'open'");
     expect(registerReportsSource).toContain(
+      'permissionsLoaded && hasPermission("register.reports")',
+    );
+    expect(registerReportsSource).toContain(
+      "if (sessionId && !canViewStorewideReports)",
+    );
+    expect(registerReportsSource).toContain(
       'params.set("register_session_id", sessionId)',
     );
   });

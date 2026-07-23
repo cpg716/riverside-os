@@ -38,6 +38,8 @@ Daily Sales payment totals use the same store-local effective business-date wind
 
 An active Register can request its own lane-scoped report only with that Register session's matching protected token. Supplying an open session number is not authorization. Store-wide and archived report access requires **register.reports** permission.
 
+When a Manager with **register.reports** opens **POS → Reports**, the date presets remain store-wide even while a Register is open. Riverside does not pin **Yesterday**, **This week**, **This month**, **This year**, or **Custom** to the current Register session.
+
 Archived Z-report output loads audited detail in timed, cancellable pages. Starting a different archived report cancels the earlier load, and a timeout opens nothing. Z-report history shows up to the newest 40 rows for the selected range; a loading failure is shown as an error with Retry and is never labeled as an empty range.
 6. Use **View**, **Print**, or **Export** to prepare the complete matching activity set. Riverside asks the Main Hub for one read-only database snapshot and verifies its counts, row identities, and completion flags before producing output; it never labels an interactive page as a complete report. For stability, the screen stops at 2,000 loaded detail rows and generated output stops at 20,000 combined activity and pickup rows. Narrow the date range or search when ROS reports that limit.
 7. Open **Z-Reports** to see which linked lanes are still open, which drawer is already reconciling, and whether Register #1 still needs to finish the shared close.

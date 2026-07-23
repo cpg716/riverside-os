@@ -977,7 +977,10 @@ export default function RegisterReports({
   const archivedZReportRequestRef = useRef<AbortController | null>(null);
   const zLogsRequestRef = useRef<AbortController | null>(null);
 
-  const { backofficeHeaders } = useBackofficeAuth();
+  const { backofficeHeaders, hasPermission, permissionsLoaded } =
+    useBackofficeAuth();
+  const canViewStorewideReports =
+    permissionsLoaded && hasPermission("register.reports");
   const { toast } = useToast();
   const apiAuth = useCallback(
     () => mergedPosStaffHeaders(backofficeHeaders),
@@ -1019,7 +1022,9 @@ export default function RegisterReports({
       } else {
         params.set("preset", preset);
       }
-      if (sessionId) params.set("register_session_id", sessionId);
+      if (sessionId && !canViewStorewideReports) {
+        params.set("register_session_id", sessionId);
+      }
       params.set("basis", basis);
       params.set("activity_offset", String(options?.offset ?? 0));
       params.set(
@@ -1031,7 +1036,14 @@ export default function RegisterReports({
       if (options?.completeOutput) params.set("complete_output", "true");
       return params;
     },
-    [preset, customFrom, customTo, reportBasis, sessionId],
+    [
+      preset,
+      customFrom,
+      customTo,
+      reportBasis,
+      sessionId,
+      canViewStorewideReports,
+    ],
   );
 
   const fetchSummary = useCallback(
@@ -2079,7 +2091,7 @@ export default function RegisterReports({
         </div>
       )}
 
-      {!sessionId && view !== "z-reports" && (
+      {(!sessionId || canViewStorewideReports) && view !== "z-reports" && (
         <div className="mb-4 rounded-xl border border-app-warning/20 bg-app-warning/10 px-4 py-3 text-sm text-app-text">
           <span className="font-bold">Store-wide view.</span> Managers with
           register.reports see every lane.
