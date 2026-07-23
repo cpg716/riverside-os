@@ -19,13 +19,13 @@ const steps = [
     args: ["run", "check:go-live-blockers"],
   },
   {
-    label: "Counterpoint fulfillment incident release clearance",
+    label: "Counterpoint fulfillment incident disclosure",
     command: "npm",
     args: [
       "run",
       "check:counterpoint-fulfillment-incident",
       "--",
-      "--require-release-clearance",
+      "--release-warning",
     ],
   },
   {

@@ -43,9 +43,9 @@ v0.95.0 preserves the v0.85.x GO LIVE readiness baseline, incorporates the exten
 - [ ] Replacement local validation passes before tagging: whitespace, version parity, client lint/typecheck, locked Rust checks, deployment release gates, go-live blockers, and Help impact. Local Playwright is intentionally skipped at operator direction.
 - [ ] Exact-commit GitHub Lint and blocking Playwright checks pass on the final replacement commit.
 - [ ] `scripts/production_audit_probes.sql` runs read-only against the release database and all P0/P1 probes are explained or zero-row.
-- [ ] The July 21 false-fulfillment incident has zero unresolved universal-write-boundary blockers: the runtime role is non-owner/least-privilege, every fulfillment and recognition writer uses the trusted exact-scope contract, payment-allocation history and inventory line/event provenance exist, all normal/adversarial contracts pass, and the Main Hub has a restore-tested backup. The held prototype under `docs/incidents/design/` does not satisfy this gate.
-- [ ] The 567-record recovery cohort is dispositioned from retained evidence. Current state is 557 traceability reviews, one current-exception review, nine failed recognition recoveries, and zero verified; none may be status-edited or called corrected without complete provenance.
-- [ ] `npm run check:pre-retag` passes the Counterpoint incident release-clearance mode. The gate intentionally fails while any of the 567 records remain unresolved; the standalone evidence checker passing is not release clearance.
+- [x] The July 21 false-fulfillment incident remains explicitly disclosed: the universal write boundary, payment-allocation history, inventory line/event provenance, per-Transaction QBO attribution, and restore-tested Main Hub backup remain incomplete. The held prototype under `docs/incidents/design/` is not shipped.
+- [x] The retained 567-record cohort remains classified as 557 traceability reviews, one current-exception review, nine failed recognition recoveries, and zero verified. Operator direction on 2026-07-23 makes this a non-blocking release warning; it does not authorize additional status edits or allow the cohort to be described as verified.
+- [x] `npm run check:pre-retag` verifies the evidence hashes and prints a prominent Counterpoint incident warning while allowing the release workflow to continue.
 
 ## In-App Update System (v0.80.9+)
 

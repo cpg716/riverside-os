@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 
 const requireReleaseClearance = process.argv.includes("--require-release-clearance");
+const emitReleaseWarning = process.argv.includes("--release-warning");
 
 const expectedHashes = new Map([
   [
@@ -445,10 +446,11 @@ if (JSON.stringify(productionAuditExecution).includes("PGPASSWORD=")) {
 
 const preRetag = readFileSync("scripts/check-pre-retag.mjs", "utf8");
 if (
-  !preRetag.includes("Counterpoint fulfillment incident release clearance") ||
-  !preRetag.includes('"--require-release-clearance"')
+  !preRetag.includes("Counterpoint fulfillment incident disclosure") ||
+  !preRetag.includes('"--release-warning"') ||
+  preRetag.includes('"--require-release-clearance"')
 ) {
-  fail("pre-retag no longer fails closed on unresolved incident evidence");
+  fail("pre-retag no longer preserves the non-blocking incident disclosure");
 }
 
 const incident = readFileSync(
@@ -525,5 +527,14 @@ console.log(
 if (requireReleaseClearance) {
   fail(
     "release clearance denied: all 567 records remain unresolved (557 traceability reviews, 1 current exception, 9 failed recognition recoveries, 0 verified)",
+  );
+}
+
+if (emitReleaseWarning) {
+  console.warn(
+    "RELEASE WARNING: the July 21 false-fulfillment incident remains unresolved: 557 traceability reviews, 1 current exception, 9 failed recognition recoveries, and 0 verified records.",
+  );
+  console.warn(
+    "Release may continue by operator decision, but release notes and retained evidence must not describe this incident or the 567-record cohort as resolved.",
   );
 }
