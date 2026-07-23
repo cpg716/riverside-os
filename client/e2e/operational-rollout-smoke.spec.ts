@@ -560,9 +560,49 @@ test.describe("operational rollout smoke", () => {
     await expect(drawer).toBeVisible({ timeout: 20_000 });
     await expect(drawer).toContainText(displayId);
     await expect(drawer.getByRole("button", { name: /Reprint Receipt/i })).toBeVisible();
+
+    let reprintDetailRequests = 0;
+    await page.route(
+      new RegExp(
+        `/api/transactions/${seeded.checkout.transaction_id}(?:\\?.*)?$`,
+      ),
+      async (route) => {
+        if (route.request().method() !== "GET") {
+          await route.fallback();
+          return;
+        }
+        reprintDetailRequests += 1;
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify(seeded.detail),
+        });
+      },
+    );
+
     await drawer.getByRole("button", { name: /Reprint Receipt/i }).click();
 
     await expect(page.getByText(/Sale complete/i)).toBeVisible({ timeout: 20_000 });
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) => {
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+        }),
+    );
+    expect(reprintDetailRequests).toBeGreaterThan(0);
+    expect(reprintDetailRequests).toBeLessThanOrEqual(2);
+    const settledDetailRequestCount = reprintDetailRequests;
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) => {
+          requestAnimationFrame(() =>
+            requestAnimationFrame(() =>
+              requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+            ),
+          );
+        }),
+    );
+    expect(reprintDetailRequests).toBe(settledDetailRequestCount);
     await expect(page.getByText(new RegExp(`Transaction #${escapeRegExp(displayId)}`, "i"))).toBeVisible();
     await expect(page.getByRole("button", { name: "Print receipt", exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: /View receipt/i })).toBeVisible();

@@ -120,6 +120,9 @@ type ReviewInviteChoiceResult = {
   review_url?: string | null;
 };
 
+const EMPTY_ORDER_PAYMENT_LINES: OrderPaymentCartLine[] = [];
+const EMPTY_RECEIPT_TRANSACTION_LINE_IDS: string[] = [];
+
 function transactionDisplayFallback(transactionId: unknown): string {
   const normalized =
     typeof transactionId === "string" || typeof transactionId === "number"
@@ -134,9 +137,9 @@ export default function ReceiptSummaryModal({
   baseUrl,
   registerSessionId,
   getAuthHeaders,
-  orderPaymentLines = [],
+  orderPaymentLines = EMPTY_ORDER_PAYMENT_LINES,
   cashChangeDueCents = 0,
-  receiptTransactionLineIds = [],
+  receiptTransactionLineIds = EMPTY_RECEIPT_TRANSACTION_LINE_IDS,
   exchangeReturnTransactionId = null,
   autoPrintOnOpen = false,
 }: ReceiptSummaryModalProps) {
@@ -277,21 +280,32 @@ export default function ReceiptSummaryModal({
 
   useEffect(() => {
     if (!transactionId) return;
+    const controller = new AbortController();
+    const detailParams = new URLSearchParams();
+    if (registerSessionId) {
+      detailParams.set("register_session_id", registerSessionId);
+    }
+    const detailQuery = detailParams.toString();
+    const detailUrl = `${baseUrl}/api/transactions/${transactionId}${
+      detailQuery ? `?${detailQuery}` : ""
+    }`;
+
     const fetchDetail = async () => {
       try {
-        const q = buildReceiptQuery();
         let res: Response | null = null;
         let lastError: unknown = null;
         for (let attempt = 0; attempt < 2; attempt += 1) {
           try {
-            res = await fetch(`${baseUrl}/api/transactions/${transactionId}${q}`, {
+            res = await fetch(detailUrl, {
               headers: getAuthHeaders(),
               cache: "no-store",
+              signal: controller.signal,
             });
             if (res.ok || ![502, 503, 504].includes(res.status) || attempt === 1) {
               break;
             }
           } catch (error) {
+            if (controller.signal.aborted) throw error;
             lastError = error;
             if (attempt === 1) throw error;
           }
@@ -299,6 +313,7 @@ export default function ReceiptSummaryModal({
         if (!res) throw lastError ?? new Error("transaction detail request failed");
         if (res.ok) {
           const data = (await res.json()) as OrderDetail;
+          if (controller.signal.aborted) return;
           setTransactionDetail(data);
           const c = data.customer;
           if (c) {
@@ -316,12 +331,14 @@ export default function ReceiptSummaryModal({
           toast(body.error || "Could not load receipt details.", "error");
         }
       } catch (e) {
+        if (controller.signal.aborted) return;
         console.error("Failed to fetch order detail", e);
         toast("Could not load receipt details", "error");
       }
     };
     void fetchDetail();
-  }, [transactionId, baseUrl, buildReceiptQuery, getAuthHeaders, toast]);
+    return () => controller.abort();
+  }, [transactionId, baseUrl, registerSessionId, getAuthHeaders, toast]);
 
   useEffect(() => {
     if (!transactionDetail) return;

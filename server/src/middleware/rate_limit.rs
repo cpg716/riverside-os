@@ -11,10 +11,13 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
+use uuid::Uuid;
 
 const DEFAULT_GLOBAL_RATE_LIMIT: u32 = 1000; // requests per minute per IP
 const DEFAULT_AUTHENTICATED_RATE_LIMIT: u32 = 5000; // requests per minute per app-authenticated IP
 const DEFAULT_STAFF_SIGN_IN_RATE_LIMIT: u32 = 20; // PIN attempts per minute per IP
+const DEFAULT_TRANSACTION_DETAIL_RATE_LIMIT: u32 = 30; // expensive detail reads per minute per app session
+const DEFAULT_ERROR_TELEMETRY_RATE_LIMIT: u32 = 30; // automated error captures per minute per app session
 const WINDOW: Duration = Duration::from_secs(60);
 
 #[derive(Debug)]
@@ -32,6 +35,10 @@ pub struct RateLimitState {
     authenticated_buckets: HashMap<String, RateLimitBucket>,
     // Separate low-volume bucket for Staff Access PIN verification.
     staff_sign_in_buckets: HashMap<String, RateLimitBucket>,
+    // Protect the multi-query transaction detail loader from runaway client effects.
+    transaction_detail_buckets: HashMap<String, RateLimitBucket>,
+    // Prevent automated client telemetry from creating hundreds of rows during an outage.
+    error_telemetry_buckets: HashMap<String, RateLimitBucket>,
 }
 
 impl RateLimitState {
@@ -40,6 +47,8 @@ impl RateLimitState {
             ip_buckets: HashMap::new(),
             authenticated_buckets: HashMap::new(),
             staff_sign_in_buckets: HashMap::new(),
+            transaction_detail_buckets: HashMap::new(),
+            error_telemetry_buckets: HashMap::new(),
         }
     }
 
@@ -103,6 +112,12 @@ impl RateLimitState {
             RateLimitScope::StaffSignIn => {
                 Self::check_limit(&mut self.staff_sign_in_buckets, ip_key, limit, now)
             }
+            RateLimitScope::TransactionDetail => {
+                Self::check_limit(&mut self.transaction_detail_buckets, ip_key, limit, now)
+            }
+            RateLimitScope::ErrorTelemetry => {
+                Self::check_limit(&mut self.error_telemetry_buckets, ip_key, limit, now)
+            }
         }
     }
 }
@@ -118,6 +133,8 @@ enum RateLimitScope {
     Anonymous,
     RosAppAuthenticated,
     StaffSignIn,
+    TransactionDetail,
+    ErrorTelemetry,
 }
 
 impl RateLimitScope {
@@ -126,6 +143,8 @@ impl RateLimitScope {
             Self::Anonymous => "anonymous",
             Self::RosAppAuthenticated => "ros-app-authenticated",
             Self::StaffSignIn => "staff-sign-in",
+            Self::TransactionDetail => "transaction-detail",
+            Self::ErrorTelemetry => "error-telemetry",
         }
     }
 }
@@ -165,9 +184,14 @@ pub async fn rate_limit_handler(
 
     let mut state = rate_limit.write().await;
 
+    let has_app_auth = has_ros_app_auth_headers(&request);
     let scope = if is_staff_sign_in_request(&request) {
         RateLimitScope::StaffSignIn
-    } else if has_ros_app_auth_headers(&request) {
+    } else if has_app_auth && is_transaction_detail_request(&request) {
+        RateLimitScope::TransactionDetail
+    } else if has_app_auth && is_error_telemetry_request(&request) {
+        RateLimitScope::ErrorTelemetry
+    } else if has_app_auth {
         RateLimitScope::RosAppAuthenticated
     } else {
         RateLimitScope::Anonymous
@@ -189,9 +213,26 @@ pub async fn rate_limit_handler(
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(DEFAULT_STAFF_SIGN_IN_RATE_LIMIT)
         }
+        RateLimitScope::TransactionDetail => {
+            std::env::var("RIVERSIDE_TRANSACTION_DETAIL_RATE_LIMIT_PER_MINUTE")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(DEFAULT_TRANSACTION_DETAIL_RATE_LIMIT)
+        }
+        RateLimitScope::ErrorTelemetry => {
+            std::env::var("RIVERSIDE_ERROR_TELEMETRY_RATE_LIMIT_PER_MINUTE")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(DEFAULT_ERROR_TELEMETRY_RATE_LIMIT)
+        }
     };
 
-    let bucket_key = if scope == RateLimitScope::RosAppAuthenticated {
+    let bucket_key = if matches!(
+        scope,
+        RateLimitScope::RosAppAuthenticated
+            | RateLimitScope::TransactionDetail
+            | RateLimitScope::ErrorTelemetry
+    ) {
         authenticated_bucket_key(&request, &client_ip)
     } else {
         client_ip.clone()
@@ -267,6 +308,22 @@ fn authenticated_bucket_key(request: &Request, client_ip: &str) -> String {
 
 fn is_staff_sign_in_request(request: &Request) -> bool {
     request.method() == axum::http::Method::POST && request.uri().path() == "/api/staff/session"
+}
+
+fn is_transaction_detail_request(request: &Request) -> bool {
+    if request.method() != axum::http::Method::GET {
+        return false;
+    }
+    request
+        .uri()
+        .path()
+        .strip_prefix("/api/transactions/")
+        .is_some_and(|suffix| Uuid::parse_str(suffix).is_ok())
+}
+
+fn is_error_telemetry_request(request: &Request) -> bool {
+    request.method() == axum::http::Method::POST
+        && request.uri().path() == "/api/bug-reports/error-events"
 }
 
 fn header_has_value(headers: &axum::http::HeaderMap, name: &'static str) -> bool {
@@ -447,6 +504,46 @@ mod tests {
     }
 
     #[test]
+    fn transaction_detail_scope_matches_only_the_expensive_detail_read() {
+        let detail = request_for(
+            "/api/transactions/4d67bb88-2858-4a83-80ac-6f6f7b88a124?register_session_id=abc",
+        );
+        assert!(is_transaction_detail_request(&detail));
+
+        for path in [
+            "/api/transactions",
+            "/api/transactions/pipeline-stats",
+            "/api/transactions/4d67bb88-2858-4a83-80ac-6f6f7b88a124/items",
+            "/api/transactions/4d67bb88-2858-4a83-80ac-6f6f7b88a124/receipt.escpos",
+        ] {
+            assert!(!is_transaction_detail_request(&request_for(path)));
+        }
+
+        let write = Request::builder()
+            .method(axum::http::Method::PATCH)
+            .uri("/api/transactions/4d67bb88-2858-4a83-80ac-6f6f7b88a124")
+            .body(Body::empty())
+            .expect("test request");
+        assert!(!is_transaction_detail_request(&write));
+    }
+
+    #[test]
+    fn error_telemetry_scope_matches_only_automated_event_posts() {
+        let post = Request::builder()
+            .method(axum::http::Method::POST)
+            .uri("/api/bug-reports/error-events")
+            .body(Body::empty())
+            .expect("test request");
+        assert!(is_error_telemetry_request(&post));
+        assert!(!is_error_telemetry_request(&request_for(
+            "/api/bug-reports/error-events"
+        )));
+        assert!(!is_error_telemetry_request(&request_for(
+            "/api/settings/bug-reports/error-events"
+        )));
+    }
+
+    #[test]
     fn exceeded_rate_limit_logs_once_per_window() {
         let mut state = RateLimitState::new();
         let now = Instant::now();
@@ -519,5 +616,26 @@ mod tests {
             ),
             RateLimitCheck::Exceeded { should_log: true }
         );
+    }
+
+    #[test]
+    fn protective_scopes_use_independent_buckets() {
+        let mut state = RateLimitState::new();
+        let now = Instant::now();
+
+        for scope in [
+            RateLimitScope::RosAppAuthenticated,
+            RateLimitScope::TransactionDetail,
+            RateLimitScope::ErrorTelemetry,
+        ] {
+            assert_eq!(
+                state.check_ip_limit("station-session", 1, scope, now),
+                RateLimitCheck::Allowed
+            );
+            assert_eq!(
+                state.check_ip_limit("station-session", 1, scope, now + Duration::from_secs(1)),
+                RateLimitCheck::Exceeded { should_log: true }
+            );
+        }
     }
 }
