@@ -2,16 +2,16 @@
 
 Target: Hybrid Tauri Host retail deployment.
 
-### Current Deployment Status (2026-07-23 source-freeze snapshot)
+### Current Deployment Status (2026-07-23 publication snapshot)
 
 - [x] Target source release version is **`v0.95.0`** across root, client, server, Tauri, standalone apps, ROS Dev Center, and Windows deployment metadata.
 - [x] Source-side QBO fallback mapping has been removed; exportable financial activity must resolve to an explicit Chart of Accounts mapping before posting.
 - [x] Source-side local review evidence is recorded in [`docs/reviews/legacy/2026-06/PRE_GO_LIVE_LOCAL_REVIEW_2026_06_05.md`](reviews/legacy/2026-06/PRE_GO_LIVE_LOCAL_REVIEW_2026_06_05.md).
 - [x] v0.95.0 release notes and certification evidence are recorded in [`docs/releases/v0.95.0-release-notes.md`](releases/v0.95.0-release-notes.md) and [`docs/releases/v0.95.0-certification.md`](releases/v0.95.0-certification.md).
-- [x] Before today's replacement retag, GitHub release **`v0.95.0`** is published as Latest from build `feb0db16` with its matching Windows and macOS assets.
-- [ ] The 2026-07-23 Register/search/reporting/runtime replacement is committed, retagged, published, and independently verified. The prior `feb0db16` assets do not certify the open source candidate.
+- [x] Before the replacement retag, GitHub release **`v0.95.0`** was published as Latest from superseded build `feb0db16`; that asset set remains historical evidence only.
+- [x] The 2026-07-23 Register/search/reporting/runtime replacement is committed, retagged, promoted, published, and independently verified at `d9e68018f99f0778a21b0ffca1b57f287594561c`.
 - [x] Non-E2E local release checks passed for the final replacement source tree on 2026-07-23. Local Playwright is intentionally skipped at operator direction.
-- [ ] Exact-commit GitHub Lint, blocking Playwright, aggregate Playwright, Windows, and macOS workflows pass for the replacement commit.
+- [x] Exact-commit GitHub Lint, all four blocking Playwright shards, aggregate Playwright, Windows, macOS, and verified-candidate promotion passed for `d9e68018`.
 - [x] Financial, register, Counterpoint, Help/ROSIE, backup/restore, and reporting launch-critical local suites passed on 2026-06-05.
 - [ ] Production station deployment log is complete for Main Hub, Register #1 Windows Tauri, Register #2 iPad PWA, and other Windows laptop PWA / optional Tauri clients.
 
@@ -32,16 +32,16 @@ v0.95.0 preserves the v0.85.x GO LIVE readiness baseline, incorporates the exten
 
 - [x] `v0.95.0` GitHub release exists and is marked Latest.
 - [x] Pre-candidate `v0.95.0` Windows updater and standalone-app assets exist for build `feb0db16`.
-- [ ] Replacement `v0.95.0` updater manifests, installers, signatures, and standalone-app assets name the final replacement commit.
-- [ ] Replacement Windows deployment package exists with the final short SHA and passes independent provenance verification.
+- [x] Replacement `v0.95.0` updater manifests, installers, signatures, and standalone-app assets name full commit `d9e68018f99f0778a21b0ffca1b57f287594561c`.
+- [x] `RiversideOS-v0.95.0-d9e68018-Windows-Deployment.zip` exists as the only same-version deployment ZIP and passed independent provenance verification.
 - [ ] Physical station smoke is complete for Main Hub, Register #1 Windows Tauri, Register #2 iPad PWA, and other Windows laptop PWA devices.
 - [ ] Real external credential workflows have been tested where required for go-live: QBO sandbox/production, Helcim, Podium, Shippo, and Counterpoint SQL.
 
 ## Code Gate
 
-- [ ] Final replacement source and publication validation is recorded in [`docs/releases/v0.95.0-certification.md`](releases/v0.95.0-certification.md); the source-freeze snapshot separates the open candidate from the prior `feb0db16` publication, while the GitHub Release records the final self-referential build metadata after publication.
+- [x] Final replacement source and publication validation is recorded in [`docs/releases/v0.95.0-certification.md`](releases/v0.95.0-certification.md), including exact-commit CI, candidate runs, promotion, release state, manifests, signatures, asset count, and deployment-ZIP provenance.
 - [x] Replacement local validation passed before tagging: whitespace, version parity, client lint/typecheck, locked Rust checks, deployment release gates, go-live blockers, and Help impact. Local Playwright is intentionally skipped at operator direction.
-- [ ] Exact-commit GitHub Lint and blocking Playwright checks pass on the final replacement commit.
+- [x] Exact-commit GitHub Lint run `30006157344` and blocking Playwright run `30006157349` passed on full commit `d9e68018f99f0778a21b0ffca1b57f287594561c`.
 - [ ] `scripts/production_audit_probes.sql` runs read-only against the release database and all P0/P1 probes are explained or zero-row.
 - [x] The July 21 false-fulfillment incident remains explicitly disclosed: the universal write boundary, payment-allocation history, inventory line/event provenance, per-Transaction QBO attribution, and restore-tested Main Hub backup remain incomplete. The held prototype under `docs/incidents/design/` is not shipped.
 - [x] The retained 567-record cohort remains classified as 557 traceability reviews, one current-exception review, nine failed recognition recoveries, and zero verified. Operator direction on 2026-07-23 makes this a non-blocking release warning; it does not authorize additional status edits or allow the cohort to be described as verified.

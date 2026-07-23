@@ -481,6 +481,8 @@ for (const copy of [
   "verify-release-candidate-assets.mjs",
   "riverside-release-publish-${{ inputs.release_tag }}",
   "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8",
+  "release-upload/$old_asset",
+  "Riverside.POS_${version}_",
 ]) {
   assertIncludes(
     ".github/workflows/promote-release-candidate.yml",

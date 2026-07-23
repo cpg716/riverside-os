@@ -147,6 +147,12 @@ jobs:
             [ -z "$old_asset" ] || gh release delete-asset "$tag" "$old_asset" --yes
           done < <(gh release view "$tag" --json assets --jq ".assets[].name | select(startswith(\"RiversideOS-v${version}-\") and endswith(\"-Windows-Deployment.zip\"))")
 
+          while IFS= read -r old_asset; do
+            if [ -n "$old_asset" ] && [ ! -e "release-upload/$old_asset" ]; then
+              gh release delete-asset "$tag" "$old_asset" --yes
+            fi
+          done < <(gh release view "$tag" --json assets --jq ".assets[].name | select(startswith(\"Riverside.POS_${version}_\"))")
+
           mapfile -d '' assets < <(find release-upload -type f ! -name '*.json' -print0)
           mapfile -d '' manifests < <(find release-upload -type f -name '*.json' -print0)
           if [ "${#assets[@]}" -eq 0 ] || [ "${#manifests[@]}" -eq 0 ]; then
