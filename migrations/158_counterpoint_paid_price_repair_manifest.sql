@@ -77,19 +77,19 @@ INSERT INTO public.counterpoint_paid_price_repair_manifest (
     source_manifest_digest
 )
 SELECT
-    '2026-07-23-lifecycle-price:' || row->>'transaction_id',
-    (row->>'transaction_id')::uuid,
-    row->>'display_id',
-    row->>'source_doc_id',
-    (row->>'expected_total')::numeric,
-    (row->>'expected_amount_paid')::numeric,
-    (row->>'expected_balance')::numeric,
-    (row->>'corrected_total')::numeric,
-    (row->>'corrected_balance')::numeric,
-    row->'line_repairs',
+    '2026-07-23-lifecycle-price:' || (reviewed_row.value->>'transaction_id'),
+    (reviewed_row.value->>'transaction_id')::uuid,
+    reviewed_row.value->>'display_id',
+    reviewed_row.value->>'source_doc_id',
+    (reviewed_row.value->>'expected_total')::numeric,
+    (reviewed_row.value->>'expected_amount_paid')::numeric,
+    (reviewed_row.value->>'expected_balance')::numeric,
+    (reviewed_row.value->>'corrected_total')::numeric,
+    (reviewed_row.value->>'corrected_balance')::numeric,
+    reviewed_row.value->'line_repairs',
     '2eeb299e710d94bc74ebbc8b7475d153034c1c94e81a697c70fd2ecdb2ce81a9'
 FROM reviewed
-CROSS JOIN LATERAL jsonb_array_elements(reviewed.value) row
+CROSS JOIN LATERAL jsonb_array_elements(reviewed.value) AS reviewed_row(value)
 ON CONFLICT (manifest_key) DO NOTHING;
 
 COMMENT ON TABLE public.counterpoint_paid_price_repair_manifest IS
