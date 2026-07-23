@@ -2459,7 +2459,6 @@ fn helcim_checkout_references(payment_splits: &[ResolvedPaymentSplit]) -> Vec<St
 
 async fn reject_unattached_helcim_attempt<'e, E>(
     executor: E,
-    register_session_id: Uuid,
     checkout_client_id: Option<Uuid>,
     payment_splits: &[ResolvedPaymentSplit],
 ) -> Result<(), CheckoutError>
@@ -2472,19 +2471,16 @@ where
         SELECT ppa.status, ppa.amount_cents, ppa.provider_transaction_id
         FROM payment_provider_attempts ppa
         WHERE ppa.provider = 'helcim'
-          AND (
-              ppa.register_session_id = $1
-              OR ($3::uuid IS NOT NULL AND ppa.checkout_client_id = $3)
-          )
+          AND ($2::uuid IS NOT NULL AND ppa.checkout_client_id = $2)
           AND (
               ppa.status IN ('pending', 'expired')
               OR (ppa.status = 'failed' AND ppa.error_code = 'outcome_unknown')
               OR (
                   ppa.status IN ('approved', 'captured')
                   AND NOT (
-                      ppa.id::text = ANY($2::text[])
-                      OR COALESCE(ppa.provider_transaction_id, '') = ANY($2::text[])
-                      OR COALESCE(ppa.provider_payment_id, '') = ANY($2::text[])
+                      ppa.id::text = ANY($1::text[])
+                      OR COALESCE(ppa.provider_transaction_id, '') = ANY($1::text[])
+                      OR COALESCE(ppa.provider_payment_id, '') = ANY($1::text[])
                   )
               )
           )
@@ -2530,7 +2526,6 @@ where
         LIMIT 1
         "#,
     )
-    .bind(register_session_id)
     .bind(&checkout_references)
     .bind(checkout_client_id)
     .fetch_optional(executor)
@@ -3735,13 +3730,7 @@ async fn execute_checkout_internal(
         .map(|context| context.require_checkout_binding)
         .unwrap_or(true)
     {
-        reject_unattached_helcim_attempt(
-            pool,
-            payload.session_id,
-            payload.checkout_client_id,
-            &payment_splits,
-        )
-        .await?;
+        reject_unattached_helcim_attempt(pool, payload.checkout_client_id, &payment_splits).await?;
     }
 
     if payload.is_tax_exempt
@@ -4105,13 +4094,8 @@ async fn execute_checkout_internal(
         .map(|context| context.require_checkout_binding)
         .unwrap_or(true)
     {
-        reject_unattached_helcim_attempt(
-            &mut *tx,
-            payload.session_id,
-            payload.checkout_client_id,
-            &payment_splits,
-        )
-        .await?;
+        reject_unattached_helcim_attempt(&mut *tx, payload.checkout_client_id, &payment_splits)
+            .await?;
     }
 
     let mut transaction_id = Uuid::new_v4();
@@ -6905,7 +6889,8 @@ mod tests {
             .expect("end of Helcim checkout guard")
             .0;
 
-        assert!(guard.contains("ppa.checkout_client_id = $3"));
+        assert!(guard.contains("ppa.checkout_client_id = $2"));
+        assert!(!guard.contains("ppa.register_session_id ="));
         assert!(guard.contains("pt.status IN ('success', 'approved', 'captured')"));
         assert!(guard.contains("pt.metadata->>'provider_attempt_id'"));
         assert!(guard.contains("NOT LIKE '%refund%'"));
