@@ -347,6 +347,11 @@ async function postStaffClose(
   request: APIRequestContext,
   sessionId: string,
   actualCash: string,
+  managerApproval?: {
+    manager_staff_id: string;
+    manager_pin: string;
+    manager_reason: string;
+  },
 ): Promise<{ status: number; bodyText: string }> {
   const res = await request.post(
     `${apiBase()}/api/sessions/${sessionId}/close`,
@@ -360,6 +365,7 @@ async function postStaffClose(
         actual_cash: actualCash,
         closing_notes: null,
         closing_comments: null,
+        ...managerApproval,
       },
       failOnStatusCode: false,
     },
@@ -641,7 +647,7 @@ test.describe("register audit contract", () => {
     expect(tokenAfterClose.status()).toBe(404);
   });
 
-  test("Z-close records a missing workstation acknowledgement without blocking close", async ({
+  test("Z-close records a missing workstation acknowledgement after Manager Access approval", async ({
     request,
   }) => {
     test.setTimeout(90_000);
@@ -713,10 +719,17 @@ test.describe("register audit contract", () => {
         expect.stringMatching(/acknowledgement missing/i),
       ]),
     );
+    const managerStaffId = await verifyStaffId(request);
     const closeResult = await postStaffClose(
       request,
       opened.session_id,
       recon.expected_cash,
+      {
+        manager_staff_id: managerStaffId,
+        manager_pin: staffCode(),
+        manager_reason:
+          "E2E Manager Access approves close with unresolved workstation evidence",
+      },
     );
     expect(closeResult.status, closeResult.bodyText.slice(0, 1000)).toBe(200);
     const closeBody = JSON.parse(closeResult.bodyText) as CloseSessionResponse;
