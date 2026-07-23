@@ -319,20 +319,8 @@ test.describe("pickup launch certification contract", () => {
     expect(depositReadyLine, "deposit override fixture line missing").toBeTruthy();
     await markLineReady(request, depositReadyLine!.transaction_line_id);
 
-    const depositBlocked = await pickup(request, depositCheckout.transaction_id, sessionId, sessionToken, {
-      delivered_item_ids: [depositReadyLine!.transaction_line_id],
-    });
-    expect(depositBlocked.status, depositBlocked.bodyText.slice(0, 1000)).toBe(400);
-    expect(depositBlocked.bodyText).toContain("Manager Access required");
-    expect(depositBlocked.bodyText).toContain("remaining open items need at least a 50% deposit");
-
-    const paymentOverrideReason =
-      "Manager approved pickup release with remaining open items below the standard 50% deposit.";
     const depositApproved = await pickup(request, depositCheckout.transaction_id, sessionId, sessionToken, {
       delivered_item_ids: [depositReadyLine!.transaction_line_id],
-      payment_override_manager_staff_id: operatorStaffId,
-      payment_override_manager_pin: staffCode(),
-      payment_override_reason: paymentOverrideReason,
     });
     expect(depositApproved.status, depositApproved.bodyText.slice(0, 1000)).toBe(200);
 
@@ -342,11 +330,11 @@ test.describe("pickup launch certification contract", () => {
     expect(depositDetail.items.find((item) => item.sku === depositRemainingProduct.sku)?.is_fulfilled).toBe(false);
 
     const depositAudit = await fetchTransactionAudit(request, depositCheckout.transaction_id);
-    const depositOverrideAudit = depositAudit.find(
-      (event) => event.event_kind === "pickup" && event.metadata?.payment_override === true,
+    const depositPickupAudit = depositAudit.find(
+      (event) => event.event_kind === "pickup",
     );
-    expect(depositOverrideAudit, "pickup payment override audit event missing").toBeTruthy();
-    expect(depositOverrideAudit?.metadata?.payment_override_detail?.payment_override_reason).toBe(paymentOverrideReason);
+    expect(depositPickupAudit, "pickup audit event missing").toBeTruthy();
+    expect(depositPickupAudit?.metadata?.payment_override).toBe(false);
 
     const readyProduct = await createSingleVariantProduct(request, uniqueSuffix("pickup-ready"), {
       stockOnHand: 1,

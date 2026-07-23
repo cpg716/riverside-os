@@ -4029,7 +4029,7 @@ async fn mark_transaction_pickup(
         .filter(|line| line.order_lifecycle_status != DbOrderItemLifecycleStatus::ReadyForPickup)
         .collect::<Vec<_>>();
     let override_reason = body.override_reason.as_deref().map(str::trim).unwrap_or("");
-    let mut pickup_payment_override_metadata: Option<serde_json::Value> = None;
+    let pickup_payment_override_metadata: Option<serde_json::Value> = None;
     if !unready_lines.is_empty() && !body.override_readiness {
         let examples = unready_lines
             .iter()
@@ -4139,53 +4139,6 @@ async fn mark_transaction_pickup(
         return Err(TransactionError::InvalidPayload(format!(
             "Pickup blocked: Balance Due remains because selected item value exceeds payments by ${shortage}. Collect payment before release."
         )));
-    }
-
-    let remaining_deposit_required = (remaining_open_value * Decimal::new(50, 2)).round_dp(2);
-    let remaining_paid_credit = if imported_paid_in_full_release {
-        Decimal::ZERO
-    } else {
-        amount_paid - required_after_pickup
-    };
-    if remaining_open_value > Decimal::ZERO && remaining_paid_credit < remaining_deposit_required {
-        let shortage = remaining_deposit_required - remaining_paid_credit;
-        let payment_override_reason = body
-            .payment_override_reason
-            .as_deref()
-            .map(str::trim)
-            .filter(|reason| !reason.is_empty())
-            .unwrap_or(
-                "Manager approved pickup release with remaining open items below the standard 50% deposit.",
-            );
-        if payment_override_reason.len() < 12 {
-            return Err(TransactionError::InvalidPayload(
-                "Manager Access pickup payment override requires a clear reason.".to_string(),
-            ));
-        }
-        let (manager_staff_id, manager_pin) = body
-            .payment_override_manager_staff_id
-            .zip(body.payment_override_manager_pin.as_deref())
-            .ok_or_else(|| {
-                TransactionError::InvalidPayload(format!(
-                    "Manager Access required: remaining open items need at least a 50% deposit after this pickup. Collect ${shortage} more or approve the release."
-                ))
-            })?;
-        let manager = authenticate_manager_approval(
-            &state,
-            manager_staff_id,
-            manager_pin,
-            "Manager Access approval permission required for pickup payment override",
-        )
-        .await?;
-        pickup_payment_override_metadata = Some(json!({
-            "payment_override": true,
-            "payment_override_manager_staff_id": manager.id,
-            "payment_override_reason": payment_override_reason,
-            "remaining_open_value": remaining_open_value,
-            "remaining_deposit_required": remaining_deposit_required,
-            "remaining_paid_credit": remaining_paid_credit,
-            "shortage": shortage,
-        }));
     }
 
     let insufficient_stock_lines = pickup_guard_lines

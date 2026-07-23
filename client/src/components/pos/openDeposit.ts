@@ -10,7 +10,6 @@ interface OpenDepositApplicationArgs {
   alreadyAppliedCents: number;
   remainingCheckoutCents: number;
   currentSaleCents: number;
-  takeawayCents: number;
   hasExternalAllocations: boolean;
 }
 
@@ -19,21 +18,17 @@ export function openDepositApplicationCents({
   alreadyAppliedCents,
   remainingCheckoutCents,
   currentSaleCents,
-  takeawayCents,
   hasExternalAllocations,
 }: OpenDepositApplicationArgs): number {
   if (hasExternalAllocations) return 0;
 
   const heldRemaining = Math.max(0, heldBalanceCents - alreadyAppliedCents);
-  const deferredSaleCapacity = Math.max(
-    0,
-    Math.round(currentSaleCents) - Math.max(0, Math.round(takeawayCents)) - alreadyAppliedCents,
-  );
+  const currentSaleCapacity = Math.max(0, Math.round(currentSaleCents) - alreadyAppliedCents);
 
   return Math.min(
     heldRemaining,
     Math.max(0, Math.round(remainingCheckoutCents)),
-    deferredSaleCapacity,
+    currentSaleCapacity,
   );
 }
 

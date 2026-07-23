@@ -115,11 +115,11 @@ When a group pay disbursement targets a wedding member who has no open order row
 - Stored in: `customer_open_deposit_accounts` / `customer_open_deposit_ledger` (migration **83**).
 - **Not** the same as store credit — open deposits are earmarked for a specific future purchase.
 - When staff select that customer in the Register, Riverside immediately shows a **Wedding deposit available** notice with the held balance and the most recent payer name when available.
-- The **Pay** screen keeps the held balance visible and provides **Apply $X**. The amount is capped to the selected member's eligible deferred sale balance.
-- The held deposit cannot pay takeaway merchandise, another party disbursement, or an existing-order allocation staged in the same checkout. Those amounts require their normal tender paths.
+- The **Pay** screen keeps the held balance visible and provides **Apply $X**. The amount is capped to the selected member's current sale balance.
+- The held deposit can pay the selected member's in-stock takeaway merchandise. It cannot pay another party disbursement or an existing-order allocation staged in the same checkout.
 - Applying the balance creates an `open_deposit` payment line and an atomic negative `checkout_redemption` ledger entry tied to the new Transaction Record. A failed checkout rolls both back, and the locked account balance prevents reuse or overspending.
 - If that Transaction Record is cancelled without forfeiture or voided, Riverside atomically restores the held amount to the member's open-deposit account, records a restoration ledger entry, and excludes it from any cash-refund queue.
-- The server treats `deposit_ledger` and `open_deposit` payment methods as non-real-tender (excluded from `tender_sum_excluding_deposit_like` in checkout validation).
+- The server excludes a new `deposit_ledger` commitment from takeaway coverage. A redeemed `open_deposit` is held money and counts toward the selected customer's takeaway coverage.
 - QBO keeps the redeemed amount in **Deposit liability** while the sale is unfulfilled. On fulfillment, the held amount is included in the deposit release that debits the liability and credits recognized revenue.
 
 ---
@@ -152,12 +152,12 @@ A single cart can contain both immediate-pickup (takeaway) items and deferred-fu
 
 | Component | Paid by | Example |
 |-----------|---------|---------|
-| Takeaway items + their tax | Real tenders (card/cash) | $50 sweater taken home today |
+| Takeaway items + their tax | Real tenders (card/cash) or the selected customer's held wedding deposit | $50 sweater taken home today |
 | Deposit on deferred items | Real tenders or deposit ledger | $100 deposit on a $200 order suit |
 
 The **Balance remaining** in the payment ledger reflects: `deposit amount + takeaway total - tenders applied`.
 
-The cashier must tender enough to cover both the takeaway goods **and** the requested deposit. The deposit-only (no-tender) path is blocked when takeaway items are in the cart.
+The cashier must apply tender or the selected customer's held wedding deposit to cover the takeaway goods, plus any requested new deposit. The deposit-only (no-tender) path is blocked when takeaway items are in the cart.
 
 ---
 

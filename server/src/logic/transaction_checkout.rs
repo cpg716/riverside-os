@@ -769,11 +769,11 @@ fn takeaway_line_total_decimal(items: &[CheckoutItem]) -> Decimal {
     s.round_dp(2)
 }
 
-fn tender_sum_excluding_deposit_like(splits: &[ResolvedPaymentSplit]) -> Decimal {
+fn tender_sum_excluding_deposit_ledger(splits: &[ResolvedPaymentSplit]) -> Decimal {
     let mut s = Decimal::ZERO;
     for sp in splits {
         let m = sp.method.trim().to_ascii_lowercase();
-        if m == "deposit_ledger" || m == "open_deposit" {
+        if m == "deposit_ledger" {
             continue;
         }
         s += sp.amount;
@@ -784,7 +784,6 @@ fn tender_sum_excluding_deposit_like(splits: &[ResolvedPaymentSplit]) -> Decimal
 fn validate_open_deposit_scope(
     splits: &[ResolvedPaymentSplit],
     current_sale_total: Decimal,
-    takeaway_total: Decimal,
     wedding_disbursement_total: Decimal,
     order_payment_total: Decimal,
 ) -> Result<(), CheckoutError> {
@@ -805,12 +804,9 @@ fn validate_open_deposit_scope(
         ));
     }
 
-    let eligible_deferred_total = (current_sale_total - takeaway_total)
-        .max(Decimal::ZERO)
-        .round_dp(2);
-    if open_deposit_total > eligible_deferred_total {
+    if open_deposit_total > current_sale_total.max(Decimal::ZERO).round_dp(2) {
         return Err(CheckoutError::InvalidPayload(
-            "open deposit amount exceeds the deferred order portion of this sale".to_string(),
+            "open deposit amount exceeds the selected customer's current sale".to_string(),
         ));
     }
 
@@ -3950,14 +3946,13 @@ async fn execute_checkout_internal(
     validate_open_deposit_scope(
         &payment_splits,
         payload.total_price,
-        takeaway_total,
         d_total,
         order_payment_total,
     )?;
-    let tender_ex_deposit = tender_sum_excluding_deposit_like(&payment_splits);
+    let tender_ex_deposit = tender_sum_excluding_deposit_ledger(&payment_splits);
     if takeaway_total > Decimal::ZERO && tender_ex_deposit + tol < takeaway_total {
         return Err(CheckoutError::InvalidPayload(
-            "Takeaway merchandise and tax must be paid in full with cash-equivalent tenders (deposit ledger and open deposit cannot satisfy takeaway-only amounts)."
+            "Takeaway merchandise and tax must be paid in full with tender or the selected customer's held wedding deposit (a new deposit ledger cannot satisfy takeaway-only amounts)."
                 .to_string(),
         ));
     }
@@ -6609,14 +6604,15 @@ mod tests {
         helcim_checkout_references, helcim_tender_method_matches_amount,
         is_fee_only_shipping_quote, parse_combo_reward_amount, payment_effective_date,
         resolve_payment_splits, strip_sensitive_checkout_request, strip_sensitive_payment_metadata,
-        validate_checkout_alteration_intakes, validate_checkout_item_quantity,
-        validate_checkout_replay_fingerprints, validate_exchange_checkout_intent,
-        validate_helcim_attempt_checkout_binding, validate_open_deposit_scope,
-        validate_order_payment_against_target, validate_order_payment_shape,
-        validate_processing_intent_fingerprint, validate_wedding_disbursement_against_balance,
-        CheckoutAlterationIntake, CheckoutDone, CheckoutItem, CheckoutOrderPayment,
-        CheckoutPaymentSplit, CheckoutRequest, ExistingOrderPaymentTarget, ResolvedOrderPayment,
-        ResolvedPaymentSplit, WeddingDisbursement,
+        tender_sum_excluding_deposit_ledger, validate_checkout_alteration_intakes,
+        validate_checkout_item_quantity, validate_checkout_replay_fingerprints,
+        validate_exchange_checkout_intent, validate_helcim_attempt_checkout_binding,
+        validate_open_deposit_scope, validate_order_payment_against_target,
+        validate_order_payment_shape, validate_processing_intent_fingerprint,
+        validate_wedding_disbursement_against_balance, CheckoutAlterationIntake, CheckoutDone,
+        CheckoutItem, CheckoutOrderPayment, CheckoutPaymentSplit, CheckoutRequest,
+        ExistingOrderPaymentTarget, ResolvedOrderPayment, ResolvedPaymentSplit,
+        WeddingDisbursement,
     };
     use crate::logic::customer_open_deposit;
     use crate::logic::customers::{insert_customer, CustomerCreatedSource, InsertCustomerParams};
@@ -8070,25 +8066,37 @@ mod tests {
     }
 
     #[test]
-    fn open_deposit_scope_allows_only_the_deferred_current_sale_portion() {
+    fn open_deposit_scope_allows_the_selected_customers_full_current_sale() {
         assert!(validate_open_deposit_scope(
-            &[resolved_open_deposit_split(Decimal::new(6000, 2))],
+            &[resolved_open_deposit_split(Decimal::new(10000, 2))],
             Decimal::new(10000, 2),
-            Decimal::new(4000, 2),
             Decimal::ZERO,
             Decimal::ZERO,
         )
         .is_ok());
 
         let error = validate_open_deposit_scope(
-            &[resolved_open_deposit_split(Decimal::new(6001, 2))],
+            &[resolved_open_deposit_split(Decimal::new(10001, 2))],
             Decimal::new(10000, 2),
-            Decimal::new(4000, 2),
             Decimal::ZERO,
             Decimal::ZERO,
         )
-        .expect_err("takeaway value must remain cash-equivalent");
-        assert!(error.to_string().contains("deferred order portion"));
+        .expect_err("held funds cannot exceed the selected customer's sale");
+        assert!(error.to_string().contains("current sale"));
+    }
+
+    #[test]
+    fn held_open_deposit_counts_toward_takeaway_tender_coverage() {
+        let mut deposit_ledger = resolved_split(Decimal::new(2500, 2));
+        deposit_ledger.method = "deposit_ledger".to_string();
+
+        assert_eq!(
+            tender_sum_excluding_deposit_ledger(&[
+                resolved_open_deposit_split(Decimal::new(4000, 2)),
+                deposit_ledger,
+            ]),
+            Decimal::new(4000, 2),
+        );
     }
 
     #[test]
@@ -8096,7 +8104,6 @@ mod tests {
         let error = validate_open_deposit_scope(
             &[resolved_open_deposit_split(Decimal::new(5000, 2))],
             Decimal::new(5000, 2),
-            Decimal::ZERO,
             Decimal::new(100, 2),
             Decimal::ZERO,
         )

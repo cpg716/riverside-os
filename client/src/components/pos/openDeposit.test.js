@@ -5,17 +5,16 @@ import {
 } from "./openDeposit";
 
 describe("openDepositApplicationCents", () => {
-  it("caps a held deposit to the deferred portion of a mixed sale", () => {
+  it("allows a held wedding deposit to fund the selected customer's mixed sale", () => {
     expect(
       openDepositApplicationCents({
         heldBalanceCents: 7_500,
         alreadyAppliedCents: 0,
         remainingCheckoutCents: 10_000,
         currentSaleCents: 10_000,
-        takeawayCents: 4_000,
         hasExternalAllocations: false,
       }),
-    ).toBe(6_000);
+    ).toBe(7_500);
   });
 
   it("accounts for a held deposit already added to the payment ledger", () => {
@@ -25,10 +24,9 @@ describe("openDepositApplicationCents", () => {
         alreadyAppliedCents: 2_000,
         remainingCheckoutCents: 8_000,
         currentSaleCents: 10_000,
-        takeawayCents: 4_000,
         hasExternalAllocations: false,
       }),
-    ).toBe(4_000);
+    ).toBe(5_500);
   });
 
   it("does not allow a member deposit to fund party or existing-order allocations", () => {
@@ -38,7 +36,6 @@ describe("openDepositApplicationCents", () => {
         alreadyAppliedCents: 0,
         remainingCheckoutCents: 10_000,
         currentSaleCents: 10_000,
-        takeawayCents: 0,
         hasExternalAllocations: true,
       }),
     ).toBe(0);

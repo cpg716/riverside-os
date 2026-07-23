@@ -1201,7 +1201,7 @@ export default function NexoCheckoutDrawer({
     () =>
       applied.reduce(
         (sum, payment) =>
-          ["deposit_ledger", "open_deposit"].includes(payment.method.trim().toLowerCase())
+          payment.method.trim().toLowerCase() === "deposit_ledger"
             ? sum
             : sum + payment.amountCents,
         0,
@@ -1228,7 +1228,6 @@ export default function NexoCheckoutDrawer({
         alreadyAppliedCents: appliedOpenDepositCents,
         remainingCheckoutCents: remainingCents,
         currentSaleCents: currentSaleAmountCents,
-        takeawayCents: tw,
         hasExternalAllocations: openDepositExternalAllocations,
       })
     : 0;
@@ -3939,10 +3938,6 @@ export default function NexoCheckoutDrawer({
                       {openDepositExternalAllocations ? (
                         <p className="mt-2 text-xs font-bold text-app-warning">
                           Clear party disbursements and existing-order payments before applying this member's held deposit.
-                        </p>
-                      ) : heldOpenDepositApplyCents <= 0 && tw > 0 ? (
-                        <p className="mt-2 text-xs font-bold text-app-warning">
-                          Held wedding deposits cannot pay the takeaway portion of this sale.
                         </p>
                       ) : null}
                     </div>

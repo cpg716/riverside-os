@@ -10,7 +10,7 @@ Checkout can attach **`wedding_disbursements`**: the register payment is allocat
 
 ### Open deposit when a member has no open transaction
 
-If a disbursement targets a **wedding member** who does **not** yet have an **open** transaction row for allocation, checkout **credits** that member’s **customer** with an **open deposit** (see **`customer_open_deposit_accounts`** / **`customer_open_deposit_ledger`**, migration **83**). It is not store credit. Selecting that customer in the Register shows the balance and most recent payer; the cashier can then use **Apply $X** on **Pay** for that member's eligible deferred sale. Riverside blocks the held balance from funding takeaway merchandise, another member's disbursement, or an existing-order allocation staged in the same checkout. Redemption and the sale commit atomically, while QBO retains the value in deposit liability until fulfillment releases it to revenue.
+If a disbursement targets a **wedding member** who does **not** yet have an **open** transaction row for allocation, checkout **credits** that member’s **customer** with an **open deposit** (see **`customer_open_deposit_accounts`** / **`customer_open_deposit_ledger`**, migration **83**). It is not store credit. Selecting that customer in the Register shows the balance and most recent payer; the cashier can then use **Apply $X** on **Pay** for that member's current sale, including in-stock takeaway merchandise. Riverside still blocks the held balance from funding another member's disbursement or an existing-order allocation staged in the same checkout. Redemption and the sale commit atomically, while QBO retains the value in deposit liability until fulfillment releases it to revenue.
 
 ## Return the line on the correct transaction
 
