@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use axum::{
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
@@ -173,7 +175,7 @@ struct ExternalTargetPaymentEvidence {
     provider_transaction_id: Option<String>,
 }
 
-#[derive(Debug, sqlx::FromRow)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, sqlx::FromRow)]
 struct ExternalTargetPaymentAllocationEvidence {
     target_transaction_id: Uuid,
     amount_allocated: Decimal,
@@ -181,6 +183,7 @@ struct ExternalTargetPaymentAllocationEvidence {
 
 #[derive(Debug)]
 struct ExternalPayloadPaymentEvidence {
+    payment_split_index: usize,
     amount: Decimal,
     provider_attempt_id: Option<Uuid>,
     provider_payment_id: Option<String>,
@@ -238,6 +241,10 @@ pub fn router() -> Router<AppState> {
         .route(
             "/{client_job_key}/verify-follow-up",
             post(verify_pickup_recovery_job),
+        )
+        .route(
+            "/{client_job_key}/cancel-invalid-follow-up",
+            post(cancel_invalid_pickup_recovery_job),
         )
         .route(
             "/{client_job_key}",
@@ -1032,7 +1039,8 @@ fn external_payload_payment_evidence(
         .as_deref()
         .unwrap_or_default()
         .iter()
-        .filter_map(|split| {
+        .enumerate()
+        .filter_map(|(payment_split_index, split)| {
             let metadata = split.metadata.as_ref();
             let provider = external_payment_metadata_text(metadata, "payment_provider")
                 .or_else(|| external_payment_metadata_text(metadata, "provider"))?;
@@ -1040,6 +1048,7 @@ fn external_payload_payment_evidence(
                 return None;
             }
             Some(ExternalPayloadPaymentEvidence {
+                payment_split_index,
                 amount: split.amount.round_dp(2),
                 provider_attempt_id: external_payment_metadata_text(
                     metadata,
@@ -1058,6 +1067,437 @@ fn external_payload_payment_evidence(
             })
         })
         .collect()
+}
+
+fn external_checkout_allocation_totals(
+    checkout: &CheckoutRequest,
+) -> Result<(Decimal, Decimal), RecoveryError> {
+    let wedding_disbursement_total = checkout
+        .wedding_disbursements
+        .as_deref()
+        .unwrap_or_default()
+        .iter()
+        .try_fold(Decimal::ZERO, |total, disbursement| {
+            let amount = disbursement.amount.round_dp(2);
+            if amount < Decimal::ZERO {
+                return Err(external_recovery_blocked(
+                    "the immutable checkout has a negative wedding disbursement",
+                ));
+            }
+            Ok((total + amount).round_dp(2))
+        })?;
+    let order_payment_total =
+        checkout
+            .order_payments
+            .iter()
+            .try_fold(Decimal::ZERO, |total, payment| {
+                let amount = payment.amount.round_dp(2);
+                if amount < Decimal::ZERO {
+                    return Err(external_recovery_blocked(
+                        "the immutable checkout has a negative existing-order payment",
+                    ));
+                }
+                Ok((total + amount).round_dp(2))
+            })?;
+    let current_transaction_payment =
+        (checkout.amount_paid.round_dp(2) - wedding_disbursement_total - order_payment_total)
+            .round_dp(2);
+    if current_transaction_payment < Decimal::ZERO {
+        return Err(external_recovery_blocked(
+            "the immutable checkout tender is smaller than its recorded disbursements",
+        ));
+    }
+    Ok((current_transaction_payment, wedding_disbursement_total))
+}
+
+fn expected_external_payment_allocations(
+    checkout: &CheckoutRequest,
+    payment_split_index: usize,
+    current_transaction_id: Uuid,
+) -> Result<Vec<ExternalTargetPaymentAllocationEvidence>, RecoveryError> {
+    let payment_splits = checkout.payment_splits.as_deref().ok_or_else(|| {
+        external_recovery_blocked("the immutable checkout has no payment split evidence")
+    })?;
+    if payment_split_index >= payment_splits.len() {
+        return Err(external_recovery_blocked(
+            "the immutable Helcim tender index is invalid",
+        ));
+    }
+
+    let (mut current_remaining, wedding_disbursement_total) =
+        external_checkout_allocation_totals(checkout)?;
+
+    let mut seen_order_targets = HashSet::new();
+    let mut order_targets = Vec::new();
+    for order_payment in &checkout.order_payments {
+        let amount = order_payment.amount.round_dp(2);
+        if amount < Decimal::ZERO {
+            return Err(external_recovery_blocked(
+                "the immutable checkout has a negative existing-order payment",
+            ));
+        }
+        if amount == Decimal::ZERO {
+            continue;
+        }
+        if order_payment.target_transaction_id == current_transaction_id
+            || !seen_order_targets.insert(order_payment.target_transaction_id)
+        {
+            return Err(external_recovery_blocked(
+                "the immutable checkout has ambiguous existing-order payment targets",
+            ));
+        }
+        order_targets.push((order_payment.target_transaction_id, amount));
+    }
+
+    let mut order_index = 0usize;
+    let mut order_remaining = order_targets
+        .first()
+        .map(|(_, amount)| *amount)
+        .unwrap_or(Decimal::ZERO);
+    let mut expected = Vec::new();
+    let mut matched_unallocated = Decimal::ZERO;
+    let mut total_unallocated = Decimal::ZERO;
+
+    for (split_index, split) in payment_splits.iter().enumerate() {
+        let mut split_remaining = split.amount.round_dp(2);
+        if split_remaining < Decimal::ZERO {
+            return Err(external_recovery_blocked(
+                "the immutable checkout has a negative payment split",
+            ));
+        }
+        if split_remaining == Decimal::ZERO {
+            continue;
+        }
+
+        if current_remaining > Decimal::ZERO {
+            let amount = split_remaining.min(current_remaining).round_dp(2);
+            if amount > Decimal::ZERO {
+                if split_index == payment_split_index {
+                    expected.push(ExternalTargetPaymentAllocationEvidence {
+                        target_transaction_id: current_transaction_id,
+                        amount_allocated: amount,
+                    });
+                }
+                current_remaining = (current_remaining - amount).round_dp(2);
+                split_remaining = (split_remaining - amount).round_dp(2);
+            }
+        }
+
+        while split_remaining > Decimal::ZERO && order_index < order_targets.len() {
+            if order_remaining <= Decimal::ZERO {
+                order_index += 1;
+                order_remaining = order_targets
+                    .get(order_index)
+                    .map(|(_, amount)| *amount)
+                    .unwrap_or(Decimal::ZERO);
+                continue;
+            }
+            let (target_transaction_id, _) = order_targets[order_index];
+            let amount = split_remaining.min(order_remaining).round_dp(2);
+            if split_index == payment_split_index {
+                expected.push(ExternalTargetPaymentAllocationEvidence {
+                    target_transaction_id,
+                    amount_allocated: amount,
+                });
+            }
+            order_remaining = (order_remaining - amount).round_dp(2);
+            split_remaining = (split_remaining - amount).round_dp(2);
+        }
+
+        if split_index == payment_split_index {
+            matched_unallocated = split_remaining;
+        }
+        total_unallocated = (total_unallocated + split_remaining).round_dp(2);
+    }
+
+    let remaining_order_total = order_targets
+        .iter()
+        .enumerate()
+        .filter_map(|(index, (_, amount))| {
+            if index < order_index {
+                None
+            } else if index == order_index {
+                Some(order_remaining)
+            } else {
+                Some(*amount)
+            }
+        })
+        .sum::<Decimal>()
+        .round_dp(2);
+    if current_remaining > Decimal::ZERO || remaining_order_total > Decimal::ZERO {
+        return Err(external_recovery_blocked(
+            "the immutable checkout payment splits do not cover the committed sale and existing-order payments",
+        ));
+    }
+    if total_unallocated != wedding_disbursement_total {
+        return Err(external_recovery_blocked(
+            "the immutable checkout payment splits do not exactly match its recorded disbursements",
+        ));
+    }
+    if matched_unallocated != Decimal::ZERO || expected.is_empty() {
+        return Err(external_recovery_blocked(
+            "the matched Helcim tender is not fully allocated by the immutable checkout",
+        ));
+    }
+
+    Ok(expected)
+}
+
+fn validate_external_payment_allocations(
+    checkout: &CheckoutRequest,
+    payload_payment: &ExternalPayloadPaymentEvidence,
+    current_transaction_id: Uuid,
+    allocations: &[ExternalTargetPaymentAllocationEvidence],
+) -> Result<Vec<ExternalTargetPaymentAllocationEvidence>, RecoveryError> {
+    let mut expected = expected_external_payment_allocations(
+        checkout,
+        payload_payment.payment_split_index,
+        current_transaction_id,
+    )?;
+    let mut actual = allocations
+        .iter()
+        .map(|allocation| ExternalTargetPaymentAllocationEvidence {
+            target_transaction_id: allocation.target_transaction_id,
+            amount_allocated: allocation.amount_allocated.round_dp(2),
+        })
+        .collect::<Vec<_>>();
+    if actual
+        .iter()
+        .any(|allocation| allocation.amount_allocated <= Decimal::ZERO)
+    {
+        return Err(external_recovery_blocked(
+            "the matched Helcim payment has a non-positive allocation",
+        ));
+    }
+
+    expected.sort_by_key(|allocation| allocation.target_transaction_id);
+    actual.sort_by_key(|allocation| allocation.target_transaction_id);
+    let expected_total = expected
+        .iter()
+        .map(|allocation| allocation.amount_allocated)
+        .sum::<Decimal>()
+        .round_dp(2);
+    let actual_total = actual
+        .iter()
+        .map(|allocation| allocation.amount_allocated)
+        .sum::<Decimal>()
+        .round_dp(2);
+    if expected != actual
+        || expected_total != payload_payment.amount
+        || actual_total != payload_payment.amount
+    {
+        return Err(external_recovery_blocked(
+            "the matched Helcim payment allocation targets or amounts do not exactly match the immutable checkout",
+        ));
+    }
+
+    Ok(actual)
+}
+
+#[cfg(test)]
+mod external_recovery_allocation_tests {
+    use super::{
+        external_checkout_allocation_totals, validate_external_payment_allocations,
+        ExternalPayloadPaymentEvidence, ExternalTargetPaymentAllocationEvidence,
+    };
+    use crate::logic::transaction_checkout::CheckoutRequest;
+    use rust_decimal::Decimal;
+    use serde_json::json;
+    use uuid::Uuid;
+
+    fn checkout(
+        amount_paid: &str,
+        payment_splits: serde_json::Value,
+        order_payments: serde_json::Value,
+    ) -> CheckoutRequest {
+        serde_json::from_value(json!({
+            "session_id": Uuid::new_v4(),
+            "operator_staff_id": Uuid::new_v4(),
+            "customer_id": Uuid::new_v4(),
+            "payment_method": "card",
+            "total_price": "186.45",
+            "amount_paid": amount_paid,
+            "items": [],
+            "payment_splits": payment_splits,
+            "order_payments": order_payments,
+        }))
+        .expect("valid checkout")
+    }
+
+    fn payload_payment(
+        payment_split_index: usize,
+        amount: Decimal,
+    ) -> ExternalPayloadPaymentEvidence {
+        ExternalPayloadPaymentEvidence {
+            payment_split_index,
+            amount,
+            provider_attempt_id: None,
+            provider_payment_id: None,
+            provider_transaction_id: None,
+            provider_status: None,
+        }
+    }
+
+    #[test]
+    fn accepts_existing_single_target_allocation() {
+        let current_transaction_id = Uuid::new_v4();
+        let checkout = checkout(
+            "100.00",
+            json!([{"payment_method": "card", "amount": "100.00"}]),
+            json!([]),
+        );
+        let allocations = vec![ExternalTargetPaymentAllocationEvidence {
+            target_transaction_id: current_transaction_id,
+            amount_allocated: Decimal::new(10_000, 2),
+        }];
+
+        assert!(validate_external_payment_allocations(
+            &checkout,
+            &payload_payment(0, Decimal::new(10_000, 2)),
+            current_transaction_id,
+            &allocations,
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn accepts_exact_current_sale_and_immutable_order_payment_allocations() {
+        let current_transaction_id = Uuid::new_v4();
+        let order_transaction_id = Uuid::new_v4();
+        let customer_id = Uuid::new_v4();
+        let checkout: CheckoutRequest = serde_json::from_value(json!({
+            "session_id": Uuid::new_v4(),
+            "operator_staff_id": Uuid::new_v4(),
+            "customer_id": customer_id,
+            "payment_method": "card",
+            "total_price": "186.45",
+            "amount_paid": "353.67",
+            "items": [],
+            "payment_splits": [
+                {"payment_method": "card", "amount": "353.67"}
+            ],
+            "order_payments": [{
+                "client_line_id": "order-1",
+                "target_transaction_id": order_transaction_id,
+                "target_display_id": "TXN-566334",
+                "customer_id": customer_id,
+                "amount": "167.22",
+                "balance_before": "167.22",
+                "projected_balance_after": "0.00"
+            }],
+        }))
+        .expect("valid checkout");
+        let allocations = vec![
+            ExternalTargetPaymentAllocationEvidence {
+                target_transaction_id: order_transaction_id,
+                amount_allocated: Decimal::new(16_722, 2),
+            },
+            ExternalTargetPaymentAllocationEvidence {
+                target_transaction_id: current_transaction_id,
+                amount_allocated: Decimal::new(18_645, 2),
+            },
+        ];
+
+        let (current_payment, _) =
+            external_checkout_allocation_totals(&checkout).expect("exact allocation totals");
+        assert_eq!(current_payment, Decimal::new(18_645, 2));
+        assert!(validate_external_payment_allocations(
+            &checkout,
+            &payload_payment(0, Decimal::new(35_367, 2)),
+            current_transaction_id,
+            &allocations,
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn derives_the_exact_provider_share_in_a_split_tender_checkout() {
+        let current_transaction_id = Uuid::new_v4();
+        let order_transaction_id = Uuid::new_v4();
+        let customer_id = Uuid::new_v4();
+        let checkout: CheckoutRequest = serde_json::from_value(json!({
+            "session_id": Uuid::new_v4(),
+            "operator_staff_id": Uuid::new_v4(),
+            "customer_id": customer_id,
+            "payment_method": "split",
+            "total_price": "186.45",
+            "amount_paid": "353.67",
+            "items": [],
+            "payment_splits": [
+                {"payment_method": "cash", "amount": "50.00"},
+                {"payment_method": "card", "amount": "303.67"}
+            ],
+            "order_payments": [{
+                "client_line_id": "order-1",
+                "target_transaction_id": order_transaction_id,
+                "target_display_id": "TXN-566334",
+                "customer_id": customer_id,
+                "amount": "167.22",
+                "balance_before": "167.22",
+                "projected_balance_after": "0.00"
+            }],
+        }))
+        .expect("valid checkout");
+        let allocations = vec![
+            ExternalTargetPaymentAllocationEvidence {
+                target_transaction_id: current_transaction_id,
+                amount_allocated: Decimal::new(13_645, 2),
+            },
+            ExternalTargetPaymentAllocationEvidence {
+                target_transaction_id: order_transaction_id,
+                amount_allocated: Decimal::new(16_722, 2),
+            },
+        ];
+
+        assert!(validate_external_payment_allocations(
+            &checkout,
+            &payload_payment(1, Decimal::new(30_367, 2)),
+            current_transaction_id,
+            &allocations,
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn rejects_incomplete_or_redirected_multi_target_allocations() {
+        let current_transaction_id = Uuid::new_v4();
+        let order_transaction_id = Uuid::new_v4();
+        let customer_id = Uuid::new_v4();
+        let checkout: CheckoutRequest = serde_json::from_value(json!({
+            "session_id": Uuid::new_v4(),
+            "operator_staff_id": Uuid::new_v4(),
+            "customer_id": customer_id,
+            "payment_method": "card",
+            "total_price": "186.45",
+            "amount_paid": "353.67",
+            "items": [],
+            "payment_splits": [
+                {"payment_method": "card", "amount": "353.67"}
+            ],
+            "order_payments": [{
+                "client_line_id": "order-1",
+                "target_transaction_id": order_transaction_id,
+                "target_display_id": "TXN-566334",
+                "customer_id": customer_id,
+                "amount": "167.22",
+                "balance_before": "167.22",
+                "projected_balance_after": "0.00"
+            }],
+        }))
+        .expect("valid checkout");
+        let allocations = vec![ExternalTargetPaymentAllocationEvidence {
+            target_transaction_id: current_transaction_id,
+            amount_allocated: Decimal::new(35_367, 2),
+        }];
+
+        assert!(validate_external_payment_allocations(
+            &checkout,
+            &payload_payment(0, Decimal::new(35_367, 2)),
+            current_transaction_id,
+            &allocations,
+        )
+        .is_err());
+    }
 }
 
 async fn resolve_externally_reconciled_checkout(
@@ -1273,11 +1713,12 @@ async fn resolve_externally_reconciled_checkout(
             "the recovery job is already linked to a different Transaction Record",
         ));
     }
+    let (expected_current_transaction_payment, _) = external_checkout_allocation_totals(&checkout)?;
     if !matches!(
         target.status.as_str(),
         "open" | "fulfilled" | "pending_measurement"
     ) || target.total_price.round_dp(2) != checkout.total_price.round_dp(2)
-        || target.amount_paid.round_dp(2) != checkout.amount_paid.round_dp(2)
+        || target.amount_paid.round_dp(2) != expected_current_transaction_payment
     {
         return Err(external_recovery_blocked(
             "the target Transaction Record is not the exact committed checkout",
@@ -1344,7 +1785,7 @@ async fn resolve_externally_reconciled_checkout(
         ));
     }
     let payment = payments.pop().expect("one exact target payment");
-    let mut allocations: Vec<ExternalTargetPaymentAllocationEvidence> = sqlx::query_as(
+    let allocations: Vec<ExternalTargetPaymentAllocationEvidence> = sqlx::query_as(
         r#"
         SELECT target_transaction_id, amount_allocated
         FROM payment_allocations
@@ -1355,17 +1796,8 @@ async fn resolve_externally_reconciled_checkout(
     .bind(payment.id)
     .fetch_all(&mut *tx)
     .await?;
-    if allocations.len() != 1 {
-        return Err(external_recovery_blocked(
-            "the matched Helcim payment ledger row does not have exactly one allocation",
-        ));
-    }
-    let allocation = allocations.pop().expect("one exact payment allocation");
-    if allocation.target_transaction_id != target.id {
-        return Err(external_recovery_blocked(
-            "the provider transaction is allocated to a different Transaction Record",
-        ));
-    }
+    let verified_allocations =
+        validate_external_payment_allocations(&checkout, payload_payment, target.id, &allocations)?;
     if payment.status.as_deref() != Some("success")
         || !payment
             .provider_status
@@ -1381,10 +1813,7 @@ async fn resolve_externally_reconciled_checkout(
             "the matched payment ledger row belongs to a different Register session or customer",
         ));
     }
-    if payment.amount.round_dp(2) != payload_payment.amount
-        || allocation.amount_allocated.round_dp(2) != payload_payment.amount
-        || allocation.amount_allocated <= Decimal::ZERO
-    {
+    if payment.amount.round_dp(2) != payload_payment.amount {
         return Err(external_recovery_blocked(
             "the matched payment ledger amount does not equal the immutable Helcim tender",
         ));
@@ -1429,7 +1858,7 @@ async fn resolve_externally_reconciled_checkout(
                 })?;
             (true, original_manager_id, original_reason.to_string())
         };
-    let audit_metadata = json!({
+    let mut audit_metadata = json!({
         "client_job_key": &client_job_key,
         "transaction_id": target.id,
         "transaction_display_id": target_display_id,
@@ -1448,6 +1877,15 @@ async fn resolve_externally_reconciled_checkout(
         "resolution_path": "externally_reconciled_payment",
         "reason": &audit_reason,
     });
+    if verified_allocations.len() > 1 {
+        audit_metadata
+            .as_object_mut()
+            .expect("external recovery audit metadata is an object")
+            .insert(
+                "payment_allocations".to_string(),
+                json!(verified_allocations),
+            );
+    }
     if !idempotent_replay {
         let updated = sqlx::query(
             r#"
@@ -1838,6 +2276,336 @@ async fn verify_pickup_recovery_job(
     Ok(Json(json!({
         "status": "resolved",
         "verified_steps": steps.len(),
+        "idempotent_replay": already_resolved,
+    })))
+}
+
+async fn cancel_invalid_pickup_recovery_job(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(client_job_key): Path<String>,
+    Json(request): Json<ReplayCheckoutRecoveryRequest>,
+) -> Result<Json<Value>, RecoveryError> {
+    require_recovery_caller(&state, &headers).await?;
+    let reason = request.reason.trim();
+    if reason.chars().count() < 12 || reason.chars().count() > 500 {
+        return Err(RecoveryError::BadRequest(
+            "manager recovery reason must be between 12 and 500 characters".to_string(),
+        ));
+    }
+    let manager = pins::authenticate_staff_by_id(
+        &state.db,
+        request.manager_staff_id,
+        Some(request.manager_pin.trim()),
+    )
+    .await
+    .map_err(|_| RecoveryError::Forbidden("Manager Access was not approved".to_string()))?;
+    let effective = effective_permissions_for_staff(&state.db, manager.id, manager.role).await?;
+    if !staff_can_approve_manager_access(&effective, manager.role) {
+        return Err(RecoveryError::Forbidden(
+            "manager.approval permission required".to_string(),
+        ));
+    }
+
+    let mut tx = state.db.begin().await?;
+    let job: Option<(
+        String,
+        String,
+        Value,
+        Option<Uuid>,
+        Option<Uuid>,
+        Option<Uuid>,
+        Option<Uuid>,
+        Option<String>,
+    )> = sqlx::query_as(
+        r#"
+        SELECT kind, status, payload, register_session_id, transaction_id, checkout_client_id,
+               resolved_by_staff_id, resolution_note
+        FROM operational_recovery_job
+        WHERE client_job_key = $1
+        FOR UPDATE
+        "#,
+    )
+    .bind(&client_job_key)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some((
+        kind,
+        status,
+        payload,
+        register_session_id,
+        recovery_transaction_id,
+        checkout_client_id,
+        resolved_by_staff_id,
+        resolution_note,
+    )) = job
+    else {
+        return Err(RecoveryError::NotFound);
+    };
+    if kind != "pickup_after_payment" {
+        return Err(RecoveryError::BadRequest(
+            "only an invalid paid follow-up recovery can be cancelled here".to_string(),
+        ));
+    }
+    if !matches!(status.as_str(), "pending" | "blocked" | "resolved") {
+        return Err(RecoveryError::BadRequest(
+            "paid follow-up recovery is already closed with a different outcome".to_string(),
+        ));
+    }
+
+    let register_session_id = register_session_id.ok_or_else(|| {
+        RecoveryError::BadRequest(
+            "paid follow-up is missing its authoritative Register session".to_string(),
+        )
+    })?;
+    let recovery_transaction_id = recovery_transaction_id.ok_or_else(|| {
+        RecoveryError::BadRequest(
+            "paid follow-up is missing its claimed Transaction Record".to_string(),
+        )
+    })?;
+    let checkout_client_id = checkout_client_id.ok_or_else(|| {
+        RecoveryError::BadRequest(
+            "paid follow-up is missing its authoritative checkout identity".to_string(),
+        )
+    })?;
+    let immutable_checkout = checkout_payload(&payload).ok_or_else(|| {
+        RecoveryError::BadRequest(
+            "paid follow-up is missing its immutable checkout payload".to_string(),
+        )
+    })?;
+    if immutable_checkout.session_id != register_session_id
+        || immutable_checkout.checkout_client_id != Some(checkout_client_id)
+    {
+        return Err(RecoveryError::Forbidden(
+            "paid follow-up immutable checkout identity does not match its recovery job"
+                .to_string(),
+        ));
+    }
+    let (request_fingerprint, payment_fingerprint) =
+        checkout_request_fingerprints(&immutable_checkout)
+            .map_err(|_| RecoveryError::BadRequest("checkout evidence is invalid".to_string()))?;
+
+    let committed_checkouts: Vec<(Uuid, Option<String>, Option<String>)> = sqlx::query_as(
+        r#"
+        SELECT id, checkout_request_fingerprint, checkout_payment_fingerprint
+        FROM transactions
+        WHERE checkout_client_id = $1
+          AND register_session_id = $2
+          AND status <> 'processing'::order_status
+        FOR UPDATE
+        "#,
+    )
+    .bind(checkout_client_id)
+    .bind(register_session_id)
+    .fetch_all(&mut *tx)
+    .await?;
+    if committed_checkouts.len() != 1 {
+        return Err(RecoveryError::Forbidden(
+            "invalid follow-up cannot be proven without exactly one committed checkout".to_string(),
+        ));
+    }
+    let (committed_transaction_id, committed_request_fingerprint, committed_payment_fingerprint) =
+        &committed_checkouts[0];
+    if committed_request_fingerprint.as_deref() != Some(request_fingerprint.as_str())
+        || committed_payment_fingerprint.as_deref() != Some(payment_fingerprint.as_str())
+    {
+        return Err(RecoveryError::Forbidden(
+            "invalid follow-up cannot be proven because the immutable checkout fingerprints do not match the committed checkout"
+                .to_string(),
+        ));
+    }
+
+    let checkout_payment_ids: Vec<Uuid> = sqlx::query_scalar(
+        r#"
+        SELECT DISTINCT pt.id
+        FROM payment_transactions pt
+        INNER JOIN payment_allocations pa ON pa.transaction_id = pt.id
+        WHERE pa.target_transaction_id = $1
+          AND pt.status = 'success'
+        "#,
+    )
+    .bind(*committed_transaction_id)
+    .fetch_all(&mut *tx)
+    .await?;
+    if checkout_payment_ids.is_empty() {
+        return Err(RecoveryError::Forbidden(
+            "invalid paid follow-up cannot be proven without a successful committed payment"
+                .to_string(),
+        ));
+    }
+
+    let mut authoritative_transaction_ids: HashSet<Uuid> = sqlx::query_scalar(
+        r#"
+        SELECT $1::uuid
+        UNION
+        SELECT pa.target_transaction_id
+        FROM payment_allocations pa
+        WHERE pa.transaction_id = ANY($2::uuid[])
+        UNION
+        SELECT links.target_transaction_id
+        FROM pos_shipping_charge_links links
+        WHERE links.shipping_transaction_id = $1
+        "#,
+    )
+    .bind(*committed_transaction_id)
+    .bind(&checkout_payment_ids)
+    .fetch_all(&mut *tx)
+    .await?
+    .into_iter()
+    .collect();
+    authoritative_transaction_ids.extend(
+        immutable_checkout
+            .order_payments
+            .iter()
+            .filter(|payment| payment.amount.round_dp(2) > Decimal::ZERO)
+            .map(|payment| payment.target_transaction_id),
+    );
+    authoritative_transaction_ids.extend(
+        immutable_checkout
+            .shipping_links
+            .iter()
+            .map(|link| link.target_transaction_id),
+    );
+
+    let steps: Vec<PickupRecoveryStep> =
+        serde_json::from_value(payload.get("recovery_steps").cloned().ok_or_else(|| {
+            RecoveryError::BadRequest(
+                "paid follow-up is missing its exact recovery checklist".to_string(),
+            )
+        })?)
+        .map_err(|_| {
+            RecoveryError::BadRequest("paid follow-up recovery checklist is invalid".to_string())
+        })?;
+    if steps.is_empty() || steps.len() > 100 {
+        return Err(RecoveryError::BadRequest(
+            "paid follow-up recovery checklist must contain 1 to 100 steps".to_string(),
+        ));
+    }
+    let mut claimed_transaction_ids = HashSet::from([recovery_transaction_id]);
+    for step in &steps {
+        match step {
+            PickupRecoveryStep::ShipTransaction { transaction_id, .. }
+            | PickupRecoveryStep::PickupTransaction { transaction_id, .. } => {
+                claimed_transaction_ids.insert(*transaction_id);
+            }
+            PickupRecoveryStep::AlterationPickup { .. } => {
+                return Err(RecoveryError::Forbidden(
+                    "alteration follow-up cannot be cancelled as cross-linked; complete it and use the dedicated verifier"
+                        .to_string(),
+                ));
+            }
+        }
+    }
+    if claimed_transaction_ids
+        .iter()
+        .any(|transaction_id| authoritative_transaction_ids.contains(transaction_id))
+    {
+        return Err(RecoveryError::Forbidden(
+            "paid follow-up remains bound to its committed checkout and cannot be cancelled"
+                .to_string(),
+        ));
+    }
+
+    let already_resolved = status == "resolved";
+    let (audit_staff_id, audit_reason) = if already_resolved {
+        let original_manager_id = resolved_by_staff_id.ok_or_else(|| {
+            RecoveryError::BadRequest(
+                "cancelled follow-up is missing its original Manager identity".to_string(),
+            )
+        })?;
+        let original_reason = resolution_note
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                RecoveryError::BadRequest(
+                    "cancelled follow-up is missing its original Manager reason".to_string(),
+                )
+            })?;
+        (original_manager_id, original_reason.to_string())
+    } else {
+        (manager.id, reason.to_string())
+    };
+
+    let mut claimed_transaction_ids = claimed_transaction_ids.into_iter().collect::<Vec<_>>();
+    claimed_transaction_ids.sort();
+    let mut authoritative_transaction_ids = authoritative_transaction_ids
+        .into_iter()
+        .collect::<Vec<_>>();
+    authoritative_transaction_ids.sort();
+    let audit_idempotency_key = format!("register-pickup-followup-invalid-cancel:{client_job_key}");
+    let audit_metadata = json!({
+        "client_job_key": &client_job_key,
+        "register_session_id": register_session_id,
+        "checkout_client_id": checkout_client_id,
+        "committed_transaction_id": committed_transaction_id,
+        "invalid_claimed_transaction_ids": claimed_transaction_ids,
+        "authoritative_transaction_ids": authoritative_transaction_ids,
+        "checkout_request_fingerprint": request_fingerprint,
+        "checkout_payment_fingerprint": payment_fingerprint,
+        "resolution_path": "invalid_cross_link_cancelled",
+        "payment_changed": false,
+        "fulfillment_changed": false,
+        "reason": &audit_reason,
+    });
+    if !already_resolved {
+        let updated = sqlx::query(
+            r#"
+            UPDATE operational_recovery_job
+            SET status = 'resolved', resolved_at = now(), resolved_by_staff_id = $2,
+                resolution_note = $3, last_seen_at = now()
+            WHERE client_job_key = $1
+              AND status IN ('pending', 'blocked')
+            "#,
+        )
+        .bind(&client_job_key)
+        .bind(audit_staff_id)
+        .bind(&audit_reason)
+        .execute(&mut *tx)
+        .await?;
+        if updated.rows_affected() != 1 {
+            return Err(RecoveryError::BadRequest(
+                "paid follow-up changed before it could be cancelled".to_string(),
+            ));
+        }
+        pins::log_staff_access_once(
+            &mut *tx,
+            audit_staff_id,
+            "register_pickup_followup_invalid_cancelled",
+            audit_metadata.clone(),
+            &audit_idempotency_key,
+        )
+        .await?;
+    }
+    let exact_audit_exists: bool = sqlx::query_scalar(
+        r#"
+        SELECT EXISTS(
+            SELECT 1
+            FROM staff_access_log
+            WHERE idempotency_key = $1
+              AND staff_id = $2
+              AND event_kind = 'register_pickup_followup_invalid_cancelled'
+              AND metadata @> $3
+        )
+        "#,
+    )
+    .bind(&audit_idempotency_key)
+    .bind(audit_staff_id)
+    .bind(&audit_metadata)
+    .fetch_one(&mut *tx)
+    .await?;
+    if !exact_audit_exists {
+        return Err(RecoveryError::BadRequest(
+            "invalid paid follow-up cancellation audit conflicts with existing evidence"
+                .to_string(),
+        ));
+    }
+    tx.commit().await?;
+
+    Ok(Json(json!({
+        "status": "resolved",
+        "committed_transaction_id": committed_transaction_id,
+        "invalid_claimed_transaction_ids": audit_metadata["invalid_claimed_transaction_ids"],
         "idempotent_replay": already_resolved,
     })))
 }

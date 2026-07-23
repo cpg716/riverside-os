@@ -9,6 +9,10 @@ const serverRecoverySource = readFileSync(
   new URL("../src/lib/serverRecovery.ts", import.meta.url),
   "utf8",
 );
+const offlineQueueSource = readFileSync(
+  new URL("../src/lib/offlineQueue.ts", import.meta.url),
+  "utf8",
+);
 const closeRegisterSource = readFileSync(
   new URL("../src/components/pos/CloseRegisterModal.tsx", import.meta.url),
   "utf8",
@@ -155,6 +159,34 @@ test.describe("Register recovery history UI contracts", () => {
     );
     expect(serverRecoverySource).toContain(
       "prior till-group recovery was not checked",
+    );
+
+    const currentList = serverRecoverySource.slice(
+      serverRecoverySource.indexOf(
+        "export async function listCurrentRegisterRecoveryJobsAuthoritative",
+      ),
+      serverRecoverySource.indexOf(
+        "export async function listGlobalRegisterRecoveryJobs",
+      ),
+    );
+    expect(currentList).toContain(
+      "const posHeaders = posRegisterAuthHeaders()",
+    );
+    expect(currentList).toContain("hasStaffOrPosAuthHeaders(posHeaders)");
+    expect(currentList.indexOf("headers: posHeaders")).toBeLessThan(
+      currentList.indexOf("new Headers(requestHeaders)"),
+    );
+    const currentSummary = offlineQueueSource.slice(
+      offlineQueueSource.indexOf(
+        "export async function getCheckoutQueueSummary",
+      ),
+      offlineQueueSource.indexOf("async function responseErrorText"),
+    );
+    expect(currentSummary).toContain(
+      "const activeRegisterSessionId = getPosRegisterAuth()?.sessionId?.trim()",
+    );
+    expect(currentSummary).toContain(
+      "item.payload.session_id?.trim() === activeRegisterSessionId",
     );
   });
 

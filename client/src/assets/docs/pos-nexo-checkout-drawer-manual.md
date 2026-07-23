@@ -62,6 +62,10 @@ Register #1 defaults to Terminal 1, Register #2 defaults to Terminal 2, and Regi
 
 Only a Helcim attempt whose stored Register session and checkout reference both exactly match the open checkout can lock its tenders or **Record Sale**. A historical attempt reported by terminal routing remains recorded in **Payments Health**, but ROS does not import it into the current drawer or let it disable the current sale.
 
+A normal current card request is shown as **Waiting for card** or **Checking** in Payment Status. Riverside shows the larger **Card outcome review** warning only when that request is taking longer than expected or its result cannot be verified. Before ROS reports the selected terminal as in use, the Main Hub refreshes the existing pending attempt and releases the terminal only after a verified final result.
+
+Changing the selected customer clears pickup context loaded for the previous customer before the payment drawer opens. Reopen the intended customer's Transaction Record and select its pickup lines again; a pickup target never carries into another customer's sale.
+
 When the Main Hub has already resolved a Checkout Recovery item from an earlier Register session, ROS verifies that exact recovery key, checkout identity, station, payment payload, and committed Transaction Record before removing the old local warning. The completed recovery record remains available for audit; it is not recreated, charged again, or copied into the new sale.
 
 If a card attempt is canceled and retried, use the current checkout status before sending another request. A message that a Helcim attempt does not belong to the register session means the payment needs Payments Health review; do not clear it or send a fresh request until the Main Hub recovers a definitive provider result.

@@ -30,6 +30,26 @@ test("approved provider tender stays with its current customer", () => {
   );
   expect(cart).toContain("checkoutAppliedPayments.length === 0");
   expect(cart).toContain("!providerCheckoutIdentityHeld");
+  expect(cart).toContain("clearStalePickupContextForCustomerChange");
+  expect(cart).toContain("setPickupConfirmed(false)");
+  expect(cart).toContain("setPickupTransactionId(null)");
+  expect(cart).toContain("setPickupTransactions([])");
+  expect(cart).toContain("setPickupPaidAmountCents(0)");
+  expect(cart).toContain("setPickupReadyAlterations([])");
+
+  const customerSelection = cart.slice(
+    cart.indexOf("const selectCustomerForSale = useCallback"),
+    cart.indexOf("const isEmployeeSale"),
+  );
+  expect(
+    customerSelection.indexOf("clearStalePickupContextForCustomerChange"),
+  ).toBeLessThan(customerSelection.indexOf("setSelectedCustomer(customer)"));
+  expect(cart).toContain(
+    "clearStalePickupContextForCustomerChange(detail.customer.id)",
+  );
+  expect(cart).toContain(
+    "clearStalePickupContextForCustomerChange(firstCustomer.id)",
+  );
 });
 
 test("parked-sale recall cannot inherit tender from the active checkout", () => {

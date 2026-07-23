@@ -469,15 +469,6 @@ export default function Cart({
     },
     [toast],
   );
-  const selectCustomerForSale = useCallback(
-    (customer: Customer | null): boolean => {
-      if (!canSelectCustomerForSale(customer?.id ?? null)) return false;
-      setSelectedCustomer(customer);
-      return true;
-    },
-    [canSelectCustomerForSale],
-  );
-  const isEmployeeSale = selectedCustomer?.employee_discount_eligible === true;
   const [activeWeddingMember, setActiveWeddingMember] = useState<WeddingMember | null>(null);
   const [activeWeddingPartyName, setActiveWeddingPartyName] = useState<string | null>(null);
   const [disbursementMembers, setDisbursementMembers] = useState<WeddingMember[]>([]);
@@ -494,6 +485,28 @@ export default function Cart({
   const [pickupTransactions, setPickupTransactions] = useState<PickupTransactionSelection[]>([]);
   const [pickupPaidAmountCents, setPickupPaidAmountCents] = useState<number>(0);
   const [pickupReadyAlterations, setPickupReadyAlterations] = useState<NonNullable<HandoffOrderDetail["linked_alterations"]>>([]);
+  const clearStalePickupContextForCustomerChange = useCallback(
+    (nextCustomerId: string | null) => {
+      if (latestSaleCustomerIdRef.current === nextCustomerId) return;
+      setPickupConfirmed(false);
+      setPickupTransactionId(null);
+      setPickupTransactions([]);
+      setPickupPaidAmountCents(0);
+      setPickupReadyAlterations([]);
+    },
+    [],
+  );
+  const selectCustomerForSale = useCallback(
+    (customer: Customer | null): boolean => {
+      const nextCustomerId = customer?.id ?? null;
+      if (!canSelectCustomerForSale(nextCustomerId)) return false;
+      clearStalePickupContextForCustomerChange(nextCustomerId);
+      setSelectedCustomer(customer);
+      return true;
+    },
+    [canSelectCustomerForSale, clearStalePickupContextForCustomerChange],
+  );
+  const isEmployeeSale = selectedCustomer?.employee_discount_eligible === true;
 
   // --- UI States (Restored to Cart.tsx) ---
   const [checkoutDrawerOpen, setCheckoutDrawerOpen] = useState(false);
@@ -844,6 +857,7 @@ export default function Cart({
 
   const handleExchangeReturnHandoff = useCallback((args: ExchangeReturnHandoff) => {
     if (!canSelectCustomerForSale(args.customer?.id ?? null)) return;
+    clearStalePickupContextForCustomerChange(args.customer?.id ?? null);
     onExchangeContinue({
       originalTransactionId: args.originalTransactionId,
       customer: args.customer,
@@ -944,6 +958,7 @@ export default function Cart({
     }
   }, [
     canSelectCustomerForSale,
+    clearStalePickupContextForCustomerChange,
     onExchangeContinue,
     setLines,
     setSelectedLineKey,
@@ -2228,6 +2243,9 @@ export default function Cart({
       ) {
         return false;
       }
+      if (detail.customer) {
+        clearStalePickupContextForCustomerChange(detail.customer.id);
+      }
 
       if (forRefund) {
         if (!detail.customer) {
@@ -2437,6 +2455,7 @@ export default function Cart({
       apiAuth,
       baseUrl,
       canSelectCustomerForSale,
+      clearStalePickupContextForCustomerChange,
       setSelectedCustomer,
       toast,
       setLines,
@@ -5536,6 +5555,7 @@ export default function Cart({
                   return false;
                 }
                 if (!canSelectCustomerForSale(firstCustomer.id)) return false;
+                clearStalePickupContextForCustomerChange(firstCustomer.id);
                 setSelectedCustomer({
                   id: firstCustomer.id,
                   customer_code: firstCustomer.customer_code ?? "",

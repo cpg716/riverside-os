@@ -1936,6 +1936,39 @@ async fn reject_unresolved_helcim_terminal_before_dispatch(
     Ok(())
 }
 
+async fn refresh_pending_helcim_terminal_attempt_before_dispatch(
+    state: &AppState,
+    terminal_id: &str,
+) -> Result<(), PaymentError> {
+    let attempt_id: Option<Uuid> = sqlx::query_scalar(
+        r#"
+        SELECT ppa.id
+        FROM payment_provider_attempts ppa
+        INNER JOIN register_sessions rs
+            ON rs.id = ppa.register_session_id
+           AND rs.is_open = true
+           AND rs.lifecycle_status = 'open'
+        WHERE ppa.provider = 'helcim'
+          AND ppa.status = 'pending'
+          AND COALESCE(ppa.terminal_id, ppa.device_id) = $1
+        ORDER BY ppa.created_at ASC
+        LIMIT 1
+        "#,
+    )
+    .bind(terminal_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|error| PaymentError::InvalidPayload(error.to_string()))?;
+
+    if let Some(attempt_id) = attempt_id {
+        // Provider I/O must finish before the dispatch transaction begins. The
+        // transactional terminal guard below rechecks any genuinely pending
+        // or concurrently-created attempt before ROS sends a new request.
+        load_helcim_attempt(state, attempt_id, None).await?;
+    }
+    Ok(())
+}
+
 async fn expire_closed_session_helcim_terminal_attempts_before_dispatch(
     tx: &mut sqlx::Transaction<'_, Postgres>,
     terminal_id: &str,
@@ -9306,6 +9339,8 @@ async fn start_helcim_purchase(
     };
     let unverified_helcim_customer_code = payload.customer_code.clone().and_then(non_empty_string);
 
+    refresh_pending_helcim_terminal_attempt_before_dispatch(&state, &terminal_id).await?;
+
     let attempt_id = Uuid::new_v4();
     let idempotency_key = format!("helcim-{attempt_id}");
 
@@ -12182,6 +12217,20 @@ mod tests {
         assert!(routing_status.contains("register_session_id: active"));
         assert!(routing_status.contains("checkout_client_id: active"));
 
+        let pending_refresh = source
+            .split_once("async fn refresh_pending_helcim_terminal_attempt_before_dispatch(")
+            .expect("pending terminal provider refresh")
+            .1
+            .split_once("async fn expire_closed_session_helcim_terminal_attempts_before_dispatch(")
+            .expect("end of pending terminal provider refresh")
+            .0;
+        assert!(pending_refresh.contains("INNER JOIN register_sessions rs"));
+        assert!(pending_refresh.contains("rs.is_open = true"));
+        assert!(pending_refresh.contains("rs.lifecycle_status = 'open'"));
+        assert!(pending_refresh.contains("ppa.status = 'pending'"));
+        assert!(pending_refresh.contains("load_helcim_attempt(state, attempt_id, None).await?"));
+        assert!(!pending_refresh.contains("SET status ="));
+
         let stale_session_cleanup = source
             .split_once("async fn expire_closed_session_helcim_terminal_attempts_before_dispatch(")
             .expect("closed-session terminal cleanup")
@@ -12205,6 +12254,12 @@ mod tests {
             .split_once("#[allow(dead_code)]")
             .expect("end of terminal purchase")
             .0;
+        let provider_refresh = purchase_dispatch
+            .find("refresh_pending_helcim_terminal_attempt_before_dispatch(")
+            .expect("provider reconciliation before terminal purchase");
+        let transaction_begin = purchase_dispatch
+            .find("let mut tx = state")
+            .expect("terminal dispatch transaction");
         let cleanup_call = purchase_dispatch
             .find("expire_closed_session_helcim_terminal_attempts_before_dispatch(")
             .expect("closed-session cleanup before terminal purchase");
@@ -12214,6 +12269,8 @@ mod tests {
         let insert = purchase_dispatch
             .find("INSERT INTO payment_provider_attempts")
             .expect("terminal attempt insert");
+        assert!(provider_refresh < transaction_begin);
+        assert!(transaction_begin < cleanup_call);
         assert!(cleanup_call < open_session_guard);
         assert!(open_session_guard < insert);
     }

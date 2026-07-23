@@ -203,7 +203,14 @@ test("only an exact register-session and checkout Helcim attempt can import or l
   );
   expect(drawer).toContain("if (helcimOutcomeBlocksCheckout) {");
   expect(drawer).toContain("disabled={helcimOutcomeBlocksCheckout}");
-  expect(drawer).toContain("Another tender and Record Sale stay locked");
+  expect(drawer).toContain(
+    "const helcimAttentionBannerVisible =",
+  );
+  expect(drawer).toContain(
+    "helcimAttemptOutcomeUnverified || pendingHelcimAttemptNeedsAttention",
+  );
+  expect(drawer).toContain("{helcimAttentionBannerVisible ? (");
+  expect(drawer).not.toContain("Helcim outcome required");
 
   const releaseStart = drawer.indexOf("const releasePendingTerminalAttempt = useCallback");
   const releaseEnd = drawer.indexOf("const handlePendingTerminalCancel", releaseStart);

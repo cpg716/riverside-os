@@ -3245,6 +3245,8 @@ export default function NexoCheckoutDrawer({
     helcimAttemptBelongsToCurrentCheckout &&
     helcimAttempt.status === "pending" &&
     helcimAttemptNeedsAttention(helcimAttempt);
+  const helcimAttentionBannerVisible =
+    helcimAttemptOutcomeUnverified || pendingHelcimAttemptNeedsAttention;
   const terminalRecoveryState = (() => {
     if (helcimAttempt && isHostedManualHelcimAttempt(helcimAttempt)) {
       return null;
@@ -3730,15 +3732,15 @@ export default function NexoCheckoutDrawer({
           </div>
         ) : null}
 
-        {helcimOutcomeBlocksCheckout ? (
+        {helcimAttentionBannerVisible ? (
           <div className="m-3 mb-0 rounded-2xl border border-amber-400/35 bg-amber-400/10 px-4 py-3 text-amber-900 shadow-sm dark:text-amber-100 sm:m-4 sm:mb-0">
             <p className="text-[10px] font-black uppercase tracking-[0.2em]">
-              Helcim outcome required
+              Card outcome review
             </p>
             <p className="mt-1 text-xs font-semibold">
-              Another tender and Record Sale stay locked until ROS attaches an approval or
-              recovers a definitive canceled or failed provider result. Use Recover payment or
-              Payments Health; a live pending request cannot be released locally.
+              {helcimAttemptOutcomeUnverified
+                ? "ROS cannot yet verify the result of this checkout's card request. Use Recover payment or Payments Health before collecting another tender."
+                : "This checkout's card request is taking longer than expected. Use Recover payment to refresh its status; do not run the card again while the result is pending."}
             </p>
           </div>
         ) : null}

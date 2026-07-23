@@ -234,7 +234,13 @@ export async function listCurrentRegisterRecoveryJobs(
 export async function listCurrentRegisterRecoveryJobsAuthoritative(
   requestHeaders?: HeadersInit,
 ): Promise<ServerRecoveryJob[] | null> {
-  const context = requestHeaders
+  const posHeaders = posRegisterAuthHeaders();
+  const context = hasStaffOrPosAuthHeaders(posHeaders)
+    ? {
+        baseUrl: getBaseUrl(),
+        headers: posHeaders,
+      }
+    : requestHeaders
     ? {
         baseUrl: getBaseUrl(),
         headers: Object.fromEntries(new Headers(requestHeaders).entries()),

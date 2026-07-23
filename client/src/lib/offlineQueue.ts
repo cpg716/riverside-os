@@ -14,7 +14,10 @@
 import localforage from "localforage";
 import { useEffect, useState, useCallback } from "react";
 import type { CheckoutPayload } from "../components/pos/types";
-import { headersSafeForOfflinePersist } from "./posRegisterAuth";
+import {
+  getPosRegisterAuth,
+  headersSafeForOfflinePersist,
+} from "./posRegisterAuth";
 import {
   getRecoveryJobByKeyWithStaffAccess,
   listCurrentRegisterRecoveryJobsAuthoritative,
@@ -580,7 +583,12 @@ export async function blockQueuedCheckout(
 }
 
 export async function getCheckoutQueueSummary(): Promise<CheckoutQueueSummary> {
-  const items = await getCheckoutQueue();
+  const activeRegisterSessionId = getPosRegisterAuth()?.sessionId?.trim();
+  const items = (await getCheckoutQueue()).filter(
+    (item) =>
+      !activeRegisterSessionId ||
+      item.payload.session_id?.trim() === activeRegisterSessionId,
+  );
   let blockedCount = 0;
   let pendingCount = 0;
   for (const item of items) {

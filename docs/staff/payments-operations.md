@@ -74,6 +74,10 @@ Terminal selection is in the checkout drawer header. Register #1 defaults to **T
 
 The **Payment Status** panel shows whether a terminal transaction was sent, is waiting for approval, approved, declined, canceled, expired, or returned an error code. If the terminal approved but ROS has not attached the payment yet—or a timeout/5xx left the result unknown—use **Recover payment**. While that outcome is unresolved, Riverside blocks another card request, alternate tender, sale completion, and local-only clearing. A live pending attempt cannot be released locally; **Clear Sale** stays unavailable until ROS attaches the approval or recovers a definitive decline/cancel. An approved provider payment stays tied to the customer and checkout that started it and cannot carry into a different customer's sale. If the card was definitively declined, use **Retry card** to clear the declined attempt and send a new ROS-tracked request. Do not complete the sale until the Helcim attempt is approved and appears as an applied payment.
 
+A normal newly sent card request appears as **Waiting for card** or **Checking** in Payment Status; it is not labeled as Checkout Recovery. The larger **Card outcome review** warning appears only when the current request is taking longer than expected or ROS cannot verify its outcome. Before reporting a terminal as in use, the Main Hub refreshes the existing pending attempt and releases the route only after Helcim supplies a final result.
+
+Changing customers clears any pickup loaded for the previous customer before payment can begin. Reopen the intended customer's Transaction Record and select its pickup lines again; Riverside never carries a pickup target into another customer's checkout.
+
 Customer receipts come from ROS. If the Helcim terminal prints its own receipt, keep the ROS checkout visible, alert a manager, and correct the Helcim terminal/device receipt setting before live card processing continues.
 
 ## Pilot payment recovery rehearsal
@@ -268,7 +272,7 @@ Unlinked Helcim approvals are reported during register close and in Payments Hea
 
 When Payments Health finds one exact retained parked cart for an unlinked approval, a manager with payment-resolution access can use **Recover Paid Sale**. Verify the customer, amount, Register number, provider transaction, and time; enter the required recovery reason; then type **RECOVER PAID SALE**. ROS accepts only one approved/captured USD purchase with unlinked processor evidence; a refund, reverse, non-USD, declined, ambiguous, or identity-mismatched event cannot be recovered as a sale. ROS creates the missing Transaction Record through the normal checkout ledger, links the existing Helcim approval without charging the card again, restores the original approval time, and records both the original operator and recovery manager. If ROS reports no match, multiple matches, an amount difference, or a specialized Wedding/Alterations cart, stop and investigate rather than forcing recovery.
 
-If the Transaction Record already exists but an **Unconfirmed checkout** recovery remains, open **Close Register** and use **Match Existing Paid Transaction** on that exact recovery item. Enter the completed `TXN-######` and its Helcim provider transaction, write the manager reason, and complete Manager Access. Riverside verifies the original checkout identity, customer, amount, currency, Register session, final provider status, and payment fingerprints before it closes the recovery. This action creates no sale, charge, refund, payment, or payment movement. Any mismatch leaves the recovery visible for investigation.
+If the Transaction Record already exists but an **Unconfirmed checkout** recovery remains, open **Close Register** and use **Match Existing Paid Transaction** on that exact recovery item. Enter the completed `TXN-######` and its Helcim provider transaction, write the manager reason, and complete Manager Access. Riverside verifies the original checkout identity, customer, amount, currency, Register session, final provider status, payment fingerprints, and every exact payment allocation—including existing Transaction payments saved in the checkout—before it closes the recovery. This action creates no sale, charge, refund, payment, or payment movement. Any mismatch leaves the recovery visible for investigation.
 
 If the webhook signing secret is missing or wrong, ROS rejects the delivery before it enters Payments Health. Ask an admin to check server logs and Settings → Helcim before assuming Helcim did not send anything.
 
@@ -284,6 +288,8 @@ Riverside uses two shared Helcim terminals:
 Staff never type Helcim device codes in POS. Device codes are configured only in **Settings -> Helcim** as **Terminal 1 device code** and **Terminal 2 device code**.
 
 If POS shows **Terminal in use by Register #X**, another payment attempt is still pending or unresolved on that terminal. Do not send another payment to that terminal until provider recovery proves that the existing attempt was approved and attached, canceled, or declined. Live attempts do not expire locally. If the message does not clear after the customer leaves the terminal flow, check **Payments -> Health** and escalate before retrying.
+
+The Main Hub refreshes the existing terminal attempt before showing this conflict. A historical attempt that has already reached a verified final state remains recorded for audit but does not reserve the terminal or block a new checkout.
 
 Register #1/#2 non-default terminal use requires Manager Access through `payments.terminal.override` or admin compatibility. Register #3/#4 choosing either configured terminal does not require that override because choosing is the normal workflow for those lanes.
 
