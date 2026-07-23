@@ -638,7 +638,7 @@ impl TransactionDetailResponse {
             .unwrap_or(Decimal::ZERO)
             .round_dp(2);
         if !payment_only
-            && transaction_line_ids.is_none()
+            && !refund_receipt
             && shipping_amount > Decimal::ZERO
             && !receipt_items.iter().any(|item| {
                 item.custom_item_type.as_deref() == Some("shipping_fee")
@@ -1080,6 +1080,115 @@ mod tests {
             shipment_id: None,
             fulfilled_at: None,
         }
+    }
+
+    #[test]
+    fn receipt_includes_shipping_fee_for_selected_lines() {
+        let item = sample_item(1, 0);
+        let line_id = item.transaction_line_id;
+        let mut detail = sample_transaction_detail(vec![item]);
+        detail.shipping_amount_usd = Some(Decimal::new(1250, 2));
+
+        let receipt = detail
+            .build_receipt_data(Some(&[line_id]))
+            .expect("receipt builds");
+
+        let shipping = receipt
+            .items
+            .iter()
+            .find(|item| item.sku == "ROS-SHIPPING-FEE")
+            .expect("shipping fee is present");
+        assert_eq!(shipping.product_name, "SHIPPING FEE");
+        assert_eq!(shipping.unit_price, Decimal::new(1250, 2));
+    }
+
+    #[test]
+    fn receipt_includes_alteration_service_fee_line() {
+        let mut item = sample_item(1, 0);
+        item.sku = "ROS-ALTERATION-FEE".to_string();
+        item.product_name = "ALTERATIONS FEE".to_string();
+        item.custom_item_type = Some("alteration_service".to_string());
+        let line_id = item.transaction_line_id;
+        let detail = sample_transaction_detail(vec![item]);
+
+        let receipt = detail
+            .build_receipt_data(Some(&[line_id]))
+            .expect("receipt builds");
+
+        let alteration = receipt
+            .items
+            .iter()
+            .find(|item| item.sku == "ROS-ALTERATION-FEE")
+            .expect("alteration fee is present");
+        assert_eq!(alteration.product_name, "ALTERATIONS FEE");
+        assert_eq!(
+            alteration.custom_item_type.as_deref(),
+            Some("alteration_service")
+        );
+    }
+
+    #[test]
+    fn fee_lines_render_in_all_customer_receipt_formats() {
+        let mut alteration = sample_item(1, 0);
+        alteration.sku = "ROS-ALTERATION-FEE".to_string();
+        alteration.product_name = "ALTERATIONS FEE".to_string();
+        alteration.custom_item_type = Some("alteration_service".to_string());
+        let alteration_id = alteration.transaction_line_id;
+        let mut detail = sample_transaction_detail(vec![alteration]);
+        detail.shipping_amount_usd = Some(Decimal::new(1250, 2));
+        let receipt = detail
+            .build_receipt_data(Some(&[alteration_id]))
+            .expect("receipt builds");
+        let cfg = crate::api::settings::ReceiptConfig::default();
+
+        let markdown = crate::logic::receipt_escpos::build_receiptline_markdown(
+            &receipt,
+            &cfg,
+            &std::collections::HashMap::new(),
+            &crate::logic::receipt_escpos::LoyaltyReceiptData::default(),
+        );
+        let escpos = crate::logic::receipt_escpos::build_receipt_escpos(
+            &receipt,
+            &cfg,
+            std::collections::HashMap::new(),
+        );
+        let html =
+            crate::logic::receipt_studio_html::render_standard_receipt_html(&receipt, &cfg, false);
+        let sms = crate::logic::receipt_plain_text::format_pos_receipt_text_message(&receipt, &cfg);
+
+        for rendered in [
+            markdown,
+            String::from_utf8_lossy(&escpos).into_owned(),
+            html,
+            sms,
+        ] {
+            assert!(
+                rendered.contains("ALTERATIONS FEE"),
+                "alteration fee missing: {rendered}"
+            );
+            assert!(
+                rendered.contains("SHIPPING FEE"),
+                "shipping fee missing: {rendered}"
+            );
+        }
+    }
+
+    #[test]
+    fn refund_receipt_does_not_add_original_shipping_fee() {
+        let item = sample_item(1, 1);
+        let line_id = item.transaction_line_id;
+        let mut detail = sample_transaction_detail(vec![item]);
+        detail.shipping_amount_usd = Some(Decimal::new(1250, 2));
+        detail.refund_total = Decimal::new(26500, 2);
+
+        let receipt = detail
+            .build_receipt_data(Some(&[line_id]))
+            .expect("receipt builds");
+
+        assert!(!receipt
+            .items
+            .iter()
+            .any(|item| item.sku == "ROS-SHIPPING-FEE"));
     }
 
     fn sample_internal_item() -> TransactionDetailItem {

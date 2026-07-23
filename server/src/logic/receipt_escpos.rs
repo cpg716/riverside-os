@@ -493,7 +493,8 @@ fn receiptline_item_lines(
             .iter()
             .filter(|it| {
                 let section = receipt_item_section_label(d, it);
-                section == label && (!is_pickup || section == "PICKED UP")
+                section == label
+                    && (!is_pickup || matches!(section, "PICKED UP" | "Alterations" | "Shipping"))
             })
             .collect();
 
@@ -1073,6 +1074,31 @@ mod tests {
         assert!(markdown.contains("Mantoni Classic Fit DrShirt"));
         assert!(!markdown.contains("^^^Special Order"));
         assert!(!markdown.contains("Gruppo Bravo Slacks"));
+    }
+
+    #[test]
+    fn pickup_receipts_keep_shipping_and_alteration_fee_sections() {
+        let order = receipt_order_with(vec![
+            receipt_line("Picked up suit", "SKU-PICKUP", None),
+            receipt_line(
+                "ALTERATIONS FEE",
+                "ROS-ALTERATION-FEE",
+                Some("alteration_service"),
+            ),
+            receipt_line("SHIPPING FEE", "ROS-SHIPPING-FEE", Some("shipping_fee")),
+        ]);
+        let mut params = HashMap::new();
+        params.insert("pickup".to_string(), "true".to_string());
+
+        let markdown = build_receiptline_markdown(
+            &order,
+            &ReceiptConfig::default(),
+            &params,
+            &LoyaltyReceiptData::default(),
+        );
+
+        assert!(markdown.contains("ALTERATIONS FEE"));
+        assert!(markdown.contains("SHIPPING FEE"));
     }
 
     #[test]

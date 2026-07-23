@@ -3387,9 +3387,19 @@ export default function Cart({
                       </p>
                     </div>
                   </div>
-                  <span className="shrink-0 text-xl font-black tabular-nums text-app-text">
-                    ${centsToFixed2(posShipping.amount_cents)}
-                  </span>
+                  <div className="flex shrink-0 items-center gap-3">
+                    <span className="text-xl font-black tabular-nums text-app-text">
+                      ${centsToFixed2(posShipping.amount_cents)}
+                    </span>
+                    <button
+                      type="button"
+                      aria-label="Remove shipping fee"
+                      onClick={() => setPosShipping(null)}
+                      className="rounded-full p-1 text-red-600 transition-colors hover:bg-red-500/10 hover:text-red-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/20"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
                 </div>
               ) : null}
             </div>
@@ -3411,9 +3421,19 @@ export default function Cart({
                       </p>
                     </div>
                   </div>
-                  <span className="shrink-0 text-xl font-black tabular-nums text-app-text">
-                    ${centsToFixed2(posShipping.amount_cents)}
-                  </span>
+                  <div className="flex shrink-0 items-center gap-3">
+                    <span className="text-xl font-black tabular-nums text-app-text">
+                      ${centsToFixed2(posShipping.amount_cents)}
+                    </span>
+                    <button
+                      type="button"
+                      aria-label="Remove shipping fee"
+                      onClick={() => setPosShipping(null)}
+                      className="rounded-full p-1 text-red-600 transition-colors hover:bg-red-500/10 hover:text-red-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/20"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
                 </div>
               ) : null}
               {pendingAlterationIntakes

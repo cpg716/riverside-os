@@ -83,6 +83,7 @@ For a standalone service fee, type **ALTERATIONS** or **SHIPPING** and select th
 
 - **ALTERATIONS** adds a non-tracked, non-taxable Alterations Fee after staff enter the amount. Use the full Alterations workflow when a work order, garment, due date, or fitting must be tracked.
 - **SHIPPING** adds a non-taxable shipping fee without creating a shipment. Use **Ship current sale** when an address, carrier/service, shipment record, or tracking workflow is required.
+- Both fee lines can be removed before recording the sale. The shipping fee appears as **SHIPPING FEE** on the customer receipt, and the alterations fee appears as **ALTERATIONS FEE**.
 
 Each ordinary sale line has a tax badge. Tap it to cycle that one line through **Standard**, **Clothing**, and **No Tax**:
 
