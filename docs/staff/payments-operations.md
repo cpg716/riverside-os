@@ -99,6 +99,8 @@ Pilot rule: if the terminal and ROS disagree, stop the sale flow and get manager
 
 Approved card payments are locked to the checkout identity and cannot be removed, parked, cleared, or transferred to another customer. If an approved Helcim charge is missing from an existing customer order, a payment-resolution manager must open **Payments → Health**, select **Recover Order Payment**, enter the exact `TXN-######` target, document the reason, and complete the typed confirmation. ROS validates the live order balance and processor evidence, then records the payment, allocation, updated balance, Helcim match, and audit history together without charging the card again.
 
+A fulfilled Transaction Record that still has a balance remains eligible for an order payment. Fulfillment status does not release the balance or prevent ROS from applying the exact approved payment; zero-balance, canceled, mismatched-customer, and overpayment targets remain blocked.
+
 ## Batches
 
 Use **Batches** to review Helcim processor batches.

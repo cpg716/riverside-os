@@ -1005,7 +1005,7 @@ fn validate_order_payment_against_target(
     }
     if !matches!(
         target.status,
-        DbOrderStatus::Open | DbOrderStatus::PendingMeasurement
+        DbOrderStatus::Open | DbOrderStatus::PendingMeasurement | DbOrderStatus::Fulfilled
     ) {
         return Err(CheckoutError::InvalidPayload(
             "order payment target transaction is not open".to_string(),
@@ -8218,6 +8218,29 @@ mod tests {
         target.display_id = payload[0].target_display_id.clone();
         let err = validate_order_payment_against_target(&payload[0], &target).unwrap_err();
         assert!(err.to_string().contains("different customer"));
+    }
+
+    #[test]
+    fn transaction_checkout_order_payment_target_allows_fulfilled_balance() {
+        let customer_id = Uuid::new_v4();
+        let target_id = Uuid::new_v4();
+        let payload = validate_order_payment_shape(
+            Some(customer_id),
+            Some(customer_id),
+            &[order_payment_payload(
+                customer_id,
+                target_id,
+                Decimal::new(6500, 2),
+                Decimal::new(6500, 2),
+            )],
+        )
+        .unwrap();
+        let mut target = target_snapshot(customer_id, target_id, Decimal::new(6500, 2));
+        target.display_id = payload[0].target_display_id.clone();
+        target.status = DbOrderStatus::Fulfilled;
+
+        validate_order_payment_against_target(&payload[0], &target)
+            .expect("a fulfilled Transaction Record with a balance remains payable");
     }
 
     #[test]
