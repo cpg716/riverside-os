@@ -825,6 +825,8 @@ pub struct HelcimTerminalStatus {
     pub device_code_suffix: Option<String>,
     pub in_use_by_register_lane: Option<i16>,
     pub active_attempt_id: Option<Uuid>,
+    pub register_session_id: Option<Uuid>,
+    pub checkout_client_id: Option<Uuid>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1778,7 +1780,6 @@ fn helcim_checkout_advisory_lock_identity(checkout_client_id: Uuid) -> String {
 
 async fn reject_conflicting_helcim_attempt_before_dispatch(
     tx: &mut sqlx::Transaction<'_, Postgres>,
-    register_session_id: Uuid,
     checkout_client_id: Uuid,
     allowed_attempt_id: Option<Uuid>,
 ) -> Result<(), PaymentError> {
@@ -1818,10 +1819,7 @@ async fn reject_conflicting_helcim_attempt_before_dispatch(
                COALESCE(ppa.provider_transaction_id, ppa.provider_payment_id)
         FROM payment_provider_attempts ppa
         WHERE ppa.provider = 'helcim'
-          AND (
-              ppa.register_session_id = $1
-              OR ppa.checkout_client_id = $3
-          )
+          AND ppa.checkout_client_id = $1
           AND ($2::uuid IS NULL OR ppa.id <> $2)
           AND (
               ppa.status IN ('pending', 'expired')
@@ -1877,9 +1875,8 @@ async fn reject_conflicting_helcim_attempt_before_dispatch(
         LIMIT 1
         "#,
     )
-    .bind(register_session_id)
-    .bind(allowed_attempt_id)
     .bind(checkout_client_id)
+    .bind(allowed_attempt_id)
     .fetch_optional(&mut **tx)
     .await
     .map_err(|error| PaymentError::InvalidPayload(error.to_string()))?;
@@ -1914,15 +1911,12 @@ async fn reject_unresolved_helcim_terminal_before_dispatch(
         r#"
         SELECT rs.register_lane
         FROM payment_provider_attempts ppa
-        LEFT JOIN register_sessions rs ON rs.id = ppa.register_session_id
+        INNER JOIN register_sessions rs
+            ON rs.id = ppa.register_session_id
+           AND rs.is_open = true
+           AND rs.lifecycle_status = 'open'
         WHERE ppa.provider = 'helcim'
-          AND (
-              ppa.status IN ('pending', 'expired')
-              OR (
-                  ppa.status = 'failed'
-                  AND ppa.error_code IN ('outcome_unknown', 'terminal_pending_timeout')
-              )
-          )
+          AND ppa.status = 'pending'
           AND COALESCE(ppa.terminal_id, ppa.device_id) = $1
         ORDER BY ppa.created_at ASC
         LIMIT 1
@@ -1939,6 +1933,43 @@ async fn reject_unresolved_helcim_terminal_before_dispatch(
             None => "Terminal in use by another unresolved payment.".to_string(),
         }));
     }
+    Ok(())
+}
+
+async fn expire_closed_session_helcim_terminal_attempts_before_dispatch(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    terminal_id: &str,
+) -> Result<(), PaymentError> {
+    sqlx::query(
+        r#"
+        UPDATE payment_provider_attempts ppa
+        SET status = 'expired',
+            error_code = COALESCE(
+                NULLIF(BTRIM(ppa.error_code), ''),
+                'closed_session_pending_isolated'
+            ),
+            error_message = CONCAT_WS(
+                ' ',
+                NULLIF(BTRIM(ppa.error_message), ''),
+                'ROS isolated this pending Helcim attempt because its Register session is no longer open. Existing provider evidence remains retained for Payments Health review.'
+            ),
+            completed_at = COALESCE(ppa.completed_at, now())
+        WHERE ppa.provider = 'helcim'
+          AND ppa.status = 'pending'
+          AND COALESCE(ppa.terminal_id, ppa.device_id) = $1
+          AND NOT EXISTS (
+              SELECT 1
+              FROM register_sessions rs
+              WHERE rs.id = ppa.register_session_id
+                AND rs.is_open = true
+                AND rs.lifecycle_status = 'open'
+          )
+        "#,
+    )
+    .bind(terminal_id)
+    .execute(&mut **tx)
+    .await
+    .map_err(|error| PaymentError::InvalidPayload(error.to_string()))?;
     Ok(())
 }
 
@@ -1996,19 +2027,26 @@ async fn helcim_terminal_routing_status(
         expire_stale_helcim_terminal_attempts(pool, terminal_id).await?;
     }
 
-    let pending_rows: Vec<(Option<String>, Option<i16>, Uuid)> = sqlx::query_as(
+    let pending_rows: Vec<(
+        Option<String>,
+        Option<i16>,
+        Uuid,
+        Option<Uuid>,
+        Option<Uuid>,
+    )> = sqlx::query_as(
         r#"
-        SELECT selected_terminal_key, rs.register_lane, ppa.id
+        SELECT selected_terminal_key,
+               rs.register_lane,
+               ppa.id,
+               ppa.register_session_id,
+               ppa.checkout_client_id
         FROM payment_provider_attempts ppa
-        LEFT JOIN register_sessions rs ON rs.id = ppa.register_session_id
+        INNER JOIN register_sessions rs
+            ON rs.id = ppa.register_session_id
+           AND rs.is_open = true
+           AND rs.lifecycle_status = 'open'
         WHERE ppa.provider = 'helcim'
-          AND (
-                ppa.status = 'pending'
-                OR (
-                    ppa.status IN ('failed', 'expired')
-                    AND ppa.error_code IN ('outcome_unknown', 'terminal_pending_timeout')
-                )
-          )
+          AND ppa.status = 'pending'
           AND ppa.selected_terminal_key IN ('terminal_1', 'terminal_2')
         ORDER BY ppa.created_at ASC
         "#,
@@ -2017,9 +2055,16 @@ async fn helcim_terminal_routing_status(
     .await
     .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
 
-    let in_use_by_register: BTreeMap<String, (i16, Uuid)> = pending_rows
+    let in_use_by_register: BTreeMap<String, (i16, Uuid, Uuid, Option<Uuid>)> = pending_rows
         .into_iter()
-        .filter_map(|(key, lane, attempt_id)| Some((key?, (lane?, attempt_id))))
+        .filter_map(
+            |(key, lane, attempt_id, register_session_id, checkout_client_id)| {
+                Some((
+                    key?,
+                    (lane?, attempt_id, register_session_id?, checkout_client_id),
+                ))
+            },
+        )
         .collect();
     let terminals = ["terminal_1", "terminal_2"]
         .into_iter()
@@ -2037,8 +2082,12 @@ async fn helcim_terminal_routing_status(
                 device_code_suffix: config
                     .device_code_for_terminal_key(key)
                     .map(mask_terminal_suffix),
-                in_use_by_register_lane: active.map(|(lane, _)| *lane),
-                active_attempt_id: active.map(|(_, attempt_id)| *attempt_id),
+                in_use_by_register_lane: active.map(|(lane, _, _, _)| *lane),
+                active_attempt_id: active.map(|(_, attempt_id, _, _)| *attempt_id),
+                register_session_id: active
+                    .map(|(_, _, register_session_id, _)| *register_session_id),
+                checkout_client_id: active
+                    .and_then(|(_, _, _, checkout_client_id)| *checkout_client_id),
             }
         })
         .collect();
@@ -8984,15 +9033,12 @@ async fn terminal_in_use_message(pool: &PgPool, terminal_id: &str) -> Result<Str
         r#"
         SELECT rs.register_lane
         FROM payment_provider_attempts ppa
-        LEFT JOIN register_sessions rs ON rs.id = ppa.register_session_id
+        INNER JOIN register_sessions rs
+            ON rs.id = ppa.register_session_id
+           AND rs.is_open = true
+           AND rs.lifecycle_status = 'open'
         WHERE ppa.provider = 'helcim'
-          AND (
-                ppa.status = 'pending'
-                OR (
-                    ppa.status IN ('failed', 'expired')
-                    AND ppa.error_code IN ('outcome_unknown', 'terminal_pending_timeout')
-                )
-          )
+          AND ppa.status = 'pending'
           AND COALESCE(ppa.terminal_id, ppa.device_id) = $1
         ORDER BY ppa.created_at ASC
         LIMIT 1
@@ -9269,13 +9315,8 @@ async fn start_helcim_purchase(
         .await
         .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
     lock_register_session_open_for_payment(&mut tx, Some(register_session_id)).await?;
-    reject_conflicting_helcim_attempt_before_dispatch(
-        &mut tx,
-        register_session_id,
-        checkout_client_id,
-        None,
-    )
-    .await?;
+    expire_closed_session_helcim_terminal_attempts_before_dispatch(&mut tx, &terminal_id).await?;
+    reject_conflicting_helcim_attempt_before_dispatch(&mut tx, checkout_client_id, None).await?;
     reject_unresolved_helcim_terminal_before_dispatch(&mut tx, &terminal_id).await?;
     let insert_result = sqlx::query(
         r#"
@@ -9761,7 +9802,6 @@ async fn process_helcim_card_token_purchase(
     }
     reject_conflicting_helcim_attempt_before_dispatch(
         &mut tx,
-        register_session_id,
         checkout_client_id,
         attempt_exists.then_some(attempt_id),
     )
@@ -10582,13 +10622,7 @@ async fn initialize_helcim_pay(
         .await
         .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
     lock_register_session_open_for_payment(&mut tx, Some(register_session_id)).await?;
-    reject_conflicting_helcim_attempt_before_dispatch(
-        &mut tx,
-        register_session_id,
-        checkout_client_id,
-        None,
-    )
-    .await?;
+    reject_conflicting_helcim_attempt_before_dispatch(&mut tx, checkout_client_id, None).await?;
     sqlx::query(
         r#"
         INSERT INTO payment_provider_attempts (
@@ -12091,6 +12125,97 @@ mod tests {
         assert!(guard.contains("NOT LIKE '%refund%'"));
         assert!(guard.contains("NOT LIKE '%reverse%'"));
         assert!(guard.contains("ppa.checkout_client_id IS NULL"));
+    }
+
+    #[test]
+    fn pre_dispatch_conflict_guard_is_scoped_to_the_exact_checkout() {
+        let source = include_str!("payments.rs");
+        let guard = source
+            .split_once("async fn reject_conflicting_helcim_attempt_before_dispatch(")
+            .expect("pre-dispatch guard")
+            .1
+            .split_once("async fn reject_unresolved_helcim_terminal_before_dispatch(")
+            .expect("end of pre-dispatch guard")
+            .0;
+
+        assert!(guard.contains("AND ppa.checkout_client_id = $1"));
+        assert!(!guard.contains("ppa.register_session_id = $1"));
+        assert!(guard.contains("ppa.status IN ('approved', 'captured')"));
+        assert!(guard.contains("NOT EXISTS"));
+    }
+
+    #[test]
+    fn terminal_reservations_require_pending_attempts_on_open_sessions() {
+        let source = include_str!("payments.rs");
+        let reservation_guard = source
+            .split_once("async fn reject_unresolved_helcim_terminal_before_dispatch(")
+            .expect("terminal reservation guard")
+            .1
+            .split_once("fn is_provider_idempotency_violation(")
+            .expect("end of terminal reservation guard")
+            .0;
+        let routing_status = source
+            .split_once("async fn helcim_terminal_routing_status(")
+            .expect("terminal routing status")
+            .1
+            .split_once("fn mask_terminal_suffix(")
+            .expect("end of terminal routing status")
+            .0;
+        let in_use_message = source
+            .split_once("async fn terminal_in_use_message(")
+            .expect("terminal in-use message")
+            .1
+            .split_once("async fn reject_unlinked_helcim_return(")
+            .expect("end of terminal in-use message")
+            .0;
+
+        for query_scope in [reservation_guard, routing_status, in_use_message] {
+            assert!(query_scope.contains("INNER JOIN register_sessions rs"));
+            assert!(query_scope.contains("rs.is_open = true"));
+            assert!(query_scope.contains("rs.lifecycle_status = 'open'"));
+            assert!(query_scope.contains("ppa.status = 'pending'"));
+            assert!(!query_scope.contains("terminal_pending_timeout"));
+            assert!(!query_scope.contains("ppa.status IN ('failed', 'expired')"));
+        }
+        assert!(routing_status.contains("ppa.register_session_id"));
+        assert!(routing_status.contains("ppa.checkout_client_id"));
+        assert!(routing_status.contains("register_session_id: active"));
+        assert!(routing_status.contains("checkout_client_id: active"));
+
+        let stale_session_cleanup = source
+            .split_once("async fn expire_closed_session_helcim_terminal_attempts_before_dispatch(")
+            .expect("closed-session terminal cleanup")
+            .1
+            .split_once("fn is_provider_idempotency_violation(")
+            .expect("end of closed-session terminal cleanup")
+            .0;
+        assert!(stale_session_cleanup.contains("SET status = 'expired'"));
+        assert!(stale_session_cleanup.contains("NULLIF(BTRIM(ppa.error_code), '')"));
+        assert!(stale_session_cleanup.contains("'closed_session_pending_isolated'"));
+        assert!(stale_session_cleanup.contains("CONCAT_WS("));
+        assert!(stale_session_cleanup.contains("NULLIF(BTRIM(ppa.error_message), '')"));
+        assert!(stale_session_cleanup.contains("AND NOT EXISTS"));
+        assert!(stale_session_cleanup.contains("rs.is_open = true"));
+        assert!(stale_session_cleanup.contains("rs.lifecycle_status = 'open'"));
+
+        let purchase_dispatch = source
+            .split_once("async fn start_helcim_purchase(")
+            .expect("terminal purchase")
+            .1
+            .split_once("#[allow(dead_code)]")
+            .expect("end of terminal purchase")
+            .0;
+        let cleanup_call = purchase_dispatch
+            .find("expire_closed_session_helcim_terminal_attempts_before_dispatch(")
+            .expect("closed-session cleanup before terminal purchase");
+        let open_session_guard = purchase_dispatch
+            .find("reject_unresolved_helcim_terminal_before_dispatch(")
+            .expect("open-session terminal guard");
+        let insert = purchase_dispatch
+            .find("INSERT INTO payment_provider_attempts")
+            .expect("terminal attempt insert");
+        assert!(cleanup_call < open_session_guard);
+        assert!(open_session_guard < insert);
     }
 
     #[test]

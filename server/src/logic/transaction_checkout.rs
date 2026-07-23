@@ -2578,6 +2578,229 @@ fn validate_helcim_attempt_checkout_binding(
     Ok(())
 }
 
+#[derive(Debug)]
+struct ExactOrderPaymentHelcimReplay {
+    checkout_client_id: Uuid,
+    session_id: Uuid,
+    operator_staff_id: Uuid,
+    customer_id: Uuid,
+    target_transaction_id: Uuid,
+    target_display_id: String,
+    balance_before: String,
+    projected_balance_after: String,
+    amount: Decimal,
+    amount_cents: i64,
+    payment_provider_attempt_id: Uuid,
+    provider_transaction_id: String,
+    provider_payment_id: Option<String>,
+}
+
+fn exact_order_payment_helcim_replay_shape(
+    payload: &CheckoutRequest,
+) -> Option<ExactOrderPaymentHelcimReplay> {
+    if payload.total_price.round_dp(2) != Decimal::ZERO
+        || payload.amount_paid.round_dp(2) <= Decimal::ZERO
+        || !payload.items.is_empty()
+        || !payload.alteration_intakes.is_empty()
+        || payload
+            .wedding_disbursements
+            .as_ref()
+            .is_some_and(|values| !values.is_empty())
+        || payload.shipping_rate_quote_id.is_some()
+        || !payload.shipping_links.is_empty()
+        || payload.target_transaction_id.is_some()
+        || payload.is_processing
+        || payload.order_payments.len() != 1
+    {
+        return None;
+    }
+
+    let checkout_client_id = payload.checkout_client_id?;
+    let customer_id = payload.customer_id?;
+    let order_payment = &payload.order_payments[0];
+    let payment_splits = payload.payment_splits.as_ref()?;
+    if payment_splits.len() != 1
+        || order_payment.client_line_id.trim().is_empty()
+        || order_payment.target_display_id.trim().is_empty()
+        || order_payment.customer_id != customer_id
+        || order_payment.balance_before <= Decimal::ZERO
+        || order_payment.projected_balance_after < Decimal::ZERO
+        || order_payment.amount.round_dp(2) != payload.amount_paid.round_dp(2)
+        || (order_payment.balance_before - order_payment.amount).round_dp(2)
+            != order_payment.projected_balance_after.round_dp(2)
+    {
+        return None;
+    }
+
+    let split = &payment_splits[0];
+    if split.amount.round_dp(2) != payload.amount_paid.round_dp(2)
+        || !helcim_tender_method_matches_amount(&split.payment_method, split.amount)
+        || split.applied_deposit_amount.unwrap_or(Decimal::ZERO) != Decimal::ZERO
+        || split.gift_card_code.is_some()
+        || split.check_number.is_some()
+    {
+        return None;
+    }
+    let metadata = split.metadata.as_ref()?;
+    let provider = metadata
+        .get("payment_provider")
+        .or_else(|| metadata.get("provider"))
+        .and_then(Value::as_str)?
+        .trim();
+    let provider_status = metadata_optional_text(metadata, "provider_status")?;
+    if !provider.eq_ignore_ascii_case("helcim")
+        || !matches!(
+            provider_status.trim().to_ascii_lowercase().as_str(),
+            "approved" | "approval" | "captured"
+        )
+    {
+        return None;
+    }
+
+    let payment_provider_attempt_id = Uuid::parse_str(&metadata_optional_text(
+        metadata,
+        "payment_provider_attempt_id",
+    )?)
+    .ok()?;
+    let provider_transaction_id = metadata_optional_text(metadata, "provider_transaction_id")?;
+    let provider_payment_id = metadata_optional_text(metadata, "provider_payment_id");
+    let amount = payload.amount_paid.round_dp(2);
+    let amount_cents = (amount * Decimal::from(100)).to_i64()?;
+
+    Some(ExactOrderPaymentHelcimReplay {
+        checkout_client_id,
+        session_id: payload.session_id,
+        operator_staff_id: payload.operator_staff_id,
+        customer_id,
+        target_transaction_id: order_payment.target_transaction_id,
+        target_display_id: order_payment.target_display_id.trim().to_string(),
+        balance_before: order_payment.balance_before.to_string(),
+        projected_balance_after: order_payment.projected_balance_after.to_string(),
+        amount,
+        amount_cents,
+        payment_provider_attempt_id,
+        provider_transaction_id,
+        provider_payment_id,
+    })
+}
+
+async fn find_exact_committed_order_payment_helcim_replay(
+    pool: &PgPool,
+    payload: &CheckoutRequest,
+) -> Result<Option<(Uuid, String)>, CheckoutError> {
+    let Some(evidence) = exact_order_payment_helcim_replay_shape(payload) else {
+        return Ok(None);
+    };
+
+    let matches: Vec<(Uuid, String)> = sqlx::query_as(
+        r#"
+        SELECT source.id, source.display_id
+        FROM payment_provider_attempts attempt
+        INNER JOIN payment_transactions payment
+            ON LOWER(BTRIM(COALESCE(payment.payment_provider, ''))) = 'helcim'
+           AND payment.provider_transaction_id = attempt.provider_transaction_id
+        INNER JOIN payment_allocations allocation
+            ON allocation.transaction_id = payment.id
+        INNER JOIN transactions target
+            ON target.id = allocation.target_transaction_id
+        INNER JOIN transactions source
+            ON source.id::text = payment.metadata->>'checkout_transaction_id'
+        WHERE attempt.id = $1
+          AND LOWER(BTRIM(attempt.provider)) = 'helcim'
+          AND attempt.status IN ('approved', 'captured')
+          AND attempt.completed_at IS NOT NULL
+          AND attempt.error_code IS NULL
+          AND LOWER(BTRIM(attempt.currency)) = 'usd'
+          AND attempt.amount_cents = $2
+          AND attempt.register_session_id = $3
+          AND attempt.staff_id = $4
+          AND attempt.checkout_client_id = $5
+          AND attempt.provider_transaction_id = $6
+          AND ($7::text IS NULL OR attempt.provider_payment_id = $7)
+          AND payment.status IN ('success', 'approved', 'captured')
+          AND LOWER(BTRIM(COALESCE(payment.provider_status, '')))
+                IN ('approved', 'approval', 'captured')
+          AND payment.session_id = $3
+          AND payment.payer_id = $8
+          AND payment.amount = $9
+          AND payment.provider_transaction_id = $6
+          AND allocation.target_transaction_id = $10
+          AND allocation.amount_allocated = $9
+          AND allocation.metadata->>'kind' = 'existing_order_payment'
+          AND NULLIF(BTRIM(allocation.metadata->>'client_line_id'), '') IS NOT NULL
+          AND allocation.metadata->>'target_transaction_id' = $10::text
+          AND NULLIF(BTRIM(allocation.metadata->>'target_display_id'), '') IS NOT NULL
+          AND allocation.metadata->>'customer_id' = $8::text
+          AND allocation.metadata->>'balance_before' = $12
+          AND allocation.metadata->>'projected_balance_after' = $13
+          AND target.customer_id = $8
+          AND BTRIM(target.display_id) = $11
+          AND target.status = 'fulfilled'::order_status
+          AND target.total_price > 0
+          AND target.amount_paid = target.total_price
+          AND target.balance_due = 0
+          AND source.register_session_id = $3
+          AND source.customer_id = $8
+          AND source.total_price = 0
+          AND source.amount_paid = 0
+          AND source.balance_due = 0
+          AND source.status = 'fulfilled'::order_status
+          AND (
+              NULLIF(BTRIM(payment.metadata->>'checkout_display_id'), '') IS NULL
+              OR payment.metadata->>'checkout_display_id' = source.display_id
+          )
+          AND (
+              SELECT COUNT(*)::bigint
+              FROM payment_provider_attempts other_attempt
+              WHERE LOWER(BTRIM(other_attempt.provider)) = 'helcim'
+                AND (
+                    other_attempt.id = $1
+                    OR other_attempt.provider_transaction_id = $6
+                    OR (
+                        $7::text IS NOT NULL
+                        AND other_attempt.provider_payment_id = $7
+                    )
+                )
+          ) = 1
+          AND (
+              SELECT COUNT(*)::bigint
+              FROM payment_transactions other_payment
+              WHERE LOWER(BTRIM(COALESCE(other_payment.payment_provider, ''))) = 'helcim'
+                AND other_payment.provider_transaction_id = $6
+          ) = 1
+          AND (
+              SELECT COUNT(*)::bigint
+              FROM payment_allocations other_allocation
+              WHERE other_allocation.transaction_id = payment.id
+          ) = 1
+        "#,
+    )
+    .bind(evidence.payment_provider_attempt_id)
+    .bind(evidence.amount_cents)
+    .bind(evidence.session_id)
+    .bind(evidence.operator_staff_id)
+    .bind(evidence.checkout_client_id)
+    .bind(&evidence.provider_transaction_id)
+    .bind(evidence.provider_payment_id.as_deref())
+    .bind(evidence.customer_id)
+    .bind(evidence.amount)
+    .bind(evidence.target_transaction_id)
+    .bind(&evidence.target_display_id)
+    .bind(&evidence.balance_before)
+    .bind(&evidence.projected_balance_after)
+    .fetch_all(pool)
+    .await?;
+
+    match matches.as_slice() {
+        [] => Ok(None),
+        [committed] => Ok(Some(committed.clone())),
+        _ => Err(CheckoutError::InvalidPayload(
+            "Helcim order-payment replay evidence is ambiguous; reconcile it in Payments Health"
+                .to_string(),
+        )),
+    }
+}
+
 pub async fn execute_checkout(
     pool: &PgPool,
     http: &reqwest::Client,
@@ -2682,6 +2905,28 @@ async fn execute_checkout_internal(
                 });
             }
         }
+    }
+
+    // Some approved manual-card replacements are normalized into a dedicated
+    // zero-dollar ledger Transaction Record before the original Register
+    // request receives a response. That source record intentionally has its
+    // own checkout identity, so the ordinary checkout_client_id lookup above
+    // cannot find it. Accept only the exact final Helcim attempt, normalized
+    // payment, single target allocation, and linked source Transaction Record.
+    // This is read-only and runs before target lifecycle validation, allowing
+    // a replay after the payment closes its target without recording it twice.
+    if let Some((transaction_id, display_id)) =
+        find_exact_committed_order_payment_helcim_replay(pool, &payload).await?
+    {
+        tracing::info!(
+            %transaction_id,
+            checkout_client_id = ?payload.checkout_client_id,
+            "checkout exact order-payment Helcim ledger replay"
+        );
+        return Ok(CheckoutDone::Idempotent {
+            transaction_id,
+            display_id,
+        });
     }
 
     let has_wedding_disbursements = payload
@@ -6375,19 +6620,19 @@ mod tests {
     use super::{
         build_payment_allocation_plan, canonical_helcim_ledger_transaction_id,
         checkout_processing_intent_fingerprint, checkout_request_fingerprints,
-        checkout_total_matches, evaluate_combo_incentives, execute_checkout,
-        fetch_variant_pos_line_kind, helcim_attempt_comparison_cents, helcim_checkout_references,
-        helcim_tender_method_matches_amount, is_fee_only_shipping_quote, parse_combo_reward_amount,
-        payment_effective_date, resolve_payment_splits, strip_sensitive_checkout_request,
-        strip_sensitive_payment_metadata, validate_checkout_alteration_intakes,
-        validate_checkout_item_quantity, validate_checkout_replay_fingerprints,
-        validate_exchange_checkout_intent, validate_helcim_attempt_checkout_binding,
-        validate_open_deposit_scope, validate_order_payment_against_target,
-        validate_order_payment_shape, validate_processing_intent_fingerprint,
-        validate_wedding_disbursement_against_balance, CheckoutAlterationIntake, CheckoutDone,
-        CheckoutItem, CheckoutOrderPayment, CheckoutPaymentSplit, CheckoutRequest,
-        ExistingOrderPaymentTarget, ResolvedOrderPayment, ResolvedPaymentSplit,
-        WeddingDisbursement,
+        checkout_total_matches, evaluate_combo_incentives, exact_order_payment_helcim_replay_shape,
+        execute_checkout, fetch_variant_pos_line_kind, helcim_attempt_comparison_cents,
+        helcim_checkout_references, helcim_tender_method_matches_amount,
+        is_fee_only_shipping_quote, parse_combo_reward_amount, payment_effective_date,
+        resolve_payment_splits, strip_sensitive_checkout_request, strip_sensitive_payment_metadata,
+        validate_checkout_alteration_intakes, validate_checkout_item_quantity,
+        validate_checkout_replay_fingerprints, validate_exchange_checkout_intent,
+        validate_helcim_attempt_checkout_binding, validate_open_deposit_scope,
+        validate_order_payment_against_target, validate_order_payment_shape,
+        validate_processing_intent_fingerprint, validate_wedding_disbursement_against_balance,
+        CheckoutAlterationIntake, CheckoutDone, CheckoutItem, CheckoutOrderPayment,
+        CheckoutPaymentSplit, CheckoutRequest, ExistingOrderPaymentTarget, ResolvedOrderPayment,
+        ResolvedPaymentSplit, WeddingDisbursement,
     };
     use crate::logic::customer_open_deposit;
     use crate::logic::customers::{insert_customer, CustomerCreatedSource, InsertCustomerParams};
@@ -7328,6 +7573,472 @@ mod tests {
             balance_before,
             projected_balance_after: (balance_before - amount).round_dp(2),
         }
+    }
+
+    fn order_payment_helcim_retry_payload(
+        checkout_client_id: Uuid,
+        session_id: Uuid,
+        operator_staff_id: Uuid,
+        customer_id: Uuid,
+        target_transaction_id: Uuid,
+        target_display_id: String,
+        amount: Decimal,
+        payment_provider_attempt_id: Uuid,
+        provider_transaction_id: &str,
+        provider_payment_id: &str,
+    ) -> CheckoutRequest {
+        CheckoutRequest {
+            session_id,
+            operator_staff_id,
+            primary_salesperson_id: None,
+            customer_id: Some(customer_id),
+            wedding_member_id: None,
+            payment_method: "card_manual".to_string(),
+            total_price: Decimal::ZERO,
+            amount_paid: amount,
+            items: Vec::new(),
+            alteration_intakes: Vec::new(),
+            actor_name: Some("Order payment replay regression".to_string()),
+            payment_splits: Some(vec![CheckoutPaymentSplit {
+                payment_method: "card_manual".to_string(),
+                amount,
+                sub_type: None,
+                applied_deposit_amount: None,
+                gift_card_code: None,
+                check_number: None,
+                metadata: Some(json!({
+                    "payment_provider": "helcim",
+                    "payment_provider_attempt_id": payment_provider_attempt_id,
+                    "provider_status": "approved",
+                    "provider_payment_id": provider_payment_id,
+                    "provider_transaction_id": provider_transaction_id,
+                })),
+            }]),
+            wedding_disbursements: None,
+            order_payments: vec![CheckoutOrderPayment {
+                client_line_id: format!("order-pay-{target_transaction_id}"),
+                target_transaction_id,
+                target_display_id,
+                customer_id,
+                amount,
+                balance_before: amount,
+                projected_balance_after: Decimal::ZERO,
+            }],
+            below_cost_approval: None,
+            checkout_client_id: Some(checkout_client_id),
+            booked_at_local: None,
+            backdate_approval: None,
+            shipping_rate_quote_id: None,
+            shipping_links: Vec::new(),
+            fulfillment_mode: None,
+            ship_to: None,
+            target_transaction_id: None,
+            is_rush: false,
+            need_by_date: None,
+            is_tax_exempt: false,
+            tax_exempt_reason: None,
+            rounding_adjustment: None,
+            final_cash_due: None,
+            is_processing: false,
+            exchange_settlement: None,
+        }
+    }
+
+    #[test]
+    fn exact_order_payment_helcim_replay_shape_is_narrow_and_financially_exact() {
+        let amount = dec!(142.75);
+        let mut payload = order_payment_helcim_retry_payload(
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            "TXN-12345".to_string(),
+            amount,
+            Uuid::new_v4(),
+            "provider-transaction",
+            "provider-payment",
+        );
+
+        let evidence =
+            exact_order_payment_helcim_replay_shape(&payload).expect("exact replay shape");
+        assert_eq!(evidence.amount, amount);
+        assert_eq!(
+            evidence.target_transaction_id,
+            payload.order_payments[0].target_transaction_id
+        );
+
+        payload.order_payments[0].projected_balance_after = dec!(0.01);
+        assert!(exact_order_payment_helcim_replay_shape(&payload).is_none());
+        payload.order_payments[0].projected_balance_after = Decimal::ZERO;
+
+        payload.payment_splits.as_mut().expect("payment split")[0].amount = dec!(142.74);
+        assert!(exact_order_payment_helcim_replay_shape(&payload).is_none());
+        payload.payment_splits.as_mut().expect("payment split")[0].amount = amount;
+
+        payload.items.push(checkout_item_with_client_line(Some(
+            "unrelated-current-sale-line",
+        )));
+        assert!(exact_order_payment_helcim_replay_shape(&payload).is_none());
+    }
+
+    #[tokio::test]
+    async fn execute_checkout_returns_exact_normalized_order_payment_replay_without_writes() {
+        let Ok(database_url) = std::env::var("DATABASE_URL") else {
+            return;
+        };
+        let pool = PgPool::connect(&database_url)
+            .await
+            .expect("connect test database");
+
+        let staff_id = Uuid::new_v4();
+        let session_id = Uuid::new_v4();
+        let checkout_client_id = Uuid::new_v4();
+        let source_checkout_client_id = Uuid::new_v4();
+        let target_transaction_id = Uuid::new_v4();
+        let source_transaction_id = Uuid::new_v4();
+        let payment_provider_attempt_id = Uuid::new_v4();
+        let payment_transaction_id = Uuid::new_v4();
+        let provider_transaction_id = format!("order-payment-replay-{}", Uuid::new_v4().simple());
+        let provider_payment_id = format!("payment-{}", Uuid::new_v4().simple());
+        let amount = dec!(142.75);
+
+        sqlx::query(
+            r#"
+            INSERT INTO staff (
+                id, full_name, cashier_code, base_commission_rate,
+                role, max_discount_percent
+            )
+            VALUES ($1, $2, $3, 0, 'admin'::staff_role, 100)
+            "#,
+        )
+        .bind(staff_id)
+        .bind("Order Payment Replay Regression Staff")
+        .bind(format!("T{}", &staff_id.simple().to_string()[0..8]))
+        .execute(&pool)
+        .await
+        .expect("insert staff");
+
+        loop {
+            let register_lane = ((Uuid::new_v4().as_u128() % 99) + 1) as i16;
+            let inserted = sqlx::query(
+                r#"
+                INSERT INTO register_sessions (
+                    id, opened_by, opening_float, is_open, register_lane, till_close_group_id
+                )
+                VALUES ($1, $2, 0, TRUE, $3, $4)
+                "#,
+            )
+            .bind(session_id)
+            .bind(staff_id)
+            .bind(register_lane)
+            .bind(Uuid::new_v4())
+            .execute(&pool)
+            .await;
+            match inserted {
+                Ok(_) => break,
+                Err(error)
+                    if error
+                        .as_database_error()
+                        .and_then(|db_error| db_error.constraint())
+                        == Some("register_sessions_open_lane_uidx") =>
+                {
+                    continue;
+                }
+                Err(error) => panic!("insert register session: {error:?}"),
+            }
+        }
+
+        let suffix = Uuid::new_v4().simple().to_string();
+        let customer_id = insert_customer(
+            &pool,
+            InsertCustomerParams {
+                customer_code: None,
+                first_name: "Order Payment".to_string(),
+                last_name: format!("Replay {}", &suffix[0..8]),
+                company_name: None,
+                email: Some(format!("order-payment-replay-{suffix}@example.test")),
+                phone: Some(format!("555{}", &suffix[0..7])),
+                address_line1: None,
+                address_line2: None,
+                city: None,
+                state: None,
+                postal_code: None,
+                date_of_birth: None,
+                anniversary_date: None,
+                custom_field_1: None,
+                custom_field_2: None,
+                custom_field_3: None,
+                custom_field_4: None,
+                marketing_email_opt_in: false,
+                marketing_sms_opt_in: false,
+                transactional_sms_opt_in: true,
+                transactional_email_opt_in: true,
+                customer_created_source: CustomerCreatedSource::Store,
+            },
+        )
+        .await
+        .expect("insert customer");
+
+        let target_display_id: String = sqlx::query_scalar(
+            r#"
+            INSERT INTO transactions (
+                id, customer_id, operator_id, total_price, amount_paid, balance_due,
+                status, register_session_id
+            )
+            VALUES ($1, $2, $3, $4, $4, 0, 'fulfilled'::order_status, $5)
+            RETURNING display_id
+            "#,
+        )
+        .bind(target_transaction_id)
+        .bind(customer_id)
+        .bind(staff_id)
+        .bind(amount)
+        .bind(session_id)
+        .fetch_one(&pool)
+        .await
+        .expect("insert paid target transaction");
+
+        let source_display_id: String = sqlx::query_scalar(
+            r#"
+            INSERT INTO transactions (
+                id, customer_id, total_price, amount_paid, balance_due,
+                status, register_session_id, checkout_client_id
+            )
+            VALUES ($1, $2, 0, 0, 0, 'fulfilled'::order_status, $3, $4)
+            RETURNING display_id
+            "#,
+        )
+        .bind(source_transaction_id)
+        .bind(customer_id)
+        .bind(session_id)
+        .bind(source_checkout_client_id)
+        .fetch_one(&pool)
+        .await
+        .expect("insert manual-card ledger source transaction");
+
+        sqlx::query(
+            r#"
+            INSERT INTO payment_provider_attempts (
+                id, provider, status, amount_cents, currency,
+                register_session_id, staff_id, idempotency_key,
+                provider_payment_id, provider_transaction_id,
+                completed_at, checkout_client_id
+            )
+            VALUES (
+                $1, 'helcim', 'approved', 14275, 'usd',
+                $2, $3, $4, $5, $6, now(), $7
+            )
+            "#,
+        )
+        .bind(payment_provider_attempt_id)
+        .bind(session_id)
+        .bind(staff_id)
+        .bind(format!("order-payment-replay-{checkout_client_id}"))
+        .bind(&provider_payment_id)
+        .bind(&provider_transaction_id)
+        .bind(checkout_client_id)
+        .execute(&pool)
+        .await
+        .expect("insert approved Helcim attempt");
+
+        sqlx::query(
+            r#"
+            INSERT INTO payment_transactions (
+                id, session_id, payer_id, payment_method, amount, metadata,
+                status, payment_provider, provider_status, provider_transaction_id
+            )
+            VALUES (
+                $1, $2, $3, 'card_manual', $4, $5,
+                'success', 'helcim', 'approved', $6
+            )
+            "#,
+        )
+        .bind(payment_transaction_id)
+        .bind(session_id)
+        .bind(customer_id)
+        .bind(amount)
+        .bind(json!({
+            "checkout_transaction_id": source_transaction_id,
+            "checkout_display_id": source_display_id,
+        }))
+        .bind(&provider_transaction_id)
+        .execute(&pool)
+        .await
+        .expect("insert normalized Helcim payment");
+
+        sqlx::query(
+            r#"
+            INSERT INTO payment_allocations (
+                transaction_id, target_transaction_id, amount_allocated, metadata
+            )
+            VALUES ($1, $2, $3, $4)
+            "#,
+        )
+        .bind(payment_transaction_id)
+        .bind(target_transaction_id)
+        .bind(amount)
+        .bind(json!({
+            "kind": "existing_order_payment",
+            "client_line_id": "legacy-normalized-client-line",
+            "target_transaction_id": target_transaction_id,
+            "target_display_id": format!("MAIN|legacy|{target_transaction_id}"),
+            "customer_id": customer_id,
+            "balance_before": amount.to_string(),
+            "projected_balance_after": Decimal::ZERO.to_string(),
+            "applied_deposit_amount": amount.to_string(),
+        }))
+        .execute(&pool)
+        .await
+        .expect("insert exact target allocation");
+
+        let payload = order_payment_helcim_retry_payload(
+            checkout_client_id,
+            session_id,
+            staff_id,
+            customer_id,
+            target_transaction_id,
+            target_display_id.clone(),
+            amount,
+            payment_provider_attempt_id,
+            &provider_transaction_id,
+            &provider_payment_id,
+        );
+        let replay = execute_checkout(&pool, &reqwest::Client::new(), Decimal::ZERO, payload)
+            .await
+            .expect("exact committed order payment should replay");
+        match replay {
+            CheckoutDone::Idempotent {
+                transaction_id,
+                display_id,
+            } => {
+                assert_eq!(transaction_id, source_transaction_id);
+                assert_eq!(display_id, source_display_id);
+            }
+            other => panic!("expected exact idempotent replay, got {other:?}"),
+        }
+
+        let payment_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*)::bigint FROM payment_transactions WHERE id = $1")
+                .bind(payment_transaction_id)
+                .fetch_one(&pool)
+                .await
+                .expect("count normalized payment");
+        let allocation_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*)::bigint FROM payment_allocations WHERE transaction_id = $1",
+        )
+        .bind(payment_transaction_id)
+        .fetch_one(&pool)
+        .await
+        .expect("count exact allocation");
+        let recovery_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*)::bigint FROM operational_recovery_job WHERE checkout_client_id = $1",
+        )
+        .bind(checkout_client_id)
+        .fetch_one(&pool)
+        .await
+        .expect("count checkout recovery rows");
+        assert_eq!(payment_count, 1);
+        assert_eq!(allocation_count, 1);
+        assert_eq!(recovery_count, 0);
+
+        let mismatched_payload = order_payment_helcim_retry_payload(
+            checkout_client_id,
+            session_id,
+            staff_id,
+            customer_id,
+            target_transaction_id,
+            target_display_id.clone(),
+            amount,
+            payment_provider_attempt_id,
+            "different-provider-transaction",
+            &provider_payment_id,
+        );
+        assert!(
+            execute_checkout(
+                &pool,
+                &reqwest::Client::new(),
+                Decimal::ZERO,
+                mismatched_payload,
+            )
+            .await
+            .is_err(),
+            "mismatched provider evidence must remain blocked"
+        );
+
+        sqlx::query(
+            r#"
+            INSERT INTO payment_allocations (
+                transaction_id, target_transaction_id, amount_allocated, metadata
+            )
+            VALUES ($1, $2, $3, '{"kind":"ambiguous_test"}'::jsonb)
+            "#,
+        )
+        .bind(payment_transaction_id)
+        .bind(target_transaction_id)
+        .bind(amount)
+        .execute(&pool)
+        .await
+        .expect("insert ambiguous second allocation");
+        let ambiguous_payload = order_payment_helcim_retry_payload(
+            checkout_client_id,
+            session_id,
+            staff_id,
+            customer_id,
+            target_transaction_id,
+            target_display_id,
+            amount,
+            payment_provider_attempt_id,
+            &provider_transaction_id,
+            &provider_payment_id,
+        );
+        assert!(
+            execute_checkout(
+                &pool,
+                &reqwest::Client::new(),
+                Decimal::ZERO,
+                ambiguous_payload,
+            )
+            .await
+            .is_err(),
+            "ambiguous allocation evidence must remain blocked"
+        );
+
+        sqlx::query("DELETE FROM payment_allocations WHERE transaction_id = $1")
+            .bind(payment_transaction_id)
+            .execute(&pool)
+            .await
+            .expect("delete allocations");
+        sqlx::query("DELETE FROM payment_transactions WHERE id = $1")
+            .bind(payment_transaction_id)
+            .execute(&pool)
+            .await
+            .expect("delete payment");
+        sqlx::query("DELETE FROM payment_provider_attempts WHERE id = $1")
+            .bind(payment_provider_attempt_id)
+            .execute(&pool)
+            .await
+            .expect("delete attempt");
+        sqlx::query("DELETE FROM transactions WHERE id = ANY($1)")
+            .bind(vec![target_transaction_id, source_transaction_id])
+            .execute(&pool)
+            .await
+            .expect("delete transactions");
+        sqlx::query("DELETE FROM register_sessions WHERE id = $1")
+            .bind(session_id)
+            .execute(&pool)
+            .await
+            .expect("delete Register session");
+        sqlx::query("DELETE FROM customers WHERE id = $1")
+            .bind(customer_id)
+            .execute(&pool)
+            .await
+            .expect("delete customer");
+        sqlx::query("DELETE FROM staff WHERE id = $1")
+            .bind(staff_id)
+            .execute(&pool)
+            .await
+            .expect("delete staff");
     }
 
     fn target_snapshot(

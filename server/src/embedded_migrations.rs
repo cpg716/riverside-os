@@ -150,4 +150,11 @@ pub const EMBEDDED_MIGRATIONS: &[(&str, &str)] = &[
     ("147_verified_backup_evidence.sql", include_str!("../../migrations/147_verified_backup_evidence.sql")),
     ("148_receiving_identifier_lookup_indexes.sql", include_str!("../../migrations/148_receiving_identifier_lookup_indexes.sql")),
     ("149_verified_backup_artifact_identity.sql", include_str!("../../migrations/149_verified_backup_artifact_identity.sql")),
+    ("150_release_audited_legacy_helcim_timeouts.sql", include_str!("../../migrations/150_release_audited_legacy_helcim_timeouts.sql")),
+    ("151_isolate_audited_closed_session_helcim_timeouts.sql", include_str!("../../migrations/151_isolate_audited_closed_session_helcim_timeouts.sql")),
+    ("152_resolve_verified_order_payment_recovery.sql", include_str!("../../migrations/152_resolve_verified_order_payment_recovery.sql")),
+    ("153_release_verified_hidden_helcim_terminal_timeout.sql", include_str!("../../migrations/153_release_verified_hidden_helcim_terminal_timeout.sql")),
+    ("154_finalize_released_helcim_terminal_attempts.sql", include_str!("../../migrations/154_finalize_released_helcim_terminal_attempts.sql")),
+    ("155_release_verified_helcim_reference_without_transaction.sql", include_str!("../../migrations/155_release_verified_helcim_reference_without_transaction.sql")),
+    ("156_isolate_closed_session_pending_helcim_attempts.sql", include_str!("../../migrations/156_isolate_closed_session_pending_helcim_attempts.sql")),
 ];

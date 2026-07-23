@@ -45,7 +45,7 @@ Choose the tender type on the left, then collect the amount in the center panel.
 - **Card refund** appears only inside a guided return or exchange when ROS already has the original Helcim payment reference. Staff do not enter Helcim invoice, provider, or transaction IDs.
 - ROS stages the card refund in the checkout ledger and processes it through the original Transaction Record during server settlement. Do not start a provider-only refund or a second Helcim refund; wait for the return or exchange confirmation before treating it as complete.
 - **Manual Card** records a card sale or refund without a live Helcim connection. Enter only the approval/reference, last four digits, and reason. Never enter full card numbers or CVV.
-- **Cash**, **check**, **gift card**, **store credit**, and other tenders remain separate so the sale ledger stays auditable. They stay locked while a Helcim request is pending or its outcome is unverified; after an approved card tender attaches, normal split-tender entry resumes for any remaining balance.
+- **Cash**, **check**, **gift card**, **store credit**, and other tenders remain separate so the sale ledger stays auditable. They stay locked only while a Helcim request for the exact current Register session and checkout is pending or its outcome is unverified; after an approved card tender attaches, normal split-tender entry resumes for any remaining balance.
 - For **gift card**, scan or enter the card and wait for Riverside to show its verified **Regular**, **Loyalty**, **Donated**, or **Promo** type, expiration, and **Balance before this transaction**. Riverside blocks Apply until that check succeeds and blocks amounts above the available balance. Checkout verifies the balance again while recording the sale, and the completed receipt lists the card's **balance after this payment**.
 - **Staff Account** appears only when the selected customer is linked to an active employee Staff Account. Use it for an employee purchase charged to their receivable balance. The merchandise still follows normal item tax rules.
 - **Donation** records a non-sale donation tender. Enter the required note before adding payment so accounting can review why the donation was taken.
@@ -59,6 +59,10 @@ Choose the tender type on the left, then collect the amount in the center panel.
 The terminal badge shows **Terminal: #** and a small **change terminal** hint. Use that control when the lane should send card payments to a different terminal.
 
 Register #1 defaults to Terminal 1, Register #2 defaults to Terminal 2, and Registers #3/#4 choose an available configured terminal. A missing unused terminal slot should not block a register whose selected Helcim terminal is configured.
+
+Only a Helcim attempt whose stored Register session and checkout reference both exactly match the open checkout can lock its tenders or **Record Sale**. A historical attempt reported by terminal routing remains recorded in **Payments Health**, but ROS does not import it into the current drawer or let it disable the current sale.
+
+When the Main Hub has already resolved a Checkout Recovery item from an earlier Register session, ROS verifies that exact recovery key, checkout identity, station, payment payload, and committed Transaction Record before removing the old local warning. The completed recovery record remains available for audit; it is not recreated, charged again, or copied into the new sale.
 
 If a card attempt is canceled and retried, use the current checkout status before sending another request. A message that a Helcim attempt does not belong to the register session means the payment needs Payments Health review; do not clear it or send a fresh request until the Main Hub recovers a definitive provider result.
 

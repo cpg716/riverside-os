@@ -2,7 +2,7 @@ use axum::{
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
-    routing::{get, patch, post},
+    routing::{get, post},
     Json, Router,
 };
 use rust_decimal::Decimal;
@@ -239,7 +239,10 @@ pub fn router() -> Router<AppState> {
             "/{client_job_key}/verify-follow-up",
             post(verify_pickup_recovery_job),
         )
-        .route("/{client_job_key}", patch(resolve_recovery_job))
+        .route(
+            "/{client_job_key}",
+            get(get_recovery_job).patch(resolve_recovery_job),
+        )
 }
 
 fn header_text(headers: &HeaderMap, name: &'static str) -> Option<String> {
@@ -268,6 +271,35 @@ fn validate_kind(kind: &str) -> Result<&str, RecoveryError> {
     }
 }
 
+fn checkout_payload(payload: &Value) -> Option<CheckoutRequest> {
+    payload
+        .get("payload")
+        .cloned()
+        .and_then(|value| serde_json::from_value::<CheckoutRequest>(value).ok())
+}
+
+fn matching_checkout_payload_fingerprints(
+    stored_payload: &Value,
+    request_checkout: &CheckoutRequest,
+    register_session_id: Uuid,
+    checkout_client_id: Uuid,
+) -> Option<(String, String)> {
+    if request_checkout.session_id != register_session_id
+        || request_checkout.checkout_client_id != Some(checkout_client_id)
+    {
+        return None;
+    }
+    let Some(stored_checkout) = checkout_payload(stored_payload).filter(|checkout| {
+        checkout.session_id == register_session_id
+            && checkout.checkout_client_id == Some(checkout_client_id)
+    }) else {
+        return None;
+    };
+    let request_fingerprints = checkout_request_fingerprints(request_checkout).ok()?;
+    let stored_fingerprints = checkout_request_fingerprints(&stored_checkout).ok()?;
+    (request_fingerprints == stored_fingerprints).then_some(request_fingerprints)
+}
+
 fn contains_sensitive_pin_key(value: &Value) -> bool {
     match value {
         Value::Object(object) => object.iter().any(|(key, nested)| {
@@ -284,8 +316,11 @@ fn contains_sensitive_pin_key(value: &Value) -> bool {
 
 #[cfg(test)]
 mod sensitive_recovery_payload_tests {
-    use super::contains_sensitive_pin_key;
+    use super::{
+        checkout_payload, contains_sensitive_pin_key, matching_checkout_payload_fingerprints,
+    };
     use serde_json::json;
+    use uuid::Uuid;
 
     #[test]
     fn rejects_pin_alias_suffixes_at_any_json_depth() {
@@ -318,6 +353,57 @@ mod sensitive_recovery_payload_tests {
             "manager_reason": "Manager approved after review",
             "metadata": "{\"opinion\":\"pin\"}"
         })));
+    }
+
+    #[test]
+    fn resolved_checkout_payload_requires_exact_request_and_payment_fingerprints() {
+        let register_session_id = Uuid::new_v4();
+        let checkout_client_id = Uuid::new_v4();
+        let stored_payload = json!({
+            "payload": {
+                "session_id": register_session_id,
+                "operator_staff_id": Uuid::new_v4(),
+                "payment_method": "card",
+                "total_price": "1.00",
+                "amount_paid": "1.00",
+                "items": [],
+                "checkout_client_id": checkout_client_id,
+            }
+        });
+        let request_checkout =
+            checkout_payload(&stored_payload).expect("valid checkout recovery payload");
+
+        assert!(matching_checkout_payload_fingerprints(
+            &stored_payload,
+            &request_checkout,
+            register_session_id,
+            checkout_client_id,
+        )
+        .is_some());
+        assert!(matching_checkout_payload_fingerprints(
+            &stored_payload,
+            &request_checkout,
+            Uuid::new_v4(),
+            checkout_client_id,
+        )
+        .is_none());
+        assert!(matching_checkout_payload_fingerprints(
+            &stored_payload,
+            &request_checkout,
+            register_session_id,
+            Uuid::new_v4(),
+        )
+        .is_none());
+
+        let mut changed_payload = stored_payload;
+        changed_payload["payload"]["amount_paid"] = json!("2.00");
+        assert!(matching_checkout_payload_fingerprints(
+            &changed_payload,
+            &request_checkout,
+            register_session_id,
+            checkout_client_id,
+        )
+        .is_none());
     }
 }
 
@@ -1793,6 +1879,66 @@ async fn upsert_recovery_job(
             "recovery payload exceeds 2 MiB".to_string(),
         ));
     }
+    if matches!(&caller, StaffOrPosSession::Staff(_)) {
+        middleware::require_staff_with_permission(&state, &headers, REGISTER_REPORTS)
+            .await
+            .map_err(map_auth_error)?;
+    }
+    let station_key = header_text(&headers, "x-riverside-station-key");
+    if matches!(kind, "checkout_offline" | "checkout_unconfirmed") {
+        if let (
+            Some(request_register_session_id),
+            Some(request_checkout_client_id),
+            Some(current_station_key),
+        ) = (
+            request.register_session_id,
+            request.checkout_client_id,
+            station_key.as_deref(),
+        ) {
+            if let Some(request_checkout) = checkout_payload(&request.payload).filter(|checkout| {
+                checkout.session_id == request_register_session_id
+                    && checkout.checkout_client_id == Some(request_checkout_client_id)
+            }) {
+                let resolved_job: Option<RecoveryJob> = sqlx::query_as(
+                    r#"
+                    SELECT client_job_key, kind, status, register_session_id, transaction_id,
+                           checkout_client_id, station_key, label, payload, last_error,
+                           attempt_count, first_seen_at, last_seen_at
+                    FROM operational_recovery_job
+                    WHERE client_job_key = $1
+                      AND kind = $2
+                      AND status = 'resolved'
+                      AND resolved_at IS NOT NULL
+                      AND resolved_by_staff_id IS NOT NULL
+                      AND register_session_id = $3
+                      AND checkout_client_id = $4
+                      AND station_key = $5
+                      AND transaction_id IS NOT NULL
+                      AND ($6::uuid IS NULL OR transaction_id = $6)
+                    "#,
+                )
+                .bind(client_job_key)
+                .bind(kind)
+                .bind(request_register_session_id)
+                .bind(request_checkout_client_id)
+                .bind(current_station_key)
+                .bind(request.transaction_id)
+                .fetch_optional(&state.db)
+                .await?;
+                if let Some(job) = resolved_job.filter(|job| {
+                    matching_checkout_payload_fingerprints(
+                        &job.payload,
+                        &request_checkout,
+                        request_register_session_id,
+                        request_checkout_client_id,
+                    )
+                    .is_some()
+                }) {
+                    return Ok(Json(job));
+                }
+            }
+        }
+    }
     let register_session_id = match caller {
         StaffOrPosSession::PosSession { session_id } => {
             if request
@@ -1805,12 +1951,7 @@ async fn upsert_recovery_job(
             }
             Some(session_id)
         }
-        StaffOrPosSession::Staff(_) => {
-            middleware::require_staff_with_permission(&state, &headers, REGISTER_REPORTS)
-                .await
-                .map_err(map_auth_error)?;
-            request.register_session_id
-        }
+        StaffOrPosSession::Staff(_) => request.register_session_id,
     };
     if matches!(kind, "checkout_offline" | "checkout_unconfirmed") {
         let register_session_id = register_session_id.ok_or_else(|| {
@@ -1839,7 +1980,6 @@ async fn upsert_recovery_job(
             ));
         }
     }
-    let station_key = header_text(&headers, "x-riverside-station-key");
     let attempt_count = request.attempt_count.unwrap_or(0).max(0);
     let mut tx = state.db.begin().await?;
     if let Some(session_id) = register_session_id {
@@ -2003,6 +2143,58 @@ async fn list_recovery_jobs(
         }
     };
     Ok(Json(rows))
+}
+
+async fn get_recovery_job(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(client_job_key): Path<String>,
+) -> Result<Json<RecoveryJob>, RecoveryError> {
+    let client_job_key = client_job_key.trim();
+    if client_job_key.is_empty() || client_job_key.len() > 200 {
+        return Err(RecoveryError::BadRequest(
+            "client_job_key must contain 1 to 200 characters".to_string(),
+        ));
+    }
+
+    let caller = require_recovery_caller(&state, &headers).await?;
+    let row = match caller {
+        StaffOrPosSession::PosSession { session_id } => {
+            sqlx::query_as(
+                r#"
+                SELECT client_job_key, kind, status, register_session_id, transaction_id,
+                       checkout_client_id, station_key, label, payload, last_error, attempt_count,
+                       first_seen_at, last_seen_at
+                FROM operational_recovery_job
+                WHERE client_job_key = $1
+                  AND register_session_id = $2
+                "#,
+            )
+            .bind(client_job_key)
+            .bind(session_id)
+            .fetch_optional(&state.db)
+            .await?
+        }
+        StaffOrPosSession::Staff(_) => {
+            middleware::require_staff_with_permission(&state, &headers, REGISTER_REPORTS)
+                .await
+                .map_err(map_auth_error)?;
+            sqlx::query_as(
+                r#"
+                SELECT client_job_key, kind, status, register_session_id, transaction_id,
+                       checkout_client_id, station_key, label, payload, last_error, attempt_count,
+                       first_seen_at, last_seen_at
+                FROM operational_recovery_job
+                WHERE client_job_key = $1
+                "#,
+            )
+            .bind(client_job_key)
+            .fetch_optional(&state.db)
+            .await?
+        }
+    };
+
+    row.map(Json).ok_or(RecoveryError::NotFound)
 }
 
 async fn resolve_recovery_job(

@@ -149,6 +149,10 @@ test.describe("Register recovery history UI contracts", () => {
     expect(globalContext).toContain(
       'delete headers["x-riverside-pos-session-token"]',
     );
+    expect(serverRecoverySource).toContain("getRecoveryJobByKeyWithStaffAccess");
+    expect(serverRecoverySource).toContain(
+      "/api/recovery/${encodeURIComponent(normalizedKey)}",
+    );
     expect(serverRecoverySource).toContain(
       "prior till-group recovery was not checked",
     );

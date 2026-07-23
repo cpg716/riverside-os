@@ -21,6 +21,9 @@ type QueueItem = {
   attemptCount?: number;
   lastErrorStatus?: number;
   lastErrorMessage?: string;
+  recoveryKind?: "offline_replay" | "online_unconfirmed" | "pickup_after_payment";
+  recoveryKey?: string;
+  recoveryTransactionId?: string;
 };
 
 type RecoveryPostBody = {
@@ -39,7 +42,9 @@ type RecoveryPostBody = {
 type OfflineRecoveryHarness = {
   dequeueCheckout: (id: string) => Promise<void>;
   flushCheckoutQueue: (baseUrl: string) => Promise<void>;
-  syncCheckoutRecoveryWithServer: () => Promise<void>;
+  syncCheckoutRecoveryWithServer: (
+    getLiveAuthHeaders?: () => Record<string, string>,
+  ) => Promise<void>;
   updateQueuedCheckout: (item: QueueItem) => Promise<void>;
 };
 
@@ -611,6 +616,101 @@ test.describe("offline checkout recovery contract", () => {
       recoveryKey: `checkout:${item.id}`,
       transactionId,
     });
+  });
+
+  test("exact Staff proof clears a resolved prior-session local mirror", async ({
+    page,
+  }) => {
+    await page.goto("/e2e-harness.html");
+    await clearCheckoutQueue(page);
+    await setRecoveryPosAuth(page);
+    const checkoutClientId = crypto.randomUUID();
+    const transactionId = crypto.randomUUID();
+    const recoveryKey = crypto.randomUUID();
+    const item: QueueItem = {
+      id: `recovery:online_unconfirmed:${recoveryKey}`,
+      timestamp: Date.now(),
+      status: "blocked",
+      recoveryKind: "online_unconfirmed",
+      recoveryKey,
+      lastErrorMessage: "Checkout outcome is still unknown",
+      payload: {
+        checkout_client_id: checkoutClientId,
+        session_id: "22222222-2222-4222-8222-222222222222",
+        operator_staff_id: crypto.randomUUID(),
+        payment_method: "card_terminal",
+        total_price: "141.38",
+        amount_paid: "141.38",
+        items: [],
+      },
+    };
+    const serverKey = `checkout:${item.id}`;
+    await putCheckoutQueueItem(page, item);
+
+    let exactReadHeaders: Record<string, string> | null = null;
+    await page.route("**/api/recovery**", async (route) => {
+      const request = route.request();
+      if (request.method() === "POST") {
+        await route.fulfill({
+          status: 409,
+          contentType: "application/json",
+          body: JSON.stringify({
+            error: "register session does not match authenticated session",
+          }),
+        });
+        return;
+      }
+      if (
+        request.method() === "GET" &&
+        request.url().includes("/api/recovery/")
+      ) {
+        exactReadHeaders = request.headers();
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            client_job_key: serverKey,
+            kind: "checkout_unconfirmed",
+            status: "resolved",
+            register_session_id: "22222222-2222-4222-8222-222222222222",
+            transaction_id: transactionId,
+            checkout_client_id: checkoutClientId,
+            payload: item,
+            attempt_count: 1,
+          }),
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: "[]",
+      });
+    });
+
+    await loadOfflineRecoveryHarness(page);
+    await page.evaluate(async () => {
+      const queue = window.__RIVERSIDE_E2E_QUEUE_HARNESS__;
+      if (!queue) throw new Error("E2E queue harness is unavailable");
+      await queue.syncCheckoutRecoveryWithServer(() => ({
+        "x-riverside-staff-session": "staff-session",
+        "x-riverside-connection-key": "connection-key",
+        "x-riverside-station-key": "station-key",
+        "x-riverside-pos-session-id": "11111111-1111-4111-8111-111111111111",
+        "x-riverside-pos-session-token": "current-pos-session-token",
+      }));
+    });
+
+    await expect.poll(() => getCheckoutQueueItem(page, item.id)).toBeNull();
+    expect(exactReadHeaders).toMatchObject({
+      "x-riverside-staff-session": "staff-session",
+      "x-riverside-connection-key": "connection-key",
+      "x-riverside-station-key": "station-key",
+    });
+    expect(exactReadHeaders).not.toHaveProperty("x-riverside-pos-session-id");
+    expect(exactReadHeaders).not.toHaveProperty(
+      "x-riverside-pos-session-token",
+    );
   });
 
   test("an empty open list never erases an unconfirmed checkout whose mirror failed", async ({

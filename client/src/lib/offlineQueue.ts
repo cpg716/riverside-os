@@ -16,6 +16,7 @@ import { useEffect, useState, useCallback } from "react";
 import type { CheckoutPayload } from "../components/pos/types";
 import { headersSafeForOfflinePersist } from "./posRegisterAuth";
 import {
+  getRecoveryJobByKeyWithStaffAccess,
   listCurrentRegisterRecoveryJobsAuthoritative,
   mirrorRecoveryJob,
   reportStationCloseStatus,
@@ -133,6 +134,48 @@ function serverKindForCheckout(item: QueuedCheckout): ServerRecoveryKind {
   return "checkout_offline";
 }
 
+function resolvedCheckoutRecoveryEvidence(
+  item: QueuedCheckout,
+  job: ServerRecoveryJob,
+): CheckoutRecoveryResolvedDetail | null {
+  const checkoutClientId = validRecoveryUuid(item.payload.checkout_client_id);
+  const serverCheckoutClientId = validRecoveryUuid(job.checkout_client_id);
+  const transactionId = validRecoveryUuid(job.transaction_id);
+  const recoveryKey = checkoutServerKeyForItem(item);
+  if (
+    job.status !== "resolved" ||
+    job.client_job_key !== recoveryKey ||
+    job.kind !== serverKindForCheckout(item) ||
+    !checkoutClientId ||
+    serverCheckoutClientId !== checkoutClientId ||
+    !transactionId
+  ) {
+    return null;
+  }
+  return {
+    checkoutClientId,
+    recoveryKey,
+    transactionId,
+  };
+}
+
+async function readPriorSessionRecoveryAfterMirrorFailure(
+  item: QueuedCheckout,
+  staffHeaders: Record<string, string> | undefined,
+): Promise<ServerRecoveryJob | null> {
+  if (!staffHeaders) return null;
+  try {
+    return await getRecoveryJobByKeyWithStaffAccess(
+      checkoutServerKeyForItem(item),
+      staffHeaders,
+    );
+  } catch {
+    // An unavailable or unauthorized exact read is never proof that the local
+    // recovery can be removed. Keep it for the next automatic refresh.
+    return null;
+  }
+}
+
 async function postQueuedCheckoutMirror(
   item: QueuedCheckout,
   liveAuthHeaders?: Record<string, string>,
@@ -194,32 +237,32 @@ export async function syncCheckoutRecoveryWithServer(
   const liveAuthHeaders = getLiveAuthHeaders?.();
   const local = await getCheckoutQueue();
   const mirrorResults = await Promise.all(
-    local.map(async (item) => ({
-      item,
-      job: await mirrorQueuedCheckout(item, false, liveAuthHeaders),
-    })),
+    local.map(async (item) => {
+      const mirrored = await mirrorQueuedCheckout(item, false, liveAuthHeaders);
+      return {
+        item,
+        job:
+          mirrored ??
+          (await readPriorSessionRecoveryAfterMirrorFailure(
+            item,
+            liveAuthHeaders,
+          )),
+      };
+    }),
   );
   let changed = false;
   for (const { item, job } of mirrorResults) {
     if (!job) continue;
+    const resolvedEvidence = resolvedCheckoutRecoveryEvidence(item, job);
+    if (resolvedEvidence) {
+      await clearLocallyRecoveredCheckout(
+        resolvedEvidence.recoveryKey,
+        resolvedEvidence,
+      );
+      changed = true;
+      continue;
+    }
     if (job.status === "resolved") {
-      const checkoutClientId = validRecoveryUuid(item.payload.checkout_client_id);
-      const serverCheckoutClientId = validRecoveryUuid(job.checkout_client_id);
-      const transactionId = validRecoveryUuid(job.transaction_id);
-      const recoveryKey = checkoutServerKeyForItem(item);
-      if (
-        checkoutClientId &&
-        serverCheckoutClientId === checkoutClientId &&
-        transactionId &&
-        job.client_job_key === recoveryKey
-      ) {
-        await clearLocallyRecoveredCheckout(recoveryKey, {
-          checkoutClientId,
-          recoveryKey,
-          transactionId,
-        });
-        changed = true;
-      }
       continue;
     }
     if (job.status !== "pending" && job.status !== "blocked") continue;

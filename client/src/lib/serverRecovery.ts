@@ -124,6 +124,46 @@ async function recoveryResponseError(
   return new Error(body.error?.trim() || `${fallback} (${response.status}).`);
 }
 
+/**
+ * Read one recovery record across Register-session boundaries using Staff
+ * Access. This is intentionally exact-key only so a failed current-session
+ * mirror can never interpret an open-list response as proof of resolution.
+ */
+export async function getRecoveryJobByKeyWithStaffAccess(
+  clientJobKey: string,
+  staffHeaders: HeadersInit,
+): Promise<ServerRecoveryJob | null> {
+  const normalizedKey = clientJobKey.trim();
+  if (!normalizedKey) return null;
+  const context = staffRecoveryRequestContext(staffHeaders);
+  let response: Response;
+  try {
+    response = await fetch(
+      `${context.baseUrl}/api/recovery/${encodeURIComponent(normalizedKey)}`,
+      {
+        headers: context.headers,
+        cache: "no-store",
+      },
+    );
+  } catch {
+    throw new Error(
+      "Main Hub is unavailable; exact checkout recovery was not checked.",
+    );
+  }
+  if (response.status === 404) return null;
+  if (!response.ok) {
+    throw await recoveryResponseError(
+      response,
+      "Exact checkout recovery could not be checked",
+    );
+  }
+  const job = parseRecoveryJob(await response.json().catch(() => null));
+  if (!job || job.client_job_key !== normalizedKey) {
+    throw new Error("Main Hub returned an invalid exact recovery record.");
+  }
+  return job;
+}
+
 export async function mirrorRecoveryJob(
   job: ServerRecoveryUpsert,
   requestHeaders?: HeadersInit,

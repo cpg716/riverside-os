@@ -153,6 +153,13 @@ expected=(
   "147_verified_backup_evidence.sql"
   "148_receiving_identifier_lookup_indexes.sql"
   "149_verified_backup_artifact_identity.sql"
+  "150_release_audited_legacy_helcim_timeouts.sql"
+  "151_isolate_audited_closed_session_helcim_timeouts.sql"
+  "152_resolve_verified_order_payment_recovery.sql"
+  "153_release_verified_hidden_helcim_terminal_timeout.sql"
+  "154_finalize_released_helcim_terminal_attempts.sql"
+  "155_release_verified_helcim_reference_without_transaction.sql"
+  "156_isolate_closed_session_pending_helcim_attempts.sql"
 )
 
 active=()
@@ -215,4 +222,4 @@ if rg -n "INSERT INTO (public\\.)?(staff\\b|staff_permission|store_settings|prod
 fi
 rm -f /tmp/ros_migration_seed_hits.$$
 
-echo "Migration layout OK: active baseline through 149."
+echo "Migration layout OK: active baseline through 156."
