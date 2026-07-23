@@ -1262,6 +1262,7 @@ pub fn router() -> Router<AppState> {
         .route("/next-ros-skus", get(next_ros_skus))
         .route("/control-board", get(list_control_board))
         .route("/pos-parent-search", get(pos_parent_search))
+        .route("/pos-variants/{product_id}", get(list_pos_variants))
         .route("/cleanup-summary", get(get_cleanup_summary))
         .route("/reconciliation", get(get_inventory_reconciliation))
         .route("/bulk-update", post(bulk_update_product_model))
@@ -4493,6 +4494,65 @@ async fn list_variants(
     .await?;
     Ok(Json(rows))
 }
+
+#[derive(Debug, Serialize, FromRow)]
+struct PosVariantRow {
+    variant_id: Uuid,
+    sku: String,
+    variation_label: Option<String>,
+    stock_on_hand: i32,
+    retail_price: Decimal,
+}
+
+async fn list_pos_variants(
+    State(state): State<AppState>,
+    Path(product_id): Path<Uuid>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<PosVariantRow>>, ProductError> {
+    middleware::require_staff_or_pos_register_session(&state, &headers)
+        .await
+        .map_err(|(_, axum::Json(v))| {
+            let msg = v
+                .get("error")
+                .and_then(|x| x.as_str())
+                .unwrap_or("unauthorized")
+                .to_string();
+            ProductError::Unauthorized(msg)
+        })?;
+
+    let rows = sqlx::query_as::<_, PosVariantRow>(
+        r#"
+        SELECT
+            pv.id AS variant_id,
+            pv.sku,
+            pv.variation_label,
+            pv.stock_on_hand,
+            COALESCE(pv.retail_price_override, p.base_retail_price) AS retail_price
+        FROM product_variants pv
+        INNER JOIN products p ON p.id = pv.product_id
+        LEFT JOIN vendors pvendor ON pvendor.id = p.primary_vendor_id
+        WHERE p.id = $1
+          AND p.is_active = true
+          AND NOT ((
+            LOWER(COALESCE(pvendor.name, '')) IN ('gruppo bravo menswear', 'renoir fashion inc')
+            OR LOWER(COALESCE(p.brand, '')) LIKE '%gruppo bravo%'
+            OR LOWER(COALESCE(p.brand, '')) LIKE '%renoir%'
+            OR LOWER(p.name) LIKE 'gruppo bravo%'
+            OR LOWER(p.name) LIKE 'renoir%'
+          ) AND COALESCE(pv.variation_label, '') ~* $2)
+        ORDER BY pv.created_at, pv.id
+        LIMIT $3
+        "#,
+    )
+    .bind(product_id)
+    .bind(POS_ODD_SIZE_PATTERN)
+    .bind(5_000_i64)
+    .fetch_all(&state.db)
+    .await?;
+
+    Ok(Json(rows))
+}
+
 async fn get_maintenance_ledger(
     State(state): State<AppState>,
     Query(query): Query<MaintenanceLedgerQuery>,

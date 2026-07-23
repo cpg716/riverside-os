@@ -85,7 +85,31 @@ async function mockDropdownSearches(
   };
 
   await page.route("**/api/products/pos-parent-search?*", fulfillProductRows);
-  await page.route("**/api/products/control-board?*", fulfillProductRows);
+  await page.route("**/api/products/pos-variants/*", async (route) => {
+    const productRows = options.multiVariantProduct
+      ? [
+          {
+            variant_id: "33333333-3333-4333-8333-333333333333",
+            sku: "E2E-VIS-SUIT-40R",
+            variation_label: "40R",
+            retail_price: "199.00",
+            stock_on_hand: 5,
+          },
+          {
+            variant_id: "44444444-4444-4444-8444-444444444444",
+            sku: "E2E-VIS-SUIT-42R",
+            variation_label: "42R",
+            retail_price: "209.00",
+            stock_on_hand: 3,
+          },
+        ]
+      : [];
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(productRows),
+    });
+  });
 }
 
 async function openPosRegisterSurface(page: Page): Promise<void> {

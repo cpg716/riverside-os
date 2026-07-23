@@ -579,25 +579,18 @@ export function useCartActions({
     if (totalVariantCount > 1 && !exactSkuMatch) {
        void (async () => {
          try {
-           const pageSize = 250;
            const maxVariants = 5_000;
            if (totalVariantCount > maxVariants) {
              throw new Error("Product has too many variations to load safely");
            }
-           const rows: Array<Record<string, unknown>> = [];
-           for (let offset = 0; offset < totalVariantCount; offset += pageSize) {
-             const res = await fetch(
-               `${baseUrl}/api/products/control-board?product_id=${encodeURIComponent(item.product_id)}&limit=${pageSize}&offset=${offset}&include_hidden=true&pos_size_filter=true`,
-               { headers: apiAuth() },
-             );
-             if (!res.ok) {
-               throw new Error(`Variation search failed with status ${res.status}`);
-             }
-             const data = (await res.json()) as { rows?: Array<Record<string, unknown>> };
-             const pageRows = Array.isArray(data.rows) ? data.rows : [];
-             rows.push(...pageRows);
-             if (pageRows.length < pageSize) break;
+           const res = await fetch(
+             `${baseUrl}/api/products/pos-variants/${encodeURIComponent(item.product_id)}`,
+             { headers: apiAuth() },
+           );
+           if (!res.ok) {
+             throw new Error(`Variation search failed with status ${res.status}`);
            }
+           const rows = (await res.json()) as Array<Record<string, unknown>>;
            const fullVariants = rows.map((row) => ({
              variant_id: String(row.variant_id ?? ""),
              sku: String(row.sku ?? ""),
