@@ -4204,6 +4204,22 @@ async fn mark_transaction_pickup(
         })
         .collect::<Vec<_>>();
     let has_inventory_shortage = !inventory_shortage_details.is_empty();
+    if has_inventory_shortage {
+        let examples = insufficient_stock_lines
+            .iter()
+            .take(3)
+            .map(|line| {
+                format!(
+                    "{} ({}) needs {}, stock on hand is {}",
+                    line.product_name, line.sku, line.quantity, line.stock_on_hand
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("; ");
+        return Err(TransactionError::InvalidPayload(format!(
+            "Pickup blocked: insufficient stock for the selected item(s). {examples} Resolve inventory before completing pickup."
+        )));
+    }
     let inventory_shortage_alert = if insufficient_stock_lines.is_empty() {
         None
     } else {

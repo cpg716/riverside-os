@@ -60,9 +60,12 @@ function queueServerConnectionEvent(reason: string): QueuedServerConnectionEvent
   const existing = readQueuedEvents().find((event) => event.id === existingId);
   if (existing) return existing;
 
+  const message = reason === "timeout"
+    ? "The Main Hub server did not respond to a liveness probe in time."
+    : "Riverside OS lost connection to the Main Hub server.";
   const event: QueuedServerConnectionEvent = {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-    message: "Riverside OS lost connection to the Main Hub server.",
+    message,
     route: safeRoute(),
     baseUrl: diagnostics.resolved,
     baseUrlSource: diagnostics.source,
@@ -85,7 +88,7 @@ async function flushQueuedServerConnectionEvents(): Promise<void> {
   const remaining: QueuedServerConnectionEvent[] = [];
   for (const event of queued) {
     const reported = await submitClientErrorEvent({
-      message: event.message,
+      message: event.message || "Riverside OS lost connection to the Main Hub server.",
       eventSource: "server_connection",
       severity: "error",
       route: event.route,
@@ -118,7 +121,9 @@ async function probeServer(): Promise<{ ok: boolean; reason: string }> {
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), HEALTH_TIMEOUT_MS);
   try {
-    const res = await fetch(`${getBaseUrl()}/api/health`, {
+    // `/api/live` is deliberately dependency-free. Do not classify a slow
+    // database/readiness check as a dead Main Hub connection.
+    const res = await fetch(`${getBaseUrl()}/api/live`, {
       method: "GET",
       cache: "no-store",
       signal: controller.signal,
@@ -133,7 +138,11 @@ async function probeServer(): Promise<{ ok: boolean; reason: string }> {
   } catch (error) {
     return {
       ok: false,
-      reason: error instanceof Error ? error.name : "network_error",
+      reason: error instanceof DOMException && error.name === "AbortError"
+        ? "timeout"
+        : error instanceof Error
+          ? error.name
+          : "network_error",
     };
   } finally {
     window.clearTimeout(timeout);
@@ -217,7 +226,9 @@ export default function ServerConnectionMonitor() {
   const reason =
     lastReason === "device_offline"
       ? "This device is offline."
-      : "ROS cannot reach the Main Hub server.";
+      : lastReason === "timeout"
+        ? "The Main Hub server is responding slowly."
+        : "ROS cannot reach the Main Hub server.";
 
   return (
     <div

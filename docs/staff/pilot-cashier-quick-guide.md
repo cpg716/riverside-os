@@ -18,6 +18,10 @@
 
 **Do not start the next customer until the receipt screen is handled and the sale is clearly complete.**
 
+### Pickup and receipt recovery
+
+Orders remain available in **Orders** after completion. If a pickup is blocked for insufficient stock, stop and call a manager for inventory review; do not retry repeatedly or substitute an item. If a receipt does not print, reopen the completed transaction from **Orders** and use the receipt action after confirming the sale status.
+
 ### Backdate the current sale
 
 Use this only when a manager approves recording the sale under an earlier store date/time.

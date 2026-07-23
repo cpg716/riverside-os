@@ -160,6 +160,12 @@ fn proposal_review_blockers(proposal: &JournalProposal) -> Vec<String> {
     if !proposal_has_postable_lines(proposal) {
         blockers.push("QBO staging proposal has no postable journal lines.".to_string());
     }
+    if !proposal.totals.balanced {
+        blockers.push(format!(
+            "QBO journal is not balanced (debits ${:.2}, credits ${:.2}); review the journal before approval.",
+            proposal.totals.debits, proposal.totals.credits
+        ));
+    }
     blockers.extend(blocking_accounting_warnings(&proposal.warnings));
     blockers
 }

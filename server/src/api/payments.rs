@@ -7668,6 +7668,8 @@ async fn load_helcim_transaction_rows(
                     AND item.provider_transaction_id = COALESCE(pt.provider_transaction_id, btx.provider_transaction_id)))
         ) issues ON true
         WHERE pt.payment_provider = 'helcim'
+          AND ($2::date IS NULL OR (COALESCE(pt.created_at, btx.occurred_at, btx.last_synced_at, now()) AT TIME ZONE 'America/New_York')::date >= $2)
+          AND ($3::date IS NULL OR (COALESCE(pt.created_at, btx.occurred_at, btx.last_synced_at, now()) AT TIME ZONE 'America/New_York')::date <= $3)
 
         UNION ALL
 
@@ -7706,6 +7708,8 @@ async fn load_helcim_transaction_rows(
         ) issues ON true
         WHERE btx.provider = 'helcim'
           AND pt.id IS NULL
+          AND ($2::date IS NULL OR (COALESCE(btx.occurred_at, btx.last_synced_at, now()) AT TIME ZONE 'America/New_York')::date >= $2)
+          AND ($3::date IS NULL OR (COALESCE(btx.occurred_at, btx.last_synced_at, now()) AT TIME ZONE 'America/New_York')::date <= $3)
 
         UNION ALL
 
@@ -7738,6 +7742,8 @@ async fn load_helcim_transaction_rows(
           AND ppa.raw_audit_reference LIKE 'helcim-pay-js%'
           AND ppa.status IN ('approved', 'captured')
           AND ppa.provider_transaction_id IS NOT NULL
+          AND ($2::date IS NULL OR (ppa.created_at AT TIME ZONE 'America/New_York')::date >= $2)
+          AND ($3::date IS NULL OR (ppa.created_at AT TIME ZONE 'America/New_York')::date <= $3)
           AND NOT EXISTS (
               SELECT 1
               FROM payment_transactions pt
@@ -11966,7 +11972,7 @@ async fn recover_helcim_attempt_by_invoice(
 }
 
 async fn recover_hosted_manual_helcim_attempt(
-    _state: &AppState,
+    state: &AppState,
     attempt: &HelcimAttemptRow,
     _config: &helcim::HelcimConfig,
 ) -> Result<Option<HelcimAttemptRow>, PaymentError> {
@@ -11976,11 +11982,38 @@ async fn recover_hosted_manual_helcim_attempt(
     // this ROS sale. Keep the attempt unresolved for Payments Health instead of
     // guessing. Exact automatic recovery would require a provider-supported
     // invoiceRequest/existing-invoice correlation introduced in a future flow.
-    tracing::warn!(
-        target = "helcim",
-        attempt_id = %attempt.id,
-        "hosted Helcim payment requires manual reconciliation because no stable provider correlation was confirmed"
-    );
+    let first_notice: bool = sqlx::query_scalar(
+        r#"
+        UPDATE payment_provider_attempts
+        SET error_code = COALESCE(error_code, 'manual_reconciliation_required'),
+            error_message = COALESCE(
+                error_message,
+                'Hosted Helcim payment has no stable provider correlation; manual reconciliation is required.'
+            )
+        WHERE id = $1
+          AND provider = 'helcim'
+          AND error_code IS NULL
+        RETURNING true
+        "#,
+    )
+    .bind(attempt.id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?
+    .unwrap_or(false);
+    if first_notice {
+        tracing::warn!(
+            target = "helcim",
+            attempt_id = %attempt.id,
+            "hosted Helcim payment requires manual reconciliation because no stable provider correlation was confirmed"
+        );
+    } else {
+        tracing::debug!(
+            target = "helcim",
+            attempt_id = %attempt.id,
+            "hosted Helcim payment remains unresolved; manual reconciliation is still required"
+        );
+    }
     Ok(None)
 }
 
