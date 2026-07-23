@@ -149,7 +149,7 @@ test.describe("Register recovery history UI contracts", () => {
     );
     expect(closeRegisterSource).toContain('"settle_historical_exchange"');
     expect(closeRegisterSource).toMatch(
-      /locked server record, verifies the original tender/,
+      /locked\s+server record, verifies the original tender/,
     );
     expect(closeRegisterSource).toMatch(
       /receipt\s+print job from Print Recovery/,
