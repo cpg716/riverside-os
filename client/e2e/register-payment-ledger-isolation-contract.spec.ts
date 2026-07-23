@@ -19,7 +19,9 @@ test("approved provider tender stays with its current customer", () => {
   expect(cart).toContain("latestSaleCustomerIdRef.current");
   expect(cart).toContain("A card workflow is active for this checkout");
   expect(cart).toContain("onSelect={selectCustomerForSale}");
-  expect(cart).toContain("use Clear Sale and Payments Health before choosing another customer");
+  expect(cart).toContain(
+    "use Clear Sale and Payments Health before choosing another customer",
+  );
   expect(cart).toContain(
     "It does not delete, move, retry, or refund the approved provider payment",
   );
@@ -56,16 +58,18 @@ test("only exact audited recovery evidence clears the active Register sale", () 
   const offlineQueue = repoFile("client/src/lib/offlineQueue.ts");
 
   expect(offlineQueue).toContain("CHECKOUT_RECOVERY_RESOLVED_EVENT");
-  expect(offlineQueue).toContain("serverCheckoutClientId === checkoutClientId");
+  expect(offlineQueue).toContain("serverCheckoutClientId !== checkoutClientId");
   expect(offlineQueue).toContain("job.client_job_key === recoveryKey");
   expect(offlineQueue).toContain("job.kind !== serverKindForCheckout(item)");
   expect(offlineQueue).toContain("!transactionId");
   expect(offlineQueue).toContain("getRecoveryJobByKeyWithStaffAccess");
   expect(cart).toContain("detail.checkoutClientId !== checkoutClientId");
-  expect(cart).toContain("!detail.recoveryKey?.startsWith(\"checkout:\")");
+  expect(cart).toContain('!detail.recoveryKey?.startsWith("checkout:")');
   expect(cart).toContain("clearCartAndAlterations();");
   expect(cart).toContain("setCheckoutClientId(newCheckoutClientId());");
   expect(cart).toContain("const clearSaleForNextCheckout = useCallback");
   expect(cart).toContain("clearSaleForNextCheckout();");
-  expect(cart).toContain('key={`${checkoutClientId}:${selectedCustomer?.id ?? "no-customer"}`}');
+  expect(cart).toContain(
+    'key={`${checkoutClientId}:${selectedCustomer?.id ?? "no-customer"}`}',
+  );
 });

@@ -655,7 +655,7 @@ test("external checkout recovery requires exact final payment evidence and commi
   ).toEqual({ audit_count: 1, audit_reason: reason, job_reason: reason });
 });
 
-test("Register recovery remains session-scoped, identity-exact, verifiable, and recoverable after ordinary close", async ({
+test("Register recovery remains session-scoped, identity-exact, verifiable, and recoverable after manager-approved close", async ({
   request,
 }) => {
   test.setTimeout(120_000);
@@ -1149,7 +1149,7 @@ test("Register recovery remains session-scoped, identity-exact, verifiable, and 
   const expectedCash = (
     JSON.parse(reconciliationText) as { expected_cash: string }
   ).expected_cash;
-  const ordinaryClose = await request.post(
+  const managerClose = await request.post(
     `${apiBase()}/api/sessions/${sessionId}/close`,
     {
       headers: {
@@ -1158,14 +1158,18 @@ test("Register recovery remains session-scoped, identity-exact, verifiable, and 
       },
       data: {
         actual_cash: expectedCash,
-        closing_notes: "E2E ordinary close with visible recovery",
+        closing_notes: "E2E manager-approved close with visible recovery",
         closing_comments: "Recovery remains globally visible",
+        manager_staff_id: managerStaffId,
+        manager_pin: staffCode(),
+        manager_reason:
+          "E2E Manager Access approves close with visible recovery evidence",
       },
       failOnStatusCode: false,
     },
   );
-  const closeBodyText = await ordinaryClose.text();
-  expect(ordinaryClose.status(), closeBodyText.slice(0, 1000)).toBe(200);
+  const closeBodyText = await managerClose.text();
+  expect(managerClose.status(), closeBodyText.slice(0, 1000)).toBe(200);
   const closeBody = JSON.parse(closeBodyText) as {
     till_group_closed: boolean;
     unresolved_close_issues?: { recovery_job_keys?: string[] } | null;
