@@ -1454,6 +1454,66 @@ export default function Cart({
     toast(`Transaction payment for ${orderPaymentDisplayId} added to this sale.`, "success");
   }, [selectedCustomer, toast]);
 
+  const preflightOrderPaymentsBeforeTender = useCallback(async () => {
+    const targets = orderPaymentLines.filter(
+      (line) => parseMoneyToCents(line.amount) > 0,
+    );
+    if (targets.length === 0) return true;
+    if (!selectedCustomer?.id) {
+      toast(
+        "Select the matching customer before collecting an order payment.",
+        "error",
+      );
+      return false;
+    }
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/transactions/order-payment-preflight`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...apiAuth(),
+          },
+          body: JSON.stringify({
+            register_session_id: sessionId,
+            customer_id: selectedCustomer.id,
+            targets: targets.map((line) => ({
+              transaction_id: line.target_transaction_id,
+              expected_balance: line.balance_before,
+              payment_amount: line.amount,
+            })),
+          }),
+        },
+      );
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as {
+          error?: string;
+        };
+        toast(
+          body.error ??
+            "Payment blocked before tender. Refresh Customer Orders and verify the exact paid prices and balance.",
+          "error",
+        );
+        return false;
+      }
+      return true;
+    } catch {
+      toast(
+        "Payment blocked before tender because the Main Hub could not verify the exact order prices and balance.",
+        "error",
+      );
+      return false;
+    }
+  }, [
+    apiAuth,
+    baseUrl,
+    orderPaymentLines,
+    selectedCustomer?.id,
+    sessionId,
+    toast,
+  ]);
+
   const addItemToExistingOrder = useCallback(async (order: CustomerOrder, sku: string) => {
     try {
       const scanRes = await fetch(`${baseUrl}/api/inventory/scan/${encodeURIComponent(sku)}`, {
@@ -4285,6 +4345,7 @@ export default function Cart({
         profileBlocksCheckout={false}
         onOpenProfileGate={() => {}}
         onCheckoutIdentityHoldChange={setProviderCheckoutIdentityHeld}
+        beforeApplyTender={preflightOrderPaymentsBeforeTender}
         busy={checkoutBusy}
         onFinalize={async (applied, op, ledger) => {
           if (pendingReturnTender) {

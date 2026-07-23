@@ -177,6 +177,41 @@ interface CounterpointBookingDateRepairPreview {
   candidates: CounterpointBookingDateRepairCandidate[];
 }
 
+interface CounterpointPaidPriceRepairCandidate {
+  manifest_key: string;
+  transaction_id: string;
+  display_id: string;
+  source_doc_id: string;
+  current_total: string;
+  corrected_total: string;
+  amount_paid_unchanged: string;
+  current_balance: string;
+  corrected_balance: string;
+  line_rows_to_update: number;
+}
+
+interface CounterpointPaidPriceRepairBlocked {
+  manifest_key: string;
+  display_id: string;
+  reason: string;
+}
+
+interface CounterpointPaidPriceRepairPreview {
+  generated_at: string;
+  confirmation_phrase: string;
+  manifest_digest: string;
+  staged_count: number;
+  ready_count: number;
+  blocked_count: number;
+  already_applied_count: number;
+  line_rows_to_update: number;
+  payments_unchanged: boolean;
+  quantities_unchanged: boolean;
+  lifecycle_unchanged: boolean;
+  candidates: CounterpointPaidPriceRepairCandidate[];
+  blocked: CounterpointPaidPriceRepairBlocked[];
+}
+
 interface CounterpointSnapshotReconciliationRow {
   key: string;
   label: string;
@@ -537,6 +572,15 @@ export default function CounterpointSyncSettingsPanel({
   const [reconciliationPromptOpen, setReconciliationPromptOpen] = useState(false);
   const [reconciliationBusy, setReconciliationBusy] = useState(false);
 
+  const [paidPriceRepairPreview, setPaidPriceRepairPreview] =
+    useState<CounterpointPaidPriceRepairPreview | null>(null);
+  const [paidPriceRepairError, setPaidPriceRepairError] = useState<string | null>(
+    null,
+  );
+  const [paidPriceRepairPromptOpen, setPaidPriceRepairPromptOpen] =
+    useState(false);
+  const [paidPriceRepairBusy, setPaidPriceRepairBusy] = useState(false);
+
   const [bookingDateRepairPreview, setBookingDateRepairPreview] =
     useState<CounterpointBookingDateRepairPreview | null>(null);
   const [bookingDateRepairError, setBookingDateRepairError] = useState<
@@ -650,6 +694,35 @@ export default function CounterpointSyncSettingsPanel({
     }
   }, [baseUrl, hasPermission, headers]);
 
+  const fetchPaidPriceRepairPreview = useCallback(async () => {
+    if (!hasPermission("settings.admin")) return;
+    setPaidPriceRepairError(null);
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/settings/counterpoint-sync/financial-integrity/paid-price-repair-preview`,
+        { headers: headers() },
+      );
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as {
+          error?: string;
+        };
+        throw new Error(
+          body.error ?? "Counterpoint paid-price repair evidence is unavailable.",
+        );
+      }
+      setPaidPriceRepairPreview(
+        (await res.json()) as CounterpointPaidPriceRepairPreview,
+      );
+    } catch (error) {
+      setPaidPriceRepairPreview(null);
+      setPaidPriceRepairError(
+        error instanceof Error
+          ? error.message
+          : "Counterpoint paid-price repair evidence is unavailable.",
+      );
+    }
+  }, [baseUrl, hasPermission, headers]);
+
   const fetchBookingDateRepairPreview = useCallback(async () => {
     if (!hasPermission("settings.admin")) return;
     setBookingDateRepairError(null);
@@ -687,6 +760,7 @@ export default function CounterpointSyncSettingsPanel({
       fetchLandingVerification(),
       fetchResetPreview(),
       fetchReconciliationPreview(),
+      fetchPaidPriceRepairPreview(),
       fetchBookingDateRepairPreview(),
     ]);
     setLoading(false);
@@ -698,6 +772,7 @@ export default function CounterpointSyncSettingsPanel({
     fetchLandingVerification,
     fetchResetPreview,
     fetchReconciliationPreview,
+    fetchPaidPriceRepairPreview,
     fetchBookingDateRepairPreview,
   ]);
 
@@ -830,6 +905,81 @@ export default function CounterpointSyncSettingsPanel({
       return false;
     } finally {
       setReconciliationBusy(false);
+    }
+  };
+
+  const runPaidPriceRepair = async (
+    confirmationPhrase: string,
+  ): Promise<boolean> => {
+    if (!paidPriceRepairPreview) {
+      toast("Refresh the paid-price manifest before applying a repair.", "error");
+      return false;
+    }
+    if (paidPriceRepairPreview.blocked_count > 0) {
+      toast(
+        "A staged paid-price row changed or needs review. Refresh and resolve it before applying any repair.",
+        "error",
+      );
+      return false;
+    }
+    setPaidPriceRepairBusy(true);
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/settings/counterpoint-sync/financial-integrity/paid-price-repair`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...headers(),
+          },
+          body: JSON.stringify({
+            confirmation_phrase: confirmationPhrase,
+            reason:
+              "Approved restoration of exact Counterpoint paid line prices and lifecycle tax.",
+            manifest_digest: paidPriceRepairPreview.manifest_digest,
+            manifest_candidate_count: paidPriceRepairPreview.ready_count,
+          }),
+        },
+      );
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        repaired_transactions?: number;
+        repaired_lines?: number;
+        payments_changed?: boolean;
+        quantities_changed?: boolean;
+        lifecycle_changed?: boolean;
+        remaining_ready_count?: number;
+        remaining_blocked_count?: number;
+      };
+      if (!res.ok) {
+        throw new Error(data.error ?? "Counterpoint paid-price repair failed.");
+      }
+      if (
+        data.payments_changed ||
+        data.quantities_changed ||
+        data.lifecycle_changed
+      ) {
+        throw new Error(
+          "Repair reported an unexpected payment, quantity, or lifecycle change. Stop and contact support.",
+        );
+      }
+      toast(
+        `Restored exact paid prices on ${data.repaired_transactions ?? 0} Transaction Record(s) and ${data.repaired_lines ?? 0} line(s). Payments, quantities, and fulfillment were unchanged.`,
+        "success",
+      );
+      setPaidPriceRepairPromptOpen(false);
+      await fetchPaidPriceRepairPreview();
+      return true;
+    } catch (error) {
+      toast(
+        error instanceof Error
+          ? error.message
+          : "Counterpoint paid-price repair failed.",
+        "error",
+      );
+      return false;
+    } finally {
+      setPaidPriceRepairBusy(false);
     }
   };
 
@@ -1769,6 +1919,163 @@ export default function CounterpointSyncSettingsPanel({
             </div>
           </div>
 
+          <div
+            className="space-y-3 rounded-lg border border-red-500/30 bg-red-500/5 p-4"
+            data-testid="counterpoint-paid-price-repair"
+          >
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="max-w-3xl">
+                <p className="text-[10px] font-black uppercase tracking-widest text-red-700 dark:text-red-300">
+                  July 21 paid-price correction
+                </p>
+                <p className="mt-1 text-xs font-semibold text-app-text-muted">
+                  Repairs only current imported ROS records whose Counterpoint
+                  open lines and linked completed-sale tickets reconcile exactly.
+                  It does not run an import. Payments, payment allocations,
+                  quantities, returns, status, pickup, and fulfillment are
+                  locked read-only.
+                </p>
+                {paidPriceRepairPreview ? (
+                  <p className="mt-1 font-mono text-[10px] text-app-text-muted">
+                    Reviewed manifest{" "}
+                    {paidPriceRepairPreview.manifest_digest.slice(0, 12)}… ·{" "}
+                    {new Date(
+                      paidPriceRepairPreview.generated_at,
+                    ).toLocaleString()}
+                  </p>
+                ) : null}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => void fetchPaidPriceRepairPreview()}
+                  className="ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  Refresh Paid Prices
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPaidPriceRepairPromptOpen(true)}
+                  disabled={
+                    !paidPriceRepairPreview?.ready_count ||
+                    Boolean(paidPriceRepairPreview?.blocked_count) ||
+                    paidPriceRepairBusy
+                  }
+                  className="ui-btn-primary inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Wrench className="h-3.5 w-3.5" />
+                  Restore Exact Paid Prices
+                </button>
+              </div>
+            </div>
+
+            {paidPriceRepairError ? (
+              <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs font-bold text-red-700 dark:text-red-300">
+                Paid-price evidence is unavailable: {paidPriceRepairError}. No
+                repair is allowed.
+              </div>
+            ) : null}
+
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="rounded-lg border border-emerald-500/25 bg-emerald-500/10 p-3">
+                <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700 dark:text-emerald-300">
+                  Exact matches ready
+                </p>
+                <p className="mt-1 text-2xl font-black tabular-nums text-app-text">
+                  {paidPriceRepairPreview?.ready_count ?? "—"}
+                </p>
+                <p className="text-xs font-semibold text-app-text-muted">
+                  {paidPriceRepairPreview
+                    ? `${paidPriceRepairPreview.line_rows_to_update} paid-price/tax line correction(s)`
+                    : "Awaiting reviewed manifest"}
+                </p>
+              </div>
+              <div className="rounded-lg border border-red-500/25 bg-red-500/10 p-3">
+                <p className="text-[10px] font-black uppercase tracking-widest text-red-700 dark:text-red-300">
+                  Blocked
+                </p>
+                <p className="mt-1 text-2xl font-black tabular-nums text-app-text">
+                  {paidPriceRepairPreview?.blocked_count ?? "—"}
+                </p>
+                <p className="text-xs font-semibold text-app-text-muted">
+                  Any blocked row stops the complete repair
+                </p>
+              </div>
+              <div className="rounded-lg border border-sky-500/25 bg-sky-500/10 p-3">
+                <p className="text-[10px] font-black uppercase tracking-widest text-sky-700 dark:text-sky-300">
+                  Already applied
+                </p>
+                <p className="mt-1 text-2xl font-black tabular-nums text-app-text">
+                  {paidPriceRepairPreview?.already_applied_count ?? "—"}
+                </p>
+                <p className="text-xs font-semibold text-app-text-muted">
+                  Append-only audited repairs
+                </p>
+              </div>
+            </div>
+
+            {(paidPriceRepairPreview?.candidates ?? []).length > 0 ? (
+              <div className="overflow-auto rounded-lg border border-app-border">
+                <table className="w-full min-w-[860px] text-left text-xs">
+                  <thead className="bg-app-surface-2">
+                    <tr className="border-b border-app-border text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                      <th className="px-3 py-2">Transaction</th>
+                      <th className="px-3 py-2">Current total</th>
+                      <th className="px-3 py-2">Counterpoint total</th>
+                      <th className="px-3 py-2">Paid unchanged</th>
+                      <th className="px-3 py-2">Correct balance</th>
+                      <th className="px-3 py-2">Lines</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-app-border">
+                    {paidPriceRepairPreview?.candidates.map((candidate) => (
+                      <tr key={candidate.manifest_key}>
+                        <td className="px-3 py-3">
+                          <p className="font-black text-app-text">
+                            {candidate.display_id}
+                          </p>
+                          <p className="text-app-text-muted">
+                            CP {candidate.source_doc_id}
+                          </p>
+                        </td>
+                        <td className="px-3 py-3 tabular-nums text-red-700 dark:text-red-300">
+                          ${Number(candidate.current_total).toFixed(2)}
+                          <p className="text-app-text-muted">
+                            Due ${Number(candidate.current_balance).toFixed(2)}
+                          </p>
+                        </td>
+                        <td className="px-3 py-3 tabular-nums font-black text-app-text">
+                          ${Number(candidate.corrected_total).toFixed(2)}
+                        </td>
+                        <td className="px-3 py-3 tabular-nums text-app-text">
+                          ${Number(candidate.amount_paid_unchanged).toFixed(2)}
+                        </td>
+                        <td className="px-3 py-3 tabular-nums font-black text-app-text">
+                          ${Number(candidate.corrected_balance).toFixed(2)}
+                        </td>
+                        <td className="px-3 py-3 text-app-text-muted">
+                          {candidate.line_rows_to_update}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
+
+            {(paidPriceRepairPreview?.blocked ?? []).length > 0 ? (
+              <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-700 dark:text-red-300">
+                {paidPriceRepairPreview?.blocked.map((row) => (
+                  <p key={row.manifest_key}>
+                    <span className="font-black">{row.display_id}:</span>{" "}
+                    {row.reason}
+                  </p>
+                ))}
+              </div>
+            ) : null}
+          </div>
+
           <div className="space-y-3 rounded-lg border border-app-border bg-app-bg/60 p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="max-w-3xl">
@@ -2199,6 +2506,28 @@ export default function CounterpointSyncSettingsPanel({
 
 
       {/* ── Modals ── */}
+      <PromptModal
+        isOpen={paidPriceRepairPromptOpen}
+        onClose={() => setPaidPriceRepairPromptOpen(false)}
+        onSubmit={async (value) => {
+          const expected =
+            paidPriceRepairPreview?.confirmation_phrase ??
+            "REPAIR COUNTERPOINT PAID PRICES";
+          if (value.trim() !== expected) {
+            toast(
+              "Incorrect confirmation phrase. No records were changed.",
+              "error",
+            );
+            return false;
+          }
+          return runPaidPriceRepair(value);
+        }}
+        title="Restore Exact Counterpoint Paid Prices?"
+        message={`This applies only the ${paidPriceRepairPreview?.ready_count ?? 0} exact Transaction Record match(es) in reviewed manifest ${paidPriceRepairPreview?.manifest_digest.slice(0, 12) ?? "unavailable"}…. Every current header, line, payment allocation, source document, quantity, and lifecycle value is rechecked under a database lock. Any drift or blocked row aborts the complete repair. The repair changes only unit paid price, recorded discount, line tax, Transaction total, and balance. It never changes payments, payment allocations, quantities, returns, status, pickup, or fulfillment.\n\nTo proceed, type: ${paidPriceRepairPreview?.confirmation_phrase ?? "REPAIR COUNTERPOINT PAID PRICES"}`}
+        confirmLabel="Restore Exact Paid Prices"
+        placeholder="Enter confirmation phrase"
+      />
+
       <PromptModal
         isOpen={bookingDateRepairPromptOpen}
         onClose={() => setBookingDateRepairPromptOpen(false)}

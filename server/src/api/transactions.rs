@@ -14,7 +14,7 @@ use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::{Error as SqlxError, FromRow, PgPool, Postgres, Transaction};
-use std::ops::DerefMut;
+use std::{collections::HashSet, ops::DerefMut};
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -3247,12 +3247,27 @@ pub struct LineAttributionUpdate {
     pub salesperson_id: Option<Uuid>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct OrderPaymentPreflightRequest {
+    pub register_session_id: Uuid,
+    pub customer_id: Uuid,
+    pub targets: Vec<OrderPaymentPreflightTarget>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct OrderPaymentPreflightTarget {
+    pub transaction_id: Uuid,
+    pub expected_balance: Decimal,
+    pub payment_amount: Decimal,
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(list_transactions))
         .route("/pipeline-stats", get(get_pipeline_stats))
         .route("/refunds/due", get(list_refunds_due))
         .route("/fulfillment-queue", get(get_fulfillment_queue))
+        .route("/order-payment-preflight", post(order_payment_preflight))
         .route("/checkout", post(checkout))
         .route(
             "/{transaction_id}/attribution",
@@ -4353,6 +4368,166 @@ async fn list_transactions(
     Ok(Json(page))
 }
 
+async fn order_payment_preflight(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<OrderPaymentPreflightRequest>,
+) -> Result<Json<serde_json::Value>, TransactionError> {
+    middleware::require_pos_register_session_for_checkout(
+        &state,
+        &headers,
+        body.register_session_id,
+    )
+    .await
+    .map_err(map_perm_err)?;
+
+    if body.targets.is_empty() || body.targets.len() > 25 {
+        return Err(TransactionError::InvalidPayload(
+            "order-payment preflight requires between 1 and 25 target Transaction Records"
+                .to_string(),
+        ));
+    }
+    let mut target_ids = HashSet::new();
+    for target in &body.targets {
+        if !target_ids.insert(target.transaction_id) {
+            return Err(TransactionError::InvalidPayload(
+                "order-payment preflight contains a duplicate target Transaction Record"
+                    .to_string(),
+            ));
+        }
+        if target.payment_amount.round_dp(2) <= Decimal::ZERO {
+            return Err(TransactionError::InvalidPayload(
+                "order-payment preflight amount must be greater than zero".to_string(),
+            ));
+        }
+    }
+
+    let tolerance = Decimal::new(1, 2);
+    for target in &body.targets {
+        let snapshot: Option<(
+            Uuid,
+            Option<Uuid>,
+            DbOrderStatus,
+            Decimal,
+            Decimal,
+            Decimal,
+            Decimal,
+            i64,
+        )> = sqlx::query_as(
+            r#"
+            WITH returned AS (
+                SELECT
+                    transaction_line_id,
+                    SUM(quantity_returned)::int AS quantity_returned
+                FROM transaction_return_lines
+                WHERE transaction_id = $1
+                GROUP BY transaction_line_id
+            ),
+            charged_lines AS (
+                SELECT
+                    tl.transaction_id,
+                    COUNT(*)::bigint AS line_count,
+                    COALESCE(
+                        SUM(
+                            (
+                                tl.unit_price
+                                + COALESCE(tl.state_tax, 0)
+                                + COALESCE(tl.local_tax, 0)
+                            ) * GREATEST(
+                                tl.quantity - COALESCE(returned.quantity_returned, 0),
+                                0
+                            )::numeric
+                        ),
+                        0
+                    )::numeric AS charged_line_total
+                FROM transaction_lines tl
+                LEFT JOIN returned ON returned.transaction_line_id = tl.id
+                WHERE tl.transaction_id = $1
+                GROUP BY tl.transaction_id
+            )
+            SELECT
+                t.id,
+                t.customer_id,
+                t.status,
+                ROUND(COALESCE(t.total_price, 0), 2)::numeric AS total_price,
+                ROUND(
+                    COALESCE(charged_lines.charged_line_total, 0)
+                    + COALESCE(t.shipping_amount_usd, 0),
+                    2
+                )::numeric AS calculated_total_price,
+                ROUND(COALESCE(t.balance_due, 0), 2)::numeric AS balance_due,
+                ROUND(
+                    COALESCE(charged_lines.charged_line_total, 0)
+                    + COALESCE(t.shipping_amount_usd, 0)
+                    + COALESCE(t.rounding_adjustment, 0)
+                    - COALESCE(t.amount_paid, 0),
+                    2
+                )::numeric AS calculated_balance_due,
+                COALESCE(charged_lines.line_count, 0)::bigint AS line_count
+            FROM transactions t
+            LEFT JOIN charged_lines ON charged_lines.transaction_id = t.id
+            WHERE t.id = $1
+            "#,
+        )
+        .bind(target.transaction_id)
+        .fetch_optional(&state.db)
+        .await?;
+        let Some((
+            _,
+            customer_id,
+            status,
+            total_price,
+            calculated_total_price,
+            balance_due,
+            calculated_balance_due,
+            line_count,
+        )) = snapshot
+        else {
+            return Err(TransactionError::NotFound);
+        };
+
+        if customer_id != Some(body.customer_id) {
+            return Err(TransactionError::InvalidPayload(
+                "order-payment target belongs to a different customer".to_string(),
+            ));
+        }
+        if status != DbOrderStatus::Open {
+            return Err(TransactionError::InvalidPayload(
+                "order-payment target transaction is not open".to_string(),
+            ));
+        }
+        if line_count <= 0 {
+            return Err(TransactionError::InvalidPayload(
+                "order-payment target has no order lines".to_string(),
+            ));
+        }
+        if total_price != calculated_total_price || balance_due != calculated_balance_due {
+            return Err(TransactionError::InvalidPayload(
+                "Payment blocked before tender: charged item prices and tax do not match the Transaction total or balance. Do not collect payment until this Transaction Record is repaired."
+                    .to_string(),
+            ));
+        }
+        if (target.expected_balance.round_dp(2) - balance_due).abs() > tolerance {
+            return Err(TransactionError::InvalidPayload(
+                "Payment blocked before tender: the order balance changed. Refresh Customer Orders and review the exact balance."
+                    .to_string(),
+            ));
+        }
+        if target.payment_amount.round_dp(2) > balance_due + tolerance {
+            return Err(TransactionError::InvalidPayload(
+                "Payment blocked before tender: payment amount exceeds the current order balance."
+                    .to_string(),
+            ));
+        }
+    }
+
+    Ok(Json(json!({
+        "ok": true,
+        "verified_target_count": body.targets.len(),
+        "verified_at": Utc::now(),
+    })))
+}
+
 async fn patch_transaction(
     State(state): State<AppState>,
     Path(transaction_id): Path<Uuid>,
@@ -4865,7 +5040,7 @@ async fn mark_transaction_pickup(
                 oi.id,
                 oi.is_fulfilled,
                 GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0)
-                  * (GREATEST(COALESCE(oi.unit_price, 0) - COALESCE(oi.discount_amount, 0), 0)
+                  * (COALESCE(oi.unit_price, 0)
                      + COALESCE(oi.state_tax, 0)
                      + COALESCE(oi.local_tax, 0)) AS line_total
             FROM transaction_lines oi
@@ -5444,7 +5619,7 @@ async fn mark_transaction_ship(
                 oi.id,
                 oi.is_fulfilled,
                 GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0)
-                  * (GREATEST(COALESCE(oi.unit_price, 0) - COALESCE(oi.discount_amount, 0), 0)
+                  * (COALESCE(oi.unit_price, 0)
                      + COALESCE(oi.state_tax, 0)
                      + COALESCE(oi.local_tax, 0)) AS line_total
             FROM transaction_lines oi

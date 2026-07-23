@@ -97,6 +97,7 @@ For an exchange, Riverside commits the replacement Transaction Record and a dura
 ## What to watch for
 
 - Do not collect another tender or close the drawer while a terminal request is waiting. Use **Recover payment** until ROS attaches the approval or confirms a definitive decline/cancel.
+- If Riverside reports that charged item prices and tax do not match the stored Transaction total or balance, do not collect payment. Record the Transaction number and send it for financial repair; retail/display prices must never be used as the customer balance.
 - If a terminal is offline or mismatched, fix the terminal selection before retrying.
 - If a customer changes tender type, confirm the balance due before collecting the next payment.
 

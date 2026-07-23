@@ -4,7 +4,7 @@ title: "Counterpoint Transition and Legacy Repair"
 order: 1087
 summary: "Review Counterpoint transition proof, customer duplicates, and safely reconcile legacy order payments already stored in ROS."
 source: client/src/components/settings/CounterpointSyncSettingsPanel.tsx
-last_scanned: 2026-07-13
+last_scanned: 2026-07-23
 tags: settings-counterpoint-sync-settings-panel, counterpoint, bridge, import, signoff, reconciliation, legacy-order-repair
 status: approved
 ---
@@ -88,6 +88,38 @@ The screen shows a short reviewed-manifest fingerprint. Date repair sends the co
 **Repair Exact Matches** has the same safeguard. Its fingerprint covers the reviewed Transaction Record IDs, line signatures, payment/allocation IDs, statuses, dates, and totals. The Main Hub locks and rechecks those records before moving a payment. If anything drifted, the complete repair stops.
 
 Counterpoint reruns also protect completed work. If an imported line already has a return/refund, fulfillment or purchase-order link/event, discount audit, suit-swap audit, or wedding cutover review, Riverside leaves the original line ID and all allocations/audit records intact and reports that the rerun needs Manager review.
+
+### Current imported paid-price recovery
+
+Counterpoint imports are complete. **July 21 paid-price correction** repairs the
+affected records already stored in ROS; it does not connect to Counterpoint,
+start the Bridge, or run another import.
+
+The reviewed manifest contains only rows where the Counterpoint open quantity
+and each linked completed-sale quantity reconcile exactly. Completed quantities
+use the linked completed Counterpoint sale price and tax; remaining quantities
+use the open Counterpoint line price and tax. Retail/display values are retained
+only as Reg/Sale/discount evidence and never replace what the customer was
+charged.
+
+1. Select **Refresh Paid Prices**.
+2. Confirm every row shows the expected current total, Counterpoint total,
+   unchanged paid amount, corrected balance, and corrected line count.
+3. Do not proceed if **Blocked** is greater than zero or the evidence is
+   unavailable.
+4. Select **Restore Exact Paid Prices**, enter the displayed confirmation
+   phrase, and confirm the reviewed scope.
+5. Reopen each affected Transaction Record and receipt. Confirm the item sale
+   prices, discount presentation, tax, total, paid amount, and balance match the
+   Counterpoint receipt.
+
+Apply locks and rechecks the complete reviewed manifest. Any changed line,
+payment, quantity, status, fulfillment state, return/refund, total, or balance
+aborts the whole operation with no partial repair. A successful repair changes
+only charged line price/discount/tax and the corresponding transaction total
+and balance. Payments, allocations, quantities, customer, status, pickup,
+fulfillment, and source provenance remain unchanged, and the before/after
+evidence is stored in the append-only audit trail.
 
 ## Go-live workflow
 

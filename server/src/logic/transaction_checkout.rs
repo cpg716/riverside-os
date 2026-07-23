@@ -835,7 +835,10 @@ struct ExistingOrderPaymentTarget {
     display_id: String,
     transaction_display_id: String,
     customer_id: Uuid,
+    total_price: Decimal,
+    calculated_total_price: Decimal,
     balance_due: Decimal,
+    calculated_balance_due: Decimal,
     status: DbOrderStatus,
     line_count: i64,
 }
@@ -1014,6 +1017,14 @@ fn validate_order_payment_against_target(
     if target.line_count <= 0 {
         return Err(CheckoutError::InvalidPayload(
             "order payment target has no order lines".to_string(),
+        ));
+    }
+    if target.total_price.round_dp(2) != target.calculated_total_price.round_dp(2)
+        || target.balance_due.round_dp(2) != target.calculated_balance_due.round_dp(2)
+    {
+        return Err(CheckoutError::InvalidPayload(
+            "order payment blocked: charged item prices and tax do not match the stored Transaction total or balance. Do not collect payment until this Transaction Record is repaired."
+                .to_string(),
         ));
     }
     if target.balance_due <= Decimal::ZERO {
@@ -4230,9 +4241,47 @@ async fn execute_checkout_internal(
     }
 
     for payment in &mut order_payments {
-        let target: Option<(Uuid, String, String, Option<Uuid>, Decimal, DbOrderStatus)> =
-            sqlx::query_as(
-                r#"
+        let target: Option<(
+            Uuid,
+            String,
+            String,
+            Option<Uuid>,
+            Decimal,
+            Decimal,
+            Decimal,
+            Decimal,
+            DbOrderStatus,
+            i64,
+        )> = sqlx::query_as(
+            r#"
+            WITH returned AS (
+                SELECT transaction_line_id, SUM(quantity_returned)::int AS quantity_returned
+                FROM transaction_return_lines
+                WHERE transaction_id = $1
+                GROUP BY transaction_line_id
+            ),
+            charged_lines AS (
+                SELECT
+                    tl.transaction_id,
+                    COUNT(*)::bigint AS line_count,
+                    COALESCE(
+                        SUM(
+                            (
+                                tl.unit_price
+                                + COALESCE(tl.state_tax, 0)
+                                + COALESCE(tl.local_tax, 0)
+                            ) * GREATEST(
+                                tl.quantity - COALESCE(returned.quantity_returned, 0),
+                                0
+                            )::numeric
+                        ),
+                        0
+                    )::numeric AS charged_line_total
+                FROM transaction_lines tl
+                LEFT JOIN returned ON returned.transaction_line_id = tl.id
+                WHERE tl.transaction_id = $1
+                GROUP BY tl.transaction_id
+            )
             SELECT
                 o.id,
                 COALESCE(
@@ -4249,23 +4298,40 @@ async fn execute_checkout_internal(
                 ) AS display_id,
                 o.display_id AS transaction_display_id,
                 o.customer_id,
+                COALESCE(o.total_price, 0)::numeric AS total_price,
+                (
+                    COALESCE(charged_lines.charged_line_total, 0)
+                    + COALESCE(o.shipping_amount_usd, 0)
+                )::numeric AS calculated_total_price,
                 o.balance_due,
-                o.status
+                (
+                    COALESCE(charged_lines.charged_line_total, 0)
+                    + COALESCE(o.shipping_amount_usd, 0)
+                    + COALESCE(o.rounding_adjustment, 0)
+                    - COALESCE(o.amount_paid, 0)
+                )::numeric AS calculated_balance_due,
+                o.status,
+                COALESCE(charged_lines.line_count, 0)::bigint AS line_count
             FROM transactions o
+            LEFT JOIN charged_lines ON charged_lines.transaction_id = o.id
             WHERE o.id = $1
-            FOR UPDATE
+            FOR UPDATE OF o
             "#,
-            )
-            .bind(payment.target_transaction_id)
-            .fetch_optional(&mut *tx)
-            .await?;
+        )
+        .bind(payment.target_transaction_id)
+        .fetch_optional(&mut *tx)
+        .await?;
         let Some((
             target_transaction_id,
             display_id,
             transaction_display_id,
             customer_id,
+            total_price,
+            calculated_total_price,
             balance_due,
+            calculated_balance_due,
             status,
+            line_count,
         )) = target
         else {
             return Err(CheckoutError::InvalidPayload(
@@ -4277,18 +4343,15 @@ async fn execute_checkout_internal(
                 "order payment target transaction has no customer".to_string(),
             )
         })?;
-        let line_count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*)::bigint FROM transaction_lines WHERE transaction_id = $1",
-        )
-        .bind(target_transaction_id)
-        .fetch_one(&mut *tx)
-        .await?;
         let target = ExistingOrderPaymentTarget {
             target_transaction_id,
             display_id,
             transaction_display_id,
             customer_id,
+            total_price,
+            calculated_total_price,
             balance_due: balance_due.round_dp(2),
+            calculated_balance_due,
             status,
             line_count,
         };
@@ -8032,7 +8095,10 @@ mod tests {
             display_id: "TXN-12345".to_string(),
             transaction_display_id: "TXN-12345".to_string(),
             customer_id,
+            total_price: balance_due,
+            calculated_total_price: balance_due,
             balance_due,
+            calculated_balance_due: balance_due,
             status: DbOrderStatus::Open,
             line_count: 1,
         }
@@ -8196,6 +8262,31 @@ mod tests {
         assert!(err
             .to_string()
             .contains("cannot exceed current balance_due"));
+    }
+
+    #[test]
+    fn transaction_checkout_order_payment_target_rejects_stale_retail_balance() {
+        let customer_id = Uuid::new_v4();
+        let target_id = Uuid::new_v4();
+        let payload = validate_order_payment_shape(
+            Some(customer_id),
+            Some(customer_id),
+            &[order_payment_payload(
+                customer_id,
+                target_id,
+                Decimal::new(6500, 2),
+                Decimal::new(6500, 2),
+            )],
+        )
+        .unwrap();
+        let mut target = target_snapshot(customer_id, target_id, Decimal::new(6500, 2));
+        target.display_id = payload[0].target_display_id.clone();
+        target.total_price = Decimal::new(34775, 2);
+        target.calculated_total_price = Decimal::new(33722, 2);
+        target.calculated_balance_due = Decimal::new(5447, 2);
+
+        let err = validate_order_payment_against_target(&payload[0], &target).unwrap_err();
+        assert!(err.to_string().contains("Do not collect payment"));
     }
 
     #[test]

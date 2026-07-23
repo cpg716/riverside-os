@@ -620,6 +620,7 @@ export interface NexoCheckoutDrawerProps {
   profileBlocksCheckout: boolean;
   onOpenProfileGate: () => void;
   onCheckoutIdentityHoldChange?: (held: boolean) => void;
+  beforeApplyTender?: () => Promise<boolean>;
   busy: boolean;
   onFinalize: (
     lines: AppliedPaymentLine[],
@@ -672,6 +673,7 @@ export default function NexoCheckoutDrawer({
   profileBlocksCheckout,
   onOpenProfileGate,
   onCheckoutIdentityHoldChange,
+  beforeApplyTender,
   busy,
   onFinalize,
   allowStoreCredit = false,
@@ -2638,6 +2640,7 @@ export default function NexoCheckoutDrawer({
         : 0;
 
     if (amtCents === 0) return;
+    if (beforeApplyTender && !(await beforeApplyTender())) return;
 
     let verifiedGiftCard: GiftCardBalancePreview | null = null;
     if (tab === "gift_card") {
@@ -3145,7 +3148,7 @@ export default function NexoCheckoutDrawer({
     setDonationNote("");
     setCheckNumber("");
     setRmsReferenceNumber("");
-  }, [giftCardCode, donationNote, checkNumber, remainingCents, cashRounding.rounded, tab, offlineCardApprovalCode, offlineCardLast4, offlineCardReason, providerSettings, providerSettingsLoading, helcimAttempt, helcimAttemptBelongsToCurrentCheckout, helcimOutcomeBlocksCheckout, registerLaneUnavailable, registerTerminalRoute, selectedTerminalKey, selectedTerminalConfigured, selectedTerminalInUseBy, selectedTerminalInUseByOtherRegister, selectedTerminalNeedsOverride, terminalOverrideConfirmed, registerLane, registerSessionId, registerSessionIdentity, refundOriginalTransactionId, deferCardRefund, baseUrl, backofficeHeaders, customerId, customerCode, checkoutClientId, checkoutIdentity, toast, applied, setApplied, addApprovedHelcimAttempt, rmsSelectedAccount, rmsPrograms, rmsSelectedProgramCode, rmsReferenceNumber, rmsSummary, rmsResolve, rmsPaymentCollectionMode, chargeSavedHelcimCard, fetchGiftCardPreview, loadProviderSettings, startHostedManualCardPayment, storeCreditBalanceCents, storeCreditError, storeCreditLoading, staffAccount]);
+  }, [giftCardCode, donationNote, checkNumber, remainingCents, cashRounding.rounded, tab, offlineCardApprovalCode, offlineCardLast4, offlineCardReason, providerSettings, providerSettingsLoading, helcimAttempt, helcimAttemptBelongsToCurrentCheckout, helcimOutcomeBlocksCheckout, registerLaneUnavailable, registerTerminalRoute, selectedTerminalKey, selectedTerminalConfigured, selectedTerminalInUseBy, selectedTerminalInUseByOtherRegister, selectedTerminalNeedsOverride, terminalOverrideConfirmed, registerLane, registerSessionId, registerSessionIdentity, refundOriginalTransactionId, deferCardRefund, baseUrl, backofficeHeaders, customerId, customerCode, checkoutClientId, checkoutIdentity, toast, applied, setApplied, addApprovedHelcimAttempt, beforeApplyTender, rmsSelectedAccount, rmsPrograms, rmsSelectedProgramCode, rmsReferenceNumber, rmsSummary, rmsResolve, rmsPaymentCollectionMode, chargeSavedHelcimCard, fetchGiftCardPreview, loadProviderSettings, startHostedManualCardPayment, storeCreditBalanceCents, storeCreditError, storeCreditLoading, staffAccount]);
 
   const removePaymentLine = async (line: AppliedPaymentLine) => {
     if (isApprovedProviderPayment(line)) {

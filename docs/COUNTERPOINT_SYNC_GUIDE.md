@@ -46,6 +46,24 @@ The corresponding reporting views are `reporting.counterpoint_import_financial_i
 
 Legacy order/payment reconciliation uses the same reviewed-manifest rule. Its digest includes candidate Transaction Record IDs, complete line signatures, payment/allocation IDs, statuses, dates, and totals. Apply locks and rediscovers that graph before moving any tender; drift aborts the whole transaction.
 
+### Post-cutover paid-price recovery
+
+After cutover, do not rerun Counterpoint imports to repair charged-price
+history. The staff-gated paid-price recovery works only on the current imported
+ROS records listed in its reviewed manifest. It reconstructs each affected
+transaction from the remaining Counterpoint open-document quantities plus the
+financial `S` lines on linked completed-sale tickets, then requires those line
+amounts and taxes to equal the reviewed Counterpoint lifecycle header totals
+exactly.
+
+The recovery updates only charged line price, discount/tax, transaction total,
+and balance. It locks and rechecks the complete transaction graph before apply;
+payments, allocations, quantities, customer, status, pickup, fulfillment,
+returns/refunds, and source identity are read-only. Any ambiguity or drift
+blocks the entire repair. Staff must review the manifest in **Settings →
+Counterpoint → Legacy Order Repair**, enter the explicit confirmation phrase,
+and re-open the repaired Transaction Records and receipts afterward.
+
 Advancement is proof-gated. Bridge-reported row counts alone do not unlock cutover. If the Bridge reports suspiciously low ticket or open-doc counts, a wrong ROS base URL, empty required SQL mappings, or a history floor other than January 1, 2024, ROS records a failed preflight and the Bridge blocks the import.
 
 During a direct Bridge run, ROS records source-count proof, raw rows, provenance links to landed ROS rows, exceptions, and landed-row proof for the current import run. Ticket and open-doc line/payment proof is counted from the landed source payload child rows for that import run, so repeat proof stays tied to the Bridge input instead of whatever child rows were rewritten in PostgreSQL. Rows that fail validation remain visible as import exceptions until staff fixes them and reruns the affected import area or ROS can prove the source row landed.

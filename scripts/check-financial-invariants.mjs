@@ -358,6 +358,59 @@ function checkCustomerShippingAndDiscountSource() {
     "Production employee purchase probe follows the selected employee customer source",
     "scripts/production_audit_probes.sql",
   );
+
+  const transactionsApiFile = "server/src/api/transactions.rs";
+  const transactionsApi = read(transactionsApiFile);
+  assertIncludes(
+    transactionsApi,
+    '"/order-payment-preflight"',
+    "Existing-order payments run a server preflight before any tender is dispatched",
+    transactionsApiFile,
+  );
+  assertIncludes(
+    transactionsApi,
+    "Payment blocked before tender: charged item prices and tax do not match",
+    "Existing-order payment preflight fails closed on stale totals or balances",
+    transactionsApiFile,
+  );
+  assertNotMatches(
+    transactionsApi,
+    /GREATEST\(COALESCE\(oi\.unit_price, 0\) - COALESCE\(oi\.discount_amount, 0\), 0\)/,
+    "Pickup and shipping guards use the charged unit price without applying descriptive savings twice",
+    transactionsApiFile,
+  );
+
+  const checkoutDrawerFile =
+    "client/src/components/pos/NexoCheckoutDrawer.tsx";
+  const checkoutDrawer = read(checkoutDrawerFile);
+  assertIncludes(
+    checkoutDrawer,
+    "beforeApplyTender && !(await beforeApplyTender())",
+    "Every checkout tender waits for the existing-order payment preflight",
+    checkoutDrawerFile,
+  );
+  assertIncludes(
+    checkout,
+    "charged item prices and tax do not match the stored Transaction total or balance",
+    "Existing-order payment fails closed when charged lines disagree with the stored balance",
+    checkoutFile,
+  );
+
+  const paidPriceRepairFile =
+    "server/src/logic/counterpoint_paid_price_repair.rs";
+  const paidPriceRepair = read(paidPriceRepairFile);
+  for (const unchangedField of [
+    '"payments_changed": false',
+    '"quantities_changed": false',
+    '"lifecycle_changed": false',
+  ]) {
+    assertIncludes(
+      paidPriceRepair,
+      unchangedField,
+      `Counterpoint paid-price repair records ${unchangedField}`,
+      paidPriceRepairFile,
+    );
+  }
 }
 
 function checkLiabilityAndRecognitionSource() {

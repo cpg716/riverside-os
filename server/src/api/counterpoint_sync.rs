@@ -13,6 +13,9 @@ use uuid::Uuid;
 
 use crate::api::AppState;
 use crate::auth::permissions::SETTINGS_ADMIN;
+use crate::logic::counterpoint_paid_price_repair::{
+    apply_counterpoint_paid_price_repairs, preview_counterpoint_paid_price_repairs,
+};
 use crate::logic::counterpoint_reconciliation::{
     apply_counterpoint_booking_date_repairs, apply_counterpoint_transaction_reconciliation,
     preview_counterpoint_booking_date_repairs, preview_counterpoint_transaction_reconciliation,
@@ -1835,12 +1838,55 @@ async fn settings_booking_date_repair_preview(
     Ok(Json(json!(preview)))
 }
 
+async fn settings_paid_price_repair_preview(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
+        .await
+        .map_err(map_perm)?;
+    let preview = preview_counterpoint_paid_price_repairs(&state.db)
+        .await
+        .map_err(cp_err)?;
+    Ok(Json(json!(preview)))
+}
+
 #[derive(Deserialize)]
 struct CounterpointReviewedRepairApplyBody {
     confirmation_phrase: String,
     reason: String,
     manifest_digest: String,
     manifest_candidate_count: usize,
+}
+
+async fn settings_paid_price_repair_apply(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<CounterpointReviewedRepairApplyBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let staff = middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
+        .await
+        .map_err(map_perm)?;
+    let result = apply_counterpoint_paid_price_repairs(
+        &state.db,
+        staff.id,
+        &body.confirmation_phrase,
+        &body.reason,
+        &body.manifest_digest,
+        body.manifest_candidate_count,
+    )
+    .await
+    .map_err(cp_err)?;
+    tracing::warn!(
+        staff_id = %staff.id,
+        repaired_transactions = result.repaired_transactions,
+        repaired_lines = result.repaired_lines,
+        payments_changed = result.payments_changed,
+        quantities_changed = result.quantities_changed,
+        lifecycle_changed = result.lifecycle_changed,
+        "reviewed Counterpoint paid-price repair applied"
+    );
+    Ok(Json(json!(result)))
 }
 
 async fn settings_booking_date_repair_apply(
@@ -2066,6 +2112,14 @@ pub fn settings_router() -> Router<AppState> {
         .route(
             "/transaction-reconciliation/repair",
             post(settings_transaction_reconciliation_apply),
+        )
+        .route(
+            "/financial-integrity/paid-price-repair-preview",
+            get(settings_paid_price_repair_preview),
+        )
+        .route(
+            "/financial-integrity/paid-price-repair",
+            post(settings_paid_price_repair_apply),
         )
         .route(
             "/financial-integrity/booking-date-repair-preview",
