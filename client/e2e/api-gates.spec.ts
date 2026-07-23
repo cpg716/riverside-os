@@ -85,7 +85,13 @@ test.describe("API auth gates", () => {
       },
       {
         path: "/api/payments/providers/helcim/card-token/purchase",
-        data: { amount_cents: 100, card_token: "tok_test", currency: "usd" },
+        data: {
+          amount_cents: 100,
+          customer_id: "00000000-0000-0000-0000-000000000000",
+          helcim_customer_id: "1",
+          helcim_card_id: "1",
+          currency: "usd",
+        },
       },
       {
         path: "/api/payments/providers/helcim/card/refund",

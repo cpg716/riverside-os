@@ -4,6 +4,7 @@ import { calculateNysErieTaxStringsForUnit } from "../src/lib/tax";
 import {
   apiBase,
   ensureSessionAuth,
+  staffCode,
   staffHeaders,
   verifyStaffId,
 } from "./helpers/rmsCharge";
@@ -464,9 +465,12 @@ test.describe("commission audit contract", () => {
       "x-riverside-station-key": "station-e2e",
       },
       data: {
+        delivered_item_ids: [line!.transaction_line_id],
         actor: "E2E Commission Timing",
         override_readiness: true,
         override_reason: "Commission audit fixture controls pickup timing explicitly.",
+        readiness_override_manager_staff_id: operatorStaffId,
+        readiness_override_manager_pin: staffCode(),
         register_session_id: sessionId,
       },
       failOnStatusCode: false,

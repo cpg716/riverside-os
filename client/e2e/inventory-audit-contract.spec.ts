@@ -358,6 +358,8 @@ async function pickupTransaction(
   transactionId: string,
   sessionId: string,
   sessionToken: string,
+  deliveredItemIds: string[],
+  managerStaffId: string,
 ): Promise<{ status: number; bodyText: string }> {
   const res = await request.post(`${apiBase()}/api/transactions/${transactionId}/pickup`, {
     headers: {
@@ -368,9 +370,12 @@ async function pickupTransaction(
       "x-riverside-station-key": "station-e2e",
     },
     data: {
+      delivered_item_ids: deliveredItemIds,
       actor: "E2E Inventory Audit",
       override_readiness: true,
       override_reason: "Inventory audit uses controlled fixture readiness.",
+      readiness_override_manager_staff_id: managerStaffId,
+      readiness_override_manager_pin: e2eAdminCode(),
       register_session_id: sessionId,
     },
     failOnStatusCode: false,
@@ -443,6 +448,7 @@ test.describe("inventory audit contract", () => {
     const detailBeforePickup = await fetchTransactionDetail(request, checkout.transaction_id);
     const lineBeforePickup = detailBeforePickup.items.find((item) => item.sku === product.sku);
     expect(lineBeforePickup?.is_fulfilled).toBe(false);
+    expect(lineBeforePickup?.transaction_line_id).toBeTruthy();
 
     const blockedPickupRes = await request.post(`${apiBase()}/api/transactions/${checkout.transaction_id}/pickup`, {
       headers: {
@@ -453,6 +459,7 @@ test.describe("inventory audit contract", () => {
       "x-riverside-station-key": "station-e2e",
       },
       data: {
+        delivered_item_ids: [lineBeforePickup!.transaction_line_id],
         actor: "E2E Inventory Audit",
         register_session_id: sessionId,
       },
@@ -471,9 +478,12 @@ test.describe("inventory audit contract", () => {
       "x-riverside-station-key": "station-e2e",
       },
       data: {
+        delivered_item_ids: [lineBeforePickup!.transaction_line_id],
         actor: "E2E Inventory Audit",
         override_readiness: true,
         override_reason: "Inventory audit confirms stock movement after explicit override.",
+        readiness_override_manager_staff_id: operatorStaffId,
+        readiness_override_manager_pin: e2eAdminCode(),
         register_session_id: sessionId,
       },
       failOnStatusCode: false,
@@ -530,14 +540,35 @@ test.describe("inventory audit contract", () => {
     expect(beforePickup.reserved_stock).toBe(1);
     expect(beforePickup.available_stock).toBe(0);
 
+    const pickupDetail = await fetchTransactionDetail(request, checkout.transaction_id);
+    const pickupLine = pickupDetail.items.find((item) => item.sku === product.sku);
+    expect(pickupLine?.transaction_line_id).toBeTruthy();
+    const deliveredItemIds = [pickupLine!.transaction_line_id];
+
     const attempts = await Promise.all([
-      pickupTransaction(request, checkout.transaction_id, sessionId, sessionToken),
-      pickupTransaction(request, checkout.transaction_id, sessionId, sessionToken),
+      pickupTransaction(
+        request,
+        checkout.transaction_id,
+        sessionId,
+        sessionToken,
+        deliveredItemIds,
+        operatorStaffId,
+      ),
+      pickupTransaction(
+        request,
+        checkout.transaction_id,
+        sessionId,
+        sessionToken,
+        deliveredItemIds,
+        operatorStaffId,
+      ),
     ]);
 
-    for (const attempt of attempts) {
-      expect(attempt.status, attempt.bodyText.slice(0, 1000)).toBe(200);
-    }
+    expect(attempts.map((attempt) => attempt.status).sort()).toEqual([200, 400]);
+    const rejectedAttempt = attempts.find((attempt) => attempt.status === 400);
+    expect(rejectedAttempt?.bodyText).toContain(
+      "only open Transaction Records can be released",
+    );
 
     const afterPickup = await getInventoryIntelligence(request, product.variantId);
     expect(afterPickup.stock_on_hand).toBe(0);

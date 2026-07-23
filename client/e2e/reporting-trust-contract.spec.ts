@@ -522,7 +522,11 @@ async function markPickup(
   transactionId: string,
   sessionId: string,
   sessionToken: string,
+  managerStaffId: string,
 ): Promise<void> {
+  const detail = await fetchTransactionDetail(request, transactionId);
+  const deliveredItemIds = detail.items.map((item) => item.transaction_line_id);
+  expect(deliveredItemIds.length).toBeGreaterThan(0);
   const res = await request.post(`${apiBase()}/api/transactions/${transactionId}/pickup`, {
     headers: {
       ...staffHeaders(),
@@ -532,10 +536,12 @@ async function markPickup(
       "x-riverside-station-key": "station-e2e",
     },
     data: {
-      delivered_item_ids: [],
+      delivered_item_ids: deliveredItemIds,
       actor: "Reporting trust contract",
       override_readiness: true,
       override_reason: "Reporting trust fixture controls pickup recognition timing.",
+      readiness_override_manager_staff_id: managerStaffId,
+      readiness_override_manager_pin: staffCode(),
       register_session_id: sessionId,
     },
     failOnStatusCode: false,
@@ -815,6 +821,7 @@ test.describe("Reporting trust contracts", () => {
       checkout.transaction_id,
       opened.session_id,
       opened.pos_api_token ?? "",
+      operatorStaffId,
     );
     await assignFulfillmentTimestamp(
       request,
@@ -876,6 +883,7 @@ test.describe("Reporting trust contracts", () => {
       checkout.transaction_id,
       opened.session_id,
       opened.pos_api_token ?? "",
+      operatorStaffId,
     );
     await assignFulfillmentTimestamp(
       request,
@@ -940,6 +948,7 @@ test.describe("Reporting trust contracts", () => {
       checkout.transaction_id,
       opened.session_id,
       opened.pos_api_token ?? "",
+      operatorStaffId,
     );
     await assignFulfillmentTimestamp(
       request,
@@ -1013,6 +1022,7 @@ test.describe("Reporting trust contracts", () => {
       checkout.transaction_id,
       opened.session_id,
       opened.pos_api_token ?? "",
+      operatorStaffId,
     );
     await assignFulfillmentTimestamp(
       request,

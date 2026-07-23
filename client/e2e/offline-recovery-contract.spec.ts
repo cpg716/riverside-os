@@ -868,11 +868,16 @@ test.describe("offline checkout recovery contract", () => {
       reportDialog.getByRole("button", { name: /manager force z-close/i }),
     ).toHaveCount(0);
     await closeAndPrint.click();
+    const finalConfirm = page.getByRole("dialog", {
+      name: /close and print/i,
+    });
     await expect(
-      page.getByRole("dialog").getByText(/follow-up remains open/i),
-    ).toBeVisible();
+      finalConfirm.getByText(
+        /This closes the till group and creates the Z-Report/i,
+      ),
+    ).toContainText(/follow-up remains open/i);
     await expect(
-      page.getByRole("dialog").getByText(/close-time evidence it can verify/i),
+      finalConfirm.getByText(/close-time evidence it can verify/i),
     ).toBeVisible();
 
     await page.keyboard.press("Escape");

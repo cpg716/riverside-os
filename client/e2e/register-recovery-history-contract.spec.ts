@@ -95,7 +95,7 @@ test.describe("Register recovery history UI contracts", () => {
     expect(closeRegisterSource).toContain(
       'attempt.review_reason === "approved_not_recorded" ? (',
     );
-    expect(closeRegisterSource).toContain("This pending attempt stays open");
+    expect(closeRegisterSource).toMatch(/This\s+pending attempt stays open/);
 
     const blockerExpression = closeRegisterSource.slice(
       closeRegisterSource.lastIndexOf("const closeBlockers"),
@@ -135,7 +135,7 @@ test.describe("Register recovery history UI contracts", () => {
     expect(closeRegisterSource).toContain("Prior or other till-group recovery");
     expect(closeRegisterSource).toMatch(/do\s+not block its Z-close/);
     expect(closeRegisterSource).toMatch(
-      /This is not\s+confirmation that no prior recovery exists/,
+      /This is not\s+confirmation\s+that no prior recovery exists/,
     );
     expect(closeRegisterSource).toContain(
       'openRecoveryManagerApproval(\n                    "replay_historical"',

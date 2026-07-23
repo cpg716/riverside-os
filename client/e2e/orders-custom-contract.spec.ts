@@ -9,6 +9,7 @@ import {
   apiBase,
   ensureSessionAuth,
   seedRmsFixture,
+  staffCode,
   staffHeaders,
   verifyStaffId,
   type SeedFixtureResponse,
@@ -1130,6 +1131,10 @@ test.describe("Orders custom vs special contract", () => {
     expect(detail.amount_paid).toBe("44.00");
     expect(detail.financial_summary?.total_applied_deposit_amount).toBe("44.00");
     expect(Number.parseFloat(detail.balance_due ?? "0")).toBeCloseTo(43.99, 2);
+    const deliveredItemIds = detail.items
+      .map((item) => item.transaction_line_id)
+      .filter((lineId): lineId is string => Boolean(lineId));
+    expect(deliveredItemIds).toHaveLength(1);
 
     const pickupRes = await request.post(`${apiBase()}/api/transactions/${checkout.transaction_id}/pickup`, {
       headers: {
@@ -1140,9 +1145,12 @@ test.describe("Orders custom vs special contract", () => {
       "x-riverside-station-key": "station-e2e",
       },
       data: {
+        delivered_item_ids: deliveredItemIds,
         actor: "E2E Balance Due Guard",
         override_readiness: true,
         override_reason: "Balance guard should still block release.",
+        readiness_override_manager_staff_id: operatorStaffId,
+        readiness_override_manager_pin: staffCode(),
         register_session_id: sessionId,
       },
       failOnStatusCode: false,
@@ -1177,6 +1185,8 @@ test.describe("Orders custom vs special contract", () => {
     const beforePickup = await fetchTransactionItems(request, body.transaction_id);
     expect(beforePickup.some((item) => item.fulfillment === "special_order")).toBeTruthy();
     expect(beforePickup.every((item) => item.is_fulfilled === false)).toBeTruthy();
+    const deliveredItemIds = beforePickup.map((item) => item.transaction_line_id);
+    expect(deliveredItemIds).toHaveLength(1);
 
     const pickupRes = await request.post(`${apiBase()}/api/transactions/${body.transaction_id}/pickup`, {
       headers: {
@@ -1187,9 +1197,12 @@ test.describe("Orders custom vs special contract", () => {
       "x-riverside-station-key": "station-e2e",
       },
       data: {
+        delivered_item_ids: deliveredItemIds,
         actor: "E2E Pickup Lifecycle",
         override_readiness: true,
         override_reason: "Lifecycle contract confirms item endpoint after explicit release.",
+        readiness_override_manager_staff_id: operatorStaffId,
+        readiness_override_manager_pin: staffCode(),
         register_session_id: sessionId,
       },
       failOnStatusCode: false,

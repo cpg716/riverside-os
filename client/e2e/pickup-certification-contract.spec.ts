@@ -278,10 +278,20 @@ test.describe("pickup launch certification contract", () => {
       salespersonId,
       amountPaid: "0.00",
     });
+    const unpaidDetail = await fetchTransactionDetail(
+      request,
+      unpaidCheckout.transaction_id,
+    );
+    const unpaidLine = unpaidDetail.items.find(
+      (item) => item.sku === unpaidProduct.sku,
+    );
+    expect(unpaidLine, "unpaid pickup fixture line missing").toBeTruthy();
     const unpaidAttempt = await pickup(request, unpaidCheckout.transaction_id, sessionId, sessionToken, {
-      delivered_item_ids: [],
+      delivered_item_ids: [unpaidLine!.transaction_line_id],
       override_readiness: true,
       override_reason: "Certification confirms balance due remains a hard stop.",
+      readiness_override_manager_staff_id: operatorStaffId,
+      readiness_override_manager_pin: staffCode(),
     });
     expect(unpaidAttempt.status, unpaidAttempt.bodyText.slice(0, 1000)).toBe(400);
     expect(unpaidAttempt.bodyText).toContain("Balance Due");
@@ -365,7 +375,10 @@ test.describe("pickup launch certification contract", () => {
     await markLineReady(request, readyLine!.transaction_line_id);
 
     const mixedBulkAttempt = await pickup(request, mixedCheckout.transaction_id, sessionId, sessionToken, {
-      delivered_item_ids: [],
+      delivered_item_ids: [
+        readyLine!.transaction_line_id,
+        blockedLine!.transaction_line_id,
+      ],
     });
     expect(mixedBulkAttempt.status, mixedBulkAttempt.bodyText.slice(0, 1000)).toBe(400);
     expect(mixedBulkAttempt.bodyText).toContain("not Ready for Pickup");
@@ -392,6 +405,8 @@ test.describe("pickup launch certification contract", () => {
       delivered_item_ids: [blockedLine!.transaction_line_id],
       override_readiness: true,
       override_reason: overrideReason,
+      readiness_override_manager_staff_id: operatorStaffId,
+      readiness_override_manager_pin: staffCode(),
     });
     expect(overrideRelease.status, overrideRelease.bodyText.slice(0, 1000)).toBe(200);
 
@@ -442,7 +457,10 @@ test.describe("pickup launch certification contract", () => {
     await markLineReady(request, readyLine!.transaction_line_id);
 
     const bulkBlocked = await ship(request, checkout.transaction_id, sessionId, sessionToken, {
-      shipped_item_ids: [],
+      shipped_item_ids: [
+        readyLine!.transaction_line_id,
+        blockedLine!.transaction_line_id,
+      ],
     });
     expect(bulkBlocked.status, bulkBlocked.bodyText.slice(0, 1000)).toBe(400);
     expect(bulkBlocked.bodyText).toContain("not Ready for Pickup/Shipping");
@@ -467,6 +485,8 @@ test.describe("pickup launch certification contract", () => {
       shipped_item_ids: [blockedLine!.transaction_line_id],
       override_readiness: true,
       override_reason: overrideReason,
+      readiness_override_manager_staff_id: operatorStaffId,
+      readiness_override_manager_pin: staffCode(),
     });
     expect(overrideRelease.status, overrideRelease.bodyText.slice(0, 1000)).toBe(200);
 

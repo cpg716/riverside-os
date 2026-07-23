@@ -57,6 +57,7 @@ type ProductVariantRow = {
 
 type CheckoutResponse = {
   transaction_id: string;
+  transaction_display_id: string;
 };
 
 type TransactionDetailResponse = {
@@ -532,7 +533,9 @@ test.describe("POS exchange wizard", () => {
       .getByPlaceholder(/search transactions/i)
       .fill(checkout.transaction_id.slice(0, 8));
     await wizardDialog
-      .getByText(new RegExp(checkout.transaction_id.slice(0, 8), "i"))
+      .getByRole("button", {
+        name: new RegExp(checkout.transaction_display_id, "i"),
+      })
       .click();
 
     await expect(wizardDialog.getByText(sku)).toBeVisible({ timeout: 15_000 });
