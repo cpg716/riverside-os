@@ -84,6 +84,7 @@ for (const viewport of MODAL_VIEWPORTS) {
     await expect(receiptSummary).toBeVisible({
       timeout: 20_000,
     });
+    await expect(page.getByTestId("pos-sale-cashier-overlay")).toBeHidden();
     for (const buttonName of [
       /print receipt/i,
       /view receipt/i,
@@ -99,6 +100,14 @@ for (const viewport of MODAL_VIEWPORTS) {
       vertical: element.scrollHeight > element.clientHeight,
     }));
     expect(overflow).toEqual({ horizontal: false, vertical: false });
+
+    const completionExit =
+      viewport.label === "phone_390x844"
+        ? receiptSummary.getByRole("button", { name: /begin new sale/i })
+        : receiptSummary.getByRole("button", { name: /^close$/i });
+    await completionExit.click();
+    await expect(receiptSummary).toBeHidden();
+    await expect(page.getByTestId("pos-sale-cashier-overlay")).toBeVisible();
   });
 }
 

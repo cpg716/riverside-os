@@ -5442,6 +5442,7 @@ export default function Cart({
           transactionId={lastTransactionId}
           onClose={() => {
             setLastTransactionId(null);
+            setCheckoutTransactionId(null);
             setCheckoutOperator(null);
             setLastReceiptOrderPaymentLines([]);
             setLastReceiptExchangeReturnTransactionId(null);
@@ -5460,7 +5461,12 @@ export default function Cart({
       )}
 
       <PosSaleCashierSignInOverlay
-        open={saleHydrated && !checkoutOperator}
+        open={
+          saleHydrated &&
+          !checkoutOperator &&
+          !lastTransactionId &&
+          !checkoutTransactionId
+        }
         credential={salePinCredential}
         onCredentialChange={(v) => {
           setSalePinCredential(v);

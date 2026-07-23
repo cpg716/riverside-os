@@ -28,6 +28,7 @@ The sale complete receipt preview shows the customer receipt after checkout. It 
 1. Review the outcome label, transaction total or amount collected, tender, balance, customer, and Transaction number on the completion screen.
 2. Choose print, view, text, email, gift receipt, or reports printer from the receipt action bar, which stays visible without scrolling.
 3. Confirm the preview or printer path shows the formatted receipt before handing it off.
+4. Choose **Begin new sale** when finished. The next-sale Access PIN screen appears only after the completion screen closes.
 
 ## Actions
 
