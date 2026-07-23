@@ -903,6 +903,17 @@ test.describe("offline checkout recovery contract", () => {
       await expect(cashierOverlay).toBeHidden({ timeout: 10_000 });
     }
     await clearCheckoutQueue(page);
+    const registerSessionId = await page.evaluate(() => {
+      const raw = window.sessionStorage.getItem("ros.posRegisterAuth.v1");
+      if (!raw) return null;
+      try {
+        const parsed = JSON.parse(raw) as { sessionId?: unknown };
+        return typeof parsed.sessionId === "string" ? parsed.sessionId : null;
+      } catch {
+        return null;
+      }
+    });
+    expect(registerSessionId).toBeTruthy();
 
     const recoveryId = crypto.randomUUID();
     const recoveryServerKey = `checkout:${recoveryId}`;
@@ -933,6 +944,7 @@ test.describe("offline checkout recovery contract", () => {
       recoveryKey: "e2e-unconfirmed-checkout",
       payload: {
         checkout_client_id: crypto.randomUUID(),
+        session_id: registerSessionId,
       },
     });
 
