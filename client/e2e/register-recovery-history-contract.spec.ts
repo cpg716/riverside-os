@@ -17,6 +17,10 @@ const transactionsSource = readFileSync(
   new URL("../../server/src/api/transactions.rs", import.meta.url),
   "utf8",
 );
+const sessionsSource = readFileSync(
+  new URL("../../server/src/api/sessions.rs", import.meta.url),
+  "utf8",
+);
 
 function recoveryJob(
   clientJobKey: string,
@@ -67,7 +71,7 @@ test.describe("Register recovery history UI contracts", () => {
     expect(blockerExpression).not.toContain("Checkout recovery");
   });
 
-  test("current recovery stays visible but cannot block ordinary Z-close", () => {
+  test("current recovery stays visible and close requires dedicated Manager Access", () => {
     const countSubmit = closeRegisterSource.slice(
       closeRegisterSource.indexOf("const handleBlindCountSubmit"),
       closeRegisterSource.indexOf("const internalCancel"),
@@ -85,10 +89,23 @@ test.describe("Register recovery history UI contracts", () => {
     expect(finalClose).not.toContain(
       "result.unresolved_close_issues ?? preCloseUnresolvedIssues",
     );
-    expect(finalClose).not.toContain("force_unresolved_recovery");
-    expect(finalClose).not.toContain("manager_pin");
-    expect(closeRegisterSource).not.toContain("Manager Force Z-Close");
-    expect(closeRegisterSource).not.toContain('"force_close"');
+    expect(finalClose).toContain("manager_staff_id");
+    expect(finalClose).toContain("manager_pin");
+    expect(finalClose).toContain("manager_reason");
+    expect(closeRegisterSource).toContain('"close_with_issues"');
+    expect(closeRegisterSource).toContain(
+      "Close Register With Unresolved Issues",
+    );
+    expect(closeRegisterSource).toContain(
+      "does not replay a checkout, create a sale, attach a payment, or dismiss an issue",
+    );
+    expect(sessionsSource).toContain(
+      "Manager Access is required to close with unresolved issues.",
+    );
+    expect(sessionsSource).toContain("staff_can_approve_manager_access");
+    expect(sessionsSource).toContain(
+      "'register_close_with_unresolved_issues'",
+    );
     expect(closeRegisterSource).toContain("unresolvedCloseIssues");
     expect(closeRegisterSource).toContain("Waiting on terminal outcome");
     expect(closeRegisterSource).toContain("Approved not attached");
@@ -96,6 +113,12 @@ test.describe("Register recovery history UI contracts", () => {
       'attempt.review_reason === "approved_not_recorded" ? (',
     );
     expect(closeRegisterSource).toMatch(/This\s+pending attempt stays open/);
+    expect(closeRegisterSource).toContain(
+      "order payment target transaction is not open",
+    );
+    expect(closeRegisterSource).toContain(
+      "Exact replay is unavailable because the saved order-payment target is no longer open.",
+    );
 
     const blockerExpression = closeRegisterSource.slice(
       closeRegisterSource.lastIndexOf("const closeBlockers"),

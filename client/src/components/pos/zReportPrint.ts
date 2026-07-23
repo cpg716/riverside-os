@@ -762,6 +762,7 @@ export async function openProfessionalZReportPrint(opts: {
   registerOrdinal?: number | null;
   cashierLabel?: string | null;
   openedAt?: string | null;
+  closedAt?: string | null;
   openingCents: number;
   cashSalesCents: number;
   netAdjustmentsCents: number;
@@ -789,7 +790,7 @@ export async function openProfessionalZReportPrint(opts: {
   unresolvedIssuesContext: "preview" | "closed";
   /** Optional payment lines for audit trail. */
   transactions?: ZReportPrintTransaction[];
-  pickupsToday?: {
+  pickupsToday: {
     occurred_at: string;
     customer_name?: string | null;
     customer_code?: string | null;
@@ -804,30 +805,26 @@ export async function openProfessionalZReportPrint(opts: {
         }[]
       | null;
   }[];
-  newOrdersCount?: number;
-  ordersPickedUpCount?: number;
-  todayAppointmentsCount?: number;
-  newAppointmentsCount?: number;
-  newWeddingPartiesCount?: number;
-  newInvoicesCount?: number;
-  salesCount?: number;
-  salesTaxTotal?: string | null;
-  cashCollected?: string | null;
-  depositsCollected?: string | null;
-  netSales?: string | null;
-  shippingTotal?: string | null;
-  alterationsTotal?: string | null;
-  giftCardLoadCount?: number;
-  giftCardLoadTotal?: string | null;
-  /** Show business-day Quick Look metrics only when a complete summary was supplied. */
-  includeSupplementalSummary?: boolean;
+  newOrdersCount: number;
+  ordersPickedUpCount: number;
+  todayAppointmentsCount: number;
+  newAppointmentsCount: number;
+  newWeddingPartiesCount: number;
+  newInvoicesCount: number;
+  salesCount: number;
+  salesTaxTotal: string;
+  cashCollected: string;
+  depositsCollected: string;
+  netSales: string;
+  shippingTotal: string;
+  alterationsTotal: string;
+  giftCardLoadCount: number;
+  giftCardLoadTotal: string;
 }): Promise<boolean> {
   const target = createPrintDocument(`${opts.title} — ${opts.sessionId}`);
 
   const ord = opts.registerOrdinal != null ? ` #${opts.registerOrdinal}` : "";
   const reportPrinter = reportPrinterName();
-  const includeSupplementalSummary = opts.includeSupplementalSummary !== false;
-
   const overrideRows = opts.overrideSummary
     .map(
       (o) =>
@@ -1274,48 +1271,42 @@ export async function openProfessionalZReportPrint(opts: {
   const zReportTextLines = [
     "RIVERSIDE MEN'S SHOP",
     "Z-Report Reconciliation Audit",
-    `Generated: ${generatedAt}`,
+    `Print Date/Time: ${generatedAt}`,
     `Business Date: ${opts.businessDate ?? opts.qboActivityDate ?? "Not recorded"}`,
     `Report ID: ${opts.sessionId}`,
     `Register Group: ${ord ? `Register Group${ord}` : "Register Group"}`,
     `Shift Staff Member: ${opts.cashierLabel || "System Admin"}`,
     opts.openedAt
-      ? `Shift Start: ${new Date(opts.openedAt).toLocaleString()}`
+      ? `Open Period Started: ${new Date(opts.openedAt).toLocaleString()}`
+      : "",
+    opts.closedAt
+      ? `Open Period Closed: ${new Date(opts.closedAt).toLocaleString()}`
       : "",
     `Assigned Reports Printer: ${reportPrinter}`,
     "",
-    ...(includeSupplementalSummary
-      ? [
-          "SALES SUMMARY",
-          `Transactions: ${opts.salesCount ?? transactions.length}`,
-          `Tax Collected: ${formatReportMoney(opts.salesTaxTotal ?? "0")}`,
-          `Cash Collected: ${formatReportMoney(opts.cashCollected ?? opts.cashSalesCents)}`,
-          `Deposits Taken: ${formatReportMoney(opts.depositsCollected ?? "0")}`,
-          `New Vendor Invoices: ${opts.newInvoicesCount ?? 0}`,
-          `New Orders: ${newOrdersDisplayCount}`,
-          `Orders Picked Up: ${ordersPickedUpDisplayCount}`,
-          `Credit Card Total: ${moneyWithCount(creditCardTotalCents, creditCardTxCount)}`,
-          `RMS Payments: ${formatReportMoney(rmsPaymentTotalCents)}`,
-          `RMS Charge: ${formatReportMoney(rmsChargeTotalCents)}`,
-          `Today's Appointments: ${opts.todayAppointmentsCount ?? 0}`,
-          `New Appointments: ${opts.newAppointmentsCount ?? 0}`,
-          `New Layaways: ${newLayawayCount}`,
-          `Picked Up: ${moneyWithCount(pickupTotalCents, pickupTotalCount)}`,
-          `Total Alterations: ${alterationCount}`,
-          `New Wedding Parties: ${opts.newWeddingPartiesCount ?? 0}`,
-          `Alterations Total: ${reportAlterationsTotal}`,
-          `Shipping Total: ${reportShippingTotal}`,
-          `Gift Card Loads: ${moneyWithCount(parseMoneyToCents(reportGiftCardLoadTotal), opts.giftCardLoadCount ?? 0)}`,
-          `Discounts Total: ${moneyWithCount(discountTotalCents, discountTransactionCount)}`,
-          `Subtotal Before Tax: ${formatReportMoney(opts.netSales ?? subtotalBeforeTaxCents)}`,
-          `Merchandise Subtotal: ${formatReportMoney(opts.netSales ?? subtotalBeforeTaxCents)}`,
-        ]
-      : [
-          "CLOSE-TIME TENDER SUMMARY",
-          `Cash Collected: ${formatReportMoney(opts.cashSalesCents)}`,
-          `Credit Card Total: ${moneyWithCount(creditCardTotalCents, creditCardTxCount)}`,
-          "Supplemental business-day metrics are pending the immutable archived EOD snapshot; no live values were substituted.",
-        ]),
+    "SALES SUMMARY",
+    `Transactions: ${opts.salesCount ?? transactions.length}`,
+    `Tax Collected: ${formatReportMoney(opts.salesTaxTotal ?? "0")}`,
+    `Cash Collected: ${formatReportMoney(opts.cashCollected ?? opts.cashSalesCents)}`,
+    `Deposits Taken: ${formatReportMoney(opts.depositsCollected ?? "0")}`,
+    `New Vendor Invoices: ${opts.newInvoicesCount ?? 0}`,
+    `New Orders: ${newOrdersDisplayCount}`,
+    `Orders Picked Up: ${ordersPickedUpDisplayCount}`,
+    `Credit Card Total: ${moneyWithCount(creditCardTotalCents, creditCardTxCount)}`,
+    `RMS Payments: ${formatReportMoney(rmsPaymentTotalCents)}`,
+    `RMS Charge: ${formatReportMoney(rmsChargeTotalCents)}`,
+    `Today's Appointments: ${opts.todayAppointmentsCount ?? 0}`,
+    `New Appointments: ${opts.newAppointmentsCount ?? 0}`,
+    `New Layaways: ${newLayawayCount}`,
+    `Picked Up: ${moneyWithCount(pickupTotalCents, pickupTotalCount)}`,
+    `Total Alterations: ${alterationCount}`,
+    `New Wedding Parties: ${opts.newWeddingPartiesCount ?? 0}`,
+    `Alterations Total: ${reportAlterationsTotal}`,
+    `Shipping Total: ${reportShippingTotal}`,
+    `Gift Card Loads: ${moneyWithCount(parseMoneyToCents(reportGiftCardLoadTotal), opts.giftCardLoadCount ?? 0)}`,
+    `Discounts Total: ${moneyWithCount(discountTotalCents, discountTransactionCount)}`,
+    `Subtotal Before Tax: ${formatReportMoney(opts.netSales ?? subtotalBeforeTaxCents)}`,
+    `Merchandise Subtotal: ${formatReportMoney(opts.netSales ?? subtotalBeforeTaxCents)}`,
     "",
     "COMBINED TENDERS",
     ...tenderFamilyRows(tenderFamilySummary),
@@ -1574,7 +1565,7 @@ export async function openProfessionalZReportPrint(opts: {
     <div>
       <h1>RIVERSIDE MEN'S SHOP</h1>
       <p style="font-weight: 700; color: #64748b; margin-top: 4px;">Z-Report Reconciliation Audit</p>
-      <p class="muted" style="font-size: 10px; margin-top: 2px;">Generated: ${generatedAt}</p>
+      <p class="muted" style="font-size: 10px; margin-top: 2px;">Print Date/Time: ${generatedAt}</p>
       <p style="font-size: 12px; font-weight: 800; margin-top: 4px;">Business Date: ${escapeReportHtml(opts.businessDate ?? opts.qboActivityDate ?? "Not recorded")}</p>
     </div>
     <div style="text-align: right;">
@@ -1588,7 +1579,8 @@ export async function openProfessionalZReportPrint(opts: {
 	    <div>
 	      <p class="stat-label">Shift Staff Member</p>
       <p style="font-size: 16px; font-weight: 700;">${opts.cashierLabel || "System Admin"}</p>
-      ${opts.openedAt ? `<p class="muted">Shift Start: ${new Date(opts.openedAt).toLocaleString()}</p>` : ""}
+      ${opts.openedAt ? `<p class="muted">Open Period Started: ${new Date(opts.openedAt).toLocaleString()}</p>` : ""}
+      ${opts.closedAt ? `<p class="muted">Open Period Closed: ${new Date(opts.closedAt).toLocaleString()}</p>` : ""}
     </div>
     <div style="text-align: right;">
       <p class="stat-label">Register Group</p>
@@ -1712,9 +1704,7 @@ export async function openProfessionalZReportPrint(opts: {
       : ""
   }
 
-  ${
-    includeSupplementalSummary
-      ? `<div class="page-break">
+  <div class="page-break">
 	    <h2>Quick Look</h2>
 	    <div class="quick-look-grid">
 	      <div class="summary-card"><p class="stat-label">Transactions</p><p class="stat-value">${opts.salesCount ?? transactions.length}</p></div>
@@ -1740,9 +1730,7 @@ export async function openProfessionalZReportPrint(opts: {
 	      <div class="summary-card"><p class="stat-label">Shipping Total</p><p class="stat-value">${formatReportMoney(reportShippingTotal)}</p></div>
 	      <div class="summary-card"><p class="stat-label">Gift Card Loads</p><p class="stat-value">${moneyWithCount(parseMoneyToCents(reportGiftCardLoadTotal), opts.giftCardLoadCount ?? 0)}</p></div>
 	    </div>
-	  </div>`
-      : `<div class="page-break"><h2>Quick Look</h2><div style="border:1px solid #94a3b8;border-radius:8px;padding:10px;color:#475569;">Supplemental business-day metrics are pending the immutable archived EOD snapshot. This immediate close report does not substitute live or partial values.</div></div>`
-  }
+	  </div>
 
   ${
     txAuditRows

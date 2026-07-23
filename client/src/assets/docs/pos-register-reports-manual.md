@@ -41,11 +41,14 @@ An active Register can request its own lane-scoped report only with that Registe
 When a Manager with **register.reports** opens **POS → Reports**, the date presets remain store-wide even while a Register is open. Riverside does not pin **Yesterday**, **This week**, **This month**, **This year**, or **Custom** to the current Register session.
 
 Archived Z-report output loads audited detail in timed, cancellable pages. Starting a different archived report cancels the earlier load, and a timeout opens nothing. Z-report history shows up to the newest 40 rows for the selected range; a loading failure is shown as an error with Retry and is never labeled as an empty range.
+
 6. Use **View**, **Print**, or **Export** to prepare the complete matching activity set. Riverside asks the Main Hub for one read-only database snapshot and verifies its counts, row identities, and completion flags before producing output; it never labels an interactive page as a complete report. For stability, the screen stops at 2,000 loaded detail rows and generated output stops at 20,000 combined activity and pickup rows. Narrow the date range or search when ROS reports that limit.
 7. Open **Z-Reports** to see which linked lanes are still open, which drawer is already reconciling, and whether Register #1 still needs to finish the shared close.
 
 ## Daily Sales Activity
+
 The **Daily Sales** view shows a chronological timeline of every transaction. Each sale row shows its `TXN-` transaction number so the screen, printout, receipt, and payment records can be reconciled against the same reference. Counterpoint-imported rows keep the Counterpoint transaction time as the activity time and show **Imported at** only as secondary import context. Tap an entry to view the full receipt or reprint it. Merchandise **Subtotal** and **Net Sales** exclude shipping, alteration-service charges, and gift-card loads. Daily Sales reports show shipping and alterations as separate totals, and gift-card loads as separate count/amount activity. Gift-card loads are recorded as liability activity until redeemed; redemption is recorded as a tender and does not turn the original load into merchandise revenue. Use this for:
+
 - Verifying the status of recent sales.
 - Correcting tender types by reviewing the audit log.
 - Monitoring mid-shift velocity without closing the drawer.
@@ -70,7 +73,9 @@ The **Void** action is for manager-approved completed-sale reversals. It does no
 Use the refund workflow to finish cash, card, gift card, store credit, or split-tender reversal work. Do not tell the customer a reversal is complete until the refund state is resolved.
 
 ## Professional Audit Printing
+
 You can now generate a professional, full-page **Daily Sales Report** that includes:
+
 - **Tender Breakdown**: Totals for Cash, Card, Gift Card, and R2S charges.
 - **Business Summary Boxes**: New Orders, Orders Picked Up, Credit Card Total, RMS Payments, and RMS Charge appear in the top summary so daily review focuses on register operations. Credit Card Total includes CC/Card Reader, Card Manual, Card Not Present, saved-card, and card refund/credit activity; it does not include Staff Account or exchange credit.
 - Administrative Counterpoint price repairs are excluded from Booked Sales; they do not represent new customer transactions or tender collected.
@@ -84,23 +89,26 @@ You can now generate a professional, full-page **Daily Sales Report** that inclu
 
 To review the report first, tap **View**. In the desktop app, the preview opens inside ROS instead of a browser tab. To print, tap **Print** from the report screen or from the in-app preview. Daily Sales prints through the configured Reports printer so the activity cards, customer context, pickup rows, line items, and totals stay on office paper instead of the receipt printer.
 
-Z-Reports also use the same contract in the desktop app. Each row and printed report shows its store-local **business date**, which may differ from the morning it was closed. **Open Report** opens the Z-report inside ROS for review, with each sale row labeled by its `TXN-` transaction number. ROS never combines multiple business dates; missed days appear as separate reports and must be closed oldest first. The Z-report quick-look boxes include daily business counts and amounts such as New Vendor Invoices from Back Office receiving, New Orders, Orders Picked Up, Credit Card Total, RMS Payments, RMS Charge, appointments, alterations, new wedding parties, shipping, and discounts. **Close & Print Z-Report** and preview **Print** send the report to the configured Reports printer. If a report prints as raw text instead of the formatted layout, check that the workstation is using the current build and rerun the report print.
+Z-Reports also use the same contract in the desktop app. Opening Register #1 fixes the store-local **business date** for that open period. If yesterday's Register is closed the following morning, its row and printed report remain dated yesterday; opening Register #1 afterward starts today's separate period. The report also records the open timestamp, close timestamp, and current print date/time. **Open Report** opens the Z-report inside ROS for review, with each sale row labeled by its `TXN-` transaction number. The Z-report quick-look boxes include daily business counts and amounts such as New Vendor Invoices from Back Office receiving, New Orders, Orders Picked Up, Credit Card Total, RMS Payments, RMS Charge, appointments, alterations, new wedding parties, shipping, and discounts. **Close & Print Z-Report** and preview **Print** send the report to the configured Reports printer. If a report prints as raw text instead of the formatted layout, check that the workstation is using the current build and rerun the report print.
 
-If card, checkout-recovery, or linked-workstation warnings remain, an authorized operator can still use the ordinary close after completing the required cash count, check review, Daily Cash Deposit date, and any over-$5 discrepancy note. A pre-close preview labels those warnings as current preview evidence. The Main Hub freezes the close-time tender reconciliation and **Unresolved Issues at Close** evidence together; the immediate and archived report use that same server result, including detailed recovery status and identity evidence. The immediate report does not run a fresh live summary query: supplemental Quick Look metrics are labeled pending until the immutable EOD snapshot is available in the archive. Closing does not resolve or dismiss those issues, and later recovery does not rewrite the archived list.
+If card, checkout-recovery, or linked-workstation warnings remain, complete the required cash count, check review, Daily Cash Deposit date, and any over-$5 discrepancy note, then use the dedicated **Close Register With Unresolved Issues** Manager Access approval. That approval closes and prints only; it never replays a checkout, creates a sale, attaches a payment, or dismisses an issue. A pre-close preview labels the warnings as current preview evidence. The Main Hub freezes the close-time tender reconciliation and **Unresolved Issues at Close** evidence together; the immediate and archived report use that same server result, including detailed recovery status and identity evidence.
 
-After close, Riverside freezes the complete audited activity and pickup set for that business date inside one read-only repeatable-read database snapshot. It never saves the first page as though it were the full EOD snapshot. If every row cannot be verified, the drawer still closes, no partial snapshot is saved, and Riverside raises an operational alert for support follow-up.
+Before close is committed, Riverside freezes the complete audited activity and pickup set for that business date inside one read-only repeatable-read database snapshot. It never saves the first page as though it were the full EOD snapshot. The verified summary is included in the immutable close response, so every immediate and archived Z-Report prints the full **Quick Look** boxes. If every row and total cannot be verified, the Register remains open and no partial Z-Report is printed or archived.
 
 Cash refunds processed before close appear as negative cash activity. They reduce Cash Sales (Gross), Expected Cash, and the amount available for deposit; any difference between the resulting expected cash and the physical count remains an over/short variance to explain.
 
 Exchange Credit is reported separately from true card tenders and must never be included in the Credit Card total. When reconciling ROS against another register system, compare card tenders and exchange credits as separate payment methods.
 
 ## Performance Metrics
+
 The summary cards at the top of the screen provide instant visibility into:
+
 - **Gross Sales**: Total volume before taxes and returns.
 - **Tender Totals**: Net collections per payment method.
 - **Transaction Count**: Total number of finalized tickets.
 
 ## Register Coordination
+
 The **Z-Reports** view now acts as the shared drawer coordination surface.
 
 - **Active Sessions** shows how many register lanes are still open.
@@ -111,6 +119,7 @@ The **Z-Reports** view now acts as the shared drawer coordination surface.
 If a drawer group is already marked **Closing now**, avoid starting a second close from another linked register.
 
 ## Tips
+
 - **Decoupled Printing**: Receipts print on receipt paper; Reports print on office paper. Ensure your **Report Printer** is set in **Settings -> Printers & Scanners**.
 - **Shared till group**: Reporting on Register #1 includes data aggregated from all satellite lanes (iPad and Back Office).
 - **One report per business date**: Satellite lanes stay visible for coordination. Register #1 closes each waiting date separately, and the final date closes the whole till group.

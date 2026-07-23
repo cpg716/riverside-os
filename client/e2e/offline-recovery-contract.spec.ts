@@ -788,7 +788,7 @@ test.describe("offline checkout recovery contract", () => {
     expect(item?.lastErrorMessage).toBeTruthy();
   });
 
-  test("register close keeps recovery visible while ordinary Z-close remains available", async ({
+  test("register close keeps recovery visible and uses dedicated close approval", async ({
     page,
     request,
   }) => {
@@ -868,19 +868,23 @@ test.describe("offline checkout recovery contract", () => {
       reportDialog.getByRole("button", { name: /manager force z-close/i }),
     ).toHaveCount(0);
     await closeAndPrint.click();
-    const finalConfirm = page.getByRole("dialog", {
-      name: /close and print/i,
+    const managerClose = page.getByRole("dialog", {
+      name: /close register with unresolved issues/i,
     });
     await expect(
-      finalConfirm.getByText(
-        /This closes the till group and creates the Z-Report/i,
-      ),
-    ).toContainText(/follow-up remains open/i);
-    await expect(
-      finalConfirm.getByText(/close-time evidence it can verify/i),
+      managerClose.getByText(/preserving every unresolved checkout/i),
     ).toBeVisible();
+    await expect(
+      managerClose.getByText(/does not replay a checkout/i),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("dialog", { name: /recover checkout sales/i }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("dialog", { name: /close and print/i }),
+    ).toHaveCount(0);
 
-    await page.keyboard.press("Escape");
+    await managerClose.getByRole("button", { name: /^cancel$/i }).click();
     await reportDialog.getByRole("button", { name: /^cancel$/i }).click();
     await expect(reportDialog).toBeHidden();
   });

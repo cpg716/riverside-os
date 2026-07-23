@@ -20,7 +20,8 @@ use rust_decimal_macros::dec;
 
 use crate::api::AppState;
 use crate::auth::permissions::{
-    REGISTER_OPEN_DRAWER, REGISTER_REPORTS, REGISTER_SESSION_ATTACH, REGISTER_SHIFT_HANDOFF,
+    effective_permissions_for_staff, staff_can_approve_manager_access, REGISTER_OPEN_DRAWER,
+    REGISTER_REPORTS, REGISTER_SESSION_ATTACH, REGISTER_SHIFT_HANDOFF,
 };
 use crate::auth::pins::{self, is_valid_staff_credential, log_staff_access, AuthenticatedStaff};
 use crate::auth::pos_session;
@@ -61,9 +62,25 @@ fn expected_cash_from_activity(
     opening_float + cash_activity + net_cash_adjustments
 }
 
+fn z_report_business_dates(
+    open_period_business_date: NaiveDate,
+    prior_business_day_closes: i64,
+    legacy_pending_dates: Vec<NaiveDate>,
+) -> Vec<NaiveDate> {
+    if prior_business_day_closes == 0 {
+        return vec![open_period_business_date];
+    }
+    if legacy_pending_dates.is_empty() {
+        vec![open_period_business_date]
+    } else {
+        legacy_pending_dates
+    }
+}
+
 #[cfg(test)]
 mod cash_reconciliation_tests {
-    use super::expected_cash_from_activity;
+    use super::{expected_cash_from_activity, z_report_business_dates};
+    use chrono::NaiveDate;
     use rust_decimal::Decimal;
 
     #[test]
@@ -75,6 +92,20 @@ mod cash_reconciliation_tests {
         );
 
         assert_eq!(expected, Decimal::new(53848, 2));
+    }
+
+    #[test]
+    fn new_z_report_uses_open_period_date_not_payment_dates() {
+        let opened = NaiveDate::from_ymd_opt(2026, 7, 22).expect("valid date");
+        let payment_dates = vec![
+            NaiveDate::from_ymd_opt(2026, 7, 22).expect("valid date"),
+            NaiveDate::from_ymd_opt(2026, 7, 23).expect("valid date"),
+        ];
+
+        assert_eq!(
+            z_report_business_dates(opened, 0, payment_dates),
+            vec![opened]
+        );
     }
 }
 
@@ -347,10 +378,12 @@ pub struct ReconciliationResponse {
     pub report_type: &'static str,
     /// Unique session ID for the reconciliation report.
     pub session_id: Uuid,
+    /// Immutable start of the till group's open period.
+    pub open_period_started_at: DateTime<Utc>,
     pub qbo_activity_date: NaiveDate,
-    /// Store-local business dates that still require individual Z-close.
+    /// One store-local open-period date, except while finishing a legacy partial close.
     pub pending_business_dates: Vec<NaiveDate>,
-    /// True only when the current drawer count belongs to exactly this one business day.
+    /// True when the current drawer count belongs to this complete open period.
     pub cash_count_is_single_day: bool,
     pub qbo_journal: Option<crate::logic::qbo_journal::JournalProposal>,
     pub qbo_journal_error: Option<String>,
@@ -454,13 +487,14 @@ pub struct ManualDrawerOpenRequest {
 
 #[derive(Debug, Deserialize)]
 pub struct CloseSessionRequest {
-    // Unknown fields remain accepted so older clients may keep sending the retired
-    // Manager force-close fields without breaking an otherwise valid close request.
     pub actual_cash: Decimal,
     pub cash_deposit_date: Option<NaiveDate>,
     pub cash_deposit_amount: Option<Decimal>,
     pub closing_notes: Option<String>,
     pub closing_comments: Option<String>,
+    pub manager_staff_id: Option<Uuid>,
+    pub manager_pin: Option<String>,
+    pub manager_reason: Option<String>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -1570,46 +1604,65 @@ async fn build_reconciliation(
             (session_id, vec![session_id], session_id, till_gid)
         };
 
-    let mut pending_business_dates: Vec<NaiveDate> = sqlx::query_scalar(
-        r#"
-        SELECT DISTINCT
-            COALESCE(
-                pt.effective_date,
-                (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date
-            )
-        FROM payment_transactions pt
-        WHERE pt.session_id = ANY($1)
-          AND NOT EXISTS (
-              SELECT 1
-                FROM register_business_day_z_reports z
-                WHERE z.till_close_group_id = $2
-                AND z.business_date =
-                    COALESCE(
-                        pt.effective_date,
-                        (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date
-                    )
-          )
-        ORDER BY 1
-        "#,
-    )
-    .bind(&payment_session_ids)
-    .bind(till_close_group_id)
-    .fetch_all(db)
-    .await?;
-    if pending_business_dates.is_empty() {
-        pending_business_dates.push(
-            crate::logic::register_day_activity::store_local_date_for_utc(db, Utc::now()).await?,
-        );
-    }
-    let qbo_activity_date = pending_business_dates[0];
     let prior_business_day_closes: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM register_business_day_z_reports WHERE till_close_group_id = $1",
     )
     .bind(till_close_group_id)
     .fetch_one(db)
     .await?;
-    let cash_count_is_single_day =
-        pending_business_dates.len() == 1 && prior_business_day_closes == 0;
+    let (open_period_business_date, open_period_started_at): (NaiveDate, DateTime<Utc>) =
+        sqlx::query_as(
+            r#"
+        SELECT
+            (opened_at AT TIME ZONE reporting.effective_store_timezone())::date,
+            opened_at
+        FROM register_sessions
+        WHERE id = $1
+        "#,
+        )
+        .bind(drawer_session_id)
+        .fetch_one(db)
+        .await?;
+    let legacy_pending_dates = if prior_business_day_closes == 0 {
+        Vec::new()
+    } else {
+        // Compatibility for a till group that was already partially closed by an
+        // older build. New groups always produce one Z-Report for the open period.
+        sqlx::query_scalar(
+            r#"
+            SELECT DISTINCT
+                COALESCE(
+                    pt.effective_date,
+                    (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date
+                )
+            FROM payment_transactions pt
+            WHERE pt.session_id = ANY($1)
+              AND NOT EXISTS (
+                  SELECT 1
+                    FROM register_business_day_z_reports z
+                    WHERE z.till_close_group_id = $2
+                    AND z.business_date =
+                        COALESCE(
+                            pt.effective_date,
+                            (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date
+                        )
+              )
+            ORDER BY 1
+            "#,
+        )
+        .bind(&payment_session_ids)
+        .bind(till_close_group_id)
+        .fetch_all(db)
+        .await?
+    };
+    let pending_business_dates = z_report_business_dates(
+        open_period_business_date,
+        prior_business_day_closes,
+        legacy_pending_dates,
+    );
+    let qbo_activity_date = pending_business_dates[0];
+    let open_period_scope = prior_business_day_closes == 0;
+    let cash_count_is_single_day = pending_business_dates.len() == 1 && open_period_scope;
 
     let opening_float: Option<Decimal> = sqlx::query_scalar(
         r#"
@@ -1658,11 +1711,15 @@ async fn build_reconciliation(
             COALESCE(SUM(amount) FILTER (WHERE direction = 'paid_out'), 0)::numeric
         FROM register_cash_adjustments
         WHERE session_id = $1
-          AND (created_at AT TIME ZONE reporting.effective_store_timezone())::date = $2
+          AND (
+                $3::boolean
+                OR (created_at AT TIME ZONE reporting.effective_store_timezone())::date = $2
+              )
         "#,
     )
     .bind(drawer_session_id)
     .bind(qbo_activity_date)
+    .bind(open_period_scope)
     .fetch_one(db)
     .await?;
 
@@ -1693,16 +1750,20 @@ async fn build_reconciliation(
             COUNT(*)::bigint AS tx_count
         FROM payment_transactions
         WHERE session_id = ANY($1)
-          AND COALESCE(
-                effective_date,
-                (created_at AT TIME ZONE reporting.effective_store_timezone())::date
-              ) = $2
+          AND (
+                $3::boolean
+                OR COALESCE(
+                    effective_date,
+                    (created_at AT TIME ZONE reporting.effective_store_timezone())::date
+                  ) = $2
+              )
         GROUP BY 1
         ORDER BY 1
         "#,
     )
     .bind(&payment_session_ids)
     .bind(qbo_activity_date)
+    .bind(open_period_scope)
     .fetch_all(db)
     .await?;
 
@@ -1733,16 +1794,20 @@ async fn build_reconciliation(
         FROM payment_transactions pt
         INNER JOIN register_sessions rs ON rs.id = pt.session_id
         WHERE pt.session_id = ANY($1)
-          AND COALESCE(
-                pt.effective_date,
-                (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date
-              ) = $2
+          AND (
+                $3::boolean
+                OR COALESCE(
+                    pt.effective_date,
+                    (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date
+                  ) = $2
+              )
         GROUP BY rs.register_lane, 2
         ORDER BY rs.register_lane, 2
         "#,
     )
     .bind(&payment_session_ids)
     .bind(qbo_activity_date)
+    .bind(open_period_scope)
     .fetch_all(db)
     .await?;
 
@@ -1754,14 +1819,18 @@ async fn build_reconciliation(
         FROM payment_transactions
         WHERE session_id = ANY($1)
           AND LOWER(TRIM(payment_method)) = 'cash'
-          AND COALESCE(
-                effective_date,
-                (created_at AT TIME ZONE reporting.effective_store_timezone())::date
-              ) = $2
+          AND (
+                $3::boolean
+                OR COALESCE(
+                    effective_date,
+                    (created_at AT TIME ZONE reporting.effective_store_timezone())::date
+                  ) = $2
+              )
         "#,
     )
     .bind(&payment_session_ids)
     .bind(qbo_activity_date)
+    .bind(open_period_scope)
     .fetch_one(db)
     .await?;
 
@@ -1779,13 +1848,17 @@ async fn build_reconciliation(
         SELECT id, direction, amount, category, reason, created_at
         FROM register_cash_adjustments
         WHERE session_id = $1
-          AND (created_at AT TIME ZONE reporting.effective_store_timezone())::date = $2
+          AND (
+                $3::boolean
+                OR (created_at AT TIME ZONE reporting.effective_store_timezone())::date = $2
+              )
         ORDER BY created_at DESC
         LIMIT 100
         "#,
     )
     .bind(drawer_session_id)
     .bind(qbo_activity_date)
+    .bind(open_period_scope)
     .fetch_all(db)
     .await?;
 
@@ -1800,13 +1873,17 @@ async fn build_reconciliation(
         FROM register_drawer_open_events e
         INNER JOIN staff s ON s.id = e.staff_id
         WHERE e.session_id = $1
-          AND (e.created_at AT TIME ZONE reporting.effective_store_timezone())::date = $2
+          AND (
+                $3::boolean
+                OR (e.created_at AT TIME ZONE reporting.effective_store_timezone())::date = $2
+              )
         ORDER BY e.created_at DESC
         LIMIT 100
         "#,
     )
     .bind(drawer_session_id)
     .bind(qbo_activity_date)
+    .bind(open_period_scope)
     .fetch_all(db)
     .await?;
 
@@ -1828,7 +1905,10 @@ async fn build_reconciliation(
         INNER JOIN payment_allocations pa ON pa.transaction_id = pt.id
         INNER JOIN transaction_lines oi ON oi.transaction_id = pa.target_transaction_id
         WHERE pt.session_id = ANY($1)
-          AND (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date = $2
+          AND (
+                $3::boolean
+                OR (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date = $2
+              )
           AND oi.size_specs ? 'price_override_reason'
         GROUP BY 1
         ORDER BY line_count DESC
@@ -1837,6 +1917,7 @@ async fn build_reconciliation(
     )
     .bind(&payment_session_ids)
     .bind(qbo_activity_date)
+    .bind(open_period_scope)
     .fetch_all(db)
     .await?;
 
@@ -1962,7 +2043,10 @@ async fn build_reconciliation(
                             INNER JOIN payment_transactions pt_part ON pt_part.id = pa_part.transaction_id
                             WHERE pa_part.target_transaction_id = pa.target_transaction_id
                               AND pt_part.session_id = ANY($1)
-                              AND (pt_part.created_at AT TIME ZONE reporting.effective_store_timezone())::date = $2
+                              AND (
+                                    $3::boolean
+                                    OR (pt_part.created_at AT TIME ZONE reporting.effective_store_timezone())::date = $2
+                                  )
                               AND CASE
                                     WHEN pa_part.amount_allocated < 0 THEN COALESCE(
                                         NULLIF(pt_part.metadata->>'refund_event_id', ''),
@@ -1987,10 +2071,13 @@ async fn build_reconciliation(
             INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
             INNER JOIN register_sessions rs ON rs.id = pt.session_id
             WHERE pt.session_id = ANY($1)
-              AND COALESCE(
-                    pt.effective_date,
-                    (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date
-                  ) = $2
+              AND (
+                    $3::boolean
+                    OR COALESCE(
+                        pt.effective_date,
+                        (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date
+                      ) = $2
+                  )
             GROUP BY
                 pa.target_transaction_id,
                 CASE
@@ -2021,6 +2108,7 @@ async fn build_reconciliation(
     )
     .bind(&payment_session_ids)
     .bind(qbo_activity_date)
+    .bind(open_period_scope)
     .fetch_all(db)
     .await?;
 
@@ -2060,15 +2148,19 @@ async fn build_reconciliation(
             WHERE pt.session_id = ANY($1)
               AND LOWER(TRIM(pt.payment_method)) = 'cash'
               AND t.rounding_adjustment IS NOT NULL
-              AND COALESCE(
-                    pt.effective_date,
-                    (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date
-                  ) = $2
+              AND (
+                    $3::boolean
+                    OR COALESCE(
+                        pt.effective_date,
+                        (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date
+                      ) = $2
+                  )
         ) agg
         "#,
     )
     .bind(&payment_session_ids)
     .bind(qbo_activity_date)
+    .bind(open_period_scope)
     .fetch_one(db)
     .await?;
 
@@ -2162,6 +2254,7 @@ async fn build_reconciliation(
     Ok(ReconciliationResponse {
         report_type,
         session_id: response_session_id,
+        open_period_started_at,
         qbo_activity_date,
         pending_business_dates,
         cash_count_is_single_day,
@@ -2624,7 +2717,7 @@ async fn close_session(
     }
 
     let till_gid = claim.till_close_group_id;
-    let close_actor_id = closer_from_headers
+    let mut close_actor_id = closer_from_headers
         .or(claim.shift_primary_staff_id)
         .unwrap_or(claim.opened_by);
 
@@ -2677,6 +2770,55 @@ async fn close_session(
             station_warnings,
             helcim_attempts: close_helcim_attempts.clone(),
         })
+    };
+    let manager_close_reason = if unresolved_close_issues.is_some() {
+        let manager_staff_id = payload.manager_staff_id.ok_or_else(|| {
+            SessionError::Forbidden(
+                "Manager Access is required to close with unresolved issues.".to_string(),
+            )
+        })?;
+        let manager_pin = payload
+            .manager_pin
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                SessionError::Forbidden(
+                    "Manager Access PIN is required to close with unresolved issues.".to_string(),
+                )
+            })?;
+        let manager_reason = payload
+            .manager_reason
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                SessionError::InvalidPayload(
+                    "manager close reason is required when unresolved issues remain".to_string(),
+                )
+            })?;
+        if !(12..=500).contains(&manager_reason.chars().count()) {
+            return Err(SessionError::InvalidPayload(
+                "manager close reason must be between 12 and 500 characters".to_string(),
+            ));
+        }
+        let manager =
+            pins::authenticate_staff_by_id(&state.db, manager_staff_id, Some(manager_pin))
+                .await
+                .map_err(|_| {
+                    SessionError::Forbidden("Manager Access was not approved.".to_string())
+                })?;
+        let effective =
+            effective_permissions_for_staff(&state.db, manager.id, manager.role).await?;
+        if !staff_can_approve_manager_access(&effective, manager.role) {
+            return Err(SessionError::Forbidden(
+                "manager.approval permission required".to_string(),
+            ));
+        }
+        close_actor_id = manager.id;
+        Some(manager_reason.to_string())
+    } else {
+        None
     };
 
     let mut recon = build_reconciliation(&state.db, session_id, "z_report").await?;
@@ -2762,6 +2904,41 @@ async fn close_session(
         )));
     }
 
+    let mut close_day_summary =
+        crate::logic::register_day_activity::fetch_complete_register_day_summary(
+            &state.db,
+            None,
+            Some(business_date),
+            Some(business_date),
+            None,
+            crate::logic::report_basis::ReportBasis::Booked,
+        )
+        .await
+        .map_err(|error| {
+            SessionError::InvalidPayload(format!(
+                "Z-report Quick Look totals could not be finalized; the Register was not closed. Retry the close after the report data is available: {error}"
+            ))
+        })?;
+    close_day_summary.from_eod_snapshot = false;
+    let quick_look_summary = json!({
+        "sales_count": close_day_summary.sales_count,
+        "sales_tax_total": &close_day_summary.sales_tax_total,
+        "cash_collected": &close_day_summary.cash_collected,
+        "deposits_collected": &close_day_summary.deposits_collected,
+        "net_sales": &close_day_summary.net_sales,
+        "shipping_total": &close_day_summary.shipping_total,
+        "alterations_total": &close_day_summary.alterations_total,
+        "gift_card_load_count": close_day_summary.gift_card_load_count,
+        "gift_card_load_total": &close_day_summary.gift_card_load_total,
+        "pickup_count": close_day_summary.pickup_count,
+        "special_order_sale_count": close_day_summary.special_order_sale_count,
+        "appointment_count": close_day_summary.appointment_count,
+        "new_appointment_count": close_day_summary.new_appointment_count,
+        "new_wedding_parties_count": close_day_summary.new_wedding_parties_count,
+        "new_invoice_count": close_day_summary.new_invoice_count,
+        "pickups_today": &close_day_summary.pickups_today,
+    });
+
     let tenders_by_lane_val =
         serde_json::to_value(&recon.tenders_by_lane).unwrap_or(serde_json::Value::Null);
     let transactions_val =
@@ -2783,6 +2960,7 @@ async fn close_session(
         "session_id": primary_id,
         "till_close_group_id": till_gid,
         "till_session_ids": group_ids,
+        "opened_at": &recon.open_period_started_at,
         "opening_float": recon.opening_float,
         "net_cash_adjustments": recon.net_cash_adjustments,
         "total_rounding_adjustments": recon.total_rounding_adjustments,
@@ -2808,7 +2986,10 @@ async fn close_session(
         "override_summary": recon.override_summary,
         "closing_notes": notes_trimmed,
         "closing_comments": payload.closing_comments.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()),
+        "day_summary": quick_look_summary,
         "unresolved_close_issues": unresolved_close_issues.as_ref(),
+        "manager_close_staff_id": unresolved_close_issues.as_ref().map(|_| close_actor_id),
+        "manager_close_reason": manager_close_reason.as_deref(),
         "closed_at": Utc::now(),
     });
 
@@ -2828,6 +3009,7 @@ async fn close_session(
             "till_close_group_id": till_gid,
             "business_date": business_date,
             "unresolved_close_issues": issues,
+            "manager_reason": manager_close_reason.as_deref(),
         }))
         .bind(format!(
             "register-close-unresolved-issues:{till_gid}:{business_date}"
@@ -2917,44 +3099,23 @@ async fn close_session(
         let snapshot_pool = state.db.clone();
         let snapshot_till = till_gid;
         let snapshot_primary = primary_id;
+        let snapshot_summary = close_day_summary.clone();
         tokio::spawn(async move {
-            match crate::logic::register_day_activity::fetch_complete_register_day_summary(
+            if let Err(error) = crate::logic::register_day_activity::save_eod_snapshot(
                 &snapshot_pool,
-                None,
-                Some(business_date),
-                Some(business_date),
-                None,
-                crate::logic::report_basis::ReportBasis::Booked,
+                business_date,
+                snapshot_till,
+                snapshot_primary,
+                &snapshot_summary,
             )
             .await
             {
-                Ok(mut summary) => {
-                    summary.from_eod_snapshot = false;
-                    if let Err(error) = crate::logic::register_day_activity::save_eod_snapshot(
-                        &snapshot_pool,
-                        business_date,
-                        snapshot_till,
-                        snapshot_primary,
-                        &summary,
-                    )
-                    .await
-                    {
-                        tracing::error!(%error, %business_date, "register business-day snapshot save failed");
-                        let _ = crate::logic::notifications::broadcast_system_alert(
-                            &snapshot_pool,
-                            &format!("Register EOD snapshot save failed after business-day close ({business_date}): {error}. No partial snapshot was saved."),
-                        )
-                        .await;
-                    }
-                }
-                Err(error) => {
-                    tracing::error!(%error, %business_date, "register business-day snapshot build failed");
-                    let _ = crate::logic::notifications::broadcast_system_alert(
-                        &snapshot_pool,
-                        &format!("Register EOD summary build failed after business-day close ({business_date}): {error}. No partial snapshot was saved."),
-                    )
-                    .await;
-                }
+                tracing::error!(%error, %business_date, "register business-day snapshot save failed");
+                let _ = crate::logic::notifications::broadcast_system_alert(
+                    &snapshot_pool,
+                    &format!("Register EOD snapshot save failed after business-day close ({business_date}): {error}. No partial snapshot was saved."),
+                )
+                .await;
             }
             if let Err(error) = crate::logic::qbo_journal::ensure_pending_daily_journal(
                 &snapshot_pool,
@@ -3056,6 +3217,7 @@ async fn close_session(
     let snapshot_till = till_gid;
     let snapshot_primary = primary_id;
     let snapshot_business_date = business_date;
+    let snapshot_summary = close_day_summary;
     tokio::spawn(async move {
         let local_date = snapshot_business_date;
         if let Err(e) = crate::logic::weather::capture_store_daily_weather(
@@ -3068,46 +3230,25 @@ async fn close_session(
         {
             tracing::warn!(error = %e, store_local_date = %local_date, "register close store-day weather capture failed");
         }
-        match crate::logic::register_day_activity::fetch_complete_register_day_summary(
+        if let Err(e) = crate::logic::register_day_activity::save_eod_snapshot(
             &snapshot_pool,
-            None,
-            Some(local_date),
-            Some(local_date),
-            None,
-            crate::logic::report_basis::ReportBasis::Booked,
+            local_date,
+            snapshot_till,
+            snapshot_primary,
+            &snapshot_summary,
         )
         .await
         {
-            Ok(mut summary) => {
-                summary.from_eod_snapshot = false;
-                if let Err(e) = crate::logic::register_day_activity::save_eod_snapshot(
-                    &snapshot_pool,
-                    local_date,
-                    snapshot_till,
-                    snapshot_primary,
-                    &summary,
-                )
-                .await
-                {
-                    tracing::error!(error = %e, "register EOD snapshot: save");
-                    let _ = crate::logic::notifications::broadcast_system_alert(
-                        &snapshot_pool,
-                        &format!("Register EOD snapshot save failed after Z-close ({local_date}): {e}. No partial snapshot was saved."),
-                    ).await;
-                } else {
-                    tracing::info!(
-                        store_local_date = %local_date,
-                        "register EOD snapshot saved after Z-close"
-                    );
-                }
-            }
-            Err(e) => {
-                tracing::error!(error = %e, "register EOD snapshot: build summary");
-                let _ = crate::logic::notifications::broadcast_system_alert(
-                    &snapshot_pool,
-                    &format!("Register EOD summary build failed after Z-close ({local_date}): {e}. No partial snapshot was saved."),
-                ).await;
-            }
+            tracing::error!(error = %e, "register EOD snapshot: save");
+            let _ = crate::logic::notifications::broadcast_system_alert(
+                &snapshot_pool,
+                &format!("Register EOD snapshot save failed after Z-close ({local_date}): {e}. No partial snapshot was saved."),
+            ).await;
+        } else {
+            tracing::info!(
+                store_local_date = %local_date,
+                "register EOD snapshot saved after Z-close"
+            );
         }
 
         match crate::logic::qbo_journal::ensure_pending_daily_journal(&snapshot_pool, local_date)

@@ -26,16 +26,17 @@ Use this workflow to close the live till group, reconcile tender totals, and pro
 ## Till Group Closing
 Riverside OS uses a **lane-aggregated model**. Opening **Register #1 (Main)** automatically opens satellite lanes (iPad and Back Office). 
 - To close the entire group, you **MUST** use the **Close Register** action on **Register #1**.
-- Closing Register #1 reconciles all satellite lanes for one store-local business date. If activity exists on more than one unclosed date, ROS closes the oldest date first and requires each later date to be closed separately. The final date closes the till group.
+- Opening Register #1 fixes the store-local **business date** for that entire open period. Closing Register #1 reconciles all satellite lanes and produces one Z-Report for that open period.
+- If yesterday's Register was left open, close it the following morning before opening a new period. Its Z-Report remains dated yesterday. Afterward, opening Register #1 creates today's period, and today's Z-Report contains today's register activity.
 
 ## The Reconciliation Flow
 1. **Cash**: Count bills and coins by denomination, or enter one drawer total.
 2. **Checks**: Confirm every check number and amount.
 3. **Z-Report**: Review totals, confirm the Daily Cash Deposit date and amount, add required notes, then tap **Close & Print Z-Report**.
 
-Cash count, check review, the Daily Cash Deposit date, and a note for a cash discrepancy over $5 remain required close inputs. Recovery and card-review items are warnings: they stay visible and repairable, but they do not disable an otherwise authorized close.
+Cash count, check review, the Daily Cash Deposit date, and a note for a cash discrepancy over $5 remain required close inputs. Recovery and card-review items stay visible and repairable. When any remain, **Close & Print Z-Report** opens the dedicated **Close Register With Unresolved Issues** Manager Access approval before closing.
 
-The Z-Report page shows the exact **business date** being closed. Closing on the following morning does not rename the report. When multiple dates are waiting, repeat the flow in the order shown; ROS never combines two days. If no separate drawer count was captured for a missed historical day, the report says so instead of inventing an over/short amount.
+The Z-Report page shows the exact **business date** assigned when Register #1 opened. Closing on the following morning does not rename the report. The report separately records when the open period started, when it closed, and when the report was printed, so a late close remains auditable without changing its business date.
 
 Cash refunds processed before close are recorded as negative cash activity and reduce **Cash Sales (Gross)**, **Expected Cash**, and the amount available for deposit. If the physical count differs after a refund, the Z-Report must show the resulting over/short instead of remaining balanced.
 
@@ -43,7 +44,7 @@ If a card terminal outcome needs review, use **Review** in the closing workflow 
 
 If **Checkout recovery** appears, Riverside OS has durable work that needs review: an offline sale waiting to sync, an online checkout whose server result was not confirmed, a paid pickup follow-up, an exchange replacement waiting for its return settlement, or a receipt retry. Register #1 asks every linked workstation to acknowledge its local checkout queue after reconciliation begins. The close panel reports local, Main Hub, and linked-workstation evidence separately; it never treats a missing acknowledgement as an empty queue or hides it, but that warning does not prevent an authorized close.
 
-Use **Manager Recover Sales** for saved offline or unconfirmed checkout payloads. The manager enters an identity, Access PIN, and a reason of at least 12 characters. Riverside replays the original Register session, checkout identity, full sale snapshot, and payment fingerprint. An altered payload or a checkout identity from another session is rejected instead of creating a second Transaction Record.
+Use **Attempt Exact Replay** for saved offline or unconfirmed checkout payloads only when the saved payment target is still open. The manager enters an identity, Access PIN, and a reason of at least 12 characters. Riverside replays the original Register session, checkout identity, full sale snapshot, and payment fingerprint. An altered payload, a checkout identity from another session, or an order-payment target that is no longer open is rejected instead of creating a second Transaction Record.
 
 If the paid Transaction Record already exists but its **Unconfirmed checkout** recovery remains open, use **Match Existing Paid Transaction** on that exact item instead of replaying the sale. Enter the completed `TXN-######`, Helcim provider transaction, and a specific Manager reason, then complete Manager Access. Riverside verifies the original checkout, customer, amount, currency, Register session, final provider status, payment allocation, and immutable fingerprints before closing only the recovery record. It creates no sale, charge, refund, payment, or payment movement; any mismatch leaves the item visible for investigation.
 
@@ -51,7 +52,9 @@ For a paid order follow-up, complete every named shipping, pickup, or alteration
 
 Use **Complete Exchange Settlement** for a saved exchange replacement whose original return settlement did not finish. This requires Manager Access, a reason of at least 12 characters, and the currently authenticated Register session. Riverside locks the exact Main Hub recovery record, derives all amounts and return details from its saved server snapshot, verifies the replacement checkout identity and the original exchange-credit tender against the origin Register session, then records any new relief or refund movement in the current Register session. It refreshes the reconciliation totals after completion. If a linked provider card refund was intentionally deferred, the close panel keeps its exact remaining amount visible and directs staff to finish it from the original Transaction Record; it does not claim that provider refund completed. A legacy or altered record without complete server provenance remains visible and is rejected instead of moving money.
 
-If recovery work remains after staff review, use the ordinary authorized **Close & Print Z-Report** action. Riverside captures the exact issues visible immediately before close under **Unresolved Issues at Close** and uses the same Main Hub-frozen tender reconciliation for the immediate and archived Z-Report. The immediate print never substitutes a fresh live or partial Quick Look summary; those supplemental metrics are labeled pending until the immutable EOD snapshot is available in the archive. Closing does not dismiss, resolve, or claim completion of any issue. A recovered sale posted later remains tied to the original Register session and is recorded as post-close recovery when applicable.
+If recovery work remains after staff review, use **Close & Print Z-Report**, then approve **Close Register With Unresolved Issues** with Manager Access. This approval only authorizes the close: it never replays a checkout, creates a sale, attaches a payment, or dismisses an issue. Riverside captures the exact issues visible immediately before close under **Unresolved Issues at Close** and uses the same Main Hub-frozen tender reconciliation for the immediate and archived Z-Report.
+
+Every completed Z-Report includes the **Quick Look** totals. Before committing the close, the Main Hub builds and verifies the complete booked-day summary inside one read-only database snapshot and includes those totals in the immutable close response. If the complete totals cannot be finalized, Riverside leaves the Register open and shows an error instead of printing or archiving a partial Z-Report. A recovered sale posted later remains tied to the original Register session and is recorded as post-close recovery when applicable.
 
 The separate **Prior or other till-group recovery** panel uses Staff Access with **Register Reports** permission to find open recovery outside the till group being closed. Those records are informational for the current Z-close and never affect current close availability. Saved checkouts can be replayed with Manager Access and remain tied to their original Register session. Exchange settlement records use the Manager completion workflow above and post new ledger movements only to the current Register session. Paid follow-up records use evidence verification. Receipt-print records are informational and must be handled through Print Recovery; they are never treated as missing sales or checkout replay. If the Main Hub, Staff Access, or permission check fails, the panel says the global list is unavailable; it never reports an authoritative empty list.
 
@@ -65,6 +68,7 @@ ROSIE does not close the register, change tender totals, change counted cash, ap
 Upon closing, a professional, full-page **Z-Audit Report** is generated. 
 - **Audit Grade**: Produces high-fidelity Letter/A4 documents for accounting review.
 - **Reporting Station**: The header confirms the assigned printer name for accountability.
+- **Open-period audit dates**: The header separates the business date from the open timestamp, close timestamp, and current print date/time.
 - **Per-Transaction Subtotal Before Tax**: The audit list separates merchandise subtotal before tax from payment totals. Shipping and alteration-service charges are shown separately from merchandise subtotal, while gift-card loads are shown as separate liability activity and are not included in merchandise sales.
 - **Line Discounts**: Each transaction line shows the final line price plus the regular price and discount percent applied.
 - **Daily Cash Deposit**: Captures the bank deposit date and cash deposit amount for deposit verification and accounting review.
@@ -75,7 +79,7 @@ Upon closing, a professional, full-page **Z-Audit Report** is generated.
 
 ## Recovery and escalation
 
-The final pending business-day close is final for the till group. Review cash, card, gift card, pickup completion, checkout recovery, and RMS/R2S evidence before closing. Repair issues when practical; otherwise assign an owner and use the ordinary authorized close. The Z-Report must list every unresolved issue that existed immediately before close, and the issue must remain available for later audited recovery. Required cash, check, deposit-date, and over-$5 discrepancy-note inputs still must be completed.
+The final pending business-day close is final for the till group. Review cash, card, gift card, pickup completion, checkout recovery, and RMS/R2S evidence before closing. Repair issues when practical; otherwise assign an owner and use the dedicated Manager Access close approval. The Z-Report must list every unresolved issue that existed immediately before close, and the issue must remain available for later audited recovery. Required cash, check, deposit-date, and over-$5 discrepancy-note inputs still must be completed.
 
 
 ## Tips

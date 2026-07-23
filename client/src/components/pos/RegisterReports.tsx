@@ -348,6 +348,8 @@ interface RegisterSessionRow {
 interface ZReportSnapshot {
   business_date?: string;
   session_id?: string;
+  opened_at?: string | null;
+  closed_at?: string | null;
   opening_float?: string;
   net_cash_adjustments?: string;
   expected_cash?: string;
@@ -799,8 +801,8 @@ function primaryRegisterSession(
 
 async function openZReportFromSession(
   session: RegisterSessionRow,
-  action: ReportPrintAction = "preview",
-  daySummary?: RegisterDaySummary | null,
+  action: ReportPrintAction,
+  daySummary: RegisterDaySummary,
 ): Promise<boolean> {
   const snapshot = session.z_report_json;
   const cashTender = snapshot?.tenders?.find(
@@ -816,7 +818,8 @@ async function openZReportFromSession(
     action,
     registerOrdinal: session.register_ordinal,
     cashierLabel: session.cashier_name,
-    openedAt: session.opened_at,
+    openedAt: snapshot?.opened_at ?? session.opened_at,
+    closedAt: snapshot?.closed_at ?? session.closed_at,
     openingCents: parseMoneyToCents(
       snapshot?.opening_float ?? session.opening_float,
     ),
@@ -846,23 +849,22 @@ async function openZReportFromSession(
     overrideSummary: snapshot?.override_summary ?? [],
     tendersByLane: snapshot?.tenders_by_lane ?? [],
     manualDrawerOpens: snapshot?.manual_drawer_opens ?? [],
-    includeSupplementalSummary: daySummary != null,
-    newOrdersCount: daySummary?.special_order_sale_count,
-    ordersPickedUpCount: daySummary?.pickup_count,
-    todayAppointmentsCount: daySummary?.appointment_count ?? 0,
-    newAppointmentsCount: daySummary?.new_appointment_count ?? 0,
-    newWeddingPartiesCount: daySummary?.new_wedding_parties_count ?? 0,
-    newInvoicesCount: daySummary?.new_invoice_count ?? 0,
-    salesCount: daySummary?.sales_count,
-    salesTaxTotal: daySummary?.sales_tax_total,
-    cashCollected: daySummary?.cash_collected,
-    depositsCollected: daySummary?.deposits_collected,
-    netSales: daySummary?.net_sales,
-    shippingTotal: daySummary?.shipping_total,
-    alterationsTotal: daySummary?.alterations_total,
-    giftCardLoadCount: daySummary?.gift_card_load_count,
-    giftCardLoadTotal: daySummary?.gift_card_load_total,
-    pickupsToday: (daySummary?.pickups_today ?? []).map((pickup) => ({
+    newOrdersCount: daySummary.special_order_sale_count,
+    ordersPickedUpCount: daySummary.pickup_count,
+    todayAppointmentsCount: daySummary.appointment_count,
+    newAppointmentsCount: daySummary.new_appointment_count,
+    newWeddingPartiesCount: daySummary.new_wedding_parties_count,
+    newInvoicesCount: daySummary.new_invoice_count,
+    salesCount: daySummary.sales_count,
+    salesTaxTotal: daySummary.sales_tax_total,
+    cashCollected: daySummary.cash_collected,
+    depositsCollected: daySummary.deposits_collected,
+    netSales: daySummary.net_sales,
+    shippingTotal: daySummary.shipping_total,
+    alterationsTotal: daySummary.alterations_total,
+    giftCardLoadCount: daySummary.gift_card_load_count,
+    giftCardLoadTotal: daySummary.gift_card_load_total,
+    pickupsToday: (daySummary.pickups_today ?? []).map((pickup) => ({
       occurred_at: pickup.occurred_at,
       customer_name: pickup.customer_name,
       customer_code: pickup.customer_code,

@@ -346,20 +346,19 @@ test.describe("Register report output integrity contracts", () => {
     expect(closeRegisterSource).toContain(
       "const closedSnapshot = result.z_report_snapshot",
     );
-    expect(closeRegisterSource).toContain(
-      "openCurrentZReportPrint(\n            closedReconciliation",
+    expect(closeRegisterSource).toMatch(
+      /openCurrentZReportPrint\(\s+closedReconciliation/,
     );
-    expect(closeRegisterSource).toContain(
-      "const daySummary = isClosedOutput\n        ? null",
-    );
+    expect(closeRegisterSource).toContain("closedSnapshot?.day_summary ??");
     expect(closeRegisterSource).toContain(
       "closedSnapshot?.unresolved_close_issues ?? null",
     );
-    expect(closeRegisterSource).toContain(
-      "includeSupplementalSummary: daySummary != null",
-    );
-    expect(reportPrintSource).toContain(
-      "This immediate close report does not substitute live or partial values.",
+    expect(closeRegisterSource).toContain("salesCount: daySummary.sales_count");
+    expect(registerReportsSource).toContain("daySummary: RegisterDaySummary");
+    expect(reportPrintSource).toContain("<h2>Quick Look</h2>");
+    expect(reportPrintSource).not.toContain("includeSupplementalSummary");
+    expect(reportPrintSource).not.toContain(
+      "Supplemental business-day metrics are pending",
     );
     expect(closeRegisterSource).not.toContain(
       'openCurrentZReportPrint(\n        recon,\n        "print"',
@@ -380,6 +379,11 @@ test.describe("Register report output integrity contracts", () => {
     expect(recoveryLock).toBeGreaterThan(groupLock);
     expect(helcimLock).toBeGreaterThan(recoveryLock);
     expect(reconciliationRead).toBeGreaterThan(helcimLock);
+    expect(closeHandler).toContain("fetch_complete_register_day_summary");
+    expect(closeHandler).toContain('"day_summary": quick_look_summary');
+    expect(closeHandler).toContain(
+      "Z-report Quick Look totals could not be finalized; the Register was not closed.",
+    );
     expect(sessionsServerSource).toContain(
       "target.checkout_client_id IS DISTINCT FROM ppa.checkout_client_id",
     );
@@ -387,6 +391,65 @@ test.describe("Register report output integrity contracts", () => {
       "AND ppa.checkout_client_id IS NOT NULL",
     );
     expect(sessionsServerSource).toContain("z_report_snapshot: z_snapshot");
+  });
+
+  test("closed Z-report Quick Look totals are mandatory before close commits", () => {
+    expect(closeRegisterSource).toContain("closedSnapshot?.day_summary ??");
+    expect(closeRegisterSource).toContain(
+      'params.set("complete_output", "true")',
+    );
+    expect(closeRegisterSource).toContain("salesCount: daySummary.sales_count");
+    expect(registerReportsSource).toContain("daySummary: RegisterDaySummary");
+    expect(reportPrintSource).toContain("<h2>Quick Look</h2>");
+    expect(reportPrintSource).not.toContain("includeSupplementalSummary");
+    expect(reportPrintSource).not.toContain(
+      "Supplemental business-day metrics are pending",
+    );
+
+    const closeHandler = sessionsServerSource.slice(
+      sessionsServerSource.indexOf("async fn close_session("),
+      sessionsServerSource.indexOf(
+        "async fn",
+        sessionsServerSource.indexOf("async fn close_session(") + 1,
+      ),
+    );
+    expect(closeHandler).toContain("fetch_complete_register_day_summary");
+    expect(closeHandler).toContain('"day_summary": quick_look_summary');
+    expect(closeHandler).toContain(
+      "Z-report Quick Look totals could not be finalized; the Register was not closed.",
+    );
+  });
+
+  test("Z-report business date is fixed by the Register open period", () => {
+    const reconciliationHandler = sessionsServerSource.slice(
+      sessionsServerSource.indexOf("async fn build_reconciliation("),
+      sessionsServerSource.indexOf(
+        "async fn",
+        sessionsServerSource.indexOf("async fn build_reconciliation(") + 1,
+      ),
+    );
+    expect(reconciliationHandler).toContain(
+      "(opened_at AT TIME ZONE reporting.effective_store_timezone())::date",
+    );
+    expect(reconciliationHandler).toContain("z_report_business_dates(");
+    expect(reconciliationHandler).toContain(
+      "let open_period_scope = prior_business_day_closes == 0",
+    );
+    expect(reconciliationHandler).toContain(
+      "$3::boolean",
+    );
+    expect(sessionsServerSource).toContain(
+      "return vec![open_period_business_date]",
+    );
+    expect(sessionsServerSource).toContain(
+      '"opened_at": &recon.open_period_started_at',
+    );
+    expect(reportPrintSource).toContain("Print Date/Time:");
+    expect(reportPrintSource).toContain("Open Period Started:");
+    expect(reportPrintSource).toContain("Open Period Closed:");
+    expect(closeRegisterSource).toContain(
+      "following morning does not change it to today.",
+    );
   });
 
   test("the dashboard distinguishes a physical Register from its session sequence", () => {

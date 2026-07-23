@@ -72,6 +72,7 @@ interface OverrideSummary {
 interface Reconciliation {
   report_type?: string;
   session_id: string;
+  open_period_started_at?: string;
   qbo_activity_date?: string;
   pending_business_dates?: string[];
   cash_count_is_single_day?: boolean;
@@ -107,6 +108,8 @@ interface CloseSessionResult {
 interface CloseZReportSnapshot {
   business_date: string;
   session_id: string;
+  opened_at?: string | null;
+  closed_at?: string | null;
   opening_float: string | number;
   net_cash_adjustments: string | number;
   total_rounding_adjustments: string | number;
@@ -117,6 +120,7 @@ interface CloseZReportSnapshot {
   cash_deposit_amount: string | number | null;
   closing_notes: string | null;
   closing_comments: string | null;
+  day_summary?: ZReportDaySummary;
   unresolved_close_issues: UnresolvedCloseIssues | null;
 }
 
@@ -200,6 +204,10 @@ interface ZReportDaySummary {
   cash_collected: string;
   deposits_collected: string;
   net_sales: string;
+  shipping_total: string;
+  alterations_total: string;
+  gift_card_load_count: number;
+  gift_card_load_total: string;
   pickup_count: number;
   special_order_sale_count: number;
   appointment_count: number;
@@ -302,6 +310,7 @@ type HelcimCloseReviewAction =
   | "refund_required";
 
 type RecoveryManagerMode =
+  | "close_with_issues"
   | "replay_current"
   | "replay_historical"
   | "reconcile_external_current"
@@ -315,6 +324,12 @@ interface ExternalRecoveryDraft {
   clientJobKey: string;
   targetTransactionDisplayId: string;
   providerTransactionId: string;
+}
+
+function hasClosedOrderPaymentTarget(job: ServerRecoveryJob): boolean {
+  return (job.last_error ?? "")
+    .toLowerCase()
+    .includes("order payment target transaction is not open");
 }
 
 const HELCIM_CLOSE_REVIEW_ACTIONS: {
@@ -580,7 +595,7 @@ export default function CloseRegisterModal({
   }, [backofficeHeaders]);
 
   const fetchBookedDaySummaryForZ = useCallback(
-    async (businessDate?: string | null): Promise<ZReportDaySummary | null> => {
+    async (businessDate?: string | null): Promise<ZReportDaySummary> => {
       const params = new URLSearchParams({ basis: "booked" });
       if (businessDate?.trim()) {
         params.set("preset", "custom");
@@ -589,19 +604,23 @@ export default function CloseRegisterModal({
       } else {
         params.set("preset", "today");
       }
-      try {
-        const res = await fetch(
-          `${baseUrl}/api/insights/register-day-activity?${params}`,
-          {
-            headers: mergedPosStaffHeaders(backofficeHeaders),
-          },
+      params.set("complete_output", "true");
+      const res = await fetch(
+        `${baseUrl}/api/insights/register-day-activity?${params}`,
+        {
+          headers: mergedPosStaffHeaders(backofficeHeaders),
+        },
+      );
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as {
+          error?: string;
+        };
+        throw new Error(
+          body.error ??
+            "Quick Look totals could not be loaded. The Z-report was not opened.",
         );
-        if (!res.ok) return null;
-        return (await res.json()) as ZReportDaySummary;
-      } catch (error) {
-        console.warn("Failed to load Z-report day summary counters", error);
-        return null;
       }
+      return (await res.json()) as ZReportDaySummary;
     },
     [backofficeHeaders, baseUrl],
   );
@@ -1205,13 +1224,14 @@ export default function CloseRegisterModal({
       const closingNotesForReport = isClosedOutput
         ? (closedSnapshot?.closing_notes ?? "")
         : buildClosingNotesForReport();
-      const daySummary = isClosedOutput
-        ? null
-        : await fetchBookedDaySummaryForZ(
+      const daySummary =
+        closedSnapshot?.day_summary ??
+        (await fetchBookedDaySummaryForZ(
+          closedSnapshot?.business_date ??
             currentRecon.qbo_activity_date ??
-              currentRecon.qbo_journal?.activity_date ??
-              null,
-          );
+            currentRecon.qbo_journal?.activity_date ??
+            null,
+        ));
       const closedDiscrepancyCents =
         closedSnapshot?.discrepancy == null
           ? null
@@ -1225,7 +1245,11 @@ export default function CloseRegisterModal({
         action,
         registerOrdinal,
         cashierLabel: cashierName,
-        openedAt: null,
+        openedAt:
+          closedSnapshot?.opened_at ??
+          currentRecon.open_period_started_at ??
+          null,
+        closedAt: closedSnapshot?.closed_at ?? null,
         openingCents: currentOpeningCents,
         cashSalesCents: currentCashSalesCents,
         netAdjustmentsCents: currentNetAdjCents,
@@ -1261,33 +1285,34 @@ export default function CloseRegisterModal({
         overrideSummary: currentRecon.override_summary ?? [],
         tendersByLane: currentRecon.tenders_by_lane,
         manualDrawerOpens: currentRecon.manual_drawer_opens ?? [],
-        includeSupplementalSummary: daySummary != null,
-        newOrdersCount: daySummary?.special_order_sale_count,
-        ordersPickedUpCount: daySummary?.pickup_count,
-        todayAppointmentsCount: daySummary?.appointment_count,
-        newAppointmentsCount: daySummary?.new_appointment_count,
-        newWeddingPartiesCount: daySummary?.new_wedding_parties_count,
-        newInvoicesCount: daySummary?.new_invoice_count,
-        salesCount: daySummary?.sales_count,
-        salesTaxTotal: daySummary?.sales_tax_total,
-        cashCollected: daySummary?.cash_collected,
-        depositsCollected: daySummary?.deposits_collected,
-        netSales: daySummary?.net_sales,
-        pickupsToday: daySummary
-          ? (daySummary.pickups_today ?? []).map((pickup) => ({
-              occurred_at: pickup.occurred_at,
-              customer_name: pickup.customer_name,
-              customer_code: pickup.customer_code,
-              short_id: pickup.short_id,
-              sales_total: pickup.sales_total,
-              transaction_total: pickup.transaction_total,
-              items: pickup.items?.map((item) => ({
-                name: item.name,
-                sku: item.sku,
-                quantity: item.quantity,
-              })),
-            }))
-          : undefined,
+        newOrdersCount: daySummary.special_order_sale_count,
+        ordersPickedUpCount: daySummary.pickup_count,
+        todayAppointmentsCount: daySummary.appointment_count,
+        newAppointmentsCount: daySummary.new_appointment_count,
+        newWeddingPartiesCount: daySummary.new_wedding_parties_count,
+        newInvoicesCount: daySummary.new_invoice_count,
+        salesCount: daySummary.sales_count,
+        salesTaxTotal: daySummary.sales_tax_total,
+        cashCollected: daySummary.cash_collected,
+        depositsCollected: daySummary.deposits_collected,
+        netSales: daySummary.net_sales,
+        shippingTotal: daySummary.shipping_total,
+        alterationsTotal: daySummary.alterations_total,
+        giftCardLoadCount: daySummary.gift_card_load_count,
+        giftCardLoadTotal: daySummary.gift_card_load_total,
+        pickupsToday: (daySummary.pickups_today ?? []).map((pickup) => ({
+          occurred_at: pickup.occurred_at,
+          customer_name: pickup.customer_name,
+          customer_code: pickup.customer_code,
+          short_id: pickup.short_id,
+          sales_total: pickup.sales_total,
+          transaction_total: pickup.transaction_total,
+          items: pickup.items?.map((item) => ({
+            name: item.name,
+            sku: item.sku,
+            quantity: item.quantity,
+          })),
+        })),
         qboActivityDate:
           currentRecon.qbo_activity_date ??
           currentRecon.qbo_journal?.activity_date ??
@@ -1333,7 +1358,11 @@ export default function CloseRegisterModal({
     ],
   );
 
-  const handleFinalClose = async (): Promise<boolean> => {
+  const handleFinalClose = async (managerApproval?: {
+    managerStaffId: string;
+    managerPin: string;
+    reason: string;
+  }): Promise<boolean> => {
     setShowFinalConfirm(false);
     if (!cashDepositDate.trim()) {
       toast("Enter the Daily Cash Deposit date before closing.", "error");
@@ -1360,7 +1389,13 @@ export default function CloseRegisterModal({
     const closingNotesForReport = buildClosingNotesForReport();
     const cashDepositCentsForClose = parseMoneyToCents(cashDepositAmount);
     try {
-      await refreshUnresolvedCloseIssuesBeforeClose();
+      const refreshedIssues = await refreshUnresolvedCloseIssuesBeforeClose();
+      if (refreshedIssues && !managerApproval) {
+        setRecoveryManagerJobKeys([]);
+        setRecoveryManagerMode("close_with_issues");
+        setLoading(false);
+        return false;
+      }
       const res = await fetch(`${baseUrl}/api/sessions/${sessionId}/close`, {
         method: "POST",
         headers: jsonAuthHeaders(),
@@ -1370,6 +1405,9 @@ export default function CloseRegisterModal({
           cash_deposit_amount: centsToFixed2(cashDepositCentsForClose),
           closing_notes: closingNotesForReport || null,
           closing_comments: closingComments.trim() || null,
+          manager_staff_id: managerApproval?.managerStaffId ?? null,
+          manager_pin: managerApproval?.managerPin ?? null,
+          manager_reason: managerApproval?.reason ?? null,
         }),
       });
       if (!res.ok) {
@@ -1429,9 +1467,33 @@ export default function CloseRegisterModal({
     }
   };
 
+  const prepareFinalClose = async () => {
+    setLoading(true);
+    try {
+      const refreshedIssues = await refreshUnresolvedCloseIssuesBeforeClose();
+      if (refreshedIssues) {
+        setRecoveryManagerJobKeys([]);
+        setRecoveryManagerMode("close_with_issues");
+      } else {
+        setShowFinalConfirm(true);
+      }
+    } catch (error) {
+      toast(
+        error instanceof Error
+          ? error.message
+          : "Close issues could not be refreshed.",
+        "error",
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const replayableRecoveryJobs = serverRecoveryJobs.filter(
     (job) =>
-      job.kind === "checkout_offline" || job.kind === "checkout_unconfirmed",
+      (job.kind === "checkout_offline" ||
+        job.kind === "checkout_unconfirmed") &&
+      !hasClosedOrderPaymentTarget(job),
   );
   const currentExternalRecoveryJobs = serverRecoveryJobs.filter(
     (job) => job.kind === "checkout_unconfirmed",
@@ -1448,7 +1510,9 @@ export default function CloseRegisterModal({
   );
   const historicalReplayableRecoveryJobs = historicalRecoveryJobs.filter(
     (job) =>
-      job.kind === "checkout_offline" || job.kind === "checkout_unconfirmed",
+      (job.kind === "checkout_offline" ||
+        job.kind === "checkout_unconfirmed") &&
+      !hasClosedOrderPaymentTarget(job),
   );
   const historicalExternalRecoveryJobs = historicalRecoveryJobs.filter(
     (job) => job.kind === "checkout_unconfirmed",
@@ -1489,6 +1553,13 @@ export default function CloseRegisterModal({
     pin: string,
     managerId: string,
   ): Promise<boolean> => {
+    if (recoveryManagerMode === "close_with_issues") {
+      return handleFinalClose({
+        managerStaffId: managerId,
+        managerPin: pin,
+        reason: `Authorized Z-close with unresolved register issues for ${recon?.qbo_activity_date ?? "the business day"}.`,
+      });
+    }
     const reason = recoveryManagerReason.trim();
     if (recoveryReasonLength(reason) < 12) {
       throw new Error(
@@ -1754,6 +1825,7 @@ export default function CloseRegisterModal({
   };
 
   const renderRecoveryManagerModal = () => {
+    const isCloseWithIssues = recoveryManagerMode === "close_with_issues";
     const isExternalReconciliation =
       recoveryManagerMode === "reconcile_external_current" ||
       recoveryManagerMode === "reconcile_external_historical";
@@ -1763,14 +1835,18 @@ export default function CloseRegisterModal({
     const isExchangeSettlement =
       recoveryManagerMode === "settle_current_exchange" ||
       recoveryManagerMode === "settle_historical_exchange";
-    const title = isExternalReconciliation
+    const title = isCloseWithIssues
+      ? "Close Register With Unresolved Issues"
+      : isExternalReconciliation
       ? "Confirm Existing Paid Transaction"
       : isExchangeSettlement
         ? "Complete Exchange Settlement"
         : isFollowUpVerification
           ? "Verify Completed Follow-up"
           : "Recover Checkout Sales";
-    const message = isExternalReconciliation
+    const message = isCloseWithIssues
+      ? "Authorize this Z-close while preserving every unresolved checkout, workstation, and Helcim review item for follow-up. This approval closes and prints the Register only; it does not replay a checkout, create a sale, attach a payment, or dismiss an issue."
+      : isExternalReconciliation
       ? "Authorize resolution only after the named Transaction Record, checkout identity, customer, amount, Register session, currency, and final Helcim provider transaction all match the immutable recovery evidence. Riverside does not create, move, retry, or refund a payment in this step."
       : isExchangeSettlement
         ? "Authorize completion from the locked Main Hub exchange record. Riverside verifies the original exchange-credit tender against its origin Register session and records any new relief or refund movement in this current Register session. No financial amount comes from this approval screen."
@@ -1946,7 +2022,7 @@ export default function CloseRegisterModal({
     );
   };
 
-  const renderOfflineQueueBlocker = () => {
+  const renderOfflineQueueBlocker = (allowRecoveryActions = true) => {
     const stationWarnings =
       currentUnresolvedCloseIssues?.station_warnings ?? [];
     const listedRecoveryKeys = new Set(
@@ -2032,16 +2108,18 @@ export default function CloseRegisterModal({
               Recovery key: {job.client_job_key}
             </p>
             <p className="mt-1 font-semibold">
-              Try exact replay first. If the payment was already reconciled into
-              a completed Transaction Record, use the verified existing-payment
-              path below instead of recording another sale or card charge.
+              {hasClosedOrderPaymentTarget(job)
+                ? "Exact replay is unavailable because the saved order-payment target is no longer open. Use Match Existing Paid Transaction only after the completed Transaction Record and Helcim payment match exactly."
+                : "Try exact replay first. If the payment was already reconciled into a completed Transaction Record, use the verified existing-payment path instead of recording another sale or card charge."}
             </p>
             {job.last_error?.trim() ? (
               <p className="mt-1 font-semibold text-app-danger">
                 Last recorded issue: {job.last_error}
               </p>
             ) : null}
-            {renderExternalReconciliation(job, false)}
+            {allowRecoveryActions
+              ? renderExternalReconciliation(job, false)
+              : null}
           </div>
         ))}
         {currentPickupFollowUpJobs.map((job) => {
@@ -2074,72 +2152,85 @@ export default function CloseRegisterModal({
             </div>
           );
         })}
-        <label className="mt-3 block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-          Manager recovery reason
-          <textarea
-            value={recoveryManagerReason}
-            onChange={(event) => setRecoveryManagerReason(event.target.value)}
-            maxLength={500}
-            placeholder="Explain the recovery action (minimum 12 characters)."
-            className="ui-input mt-2 min-h-20 w-full p-3 text-xs normal-case tracking-normal"
-          />
-        </label>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {replayableRecoveryJobs.length > 0 ? (
-            <button
-              type="button"
-              disabled={
-                loading || recoveryReasonLength(recoveryManagerReason) < 12
-              }
-              onClick={() =>
-                openRecoveryManagerApproval(
-                  "replay_current",
-                  replayableRecoveryJobs,
-                )
-              }
-              className="ui-btn-primary px-3 py-2 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
-            >
-              Manager Recover {replayableRecoveryJobs.length} Sale
-              {replayableRecoveryJobs.length === 1 ? "" : "s"}
-            </button>
-          ) : null}
-          {currentExchangeSettlementJobs.length > 0 ? (
-            <button
-              type="button"
-              disabled={
-                loading || recoveryReasonLength(recoveryManagerReason) < 12
-              }
-              onClick={() =>
-                openRecoveryManagerApproval(
-                  "settle_current_exchange",
-                  currentExchangeSettlementJobs,
-                )
-              }
-              className="ui-btn-primary px-3 py-2 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
-            >
-              Complete {currentExchangeSettlementJobs.length} Exchange
-              Settlement{currentExchangeSettlementJobs.length === 1 ? "" : "s"}
-            </button>
-          ) : null}
-          {currentPickupFollowUpJobs.length > 0 ? (
-            <button
-              type="button"
-              disabled={
-                loading || recoveryReasonLength(recoveryManagerReason) < 12
-              }
-              onClick={() =>
-                openRecoveryManagerApproval(
-                  "verify_current_follow_up",
-                  currentPickupFollowUpJobs,
-                )
-              }
-              className="ui-btn-primary px-3 py-2 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
-            >
-              Verify {currentPickupFollowUpJobs.length} Completed Follow-up
-              {currentPickupFollowUpJobs.length === 1 ? "" : "s"}
-            </button>
-          ) : null}
-        </div>
+        {allowRecoveryActions ? (
+          <>
+            <label className="mt-3 block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+              Manager recovery reason
+              <textarea
+                value={recoveryManagerReason}
+                onChange={(event) =>
+                  setRecoveryManagerReason(event.target.value)
+                }
+                maxLength={500}
+                placeholder="Explain the recovery action (minimum 12 characters)."
+                className="ui-input mt-2 min-h-20 w-full p-3 text-xs normal-case tracking-normal"
+              />
+            </label>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {replayableRecoveryJobs.length > 0 ? (
+                <button
+                  type="button"
+                  disabled={
+                    loading || recoveryReasonLength(recoveryManagerReason) < 12
+                  }
+                  onClick={() =>
+                    openRecoveryManagerApproval(
+                      "replay_current",
+                      replayableRecoveryJobs,
+                    )
+                  }
+                  className="ui-btn-primary px-3 py-2 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+                >
+                  Attempt Exact Replay for {replayableRecoveryJobs.length} Sale
+                  {replayableRecoveryJobs.length === 1 ? "" : "s"}
+                </button>
+              ) : null}
+              {currentExchangeSettlementJobs.length > 0 ? (
+                <button
+                  type="button"
+                  disabled={
+                    loading || recoveryReasonLength(recoveryManagerReason) < 12
+                  }
+                  onClick={() =>
+                    openRecoveryManagerApproval(
+                      "settle_current_exchange",
+                      currentExchangeSettlementJobs,
+                    )
+                  }
+                  className="ui-btn-primary px-3 py-2 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+                >
+                  Complete {currentExchangeSettlementJobs.length} Exchange
+                  Settlement
+                  {currentExchangeSettlementJobs.length === 1 ? "" : "s"}
+                </button>
+              ) : null}
+              {currentPickupFollowUpJobs.length > 0 ? (
+                <button
+                  type="button"
+                  disabled={
+                    loading || recoveryReasonLength(recoveryManagerReason) < 12
+                  }
+                  onClick={() =>
+                    openRecoveryManagerApproval(
+                      "verify_current_follow_up",
+                      currentPickupFollowUpJobs,
+                    )
+                  }
+                  className="ui-btn-primary px-3 py-2 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+                >
+                  Verify {currentPickupFollowUpJobs.length} Completed Follow-up
+                  {currentPickupFollowUpJobs.length === 1 ? "" : "s"}
+                </button>
+              ) : null}
+            </div>
+          </>
+        ) : (
+          <p className="mt-3 rounded-xl border border-app-warning/25 bg-app-surface/70 p-2 font-semibold">
+            Closing with these items requires Manager Access. The close
+            approval below preserves them for follow-up and never runs a
+            checkout recovery action.
+          </p>
+        )}
       </div>
     );
   };
@@ -2856,9 +2947,6 @@ export default function CloseRegisterModal({
     cashDepositDate.trim() === "" ? "Cash deposit date" : null,
   ].filter(Boolean);
   const closeReady = closeBlockers.length === 0;
-  const unresolvedIssueConfirmation = hasUnresolvedCloseIssues
-    ? " Unresolved checkout, workstation, and card follow-up remains open. The Main Hub will capture the close-time evidence it can verify; any client refresh warning shown here applies to this preview."
-    : "";
   const closeInsightFacts = {
     title: `Register #${registerOrdinal ?? registerLane ?? "?"} close review`,
     metrics: [
@@ -3184,14 +3272,14 @@ export default function CloseRegisterModal({
               </p>
               {(recon.pending_business_dates?.length ?? 0) > 1 ? (
                 <p className="mt-1 font-semibold leading-relaxed text-app-text-muted">
-                  {recon.pending_business_dates!.length} business days are
-                  waiting to close. This report contains only{" "}
-                  {recon.qbo_activity_date}; after it closes,{" "}
-                  {recon.pending_business_dates![1]} must be closed separately.
+                  This legacy till group was partially closed by an older
+                  version. Finish {recon.qbo_activity_date} before the remaining
+                  legacy date.
                 </p>
               ) : (
                 <p className="mt-1 font-semibold text-app-text-muted">
-                  Only activity from this store-local business date is included.
+                  This date was fixed when Register #1 opened. Closing the
+                  following morning does not change it to today.
                 </p>
               )}
             </div>
@@ -3240,7 +3328,7 @@ export default function CloseRegisterModal({
               className="mt-3"
             />
           </div>
-          {renderOfflineQueueBlocker()}
+          {renderOfflineQueueBlocker(false)}
           {renderHistoricalRecovery()}
           {renderHelcimReviewBlocker()}
           {(recon.tenders_by_lane?.length ?? 0) > 1 ? (
@@ -3647,7 +3735,7 @@ export default function CloseRegisterModal({
             </button>
             <button
               type="button"
-              onClick={() => setShowFinalConfirm(true)}
+              onClick={() => void prepareFinalClose()}
               disabled={loading || !closeReady}
               className="ui-btn-primary flex-1 py-4 text-sm font-black shadow-lg shadow-app-accent/20"
             >
@@ -3661,8 +3749,8 @@ export default function CloseRegisterModal({
         title="Close and print?"
         message={
           (recon?.pending_business_dates?.length ?? 0) > 1
-            ? `This closes only ${recon?.qbo_activity_date}. ${recon?.pending_business_dates?.[1]} will remain waiting for its own separate Z-Report.${unresolvedIssueConfirmation}`
-            : `This closes the till group and creates the Z-Report for ${recon?.qbo_activity_date ?? "the business day"}.${unresolvedIssueConfirmation}`
+            ? `This finishes the legacy partial Z-close for ${recon?.qbo_activity_date}.`
+            : `This closes the till group and creates the Z-Report for the open period dated ${recon?.qbo_activity_date ?? "when Register #1 opened"}.`
         }
         confirmLabel="Close & Print"
         variant="danger"

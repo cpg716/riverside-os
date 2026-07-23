@@ -911,7 +911,7 @@ test.describe("Register close / reconciliation", () => {
     expect(withNotes.status()).toBe(200);
   });
 
-  test("partial business-day close records a missing fresh acknowledgement on the next close", async ({
+  test("one Z-close keeps the Register open-period date across transaction dates", async ({
     request,
   }) => {
     await closeAnyExistingOpenGroup(request);
@@ -945,75 +945,54 @@ test.describe("Register close / reconciliation", () => {
       product,
     );
 
-    const closeCurrentBusinessDate = async () => {
-      const reconciliation = await fetchReconciliation(
-        request,
-        opened.session_id,
-        opened.pos_api_token ?? "",
-      );
-      const response = await request.post(
-        `${apiBase()}/api/sessions/${opened.session_id}/close`,
-        {
-          headers: {
-            "Content-Type": "application/json",
-            "x-riverside-pos-session-id": opened.session_id,
-            "x-riverside-pos-session-token": opened.pos_api_token ?? "",
-            "x-riverside-station-key": "station-e2e",
-          },
-          data: {
-            actual_cash: reconciliation.physical_expected_cash,
-            closing_notes:
-              "E2E exact physical drawer count across pending business days",
-            closing_comments: null,
-          },
-          failOnStatusCode: false,
-        },
-      );
-      return { response, reconciliation, bodyText: await response.text() };
-    };
-
     await prepareGroupForClose(
       request,
       opened.session_id,
       opened.pos_api_token ?? "",
     );
-    const firstClose = await closeCurrentBusinessDate();
-    expect(firstClose.reconciliation.pending_business_dates).toHaveLength(2);
-    expect(
-      firstClose.response.status(),
-      firstClose.bodyText.slice(0, 1000),
-    ).toBe(200);
-    expect(JSON.parse(firstClose.bodyText)).toMatchObject({
-      status: "business_day_closed",
-      till_group_closed: false,
-    });
-
-    const openAfterPartial = await listOpenSessions(request);
-    const primaryAfterPartial = openAfterPartial.find(
-      (row) => row.session_id === opened.session_id,
+    const closeReconciliation = await fetchReconciliation(
+      request,
+      opened.session_id,
+      opened.pos_api_token ?? "",
     );
-    const groupAfterPartial = openAfterPartial.filter(
-      (row) =>
-        row.till_close_group_id === primaryAfterPartial?.till_close_group_id,
+    expect(closeReconciliation.qbo_activity_date).toBe(
+      initialReconciliation.qbo_activity_date,
     );
-    expect(
-      groupAfterPartial.every((row) => row.lifecycle_status === "open"),
-    ).toBeTruthy();
-
-    const staleClose = await closeCurrentBusinessDate();
-    expect(staleClose.reconciliation.pending_business_dates).toHaveLength(1);
-    expect(
-      staleClose.response.status(),
-      staleClose.bodyText.slice(0, 1000),
-    ).toBe(200);
-    expect(JSON.parse(staleClose.bodyText)).toMatchObject({
-      till_group_closed: true,
-      unresolved_close_issues: {
-        station_warnings: expect.arrayContaining([
-          expect.stringMatching(/acknowledgement missing/i),
-        ]),
+    expect(closeReconciliation.pending_business_dates).toEqual([
+      initialReconciliation.qbo_activity_date,
+    ]);
+    const closeResponse = await request.post(
+      `${apiBase()}/api/sessions/${opened.session_id}/close`,
+      {
+        headers: {
+          "Content-Type": "application/json",
+          "x-riverside-pos-session-id": opened.session_id,
+          "x-riverside-pos-session-token": opened.pos_api_token ?? "",
+          "x-riverside-station-key": "station-e2e",
+        },
+        data: {
+          actual_cash: closeReconciliation.physical_expected_cash,
+          closing_notes:
+            "E2E exact physical drawer count for one Register open period",
+          closing_comments: null,
+        },
+        failOnStatusCode: false,
       },
+    );
+    const closeBodyText = await closeResponse.text();
+    expect(
+      closeResponse.status(),
+      closeBodyText.slice(0, 1000),
+    ).toBe(200);
+    expect(JSON.parse(closeBodyText)).toMatchObject({
+      status: "closed",
+      business_date: initialReconciliation.qbo_activity_date,
+      till_group_closed: true,
     });
+    const openAfterClose = await listOpenSessions(request);
+    expect(
+      openAfterClose.some((row) => row.session_id === opened.session_id),
+    ).toBeFalsy();
   });
 
   test("pending Helcim terminal attempt is captured without blocking Z-close", async ({
