@@ -1620,6 +1620,10 @@ function AppShell({
                   setActiveSubSection("hub");
                 } else if (tab === "settings") {
                   setActiveSubSection("hub");
+                } else if (tab === "orders") {
+                  // Back Office Orders is the complete order history. POS keeps
+                  // its explicit open-only pickup queue in PosShell.
+                  setActiveSubSection("all");
                 }
                 if (window.innerWidth < 1024) setSidebarCollapsed(true);
               }}

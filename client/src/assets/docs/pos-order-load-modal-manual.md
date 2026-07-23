@@ -18,11 +18,11 @@ tags: pos, orders, pickup, fulfillment
 
 ![Checkout drawer](../images/help/pos-order-load-modal/workflow-3.png)
 
-Use this window when a customer already has Special, Custom, or Wedding work and staff need to review what is still open for payment, editing, or pickup. The POS order loader shows open orders only.
+Use this window when a customer already has Special, Custom, or Wedding work and staff need to review payment, editing, pickup, details, or receipt recovery. The POS order loader shows open and completed order records; completed lines remain unavailable for another pickup.
 
 ## What it shows
 
-- The customer's open order work only
+- The customer's open and completed order records
 - Order date, amount paid, and balance due
 - A plain lifecycle note such as **Deposit received**, **Balance paid**, or **Waiting on measurements**
 - The order lines that are still unfulfilled

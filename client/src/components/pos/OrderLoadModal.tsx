@@ -260,7 +260,9 @@ export default function OrderLoadModal({
       customer_id: customerId,
       limit: "25",
       record_scope: "orders",
-      status_scope: "open",
+        // Keep completed order records available for details and receipt
+        // recovery; completed lines remain ineligible for another pickup.
+        status_scope: "all",
     });
     if (registerSessionId) params.set("register_session_id", registerSessionId);
     fetch(`${baseUrl}/api/transactions?${params.toString()}`, {

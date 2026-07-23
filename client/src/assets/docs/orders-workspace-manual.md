@@ -18,7 +18,7 @@ tags: orders, fulfillment, deposits, tracking
 
 ![Operations pickup context](../images/help/orders-workspace/workflow-3.png)
 
-The Orders workspace is the main place to review unfulfilled Special, Custom, and Wedding order work. Use **Transaction Records** for the complete sale history, including takeaways, gift cards, alterations, payments, refunds, and receipts.
+The Orders workspace is the main place to review Special, Custom, and Wedding order work. Back Office **Orders** opens to **All Orders**, so fulfilled and closed order records remain searchable after pickup. Use **Open Orders** for current fulfillment work and **Transaction Records** for the complete sale history, including takeaways, gift cards, alterations, payments, refunds, and receipts.
 
 ## What staff can do here
 

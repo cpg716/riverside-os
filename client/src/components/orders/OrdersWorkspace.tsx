@@ -1053,7 +1053,7 @@ export default function OrdersWorkspace({
   refreshSignal?: number;
 }) {
   const defaultViewPreset: OrderViewPreset =
-    activeSection === "all" ? "all" : "open";
+    activeSection === "open" ? "open" : "all";
   const baseUrl = getBaseUrl();
   const { toast } = useToast();
   const { backofficeHeaders, hasPermission } = useBackofficeAuth();
