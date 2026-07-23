@@ -59,7 +59,7 @@ test("only exact audited recovery evidence clears the active Register sale", () 
 
   expect(offlineQueue).toContain("CHECKOUT_RECOVERY_RESOLVED_EVENT");
   expect(offlineQueue).toContain("serverCheckoutClientId !== checkoutClientId");
-  expect(offlineQueue).toContain("job.client_job_key === recoveryKey");
+  expect(offlineQueue).toContain("job.client_job_key !== recoveryKey");
   expect(offlineQueue).toContain("job.kind !== serverKindForCheckout(item)");
   expect(offlineQueue).toContain("!transactionId");
   expect(offlineQueue).toContain("getRecoveryJobByKeyWithStaffAccess");

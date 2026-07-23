@@ -226,6 +226,7 @@ export async function resetOpenRegisterSessions(request: APIRequestContext) {
   const group = rows.filter(
     (row) => row.till_close_group_id?.trim() === tillCloseGroupId,
   );
+  const managerStaffId = await verifyStaffId(request);
 
   const attachSession = async (openSessionId: string): Promise<string> => {
     const tokenRes = await request.post(
@@ -379,6 +380,10 @@ export async function resetOpenRegisterSessions(request: APIRequestContext) {
             actualCash === expectedCash
               ? "E2E RMS permissions reset"
               : "E2E RMS permissions reset; negative expected cash clamped to zero",
+          manager_staff_id: managerStaffId,
+          manager_pin: staffCode(),
+          manager_reason:
+            "E2E Manager Access approves reset with unresolved recovery evidence",
         },
         failOnStatusCode: false,
       },
