@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added manager-approved Register backdating that changes the transaction business date without moving actual tender-day evidence, plus explicit receipt and QBO clearing documentation.
 
 ### Fixed
+- **Main Hub Migration 159 Update Compatibility**: Restored the canonical
+  migration file byte-for-byte to the checksum already recorded on the Main
+  Hub. The failed updater correctly rolled back before applying changes; the
+  rebuilt package no longer rejects migration 159 because of a removed trailing
+  newline, and no migration SQL or production data is changed by this repair.
+- **Partial Pickup Without Automatic Payoff**: Selecting one or several pickup
+  lines now loads only those items and does not add the remaining Transaction
+  Record balance as an Order Payment. Insufficient cumulative payment coverage
+  can be released through explicit audited Manager Access; unselected items and
+  the remaining balance stay open.
 - **Abandoned Helcim Setup Sale Lock**: HelcimPay now creates a pending provider
   attempt only after hosted checkout initialization succeeds. A stale tokenless
   setup that never opened card entry is finalized as

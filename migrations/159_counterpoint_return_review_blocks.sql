@@ -49,3 +49,4 @@ CREATE INDEX IF NOT EXISTS counterpoint_return_review_transaction_idx
 
 COMMENT ON TABLE public.counterpoint_return_review_blocks IS
     'Reviewed fail-closed return/refund blocks for imported Counterpoint transactions whose exact source financial or lifecycle evidence remains ambiguous. The table is safety metadata only and never changes money, quantities, fulfillment, payments, or inventory.';
+
