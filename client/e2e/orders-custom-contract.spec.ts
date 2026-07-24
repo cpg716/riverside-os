@@ -1157,7 +1157,7 @@ test.describe("Orders custom vs special contract", () => {
     });
     const pickupText = await pickupRes.text();
     expect(pickupRes.status(), pickupText.slice(0, 1000)).toBe(400);
-    expect(pickupText).toContain("Balance Due");
+    expect(pickupText).toContain("exceeds recorded payments by $43.99");
   });
 
   test("transaction items endpoint supports review before and after pickup", async ({
