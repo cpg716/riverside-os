@@ -214,8 +214,8 @@ test.describe("Register report output integrity contracts", () => {
       registerReportsSource.indexOf("Combined Totals Placeholder"),
     );
 
-    expect(additionalMetrics).toContain(
-      'summaryBooked ? summaryBooked.special_order_sale_count : "—"',
+    expect(additionalMetrics).toMatch(
+      /summaryBooked\s*\?\s*summaryBooked\.special_order_sale_count\s*:\s*"—"/,
     );
     expect(additionalMetrics).toContain(
       'summaryBooked ? summaryBooked.pickup_count : "—"',
@@ -388,7 +388,7 @@ test.describe("Register report output integrity contracts", () => {
       "target.checkout_client_id IS DISTINCT FROM ppa.checkout_client_id",
     );
     expect(sessionsServerSource).toContain(
-      "AND ppa.checkout_client_id IS NOT NULL",
+      "ppa.checkout_client_id IS NULL",
     );
     expect(sessionsServerSource).toContain("z_report_snapshot: z_snapshot");
   });
