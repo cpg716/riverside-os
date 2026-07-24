@@ -1249,10 +1249,21 @@ function Ensure-RiversideMeilisearchHost(
   }
 
   Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+  # Remove the restart policy before replacing the binary. Otherwise the task
+  # can restart Meilisearch after Stop-ScheduledTask and relock the executable.
+  Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
   Get-Process -Name "meilisearch" -ErrorAction SilentlyContinue | ForEach-Object {
     Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
   }
-  Start-Sleep -Seconds 1
+  $stopDeadline = (Get-Date).AddSeconds(15)
+  do {
+    $remainingMeilisearch = @(Get-Process -Name "meilisearch" -ErrorAction SilentlyContinue)
+    if ($remainingMeilisearch.Count -eq 0) { break }
+    Start-Sleep -Milliseconds 250
+  } while ((Get-Date) -lt $stopDeadline)
+  if ($remainingMeilisearch.Count -gt 0) {
+    throw "Meilisearch did not stop before its executable was replaced."
+  }
 
   New-Item -ItemType Directory -Force -Path $meiliDir | Out-Null
   if (Test-Path $meiliSrc) {
@@ -1264,7 +1275,6 @@ function Ensure-RiversideMeilisearchHost(
   New-Item -ItemType Directory -Force -Path $dumpDir | Out-Null
 
   $argument = "--http-addr 127.0.0.1:$port --master-key `"$apiKey`" --db-path `"$dataDir`" --snapshot-dir `"$snapshotDir`" --dump-dir `"$dumpDir`" --schedule-snapshot=86400 --no-analytics --env production"
-  Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
   $action = New-ScheduledTaskAction -Execute $meiliExe -Argument $argument -WorkingDirectory $meiliDir
   $trigger = New-ScheduledTaskTrigger -AtStartup
   $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -RunLevel Highest
