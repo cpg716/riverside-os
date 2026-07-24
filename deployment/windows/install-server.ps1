@@ -1340,7 +1340,7 @@ function Resolve-InstalledRosieModelPath([string]$InstallRoot, [string]$PackageR
   return $null
 }
 
-function Write-ServerEnv($Path, $Config, $DatabaseUrl, $FrontendDist, $RosieModelPath, $PreservedRosieEnvironment = $null) {
+function Write-ServerEnv($Path, $Config, $DatabaseUrl, $BackupDatabaseUrl, $FrontendDist, $RosieModelPath, $PreservedRosieEnvironment = $null) {
   $server = $Config.server
   $configuredLlamaProfile = ""
   if ($server.environment) {
@@ -1359,6 +1359,7 @@ function Write-ServerEnv($Path, $Config, $DatabaseUrl, $FrontendDist, $RosieMode
   }
   $lines = @(
     "DATABASE_URL=$DatabaseUrl",
+    "RIVERSIDE_BACKUP_DATABASE_URL=$BackupDatabaseUrl",
     "FRONTEND_DIST=$FrontendDist",
     "RIVERSIDE_HTTP_BIND=$httpBind",
     "RIVERSIDE_MODE=$environmentMode",
@@ -1387,7 +1388,8 @@ function Write-ServerEnv($Path, $Config, $DatabaseUrl, $FrontendDist, $RosieMode
   if ($server.environment) {
     foreach ($prop in $server.environment.PSObject.Properties) {
       $isPreservedRosieSetting = $PreservedRosieEnvironment -and $PreservedRosieEnvironment.ContainsKey($prop.Name)
-      if (-not $isPreservedRosieSetting -and $null -ne $prop.Value -and "$($prop.Value)" -ne "") {
+      $isInstallerManagedBackupConnection = $prop.Name -eq "RIVERSIDE_BACKUP_DATABASE_URL"
+      if (-not $isPreservedRosieSetting -and -not $isInstallerManagedBackupConnection -and $null -ne $prop.Value -and "$($prop.Value)" -ne "") {
         $lines += "$($prop.Name)=$($prop.Value)"
       }
     }
@@ -2075,8 +2077,11 @@ $preMigrationBackupCreated = $false
 $databaseRoleCredentialsUpdated = $false
 $databaseUrlUser = [System.Uri]::EscapeDataString("$($db.appUser)")
 $databaseUrlPassword = [System.Uri]::EscapeDataString("$($db.appPassword)")
+$backupDatabaseUrlUser = [System.Uri]::EscapeDataString("$($db.adminUser)")
+$backupDatabaseUrlPassword = [System.Uri]::EscapeDataString("$($db.adminPassword)")
 $databaseUrlName = [System.Uri]::EscapeDataString("$($db.databaseName)")
 $databaseUrl = "postgresql://${databaseUrlUser}:${databaseUrlPassword}@$($db.host):$($db.port)/${databaseUrlName}"
+$backupDatabaseUrl = "postgresql://${backupDatabaseUrlUser}:${backupDatabaseUrlPassword}@$($db.host):$($db.port)/${databaseUrlName}"
 if ($hadExistingServerInstall -and -not $SkipMigrations) {
   $preflightPsql = Resolve-PsqlPath $db
   if (-not (Test-PostgresReachable $db.host $db.port)) {
@@ -2262,7 +2267,7 @@ if ($script:meilisearchConfigModified) {
   Write-Host "Saved Meilisearch runtime settings to $ConfigPath." -ForegroundColor Green
 }
 
-Write-ServerEnv $envPath $config $databaseUrl $clientDist $rosieModelPath $preservedRosieEnvironment
+Write-ServerEnv $envPath $config $databaseUrl $backupDatabaseUrl $clientDist $rosieModelPath $preservedRosieEnvironment
 Set-MachineEnvironmentFromServerConfig $config
 Ensure-CloudflaredRosIngress $config $serverPort
 

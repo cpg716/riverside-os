@@ -32,6 +32,8 @@ Snapshots are full PostgreSQL dumps stored in the configured backup directory on
 ### Create Backup:
 Use **Create Backup** for an immediate snapshot. This is recommended before major catalog imports or schema updates. Riverside writes into a non-catalog partial file and publishes it atomically only after PostgreSQL can read the new archive catalog; an empty, truncated, or invalid dump never appears as a selectable snapshot. Invalid stored backup settings are reported as an error and never silently fall back to unencrypted defaults.
 
+The status below **Backup Directory** must say **Complete database backup access is configured** on the Main Hub. If it warns that complete access is missing, a schema owned by another PostgreSQL role can make both scheduled and manual backups fail. Contact support to repair the protected Main Hub backup connection; do not exclude the schema or treat an empty snapshot list as healthy.
+
 ## 2. Off-Site Copies
 Backups should not live on only one machine. Use **Off-Site Storage** for direct cloud upload and **Replication Folders** for store-local redundancy.
 
@@ -65,7 +67,7 @@ Live production restore is unavailable while the Riverside server is running. Th
 3. Follow the approved offline recovery runbook with the selected cataloged archive.
 4. Start Riverside only after the in-binary schema contract check passes, then reconcile the restored business date before reopening a Register.
 
-The Settings restore action is reserved for an explicitly enabled non-production restore drill. It cannot unlock a strict-production runtime.
+The Settings restore action is reserved for an explicitly enabled non-production restore drill. It cannot unlock a strict-production runtime. When enabled, the operator must type the exact selected snapshot filename; a normal confirmation click is not sufficient.
 
 > [!CAUTION]
 > Always perform a manual backup immediately before restoring an older snapshot. Restoration is an irreversible operation.
@@ -76,6 +78,7 @@ The Settings restore action is reserved for an explicitly enabled non-production
 - Take a fresh manual backup before restoring an older snapshot.
 - Confirm encrypted backups have the correct recovery key available before restore.
 - Treat **Backup Verification Tools: Unavailable** or **backup_recent_verified** readiness warnings as unresolved data-protection issues, even when the backup scheduler itself is running.
+- Treat **Complete database backup access is not configured** as unresolved. PostgreSQL tools can be installed and healthy while the database account still cannot read every schema.
 - Treat restore as an offline operations event: confirm timing, scope, archive filename, and who approved it.
 
 ## What happens next

@@ -182,6 +182,8 @@ struct BackupSettingsResponse {
     backup_dir: String,
     backup_dir_configured: bool,
     backup_dir_explicit_required: bool,
+    backup_database_url_configured: bool,
+    live_restore_available: bool,
 }
 
 fn env_truthy(key: &str) -> bool {
@@ -193,6 +195,12 @@ fn env_truthy(key: &str) -> bool {
             )
         })
         .unwrap_or(false)
+}
+
+fn production_environment() -> bool {
+    std::env::var("RIVERSIDE_MODE")
+        .ok()
+        .is_some_and(|value| value.trim().eq_ignore_ascii_case("production"))
 }
 
 fn validate_restore_confirmation(
@@ -213,10 +221,11 @@ fn validate_restore_confirmation(
 }
 
 fn validate_restore_environment(
+    production_environment: bool,
     strict_production: bool,
     allow_live_restore: bool,
 ) -> Result<(), SettingsError> {
-    if strict_production {
+    if production_environment || strict_production {
         return Err(SettingsError::Conflict(
             "Live production restore is unavailable. Stop the Riverside server and use the approved offline recovery procedure so application writers cannot mutate the database during restore."
                 .to_string(),
@@ -254,13 +263,18 @@ pub struct MeilisearchStatusResponseBasic {
 }
 
 fn backup_settings_response(settings: BackupSettings) -> BackupSettingsResponse {
-    let dir =
-        crate::logic::backups::backup_directory_info(env_truthy("RIVERSIDE_STRICT_PRODUCTION"));
+    let strict_production = env_truthy("RIVERSIDE_STRICT_PRODUCTION");
+    let production_environment = production_environment();
+    let dir = crate::logic::backups::backup_directory_info(strict_production);
     BackupSettingsResponse {
         settings,
         backup_dir: dir.path,
         backup_dir_configured: dir.configured,
         backup_dir_explicit_required: dir.strict_required,
+        backup_database_url_configured: crate::logic::backups::backup_database_url_configured(),
+        live_restore_available: !production_environment
+            && !strict_production
+            && env_truthy("RIVERSIDE_ALLOW_LIVE_RESTORE"),
     }
 }
 
@@ -791,6 +805,7 @@ async fn restore_backup(
     validate_restore_confirmation(&filename, confirmation_filename)?;
 
     validate_restore_environment(
+        production_environment(),
         env_truthy("RIVERSIDE_STRICT_PRODUCTION"),
         env_truthy("RIVERSIDE_ALLOW_LIVE_RESTORE"),
     )?;
@@ -4067,14 +4082,15 @@ mod tests {
 
     #[test]
     fn restore_environment_is_offline_only_in_production_and_opt_in_for_drills() {
-        let locked =
-            validate_restore_environment(true, false).expect_err("strict production is locked");
+        let locked = validate_restore_environment(true, false, false)
+            .expect_err("production environment is locked");
         assert!(matches!(locked, SettingsError::Conflict(_)));
         assert!(err_message(locked).contains("Live production restore is unavailable"));
 
-        assert!(validate_restore_environment(true, true).is_err());
-        assert!(validate_restore_environment(false, false).is_err());
-        assert!(validate_restore_environment(false, true).is_ok());
+        assert!(validate_restore_environment(true, false, true).is_err());
+        assert!(validate_restore_environment(false, true, true).is_err());
+        assert!(validate_restore_environment(false, false, false).is_err());
+        assert!(validate_restore_environment(false, false, true).is_ok());
     }
 
     #[test]

@@ -21,6 +21,7 @@ use tracing::{error, info};
 use uuid::Uuid;
 
 const BACKUP_DIR_ENV: &str = "RIVERSIDE_BACKUP_DIR";
+const BACKUP_DATABASE_URL_ENV: &str = "RIVERSIDE_BACKUP_DATABASE_URL";
 const BACKUP_ENCRYPTION_KEY_ENV: &str = "RIVERSIDE_BACKUP_ENCRYPTION_KEY";
 const PG_DUMP_PATH_ENV: &str = "RIVERSIDE_PG_DUMP_PATH";
 const PG_RESTORE_PATH_ENV: &str = "RIVERSIDE_PG_RESTORE_PATH";
@@ -216,16 +217,6 @@ const POST_RESTORE_SCHEMA_REPAIR_SQL: &[&str] = &[
     r#"CREATE INDEX IF NOT EXISTS idx_payment_provider_attempts_provider_payment
         ON public.payment_provider_attempts (provider, provider_payment_id)
         WHERE provider_payment_id IS NOT NULL"#,
-    r#"INSERT INTO public.ros_schema_migrations (version)
-        VALUES
-            ('167_product_tax_category_override.sql'),
-            ('173_add_environment_mode_guard.sql'),
-            ('179_customer_relationship_periods.sql'),
-            ('182_payment_provider_metadata.sql'),
-            ('183_payment_provider_attempts.sql'),
-            ('184_active_card_payment_provider.sql'),
-            ('188_payment_provider_attempt_client_secret.sql')
-        ON CONFLICT (version) DO NOTHING"#,
 ];
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -338,6 +329,28 @@ pub fn backup_directory_info(strict_production: bool) -> BackupDirectoryInfo {
     }
 }
 
+fn select_backup_database_url(
+    runtime_database_url: &str,
+    configured_backup_database_url: Option<&str>,
+) -> String {
+    configured_backup_database_url
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(runtime_database_url)
+        .to_string()
+}
+
+fn backup_database_url(runtime_database_url: &str) -> String {
+    let configured = std::env::var(BACKUP_DATABASE_URL_ENV).ok();
+    select_backup_database_url(runtime_database_url, configured.as_deref())
+}
+
+pub fn backup_database_url_configured() -> bool {
+    std::env::var(BACKUP_DATABASE_URL_ENV)
+        .ok()
+        .is_some_and(|value| !value.trim().is_empty())
+}
+
 pub fn validate_backup_dir_for_startup(strict_production: bool) -> Result<()> {
     let (path, configured) = configured_backup_dir();
     if strict_production && !configured {
@@ -448,9 +461,10 @@ impl BackupManager {
         // Never use `.stderr(piped())` with `.status()` — nothing reads the pipe, the read end
         // can close, and pg_dump gets SIGPIPE while writing warnings/progress to stderr.
         let pg_dump = pg_dump_command_path();
+        let operation_database_url = backup_database_url(&self.database_url);
         let mut cmd = Command::new(&pg_dump);
         cmd.arg("-d")
-            .arg(&self.database_url)
+            .arg(&operation_database_url)
             .arg("-F")
             .arg("c")
             .arg("-f")
@@ -749,9 +763,10 @@ impl BackupManager {
         // --if-exists: Use IF EXISTS when dropping objects.
         // --no-owner: Skip restoration of object ownership.
         let pg_restore = pg_restore_command_path();
+        let operation_database_url = backup_database_url(&self.database_url);
         let mut cmd = Command::new(&pg_restore);
         cmd.arg("-d")
-            .arg(&self.database_url)
+            .arg(&operation_database_url)
             .args(PG_RESTORE_SAFETY_ARGS)
             .arg(&restore_path);
 
@@ -2151,6 +2166,28 @@ mod tests {
         assert!(PG_RESTORE_SAFETY_ARGS.contains(&"--clean"));
         assert!(PG_RESTORE_SAFETY_ARGS.contains(&"--if-exists"));
         assert!(PG_RESTORE_SAFETY_ARGS.contains(&"--single-transaction"));
+    }
+
+    #[test]
+    fn post_restore_repairs_never_fabricate_migration_ledger_rows() {
+        assert!(POST_RESTORE_SCHEMA_REPAIR_SQL
+            .iter()
+            .all(|sql| !sql.contains("ros_schema_migrations")));
+    }
+
+    #[test]
+    fn configured_backup_database_url_overrides_runtime_database_url() {
+        assert_eq!(
+            select_backup_database_url(
+                "postgres://app@localhost/riverside",
+                Some(" postgres://backup@localhost/riverside "),
+            ),
+            "postgres://backup@localhost/riverside"
+        );
+        assert_eq!(
+            select_backup_database_url("postgres://app@localhost/riverside", Some("  ")),
+            "postgres://app@localhost/riverside"
+        );
     }
 
     #[test]

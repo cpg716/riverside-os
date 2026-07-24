@@ -639,6 +639,8 @@ RIVERSIDE_STRICT_PRODUCTION=true
 
 # Durable backup path and optional explicit PostgreSQL client-tool paths
 RIVERSIDE_BACKUP_DIR=/var/backups/riverside-os
+# Protected full-schema connection for pg_dump/pg_restore; never commit this value
+RIVERSIDE_BACKUP_DATABASE_URL=postgres://backup-admin:password@localhost/riverside_os
 RIVERSIDE_PG_DUMP_PATH=/usr/bin/pg_dump
 RIVERSIDE_PG_RESTORE_PATH=/usr/bin/pg_restore
 

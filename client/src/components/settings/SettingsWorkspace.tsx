@@ -48,6 +48,7 @@ import { subSectionVisible } from "../../context/BackofficeAuthPermissions";
 
 import { useToast } from "../ui/ToastProviderLogic";
 import ConfirmationModal from "../ui/ConfirmationModal";
+import PromptModal from "../ui/PromptModal";
 import OnlineStoreConfigPanel from "./OnlineStoreConfigPanel";
 import HelpCenterSettingsPanel from "./HelpCenterSettingsPanel";
 import CounterpointSyncSettingsPanel from "./CounterpointSyncSettingsPanel";
@@ -118,6 +119,8 @@ export interface BackupSettings {
   backup_dir?: string;
   backup_dir_configured?: boolean;
   backup_dir_explicit_required?: boolean;
+  backup_database_url_configured?: boolean;
+  live_restore_available?: boolean;
 }
 
 interface BackupFile {
@@ -456,7 +459,13 @@ export default function SettingsWorkspace({
       });
       if (res.ok) {
         await fetchBackups();
+        toast("Verified backup snapshot created", "success");
+      } else {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        toast(body.error ?? "Backup creation failed. Check server logs.", "error");
       }
+    } catch {
+      toast("Backup creation failed. Check the Main Hub connection.", "error");
     } finally {
       setBackupBusy(false);
     }
@@ -485,9 +494,15 @@ export default function SettingsWorkspace({
     }
   };
 
-  const handleRestoreBackup = async (filename: string) => {
+  const handleRestoreBackup = async (
+    filename: string,
+    confirmationFilename: string,
+  ): Promise<boolean> => {
+    if (confirmationFilename !== filename) {
+      toast("Confirmation must exactly match the snapshot filename.", "error");
+      return false;
+    }
     setBackupBusy(true);
-    setRestoreConfirmFile(null);
     try {
       const res = await fetch(
         `${baseUrl}/api/settings/backups/restore/${filename}`,
@@ -497,16 +512,23 @@ export default function SettingsWorkspace({
             ...(backofficeHeaders() as Record<string, string>),
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ confirmation_filename: filename }),
+          body: JSON.stringify({
+            confirmation_filename: confirmationFilename,
+          }),
         },
       );
       if (res.ok) {
         toast("Restore successful. Application reloading...", "success");
         setTimeout(() => window.location.reload(), 1500);
+        return true;
       } else {
         const body = (await res.json().catch(() => ({}))) as { error?: string };
         toast(body.error ?? "Restore failed. Check server logs.", "error");
+        return false;
       }
+    } catch {
+      toast("Restore failed. Check the Main Hub connection.", "error");
+      return false;
     } finally {
       setBackupBusy(false);
     }
@@ -746,6 +768,17 @@ export default function SettingsWorkspace({
                                   : "Default Path"}
                             </span>
                           </div>
+                          <p
+                            className={`mt-3 text-xs font-semibold ${
+                              backupCfg.backup_database_url_configured
+                                ? "text-emerald-600"
+                                : "text-amber-600"
+                            }`}
+                          >
+                            {backupCfg.backup_database_url_configured
+                              ? "Complete database backup access is configured."
+                              : "Complete database backup access is not configured. Non-public schemas can make snapshot creation fail."}
+                          </p>
                         </div>
                       )}
 
@@ -801,6 +834,15 @@ export default function SettingsWorkspace({
                                       <button
                                         onClick={() =>
                                           setRestoreConfirmFile(b.filename)
+                                        }
+                                        disabled={
+                                          !backupCfg?.live_restore_available ||
+                                          backupBusy
+                                        }
+                                        title={
+                                          backupCfg?.live_restore_available
+                                            ? "Run an enabled non-production restore drill"
+                                            : "Live restore is unavailable. Use the approved offline recovery procedure."
                                         }
                                         className="p-2.5 rounded-lg hover:bg-emerald-600 hover:text-white text-app-text-muted transition-all"
                                       >
@@ -1495,14 +1537,14 @@ export default function SettingsWorkspace({
       )}
 
       {restoreConfirmFile && (
-        <ConfirmationModal
+        <PromptModal
           isOpen={true}
-          title="Destructive Restore?"
-          message={`You are about to restore the database from snapshot "${restoreConfirmFile}". This will IRREVERSIBLY OVERWRITE your current data with the state of this snapshot. The application will reload after restoration.`}
+          title="Confirm Destructive Restore"
+          message={`This non-production drill will overwrite the current database with snapshot "${restoreConfirmFile}". Type the exact snapshot filename to continue.`}
+          placeholder={restoreConfirmFile}
           confirmLabel="Execute Overwrite"
-          onConfirm={() => handleRestoreBackup(restoreConfirmFile)}
+          onSubmit={(value) => handleRestoreBackup(restoreConfirmFile, value)}
           onClose={() => setRestoreConfirmFile(null)}
-          variant="danger"
         />
       )}
     </div>

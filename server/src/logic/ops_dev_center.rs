@@ -1345,6 +1345,7 @@ pub async fn runtime_diagnostics_snapshot(
     };
     let weather_severity = if weather_live { "info" } else { "warning" };
     let backup_dir = crate::logic::backups::backup_directory_info(strict_production);
+    let backup_database_url_configured = crate::logic::backups::backup_database_url_configured();
     let backup_tooling_ready = crate::logic::backups::backup_tooling_available();
     let backup_dir_detail = if backup_dir.configured {
         "Local backups use the explicit RIVERSIDE_BACKUP_DIR path.".to_string()
@@ -1439,6 +1440,27 @@ pub async fn runtime_diagnostics_snapshot(
                 value: backup_dir.path,
                 detail: backup_dir_detail,
                 severity: if backup_dir.configured {
+                    "info".to_string()
+                } else {
+                    "warning".to_string()
+                },
+            },
+            RuntimeDiagnosticItem {
+                key: "backup_database_access".to_string(),
+                label: "Complete Backup Database Access".to_string(),
+                value: if backup_database_url_configured {
+                    "Configured".to_string()
+                } else {
+                    "Application connection only".to_string()
+                },
+                detail: if backup_database_url_configured {
+                    "Backup and restore commands use the protected PostgreSQL backup connection."
+                        .to_string()
+                } else {
+                    "RIVERSIDE_BACKUP_DATABASE_URL is not configured. Non-public schemas owned by another PostgreSQL role can make complete backups fail."
+                        .to_string()
+                },
+                severity: if backup_database_url_configured {
                     "info".to_string()
                 } else {
                     "warning".to_string()

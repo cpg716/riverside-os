@@ -6,9 +6,9 @@ Riverside OS includes a robust database management system designed for data inte
 
 The system manages backup/restore flows with two primary controls:
 1. **`pg_dump`**: Creates consistent, compressed backups.
-2. **Mandatory confirmation**: Backup creation, restore, and optimization require non-blocking `ConfirmationModal` approval (no browser-native dialogs).
+2. **Guarded operations**: Backup creation requires Settings Admin access; destructive restore requires an exact typed filename and is unavailable in production.
 
-Backups are stored locally in the configured backup directory and can be optionally encrypted, uploaded to cloud storage, and copied to additional machines or mounted drives. In v0.2.1+, the **Unified Engine** on the **Main Server PC** is the authoritative node responsible for running the background backup scheduler.
+Backups are stored locally in the configured backup directory and can be optionally encrypted, uploaded to cloud storage, and copied to additional machines or mounted drives. The **Main Hub** is the authoritative system responsible for running the background backup scheduler.
 
 ## Backup Settings
 
@@ -27,13 +27,21 @@ Backup behavior is controlled via the `store_settings` table (JSONB `backup_sett
 | `replication_targets` | `[]` | Local, external-drive, SMB/NAS, or synced-folder paths that receive verified backup copies. |
 | `encryption_enabled` | `false` | When true, local and off-site snapshots are written as encrypted `.dump.enc` archives. |
 
+## PostgreSQL Backup Access
+
+Production `pg_dump` and `pg_restore` commands use `RIVERSIDE_BACKUP_DATABASE_URL` when it is configured. This protected connection must be able to read every database schema, including operational or repair-evidence schemas owned by a different PostgreSQL role. The normal `DATABASE_URL` remains the limited application connection.
+
+The Windows Main Hub installer derives the protected backup connection from `server.database.adminUser` and `server.database.adminPassword`; it writes the URL only to the protected server environment file. Do not copy it into source control or logs.
+
+If the protected connection is missing, **Settings → Data & Backups** and **ROS Dev Center → Runtime Diagnostics** warn that complete database access is not configured. `pg_dump` still fails closed when it encounters an unreadable schema; Riverside never excludes that schema silently or publishes a partial archive.
+
 ## Manual Operations (Server API)
 
 The backend provides several endpoints for management (`/api/settings/...`):
 
 - **List Backups**: `GET /backups` — Returns filename, size, and creation time.
 - **Create Backup**: `POST /backups/create` — Triggers an immediate `pg_dump`.
-- **Restore**: `POST /backups/restore/:filename` — **WARNING**: This drops and replaces the current database state.
+- **Restore**: `POST /backups/restore/:filename` — available only for explicitly enabled non-production drills and requires the operator-entered filename to match exactly. Production recovery remains offline-only.
 - **Download**: `GET /backups/download/:filename` — Download a binary dump file for off-site storage.
 - **Optimize**: `POST /database/optimize` — Runs `VACUUM ANALYZE` to reclaim space and update query planner stats.
 
@@ -87,7 +95,7 @@ Losing this key means encrypted backups cannot be restored. Rotate it only with 
 - **Size Monitoring**: Database and table size statistics are accessible via `GET /database/stats`.
 - **Admin notifications** (notification bell): **Admin** staff receive inbox items when a **scheduled or manual local backup fails**, when **cloud upload fails** (if cloud sync is enabled), or when the **last successful local backup** is older than **`RIVERSIDE_BACKUP_OVERDUE_HOURS`** (default **30**; only while the store is not already in a “local backup failed” state). Outcomes are recorded in **`store_backup_health`** (migration **60**). Tapping a notification opens **Settings → Data & Backups**. See **`docs/PLAN_NOTIFICATION_CENTER.md`**, **`docs/NOTIFICATION_GENERATORS_AND_OPS.md`**, and **`DEVELOPER.md`** (env table). Other automated inbox items (QBO/weather health, PIN security digest, Counterpoint, etc.) use migration **61** and the same notification UI — see **`docs/NOTIFICATION_GENERATORS_AND_OPS.md`**.
 - **Replication verification**: filesystem copies are written to a temp file, flushed, checked by size and SHA-256, then renamed into place. A failed copy records off-site backup failure health.
-- **Restore drills**: run restores only against a non-production database unless an approved emergency window explicitly enables production restore.
+- **Restore drills**: `scripts/verify-backup-restore-drill.sh` refuses production/unknown environments, verifies the archive catalog, restores in one transaction to a temporary database, and requires exact migration-ledger/checksum and core row-count parity.
 
 > [!CAUTION]
 > Restoring a backup is a destructive action. Ensure all registers are closed and no active transactions are in progress before initiating a restore.

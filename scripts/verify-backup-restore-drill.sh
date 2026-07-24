@@ -43,27 +43,45 @@ if [[ ! -s "$DUMP_FILE" ]]; then
   echo "Backup dump is empty." >&2
   exit 1
 fi
+docker compose exec -T db pg_restore --list <"$DUMP_FILE" >/dev/null
+
+SOURCE_LEDGER="$("${PSQL[@]}" -d "$SOURCE_DB" -tAc \
+  "SELECT version || '|' || COALESCE(file_sha256, '') FROM ros_schema_migrations ORDER BY version;")"
+SOURCE_COUNTS="$("${PSQL[@]}" -d "$SOURCE_DB" -tAc \
+  "SELECT (SELECT COUNT(*) FROM transactions) || '|' ||
+          (SELECT COUNT(*) FROM products) || '|' ||
+          (SELECT COUNT(*) FROM product_variants) || '|' ||
+          (SELECT COUNT(*) FROM customers) || '|' ||
+          (SELECT COUNT(*) FROM staff);")"
 
 "${PSQL[@]}" -d postgres -c "CREATE DATABASE \"${TARGET_DB}\";" >/dev/null
 docker compose exec -T db pg_restore -U postgres -d "$TARGET_DB" \
-  --exit-on-error --no-owner --no-privileges <"$DUMP_FILE"
+  --exit-on-error --single-transaction --no-owner --no-privileges <"$DUMP_FILE"
 
 RESTORED_MODE="$("${PSQL[@]}" -d "$TARGET_DB" -tAc \
   "SELECT COALESCE(environment_mode, '') FROM store_settings WHERE id = 1;" | tr -d '[:space:]')"
-LATEST_MIGRATION="$("${PSQL[@]}" -d "$TARGET_DB" -tAc \
-  "SELECT version FROM ros_schema_migrations ORDER BY regexp_replace(version, '[^0-9].*$', '')::int DESC LIMIT 1;" | tr -d '[:space:]')"
-
-"${PSQL[@]}" -d "$TARGET_DB" -tAc \
-  "SELECT COUNT(*) FROM transactions; SELECT COUNT(*) FROM products; SELECT COUNT(*) FROM staff;" >/dev/null
+RESTORED_LEDGER="$("${PSQL[@]}" -d "$TARGET_DB" -tAc \
+  "SELECT version || '|' || COALESCE(file_sha256, '') FROM ros_schema_migrations ORDER BY version;")"
+RESTORED_COUNTS="$("${PSQL[@]}" -d "$TARGET_DB" -tAc \
+  "SELECT (SELECT COUNT(*) FROM transactions) || '|' ||
+          (SELECT COUNT(*) FROM products) || '|' ||
+          (SELECT COUNT(*) FROM product_variants) || '|' ||
+          (SELECT COUNT(*) FROM customers) || '|' ||
+          (SELECT COUNT(*) FROM staff);")"
 
 if [[ "$RESTORED_MODE" != "$SOURCE_MODE" ]]; then
   echo "Restore validation failed: environment mode changed from '$SOURCE_MODE' to '$RESTORED_MODE'." >&2
   exit 1
 fi
-if [[ "$LATEST_MIGRATION" != 125_* ]]; then
-  echo "Restore validation failed: expected migration 125, found '${LATEST_MIGRATION:-none}'." >&2
+if [[ "$RESTORED_LEDGER" != "$SOURCE_LEDGER" ]]; then
+  echo "Restore validation failed: migration ledger or checksums differ from the source database." >&2
+  exit 1
+fi
+if [[ "$RESTORED_COUNTS" != "$SOURCE_COUNTS" ]]; then
+  echo "Restore validation failed: core table counts differ (source=$SOURCE_COUNTS restored=$RESTORED_COUNTS)." >&2
   exit 1
 fi
 
 DUMP_BYTES="$(wc -c <"$DUMP_FILE" | tr -d '[:space:]')"
-echo "Restore drill passed: dump_bytes=${DUMP_BYTES}, restored_database=${TARGET_DB}, latest_migration=${LATEST_MIGRATION}."
+LATEST_MIGRATION="$(printf '%s\n' "$RESTORED_LEDGER" | tail -n 1 | cut -d'|' -f1)"
+echo "Restore drill passed: dump_bytes=${DUMP_BYTES}, restored_database=${TARGET_DB}, latest_migration=${LATEST_MIGRATION}, core_counts=${RESTORED_COUNTS}."

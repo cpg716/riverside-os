@@ -89,6 +89,8 @@ RIVERSIDE_ENVIRONMENT=production
 RIVERSIDE_CORS_ORIGINS=https://retail.riverside.com,https://admin.riverside.com
 RIVERSIDE_STRICT_PRODUCTION=true
 RIVERSIDE_BACKUP_DIR=/var/backups/riverside-os
+# Protected full-schema connection used only by pg_dump/pg_restore:
+RIVERSIDE_BACKUP_DATABASE_URL=postgres://backup-admin:password@localhost/riverside_os
 # Optional when the tools are outside PATH or standard PostgreSQL install locations:
 RIVERSIDE_PG_DUMP_PATH=/usr/bin/pg_dump
 RIVERSIDE_PG_RESTORE_PATH=/usr/bin/pg_restore

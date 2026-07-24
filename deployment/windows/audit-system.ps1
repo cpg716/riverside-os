@@ -428,10 +428,12 @@ Write-Host "--- Environment Credentials Checks ---" -ForegroundColor Blue
 $jwtSecret = $null
 $credKey = $null
 $cpToken = $null
+$backupDatabaseUrl = $null
 $serverEnvPath = Join-Path $contractInstallRoot "server\.env"
 
 $jwtSecret = Get-DotEnvValue $serverEnvPath "RIVERSIDE_STORE_CUSTOMER_JWT_SECRET"
 $credKey = Get-DotEnvValue $serverEnvPath "RIVERSIDE_CREDENTIALS_KEY"
+$backupDatabaseUrl = Get-DotEnvValue $serverEnvPath "RIVERSIDE_BACKUP_DATABASE_URL"
 $credKeySource = "server .env"
 if ([string]::IsNullOrWhiteSpace($credKey)) {
     $credKey = [System.Environment]::GetEnvironmentVariable("RIVERSIDE_CREDENTIALS_KEY", "Machine")
@@ -449,6 +451,12 @@ if ([string]::IsNullOrWhiteSpace($credKey)) {
     Write-AuditFailure "RIVERSIDE_CREDENTIALS_KEY is missing from the effective server .env and Machine environment. Encryption will fail."
 } else {
     Write-Host "[OK] RIVERSIDE_CREDENTIALS_KEY is active from the $credKeySource." -ForegroundColor Green
+}
+
+if ([string]::IsNullOrWhiteSpace($backupDatabaseUrl)) {
+    Write-AuditFailure "RIVERSIDE_BACKUP_DATABASE_URL is missing from the effective server .env. Complete backups can fail when non-public schemas use a different PostgreSQL owner."
+} else {
+    Write-Host "[OK] Complete database backup access is configured." -ForegroundColor Green
 }
 
 if ($cpToken) {

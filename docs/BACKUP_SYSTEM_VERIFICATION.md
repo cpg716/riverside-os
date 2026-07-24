@@ -1,6 +1,6 @@
 # Backup System Verification Report
 
-**Updated:** 2026-07-22
+**Updated:** 2026-07-24
 **Version:** v0.95.0 source candidate
 **Status:** Implementation contract validated locally; production backup proof pending
 
@@ -37,6 +37,7 @@ This document describes the backup safety contract implemented by the v0.95.0 so
 - Requires `SETTINGS_ADMIN` permission
 - Loads backup settings from database
 - Creates immediate backup using `BackupManager::create_backup_with_settings()`
+- Uses `RIVERSIDE_BACKUP_DATABASE_URL` for complete-schema PostgreSQL access when configured; the Main Hub installer derives it from the protected PostgreSQL administrator configuration
 - Records the verified archive timestamp, final filename, verification method, byte length, and SHA-256 in `store_backup_health`
 - Automatically triggers cloud sync and replication if configured
 
@@ -45,8 +46,9 @@ This document describes the backup safety contract implemented by the v0.95.0 so
 - Error handling with detailed logging
 - Health status tracking
 - Optional cloud upload with bounded-memory size and SHA-256 read-back verification
+- Fails closed instead of excluding schemas that the configured backup connection cannot read
 
-**Source Status:** Implemented and locally validated. A production manual-backup exercise is still required.
+**Source Status:** Implemented and locally validated. The 2026-07-24 production exercise confirmed the installed server still used the limited application connection and failed on `ros_repair_backup`; a fixed Main Hub installation and a newly verified artifact are still required.
 
 ## Backup Restore System
 
@@ -71,6 +73,8 @@ This document describes the backup safety contract implemented by the v0.95.0 so
 - **Encryption Support:** Handles encrypted backup archives with key validation
 
 **Source Status:** Implemented and locally validated. Restore must be proven only through an approved non-production drill.
+
+The repository restore drill compares the complete migration ledger (including stored migration checksums) and core table counts between source and restored databases. It does not pin a historical migration number, so the proof remains valid as append-only migrations advance.
 
 ## Backup Manager Core
 
