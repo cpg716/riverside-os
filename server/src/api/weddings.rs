@@ -117,39 +117,59 @@ async fn get_or_create_wedding_customer(
                 None
             };
             let formatted_match_phone = canonical_phone.as_deref().unwrap_or(phone);
-            if let Some((existing_id, match_count)) = sqlx::query_as::<_, (Uuid, i64)>(
+            if let Some(existing_id) = sqlx::query_scalar::<_, Uuid>(
                 r#"
                 WITH phone_matches AS (
-                    SELECT id, first_name, last_name, created_at
-                    FROM customers
-                    WHERE phone = $1
-                       OR REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '', 'g') = $2
-                       OR (
-                            $3::text IS NOT NULL
-                            AND REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '', 'g') = $3
-                       )
-                       OR (
-                            LENGTH($2) = 10
-                            AND RIGHT(REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '', 'g'), 10) = $2
-                       )
-                       OR (
-                            LENGTH($2) = 7
-                            AND RIGHT(REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '', 'g'), 7) = $2
-                       )
-                       OR (
-                            $3::text IS NOT NULL
-                            AND RIGHT(REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '', 'g'), 10) = $3
-                       )
+                    SELECT c.id, c.first_name, c.last_name, c.customer_code, c.created_at
+                    FROM customers c
+                    WHERE c.is_active = TRUE
+                      AND c.merged_into_customer_id IS NULL
+                      AND (
+                           c.phone = $1
+                           OR REGEXP_REPLACE(COALESCE(c.phone, ''), '[^0-9]', '', 'g') = $2
+                           OR (
+                                $3::text IS NOT NULL
+                                AND REGEXP_REPLACE(COALESCE(c.phone, ''), '[^0-9]', '', 'g') = $3
+                           )
+                           OR (
+                                LENGTH($2) = 10
+                                AND RIGHT(REGEXP_REPLACE(COALESCE(c.phone, ''), '[^0-9]', '', 'g'), 10) = $2
+                           )
+                           OR (
+                                LENGTH($2) = 7
+                                AND RIGHT(REGEXP_REPLACE(COALESCE(c.phone, ''), '[^0-9]', '', 'g'), 7) = $2
+                           )
+                           OR (
+                                $3::text IS NOT NULL
+                                AND RIGHT(REGEXP_REPLACE(COALESCE(c.phone, ''), '[^0-9]', '', 'g'), 10) = $3
+                           )
+                      )
                 ),
                 name_matches AS (
-                    SELECT id, created_at
+                    SELECT id, customer_code, created_at
                     FROM phone_matches
                     WHERE LOWER(TRIM(COALESCE(first_name, ''))) = LOWER(TRIM($4))
                       AND LOWER(TRIM(COALESCE(last_name, ''))) = LOWER(TRIM($5))
                 )
-                SELECT id, COUNT(*) OVER () AS match_count
+                SELECT id
                 FROM name_matches
-                ORDER BY created_at DESC
+                ORDER BY
+                    CASE
+                        WHEN customer_code ~ '^[0-9]+$' THEN 0
+                        WHEN customer_code ~* '^C-[0-9]+$' THEN 1
+                        WHEN customer_code ~* '^ROS-[0-9]+$' THEN 3
+                        ELSE 2
+                    END,
+                    CASE
+                        WHEN customer_code ~ '^[0-9]+$' THEN customer_code::bigint
+                        WHEN customer_code ~* '^C-[0-9]+$'
+                            THEN SUBSTRING(customer_code FROM 3)::bigint
+                        WHEN customer_code ~* '^ROS-[0-9]+$'
+                            THEN SUBSTRING(customer_code FROM 5)::bigint
+                        ELSE NULL
+                    END ASC NULLS LAST,
+                    created_at ASC,
+                    id ASC
                 LIMIT 1
                 "#,
             )
@@ -161,9 +181,7 @@ async fn get_or_create_wedding_customer(
             .fetch_optional(pool)
             .await?
             {
-                if match_count == 1 {
-                    return Ok((existing_id, true));
-                }
+                return Ok((existing_id, true));
             }
         }
     }

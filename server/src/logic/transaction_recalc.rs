@@ -4,6 +4,39 @@ use rust_decimal::Decimal;
 use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
 
+use crate::logic::checkout_validate::is_shipping_charge_sku;
+use crate::logic::tax::{erie_local_tax_usd, nys_state_tax_usd, TaxCategory};
+
+/// Recalculate per-unit tax for an amended open-order line from the price the
+/// customer is actually being charged. Client-supplied or previously stored tax
+/// must not survive a price change.
+pub fn amended_order_line_tax(
+    tax_category: TaxCategory,
+    unit_price: Decimal,
+    is_tax_exempt: bool,
+    pos_line_kind: Option<&str>,
+    sku: &str,
+) -> (Decimal, Decimal) {
+    let is_non_taxable_internal = matches!(
+        pos_line_kind,
+        Some(
+            "rms_charge_payment"
+                | "pos_gift_card_load"
+                | "staff_account_payment"
+                | "alteration_service"
+        )
+    ) || is_shipping_charge_sku(sku);
+
+    if is_tax_exempt || is_non_taxable_internal {
+        return (Decimal::ZERO, Decimal::ZERO);
+    }
+
+    (
+        nys_state_tax_usd(tax_category, unit_price, unit_price),
+        erie_local_tax_usd(tax_category, unit_price, unit_price),
+    )
+}
+
 /// Effective line totals subtract `transaction_return_lines` per item.
 pub async fn recalc_transaction_totals(
     tx: &mut Transaction<'_, Postgres>,
@@ -107,4 +140,31 @@ pub async fn recalc_transaction_totals(
     .await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::amended_order_line_tax;
+    use crate::logic::tax::TaxCategory;
+    use rust_decimal::Decimal;
+    use rust_decimal_macros::dec;
+
+    #[test]
+    fn amended_clothing_line_uses_actual_charged_price_for_threshold_tax() {
+        let (state_tax, local_tax) =
+            amended_order_line_tax(TaxCategory::Clothing, dec!(50.00), false, None, "VEST");
+
+        assert_eq!(state_tax, Decimal::ZERO);
+        assert_eq!(local_tax, dec!(2.38));
+    }
+
+    #[test]
+    fn amended_vest_and_tux_match_txn_624473_expected_tax() {
+        let (vest_state, vest_local) =
+            amended_order_line_tax(TaxCategory::Clothing, dec!(50.00), false, None, "VEST");
+        let (tux_state, tux_local) =
+            amended_order_line_tax(TaxCategory::Clothing, dec!(260.00), false, None, "TUX");
+
+        assert_eq!(vest_state + vest_local + tux_state + tux_local, dec!(25.13));
+    }
 }

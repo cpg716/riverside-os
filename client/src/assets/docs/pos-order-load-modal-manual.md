@@ -41,7 +41,7 @@ Use this window when a customer already has Special, Custom, or Wedding work and
 
 ## Important
 
-- **Add to Order** and **Save Line** update the original fulfillment work and refresh the linked Transaction Record totals. Save Line changes an existing size, variation, quantity, or price in place; when a single open line exists for a product, selecting another variant from the add search also updates that line instead of creating a duplicate.
+- **Add to Order** and **Save Line** update the original fulfillment work and refresh the linked Transaction Record totals. Save Line changes an existing size, variation, quantity, or price in place; changing a price also recalculates that line's state and local tax from the actual saved price. When a single open line exists for a product, selecting another variant from the add search also updates that line instead of creating a duplicate.
 - Open, unfulfilled lines can be deleted even when the order has a deposit. The deposit and its payment allocation remain attached to the original Transaction Record, and any resulting credit or balance is recalculated there for the next payment/refund action.
 - Every line edit is recorded in the Transaction Record audit history with the staff member, changed fields, and before/after values—even when the price and total do not change.
 - Payment taken later remains a new payment movement, but it is attached to the original Transaction Record.

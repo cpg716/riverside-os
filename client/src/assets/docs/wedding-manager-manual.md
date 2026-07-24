@@ -100,6 +100,12 @@ Use **Cutover** when Riverside is taking over parties that were already active i
 6. Complete **Picked Up** only through Register pickup so inventory, revenue, commissions, loyalty, and audit move together.
 7. Leave ambiguous matches unresolved for manager review.
 
+When an imported member has an exact normalized name and phone match, Riverside
+links the member to the active Customer instead of creating another profile.
+Inactive merged profiles are ignored. If duplicate active matches still exist,
+Riverside keeps the oldest account by customer-code generation: numeric,
+`C-`, Lightspeed name code, then `ROS-`.
+
 ## What to watch for
 
 - Party notes and worksheet comments are not sellable products.

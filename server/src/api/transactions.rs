@@ -55,6 +55,7 @@ use crate::models::{
     DbFulfillmentType, DbOrderFulfillmentMethod, DbOrderItemLifecycleStatus, DbOrderStatus,
     DbTransactionCategory,
 };
+use crate::services::{inventory, InventoryError};
 
 #[cfg(test)]
 static FAIL_CARD_REFUND_LEDGER_AFTER_PROVIDER_APPROVAL: std::sync::atomic::AtomicBool =
@@ -103,6 +104,13 @@ pub enum TransactionError {
     Forbidden(String),
     #[error("{0}")]
     BadGateway(String),
+}
+
+fn map_inventory_line_error(error: InventoryError) -> TransactionError {
+    match error {
+        InventoryError::Database(error) => TransactionError::Database(error),
+        other => TransactionError::InvalidPayload(other.to_string()),
+    }
 }
 
 impl IntoResponse for TransactionError {
@@ -11648,20 +11656,42 @@ async fn add_transaction_line(
         ));
     }
     let mut tx = state.db.begin().await?;
-    let wedding_row: Option<Option<Uuid>> =
-        sqlx::query_scalar("SELECT wedding_member_id FROM transactions WHERE id = $1")
-            .bind(transaction_id)
-            .fetch_optional(&mut *tx)
-            .await?;
-    let wedding_member_id = match wedding_row {
+    let transaction_row: Option<(Option<Uuid>, bool)> = sqlx::query_as(
+        r#"
+        SELECT wedding_member_id, COALESCE(is_tax_exempt, false)
+        FROM transactions
+        WHERE id = $1
+        FOR UPDATE
+        "#,
+    )
+    .bind(transaction_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let (wedding_member_id, is_tax_exempt) = match transaction_row {
         None => return Err(TransactionError::NotFound),
-        Some(wm) => wm,
+        Some(row) => row,
     };
     let fulfillment = crate::logic::transaction_fulfillment::persist_fulfillment(
         wedding_member_id,
         body.fulfillment,
     )
     .map_err(|m| TransactionError::InvalidPayload(m.to_string()))?;
+    let resolved =
+        inventory::resolve_variant_by_id(&mut *tx, body.variant_id, state.global_employee_markup)
+            .await
+            .map_err(map_inventory_line_error)?;
+    if resolved.product_id != body.product_id {
+        return Err(TransactionError::InvalidPayload(
+            "variant does not belong to product".to_string(),
+        ));
+    }
+    let (state_tax, local_tax) = transaction_recalc::amended_order_line_tax(
+        resolved.tax_category,
+        body.unit_price,
+        is_tax_exempt,
+        resolved.pos_line_kind.as_deref(),
+        &resolved.sku,
+    );
     let transaction_line_id: Uuid = sqlx::query_scalar(
         r#"
         INSERT INTO transaction_lines (
@@ -11679,8 +11709,8 @@ async fn add_transaction_line(
     .bind(body.quantity)
     .bind(body.unit_price)
     .bind(body.unit_cost)
-    .bind(body.state_tax)
-    .bind(body.local_tax)
+    .bind(state_tax)
+    .bind(local_tax)
     .bind(false)
     .bind(body.salesperson_id)
     .fetch_one(&mut *tx)
@@ -11764,15 +11794,31 @@ async fn update_transaction_line(
         String,
         i32,
         Decimal,
+        Decimal,
+        Decimal,
+        Option<String>,
+        bool,
     )> = sqlx::query_as(
         r#"
-            SELECT oi.product_id, oi.variant_id, oi.order_lifecycle_status, oi.is_fulfilled, oi.fulfillment, pv.sku,
-                   oi.quantity, oi.unit_price
+            SELECT
+                oi.product_id,
+                oi.variant_id,
+                oi.order_lifecycle_status,
+                oi.is_fulfilled,
+                oi.fulfillment,
+                pv.sku,
+                oi.quantity,
+                oi.unit_price,
+                COALESCE(oi.state_tax, 0)::numeric,
+                COALESCE(oi.local_tax, 0)::numeric,
+                NULLIF(TRIM(oi.size_specs->'tax_category_override'->>'to'), ''),
+                COALESCE(t.is_tax_exempt, false)
             FROM transaction_lines oi
             JOIN product_variants pv ON pv.id = oi.variant_id
+            JOIN transactions t ON t.id = oi.transaction_id
             WHERE oi.id = $1
               AND oi.transaction_id = $2
-            FOR UPDATE
+            FOR UPDATE OF oi, t
             "#,
     )
     .bind(transaction_line_id)
@@ -11788,6 +11834,10 @@ async fn update_transaction_line(
         current_sku,
         current_quantity,
         current_unit_price,
+        current_state_tax,
+        current_local_tax,
+        tax_category_override,
+        is_tax_exempt,
     )) = current_line
     else {
         return Err(TransactionError::NotFound);
@@ -11873,7 +11923,34 @@ async fn update_transaction_line(
     } else {
         None
     };
+    let recalculated_tax = if body.unit_price.is_some() || body.variant_id.is_some() {
+        let next_variant_id = body.variant_id.unwrap_or(current_variant_id);
+        let next_unit_price = body.unit_price.unwrap_or(current_unit_price);
+        let resolved = inventory::resolve_variant_by_id(
+            &mut *tx,
+            next_variant_id,
+            state.global_employee_markup,
+        )
+        .await
+        .map_err(map_inventory_line_error)?;
+        let tax_category = tax_category_override
+            .as_deref()
+            .and_then(TaxCategory::from_db_text)
+            .unwrap_or(resolved.tax_category);
+        Some(transaction_recalc::amended_order_line_tax(
+            tax_category,
+            next_unit_price,
+            is_tax_exempt,
+            resolved.pos_line_kind.as_deref(),
+            &resolved.sku,
+        ))
+    } else {
+        None
+    };
     if touched {
+        let (next_state_tax, next_local_tax) = recalculated_tax
+            .map(|(state_tax, local_tax)| (Some(state_tax), Some(local_tax)))
+            .unwrap_or((None, None));
         sqlx::query(
             r#"
             UPDATE transaction_lines
@@ -11881,15 +11958,19 @@ async fn update_transaction_line(
                 quantity = COALESCE($1, quantity),
                 unit_price = COALESCE($2, unit_price),
                 fulfillment = COALESCE($3, fulfillment),
-                variant_id = COALESCE($4, variant_id)
-            WHERE id = $5
-              AND transaction_id = $6
+                variant_id = COALESCE($4, variant_id),
+                state_tax = COALESCE($5, state_tax),
+                local_tax = COALESCE($6, local_tax)
+            WHERE id = $7
+              AND transaction_id = $8
             "#,
         )
         .bind(body.quantity)
         .bind(body.unit_price)
         .bind(normalized_fulfillment)
         .bind(body.variant_id)
+        .bind(next_state_tax)
+        .bind(next_local_tax)
         .bind(transaction_line_id)
         .bind(transaction_id)
         .execute(&mut *tx)
@@ -11978,6 +12059,8 @@ async fn update_transaction_line(
                 "sku": current_sku,
                 "quantity": current_quantity,
                 "unit_price": current_unit_price,
+                "state_tax": current_state_tax,
+                "local_tax": current_local_tax,
                 "fulfillment": current_fulfillment,
                 "order_lifecycle_status": current_lifecycle_status.as_str(),
             },
@@ -11985,6 +12068,12 @@ async fn update_transaction_line(
                 "variant_id": body.variant_id.unwrap_or(current_variant_id),
                 "quantity": body.quantity.unwrap_or(current_quantity),
                 "unit_price": body.unit_price.unwrap_or(current_unit_price),
+                "state_tax": recalculated_tax
+                    .map(|(state_tax, _)| state_tax)
+                    .unwrap_or(current_state_tax),
+                "local_tax": recalculated_tax
+                    .map(|(_, local_tax)| local_tax)
+                    .unwrap_or(current_local_tax),
                 "fulfillment": normalized_fulfillment.unwrap_or(current_fulfillment),
                 "order_lifecycle_status": body
                     .order_lifecycle_status
