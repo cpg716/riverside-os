@@ -52,7 +52,7 @@ Common readiness labels:
 | Needs vendor order | One or more items are still NTBO | Create or attach vendor purchase orders |
 | Vendor delay risk | Ordered items are stale or past ETA | Call vendor and update ETA |
 | Ready for pickup | Garments are verified ready | Use guarded pickup workflow |
-| Pickup blocked until balance is cleared | Garments are ready but money is still due | Collect payment before release |
+| Pickup needs payment approval | Garments are ready but money is still due | Collect payment or use Manager Access |
 | Partial party readiness | Some members can release, others remain blocked | Release only verified ready items |
 
 ## Parties

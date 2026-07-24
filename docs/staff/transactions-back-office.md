@@ -74,7 +74,7 @@
 
 POS may read the same Transaction Record through the register. Staff can add an item to the original Transaction Record, correct an unfulfilled line, collect an existing balance, pick up or ship selected lines, or cancel the order without starting a separate sale. New items stay on the same Transaction Record but get their own booked date when added, so booked sales count on the item-added day. Payments taken later stay attached to the original Transaction Record but keep their own payment movement date for QBO review.
 
-For partial pickup or shipping, select only the lines being released. ROS blocks a pickup only when total payments do not cover the selected merchandise plus items already released from that Transaction Record; the remaining open items do not need to retain a separate 50% deposit. Shipping retains its own release policy and records shipped-line timestamps and shipment audit events when the Transaction Record is linked to a shipment.
+For partial pickup or shipping, select only the lines being released. ROS does not automatically add a payoff when a pickup is started. When total payments do not cover the selected merchandise plus items already released from that Transaction Record, collect payment intentionally or use the audited Manager Access override; unselected lines and the remaining balance stay open. The remaining open items do not need to retain a separate 50% deposit. Shipping retains its own release policy and records shipped-line timestamps and shipment audit events when the Transaction Record is linked to a shipment.
 
 If **Back Office** and **POS** disagree, **refresh** both; if persistent, note the transaction number and time for IT.
 
@@ -84,7 +84,7 @@ If **Back Office** and **POS** disagree, **refresh** both; if persistent, note t
 |--------|-------------------|---------------|
 | Transaction or fulfillment order not found | Widen dates | Wrong store DB |
 | Cannot refund | **403** | **orders.refund_process** |
-| Pickup blocked | Unpaid line | Read banner |
+| Pickup needs payment approval | Review selected-item coverage | Collect payment or use Manager Access |
 | Balance wrong after return | **Refresh** Transaction Record | Finance lead |
 
 ## Helping a coworker at POS

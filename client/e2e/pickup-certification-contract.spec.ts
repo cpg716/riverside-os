@@ -265,13 +265,18 @@ test.describe("pickup launch certification contract", () => {
     const operatorStaffId = await verifyStaffId(request);
     const salespersonId = await createSalespersonStaff(request);
 
-    const unpaidProduct = await createSingleVariantProduct(request, uniqueSuffix("pickup-unpaid"), {
+    const unpaidPickupProduct = await createSingleVariantProduct(request, uniqueSuffix("pickup-unpaid"), {
       stockOnHand: 1,
       namePrefix: "Pickup Unpaid Guard",
       skuPrefix: "PKU",
     });
+    const unpaidRemainingProduct = await createSingleVariantProduct(request, uniqueSuffix("pickup-unpaid-open"), {
+      stockOnHand: 1,
+      namePrefix: "Pickup Unpaid Open",
+      skuPrefix: "PKX",
+    });
     const unpaidCheckout = await checkoutSpecialOrder(request, {
-      products: [unpaidProduct],
+      products: [unpaidPickupProduct, unpaidRemainingProduct],
       sessionId,
       sessionToken,
       operatorStaffId,
@@ -283,18 +288,55 @@ test.describe("pickup launch certification contract", () => {
       unpaidCheckout.transaction_id,
     );
     const unpaidLine = unpaidDetail.items.find(
-      (item) => item.sku === unpaidProduct.sku,
+      (item) => item.sku === unpaidPickupProduct.sku,
+    );
+    const unpaidRemainingLine = unpaidDetail.items.find(
+      (item) => item.sku === unpaidRemainingProduct.sku,
     );
     expect(unpaidLine, "unpaid pickup fixture line missing").toBeTruthy();
+    expect(unpaidRemainingLine, "unpaid remaining fixture line missing").toBeTruthy();
+    await markLineReady(request, unpaidLine!.transaction_line_id);
+
     const unpaidAttempt = await pickup(request, unpaidCheckout.transaction_id, sessionId, sessionToken, {
       delivered_item_ids: [unpaidLine!.transaction_line_id],
-      override_readiness: true,
-      override_reason: "Certification confirms balance due remains a hard stop.",
-      readiness_override_manager_staff_id: operatorStaffId,
-      readiness_override_manager_pin: staffCode(),
     });
     expect(unpaidAttempt.status, unpaidAttempt.bodyText.slice(0, 1000)).toBe(400);
-    expect(unpaidAttempt.bodyText).toContain("Balance Due");
+    expect(unpaidAttempt.bodyText).toContain("use Manager Access to approve a pickup payment override");
+
+    const paymentOverrideReason =
+      "Manager approved selected-item pickup without collecting the outstanding payment.";
+    const unpaidOverride = await pickup(request, unpaidCheckout.transaction_id, sessionId, sessionToken, {
+      delivered_item_ids: [unpaidLine!.transaction_line_id],
+      payment_override_manager_staff_id: operatorStaffId,
+      payment_override_manager_pin: staffCode(),
+      payment_override_reason: paymentOverrideReason,
+    });
+    expect(unpaidOverride.status, unpaidOverride.bodyText.slice(0, 1000)).toBe(200);
+
+    const unpaidAfterOverride = await fetchTransactionDetail(
+      request,
+      unpaidCheckout.transaction_id,
+    );
+    expect(unpaidAfterOverride.status.toLowerCase()).toBe("open");
+    expect(
+      unpaidAfterOverride.items.find((item) => item.sku === unpaidPickupProduct.sku)?.is_fulfilled,
+    ).toBe(true);
+    expect(
+      unpaidAfterOverride.items.find((item) => item.sku === unpaidRemainingProduct.sku)?.is_fulfilled,
+    ).toBe(false);
+
+    const unpaidAudit = await fetchTransactionAudit(request, unpaidCheckout.transaction_id);
+    const paymentOverrideAudit = unpaidAudit.find(
+      (event) => event.event_kind === "pickup" && event.metadata?.payment_override === true,
+    );
+    expect(paymentOverrideAudit, "pickup payment override audit event missing").toBeTruthy();
+    expect(paymentOverrideAudit?.metadata?.payment_override_detail?.payment_override_reason)
+      .toBe(paymentOverrideReason);
+    expect(
+      parseMoneyToCents(
+        String(paymentOverrideAudit?.metadata?.payment_override_detail?.shortage ?? "0"),
+      ),
+    ).toBe(parseMoneyToCents(transactionTotal(1)));
 
     const depositReadyProduct = await createSingleVariantProduct(request, uniqueSuffix("pickup-deposit-ready"), {
       stockOnHand: 1,

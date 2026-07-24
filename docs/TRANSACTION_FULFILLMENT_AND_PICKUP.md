@@ -96,7 +96,7 @@ The system supports **picking up or shipping individual items** from a multi-ite
 
 - Empty array = fulfill ALL items
 - Non-empty array = fulfill only those specified
-- Payment enforcement is line-aware: payments must cover the selected pickup value plus merchandise already released from the Transaction Record. Remaining open merchandise does not need to retain a separate 50% deposit after a pickup. Shipping retains its own release policy.
+- Payment enforcement is line-aware: payments normally cover the selected pickup value plus merchandise already released from the Transaction Record. Manager Access can explicitly override insufficient coverage with an audited reason. Remaining open merchandise does not need to retain a separate 50% deposit after a pickup, and starting a pickup does not automatically add a balance payment. Shipping retains its own release policy.
 - Shipping release writes `transaction_lines.shipped_at`, optional `shipment_id`, and a shipment event when linked to a shipment record.
 - Imported Counterpoint open-doc lines are treated as physically present and start at **Ready for Pickup**; staff still must collect any required payment before release.
 

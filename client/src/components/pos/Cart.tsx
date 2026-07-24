@@ -439,7 +439,7 @@ interface CartProps {
   onInitialCustomerConsumed?: () => void;
   initialTransactionId?: string | null;
   onInitialTransactionConsumed?: () => void;
-  /** When true, loading the transaction is for pickup flow - will auto-add balance payment and call pickup API after checkout */
+  /** When true, loading the transaction is for pickup flow and will call the pickup API after completion. */
   initialTransactionForPickup?: boolean;
   initialTransactionForRefund?: boolean;
   initialTransactionReturnLineId?: string | null;
@@ -2537,8 +2537,6 @@ export default function Cart({
         setManagerOverrideReason("");
         setManagerOverrideManagerStaffId("");
         setManagerOverrideManagerPin("");
-        const balanceDueCents = parseMoneyToCents(detail.balance_due ?? "0");
-
         if (detail.primary_salesperson_id) {
           setPrimarySalespersonId(detail.primary_salesperson_id);
         }
@@ -2567,28 +2565,10 @@ export default function Cart({
         }));
 
         setLines(cartLines);
-
-        // If balance due, add order payment line
-        if (balanceDueCents > 0) {
-          const customerName = `${detail.customer.first_name} ${detail.customer.last_name}`.trim();
-          const orderPaymentLine: OrderPaymentCartLine = {
-            line_type: "order_payment",
-            cart_row_id: newCartRowId(),
-            target_transaction_id: detail.transaction_id,
-            target_display_id: detail.transaction_display_id ?? detail.transaction_id.slice(0, 8).toUpperCase(),
-            customer_id: detail.customer.id,
-            customer_name: customerName || detail.customer.first_name || "Customer",
-            amount: centsToFixed2(balanceDueCents),
-            balance_before: detail.balance_due ?? "0.00",
-            projected_balance_after: "0.00",
-          };
-          setOrderPaymentLines([orderPaymentLine]);
-        } else {
-          setOrderPaymentLines([]);
-        }
+        setOrderPaymentLines([]);
 
         toast(
-          `Loaded ${unfulfilled.length} pickup item(s) from ${detail.transaction_display_id ?? "transaction"}. ${balanceDueCents > 0 ? "Balance due added to cart." : "No balance due."}`,
+          `Loaded ${unfulfilled.length} pickup item(s) from ${detail.transaction_display_id ?? "transaction"}. No payment was added.`,
           "success",
         );
         return true;
@@ -2668,7 +2648,7 @@ export default function Cart({
   const handleManagerApprovePickupPayment = useCallback(async (pin: string, managerId: string) => {
     const request = pickupDepositApprovalRequest;
     if (!request) return false;
-    const reason = "Manager approved pickup release with remaining open items below the standard 50% deposit.";
+    const reason = "Manager approved pickup release despite insufficient payment coverage for the selected items.";
     try {
       const res = await fetch(`${baseUrl}/api/staff/verify-pin`, {
         method: "POST",
@@ -5315,7 +5295,7 @@ export default function Cart({
         title="Authorize Pickup Payment Override"
         message={
           pickupDepositApprovalRequest?.message ??
-          "Remaining open items are below the standard deposit after this pickup. Manager Access is required to approve release."
+          "Recorded payments do not fully cover the selected pickup items. Manager Access is required to approve release without collecting payment."
         }
         onApprove={handleManagerApprovePickupPayment}
       />

@@ -4987,7 +4987,7 @@ async fn mark_transaction_pickup(
         .filter(|line| line.order_lifecycle_status != DbOrderItemLifecycleStatus::ReadyForPickup)
         .collect::<Vec<_>>();
     let override_reason = body.override_reason.as_deref().map(str::trim).unwrap_or("");
-    let pickup_payment_override_metadata: Option<serde_json::Value> = None;
+    let mut pickup_payment_override_metadata: Option<serde_json::Value> = None;
     if !unready_lines.is_empty() && !body.override_readiness {
         let examples = unready_lines
             .iter()
@@ -5094,9 +5094,40 @@ async fn mark_transaction_pickup(
         && remaining_open_value <= Decimal::ZERO;
     if !imported_paid_in_full_release && amount_paid < required_after_pickup {
         let shortage = required_after_pickup - amount_paid;
-        return Err(TransactionError::InvalidPayload(format!(
-            "Pickup blocked: Balance Due remains because selected item value exceeds payments by ${shortage}. Collect payment before release."
-        )));
+        let payment_override_reason = body
+            .payment_override_reason
+            .as_deref()
+            .map(str::trim)
+            .unwrap_or("");
+        let Some((manager_staff_id, manager_pin)) = body
+            .payment_override_manager_staff_id
+            .zip(body.payment_override_manager_pin.as_deref())
+        else {
+            return Err(TransactionError::InvalidPayload(format!(
+                "Pickup blocked: selected item value exceeds recorded payments by ${shortage}. Collect payment or use Manager Access to approve a pickup payment override."
+            )));
+        };
+        if payment_override_reason.len() < 12 {
+            return Err(TransactionError::InvalidPayload(
+                "Pickup payment override requires a clear reason.".to_string(),
+            ));
+        }
+        let manager = authenticate_manager_approval(
+            &state,
+            manager_staff_id,
+            manager_pin,
+            "Manager Access approval permission required for pickup payment override",
+        )
+        .await?;
+        pickup_payment_override_metadata = Some(json!({
+            "payment_override_manager_staff_id": manager.id,
+            "payment_override_reason": payment_override_reason,
+            "amount_paid": amount_paid,
+            "already_released_value": already_released_value,
+            "selected_pickup_value": selected_pickup_value,
+            "required_after_pickup": required_after_pickup,
+            "shortage": shortage,
+        }));
     }
 
     let insufficient_stock_lines = pickup_guard_lines

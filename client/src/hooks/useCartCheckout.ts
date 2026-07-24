@@ -297,8 +297,8 @@ export function useCartCheckout({
         ledgerSignals.roundingAdjustmentCents ?? 0,
       );
       const providerBackedPayment = hasProviderBackedPayment(applied);
-      const pickupDepositApprovalRequired = (message: string) =>
-        message.includes("remaining open items need at least a 50% deposit");
+      const pickupPaymentApprovalRequired = (message: string) =>
+        message.includes("use Manager Access to approve a pickup payment override");
 
       const postPickup = async (
         transactionId: string,
@@ -357,7 +357,7 @@ export function useCartCheckout({
         if (
           firstAttempt.ok ||
           pickupOptions?.pickupPaymentOverride ||
-          !pickupDepositApprovalRequired(firstAttempt.message) ||
+          !pickupPaymentApprovalRequired(firstAttempt.message) ||
           !requestPickupPaymentOverride
         ) {
           return firstAttempt;
