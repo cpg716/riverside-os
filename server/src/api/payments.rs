@@ -50,6 +50,7 @@ const PAYMENTS_DEPOSIT_ADJUST: &str = "payments.deposit.adjust";
 const PAYMENTS_SYNC: &str = "payments.sync";
 const PAYMENTS_TERMINAL_OVERRIDE: &str = "payments.terminal.override";
 const HELCIM_TERMINAL_PENDING_TIMEOUT_MINUTES: i64 = 5;
+const HELCIM_PAY_INITIALIZATION_STALE_MINUTES: i64 = 2;
 const HELCIM_ATTEMPT_STREAM_MAX_SECONDS: u16 = 600;
 
 #[derive(Debug, Error)]
@@ -1791,6 +1792,34 @@ async fn reject_conflicting_helcim_attempt_before_dispatch(
         .execute(&mut **tx)
         .await
         .map_err(|error| PaymentError::InvalidPayload(error.to_string()))?;
+
+    // HelcimPay initialization only creates a hosted-entry token; it cannot
+    // charge a card. If the request is interrupted before ROS stores that
+    // token, the pre-dispatch row must not become a permanent sale lock.
+    // Two minutes exceeds the provider client's four 25-second request
+    // attempts plus retry backoff, so an in-flight initialization is retained.
+    sqlx::query(
+        r#"
+        UPDATE payment_provider_attempts
+        SET status = 'failed',
+            error_code = 'initialization_abandoned',
+            error_message = 'Helcim Card Not Present setup ended before card entry opened; no payment was sent.',
+            completed_at = now()
+        WHERE provider = 'helcim'
+          AND checkout_client_id = $1
+          AND status = 'pending'
+          AND raw_audit_reference = 'helcim-pay-js:initializing'
+          AND provider_payment_id IS NULL
+          AND provider_transaction_id IS NULL
+          AND provider_client_secret IS NULL
+          AND created_at < now() - ($2::bigint * interval '1 minute')
+        "#,
+    )
+    .bind(checkout_client_id)
+    .bind(HELCIM_PAY_INITIALIZATION_STALE_MINUTES)
+    .execute(&mut **tx)
+    .await
+    .map_err(|error| PaymentError::InvalidPayload(error.to_string()))?;
 
     let checkout_already_recorded: bool = sqlx::query_scalar(
         r#"
@@ -10651,6 +10680,57 @@ async fn initialize_helcim_pay(
         confirmation_screen: false,
         display_contact_fields: None,
     };
+
+    // Initialization only creates the hosted card-entry token. Check for a
+    // conflicting payment first, but do not persist a pending payment until
+    // Helcim has returned the token required to open card entry.
+    let mut preflight_tx = state
+        .db
+        .begin()
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    lock_register_session_open_for_payment(&mut preflight_tx, Some(register_session_id)).await?;
+    reject_conflicting_helcim_attempt_before_dispatch(&mut preflight_tx, checkout_client_id, None)
+        .await?;
+    preflight_tx
+        .commit()
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+
+    let initialized = match helcim::initialize_helcim_pay(&state.http_client, &config, request)
+        .await
+    {
+        Ok(initialized) => initialized,
+        Err(error) => {
+            sqlx::query(
+                r#"
+                INSERT INTO payment_provider_attempts (
+                    id, provider, status, amount_cents, currency, register_session_id, staff_id,
+                    idempotency_key, error_code, error_message, raw_audit_reference,
+                    checkout_client_id, completed_at
+                )
+                VALUES (
+                    $1, 'helcim', 'failed', $2, $3, $4, $5, $6,
+                    'initialization_failed', $7, 'helcim-pay-js:initialization-failed',
+                    $8, now()
+                )
+                "#,
+            )
+            .bind(attempt_id)
+            .bind(payload.amount_cents)
+            .bind(currency.to_ascii_lowercase())
+            .bind(Some(register_session_id))
+            .bind(staff_id)
+            .bind(&idempotency_key)
+            .bind(persisted_provider_error(&error))
+            .bind(checkout_client_id)
+            .execute(&state.db)
+            .await
+            .map_err(|database_error| PaymentError::InvalidPayload(database_error.to_string()))?;
+            return Err(PaymentError::ProviderError(error));
+        }
+    };
+
     let mut tx = state
         .db
         .begin()
@@ -10662,9 +10742,10 @@ async fn initialize_helcim_pay(
         r#"
         INSERT INTO payment_provider_attempts (
             id, provider, status, amount_cents, currency, register_session_id, staff_id,
-            idempotency_key, raw_audit_reference, checkout_client_id
+            idempotency_key, provider_payment_id, provider_client_secret,
+            raw_audit_reference, checkout_client_id
         )
-        VALUES ($1, 'helcim', 'pending', $2, $3, $4, $5, $6, 'helcim-pay-js:initializing', $7)
+        VALUES ($1, 'helcim', 'pending', $2, $3, $4, $5, $6, $7, $8, 'helcim-pay-js', $9)
         "#,
     )
     .bind(attempt_id)
@@ -10673,53 +10754,15 @@ async fn initialize_helcim_pay(
     .bind(Some(register_session_id))
     .bind(staff_id)
     .bind(&idempotency_key)
+    .bind(&initialized.checkout_token)
+    .bind(&initialized.secret_token)
     .bind(checkout_client_id)
     .execute(&mut *tx)
     .await
-    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    .map_err(|error| PaymentError::InvalidPayload(error.to_string()))?;
     tx.commit()
         .await
         .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
-
-    let initialized = match helcim::initialize_helcim_pay(&state.http_client, &config, request)
-        .await
-    {
-        Ok(initialized) => initialized,
-        Err(error) => {
-            sqlx::query(
-                r#"
-                UPDATE payment_provider_attempts
-                SET status = 'failed',
-                    error_code = 'initialization_failed',
-                    error_message = $2,
-                    completed_at = now()
-                WHERE id = $1
-                "#,
-            )
-            .bind(attempt_id)
-            .bind(persisted_provider_error(&error))
-            .execute(&state.db)
-            .await
-            .map_err(|database_error| PaymentError::InvalidPayload(database_error.to_string()))?;
-            return Err(PaymentError::ProviderError(error));
-        }
-    };
-    sqlx::query(
-        r#"
-        UPDATE payment_provider_attempts
-        SET provider_payment_id = $2,
-            provider_client_secret = $3,
-            raw_audit_reference = 'helcim-pay-js'
-        WHERE id = $1
-          AND status = 'pending'
-        "#,
-    )
-    .bind(attempt_id)
-    .bind(&initialized.checkout_token)
-    .bind(&initialized.secret_token)
-    .execute(&state.db)
-    .await
-    .map_err(|error| PaymentError::InvalidPayload(error.to_string()))?;
 
     let handoff_url = helcim_pay_public_handoff_url(attempt_id, &initialized.checkout_token);
     Ok(Json(HelcimPayInitializeResponseBody {
@@ -11262,7 +11305,29 @@ async fn release_helcim_terminal_attempt(
             "Only pending Helcim attempts can be released.".to_string(),
         ));
     }
-    if !helcim::HelcimConfig::from_env().simulator_enabled() {
+    let simulator_enabled = helcim::HelcimConfig::from_env().simulator_enabled();
+    let abandoned_initialization: bool = sqlx::query_scalar(
+        r#"
+        SELECT EXISTS(
+            SELECT 1
+            FROM payment_provider_attempts
+            WHERE id = $1
+              AND provider = 'helcim'
+              AND status = 'pending'
+              AND raw_audit_reference = 'helcim-pay-js:initializing'
+              AND provider_payment_id IS NULL
+              AND provider_transaction_id IS NULL
+              AND provider_client_secret IS NULL
+              AND created_at < now() - ($2::bigint * interval '1 minute')
+        )
+        "#,
+    )
+    .bind(attempt_id)
+    .bind(HELCIM_PAY_INITIALIZATION_STALE_MINUTES)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|error| PaymentError::InvalidPayload(error.to_string()))?;
+    if !simulator_enabled && !abandoned_initialization {
         return Err(PaymentError::Conflict(
             "A live Helcim attempt cannot be released from Riverside while its provider outcome is unresolved. Use Check status or Payments Health to recover a final provider result before using another tender."
                 .to_string(),
@@ -11280,18 +11345,36 @@ async fn release_helcim_terminal_attempt(
     let result = sqlx::query(
         r#"
         UPDATE payment_provider_attempts
-        SET status = 'canceled',
-            error_code = 'simulator_attempt_released',
-            error_message = 'Non-production Helcim simulator attempt was released locally.',
+        SET status = CASE WHEN $2 THEN 'failed' ELSE 'canceled' END,
+            error_code = CASE
+                WHEN $2 THEN 'initialization_abandoned'
+                ELSE 'simulator_attempt_released'
+            END,
+            error_message = CASE
+                WHEN $2 THEN 'Helcim Card Not Present setup ended before card entry opened; no payment was sent.'
+                ELSE 'Non-production Helcim simulator attempt was released locally.'
+            END,
             provider_client_secret = NULL,
             completed_at = now()
         WHERE id = $1
           AND provider = 'helcim'
           AND status = 'pending'
+          AND (
+              NOT $2
+              OR (
+                  raw_audit_reference = 'helcim-pay-js:initializing'
+                  AND provider_payment_id IS NULL
+                  AND provider_transaction_id IS NULL
+                  AND provider_client_secret IS NULL
+                  AND created_at < now() - ($3::bigint * interval '1 minute')
+              )
+          )
           AND provider_transaction_id IS NULL
         "#,
     )
     .bind(attempt_id)
+    .bind(abandoned_initialization)
+    .bind(HELCIM_PAY_INITIALIZATION_STALE_MINUTES)
     .execute(&mut *tx)
     .await
     .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
@@ -12177,6 +12260,25 @@ mod tests {
         assert!(!guard.contains("ppa.register_session_id = $1"));
         assert!(guard.contains("ppa.status IN ('approved', 'captured')"));
         assert!(guard.contains("NOT EXISTS"));
+    }
+
+    #[test]
+    fn pre_dispatch_guard_releases_only_stale_helcim_pay_initialization_rows() {
+        let source = include_str!("payments.rs");
+        let guard = source
+            .split_once("async fn reject_conflicting_helcim_attempt_before_dispatch(")
+            .expect("pre-dispatch guard")
+            .1
+            .split_once("async fn reject_unresolved_helcim_terminal_before_dispatch(")
+            .expect("end of pre-dispatch guard")
+            .0;
+
+        assert!(guard.contains("error_code = 'initialization_abandoned'"));
+        assert!(guard.contains("raw_audit_reference = 'helcim-pay-js:initializing'"));
+        assert!(guard.contains("provider_payment_id IS NULL"));
+        assert!(guard.contains("provider_transaction_id IS NULL"));
+        assert!(guard.contains("provider_client_secret IS NULL"));
+        assert!(guard.contains("HELCIM_PAY_INITIALIZATION_STALE_MINUTES"));
     }
 
     #[test]
@@ -13283,6 +13385,25 @@ mod tests {
         attempt.raw_audit_reference = None;
 
         assert!(helcim_attempt_has_provider_settlement_reference(&attempt));
+    }
+
+    #[test]
+    fn live_release_requires_stale_tokenless_helcim_pay_initialization() {
+        let source = include_str!("payments.rs");
+        let release = source
+            .split_once("async fn release_helcim_terminal_attempt(")
+            .expect("release endpoint")
+            .1
+            .split_once("async fn get_helcim_attempt(")
+            .expect("end of release endpoint")
+            .0;
+
+        assert!(release.contains("raw_audit_reference = 'helcim-pay-js:initializing'"));
+        assert!(release.contains("provider_payment_id IS NULL"));
+        assert!(release.contains("provider_transaction_id IS NULL"));
+        assert!(release.contains("provider_client_secret IS NULL"));
+        assert!(release.contains("HELCIM_PAY_INITIALIZATION_STALE_MINUTES"));
+        assert!(release.contains("if !simulator_enabled && !abandoned_initialization"));
     }
 
     #[test]
