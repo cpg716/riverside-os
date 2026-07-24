@@ -411,6 +411,37 @@ function checkCustomerShippingAndDiscountSource() {
       paidPriceRepairFile,
     );
   }
+
+  const exchangeWizardFile =
+    "client/src/components/pos/PosExchangeWizard.tsx";
+  const exchangeWizard = read(exchangeWizardFile);
+  assertIncludes(
+    exchangeWizard,
+    "storedStateTaxCents + storedLocalTaxCents",
+    "Return and exchange credit uses the tax stored on the original paid line",
+    exchangeWizardFile,
+  );
+  assertNotMatches(
+    exchangeWizard,
+    /calculateNysErieTaxForUnit|CLOTHING_FOOTWEAR_STATE_EXEMPTION_CENTS/,
+    "Return and exchange credit never recalculates historical tax from current rules",
+    exchangeWizardFile,
+  );
+
+  const transactionReturnsFile = "server/src/logic/transaction_returns.rs";
+  const transactionReturns = read(transactionReturnsFile);
+  assertIncludes(
+    transactionReturns,
+    "counterpoint_return_review_blocks",
+    "Counterpoint return processing checks the reviewed fail-closed hold",
+    transactionReturnsFile,
+  );
+  assertIncludes(
+    transactionReturns,
+    "has_unmatched_negative_allocation",
+    "Counterpoint return processing blocks unmatched historical refund allocations",
+    transactionReturnsFile,
+  );
 }
 
 function checkLiabilityAndRecognitionSource() {

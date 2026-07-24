@@ -49,20 +49,28 @@ Legacy order/payment reconciliation uses the same reviewed-manifest rule. Its di
 ### Post-cutover paid-price recovery
 
 After cutover, do not rerun Counterpoint imports to repair charged-price
-history. The staff-gated paid-price recovery works only on the current imported
-ROS records listed in its reviewed manifest. It reconstructs each affected
-transaction from the remaining Counterpoint open-document quantities plus the
-financial `S` lines on linked completed-sale tickets, then requires those line
-amounts and taxes to equal the reviewed Counterpoint lifecycle header totals
-exactly.
+history. Paid-price recovery is a support-managed reconciliation of the current
+Main Hub data against live Counterpoint SQL; it is not a Settings task and does
+not require staff to run a repair after updating Riverside OS. The reviewed
+workflow reconstructs each affected transaction from the remaining
+Counterpoint open-document quantities plus the financial `S` lines on linked
+completed-sale tickets, then requires those line amounts and taxes to equal the
+reviewed Counterpoint lifecycle header totals exactly.
 
 The recovery updates only charged line price, discount/tax, transaction total,
 and balance. It locks and rechecks the complete transaction graph before apply;
 payments, allocations, quantities, customer, status, pickup, fulfillment,
 returns/refunds, and source identity are read-only. Any ambiguity or drift
-blocks the entire repair. Staff must review the manifest in **Settings →
-Counterpoint → Legacy Order Repair**, enter the explicit confirmation phrase,
-and re-open the repaired Transaction Records and receipts afterward.
+is left unchanged and receives an active return/refund safety hold. Return,
+refund, void, and exchange settlement all fail closed for a held record until a
+later reviewed reconciliation resolves that exact record. The Settings panel
+shows read-only status only; staff must not use it as the incident repair path.
+
+Returns and exchanges use the stored charged unit price and stored line tax from
+the original Transaction Record. They never recalculate historical tax from the
+current tax table and never substitute current catalog, retail, or display
+prices. A historical Counterpoint refund is considered reconciled only when its
+negative payment allocation is linked to the matching returned-item event.
 
 Advancement is proof-gated. Bridge-reported row counts alone do not unlock cutover. If the Bridge reports suspiciously low ticket or open-doc counts, a wrong ROS base URL, empty required SQL mappings, or a history floor other than January 1, 2024, ROS records a failed preflight and the Bridge blocks the import.
 

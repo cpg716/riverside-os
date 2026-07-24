@@ -7,6 +7,7 @@ use uuid::Uuid;
 
 use crate::models::DbFulfillmentType;
 
+use super::counterpoint_return_safety::COUNTERPOINT_RETURN_REVIEW_MESSAGE;
 use super::loyalty;
 use super::transaction_recalc;
 
@@ -68,13 +69,19 @@ pub async fn apply_transaction_returns_in_tx(
         ));
     }
 
-    let status: Option<String> =
-        sqlx::query_scalar("SELECT status::text FROM transactions WHERE id = $1 FOR UPDATE")
-            .bind(transaction_id)
-            .fetch_optional(&mut **tx)
-            .await?;
+    let header: Option<(String, bool)> = sqlx::query_as(
+        r#"
+        SELECT status::text, COALESCE(is_counterpoint_import, FALSE)
+        FROM transactions
+        WHERE id = $1
+        FOR UPDATE
+        "#,
+    )
+    .bind(transaction_id)
+    .fetch_optional(&mut **tx)
+    .await?;
 
-    let Some(status) = status else {
+    let Some((status, is_counterpoint_import)) = header else {
         return Err(TransactionReturnError::BadRequest(
             "order not found".to_string(),
         ));
@@ -83,6 +90,51 @@ pub async fn apply_transaction_returns_in_tx(
         return Err(TransactionReturnError::BadRequest(
             "cannot return lines on a cancelled order".to_string(),
         ));
+    }
+    if is_counterpoint_import {
+        let has_active_review_block: bool = sqlx::query_scalar(
+            r#"
+            SELECT EXISTS (
+                SELECT 1
+                FROM counterpoint_return_review_blocks
+                WHERE transaction_id = $1 AND active
+            )
+            "#,
+        )
+        .bind(transaction_id)
+        .fetch_one(&mut **tx)
+        .await?;
+        let has_unmatched_negative_allocation: bool = sqlx::query_scalar(
+            r#"
+            SELECT EXISTS (
+                SELECT 1
+                FROM payment_allocations pa
+                INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
+                WHERE pa.target_transaction_id = $1
+                  AND pa.amount_allocated < 0
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM transaction_return_lines trl
+                      WHERE trl.transaction_id = $1
+                        AND trl.refund_event_id IS NOT NULL
+                        AND (
+                            trl.refund_event_id::text =
+                                NULLIF(pa.metadata->>'refund_event_id', '')
+                            OR trl.refund_event_id::text =
+                                NULLIF(pt.metadata->>'refund_event_id', '')
+                        )
+                  )
+            )
+            "#,
+        )
+        .bind(transaction_id)
+        .fetch_one(&mut **tx)
+        .await?;
+        if has_active_review_block || has_unmatched_negative_allocation {
+            return Err(TransactionReturnError::BadRequest(
+                COUNTERPOINT_RETURN_REVIEW_MESSAGE.to_string(),
+            ));
+        }
     }
 
     let customer_id: Option<Uuid> =

@@ -42,6 +42,32 @@ struct LineRepair {
     source_evidence: JsonValue,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct ReviewedManifestCandidate {
+    manifest_key: String,
+    transaction_id: Uuid,
+    display_id: String,
+    source_doc_id: String,
+    expected_total: Decimal,
+    expected_amount_paid: Decimal,
+    expected_balance: Decimal,
+    corrected_total: Decimal,
+    corrected_balance: Decimal,
+    line_repairs: Vec<LineRepair>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ReviewedManifestFile {
+    candidates: Vec<ReviewedManifestCandidate>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CounterpointPaidPriceRepairStageSummary {
+    pub staged_transactions: usize,
+    pub staged_lines: usize,
+    pub source_manifest_digest: String,
+}
+
 #[derive(Debug, Clone, FromRow, Serialize)]
 struct TransactionSnapshot {
     transaction_id: Uuid,
@@ -153,6 +179,30 @@ fn money(value: Decimal) -> Decimal {
     value.round_dp(2)
 }
 
+fn is_fully_paid_legacy_ticket_without_allocations(
+    header: &TransactionSnapshot,
+    manifest: &ManifestRow,
+    payments: &[PaymentSnapshot],
+) -> bool {
+    let has_no_monetary_allocation = payments.is_empty()
+        || payments.iter().all(|payment| {
+            money(payment.amount_allocated) == Decimal::ZERO
+                && money(payment.payment_amount) == Decimal::ZERO
+                && payment.payment_method == "counterpoint_unmapped"
+                && payment.provider_payment_id.is_none()
+                && payment.provider_transaction_id.is_none()
+                && payment.allocation_kind.is_empty()
+        });
+    has_no_monetary_allocation
+        && header.counterpoint_doc_ref.is_none()
+        && header.counterpoint_ticket_ref.is_some()
+        && header.status == "fulfilled"
+        && money(header.amount_paid) == money(header.total_price)
+        && money(header.balance_due) == Decimal::ZERO
+        && money(manifest.corrected_total) == money(header.total_price)
+        && money(manifest.corrected_balance) == Decimal::ZERO
+}
+
 fn money_string(value: Decimal) -> String {
     format!("{:.2}", money(value))
 }
@@ -178,10 +228,17 @@ async fn prepare_manifest(
     )
     .fetch_one(&mut **tx)
     .await?;
-    let already_applied_count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*)::bigint FROM counterpoint_paid_price_repair_audit")
-            .fetch_one(&mut **tx)
-            .await?;
+    let already_applied_count: i64 = sqlx::query_scalar(
+        r#"
+        SELECT COUNT(*)::bigint
+        FROM counterpoint_paid_price_repair_manifest m
+        INNER JOIN counterpoint_paid_price_repair_audit a
+            ON a.manifest_key = m.manifest_key
+        WHERE m.active
+        "#,
+    )
+    .fetch_one(&mut **tx)
+    .await?;
     let rows = sqlx::query_as::<_, ManifestRow>(
         r#"
         SELECT
@@ -234,8 +291,11 @@ async fn prepare_candidate(
 ) -> Result<PreparedCandidate, String> {
     let line_repairs = serde_json::from_value::<Vec<LineRepair>>(manifest.line_repairs.clone())
         .map_err(|error| format!("staged line evidence is invalid: {error}"))?;
-    if line_repairs.is_empty() {
-        return Err("staged repair has no line corrections".to_string());
+    if line_repairs.is_empty()
+        && money(manifest.expected_total) == money(manifest.corrected_total)
+        && money(manifest.expected_balance) == money(manifest.corrected_balance)
+    {
+        return Err("staged repair changes neither lines nor transaction totals".to_string());
     }
     let unique_line_ids = line_repairs
         .iter()
@@ -275,12 +335,16 @@ async fn prepare_candidate(
     if header.display_id != manifest.display_id {
         return Err("Transaction display ID changed after source review".to_string());
     }
-    if !header
+    let source_reference_matches = header
         .counterpoint_doc_ref
         .as_deref()
         .is_some_and(|value| value.contains(&manifest.source_doc_id))
-    {
-        return Err("Counterpoint open-document reference changed after source review".to_string());
+        || header
+            .counterpoint_ticket_ref
+            .as_deref()
+            .is_some_and(|value| value.contains(&manifest.source_doc_id));
+    if !source_reference_matches {
+        return Err("Counterpoint source reference changed after source review".to_string());
     }
     if money(header.total_price) != money(manifest.expected_total)
         || money(header.amount_paid) != money(manifest.expected_amount_paid)
@@ -383,7 +447,9 @@ async fn prepare_candidate(
     let allocated_total = payments
         .iter()
         .fold(Decimal::ZERO, |sum, payment| sum + payment.amount_allocated);
-    if money(allocated_total) != money(header.amount_paid) {
+    let legacy_ticket_without_allocations =
+        is_fully_paid_legacy_ticket_without_allocations(&header, &manifest, &payments);
+    if money(allocated_total) != money(header.amount_paid) && !legacy_ticket_without_allocations {
         return Err("stored paid amount no longer matches payment allocations".to_string());
     }
 
@@ -433,6 +499,7 @@ async fn prepare_candidate(
         "current_transaction": header,
         "current_lines": lines,
         "current_payment_allocations": payments,
+        "fully_paid_legacy_ticket_without_allocations": legacy_ticket_without_allocations,
         "return_event_count": return_event_count,
         "projected_line_total": money_string(projected_line_total),
         "projected_total": money_string(projected_total),
@@ -491,6 +558,155 @@ pub async fn preview_counterpoint_paid_price_repairs(
             .map(|candidate| candidate.summary)
             .collect(),
         blocked: prepared.blocked,
+    })
+}
+
+pub async fn stage_counterpoint_paid_price_repair_manifest(
+    pool: &PgPool,
+    manifest_json: &JsonValue,
+) -> Result<CounterpointPaidPriceRepairStageSummary, CounterpointSyncError> {
+    let manifest =
+        serde_json::from_value::<ReviewedManifestFile>(manifest_json.clone()).map_err(|error| {
+            CounterpointSyncError::InvalidPayload(format!(
+                "reviewed Counterpoint paid-price manifest is invalid: {error}"
+            ))
+        })?;
+    if manifest.candidates.is_empty() || manifest.candidates.len() > 1_000 {
+        return Err(CounterpointSyncError::InvalidPayload(format!(
+            "reviewed Counterpoint paid-price manifest must contain 1 to 1000 candidates; received {}",
+            manifest.candidates.len()
+        )));
+    }
+
+    let mut manifest_keys = HashSet::new();
+    let mut transaction_ids = HashSet::new();
+    let mut staged_lines = 0_usize;
+    for candidate in &manifest.candidates {
+        if candidate.manifest_key.trim().is_empty()
+            || candidate.display_id.trim().is_empty()
+            || candidate.source_doc_id.trim().is_empty()
+        {
+            return Err(CounterpointSyncError::InvalidPayload(
+                "reviewed Counterpoint paid-price manifest contains a blank identity".to_string(),
+            ));
+        }
+        if !manifest_keys.insert(candidate.manifest_key.clone()) {
+            return Err(CounterpointSyncError::InvalidPayload(
+                "reviewed Counterpoint paid-price manifest repeats a manifest key".to_string(),
+            ));
+        }
+        if !transaction_ids.insert(candidate.transaction_id) {
+            return Err(CounterpointSyncError::InvalidPayload(
+                "reviewed Counterpoint paid-price manifest repeats a transaction".to_string(),
+            ));
+        }
+        staged_lines += candidate.line_repairs.len();
+    }
+
+    let reviewed_manifest_keys = manifest_keys.iter().cloned().collect::<Vec<_>>();
+    let source_manifest_bytes = serde_json::to_vec(&manifest.candidates).map_err(|error| {
+        CounterpointSyncError::InvalidPayload(format!(
+            "could not serialize reviewed Counterpoint paid-price candidates: {error}"
+        ))
+    })?;
+    let source_manifest_digest = format!("{:x}", Sha256::digest(source_manifest_bytes));
+
+    let transaction_ids = transaction_ids.into_iter().collect::<Vec<_>>();
+    let mut tx = pool.begin().await?;
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtext('counterpoint_paid_price_repair'))")
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("LOCK TABLE counterpoint_paid_price_repair_manifest IN EXCLUSIVE MODE")
+        .execute(&mut *tx)
+        .await?;
+
+    let already_applied: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*)::bigint FROM counterpoint_paid_price_repair_audit WHERE manifest_key = ANY($1)",
+    )
+    .bind(&reviewed_manifest_keys)
+    .fetch_one(&mut *tx)
+    .await?;
+    if already_applied != 0 {
+        return Err(CounterpointSyncError::InvalidPayload(format!(
+            "{already_applied} reviewed manifest item(s) already have a paid-price repair audit; no staging changes were committed"
+        )));
+    }
+
+    sqlx::query(
+        r#"
+        UPDATE counterpoint_paid_price_repair_manifest m
+        SET active = FALSE
+        WHERE m.active
+          AND NOT EXISTS (
+              SELECT 1
+              FROM counterpoint_paid_price_repair_audit a
+              WHERE a.manifest_key = m.manifest_key
+          )
+        "#,
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    for candidate in &manifest.candidates {
+        let line_repairs = serde_json::to_value(&candidate.line_repairs).map_err(|error| {
+            CounterpointSyncError::InvalidPayload(format!(
+                "could not serialize reviewed Counterpoint line repairs: {error}"
+            ))
+        })?;
+        sqlx::query(
+            r#"
+            INSERT INTO counterpoint_paid_price_repair_manifest (
+                manifest_key,
+                transaction_id,
+                display_id,
+                source_doc_id,
+                expected_total,
+                expected_amount_paid,
+                expected_balance,
+                corrected_total,
+                corrected_balance,
+                line_repairs,
+                source_manifest_digest,
+                active
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, TRUE)
+            ON CONFLICT (transaction_id) DO UPDATE
+            SET manifest_key = EXCLUDED.manifest_key,
+                display_id = EXCLUDED.display_id,
+                source_doc_id = EXCLUDED.source_doc_id,
+                expected_total = EXCLUDED.expected_total,
+                expected_amount_paid = EXCLUDED.expected_amount_paid,
+                expected_balance = EXCLUDED.expected_balance,
+                corrected_total = EXCLUDED.corrected_total,
+                corrected_balance = EXCLUDED.corrected_balance,
+                line_repairs = EXCLUDED.line_repairs,
+                source_manifest_digest = EXCLUDED.source_manifest_digest,
+                active = TRUE
+            "#,
+        )
+        .bind(&candidate.manifest_key)
+        .bind(candidate.transaction_id)
+        .bind(&candidate.display_id)
+        .bind(&candidate.source_doc_id)
+        .bind(money(candidate.expected_total))
+        .bind(money(candidate.expected_amount_paid))
+        .bind(money(candidate.expected_balance))
+        .bind(money(candidate.corrected_total))
+        .bind(money(candidate.corrected_balance))
+        .bind(line_repairs)
+        .bind(&source_manifest_digest)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    tx.commit().await?;
+    Ok(CounterpointPaidPriceRepairStageSummary {
+        staged_transactions: manifest.candidates.len(),
+        staged_lines,
+        source_manifest_digest,
     })
 }
 
@@ -702,7 +918,10 @@ pub async fn apply_counterpoint_paid_price_repairs(
                     )
             WHERE id = $1
               AND COALESCE(is_counterpoint_import, FALSE)
-              AND counterpoint_doc_ref LIKE '%' || $7 || '%'
+              AND (
+                  counterpoint_doc_ref LIKE '%' || $7 || '%'
+                  OR counterpoint_ticket_ref LIKE '%' || $7 || '%'
+              )
               AND ROUND(COALESCE(total_price, 0), 2) = $9
               AND ROUND(COALESCE(amount_paid, 0), 2) = $10
               AND ROUND(COALESCE(balance_due, 0), 2) = $11
@@ -800,6 +1019,14 @@ pub async fn apply_counterpoint_paid_price_repairs(
         .execute(&mut *tx)
         .await?;
 
+        super::counterpoint_return_safety::resolve_counterpoint_return_review_block(
+            &mut tx,
+            candidate.manifest.transaction_id,
+            repaired_by_staff_id,
+            "Resolved by exact reviewed Counterpoint paid-price repair",
+        )
+        .await?;
+
         repaired_transactions += 1;
     }
 
@@ -815,4 +1042,87 @@ pub async fn apply_counterpoint_paid_price_repairs(
         remaining_ready_count: remaining.candidates.len(),
         remaining_blocked_count: remaining.blocked.len(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn reviewed_manifest(total: Decimal) -> ManifestRow {
+        ManifestRow {
+            manifest_key: "test-paid-price".to_string(),
+            transaction_id: Uuid::new_v4(),
+            display_id: "TXN-TEST".to_string(),
+            source_doc_id: "123".to_string(),
+            expected_total: total,
+            expected_amount_paid: total,
+            expected_balance: Decimal::ZERO,
+            corrected_total: total,
+            corrected_balance: Decimal::ZERO,
+            line_repairs: json!([]),
+            source_manifest_digest: "test-digest".to_string(),
+        }
+    }
+
+    fn legacy_ticket(total: Decimal) -> TransactionSnapshot {
+        TransactionSnapshot {
+            transaction_id: Uuid::new_v4(),
+            display_id: "TXN-TEST".to_string(),
+            counterpoint_doc_ref: None,
+            counterpoint_ticket_ref: Some("MAIN|1|1|123|001-123".to_string()),
+            status: "fulfilled".to_string(),
+            total_price: total,
+            amount_paid: total,
+            balance_due: Decimal::ZERO,
+            shipping_amount_usd: Decimal::ZERO,
+            rounding_adjustment: Decimal::ZERO,
+            is_counterpoint_import: true,
+        }
+    }
+
+    #[test]
+    fn fully_paid_legacy_ticket_may_lack_ros_payment_allocations() {
+        let total = Decimal::new(26000, 2);
+        let manifest = reviewed_manifest(total);
+        let header = legacy_ticket(total);
+        assert!(is_fully_paid_legacy_ticket_without_allocations(
+            &header,
+            &manifest,
+            &[]
+        ));
+
+        let mut partial = header.clone();
+        partial.amount_paid = Decimal::new(13000, 2);
+        partial.balance_due = Decimal::new(13000, 2);
+        assert!(!is_fully_paid_legacy_ticket_without_allocations(
+            &partial,
+            &manifest,
+            &[]
+        ));
+
+        let mut order = header;
+        order.counterpoint_doc_ref = Some("MAIN|1|1|123|O-123".to_string());
+        assert!(!is_fully_paid_legacy_ticket_without_allocations(
+            &order,
+            &manifest,
+            &[]
+        ));
+
+        let zero_placeholder = PaymentSnapshot {
+            allocation_id: Uuid::new_v4(),
+            payment_transaction_id: Uuid::new_v4(),
+            amount_allocated: Decimal::ZERO,
+            payment_amount: Decimal::ZERO,
+            payment_status: "success".to_string(),
+            payment_method: "counterpoint_unmapped".to_string(),
+            provider_payment_id: None,
+            provider_transaction_id: None,
+            allocation_kind: String::new(),
+        };
+        assert!(is_fully_paid_legacy_ticket_without_allocations(
+            &legacy_ticket(total),
+            &manifest,
+            &[zero_placeholder]
+        ));
+    }
 }

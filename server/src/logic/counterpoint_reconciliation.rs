@@ -437,6 +437,18 @@ async fn discover_candidates(
     .bind(&transaction_ids)
     .fetch_all(&mut **tx)
     .await?;
+    let protected_transaction_ids = sqlx::query_scalar::<_, Uuid>(
+        r#"
+        SELECT DISTINCT transaction_id
+        FROM transaction_return_lines
+        WHERE transaction_id = ANY($1)
+        "#,
+    )
+    .bind(&transaction_ids)
+    .fetch_all(&mut **tx)
+    .await?
+    .into_iter()
+    .collect::<HashSet<_>>();
 
     let mut payments_by_target: HashMap<Uuid, Vec<ReconciliationPaymentRow>> = HashMap::new();
     for payment in payments {
@@ -480,6 +492,13 @@ async fn discover_candidates(
             .get(&canonical_id)
             .cloned()
             .unwrap_or_default();
+        if protected_transaction_ids.contains(&canonical_id)
+            || group
+                .iter()
+                .any(|row| protected_transaction_ids.contains(&row.ticket_transaction_id))
+        {
+            review_reasons.push("A matching transaction already has return history.");
+        }
         let mut manifest_payments = canonical_payments.clone();
         for row in &group {
             manifest_payments.extend(
@@ -515,6 +534,10 @@ async fn discover_candidates(
             }
             reconciled_amount += payment.amount;
         }
+        if (reconciled_amount - first.canonical_amount_paid).abs() > Decimal::new(1, 2) {
+            review_reasons
+                .push("The original order paid summary differs from its payment allocations.");
+        }
 
         let mut moved_payments = Vec::new();
         let mut duplicate_payments = Vec::new();
@@ -530,6 +553,11 @@ async fn discover_candidates(
                     review_reasons.push("A matching ticket contains a non-success payment.");
                 }
                 if existing_pos_match {
+                    duplicate_payments.push(payment.clone());
+                    continue;
+                }
+                if imported_doc_match && reconciled_amount >= first.total_price - Decimal::new(1, 2)
+                {
                     duplicate_payments.push(payment.clone());
                     continue;
                 }
@@ -552,9 +580,8 @@ async fn discover_candidates(
         if !existing_pos_match && !imported_doc_match && moved_payments.is_empty() {
             review_reasons.push("No later payment can be moved to the original order.");
         }
-        if !existing_pos_match && (reconciled_amount - first.total_price).abs() > Decimal::new(1, 2)
-        {
-            review_reasons.push("Unique payment totals do not exactly equal the order total.");
+        if !existing_pos_match && reconciled_amount > first.total_price + Decimal::new(1, 2) {
+            review_reasons.push("Unique payment totals exceed the order total.");
         }
 
         review_reasons.sort_unstable();

@@ -335,6 +335,8 @@ pub struct TransactionDetailResponse {
     pub wedding_deposit_amount: Decimal,
     pub balance_due: Decimal,
     pub is_counterpoint_import: bool,
+    #[serde(default)]
+    pub counterpoint_return_review_blocked: bool,
     pub is_forfeited: bool,
     pub forfeited_at: Option<DateTime<Utc>>,
     pub forfeiture_reason: Option<String>,
@@ -937,6 +939,7 @@ mod tests {
             wedding_deposit_amount: Decimal::ZERO,
             balance_due: Decimal::ZERO,
             is_counterpoint_import: false,
+            counterpoint_return_review_blocked: false,
             is_forfeited: false,
             forfeited_at: None,
             forfeiture_reason: None,
@@ -1038,6 +1041,7 @@ mod tests {
             tax_exempt_reason: None,
             register_session_id: None,
             is_counterpoint_import,
+            counterpoint_return_review_blocked: false,
         }
     }
 
@@ -2816,6 +2820,7 @@ struct OrderHeaderRow {
     tax_exempt_reason: Option<String>,
     register_session_id: Option<Uuid>,
     is_counterpoint_import: bool,
+    counterpoint_return_review_blocked: bool,
 }
 
 #[derive(Debug, FromRow)]
@@ -10422,6 +10427,43 @@ pub(crate) async fn load_transaction_detail(
             o.amount_paid,
             o.balance_due,
             COALESCE(o.is_counterpoint_import, false) AS is_counterpoint_import,
+            (
+                COALESCE(o.is_counterpoint_import, false)
+                AND (
+                    EXISTS (
+                        SELECT 1
+                        FROM counterpoint_return_review_blocks return_block
+                        WHERE return_block.transaction_id = o.id
+                          AND return_block.active
+                    )
+                    OR EXISTS (
+                        SELECT 1
+                        FROM payment_allocations refund_allocation
+                        INNER JOIN payment_transactions refund_payment
+                            ON refund_payment.id = refund_allocation.transaction_id
+                        WHERE refund_allocation.target_transaction_id = o.id
+                          AND refund_allocation.amount_allocated < 0
+                          AND NOT EXISTS (
+                              SELECT 1
+                              FROM transaction_return_lines matched_return
+                              WHERE matched_return.transaction_id = o.id
+                                AND matched_return.refund_event_id IS NOT NULL
+                                AND (
+                                    matched_return.refund_event_id::text =
+                                        NULLIF(
+                                            refund_allocation.metadata->>'refund_event_id',
+                                            ''
+                                        )
+                                    OR matched_return.refund_event_id::text =
+                                        NULLIF(
+                                            refund_payment.metadata->>'refund_event_id',
+                                            ''
+                                        )
+                                )
+                          )
+                    )
+                )
+            ) AS counterpoint_return_review_blocked,
             o.is_forfeited,
             o.forfeited_at,
             o.forfeiture_reason,
@@ -11119,6 +11161,7 @@ pub(crate) async fn load_transaction_detail(
         wedding_deposit_amount,
         balance_due: h.balance_due,
         is_counterpoint_import: h.is_counterpoint_import,
+        counterpoint_return_review_blocked: h.counterpoint_return_review_blocked,
         is_forfeited: h.is_forfeited,
         forfeited_at: h.forfeited_at,
         forfeiture_reason: h.forfeiture_reason,

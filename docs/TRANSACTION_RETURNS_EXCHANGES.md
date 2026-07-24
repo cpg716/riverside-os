@@ -122,7 +122,10 @@ When the client cannot send Back Office staff headers (e.g. receipt modal on the
 - **Rules**
   - Cannot return more than **sold qty minus prior returns** per line.
   - Not allowed on **cancelled** transactions.
-  - Counterpoint historical tickets use the actual imported tender total as the paid basis. When Counterpoint supplied a discounted paid price for a line, ROS preserves that exact source line price for return/exchange credit; only legacy lines without source-paid price metadata use the historical fallback allocation.
+  - Return/exchange credit uses only the charged unit price and line tax stored on the original Transaction Record. It does not recalculate historical tax from today's tax rules and does not substitute catalog, retail, regular, or display price.
+  - Counterpoint historical tickets use the actual imported tender total as the paid basis. When Counterpoint supplied a discounted paid price for a line, ROS preserves that exact source line price and Reg/Sale discount evidence.
+  - Imported Counterpoint records with unresolved source-price, tax, quantity, payment-allocation, or historical-refund evidence are blocked from line return, refund, void, and exchange settlement. Staff receive a fail-closed reconciliation message before any return, inventory, tender, or provider mutation. A block clears only through an exact reviewed support reconciliation.
+  - Existing negative Counterpoint payment allocations must carry a refund-event identity that matches the recorded returned items. An unmatched historical refund allocation blocks another return so Riverside cannot duplicate the return or refund.
   - **Restock:** default **true** when line is **takeaway** and **fulfilled**; otherwise no `stock_on_hand` bump (special/wedding semantics per **`INVENTORY_GUIDE.md`**). Explicit **`restock`** overrides default.
   - A restocked return updates `product_variants.stock_on_hand` and appends a matching `inventory_transactions.return_in` row with the returned line's recorded unit cost. If the variant cannot be updated, the return rolls back instead of creating a synthetic return or inventory record.
   - **`transaction_return_lines`** is append-only audit.
@@ -172,6 +175,7 @@ When the client cannot send Back Office staff headers (e.g. receipt modal on the
 | `37_order_returns_and_exchange.sql` | `transaction_return_lines`, `transactions.exchange_group_id` |
 | `034_transaction_void_records.sql` | Append-only POS void records and reversal-state tracking |
 | `118_repair_joe_webb_failed_exchange_return.sql` | One-time repair for the stale TXN-621978 Mantoni shirt return marker created by the failed exchange flow |
+| `159_counterpoint_return_review_blocks.sql` | Reviewed fail-closed holds for imported Counterpoint records whose source or refund evidence is not yet exact |
 
 ---
 

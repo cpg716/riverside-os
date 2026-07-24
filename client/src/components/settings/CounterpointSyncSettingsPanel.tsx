@@ -1926,14 +1926,14 @@ export default function CounterpointSyncSettingsPanel({
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="max-w-3xl">
                 <p className="text-[10px] font-black uppercase tracking-widest text-red-700 dark:text-red-300">
-                  July 21 paid-price correction
+                  Support-managed Counterpoint paid-price reconciliation
                 </p>
                 <p className="mt-1 text-xs font-semibold text-app-text-muted">
-                  Repairs only current imported ROS records whose Counterpoint
-                  open lines and linked completed-sale tickets reconcile exactly.
-                  It does not run an import. Payments, payment allocations,
-                  quantities, returns, status, pickup, and fulfillment are
-                  locked read-only.
+                  No staff repair action is required here. Support compares the
+                  current Main Hub records directly with Counterpoint SQL,
+                  repairs only exact matches, and places unresolved records on a
+                  return/refund safety hold. This screen is read-only evidence;
+                  do not rerun Counterpoint imports.
                 </p>
                 {paidPriceRepairPreview ? (
                   <p className="mt-1 font-mono text-[10px] text-app-text-muted">
@@ -1952,20 +1952,17 @@ export default function CounterpointSyncSettingsPanel({
                   className="ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold"
                 >
                   <RefreshCw className="h-3.5 w-3.5" />
-                  Refresh Paid Prices
+                  Refresh Read-Only Status
                 </button>
                 <button
                   type="button"
                   onClick={() => setPaidPriceRepairPromptOpen(true)}
-                  disabled={
-                    !paidPriceRepairPreview?.ready_count ||
-                    Boolean(paidPriceRepairPreview?.blocked_count) ||
-                    paidPriceRepairBusy
-                  }
+                  disabled
+                  aria-busy={paidPriceRepairBusy}
                   className="ui-btn-primary inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <Wrench className="h-3.5 w-3.5" />
-                  Restore Exact Paid Prices
+                  Support-Managed Only
                 </button>
               </div>
             </div>

@@ -91,35 +91,22 @@ Counterpoint reruns also protect completed work. If an imported line already has
 
 ### Current imported paid-price recovery
 
-Counterpoint imports are complete. **July 21 paid-price correction** repairs the
-affected records already stored in ROS; it does not connect to Counterpoint,
-start the Bridge, or run another import.
+Counterpoint imports are complete. Current paid-price reconciliation is
+support-managed against Counterpoint SQL and the live Main Hub data. Staff do
+not run a paid-price repair in Settings, do not start the Bridge, and do not
+rerun an import. Updating Riverside OS does not require a separate Settings
+repair afterward.
 
-The reviewed manifest contains only rows where the Counterpoint open quantity
-and each linked completed-sale quantity reconcile exactly. Completed quantities
-use the linked completed Counterpoint sale price and tax; remaining quantities
-use the open Counterpoint line price and tax. Retail/display values are retained
-only as Reg/Sale/discount evidence and never replace what the customer was
-charged.
+**Refresh Read-Only Status** may be used to view retained evidence, but the
+repair control is intentionally unavailable to staff. Exact matches are repaired
+through the reviewed support workflow. Records whose paid price, tax, quantity,
+payment, or historical-refund evidence is ambiguous remain unchanged and are
+placed on a return/refund safety hold.
 
-1. Select **Refresh Paid Prices**.
-2. Confirm every row shows the expected current total, Counterpoint total,
-   unchanged paid amount, corrected balance, and corrected line count.
-3. Do not proceed if **Blocked** is greater than zero or the evidence is
-   unavailable.
-4. Select **Restore Exact Paid Prices**, enter the displayed confirmation
-   phrase, and confirm the reviewed scope.
-5. Reopen each affected Transaction Record and receipt. Confirm the item sale
-   prices, discount presentation, tax, total, paid amount, and balance match the
-   Counterpoint receipt.
-
-Apply locks and rechecks the complete reviewed manifest. Any changed line,
-payment, quantity, status, fulfillment state, return/refund, total, or balance
-aborts the whole operation with no partial repair. A successful repair changes
-only charged line price/discount/tax and the corresponding transaction total
-and balance. Payments, allocations, quantities, customer, status, pickup,
-fulfillment, and source provenance remain unchanged, and the before/after
-evidence is stored in the append-only audit trail.
+The hold blocks return, refund, void, and exchange settlement before inventory,
+tender, or provider changes. Tell support the Transaction Record number shown
+in the message. Do not work around the hold by selecting another sale, changing
+the line price, or issuing an unlinked manual refund.
 
 ## Go-live workflow
 

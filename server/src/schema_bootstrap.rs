@@ -45,6 +45,7 @@ pub async fn ensure_core_schema(pool: &PgPool) -> Result<()> {
                 ('public', 'counterpoint_booking_date_repair_audit'),
                 ('public', 'counterpoint_paid_price_repair_manifest'),
                 ('public', 'counterpoint_paid_price_repair_audit'),
+                ('public', 'counterpoint_return_review_blocks'),
                 ('public', 'shipment'),
                 ('public', 'ros_schema_migrations')
         ),
