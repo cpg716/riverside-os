@@ -2,6 +2,10 @@ import { expect, test, type APIRequestContext } from "@playwright/test";
 import { parseMoneyToCents } from "../src/lib/money";
 import { calculateNysErieTaxStringsForUnit } from "../src/lib/tax";
 import {
+  isOrderStatus,
+  REGISTER_ORDER_STATUS_SCOPE,
+} from "../src/components/pos/orderLoadStatus";
+import {
   openBackofficeSidebarTab,
   signInToBackOffice,
 } from "./helpers/backofficeSignIn";
@@ -29,6 +33,13 @@ type SeededOrder = {
   productName: string;
   transactionLineId: string;
 };
+
+test("Register order lookup excludes completed work and accepts API status casing", () => {
+  expect(REGISTER_ORDER_STATUS_SCOPE).toBe("open");
+  expect(isOrderStatus("Fulfilled", "fulfilled")).toBe(true);
+  expect(isOrderStatus("fulfilled", "fulfilled")).toBe(true);
+  expect(isOrderStatus("Open", "fulfilled")).toBe(false);
+});
 
 async function createSpecialOrder(
   request: APIRequestContext,

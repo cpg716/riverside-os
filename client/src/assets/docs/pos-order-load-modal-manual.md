@@ -18,11 +18,11 @@ tags: pos, orders, pickup, fulfillment
 
 ![Checkout drawer](../images/help/pos-order-load-modal/workflow-3.png)
 
-Use this window when a customer already has Special, Custom, or Wedding work and staff need to review payment, editing, pickup, details, or receipt recovery. The POS order loader shows open and completed order records; completed lines remain unavailable for another pickup.
+Use this window when a customer already has open Special, Custom, or Wedding work and staff need to review payment, editing, pickup, or details. Completed orders remain available from the customer's history and Back Office Orders, not as active Register pickup work.
 
 ## What it shows
 
-- The customer's open and completed order records
+- The customer's open order records
 - Order date, amount paid, and balance due
 - A plain lifecycle note such as **Deposit received**, **Balance paid**, or **Waiting on measurements**
 - The order lines that are still unfulfilled
@@ -49,7 +49,7 @@ Use this window when a customer already has Special, Custom, or Wedding work and
 - **Pick Up Selected** does not finish inside this window or add a payment. It adds only the selected pickup lines to the basket, keeps each line's original Transaction Record link, and lets staff combine one or more orders before selecting **Start Pickup**. The register finishes from **Complete Pickup** so the Sale Complete receipt screen opens.
 - The pickup basket supports one item, several items, or all open ready items from each of several orders. Payment and pickup release remain tracked against each source Transaction Record.
 - If recorded payments do not cover the selected pickup value plus merchandise already released, collect payment intentionally with **Add Payment** or use the audited **Manager Access** override at completion. Unselected lines and the remaining balance stay open.
-- After pickup is completed, the source order is no longer open work and its lines should show **Picked Up** in history. If a just-completed order still appears in this window, close and reopen **Customer Orders** to refresh it; if it remains, report the Transaction Record number so the status can be reconciled without creating a new sale.
+- After pickup is completed, the source order is no longer open work and disappears from this Register list. Its lines remain available as **Picked Up** in customer history and Back Office Orders. If a just-completed order still appears, close and reopen **Customer Orders** to refresh it; if it remains, report the Transaction Record number so the status can be reconciled without creating a new sale.
 - New merchandise added after loading pickup lines becomes a new sale line in the same register flow.
 - Use the balance and lifecycle note to confirm whether the order still needs payment, receiving follow-up, measurement follow-up, or pickup follow-up.
 - When the order has linked alterations marked **Ready**, loading the order for pickup shows those alteration pickups in the Register. Completing the order pickup also marks those ready alterations **Picked Up**.

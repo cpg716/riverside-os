@@ -29,6 +29,7 @@ import VariantSelectionModal, {
   type ProductWithVariants,
   type VariantOption,
 } from "./VariantSelectionModal";
+import { isOrderStatus, REGISTER_ORDER_STATUS_SCOPE } from "./orderLoadStatus";
 
 export interface CustomerOrder {
   id: string;
@@ -260,9 +261,7 @@ export default function OrderLoadModal({
       customer_id: customerId,
       limit: "25",
       record_scope: "orders",
-        // Keep completed order records available for details and receipt
-        // recovery; completed lines remain ineligible for another pickup.
-        status_scope: "all",
+      status_scope: REGISTER_ORDER_STATUS_SCOPE,
     });
     if (registerSessionId) params.set("register_session_id", registerSessionId);
     fetch(`${baseUrl}/api/transactions?${params.toString()}`, {
@@ -308,8 +307,8 @@ export default function OrderLoadModal({
     const dueCents = parseMoneyToCents(order.balance_due);
     const isWedding =
       order.order_kind === "wedding_order" || Boolean(order.wedding_member_id);
-    if (order.status === "fulfilled") return "Picked up";
-    if (order.status === "pending_measurement")
+    if (isOrderStatus(order.status, "fulfilled")) return "Picked up";
+    if (isOrderStatus(order.status, "pending_measurement"))
       return "Waiting on measurements";
     if (isWedding && dueCents <= 0) return "Wedding balance paid";
     if (isWedding && paidCents > 0 && dueCents > 0)
@@ -322,12 +321,12 @@ export default function OrderLoadModal({
   const lifecycleNote = (order: CustomerOrder) => {
     const isWedding =
       order.order_kind === "wedding_order" || Boolean(order.wedding_member_id);
-    if (order.status === "fulfilled") {
+    if (isOrderStatus(order.status, "fulfilled")) {
       return isWedding
         ? "This wedding order is already completed at pickup."
         : "These items are already marked picked up.";
     }
-    if (order.status === "pending_measurement") {
+    if (isOrderStatus(order.status, "pending_measurement")) {
       return isWedding
         ? "Do not promise pickup until measurements, booking details, and wedding-member follow-up are complete."
         : "Do not promise pickup until measurements and booking details are complete.";
@@ -440,7 +439,7 @@ export default function OrderLoadModal({
         customer_id: customerId,
         limit: "25",
         record_scope: "orders",
-        status_scope: "all",
+        status_scope: REGISTER_ORDER_STATUS_SCOPE,
       });
       if (registerSessionId)
         params.set("register_session_id", registerSessionId);
@@ -924,7 +923,9 @@ export default function OrderLoadModal({
                       type="button"
                       data-testid={`pos-order-${orderReleaseMode(order)}-${order.display_id}`}
                       onClick={() => void openReleaseSelection(order)}
-                      disabled={pickupBusy || order.status === "fulfilled"}
+                      disabled={
+                        pickupBusy || isOrderStatus(order.status, "fulfilled")
+                      }
                       className="flex min-h-11 items-center justify-center gap-2 rounded-xl border-b-4 border-app-success bg-app-success px-3 py-3 text-[10px] font-black uppercase tracking-widest text-white shadow-lg transition-all hover:opacity-90 disabled:opacity-50"
                     >
                       {orderReleaseMode(order) === "ship" ? (
@@ -948,8 +949,8 @@ export default function OrderLoadModal({
                       type="button"
                       disabled={
                         orderMutationBusy ||
-                        order.status === "cancelled" ||
-                        order.status === "fulfilled"
+                        isOrderStatus(order.status, "cancelled") ||
+                        isOrderStatus(order.status, "fulfilled")
                       }
                       onClick={() => setCancelOrder(order)}
                       className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-app-danger/20 bg-app-danger/10 px-3 text-[10px] font-black uppercase tracking-widest text-app-danger disabled:opacity-50"
