@@ -38,6 +38,8 @@ pub struct CustomerTransactionHistoryItem {
     pub balance_due: Decimal,
     pub item_count: i64,
     pub is_fulfillment_order: bool,
+    pub is_exchange: bool,
+    pub has_returns: bool,
     pub is_counterpoint_import: bool,
     pub counterpoint_customer_code: Option<String>,
     pub primary_salesperson_name: Option<String>,
@@ -61,6 +63,8 @@ struct Row {
     balance_due: Decimal,
     item_count: i64,
     is_fulfillment_order: bool,
+    is_exchange: bool,
+    has_returns: bool,
     is_counterpoint_import: bool,
     counterpoint_customer_code: Option<String>,
     primary_salesperson_name: Option<String>,
@@ -109,6 +113,15 @@ pub async fn query_customer_transaction_history(
                       OR fulfillment::text IN ('special_order', 'custom', 'wedding_order')
                   )
             ) AS is_fulfillment_order,
+            o.exchange_group_id IS NOT NULL AS is_exchange,
+            EXISTS(
+                SELECT 1
+                FROM transaction_return_lines trl
+                INNER JOIN transaction_lines returned_line
+                    ON returned_line.id = trl.transaction_line_id
+                WHERE returned_line.transaction_id = o.id
+                  AND trl.quantity_returned > 0
+            ) AS has_returns,
             o.is_counterpoint_import,
             CASE
                 WHEN c.customer_created_source = 'counterpoint'
@@ -238,6 +251,8 @@ pub async fn query_customer_transaction_history(
             balance_due: r.balance_due,
             item_count: r.item_count,
             is_fulfillment_order: r.is_fulfillment_order,
+            is_exchange: r.is_exchange,
+            has_returns: r.has_returns,
             is_counterpoint_import: r.is_counterpoint_import,
             counterpoint_customer_code: r.counterpoint_customer_code,
             primary_salesperson_name: r.primary_salesperson_name,

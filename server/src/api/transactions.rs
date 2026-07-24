@@ -356,6 +356,10 @@ pub struct TransactionDetailResponse {
     pub shipping_label_url: Option<String>,
     #[serde(default)]
     pub exchange_group_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub receipt_refund_event_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub receipt_event_transaction_id: Option<Uuid>,
     pub payment_methods_summary: String,
     #[serde(default)]
     pub refund_payment_methods_summary: String,
@@ -945,6 +949,8 @@ mod tests {
             tracking_url_provider: None,
             shipping_label_url: None,
             exchange_group_id: None,
+            receipt_refund_event_id: None,
+            receipt_event_transaction_id: None,
             payment_methods_summary: "Card".to_string(),
             refund_payment_methods_summary: "Cash".to_string(),
             refund_total,
@@ -11075,6 +11081,25 @@ pub(crate) async fn load_transaction_detail(
         (false, "escpos".to_string())
     };
     let void_record = load_void_record(pool, transaction_id).await?;
+    let receipt_event_context: Option<(Uuid, Uuid)> = sqlx::query_as(
+        r#"
+        SELECT
+            NULLIF(metadata->>'refund_event_id', '')::uuid AS refund_event_id,
+            COALESCE(
+                NULLIF(metadata->>'original_transaction_id', '')::uuid,
+                transaction_id
+            ) AS receipt_event_transaction_id
+        FROM transaction_activity_log
+        WHERE transaction_id = $1
+          AND event_kind = 'exchange_settled'
+          AND NULLIF(metadata->>'refund_event_id', '') IS NOT NULL
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1
+        "#,
+    )
+    .bind(transaction_id)
+    .fetch_optional(pool)
+    .await?;
     let allocated_payment_total = total_allocated_payments.unwrap_or(Decimal::ZERO);
     let explicit_deposit_total = total_applied_deposit_amount.unwrap_or(Decimal::ZERO);
     let deposit_total = explicit_deposit_total;
@@ -11106,6 +11131,8 @@ pub(crate) async fn load_transaction_detail(
         tracking_url_provider: h.tracking_url_provider,
         shipping_label_url: h.shipping_label_url,
         exchange_group_id: h.exchange_group_id,
+        receipt_refund_event_id: receipt_event_context.map(|context| context.0),
+        receipt_event_transaction_id: receipt_event_context.map(|context| context.1),
         payment_methods_summary,
         refund_payment_methods_summary,
         refund_total,

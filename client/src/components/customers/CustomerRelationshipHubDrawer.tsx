@@ -414,6 +414,8 @@ interface CustomerOrderHistoryItem {
   item_count: number;
   primary_salesperson_name?: string | null;
   is_fulfillment_order?: boolean;
+  is_exchange?: boolean;
+  has_returns?: boolean;
   is_counterpoint_import?: boolean;
   counterpoint_customer_code?: string | null;
 }
@@ -2605,6 +2607,16 @@ export function CustomerRelationshipHubDrawer({
                         <p className="font-mono text-xs font-black text-app-text">
                           {row.transaction_display_id}
                         </p>
+                        {row.is_exchange ? (
+                          <p className="mt-1 text-[9px] font-black uppercase tracking-widest text-app-accent">
+                            Exchange
+                          </p>
+                        ) : null}
+                        {row.has_returns ? (
+                          <p className="mt-1 text-[9px] font-black uppercase tracking-widest text-app-warning">
+                            Returned Item
+                          </p>
+                        ) : null}
                         <p className="mt-1 text-[11px] text-app-text-muted">
                           {readableDateTime(row.booked_at)}
                         </p>
@@ -2684,6 +2696,16 @@ export function CustomerRelationshipHubDrawer({
                         <td className="px-3 py-2 font-mono text-xs">
                           <div className="flex items-center gap-2">
                             <span>{row.transaction_display_id}</span>
+                            {row.is_exchange ? (
+                              <span className="rounded bg-app-accent/10 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-widest text-app-accent">
+                                Exchange
+                              </span>
+                            ) : null}
+                            {row.has_returns ? (
+                              <span className="rounded bg-app-warning/10 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-widest text-app-warning">
+                                Returned Item
+                              </span>
+                            ) : null}
                             {row.is_counterpoint_import ? (
                               <span className="rounded bg-zinc-500/10 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-widest text-zinc-600">
                                 Imported from Counterpoint

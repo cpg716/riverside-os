@@ -97,6 +97,9 @@ export interface TransactionDrawerDetail {
   tracking_number?: string | null;
   tracking_url_provider?: string | null;
   shipping_label_url?: string | null;
+  exchange_group_id?: string | null;
+  receipt_refund_event_id?: string | null;
+  receipt_event_transaction_id?: string | null;
   payment_methods_summary?: string;
   operator_name?: string | null;
   primary_salesperson_name?: string | null;
@@ -264,6 +267,7 @@ function formatStatusLabel(status: string): string {
 type BadgeTone = "success" | "info" | "warning" | "neutral" | "rose";
 
 function orderKindLabel(detail: TransactionDrawerDetail): string {
+  if (detail.exchange_group_id) return "Exchange";
   if (detail.wedding_summary || detail.wedding_member_id) return "Wedding";
   if (detail.items.some((item) => item.fulfillment === "layaway"))
     return "Layaway";
@@ -3071,6 +3075,13 @@ export default function TransactionDetailDrawer({
           onClose={() => setShowReceiptModal(false)}
           baseUrl={baseUrl}
           getAuthHeaders={auth}
+          refundEventId={detail?.receipt_refund_event_id ?? null}
+          receiptEventTransactionId={detail?.receipt_event_transaction_id ?? null}
+          exchangeReturnTransactionId={
+            detail?.receipt_refund_event_id
+              ? (detail.receipt_event_transaction_id ?? orderId)
+              : null
+          }
         />
       ) : null}
 

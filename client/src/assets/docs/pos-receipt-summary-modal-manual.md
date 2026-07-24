@@ -53,6 +53,8 @@ Receipt totals are sourced from the completed transaction ledger. Shipping and a
 
 The completion screen identifies the customer and Transaction number and labels the completed event as a sale, payment, pickup, refund, exchange, or combined sale/pickup/payment outcome. Pickup handoffs show the amount collected during that pickup event and preserve the Transaction Record's actual remaining balance. Payment applications and linked pickups are read back from the completed transaction so their target Transaction numbers, applied amounts, remaining balances, and picked-up item counts match the saved result.
 
+Reprinting a settled exchange from Transaction History uses the exchange event, not the replacement sale by itself. The customer copy is headed **RETURN / EXCHANGE**, shows the returned merchandise as a negative exchanged line, shows the replacement merchandise as a positive line, and uses **Exchange Credit** anywhere that tender must be named.
+
 When a customer picks up an order and buys new merchandise in the same checkout, the sale complete screen prints one checkout receipt. It includes the new sale lines plus the exact picked-up items and their source Transaction number. Daily Sales lists the checkout once, while **Pickups Today** preserves the fulfillment record. Pure pickup checkouts still print the pickup receipt for the original transaction.
 
 Split tenders print as separate tender lines, such as **Cash**, **CC**, **RMS90**, **RMS**, **Check**, or **SC**, so the receipt matches the payment breakdown staff see in history and reporting.

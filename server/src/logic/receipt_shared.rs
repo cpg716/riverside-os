@@ -194,6 +194,7 @@ pub fn tender_display_label(method: &str) -> String {
         "check" | "cheque" => "Check".to_string(),
         "giftcard" => "Gift Card".to_string(),
         "sc" | "storecredit" => "SC".to_string(),
+        "exchangecredit" => "Exchange Credit".to_string(),
         _ => method.trim().to_string(),
     }
 }
@@ -238,5 +239,6 @@ mod tests {
         assert_eq!(tender_display_label("check"), "Check");
         assert_eq!(tender_display_label("gift_card"), "Gift Card");
         assert_eq!(tender_display_label("store_credit"), "SC");
+        assert_eq!(tender_display_label("exchange_credit"), "Exchange Credit");
     }
 }

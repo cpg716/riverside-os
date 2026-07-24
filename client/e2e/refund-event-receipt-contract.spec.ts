@@ -19,6 +19,12 @@ const receiptModal = repoFile(
 const registerReports = repoFile(
   "client/src/components/pos/RegisterReports.tsx",
 );
+const transactionDetailDrawer = repoFile(
+  "client/src/components/orders/TransactionDetailDrawer.tsx",
+);
+const customerRelationshipHub = repoFile(
+  "client/src/components/customers/CustomerRelationshipHubDrawer.tsx",
+);
 
 test("deferred original-card refunds retain the server event and exact provider result", () => {
   expect(cart).toContain("parseRefundEventId(settlementPayload)");
@@ -102,4 +108,24 @@ test("approval UI and Daily Sales reprints retain one refund event", () => {
   expect(registerReports).toContain(
     "receiptEventTransactionId={receiptEventTransactionId}",
   );
+});
+
+test("transaction history reprints settled exchanges through the event receipt", () => {
+  expect(transactionDetailDrawer).toContain(
+    "receipt_refund_event_id?: string | null",
+  );
+  expect(transactionDetailDrawer).toContain(
+    "refundEventId={detail?.receipt_refund_event_id ?? null}",
+  );
+  expect(transactionDetailDrawer).toContain(
+    "receiptEventTransactionId={detail?.receipt_event_transaction_id ?? null}",
+  );
+  expect(transactionDetailDrawer).toContain(
+    'if (detail.exchange_group_id) return "Exchange"',
+  );
+  expect(customerRelationshipHub).toContain("is_exchange?: boolean");
+  expect(customerRelationshipHub).toContain("row.is_exchange");
+  expect(customerRelationshipHub).toContain("has_returns?: boolean");
+  expect(customerRelationshipHub).toContain("row.has_returns");
+  expect(customerRelationshipHub).toContain("Returned Item");
 });
