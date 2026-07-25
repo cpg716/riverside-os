@@ -5,7 +5,6 @@ use meilisearch_sdk::search::{MatchingStrategies, Selectors};
 use serde::Deserialize;
 use sqlx::PgPool;
 use std::collections::HashSet;
-use std::time::Duration;
 use uuid::Uuid;
 
 use crate::logic::meilisearch_client::{
@@ -28,7 +27,6 @@ const ALTERATION_MEILI_HIT_CAP: usize = 1_000;
 const ID_ATTRIBUTES: &[&str] = &["id"];
 const CUSTOMER_NAME_ATTRIBUTES: &[&str] = &["first_name", "last_name", "full_name"];
 pub const AUTHORITATIVE_INDEX_MAX_AGE_HOURS: i64 = 36;
-const INDEX_STATS_TIMEOUT: Duration = Duration::from_millis(250);
 const FUTURE_PROOF_CLOCK_SKEW_MINUTES: i64 = 5;
 
 #[derive(Debug, Deserialize)]
@@ -43,6 +41,11 @@ struct SearchHealthRow {
     indexed_row_count: i64,
     rebuild_success: bool,
     rebuild_last_success_at: Option<chrono::DateTime<chrono::Utc>>,
+    source_revision: i64,
+    indexed_revision: i64,
+    verified_revision: Option<i64>,
+    last_verified_at: Option<chrono::DateTime<chrono::Utc>>,
+    verification_state: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -280,6 +283,15 @@ fn recorded_index_health_allows_authority(
         && row.index_last_success_at.is_some_and(|at| at >= cutoff)
         && row.rebuild_last_success_at.is_some_and(|at| at >= cutoff)
         && row.indexed_row_count >= 0
+        && row.source_revision == row.indexed_revision
+        && row.verified_revision == Some(row.source_revision)
+        && row.verification_state == "verified"
+        && row.last_verified_at.is_some_and(|at| {
+            at >= chrono::Utc::now()
+                - chrono::Duration::seconds(
+                    crate::logic::meilisearch_sync::INDEX_VERIFICATION_MAX_AGE_SECONDS,
+                )
+        })
 }
 
 /// Candidate-ID searches are an optimization, not an authoritative result set, when the fixed
@@ -306,11 +318,11 @@ pub fn candidate_ids_may_be_truncated(index_name: &str, candidate_count: usize) 
 /// row-count snapshot from a recent successful full rebuild and no sticky incremental failure is
 /// recorded. This gate applies to empty and nonempty candidate sets: otherwise PostgreSQL must be
 /// queried so a stale, mis-bound, or partially rebuilt index cannot hide valid records.
-pub async fn index_results_are_authoritative(
+pub async fn index_authority_failure(
     pool: &PgPool,
-    client: &Client,
+    _client: &Client,
     index_name: &str,
-) -> bool {
+) -> Option<&'static str> {
     let row = sqlx::query_as::<_, SearchHealthRow>(
         r#"
         SELECT
@@ -318,7 +330,12 @@ pub async fn index_results_are_authoritative(
             idx.last_success_at AS index_last_success_at,
             COALESCE(idx.row_count, -1) AS indexed_row_count,
             COALESCE(run.is_success, false) AS rebuild_success,
-            run.last_success_at AS rebuild_last_success_at
+            run.last_success_at AS rebuild_last_success_at,
+            COALESCE(idx.source_revision, 0) AS source_revision,
+            COALESCE(idx.indexed_revision, 0) AS indexed_revision,
+            idx.verified_revision,
+            idx.last_verified_at,
+            COALESCE(idx.verification_state, 'pending') AS verification_state
         FROM (SELECT 1) seed
         LEFT JOIN meilisearch_sync_status idx ON idx.index_name = $1
         LEFT JOIN meilisearch_sync_status run ON run.index_name = 'ros_reindex_run'
@@ -329,20 +346,35 @@ pub async fn index_results_are_authoritative(
     .await;
 
     let Ok(row) = row else {
-        return false;
+        return Some("status_unavailable");
     };
     let cutoff = chrono::Utc::now() - chrono::Duration::hours(AUTHORITATIVE_INDEX_MAX_AGE_HOURS);
-    if !recorded_index_health_allows_authority(&row, cutoff) {
-        return false;
+    if !row.index_success {
+        return Some("incremental_sync_failed");
     }
+    if !row.rebuild_success || !row.rebuild_last_success_at.is_some_and(|at| at >= cutoff) {
+        return Some("full_rebuild_stale_or_failed");
+    }
+    if row.source_revision != row.indexed_revision {
+        return Some("revision_pending_or_failed");
+    }
+    if row.verification_state != "verified" || row.verified_revision != Some(row.source_revision) {
+        return Some("background_verification_failed");
+    }
+    if !recorded_index_health_allows_authority(&row, cutoff) {
+        return Some("background_verification_stale");
+    }
+    None
+}
 
-    let stats =
-        tokio::time::timeout(INDEX_STATS_TIMEOUT, client.index(index_name).get_stats()).await;
-    matches!(
-        stats,
-        Ok(Ok(stats))
-            if !stats.is_indexing && stats.number_of_documents == row.indexed_row_count as usize
-    )
+pub async fn index_results_are_authoritative(
+    pool: &PgPool,
+    client: &Client,
+    index_name: &str,
+) -> bool {
+    index_authority_failure(pool, client, index_name)
+        .await
+        .is_none()
 }
 
 /// Apply the shared safety gate before a Meilisearch candidate list may constrain PostgreSQL.
@@ -361,9 +393,10 @@ pub async fn authoritative_candidate_ids(
         );
         return None;
     }
-    if !index_results_are_authoritative(pool, client, index_name).await {
+    if let Some(reason) = index_authority_failure(pool, client, index_name).await {
         tracing::warn!(
             index = index_name,
+            reason,
             "Meilisearch index is not fresh and count-verified; using PostgreSQL"
         );
         return None;
@@ -750,6 +783,11 @@ mod tests {
             indexed_row_count: 25,
             rebuild_success: true,
             rebuild_last_success_at: Some(now),
+            source_revision: 3,
+            indexed_revision: 3,
+            verified_revision: Some(3),
+            last_verified_at: Some(now),
+            verification_state: "verified".to_string(),
         };
         assert!(recorded_index_health_allows_authority(&health, cutoff));
 

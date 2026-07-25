@@ -788,6 +788,22 @@ async fn launch_server_inner(
         });
     }
 
+    if let Some(client) = state.meilisearch.clone() {
+        let verification_state = state.clone();
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(std::time::Duration::from_secs(15));
+            ticker.tick().await;
+            loop {
+                ticker.tick().await;
+                crate::logic::meilisearch_sync::verify_next_index_authority(
+                    &client,
+                    &verification_state.db,
+                )
+                .await;
+            }
+        });
+    }
+
     let backup_state = state.clone();
     tokio::spawn(async move {
         if let Err(e) = start_backup_worker(backup_state).await {

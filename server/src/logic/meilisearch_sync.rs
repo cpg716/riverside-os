@@ -22,9 +22,28 @@ use crate::logic::meilisearch_documents::{
     StaffDoc, StoreProductDoc, TaskDoc, TransactionDoc, VendorDoc, WeddingPartyDoc,
 };
 use futures_util::StreamExt;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 const MAX_INCREMENTAL_MEILI_TASKS: usize = 4;
 static INCREMENTAL_MEILI_SEMAPHORE: OnceLock<Arc<Semaphore>> = OnceLock::new();
+static VERIFICATION_CURSOR: AtomicUsize = AtomicUsize::new(0);
+
+pub const INDEX_VERIFICATION_MAX_AGE_SECONDS: i64 = 300;
+
+pub const VERIFIED_INDEXES: &[&str] = &[
+    INDEX_VARIANTS,
+    INDEX_STORE_PRODUCTS,
+    INDEX_CUSTOMERS,
+    INDEX_WEDDING_PARTIES,
+    INDEX_ORDERS,
+    INDEX_TRANSACTIONS,
+    INDEX_STAFF,
+    INDEX_VENDORS,
+    INDEX_CATEGORIES,
+    INDEX_APPOINTMENTS,
+    INDEX_TASKS,
+    INDEX_ALTERATIONS,
+];
 
 #[derive(sqlx::FromRow)]
 struct VariantRow {
@@ -104,13 +123,34 @@ async fn record_incremental_sync_status(
     let res = sqlx::query(
         r#"
         INSERT INTO meilisearch_sync_status
-            (index_name, last_success_at, last_attempt_at, is_success, row_count, error_message, updated_at)
+            (index_name, last_success_at, last_attempt_at, is_success, row_count, error_message, updated_at,
+             source_revision, indexed_revision, verification_state)
         VALUES
-            ($1, CASE WHEN $2 THEN $3 ELSE NULL END, $3, $2, 0, $4, $3)
+            ($1, CASE WHEN $2 THEN $3 ELSE NULL END, $3, $2, 0, $4, $3,
+             1, CASE WHEN $2 THEN 1 ELSE 0 END, CASE WHEN $2 THEN 'pending' ELSE 'failed' END)
         ON CONFLICT (index_name) DO UPDATE SET
             last_success_at = CASE WHEN EXCLUDED.is_success THEN EXCLUDED.last_attempt_at ELSE meilisearch_sync_status.last_success_at END,
             last_attempt_at = EXCLUDED.last_attempt_at,
             is_success = meilisearch_sync_status.is_success AND EXCLUDED.is_success,
+            source_revision = meilisearch_sync_status.source_revision + 1,
+            indexed_revision = CASE
+                WHEN meilisearch_sync_status.is_success AND EXCLUDED.is_success
+                THEN meilisearch_sync_status.source_revision + 1
+                ELSE meilisearch_sync_status.indexed_revision
+            END,
+            verified_revision = NULL,
+            last_verified_at = NULL,
+            verification_state = CASE
+                WHEN meilisearch_sync_status.is_success AND EXCLUDED.is_success THEN 'pending'
+                ELSE 'failed'
+            END,
+            verification_detail = CASE
+                WHEN meilisearch_sync_status.is_success AND EXCLUDED.is_success
+                THEN NULL
+                ELSE EXCLUDED.error_message
+            END,
+            verified_source_count = NULL,
+            verified_document_count = NULL,
             error_message = CASE
                 WHEN NOT EXCLUDED.is_success THEN EXCLUDED.error_message
                 WHEN meilisearch_sync_status.is_success THEN NULL
@@ -1225,6 +1265,136 @@ pub async fn upsert_alteration_document(client: &Client, pool: &PgPool, alterati
     .await;
 }
 
+async fn source_document_count(pool: &PgPool, index_name: &str) -> Result<i64, sqlx::Error> {
+    let sql = match index_name {
+        INDEX_VARIANTS => "SELECT COUNT(*)::bigint FROM product_variants pv INNER JOIN products p ON p.id = pv.product_id WHERE p.is_active = TRUE",
+        INDEX_STORE_PRODUCTS => "SELECT COUNT(*)::bigint FROM products p WHERE p.is_active = TRUE AND NULLIF(BTRIM(p.catalog_handle::text), '') IS NOT NULL AND EXISTS (SELECT 1 FROM product_variants pv WHERE pv.product_id = p.id AND COALESCE(pv.web_published, FALSE))",
+        INDEX_CUSTOMERS => "SELECT COUNT(*)::bigint FROM customers",
+        INDEX_WEDDING_PARTIES => "SELECT COUNT(*)::bigint FROM wedding_parties",
+        INDEX_TRANSACTIONS => "SELECT COUNT(*)::bigint FROM transactions",
+        INDEX_ORDERS => "SELECT COUNT(*)::bigint FROM transactions o WHERE o.counterpoint_doc_ref IS NOT NULL OR EXISTS (SELECT 1 FROM transaction_lines tl WHERE tl.transaction_id = o.id AND tl.fulfillment::text <> 'takeaway')",
+        INDEX_STAFF => "SELECT COUNT(*)::bigint FROM staff",
+        INDEX_VENDORS => "SELECT COUNT(*)::bigint FROM vendors",
+        INDEX_CATEGORIES => "SELECT COUNT(*)::bigint FROM categories",
+        INDEX_APPOINTMENTS => "SELECT COUNT(*)::bigint FROM wedding_appointments",
+        INDEX_TASKS => "SELECT COUNT(*)::bigint FROM task_instance",
+        INDEX_ALTERATIONS => "SELECT COUNT(*)::bigint FROM alteration_orders",
+        _ => return Err(sqlx::Error::Protocol(format!("unsupported Meilisearch verification index: {index_name}"))),
+    };
+    sqlx::query_scalar(sql).fetch_one(pool).await
+}
+
+/// Verify one derived index outside request handling. A proof only applies to the exact source
+/// revision observed before the count and Meilisearch-stat checks complete.
+pub async fn verify_next_index_authority(client: &Client, pool: &PgPool) {
+    let index_name = VERIFIED_INDEXES
+        [VERIFICATION_CURSOR.fetch_add(1, Ordering::Relaxed) % VERIFIED_INDEXES.len()];
+    let state: Result<Option<(i64, i64, bool)>, sqlx::Error> = sqlx::query_as(
+        "SELECT source_revision, indexed_revision, is_success FROM meilisearch_sync_status WHERE index_name = $1",
+    )
+    .bind(index_name)
+    .fetch_optional(pool)
+    .await;
+    let Ok(Some((source_revision, indexed_revision, is_success))) = state else {
+        return;
+    };
+    if !is_success || source_revision != indexed_revision {
+        return;
+    }
+
+    let source_count = match source_document_count(pool, index_name).await {
+        Ok(count) => count,
+        Err(error) => {
+            record_verification_failure(
+                pool,
+                index_name,
+                source_revision,
+                "source_count_failed",
+                &error.to_string(),
+            )
+            .await;
+            return;
+        }
+    };
+    let document_count = match client.index(index_name).get_stats().await {
+        Ok(stats) if !stats.is_indexing => stats.number_of_documents as i64,
+        Ok(_) => {
+            record_verification_failure(
+                pool,
+                index_name,
+                source_revision,
+                "indexing",
+                "Meilisearch is still processing tasks.",
+            )
+            .await;
+            return;
+        }
+        Err(error) => {
+            record_verification_failure(
+                pool,
+                index_name,
+                source_revision,
+                "stats_unavailable",
+                &error.to_string(),
+            )
+            .await;
+            return;
+        }
+    };
+    let (state, detail) = if source_count == document_count {
+        ("verified", None)
+    } else {
+        (
+            "count_mismatch",
+            Some(format!(
+                "PostgreSQL has {source_count} documents; Meilisearch has {document_count}."
+            )),
+        )
+    };
+    let _ = sqlx::query(
+        r#"
+        UPDATE meilisearch_sync_status
+        SET verified_revision = CASE WHEN $4 = 'verified' THEN source_revision ELSE NULL END,
+            last_verified_at = now(),
+            verification_state = $4,
+            verification_detail = $5,
+            verified_source_count = $2,
+            verified_document_count = $3,
+            updated_at = now()
+        WHERE index_name = $1
+          AND source_revision = $6
+          AND indexed_revision = $6
+          AND is_success = TRUE
+        "#,
+    )
+    .bind(index_name)
+    .bind(source_count)
+    .bind(document_count)
+    .bind(state)
+    .bind(detail)
+    .bind(source_revision)
+    .execute(pool)
+    .await;
+}
+
+async fn record_verification_failure(
+    pool: &PgPool,
+    index_name: &str,
+    source_revision: i64,
+    state: &str,
+    detail: &str,
+) {
+    let _ = sqlx::query(
+        "UPDATE meilisearch_sync_status SET verified_revision = NULL, last_verified_at = now(), verification_state = $2, verification_detail = $3, updated_at = now() WHERE index_name = $1 AND source_revision = $4",
+    )
+    .bind(index_name)
+    .bind(state)
+    .bind(detail)
+    .bind(source_revision)
+    .execute(pool)
+    .await;
+}
+
 /// Spawn a cheap background sync (does not block the request path).
 pub fn spawn_meili<F>(fut: F)
 where
@@ -1253,14 +1423,29 @@ pub async fn record_sync_status(
     let now = chrono::Utc::now();
     let res = sqlx::query(
         r#"
-        INSERT INTO meilisearch_sync_status (index_name, last_success_at, last_attempt_at, is_success, row_count, error_message, updated_at)
-        VALUES ($1, CASE WHEN $2 THEN $3 ELSE NULL END, $3, $2, $4, $5, $3)
+        INSERT INTO meilisearch_sync_status
+            (index_name, last_success_at, last_attempt_at, is_success, row_count, error_message, updated_at,
+             source_revision, indexed_revision, verification_state)
+        VALUES
+            ($1, CASE WHEN $2 THEN $3 ELSE NULL END, $3, $2, $4, $5, $3,
+             1, CASE WHEN $2 THEN 1 ELSE 0 END, CASE WHEN $2 THEN 'pending' ELSE 'failed' END)
         ON CONFLICT (index_name) DO UPDATE SET
             last_success_at = CASE WHEN $2 THEN EXCLUDED.last_success_at ELSE meilisearch_sync_status.last_success_at END,
             last_attempt_at = EXCLUDED.last_attempt_at,
             is_success = EXCLUDED.is_success,
             row_count = EXCLUDED.row_count,
             error_message = EXCLUDED.error_message,
+            source_revision = meilisearch_sync_status.source_revision + 1,
+            indexed_revision = CASE
+                WHEN EXCLUDED.is_success THEN meilisearch_sync_status.source_revision + 1
+                ELSE meilisearch_sync_status.indexed_revision
+            END,
+            verified_revision = NULL,
+            last_verified_at = NULL,
+            verification_state = CASE WHEN EXCLUDED.is_success THEN 'pending' ELSE 'failed' END,
+            verification_detail = EXCLUDED.error_message,
+            verified_source_count = NULL,
+            verified_document_count = NULL,
             updated_at = EXCLUDED.updated_at
         "#
     )

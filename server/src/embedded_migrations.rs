@@ -161,4 +161,5 @@ pub const EMBEDDED_MIGRATIONS: &[(&str, &str)] = &[
     ("158_counterpoint_paid_price_repair_manifest.sql", include_str!("../../migrations/158_counterpoint_paid_price_repair_manifest.sql")),
     ("159_counterpoint_return_review_blocks.sql", include_str!("../../migrations/159_counterpoint_return_review_blocks.sql")),
     ("160_repair_txn_624473_amended_line_tax.sql", include_str!("../../migrations/160_repair_txn_624473_amended_line_tax.sql")),
+    ("161_meilisearch_revision_verification.sql", include_str!("../../migrations/161_meilisearch_revision_verification.sql")),
 ];
