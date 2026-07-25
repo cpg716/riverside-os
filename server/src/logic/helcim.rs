@@ -29,6 +29,8 @@ const HELCIM_PAYMENT_IDEMPOTENCY_RETRY_RESERVE_SECONDS: i64 = 3 * 60;
 const HELCIM_MAX_CONCURRENT_REQUESTS: usize = 5;
 const HELCIM_MINUTE_REQUEST_LIMIT: u32 = 100;
 const HELCIM_HOUR_REQUEST_LIMIT: u32 = 3_000;
+const HELCIM_INTERACTIVE_MINUTE_RESERVE: u32 = 20;
+const HELCIM_INTERACTIVE_HOUR_RESERVE: u32 = 100;
 
 #[derive(Debug, Clone)]
 pub struct HelcimConfig {
@@ -1178,6 +1180,13 @@ fn helcim_rate_state() -> &'static Mutex<HelcimRateState> {
     STATE.get_or_init(|| Mutex::new(HelcimRateState::new()))
 }
 
+fn helcim_request_is_payment_critical(context: &str) -> bool {
+    matches!(
+        context,
+        "Helcim terminal purchase" | "Helcim terminal refund" | "Helcim payment request"
+    )
+}
+
 async fn acquire_helcim_request_permit(context: &str) -> Result<SemaphorePermit<'static>, String> {
     let permit = helcim_request_semaphore()
         .acquire()
@@ -1187,6 +1196,7 @@ async fn acquire_helcim_request_permit(context: &str) -> Result<SemaphorePermit<
     let now = Instant::now();
     let mut state = helcim_rate_state().lock().await;
     state.refresh_windows(now);
+    let payment_critical = helcim_request_is_payment_critical(context);
     if let Some(blocked_until) = state.blocked_until {
         let retry_after = blocked_until
             .duration_since(now)
@@ -1196,25 +1206,46 @@ async fn acquire_helcim_request_permit(context: &str) -> Result<SemaphorePermit<
             "{context} paused by Helcim rate limiting; retry after {retry_after} seconds"
         ));
     }
-    if let Some((0, observed_at)) = state.provider_minute_remaining {
-        let retry_after = Duration::from_secs(60)
-            .saturating_sub(now.duration_since(observed_at))
-            .as_secs()
-            .saturating_add(1);
-        return Err(format!(
-            "{context} paused because Helcim reports no minute quota remaining; retry after {retry_after} seconds"
-        ));
+    if let Some((remaining, observed_at)) = state.provider_minute_remaining {
+        if remaining == 0 || (!payment_critical && remaining <= HELCIM_INTERACTIVE_MINUTE_RESERVE) {
+            let retry_after = Duration::from_secs(60)
+                .saturating_sub(now.duration_since(observed_at))
+                .as_secs()
+                .saturating_add(1);
+            return Err(if remaining == 0 {
+                format!(
+                    "{context} paused because Helcim reports no minute quota remaining; retry after {retry_after} seconds"
+                )
+            } else {
+                format!(
+                    "{context} paused to reserve Helcim minute capacity for customer payments; retry after {retry_after} seconds"
+                )
+            });
+        }
     }
-    if let Some((0, observed_at)) = state.provider_hour_remaining {
-        let retry_after = Duration::from_secs(60 * 60)
-            .saturating_sub(now.duration_since(observed_at))
-            .as_secs()
-            .saturating_add(1);
-        return Err(format!(
-            "{context} paused because Helcim reports no hourly quota remaining; retry after {retry_after} seconds"
-        ));
+    if let Some((remaining, observed_at)) = state.provider_hour_remaining {
+        if remaining == 0 || (!payment_critical && remaining <= HELCIM_INTERACTIVE_HOUR_RESERVE) {
+            let retry_after = Duration::from_secs(60 * 60)
+                .saturating_sub(now.duration_since(observed_at))
+                .as_secs()
+                .saturating_add(1);
+            return Err(if remaining == 0 {
+                format!(
+                    "{context} paused because Helcim reports no hourly quota remaining; retry after {retry_after} seconds"
+                )
+            } else {
+                format!(
+                    "{context} paused to reserve Helcim hourly capacity for customer payments; retry after {retry_after} seconds"
+                )
+            });
+        }
     }
-    if state.minute_requests.len() >= HELCIM_MINUTE_REQUEST_LIMIT as usize {
+    let minute_limit = if payment_critical {
+        HELCIM_MINUTE_REQUEST_LIMIT
+    } else {
+        HELCIM_MINUTE_REQUEST_LIMIT - HELCIM_INTERACTIVE_MINUTE_RESERVE
+    };
+    if state.minute_requests.len() >= minute_limit as usize {
         let oldest = *state
             .minute_requests
             .front()
@@ -1224,10 +1255,15 @@ async fn acquire_helcim_request_permit(context: &str) -> Result<SemaphorePermit<
             .as_secs()
             .saturating_add(1);
         return Err(format!(
-            "{context} paused before exceeding Helcim's 100 requests/minute limit; retry after {retry_after} seconds"
+            "{context} paused before exceeding its {minute_limit} requests/minute allowance; retry after {retry_after} seconds"
         ));
     }
-    if state.hour_requests.len() >= HELCIM_HOUR_REQUEST_LIMIT as usize {
+    let hour_limit = if payment_critical {
+        HELCIM_HOUR_REQUEST_LIMIT
+    } else {
+        HELCIM_HOUR_REQUEST_LIMIT - HELCIM_INTERACTIVE_HOUR_RESERVE
+    };
+    if state.hour_requests.len() >= hour_limit as usize {
         let oldest = *state
             .hour_requests
             .front()
@@ -1237,7 +1273,7 @@ async fn acquire_helcim_request_permit(context: &str) -> Result<SemaphorePermit<
             .as_secs()
             .saturating_add(1);
         return Err(format!(
-            "{context} paused before exceeding Helcim's 3000 requests/hour limit; retry after {retry_after} seconds"
+            "{context} paused before exceeding its {hour_limit} requests/hour allowance; retry after {retry_after} seconds"
         ));
     }
     state.minute_requests.push_back(now);
@@ -2833,6 +2869,24 @@ mod tests {
                 minute_remaining: Some(41),
                 hour_remaining: Some(2042),
             }
+        );
+    }
+
+    #[test]
+    fn payment_requests_keep_reserved_helcim_capacity() {
+        assert!(helcim_request_is_payment_critical(
+            "Helcim terminal purchase"
+        ));
+        assert!(helcim_request_is_payment_critical("Helcim terminal refund"));
+        assert!(helcim_request_is_payment_critical("Helcim payment request"));
+        assert!(!helcim_request_is_payment_critical("Helcim GET request"));
+        assert_eq!(
+            HELCIM_MINUTE_REQUEST_LIMIT - HELCIM_INTERACTIVE_MINUTE_RESERVE,
+            80
+        );
+        assert_eq!(
+            HELCIM_HOUR_REQUEST_LIMIT - HELCIM_INTERACTIVE_HOUR_RESERVE,
+            2_900
         );
     }
 

@@ -63,6 +63,10 @@ Register #1 defaults to Terminal 1, Register #2 defaults to Terminal 2, and Regi
 
 Only a Helcim attempt whose stored Register session and checkout reference both exactly match the open checkout can lock its tenders or **Record Sale**. A historical attempt reported by terminal routing remains recorded in **Payments Health**, but ROS does not import it into the current drawer or let it disable the current sale.
 
+If Terminal 1 still has a pending request from an earlier checkout on Register #1, ROS labels it **Earlier checkout needs review** instead of implying that another Register owns the terminal. First cancel the old prompt on the physical terminal. Then choose **I canceled Terminal** and confirm only when the terminal is idle. ROS checks Helcim once more, releases the terminal for a fresh sale, and retains the earlier attempt for reconciliation instead of silently discarding it.
+
+Customer-profile enrichment and background Helcim accounting synchronization do not take priority over an in-person card request. Automatic batch, settlement, and fee reconciliation runs once daily at 4:00 a.m. Eastern with payment/refund request capacity reserved; staff can still request an on-demand reconciliation from Payments. A temporary customer-profile lookup failure no longer prevents the terminal payment from being sent.
+
 A normal current card request is shown as **Waiting for card** or **Checking** in Payment Status. Riverside shows the larger **Card outcome review** warning only when that request is taking longer than expected or its result cannot be verified. Before ROS reports the selected terminal as in use, the Main Hub refreshes the existing pending attempt and releases the terminal only after a verified final result.
 
 Changing the selected customer clears pickup context loaded for the previous customer before the payment drawer opens. Reopen the intended customer's Transaction Record and select its pickup lines again; a pickup target never carries into another customer's sale.

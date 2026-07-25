@@ -420,11 +420,11 @@ pub async fn run_notification_generators(pool: &PgPool) -> Result<(), sqlx::Erro
         "qbo_failed_reminder_sweep",
         run_qbo_failed_reminder_sweep(pool)
     );
-    run_generator!("helcim_fee_sync", run_scheduled_helcim_fee_sync(pool));
     run_generator!(
         "helcim_settlement_sync",
         run_scheduled_helcim_settlement_sync(pool)
     );
+    run_generator!("helcim_fee_sync", run_scheduled_helcim_fee_sync(pool));
     run_generator!(
         "payment_operations_notifications",
         run_payment_operations_notifications(pool)

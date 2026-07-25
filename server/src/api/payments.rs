@@ -21,7 +21,7 @@ use axum::{
     routing::{delete, get, patch, post},
     Json, Router,
 };
-use chrono::{DateTime, Duration as ChronoDuration, NaiveDate, Utc};
+use chrono::{DateTime, Duration as ChronoDuration, NaiveDate, Timelike, Utc};
 use futures_core::stream::Stream;
 use futures_util::stream;
 use rust_decimal::Decimal;
@@ -52,6 +52,8 @@ const PAYMENTS_TERMINAL_OVERRIDE: &str = "payments.terminal.override";
 const HELCIM_TERMINAL_PENDING_TIMEOUT_MINUTES: i64 = 5;
 const HELCIM_PAY_INITIALIZATION_STALE_MINUTES: i64 = 2;
 const HELCIM_ATTEMPT_STREAM_MAX_SECONDS: u16 = 600;
+const HELCIM_SCHEDULED_ACCOUNTING_SYNC_HOUR_ET: u32 = 4;
+const HELCIM_FEE_SYNC_BATCH_LIMIT: i64 = 50;
 
 #[derive(Debug, Error)]
 pub enum PaymentError {
@@ -967,6 +969,12 @@ pub struct HelcimPayConfirmRequestBody {
     pub hash: String,
     #[serde(default)]
     pub raw_data: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct ReleaseHelcimTerminalAttemptQuery {
+    #[serde(default)]
+    physical_terminal_cancel_confirmed: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1932,13 +1940,43 @@ async fn reject_conflicting_helcim_attempt_before_dispatch(
     )))
 }
 
+fn terminal_reservation_conflict_message(
+    active_lane: Option<i16>,
+    active_register_session_id: Uuid,
+    active_checkout_client_id: Option<Uuid>,
+    requested_register_session_id: Uuid,
+    requested_checkout_client_id: Uuid,
+) -> String {
+    if active_register_session_id == requested_register_session_id {
+        let lane_label = active_lane
+            .map(|lane| format!("Register #{lane}"))
+            .unwrap_or_else(|| "this Register".to_string());
+        if active_checkout_client_id == Some(requested_checkout_client_id) {
+            return format!(
+                "This checkout already has an unresolved Helcim card request on {lane_label}. Recover that payment before starting another card request."
+            );
+        }
+        return format!(
+            "Terminal has an unresolved Helcim card request from an earlier checkout on {lane_label}. Review it in Payments Health before starting another card request."
+        );
+    }
+
+    active_lane
+        .map(|lane| format!("Terminal in use by Register #{lane}"))
+        .unwrap_or_else(|| "Terminal in use by another unresolved payment.".to_string())
+}
+
 async fn reject_unresolved_helcim_terminal_before_dispatch(
     tx: &mut sqlx::Transaction<'_, Postgres>,
     terminal_id: &str,
+    requested_register_session_id: Uuid,
+    requested_checkout_client_id: Uuid,
 ) -> Result<(), PaymentError> {
-    let lane: Option<Option<i16>> = sqlx::query_scalar(
+    let reservation: Option<(Option<i16>, Uuid, Option<Uuid>)> = sqlx::query_as(
         r#"
-        SELECT rs.register_lane
+        SELECT rs.register_lane,
+               ppa.register_session_id,
+               ppa.checkout_client_id
         FROM payment_provider_attempts ppa
         INNER JOIN register_sessions rs
             ON rs.id = ppa.register_session_id
@@ -1956,11 +1994,16 @@ async fn reject_unresolved_helcim_terminal_before_dispatch(
     .await
     .map_err(|error| PaymentError::InvalidPayload(error.to_string()))?;
 
-    if let Some(lane) = lane {
-        return Err(PaymentError::Conflict(match lane {
-            Some(register_lane) => format!("Terminal in use by Register #{register_lane}"),
-            None => "Terminal in use by another unresolved payment.".to_string(),
-        }));
+    if let Some((lane, register_session_id, checkout_client_id)) = reservation {
+        return Err(PaymentError::Conflict(
+            terminal_reservation_conflict_message(
+                lane,
+                register_session_id,
+                checkout_client_id,
+                requested_register_session_id,
+                requested_checkout_client_id,
+            ),
+        ));
     }
     Ok(())
 }
@@ -2564,14 +2607,64 @@ async fn sync_helcim_fees(
     require_payment_permission(&state, &headers, PAYMENTS_SYNC).await?;
 
     Ok(Json(
-        run_helcim_fee_sync(&state.db, &state.http_client, None, true).await?,
+        run_helcim_fee_sync(
+            &state.db,
+            &state.http_client,
+            None,
+            true,
+            HELCIM_FEE_SYNC_BATCH_LIMIT,
+        )
+        .await?,
     ))
+}
+
+fn helcim_scheduled_accounting_window_open(now: DateTime<Utc>) -> bool {
+    now.with_timezone(&chrono_tz::America::New_York).hour()
+        == HELCIM_SCHEDULED_ACCOUNTING_SYNC_HOUR_ET
+}
+
+async fn scheduled_helcim_accounting_sync_due(
+    pool: &PgPool,
+    source: &str,
+    now: DateTime<Utc>,
+) -> Result<bool, String> {
+    if !helcim_scheduled_accounting_window_open(now) {
+        return Ok(false);
+    }
+
+    let last_success_at: Option<DateTime<Utc>> =
+        sqlx::query_scalar("SELECT last_success_at FROM integration_alert_state WHERE source = $1")
+            .bind(source)
+            .fetch_optional(pool)
+            .await
+            .map_err(|error| error.to_string())?
+            .flatten();
+    let local_today = now
+        .with_timezone(&chrono_tz::America::New_York)
+        .date_naive();
+    Ok(last_success_at.is_none_or(|last_success| {
+        last_success
+            .with_timezone(&chrono_tz::America::New_York)
+            .date_naive()
+            < local_today
+    }))
 }
 
 pub async fn run_scheduled_helcim_fee_sync(
     pool: &PgPool,
     http_client: &reqwest::Client,
 ) -> Result<HelcimFeeSyncResponse, String> {
+    if !scheduled_helcim_accounting_sync_due(pool, "helcim_fee_sync", Utc::now()).await? {
+        return Ok(HelcimFeeSyncResponse {
+            scanned: 0,
+            updated: 0,
+            fees_unavailable: 0,
+            skipped_missing_transaction_id: 0,
+            errors: 0,
+            total_fee_synced: "0.00".to_string(),
+            total_net_synced: "0.00".to_string(),
+        });
+    }
     if integration_sync_in_cooldown(pool, "helcim_fee_sync").await {
         tracing::warn!(
             target = "helcim",
@@ -2608,7 +2701,15 @@ pub async fn run_scheduled_helcim_fee_sync(
         });
     }
     let date_from = Some((Utc::now() - ChronoDuration::days(7)).date_naive());
-    match run_helcim_fee_sync(pool, http_client, date_from, false).await {
+    match run_helcim_fee_sync(
+        pool,
+        http_client,
+        date_from,
+        false,
+        HELCIM_FEE_SYNC_BATCH_LIMIT,
+    )
+    .await
+    {
         Ok(response) if response.errors > 0 => {
             let message = format!(
                 "Helcim fee sync completed with {} provider error(s); scanned {}, updated {}.",
@@ -2640,6 +2741,7 @@ async fn run_helcim_fee_sync(
     http_client: &reqwest::Client,
     date_from: Option<NaiveDate>,
     retry_unavailable: bool,
+    batch_limit: i64,
 ) -> Result<HelcimFeeSyncResponse, PaymentError> {
     let config = helcim::HelcimConfig::from_env();
     if !config.enabled() {
@@ -2704,11 +2806,12 @@ async fn run_helcim_fee_sync(
               'success', 'succeeded', 'settled'
           )
         ORDER BY created_at ASC
-        LIMIT 100
+        LIMIT $3
         "#,
     )
     .bind(date_from)
     .bind(retry_unavailable)
+    .bind(batch_limit)
     .fetch_all(pool)
     .await
     .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
@@ -3205,6 +3308,9 @@ pub async fn run_scheduled_helcim_settlement_sync(
     pool: &PgPool,
     http_client: &reqwest::Client,
 ) -> Result<HelcimSettlementSyncResponse, String> {
+    if !scheduled_helcim_accounting_sync_due(pool, "helcim_settlement_sync", Utc::now()).await? {
+        return Ok(HelcimSettlementSyncResponse::default());
+    }
     if integration_sync_in_cooldown(pool, "helcim_settlement_sync").await {
         tracing::warn!(
             target = "helcim",
@@ -9381,7 +9487,13 @@ async fn start_helcim_purchase(
     lock_register_session_open_for_payment(&mut tx, Some(register_session_id)).await?;
     expire_closed_session_helcim_terminal_attempts_before_dispatch(&mut tx, &terminal_id).await?;
     reject_conflicting_helcim_attempt_before_dispatch(&mut tx, checkout_client_id, None).await?;
-    reject_unresolved_helcim_terminal_before_dispatch(&mut tx, &terminal_id).await?;
+    reject_unresolved_helcim_terminal_before_dispatch(
+        &mut tx,
+        &terminal_id,
+        register_session_id,
+        checkout_client_id,
+    )
+    .await?;
     let insert_result = sqlx::query(
         r#"
         INSERT INTO payment_provider_attempts (
@@ -9440,27 +9552,29 @@ async fn start_helcim_purchase(
         {
             Ok(customer_code) => Some(customer_code),
             Err(error) => {
+                let persisted_message = persisted_provider_error(&error);
                 sqlx::query(
                     r#"
                     UPDATE payment_provider_attempts
-                    SET status = 'failed',
-                        error_code = 'pre_provider_customer_lookup_failed',
-                        error_message = $2,
-                        completed_at = now()
-                    WHERE id = $1
+                    SET error_code = 'customer_profile_unavailable',
+                        error_message = $2
+                    WHERE id = $1 AND status = 'pending'
                     "#,
                 )
                 .bind(attempt_id)
-                .bind(persisted_provider_error(&error))
+                .bind(&persisted_message)
                 .execute(&state.db)
                 .await
                 .map_err(|database_error| {
                     PaymentError::InvalidPayload(database_error.to_string())
                 })?;
-                return Err(PaymentError::InvalidPayload(format!(
-                    "Helcim customer preparation failed before any payment was sent: {}",
-                    staff_safe_provider_error(&error)
-                )));
+                tracing::warn!(
+                    target = "helcim",
+                    attempt_id = %attempt_id,
+                    error = %persisted_message,
+                    "Helcim customer enrichment failed; continuing terminal payment without a customer code"
+                );
+                None
             }
         },
         None => unverified_helcim_customer_code,
@@ -11284,6 +11398,7 @@ async fn release_helcim_terminal_attempt(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(attempt_id): Path<Uuid>,
+    Query(query): Query<ReleaseHelcimTerminalAttemptQuery>,
 ) -> Result<Json<HelcimAttemptResponse>, PaymentError> {
     let auth = middleware::require_staff_or_pos_register_session(&state, &headers)
         .await
@@ -11292,6 +11407,23 @@ async fn release_helcim_terminal_attempt(
         middleware::StaffOrPosSession::PosSession { session_id } => Some(session_id),
         middleware::StaffOrPosSession::Staff(_) => None,
     };
+    let refreshed = load_helcim_attempt(&state, attempt_id, session_id).await?;
+    if refreshed.status != "pending" {
+        if query.physical_terminal_cancel_confirmed
+            && matches!(refreshed.status.as_str(), "failed" | "canceled" | "expired")
+        {
+            return Ok(Json(refreshed));
+        }
+        if matches!(refreshed.status.as_str(), "approved" | "captured") {
+            return Err(PaymentError::Conflict(
+                "Helcim reports that this card request was approved. Recover it in Payments Health; ROS did not release it or send another charge."
+                    .to_string(),
+            ));
+        }
+        return Err(PaymentError::InvalidPayload(
+            "Only pending Helcim attempts can be released.".to_string(),
+        ));
+    }
     let attempt = load_helcim_attempt_row(&state, attempt_id).await?;
     if let Some(session_id) = session_id {
         if attempt.register_session_id != Some(session_id) {
@@ -11299,11 +11431,6 @@ async fn release_helcim_terminal_attempt(
                 "Helcim attempt does not belong to this register session.".to_string(),
             ));
         }
-    }
-    if attempt.status != "pending" {
-        return Err(PaymentError::InvalidPayload(
-            "Only pending Helcim attempts can be released.".to_string(),
-        ));
     }
     let simulator_enabled = helcim::HelcimConfig::from_env().simulator_enabled();
     let abandoned_initialization: bool = sqlx::query_scalar(
@@ -11327,7 +11454,8 @@ async fn release_helcim_terminal_attempt(
     .fetch_one(&state.db)
     .await
     .map_err(|error| PaymentError::InvalidPayload(error.to_string()))?;
-    if !simulator_enabled && !abandoned_initialization {
+    if !simulator_enabled && !abandoned_initialization && !query.physical_terminal_cancel_confirmed
+    {
         return Err(PaymentError::Conflict(
             "A live Helcim attempt cannot be released from Riverside while its provider outcome is unresolved. Use Check status or Payments Health to recover a final provider result before using another tender."
                 .to_string(),
@@ -11345,14 +11473,28 @@ async fn release_helcim_terminal_attempt(
     let result = sqlx::query(
         r#"
         UPDATE payment_provider_attempts
-        SET status = CASE WHEN $2 THEN 'failed' ELSE 'canceled' END,
+        SET status = CASE
+                WHEN $4 THEN 'expired'
+                WHEN $2 THEN 'failed'
+                ELSE 'canceled'
+            END,
             error_code = CASE
+                WHEN $4 THEN 'physical_terminal_cancel_confirmed'
                 WHEN $2 THEN 'initialization_abandoned'
                 ELSE 'simulator_attempt_released'
             END,
             error_message = CASE
+                WHEN $4 THEN 'Staff confirmed the request was canceled on the physical Helcim terminal. ROS released the terminal while retaining this attempt for provider reconciliation.'
                 WHEN $2 THEN 'Helcim Card Not Present setup ended before card entry opened; no payment was sent.'
                 ELSE 'Non-production Helcim simulator attempt was released locally.'
+            END,
+            raw_audit_reference = CASE
+                WHEN $4 THEN CONCAT_WS(
+                    ' ',
+                    NULLIF(BTRIM(raw_audit_reference), ''),
+                    'ros:physical-terminal-cancel-confirmed'
+                )
+                ELSE raw_audit_reference
             END,
             provider_client_secret = NULL,
             completed_at = now()
@@ -11375,6 +11517,7 @@ async fn release_helcim_terminal_attempt(
     .bind(attempt_id)
     .bind(abandoned_initialization)
     .bind(HELCIM_PAY_INITIALIZATION_STALE_MINUTES)
+    .bind(query.physical_terminal_cancel_confirmed)
     .execute(&mut *tx)
     .await
     .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
@@ -12213,6 +12356,23 @@ mod tests {
     use super::*;
 
     #[test]
+    fn scheduled_helcim_accounting_runs_only_at_four_eastern() {
+        let summer_window = DateTime::parse_from_rfc3339("2026-07-25T08:15:00Z")
+            .expect("summer timestamp")
+            .with_timezone(&Utc);
+        let winter_window = DateTime::parse_from_rfc3339("2026-01-25T09:15:00Z")
+            .expect("winter timestamp")
+            .with_timezone(&Utc);
+        let store_hours = DateTime::parse_from_rfc3339("2026-07-25T15:00:00Z")
+            .expect("store-hours timestamp")
+            .with_timezone(&Utc);
+
+        assert!(helcim_scheduled_accounting_window_open(summer_window));
+        assert!(helcim_scheduled_accounting_window_open(winter_window));
+        assert!(!helcim_scheduled_accounting_window_open(store_hours));
+    }
+
+    #[test]
     fn helcim_checkout_advisory_lock_identity_is_stable_and_provider_scoped() {
         let checkout_client_id =
             Uuid::parse_str("11111111-2222-3333-4444-555555555555").expect("checkout UUID");
@@ -12225,6 +12385,62 @@ mod tests {
             helcim_checkout_advisory_lock_identity(checkout_client_id),
             helcim_checkout_advisory_lock_identity(Uuid::nil())
         );
+    }
+
+    #[test]
+    fn terminal_reservation_message_distinguishes_same_register_checkouts() {
+        let active_session =
+            Uuid::parse_str("11111111-2222-3333-4444-555555555555").expect("session UUID");
+        let active_checkout =
+            Uuid::parse_str("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee").expect("checkout UUID");
+        let requested_checkout =
+            Uuid::parse_str("99999999-8888-7777-6666-555555555555").expect("checkout UUID");
+
+        let earlier_checkout = terminal_reservation_conflict_message(
+            Some(1),
+            active_session,
+            Some(active_checkout),
+            active_session,
+            requested_checkout,
+        );
+        assert!(earlier_checkout.contains("earlier checkout on Register #1"));
+        assert!(earlier_checkout.contains("Payments Health"));
+        assert!(!earlier_checkout.contains("in use by Register #1"));
+
+        let current_checkout = terminal_reservation_conflict_message(
+            Some(1),
+            active_session,
+            Some(active_checkout),
+            active_session,
+            active_checkout,
+        );
+        assert!(current_checkout.contains("This checkout already has"));
+        assert!(current_checkout.contains("Recover that payment"));
+
+        let other_register = terminal_reservation_conflict_message(
+            Some(2),
+            Uuid::new_v4(),
+            Some(active_checkout),
+            active_session,
+            requested_checkout,
+        );
+        assert_eq!(other_register, "Terminal in use by Register #2");
+    }
+
+    #[test]
+    fn terminal_purchase_does_not_depend_on_customer_enrichment() {
+        let source = include_str!("payments.rs");
+        let purchase = source
+            .split_once("async fn start_helcim_purchase(")
+            .expect("terminal purchase endpoint")
+            .1
+            .split_once("async fn start_helcim_terminal_refund(")
+            .expect("end of terminal purchase endpoint")
+            .0;
+
+        assert!(purchase.contains("customer_profile_unavailable"));
+        assert!(purchase.contains("continuing terminal payment without a customer code"));
+        assert!(!purchase.contains("pre_provider_customer_lookup_failed"));
     }
 
     #[test]
@@ -13388,7 +13604,7 @@ mod tests {
     }
 
     #[test]
-    fn live_release_requires_stale_tokenless_helcim_pay_initialization() {
+    fn live_release_requires_stale_initialization_or_confirmed_physical_cancel() {
         let source = include_str!("payments.rs");
         let release = source
             .split_once("async fn release_helcim_terminal_attempt(")
@@ -13403,7 +13619,10 @@ mod tests {
         assert!(release.contains("provider_transaction_id IS NULL"));
         assert!(release.contains("provider_client_secret IS NULL"));
         assert!(release.contains("HELCIM_PAY_INITIALIZATION_STALE_MINUTES"));
-        assert!(release.contains("if !simulator_enabled && !abandoned_initialization"));
+        assert!(release.contains("physical_terminal_cancel_confirmed"));
+        assert!(release.contains("status = CASE"));
+        assert!(release.contains("WHEN $4 THEN 'expired'"));
+        assert!(release.contains("load_helcim_attempt(&state, attempt_id, session_id)"));
     }
 
     #[test]
