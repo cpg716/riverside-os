@@ -24,6 +24,8 @@ async function mockDropdownSearches(
           last_name: "Visibility Customer",
           email: "e2e.visibility.customer@example.com",
           phone: "716-555-0111",
+          open_balance_due: "142.50",
+          open_orders_count: 3,
         },
       ]),
     });
@@ -206,11 +208,20 @@ test("POS dropdowns stay visible near bottom of scrollable cart", async ({ page 
 
   await scrollNearestContainerNearBottom(customerInput);
   await customerInput.fill("e2e");
+  await expect(
+    page.locator("#drawer-root").locator('[role="listbox"]'),
+  ).toBeVisible({ timeout: 10_000 });
   const customerResult = page
     .getByRole("option", { name: new RegExp(CUSTOMER_NAME, "i") })
     .getByRole("button", { name: new RegExp(CUSTOMER_NAME, "i") });
   await expectLocatorUsable(customerResult);
-  await customerResult.dispatchEvent("click");
+  await expect(page.getByRole("option", { name: new RegExp(CUSTOMER_NAME, "i") })).toContainText(
+    "Balance due $142.50",
+  );
+  await expect(page.getByRole("option", { name: new RegExp(CUSTOMER_NAME, "i") })).toContainText(
+    "3 open",
+  );
+  await customerResult.click();
   await closeExchangeWizardIfOpen(page);
   await expect(page.getByRole("button", { name: /open customer profile/i })).toBeVisible({
     timeout: 10_000,

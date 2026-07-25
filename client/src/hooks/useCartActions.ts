@@ -726,7 +726,7 @@ export function useCartActions({
       // Apply buffer to selected line
       const line = lines.find(l => l.cart_row_id === selectedLineKey);
       if (!line) return;
-      if (line.return_tender_original_transaction_id) {
+      if (line.return_tender_original_transaction_id && keypadMode !== "price") {
         toast("Return credit lines use the original receipt values.", "info");
         setKeypadBuffer("");
         return;
@@ -762,9 +762,12 @@ export function useCartActions({
             (rmsPaymentMeta && l.sku === rmsPaymentMeta.sku) ||
             (giftCardLoadMeta && l.sku === giftCardLoadMeta.sku) ||
             (staffAccountPaymentMeta && l.sku === staffAccountPaymentMeta.sku);
+          const isReturnTenderLine = Boolean(l.return_tender_original_transaction_id);
           const { stateTax, localTax } = isInternalPaymentLine
             ? { stateTax: "0.00", localTax: "0.00" }
-            : calculateCartLineTaxStrings(l, amt);
+            : isReturnTenderLine
+              ? { stateTax: l.state_tax, localTax: l.local_tax }
+              : calculateCartLineTaxStrings(l, amt);
 
           return {
             ...l,
@@ -772,7 +775,9 @@ export function useCartActions({
             state_tax: stateTax,
             local_tax: localTax,
             original_unit_price: l.original_unit_price ?? centsToFixed2(oldPrice),
-            price_override_reason: "Manual Override"
+            price_override_reason: isReturnTenderLine
+              ? "return_price_correction"
+              : "Manual Override"
           };
         }));
       }

@@ -104,6 +104,7 @@ export function CartItemRow({
   const isPickupLine = Boolean(line.transaction_line_id);
   const isReturnTenderLine = Boolean(line.return_tender_original_transaction_id);
   const isLockedAmountLine = isPickupLine || isReturnTenderLine;
+  const isLockedPrice = isPickupLine;
   const taxCategoryLabel =
     line.tax_category === "service"
       ? "No Tax"
@@ -178,6 +179,11 @@ export function CartItemRow({
             {line.variation_label ? (
               <span className="rounded bg-app-success/12 px-1.5 py-0.5 text-[10px] font-black uppercase tracking-tight text-app-success ring-1 ring-app-success/15">
                 {line.variation_label}
+              </span>
+            ) : null}
+            {isReturnTenderLine ? (
+              <span className="rounded bg-app-danger/10 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-widest text-app-danger ring-1 ring-app-danger/20">
+                Return from {line.return_tender_receipt_label ?? "original transaction"}
               </span>
             ) : null}
             {line.gift_card_load_code ? (
@@ -344,7 +350,7 @@ export function CartItemRow({
 
         <button
           type="button"
-          disabled={isLockedAmountLine}
+          disabled={isLockedPrice}
           onClick={() => {
             if (isAlterationLine && line.alteration_intake_id && onEditAlterationLine) {
               onEditAlterationLine(line.alteration_intake_id);
@@ -355,13 +361,13 @@ export function CartItemRow({
             setKeypadBuffer("");
           }}
           className={`flex h-11 min-w-[5.5rem] flex-col items-end justify-center rounded-xl border-2 px-3 transition-all ${
-            keypadMode === "price" && isSelected && !isLockedAmountLine
+            keypadMode === "price" && isSelected && !isLockedPrice
               ? "border-app-accent bg-app-accent text-white shadow-lg"
               : "border-app-border bg-app-surface-2 text-app-text"
-          } ${isLockedAmountLine ? "cursor-default opacity-80" : ""}`}
+          } ${isLockedPrice ? "cursor-default opacity-80" : ""}`}
         >
-          <span className={`text-[8px] font-black uppercase tracking-widest ${keypadMode === "price" && isSelected && !isLockedAmountLine ? "text-white/80" : "text-app-text-muted"}`}>
-            {isAlterationLine ? "Amount" : "Sale"}
+          <span className={`text-[8px] font-black uppercase tracking-widest ${keypadMode === "price" && isSelected && !isLockedPrice ? "text-white/80" : "text-app-text-muted"}`}>
+            {isAlterationLine ? "Amount" : isReturnTenderLine ? "Return value" : "Sale"}
           </span>
           <div className="flex items-center gap-1.5">
             {showRegSale && (
@@ -369,8 +375,14 @@ export function CartItemRow({
                  ${centsToFixed2(regCents)}
                </span>
             )}
-            <span className={`text-sm font-black tabular-nums ${offPct > 0 && !(keypadMode === "price" && isSelected) ? "text-app-success" : ""}`}>
-              ${centsToFixed2(saleCents)}
+            <span className={`text-sm font-black tabular-nums ${
+              isReturnTenderLine
+                ? "text-app-danger"
+                : offPct > 0 && !(keypadMode === "price" && isSelected)
+                  ? "text-app-success"
+                  : ""
+            }`}>
+              {isReturnTenderLine ? "-" : ""}${centsToFixed2(saleCents)}
             </span>
           </div>
         </button>

@@ -7045,7 +7045,7 @@ async fn process_refund(
     .await?;
     let Some(mut refund) = row else {
         return Err(TransactionError::InvalidPayload(
-            "no open refund for this order".to_string(),
+            "No refundable balance is open for this transaction. No refund was sent.".to_string(),
         ));
     };
     let mut capacity =
@@ -7854,6 +7854,31 @@ async fn process_refund(
                 }
             }
 
+            // The initial validation transaction intentionally rolled these staged
+            // return lines back before creating the durable Helcim attempt. Reapply
+            // them before loading the queue: the return workflow is what creates the
+            // queue for a first-time card refund.
+            if let Err(error) = apply_refund_return_lines_in_tx(
+                &mut tx,
+                transaction_id,
+                staff.id,
+                body.session_id,
+                refund_event_id,
+                &body.return_lines,
+            )
+            .await
+            {
+                record_card_refund_pre_dispatch_failure(
+                    &state.db,
+                    provider_attempt_id,
+                    provider_attempt_may_have_been_dispatched,
+                    "pre_provider_revalidation_failed",
+                    error.to_string(),
+                )
+                .await?;
+                return Err(error);
+            }
+
             let refreshed_refund: Option<RefundQueueRow> = sqlx::query_as(
                 r#"
                 SELECT id, transaction_id, customer_id, amount_due, amount_refunded, is_open, reason, created_at
@@ -7878,30 +7903,11 @@ async fn process_refund(
                 )
                 .await?;
                 return Err(TransactionError::InvalidPayload(
-                    "no open refund for this order".to_string(),
+                    "No refundable balance is open for this transaction. No card refund was sent."
+                        .to_string(),
                 ));
             };
             refund = refreshed_refund;
-            if let Err(error) = apply_refund_return_lines_in_tx(
-                &mut tx,
-                transaction_id,
-                staff.id,
-                body.session_id,
-                refund_event_id,
-                &body.return_lines,
-            )
-            .await
-            {
-                record_card_refund_pre_dispatch_failure(
-                    &state.db,
-                    provider_attempt_id,
-                    provider_attempt_may_have_been_dispatched,
-                    "pre_provider_revalidation_failed",
-                    error.to_string(),
-                )
-                .await?;
-                return Err(error);
-            }
             capacity = match validate_refund_capacity_in_tx(
                 &mut tx,
                 transaction_id,
@@ -8310,6 +8316,20 @@ async fn process_refund(
                 .await?;
             }
 
+            // Recreate the staged return state before the queue lookup. The queue is
+            // derived from those return lines and the transaction before the provider
+            // call was intentionally rolled back to avoid committing merchandise
+            // changes before Helcim approves the refund.
+            apply_refund_return_lines_in_tx(
+                &mut resumed_tx,
+                transaction_id,
+                staff.id,
+                body.session_id,
+                refund_event_id,
+                &body.return_lines,
+            )
+            .await?;
+
             refund = sqlx::query_as(
                 r#"
                 SELECT id, transaction_id, customer_id, amount_due, amount_refunded, is_open, reason, created_at
@@ -8329,15 +8349,6 @@ async fn process_refund(
                         .to_string(),
                 )
             })?;
-            apply_refund_return_lines_in_tx(
-                &mut resumed_tx,
-                transaction_id,
-                staff.id,
-                body.session_id,
-                refund_event_id,
-                &body.return_lines,
-            )
-            .await?;
             capacity = validate_refund_capacity_in_tx(
                 &mut resumed_tx,
                 transaction_id,

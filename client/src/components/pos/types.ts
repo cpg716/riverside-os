@@ -78,6 +78,8 @@ export interface CartLineItem extends ResolvedSkuItem {
   return_tender_original_transaction_id?: string | null;
   return_tender_receipt_label?: string | null;
   return_tender_refund_cents?: number | null;
+  /** Original line identity retained for the final audited return settlement. */
+  return_tender_transaction_line_id?: string | null;
   /** Database ID of the original transaction line for pickup tracking. */
   transaction_line_id?: string | null;
   catalog_standard_retail_price?: string | number;
@@ -203,7 +205,7 @@ export interface ExchangeReturnHandoffLine {
   state_tax_cents?: number;
   local_tax_cents?: number;
   tax_cents: number;
-  reason?: "refund" | "exchange";
+  reason?: "refund" | "exchange" | "return_price_correction";
   restock?: boolean | null;
   refund_subtotal_cents?: number;
   refund_state_tax_cents?: number;

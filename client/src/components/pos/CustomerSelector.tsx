@@ -1,10 +1,12 @@
 import { getBaseUrl } from "../../lib/apiConfig";
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
+import { createPortal } from "react-dom";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
-import { CheckCircle2, Gem, Ruler, Search, User, UserPlus, X, UserX, Clock } from "lucide-react";
+import { CheckCircle2, Gem, Ruler, Search, ShoppingBag, User, UserPlus, X, UserX, Clock } from "lucide-react";
 import { useToast } from "../ui/ToastProviderLogic";
 import { AddCustomerDrawer } from "../customers/CustomersWorkspace";
+import { formatUsdFromCents, parseMoneyToCents } from "../../lib/money";
 import type { WeddingMembership } from "./customerProfileTypes";
 
 export interface Customer {
@@ -24,6 +26,8 @@ export interface Customer {
   wedding_party_id?: string | null;
   couple_id?: string | null;
   wedding_member_id?: string | null;
+  open_balance_due?: string | number;
+  open_orders_count?: number;
 }
 
 interface CustomerSelectorProps {
@@ -41,6 +45,14 @@ interface CustomerSelectorProps {
 }
 
 const CUSTOMER_SELECTOR_PAGE = 50;
+
+type ResultsPanelPosition = {
+  left: number;
+  width: number;
+  top?: number;
+  bottom?: number;
+  maxHeight: number;
+};
 
 type PosCustomerDraft = Parameters<typeof AddCustomerDrawer>[0]["initialDraft"];
 
@@ -92,7 +104,8 @@ export default function CustomerSelector({
   const [partyFilterMode, setPartyFilterMode] = useState(false);
   const [addDrawerOpen, setAddDrawerOpen] = useState(false);
   const [addDraft, setAddDraft] = useState<PosCustomerDraft>({});
-  const [openResultsUpward, setOpenResultsUpward] = useState(false);
+  const [resultsPanelPosition, setResultsPanelPosition] =
+    useState<ResultsPanelPosition | null>(null);
   const [activeResultIndex, setActiveResultIndex] = useState(-1);
   const searchContainerRef = useRef<HTMLDivElement | null>(null);
   const resultsPanelRef = useRef<HTMLDivElement | null>(null);
@@ -209,6 +222,8 @@ export default function CustomerSelector({
                 wedding_active: true,
                 wedding_party_name: r.wedding_party_name ?? null,
                 wedding_party_id: r.wedding_party_id ?? null,
+                open_balance_due: r.open_balance_due,
+                open_orders_count: r.open_orders_count,
               }))
             : (data as Customer[]);
           setResults(mapped);
@@ -279,6 +294,8 @@ export default function CustomerSelector({
             wedding_active: true,
             wedding_party_name: r.wedding_party_name ?? null,
             wedding_party_id: r.wedding_party_id ?? null,
+            open_balance_due: r.open_balance_due,
+            open_orders_count: r.open_orders_count,
           }))
         : (data as Customer[]);
       if (searchRequestIdRef.current !== requestId) return;
@@ -303,7 +320,7 @@ export default function CustomerSelector({
 
   useEffect(() => {
     if (query.trim().length < 2) {
-      setOpenResultsUpward(false);
+      setResultsPanelPosition(null);
       return;
     }
 
@@ -313,13 +330,18 @@ export default function CustomerSelector({
       const anchorRect = anchor.getBoundingClientRect();
       const spaceBelow = window.innerHeight - anchorRect.bottom;
       const spaceAbove = anchorRect.top;
-      const panelHeight = resultsPanelRef.current
-        ? Math.min(
-            resultsPanelRef.current.getBoundingClientRect().height,
-            window.innerHeight * 0.78,
-          )
-        : Math.min(window.innerHeight * 0.72, 448);
-      setOpenResultsUpward(spaceBelow < panelHeight && spaceAbove > spaceBelow);
+      const preferredPanelHeight = Math.min(window.innerHeight * 0.72, 448);
+      const openUpward =
+        spaceBelow < preferredPanelHeight && spaceAbove > spaceBelow;
+      const availableSpace = openUpward ? spaceAbove : spaceBelow;
+      setResultsPanelPosition({
+        left: anchorRect.left,
+        width: anchorRect.width,
+        ...(openUpward
+          ? { bottom: Math.max(8, window.innerHeight - anchorRect.top + 8) }
+          : { top: Math.min(window.innerHeight - 8, anchorRect.bottom + 8) }),
+        maxHeight: Math.max(160, Math.min(preferredPanelHeight, availableSpace - 16)),
+      });
     };
 
     recomputePlacement();
@@ -486,6 +508,20 @@ export default function CustomerSelector({
     );
   }
 
+  const resultsOverlayRoot =
+    typeof document === "undefined"
+      ? null
+      : document.getElementById("drawer-root") ?? document.body;
+  const resultsPanelStyle: CSSProperties | undefined = resultsPanelPosition
+    ? {
+        left: resultsPanelPosition.left,
+        width: resultsPanelPosition.width,
+        top: resultsPanelPosition.top,
+        bottom: resultsPanelPosition.bottom,
+        maxHeight: resultsPanelPosition.maxHeight,
+      }
+    : undefined;
+
   return (
     <div className="space-y-4">
       {/* 1. Search Bar (Top) */}
@@ -509,7 +545,7 @@ export default function CustomerSelector({
             aria-controls={query.trim().length >= 2 ? "pos-customer-results" : undefined}
           />
 
-          {query.trim().length >= 2 && (
+          {query.trim().length >= 2 && resultsOverlayRoot && resultsPanelStyle && createPortal(
             <div
               id="pos-customer-results"
               ref={resultsPanelRef}
@@ -517,11 +553,10 @@ export default function CustomerSelector({
               onMouseDown={(event) => event.stopPropagation()}
               onPointerDown={(event) => event.stopPropagation()}
               onClick={(event) => event.stopPropagation()}
-              className={`absolute left-0 right-0 z-200 max-h-[min(78vh,28rem)] isolate overflow-hidden rounded-xl border border-app-border bg-white text-app-text shadow-2xl shadow-black/30 ring-1 ring-black/10 backdrop-blur-none dark:bg-zinc-950 ${
-                openResultsUpward ? "bottom-full mb-2" : "top-full mt-2"
-              }`}
+              style={resultsPanelStyle}
+              className="fixed z-[300] isolate overflow-hidden rounded-xl border border-app-border bg-app-surface text-app-text shadow-2xl shadow-black/30 ring-1 ring-black/10"
             >
-               <div className="max-h-[min(72vh,26rem)] overflow-y-auto no-scrollbar">
+               <div className="max-h-full overflow-y-auto no-scrollbar">
                {showWalkInOption && (
                  <button
                    type="button"
@@ -635,6 +670,19 @@ export default function CustomerSelector({
                        <div className="text-xs text-app-text-muted">
                          {customer.phone ?? customer.email ?? "No contact info"}
                        </div>
+                       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                         <span className="tabular-nums">
+                           Balance due {formatUsdFromCents(parseMoneyToCents(customer.open_balance_due))}
+                         </span>
+                         <span className="inline-flex items-center gap-1 tabular-nums">
+                           <ShoppingBag
+                             size={12}
+                             className={customer.open_orders_count ? "text-app-accent" : "text-app-text-disabled"}
+                             aria-hidden
+                           />
+                           {customer.open_orders_count ?? 0} open
+                         </span>
+                       </div>
                      </button>
                       <div className="flex shrink-0 items-center pr-3">
                          <CheckCircle2 size={18} className="text-app-border group-hover:text-app-accent transition-colors" />
@@ -656,7 +704,7 @@ export default function CustomerSelector({
                )}
                </div>
             </div>
-          )}
+          , resultsOverlayRoot)}
       </div>
 
       {/* 2. Walk-in / Parked / Options Row */}

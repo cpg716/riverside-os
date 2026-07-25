@@ -348,7 +348,7 @@ test.describe("operational rollout smoke", () => {
     });
   });
 
-  test("exchange return wizard stages a visible exchange credit for replacement checkout", async ({
+  test("exchange return wizard stages visible source return items for replacement checkout", async ({
     page,
     request,
   }) => {
@@ -402,12 +402,14 @@ test.describe("operational rollout smoke", () => {
     await wizard.locator("input[placeholder='0']").first().fill("1");
     await wizard.getByRole("button", { name: /continue exchange|exchange for new items/i }).click();
     const exchangeReturn = page
-      .getByRole("button", { name: /exchange return/i })
+      .getByRole("button", { name: new RegExp(escapeRegExp(seeded.detail.items[0]!.product_name), "i") })
       .first();
     await expect(exchangeReturn).toBeVisible({ timeout: 20_000 });
-    await expect(page.getByRole("button", { name: /\$-/i }).first()).toBeVisible({
+    await expect(page.getByText(/return from txn-/i)).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText(/-\$/i).first()).toBeVisible({
       timeout: 20_000,
     });
+    await expect(page.locator("button").filter({ hasText: "Return value" })).toBeEnabled();
   });
 
   test("orders workspace cash refund modal completes a refund from transaction detail", async ({

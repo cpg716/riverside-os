@@ -884,6 +884,8 @@ pub struct Customer {
     pub employee_discount_eligible: bool,
     pub tax_exempt: bool,
     pub tax_exempt_id: Option<String>,
+    pub open_balance_due: Decimal,
+    pub open_orders_count: i64,
     pub wedding_active: bool,
     pub wedding_party_name: Option<String>,
     pub wedding_party_id: Option<Uuid>,
@@ -4806,6 +4808,8 @@ async fn search_customers(
                 ) AS employee_discount_eligible,
                 c.tax_exempt,
                 c.tax_exempt_id,
+                COALESCE(metrics.open_balance_due, 0)::numeric(12, 2) AS open_balance_due,
+                COALESCE(metrics.open_orders_count, 0)::bigint AS open_orders_count,
                 EXISTS (
                     SELECT 1
                     FROM wedding_members wm
@@ -4846,6 +4850,19 @@ async fn search_customers(
                     LIMIT 1
                 ) AS wedding_member_id
             FROM customers c
+            LEFT JOIN LATERAL (
+                SELECT
+                    SUM(balance_due) FILTER (
+                        WHERE status = 'open'::order_status
+                          AND counterpoint_ticket_ref IS NULL
+                    ) AS open_balance_due,
+                    COUNT(*) FILTER (
+                        WHERE status IN ('open'::order_status, 'pending_measurement'::order_status)
+                          AND counterpoint_ticket_ref IS NULL
+                    ) AS open_orders_count
+                FROM transactions
+                WHERE customer_id = c.id
+            ) metrics ON TRUE
             WHERE c.id = ANY($1)
               AND c.is_active = TRUE
             ORDER BY array_position($2::uuid[], c.id)
@@ -4884,6 +4901,8 @@ async fn search_customers(
                 ) AS employee_discount_eligible,
                 c.tax_exempt,
                 c.tax_exempt_id,
+                COALESCE(metrics.open_balance_due, 0)::numeric(12, 2) AS open_balance_due,
+                COALESCE(metrics.open_orders_count, 0)::bigint AS open_orders_count,
                 EXISTS (
                     SELECT 1
                     FROM wedding_members wm
@@ -4924,6 +4943,19 @@ async fn search_customers(
                     LIMIT 1
                 ) AS wedding_member_id
             FROM customers c
+            LEFT JOIN LATERAL (
+                SELECT
+                    SUM(balance_due) FILTER (
+                        WHERE status = 'open'::order_status
+                          AND counterpoint_ticket_ref IS NULL
+                    ) AS open_balance_due,
+                    COUNT(*) FILTER (
+                        WHERE status IN ('open'::order_status, 'pending_measurement'::order_status)
+                          AND counterpoint_ticket_ref IS NULL
+                    ) AS open_orders_count
+                FROM transactions
+                WHERE customer_id = c.id
+            ) metrics ON TRUE
             WHERE c.is_active = TRUE
               AND (
                 c.first_name ILIKE $1 OR

@@ -1005,9 +1005,12 @@ export default function Cart({
       return {
         product_id: returnedLine.product_id,
         variant_id: returnedLine.variant_id,
-        sku: `RETURN-${receiptLabel}-${returnedLine.sku || index + 1}`,
-        name: args.action === "exchange" ? "Exchange return" : "Refund return",
-        variation_label: returnedLine.variation_label ?? returnedLine.product_name,
+        // Keep the original merchandise identity visible at the register. The
+        // settlement still uses the separately retained return-line identity
+        // below; this cart row is the cashier's readable representation of it.
+        sku: returnedLine.sku || `RETURN-${receiptLabel}-${index + 1}`,
+        name: returnedLine.product_name,
+        variation_label: returnedLine.variation_label ?? null,
         standard_retail_price: centsToFixed2(lineComponents.subtotalCents / quantity),
         unit_cost: returnedLine.unit_cost ?? "0.00",
         state_tax: centsToFixed2(lineComponents.stateTaxCents / quantity),
@@ -1021,6 +1024,7 @@ export default function Cart({
         return_tender_original_transaction_id: args.originalTransactionId,
         return_tender_receipt_label: receiptLabel,
         return_tender_refund_cents: lineComponents.totalCents,
+        return_tender_transaction_line_id: returnedLine.transaction_line_id,
       } satisfies CartLineItem;
     });
 
@@ -1271,6 +1275,12 @@ export default function Cart({
         const nextAmtCents = parseMoneyToCents(keypadBuffer);
         const originalAmtCents = parseMoneyToCents(line.original_unit_price || line.standard_retail_price);
 
+        if (line.return_tender_original_transaction_id && nextAmtCents > originalAmtCents) {
+          toast("A return cannot exceed the original paid item value.", "error");
+          setKeypadBuffer("");
+          return;
+        }
+
         if (nextAmtCents < originalAmtCents) {
           const discountPct = ((originalAmtCents - nextAmtCents) / originalAmtCents) * 100;
           if (discountPct > roleMaxDiscountPct && !hasAccess) {
@@ -1287,7 +1297,7 @@ export default function Cart({
       }
     }
     hookHandleNumpadKey(key);
-  }, [keypadMode, selectedLineKey, lines, keypadBuffer, roleMaxDiscountPct, hasAccess, hookHandleNumpadKey, setKeypadBuffer]);
+  }, [keypadMode, selectedLineKey, lines, keypadBuffer, roleMaxDiscountPct, hasAccess, hookHandleNumpadKey, setKeypadBuffer, toast]);
 
   const applyDiscountEvent = useCallback((event: ActiveDiscountEvent) => {
     if (!selectedLineKey) return;
@@ -1758,23 +1768,41 @@ export default function Cart({
     if (returnLines.length === 0) return null;
     const originalTransactionId = returnLines[0].return_tender_original_transaction_id ?? "";
     if (!originalTransactionId) return null;
-    const refundAmountCents = returnLines.reduce((sum, line) => {
-      if (typeof line.return_tender_refund_cents === "number" && line.return_tender_refund_cents > 0) {
-        return sum + line.return_tender_refund_cents;
-      }
-      const lineCents =
-        parseMoneyToCents(line.standard_retail_price) * line.quantity +
-        parseMoneyToCents(line.state_tax) * line.quantity +
-        parseMoneyToCents(line.local_tax) * line.quantity;
-      return sum + Math.abs(lineCents);
-    }, 0);
+    const sourceLines = pendingReturnLineDrafts[originalTransactionId] ?? [];
+    const settledReturnLines = returnLines.flatMap((line) => {
+      const sourceLine = sourceLines.find(
+        (candidate) => candidate.transaction_line_id === line.return_tender_transaction_line_id,
+      );
+      if (!sourceLine) return [];
+      const quantity = Math.abs(line.quantity);
+      const refundSubtotalCents = parseMoneyToCents(line.standard_retail_price) * quantity;
+      const refundStateTaxCents = parseMoneyToCents(line.state_tax) * quantity;
+      const refundLocalTaxCents = parseMoneyToCents(line.local_tax) * quantity;
+      const refundTotalCents =
+        refundSubtotalCents + refundStateTaxCents + refundLocalTaxCents;
+      return [{
+        ...sourceLine,
+        reason:
+          line.price_override_reason === "pending_return_refund"
+            ? sourceLine.reason
+            : "return_price_correction",
+        refund_subtotal_cents: refundSubtotalCents,
+        refund_state_tax_cents: refundStateTaxCents,
+        refund_local_tax_cents: refundLocalTaxCents,
+        refund_total_cents: refundTotalCents,
+      }];
+    });
+    const refundAmountCents = settledReturnLines.reduce(
+      (sum, line) => sum + (line.refund_total_cents ?? 0),
+      0,
+    );
     return {
       originalTransactionId,
       receiptLabel: returnLines[0].return_tender_receipt_label ?? originalTransactionId.slice(0, 8).toUpperCase(),
       refundAmountCents,
-      returnLines: pendingReturnLineDrafts[originalTransactionId] ?? [],
+      returnLines: settledReturnLines,
       originalHelcimTransactionIdForRefund:
-        pendingReturnLineDrafts[originalTransactionId]?.[0]
+        sourceLines[0]
           ?.original_helcim_transaction_id_for_refund ?? null,
       returnOnly: returnLines.length === lines.length && orderPaymentLines.length === 0,
     };
