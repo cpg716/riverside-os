@@ -840,7 +840,8 @@ export function useCartCheckout({
               try {
                 const alterationPickupRes = await fetch(`${baseUrl}/api/alterations/${alterationId}/pickup`, {
                   method: "POST",
-                  headers: apiAuth(),
+                  headers: { ...apiAuth(), "Content-Type": "application/json" },
+                  body: JSON.stringify({ register_session_id: sessionId }),
                 });
                 if (!alterationPickupRes.ok) {
                   const body = await alterationPickupRes.json().catch(() => ({})) as { error?: string };

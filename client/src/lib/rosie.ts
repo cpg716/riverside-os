@@ -558,9 +558,11 @@ export function mergeRosieSettings(
 
 function rosieDirectEnabled(): boolean {
   const flag = import.meta.env.VITE_ROSIE_LLM_DIRECT;
-  if (typeof flag !== "string") return true;
+  // Register and Back Office Tauri clients use the Main Hub's governed ROSIE
+  // route by default. A bundled local model is an explicit host-only choice.
+  if (typeof flag !== "string") return false;
   const normalized = flag.trim().toLowerCase();
-  return !["0", "false", "off", "no"].includes(normalized);
+  return ["1", "true", "on", "yes"].includes(normalized);
 }
 
 function rosieDirectTransportAllowed(settings: RosieSettings): boolean {

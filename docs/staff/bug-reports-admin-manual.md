@@ -58,7 +58,7 @@ Empty states: **No bug reports yet** or **No reports in this filter**.
 
 The **Error events** tab is an automated companion to staff-submitted bug reports. It records recent error toasts with staff identity when available, route, client metadata, and a bounded API server log snapshot. Server-side operational events appear as **Server runtime** with source labels such as `server_ops_alert` or `server_api_error` when the server can still persist to the database.
 
-Use Error events to answer “what failed around this time?” quickly. Convert the pattern into a full bug report or external ticket when the same message repeats, affects checkout/order/payment flows, or needs engineering follow-up. Error events do **not** include screenshots or staff-written steps.
+Use Error events to answer “what failed around this time?” quickly. The queue loads lightweight rows first; choose **View** for the browser metadata and bounded server snapshot for one event. Convert the pattern into a full bug report or external ticket when the same message repeats, affects checkout/order/payment flows, or needs engineering follow-up. Error events do **not** include screenshots or staff-written steps.
 
 ---
 

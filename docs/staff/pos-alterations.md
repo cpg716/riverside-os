@@ -12,14 +12,14 @@
 
 Use **Alterations** from POS when you are **at the register** with a customer and need to **check status**, **intake a standalone tailoring job**, or **move a job** without walking to the back-office queue on another machine.
 
-This screen shares the same alterations queue as Back Office. It can record the garment/source, work requested, optional SKU/reference text, and whether a charge was noted. Alterations started from the Register toolbar now appear as editable **Alteration** cart lines: free/included work shows **$0.00**, and charged work shows the entered service amount. The source garment is tracked separately and is not sold again. Charged alteration lines stay labeled as **Alteration** on the cart, receipt, Daily Sales, and printed audit reports.
+This screen shares the same alterations queue as Back Office. It can record the garment/source, work requested, optional SKU/reference text, **due-by date**, and whether a charge was noted. Alterations started from the Register toolbar appear as editable **Alteration** cart lines: free/included work shows **$0.00**, and charged work shows the entered service amount. Every open ticket remains **in custody** until it is ready and picked up at the Register. The source garment is tracked separately and is not sold again. Charged alteration lines stay labeled as **Alteration** on the cart, receipt, Daily Sales, and printed audit reports.
 
 ## How to use this screen
 
 1. Open POS mode with an **active register session** if your store requires it for POS navigation.
 2. Tap **Alterations** in the left rail.
 3. Use the queue filters (**All**, **Intake**, **In Work**, **Ready**, **Picked Up**) to narrow the list.
-4. Review **customer**, **item**, **work requested**, **source**, **charge note**, **status**, **due date**, and **notes**. Save status changes only when you are sure; marking a job **Ready** may notify the customer.
+4. Review **customer**, **item**, **work requested**, **source**, **charge note**, **status**, **due date**, and **notes**. Save status changes only when you are sure; marking a job **Ready** may notify the customer. Complete the actual customer pickup in **Register → Customer Orders**, not here.
 
 ## Common tasks
 

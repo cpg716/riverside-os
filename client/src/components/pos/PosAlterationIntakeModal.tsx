@@ -344,8 +344,8 @@ export default function PosAlterationIntakeModal({
       return;
     }
 
-    if (!fittingNeeded && !dueAt) {
-      toast("Choose a due date before sending this alteration straight to the tailor queue.", "error");
+    if (!dueAt) {
+      toast("Choose a due-by date before saving this alteration intake.", "error");
       return;
     }
 
@@ -376,6 +376,8 @@ export default function PosAlterationIntakeModal({
         source_product_id: source.source_product_id ?? null,
         source_variant_id: source.source_variant_id ?? null,
         source_sku: source.source_sku ?? null,
+        source_transaction_id: source.source_transaction_id ?? null,
+        source_transaction_line_id: source.source_transaction_line_id ?? null,
         charge_amount: chargeValue,
         due_at: dueIso,
         notes: noteValue,

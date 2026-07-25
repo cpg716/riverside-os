@@ -10,7 +10,7 @@
 
 ## How to use this area
 
-The **Work queue** is the **system of record** for garment-based alteration jobs: intake → in progress → ready → picked up. POS **Alterations** uses the same queue as Back Office.
+The **Work queue** is the system of record for garment-based alteration jobs through intake → in progress → ready. POS **Alterations** uses the same queue as Back Office; the Register records the final customer pickup.
 
 This area tracks tailoring work orders attached to garments. The workbench starts with cards for **Overdue**, **Due Today**, **Ready for Pickup**, and **Total Open**, then groups attention by **Overdue**, **Due Today**, **Ready for Pickup**, **Intake / Not Started**, and **In Work** so staff can work the garment, not hunt by order. Alteration intake starts from the Register, where staff select the customer and source garment before checkout creates the work order. Register alteration intake can add free or charged alteration service lines; this queue still does **not** print alteration tickets/barcodes.
 
@@ -39,7 +39,7 @@ Order or Transaction Record numbers appear only as source context when the garme
 ### Move status
 
 1. Open job from list.
-2. **In progress** when work starts; **Ready** when pressed/hung; **Picked up** when customer signs.
+2. **In progress** when work starts; **Ready** when pressed/hung. The Register completes **Picked up** when the customer receives the garment.
 3. **Save** after each transition; some transitions may **notify** the customer — follow messaging policy.
 
 **Customer Notifications:**

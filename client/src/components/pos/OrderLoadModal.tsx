@@ -13,6 +13,7 @@ import {
   ShieldCheck,
   Ban,
   Truck,
+  Scissors,
 } from "lucide-react";
 import { useToast } from "../ui/ToastProviderLogic";
 import ConfirmationModal from "../ui/ConfirmationModal";
@@ -30,6 +31,7 @@ import VariantSelectionModal, {
   type VariantOption,
 } from "./VariantSelectionModal";
 import { isOrderStatus, REGISTER_ORDER_STATUS_SCOPE } from "./orderLoadStatus";
+import { printReceiptPayload } from "../../lib/receiptPrint";
 
 export interface CustomerOrder {
   id: string;
@@ -70,6 +72,18 @@ export interface OrderItem {
 export interface PickupSelection {
   order: CustomerOrder;
   items: OrderItem[];
+}
+
+interface ReadyAlteration {
+  id: string;
+  status: string;
+  item_description: string | null;
+  work_requested: string | null;
+  due_at: string | null;
+  source_type: string | null;
+  source_sku: string | null;
+  ticket_number: string | null;
+  charge_amount: string | number | null;
 }
 
 interface OrderLoadModalProps {
@@ -143,6 +157,7 @@ export default function OrderLoadModal({
 }: OrderLoadModalProps) {
   const { toast } = useToast();
   const [orders, setOrders] = useState<CustomerOrder[]>([]);
+  const [alterations, setAlterations] = useState<ReadyAlteration[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedOrderItems, setSelectedOrderItems] = useState<OrderItem[]>([]);
   const [viewingItemsOrderId, setViewingItemsOrderId] = useState<string | null>(
@@ -264,7 +279,7 @@ export default function OrderLoadModal({
       status_scope: REGISTER_ORDER_STATUS_SCOPE,
     });
     if (registerSessionId) params.set("register_session_id", registerSessionId);
-    fetch(`${baseUrl}/api/transactions?${params.toString()}`, {
+    const orderRequest = fetch(`${baseUrl}/api/transactions?${params.toString()}`, {
       headers: apiAuth(),
     })
       .then(async (r) => {
@@ -288,7 +303,53 @@ export default function OrderLoadModal({
         );
       })
       .finally(() => setLoading(false));
+    const alterationRequest = fetch(
+      `${baseUrl}/api/alterations?${new URLSearchParams({ customer_id: customerId, limit: "200" }).toString()}`,
+      { headers: apiAuth() },
+    )
+      .then(async (r) => {
+        if (!r.ok) throw new Error("Could not load customer alterations");
+        return r.json();
+      })
+      .then((rows) => setAlterations(
+        (Array.isArray(rows) ? rows : []).filter((row: ReadyAlteration) => row.status !== "picked_up"),
+      ))
+      .catch(() => setAlterations([]));
+    void Promise.all([orderRequest, alterationRequest]);
   }, [isOpen, customerId, registerSessionId, baseUrl, apiAuth, toast]);
+
+  const pickupAlteration = async (alteration: ReadyAlteration) => {
+    if (!registerSessionId) {
+      toast("Open a Register session before completing an alteration pickup.", "error");
+      return;
+    }
+    setPickupBusy(true);
+    try {
+      const res = await fetch(`${baseUrl}/api/alterations/${alteration.id}/pickup`, {
+        method: "POST",
+        headers: { ...apiAuth(), "Content-Type": "application/json" },
+        body: JSON.stringify({ register_session_id: registerSessionId }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        toast(body.error ?? "Alteration pickup could not be completed.", "error");
+        return;
+      }
+      setAlterations((rows) => rows.filter((row) => row.id !== alteration.id));
+      const receipt = await fetch(`${baseUrl}/api/alterations/${alteration.id}/pickup-receipt?${new URLSearchParams({ register_session_id: registerSessionId }).toString()}`, {
+        headers: apiAuth(),
+      });
+      if (receipt.ok) {
+        const data = (await receipt.json()) as { escpos_base64?: string; receiptline_markdown?: string };
+        await printReceiptPayload({ escposBase64: data.escpos_base64, receiptlineMarkdown: data.receiptline_markdown }, { cpl: 42 });
+      }
+      toast("Alteration pickup completed at this Register.", "success");
+    } catch {
+      toast("Alteration pickup could not be completed. Check the Register connection.", "error");
+    } finally {
+      setPickupBusy(false);
+    }
+  };
 
   const formatCurrency = (amount: string) =>
     formatUsdFromCents(parseMoneyToCents(amount));
@@ -819,6 +880,39 @@ export default function OrderLoadModal({
         </div>
 
         <div className="ui-modal-body flex-1 overflow-y-auto p-4 sm:p-6">
+          {alterations.length > 0 ? (
+            <section className="mb-5 rounded-2xl border border-app-accent/25 bg-app-accent/5 p-4">
+              <div className="flex items-center gap-2">
+                <Scissors size={16} className="text-app-accent" />
+                <h3 className="text-xs font-black uppercase tracking-widest text-app-text">
+                  Alterations in custody
+                </h3>
+              </div>
+              <div className="mt-3 grid gap-2">
+                {alterations.map((alteration) => {
+                  const ready = alteration.status === "ready";
+                  return (
+                    <div key={alteration.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-app-border bg-app-surface p-3">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="rounded-full border border-app-accent/30 bg-app-accent/10 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-app-accent">ALTERATIONS</span>
+                          <span className={`rounded-full border px-2 py-0.5 text-[9px] font-black uppercase tracking-widest ${ready ? "border-app-success/30 bg-app-success/10 text-app-success" : "border-app-warning/30 bg-app-warning/10 text-app-warning"}`}>
+                            {ready ? "Ready for pickup" : "In custody"}
+                          </span>
+                          {alteration.due_at ? <span className="text-[10px] font-bold text-app-text-muted">Due {formatDate(alteration.due_at)}</span> : null}
+                        </div>
+                        <p className="mt-1 text-sm font-black text-app-text">{alteration.item_description ?? alteration.source_sku ?? "Customer garment"}</p>
+                        <p className="text-xs font-semibold text-app-text-muted">{alteration.work_requested ?? "Alteration work"}{alteration.ticket_number ? ` · Ticket ${alteration.ticket_number}` : ""}</p>
+                      </div>
+                      <button type="button" disabled={pickupBusy} onClick={() => void pickupAlteration(alteration)} className="ui-btn-primary px-3 py-2 text-[10px] font-black uppercase tracking-widest disabled:opacity-50">
+                        Pick Up & Print
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          ) : null}
           {loading ? (
             <div className="flex min-h-48 items-center justify-center rounded-2xl border border-dashed border-app-border bg-app-surface-2 text-center">
               <span className="animate-pulse text-sm font-black uppercase tracking-widest text-app-text-muted">

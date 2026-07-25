@@ -118,6 +118,16 @@ pub struct PatchAlterationBody {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct AlterationPickupBody {
+    pub register_session_id: Uuid,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AlterationPickupReceiptQuery {
+    pub register_session_id: Uuid,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct CreateOrderItemBody {
     pub label: String,
     pub capacity_bucket: String,
@@ -767,6 +777,12 @@ async fn patch_alteration(
         .as_deref()
         .map(normalize_alteration_status)
         .transpose()?;
+    if normalized_status == Some("picked_up") {
+        return Err(AlterationError::BadRequest(
+            "Complete alteration pickup from the Register so the Register session and receipt are recorded."
+                .to_string(),
+        ));
+    }
 
     let notes_trimmed = body.notes.as_ref().map(|n| n.trim().to_string());
 
@@ -780,6 +796,12 @@ async fn patch_alteration(
 
     if prev_status.is_none() {
         return Err(AlterationError::NotFound);
+    }
+    if prev_status.as_deref() == Some("picked_up") {
+        return Err(AlterationError::BadRequest(
+            "This alteration was already picked up. Reprint its receipt from the completed pickup record if needed."
+                .to_string(),
+        ));
     }
 
     let will_change = body.status.is_some()
@@ -934,8 +956,20 @@ async fn post_alteration_pickup(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(id): Path<Uuid>,
+    Json(body): Json<AlterationPickupBody>,
 ) -> Result<Json<AlterationOrderRow>, AlterationError> {
     let staff = require_manage(&state, &headers).await?;
+    middleware::require_pos_register_session_for_checkout(
+        &state,
+        &headers,
+        body.register_session_id,
+    )
+    .await
+    .map_err(|_| {
+        AlterationError::Unauthorized(
+            "An open Register session is required for alteration pickup.".to_string(),
+        )
+    })?;
 
     let mut tx = state.db.begin().await?;
 
@@ -1003,6 +1037,7 @@ async fn post_alteration_pickup(
         "previous_status": prev_status,
         "new_status": "picked_up",
         "picked_up_by": staff.full_name,
+        "register_session_id": body.register_session_id,
     })))
     .execute(&mut *tx)
     .await?;
@@ -1036,8 +1071,21 @@ async fn get_alteration_pickup_receipt(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(id): Path<Uuid>,
+    Query(query): Query<AlterationPickupReceiptQuery>,
 ) -> Result<Json<serde_json::Value>, AlterationError> {
     let _staff = require_manage(&state, &headers).await?;
+    middleware::require_pos_register_session_for_checkout(
+        &state,
+        &headers,
+        query.register_session_id,
+    )
+    .await
+    .map_err(|_| {
+        AlterationError::Unauthorized(
+            "An open Register session is required to print an alteration pickup receipt."
+                .to_string(),
+        )
+    })?;
 
     let row = sqlx::query_as::<_, AlterationOrderRow>(
         r#"

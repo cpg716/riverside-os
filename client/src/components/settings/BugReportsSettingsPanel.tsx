@@ -70,6 +70,9 @@ type ErrorEventRow = {
   event_source: string;
   severity: string;
   route: string | null;
+};
+
+type ErrorEventDetail = ErrorEventRow & {
   client_meta: Record<string, unknown>;
   server_log_snapshot: string;
 };
@@ -147,8 +150,8 @@ function sanitizeDetail(detail: Detail): Detail {
   return redactDiagnosticValue(detail) as Detail;
 }
 
-function sanitizeErrorEvent(event: ErrorEventRow): ErrorEventRow {
-  return redactDiagnosticValue(event) as ErrorEventRow;
+function sanitizeErrorEvent<T extends ErrorEventRow | ErrorEventDetail>(event: T): T {
+  return redactDiagnosticValue(event) as T;
 }
 
 function errorEventActorLabel(event: ErrorEventRow): string {
@@ -161,7 +164,7 @@ function isServerError(event: ErrorEventRow): boolean {
   return event.event_source.startsWith("server_");
 }
 
-function buildAiDiagnosticPackage(event: ErrorEventRow): string {
+function buildAiDiagnosticPackage(event: ErrorEventDetail): string {
   const isServer = event.event_source.startsWith("server_");
   const prompt = [
     `## Riverside OS — ${isServer ? "Server" : "Client"} Error Diagnostic`,
@@ -232,7 +235,8 @@ export default function BugReportsSettingsPanel({
   const [loading, setLoading] = useState(true);
   const [eventsLoading, setEventsLoading] = useState(true);
   const [detail, setDetail] = useState<Detail | null>(null);
-  const [eventDetail, setEventDetail] = useState<ErrorEventRow | null>(null);
+  const [eventDetail, setEventDetail] = useState<ErrorEventDetail | null>(null);
+  const [eventDetailLoading, setEventDetailLoading] = useState(false);
   const [draftNotes, setDraftNotes] = useState("");
   const [draftUrl, setDraftUrl] = useState("");
   const [statusConfirm, setStatusConfirm] = useState<{
@@ -325,6 +329,25 @@ export default function BugReportsSettingsPanel({
       setEventsLoading(false);
     }
   }, [backofficeHeaders, hasPermission, toast]);
+
+  const loadErrorEventDetail = useCallback(async (id: string) => {
+    setEventDetailLoading(true);
+    try {
+      const res = await fetch(`${baseUrl}/api/settings/bug-reports/error-events/${id}`, {
+        headers: backofficeHeaders() as Record<string, string>,
+      });
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        toast(j.error ?? "Could not load error event", "error");
+        return;
+      }
+      setEventDetail(sanitizeErrorEvent((await res.json()) as ErrorEventDetail));
+    } catch {
+      toast("Network error loading error event", "error");
+    } finally {
+      setEventDetailLoading(false);
+    }
+  }, [backofficeHeaders, toast]);
 
   const loadEmailSettings = useCallback(async () => {
     if (!hasPermission("settings.admin")) return;
@@ -467,9 +490,19 @@ export default function BugReportsSettingsPanel({
         toast(j.error ?? "Could not update error event", "error");
         return;
       }
-      const updated = sanitizeErrorEvent((await res.json()) as ErrorEventRow);
+      const updated = sanitizeErrorEvent((await res.json()) as ErrorEventDetail);
       setErrorEvents((prev) =>
-        prev.map((event) => (event.id === id ? updated : event)),
+        prev.map((event) => (event.id === id ? {
+          id: updated.id,
+          created_at: updated.created_at,
+          staff_id: updated.staff_id,
+          staff_name: updated.staff_name,
+          status: updated.status,
+          message: updated.message,
+          event_source: updated.event_source,
+          severity: updated.severity,
+          route: updated.route,
+        } : event)),
       );
       if (eventDetail?.id === id) {
         setEventDetail(updated);
@@ -788,7 +821,8 @@ export default function BugReportsSettingsPanel({
                       <td className="px-4 py-3 text-right">
                         <button
                           type="button"
-                          onClick={() => setEventDetail(event)}
+                          onClick={() => void loadErrorEventDetail(event.id)}
+                          disabled={eventDetailLoading}
                           className="text-[10px] font-black uppercase tracking-widest text-app-accent hover:underline"
                         >
                           View

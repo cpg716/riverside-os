@@ -31,7 +31,7 @@ It helps managers and support staff see what was reported, which workstation or 
 
 1. Open Bug Reports Settings from the protected settings area (or open the Standalone macOS DevOps application).
 2. Select the tab for either **Bug Reports** or **Developer Errors**.
-3. Select the report or incident needing review to open its details dialog.
+3. Select the report or incident needing review to open its details dialog. The Error events list loads only the queue summary; detailed browser and server diagnostics load after you choose **View**.
 4. Use **Copy AI Package** to grab the pre-packaged context, error logs, and system variables formatted as a developer prompt, ready to paste directly into AI editors.
 5. Use the download buttons in the details dialog to save the AI diagnostic JSON, screenshot PNG, support log, or browser log. ROS shows a saved or failed message after the desktop save finishes.
 6. Use **Download AI Diagnostic** on developer errors to save the diagnostic payload as an `.md` report.

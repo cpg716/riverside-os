@@ -430,51 +430,6 @@ export default function CustomerAlterationsPanel({
     }
   };
 
-  const pickupAlteration = async (id: string) => {
-    setBusy(true);
-    try {
-      const res = await fetch(`${baseUrl}/api/alterations/${id}/pickup`, {
-        method: "POST",
-        headers: apiAuth(),
-      });
-      if (!res.ok) {
-        const b = (await res.json().catch(() => ({}))) as { error?: string };
-        toast(b.error ?? "Pickup failed", "error");
-        return;
-      }
-      toast("Alteration marked as picked up", "success");
-      void load();
-      await printPickupReceipt(id);
-    } catch {
-      toast("Network error", "error");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const printPickupReceipt = async (id: string) => {
-    try {
-      const res = await fetch(`${baseUrl}/api/alterations/${id}/pickup-receipt`, {
-        headers: apiAuth(),
-      });
-      if (!res.ok) {
-        toast("Could not generate pickup receipt", "error");
-        return;
-      }
-      const data = (await res.json()) as {
-        escpos_base64?: string;
-        receiptline_markdown?: string;
-      };
-      await printReceiptPayload({
-        escposBase64: data.escpos_base64,
-        receiptlineMarkdown: data.receiptline_markdown,
-      }, { cpl: 42 });
-      toast("Pickup receipt sent to printer", "success");
-    } catch {
-      toast("Pickup receipt print failed", "error");
-    }
-  };
-
   const printAlterationCard = async (id: string) => {
     try {
       const res = await fetch(`${baseUrl}/api/alterations/${id}/card`, {
@@ -858,26 +813,6 @@ export default function CustomerAlterationsPanel({
          </div>
 
          <div className="flex flex-wrap items-center justify-end gap-2">
-            {r.status === "ready" ? (
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => void pickupAlteration(r.id)}
-                className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-[9px] font-black uppercase tracking-tight text-emerald-400 transition-all hover:bg-emerald-500 hover:text-white disabled:opacity-50"
-              >
-                Pick Up & Print
-              </button>
-            ) : null}
-            {r.status === "picked_up" ? (
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => void printPickupReceipt(r.id)}
-                className="rounded-xl border border-app-accent/30 bg-app-accent/10 px-3 py-1.5 text-[9px] font-black uppercase tracking-tight text-app-accent transition-all hover:bg-app-accent hover:text-white disabled:opacity-50"
-              >
-                Reprint Receipt
-              </button>
-            ) : null}
             {nextAlterationStatus(r.status) && r.status !== "ready" ? (
               <button
                 type="button"
@@ -888,7 +823,7 @@ export default function CustomerAlterationsPanel({
                 Advance to {nextAlterationStatus(r.status)?.replace("_", " ")}
               </button>
             ) : null}
-            {["intake", "in_work", "ready", "picked_up"].map((s) => (
+            {["intake", "in_work", "ready"].map((s) => (
               <button
                 key={s}
                 type="button"
@@ -903,6 +838,11 @@ export default function CustomerAlterationsPanel({
                 {s.replace("_", " ")}
               </button>
             ))}
+            {r.status === "ready" ? (
+              <span className="rounded-xl border border-app-success/30 bg-app-success/10 px-3 py-1.5 text-[9px] font-black uppercase tracking-tight text-app-success">
+                Pick up at Register
+              </span>
+            ) : null}
             <button
               type="button"
               onClick={() => setSchedulingAlt(r)}

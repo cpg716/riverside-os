@@ -210,7 +210,7 @@ Environment variables:
 | `MB_ENCRYPTION_SECRET_KEY` | _(unset)_ | Optional native Metabase boot secret for encrypting database credentials in Metabase’s own application DB. Generate once, set before adding databases, and keep stable. |
 | `RIVERSIDE_LLAMA_UPSTREAM` / `ROSIE_LOCAL_LLM_BASE_URL` | _(unset)_ | ROSIE local provider fallback endpoints. Routine provider endpoint setup belongs in **Settings → ROSIE → ROSIE Provider Credentials**. |
 | `OPENAI_API_KEY` / `GEMINI_API_KEY` | _(unset)_ | ROSIE cloud provider fallback keys. Routine keys and cloud model names belong in **Settings → ROSIE → ROSIE Provider Credentials**; never put them in Vite/client env. |
-| `VITE_ROSIE_LLM_DIRECT` / `VITE_ROSIE_LLM_HOST` / `VITE_ROSIE_LLM_PORT` | _(unset)_ | Desktop direct/local ROSIE host controls. Set direct mode off when using server-governed remote/cloud providers; full table **`DEVELOPER.md`**. |
+| `VITE_ROSIE_LLM_DIRECT` / `VITE_ROSIE_LLM_HOST` / `VITE_ROSIE_LLM_PORT` | _(unset)_ | Desktop direct/local ROSIE host controls. Tauri clients use the Main Hub's server-governed route by default; set `VITE_ROSIE_LLM_DIRECT=1` only for a workstation intentionally bundled with the local model. Full table **`DEVELOPER.md`**. |
 | `RIVERSIDE_MORNING_DIGEST_HOUR_LOCAL` | `7` | Optional; local hour (0–23) for admin morning notification digest — **`DEVELOPER.md`**, **`docs/PLAN_NOTIFICATION_CENTER.md`** |
 
 Helcim POS uses the terminal hardware path for **Card Reader** purchases. POS **Card Not Present** opens the hosted HelcimPay.js keyed-entry flow so Riverside never collects PAN or CVV in ROS-owned fields. Card refunds originate from the linked Transaction Record and use the server-owned refund/reverse processor; standalone provider-refund routes are rejected.

@@ -116,7 +116,7 @@ Local Gemma details:
 - Model family: Gemma 4 E4B
 - Expected file: `google_gemma-4-E4B-it-Q4_K_M.gguf`
 - Default Host path: `~/Library/Application Support/riverside-os/rosie/models/gemma-4-e4b/google_gemma-4-E4B-it-Q4_K_M.gguf`
-- Desktop path: Tauri direct/local via `rosie_llama_*`
+- Desktop path: Tauri uses the Main Hub server-governed route by default. The `rosie_llama_*` direct/local path is host-only and requires an explicit `VITE_ROSIE_LLM_DIRECT=1` build setting.
 - Server-governed Host path: `POST /api/help/rosie/v1/chat/completions`
 
 Remote LM Studio details:

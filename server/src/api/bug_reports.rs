@@ -531,7 +531,7 @@ async fn submit_error_event(
 async fn list_error_events(
     State(state): State<AppState>,
     headers: HeaderMap,
-) -> Result<Json<Vec<StaffErrorEventRow>>, Response> {
+) -> Result<Json<Vec<bug_reports::StaffErrorEventListRow>>, Response> {
     let _ = require_settings_admin(&state, &headers).await?;
     let rows = bug_reports::list_staff_error_events(&state.db)
         .await
@@ -544,6 +544,28 @@ async fn list_error_events(
                 .into_response()
         })?;
     Ok(Json(rows))
+}
+
+async fn get_error_event(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> Result<Json<StaffErrorEventRow>, Response> {
+    let _ = require_settings_admin(&state, &headers).await?;
+    let row = bug_reports::get_staff_error_event(&state.db, id)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "get_staff_error_event failed");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "could not load error event" })),
+            )
+                .into_response()
+        })?;
+    let Some(row) = row else {
+        return Err((StatusCode::NOT_FOUND, Json(json!({ "error": "not found" }))).into_response());
+    };
+    Ok(Json(row))
 }
 
 async fn patch_error_event(
@@ -621,7 +643,9 @@ pub fn settings_subrouter() -> Router<AppState> {
         .route("/bug-reports/error-events", get(list_error_events))
         .route(
             "/bug-reports/error-events/{id}",
-            patch(patch_error_event).delete(delete_error_event),
+            get(get_error_event)
+                .patch(patch_error_event)
+                .delete(delete_error_event),
         )
         .route(
             "/bug-reports/{id}",

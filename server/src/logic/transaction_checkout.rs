@@ -1564,6 +1564,11 @@ fn validate_checkout_alteration_intakes(
                 "alteration intake capacity_units must be positive".to_string(),
             ));
         }
+        if intake.due_at.is_none() {
+            return Err(CheckoutError::InvalidPayload(
+                "alteration intake requires a due-by date".to_string(),
+            ));
+        }
         referenced.insert(alteration_line_client_id);
     }
 

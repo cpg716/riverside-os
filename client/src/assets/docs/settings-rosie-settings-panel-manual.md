@@ -115,7 +115,7 @@ Use staff-facing status labels. Avoid internal runtime terms when explaining the
 
 ROSIE settings control assistance, not source-of-truth behavior. Turning ROSIE off should never hide deterministic workflow facts, totals, warnings, or manual access. If ROSIE gives an answer that conflicts with the current screen or a manager decision, follow the screen/manual and log the ROSIE grounding issue.
 
-Provider mode is server-owned. Support configures it with environment variables such as `ROSIE_PROVIDER=local_llm`, `ROSIE_PROVIDER=remote_lmstudio`, `ROSIE_PROVIDER=openai`, or `ROSIE_PROVIDER=gemini`, plus `ROSIE_STT_PROVIDER` and `ROSIE_TTS_PROVIDER` for voice. API keys must be entered only in **ROSIE Provider Credentials** or deployment fallback env, never in Vite/client env, staff notes, logs, or screenshots.
+Provider mode is server-owned. Register and Back Office apps use the Main Hub ROSIE route; they do not need a local Gemma model. Support configures the Host with environment variables such as `ROSIE_PROVIDER=local_llm`, `ROSIE_PROVIDER=remote_lmstudio`, `ROSIE_PROVIDER=openai`, or `ROSIE_PROVIDER=gemini`, plus `ROSIE_STT_PROVIDER` and `ROSIE_TTS_PROVIDER` for voice. API keys must be entered only in **ROSIE Provider Credentials** or deployment fallback env, never in Vite/client env, staff notes, logs, or screenshots.
 
 
 ## What to watch for

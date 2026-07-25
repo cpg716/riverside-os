@@ -64,6 +64,19 @@ pub struct StaffErrorEventRow {
     pub server_log_snapshot: String,
 }
 
+#[derive(Debug, serde::Serialize, sqlx::FromRow)]
+pub struct StaffErrorEventListRow {
+    pub id: Uuid,
+    pub created_at: DateTime<Utc>,
+    pub staff_id: Option<Uuid>,
+    pub staff_name: Option<String>,
+    pub status: String,
+    pub message: String,
+    pub event_source: String,
+    pub severity: String,
+    pub route: Option<String>,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct UpsertStaffErrorEventResult {
     pub id: Uuid,
@@ -610,8 +623,8 @@ pub async fn delete_staff_error_event(pool: &PgPool, id: Uuid) -> Result<bool, s
 
 pub async fn list_staff_error_events(
     pool: &PgPool,
-) -> Result<Vec<StaffErrorEventRow>, sqlx::Error> {
-    sqlx::query_as::<_, StaffErrorEventRow>(
+) -> Result<Vec<StaffErrorEventListRow>, sqlx::Error> {
+    sqlx::query_as::<_, StaffErrorEventListRow>(
         r#"
         SELECT
             e.id,
@@ -622,9 +635,7 @@ pub async fn list_staff_error_events(
             e.message,
             e.event_source,
             e.severity,
-            e.route,
-            e.client_meta,
-            e.server_log_snapshot
+            e.route
         FROM staff_error_event e
         LEFT JOIN staff s ON s.id = e.staff_id
         WHERE lower(coalesce(e.status, 'pending')) IN ('pending', 'complete', 'archived')

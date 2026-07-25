@@ -21,7 +21,11 @@ import {
   parseStaffRole,
   type StaffRole,
 } from "./BackofficeAuthContextLogic";
-import { getConnectionKey, getStableStationKey } from "../lib/stationIdentity";
+import {
+  getConnectionKey,
+  getStableStationKey,
+  getStationLabel,
+} from "../lib/stationIdentity";
 import { readAppUpdateTelemetry } from "../lib/appUpdater";
 
 function stationRuntimeMeta() {
@@ -194,7 +198,7 @@ export function BackofficeAuthProvider({
           },
           body: JSON.stringify({
             station_key: getStableStationKey(),
-            station_label: window.location.hostname || "Riverside Station",
+            station_label: getStationLabel(),
             app_version: CLIENT_SEMVER,
             git_sha: GIT_SHORT || null,
             tailscale_node: null,
