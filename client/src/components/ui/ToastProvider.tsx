@@ -17,8 +17,16 @@ import {
 const baseUrl = getBaseUrl();
 const recentErrorEventKeys = new Map<string, number>();
 const TOAST_DEDUPE_WINDOW_MS = 5_000;
+const TOAST_STORM_MAX_REPEATS = 10;
+const TOAST_STORM_COOLDOWN_MS = 60_000;
 const TOAST_DISMISS_MS = 4_000;
 const MAX_VISIBLE_TOASTS = 5;
+
+type ToastStormState = {
+  windowStartedAt: number;
+  count: number;
+  mutedUntil: number;
+};
 
 function recordErrorToastEvent(message: string) {
   const trimmed = redactDiagnosticText(message).trim();
@@ -75,6 +83,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     new Map<string, { id: string; count: number; lastSeen: number }>(),
   );
   const dismissTimersRef = useRef(new Map<string, number>());
+  const toastStormRef = useRef(new Map<string, ToastStormState>());
 
   const removeToast = useCallback((id: string) => {
     const timer = dismissTimersRef.current.get(id);
@@ -102,6 +111,25 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     if (!trimmed) return;
     const key = `${type}:${trimmed.toLowerCase().slice(0, 240)}`;
     const now = Date.now();
+    const storm = toastStormRef.current.get(key);
+    if (storm && now < storm.mutedUntil) return;
+    if (!storm || now - storm.windowStartedAt >= TOAST_DEDUPE_WINDOW_MS) {
+      toastStormRef.current.set(key, {
+        windowStartedAt: now,
+        count: 1,
+        mutedUntil: 0,
+      });
+    } else {
+      storm.count += 1;
+      if (storm.count > TOAST_STORM_MAX_REPEATS) {
+        storm.mutedUntil = now + TOAST_STORM_COOLDOWN_MS;
+        console.warn(
+          "Repeated toast notifications were paused for 60 seconds.",
+          { type, message: trimmed, repeats: storm.count },
+        );
+        return;
+      }
+    }
     const existing = recentToastRef.current.get(key);
     if (existing && now - existing.lastSeen < TOAST_DEDUPE_WINDOW_MS) {
       existing.count += 1;
