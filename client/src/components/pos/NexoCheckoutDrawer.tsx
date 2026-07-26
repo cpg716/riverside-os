@@ -1452,8 +1452,8 @@ export default function NexoCheckoutDrawer({
       source: account.source ?? "manual",
     });
     setRmsSelectedProgramCode(eligiblePrograms.length === 1 ? eligiblePrograms[0].program_code : null);
-    setRmsProgramPickerOpen(!rmsPaymentCollectionMode && eligiblePrograms.length > 1);
-  }, [backofficeHeaders, baseUrl, customerId, customerIdentity, rmsPaymentCollectionMode]);
+    setRmsProgramPickerOpen(false);
+  }, [backofficeHeaders, baseUrl, customerId, customerIdentity]);
 
   const selectRmsAccount = useCallback(async (account: RmsChargeAccountChoice) => {
     setRmsSelectedAccount(account);
@@ -3077,7 +3077,10 @@ export default function NexoCheckoutDrawer({
       ...prev,
       {
         id: newId(),
-        method: meta.method,
+        method:
+          tab === "rms_charge" && rmsSelectedProgramCode === "rms90"
+            ? "on_account_rms90"
+            : meta.method,
         sub_type: verifiedGiftCard ? giftCardKindSubType(verifiedGiftCard.card_kind) : undefined,
         gift_card_code: verifiedGiftCard ? verifiedGiftCard.code.trim().toUpperCase() : undefined,
         amountCents: amtCents,
@@ -3984,8 +3987,8 @@ export default function NexoCheckoutDrawer({
             </div>
           )}
 
-        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-3 sm:p-4">
-          <div className="flex min-h-0 flex-1 flex-col items-stretch gap-3 lg:flex-row lg:items-start lg:justify-center lg:gap-4">
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-3 sm:p-4 lg:overflow-hidden">
+          <div className="flex min-h-0 flex-1 flex-col items-stretch gap-3 lg:flex-row lg:justify-center lg:gap-4">
 
             {/* 1. Tender Tabs Matrix (Left) */}
             <div className="w-full shrink-0 pb-1 lg:flex lg:min-h-0 lg:w-48 lg:flex-col lg:pb-4">
@@ -4016,7 +4019,7 @@ export default function NexoCheckoutDrawer({
               </div>
             </div>
 
-            <div className="flex-1 min-w-0 flex flex-col gap-3">
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 lg:overflow-y-auto lg:pr-1">
               {heldOpenDeposit && heldOpenDeposit.balanceCents > 0 && (
                 <div className="rounded-2xl border border-indigo-500/30 bg-indigo-500/10 p-4 shadow-sm">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -4369,13 +4372,8 @@ export default function NexoCheckoutDrawer({
                   <div className="mt-4 border-t border-app-border pt-4 animate-in slide-in-from-top-2">
                     {tab === "rms_charge" && (
                       <div className="space-y-2">
-                        <div className="rounded-xl border border-app-border bg-app-bg px-3 py-2">
-                          <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                            RMS Charge
-                          </p>
-                          <p className="mt-1 text-[11px] font-semibold leading-snug text-app-text-muted">
-                            Confirm the linked/imported account and financing program, enter the R2S reference, then report to R2S.
-                          </p>
+                        <div className="rounded-xl border border-app-border bg-app-bg px-3 py-2 text-[11px] font-semibold leading-snug text-app-text-muted">
+                          Select the confirmed R2S program, then enter its approval/reference.
                         </div>
                         {!customerId ? (
                           <div className="rounded-xl border border-amber-300/40 bg-amber-500/10 p-3 text-sm font-semibold text-amber-700">
@@ -4422,8 +4420,37 @@ export default function NexoCheckoutDrawer({
                           </div>
                         ) : rmsSelectedAccount ? (
                           <div className="space-y-3">
+                            <div className="rounded-xl border border-app-border bg-app-bg p-3">
+                              <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                                Program
+                              </p>
+                              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                                {rmsEligiblePrograms.map((program) => {
+                                  const isSelected = program.program_code === rmsSelectedProgramCode;
+                                  return (
+                                    <button
+                                      key={program.program_code}
+                                      type="button"
+                                      data-testid={`pos-rms-program-${program.program_code}`}
+                                      onClick={() => setRmsSelectedProgramCode(program.program_code)}
+                                      className={`min-h-11 rounded-lg border px-3 text-left text-[10px] font-black uppercase tracking-widest transition-colors ${
+                                        isSelected
+                                          ? "border-app-accent bg-app-accent text-white"
+                                          : "border-app-border bg-app-surface text-app-text-muted hover:border-app-input-border"
+                                      }`}
+                                    >
+                                      {program.program_label}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                              <p className={`mt-2 text-[11px] font-semibold ${rmsSelectedProgram ? "text-app-text-muted" : "text-amber-600"}`}>
+                                {rmsSelectedProgram?.disclosure ?? "Choose the confirmed program before adding payment."}
+                              </p>
+                            </div>
+
                             <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3">
-                              <div className="flex items-center justify-between gap-4">
+                              <div className="flex items-start justify-between gap-3">
                                 <div>
                                   <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                                     Linked Account
@@ -4431,13 +4458,10 @@ export default function NexoCheckoutDrawer({
                                   <p className="text-lg font-black italic text-app-text">
                                     {rmsSelectedAccount.masked_account}
                                   </p>
-                                    <p className="text-[10px] font-semibold uppercase tracking-widest text-app-text-muted">
-                                      Status: {rmsSummary?.account_status ?? rmsSelectedAccount.status}
-                                    </p>
-                                    <p className="text-[10px] font-semibold uppercase tracking-widest text-app-text-muted">
-                                      Workflow: {rmsSourceLabel(rmsSummary?.source)}
-                                    </p>
-                                  </div>
+                                  <p className="text-[10px] font-semibold uppercase tracking-widest text-app-text-muted">
+                                    {rmsSummary?.account_status ?? rmsSelectedAccount.status} · {rmsSourceLabel(rmsSummary?.source)}
+                                  </p>
+                                </div>
                                 <button
                                   type="button"
                                   onClick={() => void resolveRmsAccount()}
@@ -4446,74 +4470,29 @@ export default function NexoCheckoutDrawer({
                                   Refresh
                                 </button>
                               </div>
-                                <div className="mt-3 grid grid-cols-2 gap-3 text-[11px]">
+                              <div className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
                                 <div className="rounded-lg bg-app-surface px-3 py-2">
-                                  <div className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                                    Available Credit
-                                  </div>
-                                  <div className="mt-1 font-black text-app-text">
-                                    {rmsSummary?.available_credit ?? "Linked account"}
+                                  <span className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Available</span>
+                                  <p className="mt-1 font-black text-app-text">{rmsSummary?.available_credit ?? "—"}</p>
                                 </div>
-                              </div>
                                 <div className="rounded-lg bg-app-surface px-3 py-2">
-                                  <div className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                                    Current Balance
-                                  </div>
-                                  <div className="mt-1 font-black text-app-text">
-                                    {rmsSummary?.current_balance ?? "Linked account"}
-                                  </div>
+                                  <span className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Balance</span>
+                                  <p className="mt-1 font-black text-app-text">{rmsSummary?.current_balance ?? "—"}</p>
                                 </div>
                               </div>
                             </div>
 
                             <label className="block rounded-xl border border-app-border bg-app-bg px-3 py-2">
                               <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                                Reference Number
+                                R2S / Approval Reference
                               </span>
                               <input
                                 value={rmsReferenceNumber}
                                 onChange={(event) => setRmsReferenceNumber(event.target.value)}
-                                placeholder="Manual approval or R2S reference"
+                                placeholder="Enter approval or R2S reference"
                                 className="ui-input mt-2 h-11 w-full rounded-lg border border-app-border bg-app-surface px-3 text-sm font-black uppercase tracking-wide text-app-text focus:border-app-accent"
                               />
-                              <p className="mt-2 text-[11px] font-semibold leading-snug text-app-text-muted">
-                                Riverside records this sale for follow-up; it does not update the RMS account automatically.
-                              </p>
                             </label>
-
-                            <div className="space-y-2">
-                              <div className="flex items-center justify-between gap-4 rounded-xl border border-app-border bg-app-bg px-3 py-2">
-                                <div>
-                                  <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                                    Selected Program
-                                  </p>
-                                    <p className="mt-1 text-sm font-black uppercase tracking-wide text-app-text">
-                                      {rmsSelectedProgram?.program_label ?? "Choose program"}
-                                    </p>
-                                    {rmsSelectedProgram ? (
-                                      <p className="mt-1 text-[11px] text-app-text-muted">
-                                        {rmsSourceLabel(rmsSelectedProgram.source)}
-                                      </p>
-                                    ) : null}
-                                  {!rmsSelectedProgram ? (
-                                    <p className="mt-1 text-[11px] text-amber-600">
-                                      Choose a program before continuing.
-                                    </p>
-                                  ) : rmsSelectedProgram.disclosure ? (
-                                    <p className="mt-1 text-[11px] text-app-text-muted">
-                                      {rmsSelectedProgram.disclosure}
-                                    </p>
-                                  ) : null}
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={() => setRmsProgramPickerOpen(true)}
-                                  className="rounded-lg border border-app-border bg-app-surface px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted transition-colors hover:text-app-text"
-                                >
-                                  {rmsSelectedProgram ? "Change Program" : "Choose Program"}
-                                </button>
-                              </div>
-                            </div>
                           </div>
                         ) : null}
                       </div>
@@ -4738,14 +4717,14 @@ export default function NexoCheckoutDrawer({
             </div>
 
             {/* 3. Payment status and sale summary (Right) */}
-            <div className="flex h-full min-h-0 w-full shrink-0 flex-col gap-3 lg:w-72">
-              <div className="flex min-h-0 flex-1 flex-col rounded-2xl border border-app-border bg-app-surface p-4 text-app-text shadow-sm">
+            <div className="flex min-h-0 w-full shrink-0 flex-col gap-3 lg:w-72 lg:overflow-y-auto lg:pr-1">
+              <div className="flex min-h-[360px] shrink-0 flex-col rounded-2xl border border-app-border bg-app-surface p-4 text-app-text shadow-sm">
                 <div className="flex items-center justify-between mb-3">
                    <h5 className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text">Payment Status</h5>
                    <Sparkles size={14} className="shrink-0 text-app-accent opacity-70" />
                 </div>
 
-                <div className="flex-1 space-y-1.5 overflow-y-auto no-scrollbar mb-3">
+                <div className="mb-3 flex-1 space-y-1.5">
                    {applied.length === 0 && depositDisplayCents === 0 && existingPaidAmountCents === 0 && !helcimAttempt && !helcimUnverifiedNotice && (
                      <div className="flex h-full flex-col items-center justify-center py-6 text-center text-app-text-muted">
                         <Wallet size={24} strokeWidth={1} />
@@ -4958,7 +4937,7 @@ export default function NexoCheckoutDrawer({
                 </div>
               </div>
 
-              <div className="bg-app-surface border border-app-border rounded-xl p-3.5 space-y-2.5 shadow-sm overflow-hidden mt-auto">
+              <div className="mt-0 space-y-2.5 overflow-hidden rounded-xl border border-app-border bg-app-surface p-3.5 shadow-sm">
                 <span className="text-xs font-black uppercase tracking-wide text-app-text">Sale Summary</span>
                 <div className="space-y-1.5 pt-1">
                   <div className="flex justify-between text-xs">

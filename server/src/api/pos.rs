@@ -471,50 +471,24 @@ fn rms_programs_for_account(account: &RmsChargeAccountChoice) -> Vec<RmsChargePr
     } else {
         Some("This account is not eligible for new RMS Charge purchases. Payment collection may still be allowed.".to_string())
     };
-    let source = account.source.clone();
-    let group = account
-        .program_group
-        .as_deref()
-        .unwrap_or("")
-        .trim()
-        .to_ascii_lowercase();
-    let include_standard = group.is_empty() || group == "rms" || group.contains("standard");
-    let include_rms90 = group.is_empty() || group == "rms" || group.contains("90");
-    let mut programs = Vec::new();
-    if include_standard {
-        programs.push(RmsChargeProgramOption {
+    vec![
+        RmsChargeProgramOption {
             program_code: "standard".to_string(),
             program_label: "Standard RMS".to_string(),
             eligible,
             disclosure: disclosure.clone(),
-            source: source.clone(),
+            source: account.source.clone(),
             warning_code: warning_code.clone(),
-        });
-    }
-    if include_rms90 {
-        programs.push(RmsChargeProgramOption {
+        },
+        RmsChargeProgramOption {
             program_code: "rms90".to_string(),
             program_label: "RMS 90".to_string(),
             eligible,
             disclosure,
-            source,
-            warning_code,
-        });
-    }
-    if programs.is_empty() {
-        programs.push(RmsChargeProgramOption {
-            program_code: "standard".to_string(),
-            program_label: "Standard RMS".to_string(),
-            eligible,
-            disclosure: Some(
-                "Program group was missing or unknown; confirm in R2S before completing checkout."
-                    .to_string(),
-            ),
             source: account.source.clone(),
-            warning_code: Some("program_group_unknown".to_string()),
-        });
-    }
-    programs
+            warning_code,
+        },
+    ]
 }
 
 #[derive(Debug, Deserialize)]
@@ -1153,4 +1127,46 @@ pub fn router() -> Router<AppState> {
             "/shipping/manual-quote",
             post(post_pos_manual_shipping_quote),
         )
+}
+
+#[cfg(test)]
+mod rms_program_tests {
+    use super::*;
+
+    fn account(program_group: Option<&str>) -> RmsChargeAccountChoice {
+        RmsChargeAccountChoice {
+            link_id: "account-1".to_string(),
+            masked_account: "••••5556".to_string(),
+            status: "active".to_string(),
+            is_primary: true,
+            program_group: program_group.map(str::to_string),
+            available_credit: Some("1500.00".to_string()),
+            current_balance: Some("0.00".to_string()),
+            source: "account_list_import".to_string(),
+            linked_rms_customer_id: None,
+            linked_rms_account_id: None,
+            linked_corecredit_customer_id: None,
+            linked_corecredit_account_id: None,
+        }
+    }
+
+    #[test]
+    fn every_rms_account_keeps_both_cashier_choices() {
+        let programs = rms_programs_for_account(&account(Some("legacy-group")));
+
+        assert_eq!(programs.len(), 2);
+        assert_eq!(programs[0].program_code, "standard");
+        assert_eq!(programs[1].program_code, "rms90");
+        assert_eq!(programs[1].program_label, "RMS 90");
+        assert!(programs.iter().all(|program| program.eligible));
+    }
+
+    #[test]
+    fn program_group_never_hides_a_cashier_choice() {
+        let programs = rms_programs_for_account(&account(Some("promo90")));
+
+        assert_eq!(programs.len(), 2);
+        assert_eq!(programs[0].program_code, "standard");
+        assert_eq!(programs[1].program_code, "rms90");
+    }
 }

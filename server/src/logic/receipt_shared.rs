@@ -188,9 +188,9 @@ pub fn tender_display_label(method: &str) -> String {
         | "discover" => "CC".to_string(),
         "cash" => "Cash".to_string(),
         "rms90" | "rms90day" | "rms90days" | "rmscharge90" | "onaccountrms90" => {
-            "RMS90".to_string()
+            "RMS 90".to_string()
         }
-        "rms" | "rmscharge" | "onaccountrms" => "RMS".to_string(),
+        "rms" | "rmscharge" | "onaccountrms" => "Standard RMS".to_string(),
         "check" | "cheque" => "Check".to_string(),
         "giftcard" => "Gift Card".to_string(),
         "sc" | "storecredit" => "SC".to_string(),
@@ -240,5 +240,7 @@ mod tests {
         assert_eq!(tender_display_label("gift_card"), "Gift Card");
         assert_eq!(tender_display_label("store_credit"), "SC");
         assert_eq!(tender_display_label("exchange_credit"), "Exchange Credit");
+        assert_eq!(tender_display_label("on_account_rms"), "Standard RMS");
+        assert_eq!(tender_display_label("on_account_rms90"), "RMS 90");
     }
 }
