@@ -451,25 +451,28 @@ async fn load_rms_account_choices(
 
 fn rms_programs_for_account(account: &RmsChargeAccountChoice) -> Vec<RmsChargeProgramOption> {
     let status = account.status.to_ascii_lowercase();
-    let active = status == "active" || status == "past_due";
+    let can_record_manual_approval =
+        status == "active" || status == "past_due" || status == "no_open_to_buy";
     let has_open_to_buy = account
         .available_credit
         .as_deref()
         .and_then(|value| value.parse::<Decimal>().ok())
         .map(|value| value > Decimal::ZERO)
         .unwrap_or(true);
-    let eligible = active && has_open_to_buy;
-    let warning_code = if !active {
+    let eligible = can_record_manual_approval;
+    let warning_code = if !can_record_manual_approval {
         Some("account_restricted".to_string())
     } else if !has_open_to_buy {
         Some("no_open_to_buy".to_string())
     } else {
         None
     };
-    let disclosure = if eligible {
-        Some("Confirm the program and enter the R2S/manual approval reference before completing checkout.".to_string())
+    let disclosure = if !can_record_manual_approval {
+        Some("This account is restricted. Confirm the account status in R2S before retrying the sale.".to_string())
+    } else if !has_open_to_buy {
+        Some("The weekly account list shows no open-to-buy. Select a program only after R2S confirms the approval, then record its reference.".to_string())
     } else {
-        Some("This account is not eligible for new RMS Charge purchases. Payment collection may still be allowed.".to_string())
+        Some("Confirm the program and enter the R2S/manual approval reference before completing checkout.".to_string())
     };
     vec![
         RmsChargeProgramOption {
@@ -1168,5 +1171,37 @@ mod rms_program_tests {
         assert_eq!(programs.len(), 2);
         assert_eq!(programs[0].program_code, "standard");
         assert_eq!(programs[1].program_code, "rms90");
+    }
+
+    #[test]
+    fn no_open_to_buy_keeps_manual_r2s_program_choices_available() {
+        let mut account = account(None);
+        account.status = "no_open_to_buy".to_string();
+        account.available_credit = Some("0.00".to_string());
+
+        let programs = rms_programs_for_account(&account);
+
+        assert_eq!(programs.len(), 2);
+        assert!(programs.iter().all(|program| program.eligible));
+        assert!(programs
+            .iter()
+            .all(|program| program.warning_code.as_deref() == Some("no_open_to_buy")));
+        assert!(programs.iter().all(|program| program
+            .disclosure
+            .as_deref()
+            .is_some_and(|message| message.contains("R2S confirms the approval"))));
+    }
+
+    #[test]
+    fn restricted_account_does_not_enable_manual_program_choices() {
+        let mut account = account(None);
+        account.status = "closed".to_string();
+
+        let programs = rms_programs_for_account(&account);
+
+        assert!(programs.iter().all(|program| !program.eligible));
+        assert!(programs
+            .iter()
+            .all(|program| program.warning_code.as_deref() == Some("account_restricted")));
     }
 }

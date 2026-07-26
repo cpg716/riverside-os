@@ -466,6 +466,11 @@ interface RmsChargeProgramsResponse {
   summary: RmsChargeAccountSummary;
 }
 
+interface RmsNoCreditManagerApproval {
+  managerStaffId: string;
+  approvalReference: string;
+}
+
 interface StaffAccountSummary {
   account_id: string;
   staff_id: string;
@@ -716,6 +721,9 @@ export default function NexoCheckoutDrawer({
   const [offlineCardReason, setOfflineCardReason] = useState("");
   const [manualRefundApprovalOpen, setManualRefundApprovalOpen] = useState(false);
   const [pendingManualRefundCents, setPendingManualRefundCents] = useState<number | null>(null);
+  const [rmsNoCreditApprovalOpen, setRmsNoCreditApprovalOpen] = useState(false);
+  const [rmsNoCreditApproval, setRmsNoCreditApproval] =
+    useState<RmsNoCreditManagerApproval | null>(null);
   const [providerSettings, setProviderSettings] = useState<PaymentProviderSettings | null>(null);
   const [providerSettingsLoading, setProviderSettingsLoading] = useState(false);
   const [providerSettingsError, setProviderSettingsError] = useState<string | null>(null);
@@ -1021,6 +1029,8 @@ export default function NexoCheckoutDrawer({
     setRmsSummary(null);
     setRmsLoading(false);
     setRmsProgramPickerOpen(false);
+    setRmsNoCreditApprovalOpen(false);
+    setRmsNoCreditApproval(null);
     setStaffAccount(null);
     setStaffAccountLoading(false);
     setStaffAccountError(null);
@@ -1283,7 +1293,23 @@ export default function NexoCheckoutDrawer({
     (balanceSettled && takeawaySatisfied) ||
     (takeawaySatisfied && hasLaterItems && (depositDisplayCents > 0 || allowDepositOnlyComplete));
 
-  const canFinalize = balanced && operator != null && !busy && !helcimOutcomeBlocksCheckout;
+  const rmsNoCreditTenderNeedsApproval = useMemo(
+    () =>
+      applied.some(
+        (line) =>
+          line.metadata?.tender_family === "rms_charge" &&
+          line.metadata?.warning_code === "no_open_to_buy" &&
+          !line.metadata?.manager_approval_reference,
+      ),
+    [applied],
+  );
+
+  const canFinalize =
+    balanced &&
+    operator != null &&
+    !busy &&
+    !helcimOutcomeBlocksCheckout &&
+    !rmsNoCreditTenderNeedsApproval;
 
   useEffect(() => {
     if (!isOpen || !canFinalize) return;
@@ -1456,6 +1482,7 @@ export default function NexoCheckoutDrawer({
   }, [backofficeHeaders, baseUrl, customerId, customerIdentity]);
 
   const selectRmsAccount = useCallback(async (account: RmsChargeAccountChoice) => {
+    setRmsNoCreditApproval(null);
     setRmsSelectedAccount(account);
     setRmsResolve((current) => current ? {
       ...current,
@@ -1505,6 +1532,7 @@ export default function NexoCheckoutDrawer({
   }, [backofficeHeaders, baseUrl, customerId, customerIdentity]);
 
   const resolveRmsAccount = useCallback(async () => {
+    setRmsNoCreditApproval(null);
     if (!customerId) {
       setRmsResolve({
         resolution_status: "blocked",
@@ -1607,6 +1635,14 @@ export default function NexoCheckoutDrawer({
       rmsPrograms.find((program) => program.program_code === rmsSelectedProgramCode) ?? null,
     [rmsPrograms, rmsSelectedProgramCode],
   );
+
+  const rmsNoOpenToBuySelected =
+    rmsSelectedProgram?.warning_code === "no_open_to_buy";
+
+  const selectRmsProgram = useCallback((programCode: string) => {
+    setRmsSelectedProgramCode(programCode);
+    setRmsNoCreditApproval(null);
+  }, []);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -3153,8 +3189,16 @@ export default function NexoCheckoutDrawer({
                   rms_charge_source: rmsSelectedAccount?.source ?? "manual",
                   linked_rms_customer_id: rmsLinkedCustomerId(rmsSelectedAccount),
                   linked_rms_account_id: rmsLinkedAccountId(rmsSelectedAccount),
+                  account_status: rmsSummary?.account_status ?? rmsSelectedAccount?.status,
+                  available_credit: rmsSummary?.available_credit ?? rmsSelectedAccount?.available_credit,
+                  warning_code:
+                    rmsPrograms.find(
+                      (program) => program.program_code === rmsSelectedProgramCode,
+                    )?.warning_code ?? undefined,
                   reference_number: rmsReferenceNumber.trim() || undefined,
                   host_reference: rmsReferenceNumber.trim() || undefined,
+                  manager_staff_id: rmsNoCreditApproval?.managerStaffId,
+                  manager_approval_reference: rmsNoCreditApproval?.approvalReference,
                   resolution_status:
                     rmsSummary?.resolution_status ??
                     rmsResolve?.resolution_status ??
@@ -3205,7 +3249,7 @@ export default function NexoCheckoutDrawer({
     setDonationNote("");
     setCheckNumber("");
     setRmsReferenceNumber("");
-  }, [giftCardCode, donationNote, checkNumber, remainingCents, cashRounding.rounded, tab, offlineCardApprovalCode, offlineCardLast4, offlineCardReason, providerSettings, providerSettingsLoading, helcimAttempt, helcimAttemptBelongsToCurrentCheckout, helcimOutcomeBlocksCheckout, registerLaneUnavailable, registerTerminalRoute, selectedTerminalKey, selectedTerminalConfigured, selectedTerminalInUseBy, selectedTerminalInUseByOtherRegister, selectedTerminalInUseByEarlierCheckoutOnCurrentRegister, selectedTerminalNeedsOverride, terminalOverrideConfirmed, registerLane, registerSessionId, registerSessionIdentity, refundOriginalTransactionId, deferCardRefund, baseUrl, backofficeHeaders, customerId, customerCode, checkoutClientId, checkoutIdentity, toast, applied, setApplied, addApprovedHelcimAttempt, beforeApplyTender, rmsSelectedAccount, rmsPrograms, rmsSelectedProgramCode, rmsReferenceNumber, rmsSummary, rmsResolve, rmsPaymentCollectionMode, chargeSavedHelcimCard, fetchGiftCardPreview, loadProviderSettings, startHostedManualCardPayment, storeCreditBalanceCents, storeCreditError, storeCreditLoading, staffAccount]);
+  }, [giftCardCode, donationNote, checkNumber, remainingCents, cashRounding.rounded, tab, offlineCardApprovalCode, offlineCardLast4, offlineCardReason, providerSettings, providerSettingsLoading, helcimAttempt, helcimAttemptBelongsToCurrentCheckout, helcimOutcomeBlocksCheckout, registerLaneUnavailable, registerTerminalRoute, selectedTerminalKey, selectedTerminalConfigured, selectedTerminalInUseBy, selectedTerminalInUseByOtherRegister, selectedTerminalInUseByEarlierCheckoutOnCurrentRegister, selectedTerminalNeedsOverride, terminalOverrideConfirmed, registerLane, registerSessionId, registerSessionIdentity, refundOriginalTransactionId, deferCardRefund, baseUrl, backofficeHeaders, customerId, customerCode, checkoutClientId, checkoutIdentity, toast, applied, setApplied, addApprovedHelcimAttempt, beforeApplyTender, rmsSelectedAccount, rmsPrograms, rmsSelectedProgramCode, rmsReferenceNumber, rmsSummary, rmsResolve, rmsPaymentCollectionMode, rmsNoCreditApproval, chargeSavedHelcimCard, fetchGiftCardPreview, loadProviderSettings, startHostedManualCardPayment, storeCreditBalanceCents, storeCreditError, storeCreditLoading, staffAccount]);
 
   const removePaymentLine = async (line: AppliedPaymentLine) => {
     if (isApprovedProviderPayment(line)) {
@@ -3290,13 +3334,16 @@ export default function NexoCheckoutDrawer({
     if (helcimOutcomeBlocksCheckout) {
       return "Resolve the active Helcim card request before recording the sale.";
     }
+    if (rmsNoCreditTenderNeedsApproval) {
+      return "Manager Access is required because this RMS account has no available credit.";
+    }
     if (!balanced) {
       if (tw > 0 && !takeawaySatisfied) return `Tenders must cover takeaway total ($${centsToFixed2(tw)})`;
       return "Balance remaining or deposit protocol required.";
     }
     if (!operator) return "No staff member verified.";
     return "";
-  }, [busy, helcimOutcomeBlocksCheckout, balanced, takeawaySatisfied, tw, operator]);
+  }, [busy, helcimOutcomeBlocksCheckout, rmsNoCreditTenderNeedsApproval, balanced, takeawaySatisfied, tw, operator]);
   const activeTerminalAttemptIdForRefresh =
     helcimAttemptBelongsToCurrentCheckout
       ? helcimAttempt.id
@@ -3948,7 +3995,7 @@ export default function NexoCheckoutDrawer({
                       type="button"
                       data-testid={`pos-rms-program-${program.program_code}`}
                       onClick={() => {
-                        setRmsSelectedProgramCode(program.program_code);
+                        selectRmsProgram(program.program_code);
                         setRmsProgramPickerOpen(false);
                       }}
                       className="rounded-2xl border border-app-border bg-app-bg px-4 py-4 text-left transition-all hover:border-app-accent hover:bg-app-accent/5"
@@ -4373,7 +4420,7 @@ export default function NexoCheckoutDrawer({
                     {tab === "rms_charge" && (
                       <div className="space-y-2">
                         <div className="rounded-xl border border-app-border bg-app-bg px-3 py-2 text-[11px] font-semibold leading-snug text-app-text-muted">
-                          Select the confirmed R2S program, then enter its approval/reference.
+                          Choose the plan approved in RMS.
                         </div>
                         {!customerId ? (
                           <div className="rounded-xl border border-amber-300/40 bg-amber-500/10 p-3 text-sm font-semibold text-amber-700">
@@ -4419,12 +4466,10 @@ export default function NexoCheckoutDrawer({
                             </div>
                           </div>
                         ) : rmsSelectedAccount ? (
-                          <div className="space-y-3">
-                            <div className="rounded-xl border border-app-border bg-app-bg p-3">
-                              <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                                Program
-                              </p>
-                              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                          <div className="space-y-2">
+                            <div>
+                              <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Choose plan</p>
+                              <div className="mt-1.5 grid grid-cols-2 gap-2">
                                 {rmsEligiblePrograms.map((program) => {
                                   const isSelected = program.program_code === rmsSelectedProgramCode;
                                   return (
@@ -4432,67 +4477,66 @@ export default function NexoCheckoutDrawer({
                                       key={program.program_code}
                                       type="button"
                                       data-testid={`pos-rms-program-${program.program_code}`}
-                                      onClick={() => setRmsSelectedProgramCode(program.program_code)}
-                                      className={`min-h-11 rounded-lg border px-3 text-left text-[10px] font-black uppercase tracking-widest transition-colors ${
+                                      onClick={() => selectRmsProgram(program.program_code)}
+                                      className={`min-h-14 rounded-xl border px-3 text-center text-sm font-black uppercase tracking-wide transition-colors ${
                                         isSelected
                                           ? "border-app-accent bg-app-accent text-white"
-                                          : "border-app-border bg-app-surface text-app-text-muted hover:border-app-input-border"
+                                          : "border-app-border bg-app-surface text-app-text hover:border-app-input-border"
                                       }`}
                                     >
-                                      {program.program_label}
+                                      {program.program_code === "rms90" ? "90 Day" : "Standard"}
                                     </button>
                                   );
                                 })}
                               </div>
-                              <p className={`mt-2 text-[11px] font-semibold ${rmsSelectedProgram ? "text-app-text-muted" : "text-amber-600"}`}>
-                                {rmsSelectedProgram?.disclosure ?? "Choose the confirmed program before adding payment."}
-                              </p>
                             </div>
 
-                            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3">
-                              <div className="flex items-start justify-between gap-3">
-                                <div>
-                                  <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                                    Linked Account
-                                  </p>
-                                  <p className="text-lg font-black italic text-app-text">
-                                    {rmsSelectedAccount.masked_account}
-                                  </p>
-                                  <p className="text-[10px] font-semibold uppercase tracking-widest text-app-text-muted">
-                                    {rmsSummary?.account_status ?? rmsSelectedAccount.status} · {rmsSourceLabel(rmsSummary?.source)}
-                                  </p>
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={() => void resolveRmsAccount()}
-                                  className="rounded-lg border border-app-border bg-app-surface px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted transition-colors hover:text-app-text"
-                                >
-                                  Refresh
-                                </button>
-                              </div>
-                              <div className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
-                                <div className="rounded-lg bg-app-surface px-3 py-2">
-                                  <span className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Available</span>
-                                  <p className="mt-1 font-black text-app-text">{rmsSummary?.available_credit ?? "—"}</p>
-                                </div>
-                                <div className="rounded-lg bg-app-surface px-3 py-2">
-                                  <span className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Balance</span>
-                                  <p className="mt-1 font-black text-app-text">{rmsSummary?.current_balance ?? "—"}</p>
-                                </div>
-                              </div>
-                            </div>
-
-                            <label className="block rounded-xl border border-app-border bg-app-bg px-3 py-2">
-                              <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                                R2S / Approval Reference
-                              </span>
+                            <label className="block">
+                              <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">RMS approval #</span>
                               <input
                                 value={rmsReferenceNumber}
                                 onChange={(event) => setRmsReferenceNumber(event.target.value)}
-                                placeholder="Enter approval or R2S reference"
-                                className="ui-input mt-2 h-11 w-full rounded-lg border border-app-border bg-app-surface px-3 text-sm font-black uppercase tracking-wide text-app-text focus:border-app-accent"
+                                placeholder="Enter approval number"
+                                className="ui-input mt-1 h-10 w-full rounded-lg border border-app-border bg-app-surface px-3 text-sm font-black uppercase tracking-wide text-app-text focus:border-app-accent"
                               />
                             </label>
+
+                            {rmsNoOpenToBuySelected ? (
+                              <div className="flex items-center justify-between gap-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2">
+                                <div>
+                                  <p className="text-xs font-black text-amber-800 dark:text-amber-300">No available credit</p>
+                                  <p className="text-[11px] font-semibold text-app-text-muted">Manager approval is required before Record Sale.</p>
+                                </div>
+                                <button
+                                  type="button"
+                                  data-testid="pos-rms-no-credit-manager-approval"
+                                  onClick={() => setRmsNoCreditApprovalOpen(true)}
+                                  className={`min-h-10 shrink-0 rounded-lg px-3 text-[10px] font-black uppercase tracking-wide ${
+                                    rmsNoCreditApproval ? "bg-emerald-600 text-white" : "bg-amber-600 text-white"
+                                  }`}
+                                >
+                                  {rmsNoCreditApproval ? "Approved" : "Manager Access"}
+                                </button>
+                              </div>
+                            ) : rmsSelectedProgram ? (
+                              <p className="text-[11px] font-semibold text-app-text-muted">Enter the approval number from RMS, then add payment.</p>
+                            ) : (
+                              <p className="text-[11px] font-semibold text-amber-600">Choose a plan before adding payment.</p>
+                            )}
+
+                            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-app-border bg-app-bg px-3 py-2 text-[11px]">
+                              <span className="font-black text-app-text">Account {rmsSelectedAccount.masked_account}</span>
+                              <span className="text-app-text-muted">Available <strong className="text-app-text">{rmsSummary?.available_credit ?? "—"}</strong></span>
+                              <span className="text-app-text-muted">Balance <strong className="text-app-text">{rmsSummary?.current_balance ?? "—"}</strong></span>
+                              <span className="text-app-text-muted">{rmsSourceLabel(rmsSummary?.source)}</span>
+                              <button
+                                type="button"
+                                onClick={() => void resolveRmsAccount()}
+                                className="ml-auto font-black uppercase tracking-wide text-app-accent"
+                              >
+                                Refresh
+                              </button>
+                            </div>
                           </div>
                         ) : null}
                       </div>
@@ -4976,6 +5020,70 @@ export default function NexoCheckoutDrawer({
           </div>
         </div>
       </div>
+      <ManagerApprovalModal
+        isOpen={rmsNoCreditApprovalOpen}
+        onClose={() => setRmsNoCreditApprovalOpen(false)}
+        title="Approve RMS charge"
+        message="This account shows no available credit. Confirm that RMS approved this charge before allowing the sale to be recorded."
+        onApprove={async (pin, managerId) => {
+          const accountId = rmsLinkedAccountId(rmsSelectedAccount);
+          if (!customerId || !accountId || !rmsSelectedProgramCode || !registerSessionId || !checkoutClientId) {
+            toast("Select the customer and RMS plan before requesting Manager Access.", "error");
+            return false;
+          }
+          const approvalRes = await fetch(`${baseUrl}/api/staff/verify-pin`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...mergedPosStaffHeaders(backofficeHeaders),
+            },
+            body: JSON.stringify({
+              pin,
+              staff_id: managerId,
+              authorize_action: "rms_charge_no_open_to_buy",
+              authorize_metadata: {
+                customer_id: customerId,
+                account_id: accountId,
+                program_code: rmsSelectedProgramCode,
+                register_session_id: registerSessionId,
+                checkout_client_id: checkoutClientId,
+              },
+            }),
+          });
+          const approvalPayload = (await approvalRes.json().catch(() => ({}))) as {
+            error?: string;
+            manager_approval_reference?: string;
+          };
+          if (!approvalRes.ok || !approvalPayload.manager_approval_reference) {
+            toast(approvalPayload.error ?? "Manager Access was not approved.", "error");
+            return false;
+          }
+          const approval = {
+            managerStaffId: managerId,
+            approvalReference: approvalPayload.manager_approval_reference,
+          };
+          setRmsNoCreditApproval(approval);
+          setApplied((current) =>
+            current.map((line) =>
+              line.metadata?.tender_family === "rms_charge" &&
+              line.metadata?.warning_code === "no_open_to_buy" &&
+              line.metadata?.linked_rms_account_id === accountId &&
+              line.metadata?.program_code === rmsSelectedProgramCode
+                ? {
+                    ...line,
+                    metadata: {
+                      ...line.metadata,
+                      manager_staff_id: approval.managerStaffId,
+                      manager_approval_reference: approval.approvalReference,
+                    },
+                  }
+                : line,
+            ),
+          );
+          toast("Manager Access approved for this RMS charge.", "success");
+          return true;
+        }}
+      />
       <ManagerApprovalModal
         isOpen={manualRefundApprovalOpen}
         onClose={() => {

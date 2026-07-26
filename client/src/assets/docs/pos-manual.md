@@ -209,6 +209,8 @@ Customer search accepts initials and partial first-and-last-name fragments. For 
 
 Register customer search shows an **RMS Charge** pill when the customer has an active linked RMS Charge account or a match in the latest weekly RMS account list. Use it to choose the correct customer quickly; account balances and eligibility still require the RMS Charge workflow.
 
+At checkout, choose **RMS Charge**, select the touch-sized **Standard** or **90 Day** plan, enter the RMS approval number, and select **Add Payment**. The compact account summary shows the masked account, available credit, current balance, and source. If the weekly account list shows **No Open to Buy**, Riverside keeps both plan choices available because RMS is the approval source, but **Manager Access** is required before **Record Sale**. Confirm the charge in RMS, record its approval number, and complete the on-screen Manager Access approval.
+
 When Register search opens a parent product with variations, Riverside shows the full variation matrix for that parent in one grouped selection surface. Choose the large option labels one step at a time; the selected values remain visible above the next set of choices. Barcode scans still add the exact scanned variation directly.
 
 For a product whose variations have different prices, the Register search result shows the lowest-to-highest price range. Riverside must finish loading every available variation before opening the size picker. If that lookup fails, no item is added; keep the search result open and use it to retry.

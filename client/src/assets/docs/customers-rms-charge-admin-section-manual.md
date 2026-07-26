@@ -148,6 +148,8 @@ Staff may be able to:
 - review recent RMS activity
 - check available programs
 
+The weekly account list is a status aid, not the approval authority for a new charge. If it shows **No Open to Buy**, Register still presents the **Standard** and **90 Day** plans so staff can record a charge that RMS has explicitly approved. Register displays a no-credit warning and requires **Manager Access** before **Record Sale**. Do not add the payment until RMS confirms the charge and provides the approval number recorded at checkout.
+
 POS does not expose the full Back Office exception and reconciliation workflow.
 
 ## Tips

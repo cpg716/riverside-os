@@ -574,6 +574,131 @@ async fn backdate_approval_was_logged(
     .await?)
 }
 
+async fn rms_account_has_no_open_to_buy(
+    pool: &PgPool,
+    customer_id: Uuid,
+    account_id: &str,
+) -> Result<bool, CheckoutError> {
+    Ok(sqlx::query_scalar(
+        r#"
+        WITH latest_batch AS (
+            SELECT id
+            FROM rms_account_list_import_batches
+            WHERE status = 'imported'
+            ORDER BY uploaded_at DESC, created_at DESC
+            LIMIT 1
+        ),
+        target_customer AS (
+            SELECT NULLIF(REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '', 'g'), '') AS phone_digits
+            FROM customers
+            WHERE id = $1
+        ),
+        unique_customer_phone AS (
+            SELECT phone_digits
+            FROM (
+                SELECT NULLIF(REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '', 'g'), '') AS phone_digits
+                FROM customers
+            ) normalized
+            WHERE phone_digits IS NOT NULL
+            GROUP BY phone_digits
+            HAVING COUNT(*) = 1
+        )
+        SELECT EXISTS (
+            SELECT 1
+            FROM customer_corecredit_accounts account
+            WHERE account.customer_id = $1
+              AND account.corecredit_account_id = $2
+              AND (
+                    LOWER(TRIM(account.status)) = 'no_open_to_buy'
+                    OR NULLIF(
+                        REGEXP_REPLACE(
+                            COALESCE(account.available_credit_snapshot, ''),
+                            '[^0-9.-]',
+                            '',
+                            'g'
+                        ),
+                        ''
+                    )::numeric <= 0
+              )
+            UNION ALL
+            SELECT 1
+            FROM rms_account_list_snapshots snapshot
+            JOIN latest_batch batch ON batch.id = snapshot.batch_id
+            LEFT JOIN target_customer customer ON TRUE
+            WHERE snapshot.account_number = $2
+              AND COALESCE(snapshot.open_to_buy, 0) <= 0
+              AND (
+                    snapshot.matched_customer_id = $1
+                    OR (
+                        snapshot.matched_customer_id IS NULL
+                        AND snapshot.normalized_phone IS NOT NULL
+                        AND snapshot.normalized_phone = customer.phone_digits
+                        AND EXISTS (
+                            SELECT 1
+                            FROM unique_customer_phone unique_phone
+                            WHERE unique_phone.phone_digits = customer.phone_digits
+                        )
+                    )
+              )
+        )
+        "#,
+    )
+    .bind(customer_id)
+    .bind(account_id)
+    .fetch_one(pool)
+    .await?)
+}
+
+async fn rms_no_open_to_buy_approval_was_logged(
+    pool: &PgPool,
+    metadata: &Value,
+    customer_id: Uuid,
+    session_id: Uuid,
+    checkout_client_id: Uuid,
+) -> Result<bool, CheckoutError> {
+    let approval_reference = metadata_optional_text(metadata, "manager_approval_reference")
+        .and_then(|value| Uuid::parse_str(&value).ok());
+    let manager_staff_id = metadata_optional_text(metadata, "manager_staff_id")
+        .and_then(|value| Uuid::parse_str(&value).ok());
+    let account_id = metadata_optional_text(metadata, "linked_rms_account_id");
+    let program_code = metadata_optional_text(metadata, "program_code");
+    let (Some(approval_reference), Some(manager_staff_id), Some(account_id), Some(program_code)) = (
+        approval_reference,
+        manager_staff_id,
+        account_id,
+        program_code,
+    ) else {
+        return Ok(false);
+    };
+
+    Ok(sqlx::query_scalar(
+        r#"
+        SELECT EXISTS (
+            SELECT 1
+            FROM staff_access_log
+            WHERE id = $1
+              AND staff_id = $2
+              AND event_kind = 'rms_charge_no_open_to_buy'
+              AND created_at >= CURRENT_TIMESTAMP - INTERVAL '24 hours'
+              AND metadata->>'customer_id' = $3::text
+              AND metadata->>'account_id' = $4
+              AND metadata->>'program_code' = $5
+              AND metadata->>'register_session_id' = $6::text
+              AND metadata->>'checkout_client_id' = $7::text
+        )
+        "#,
+    )
+    .bind(approval_reference)
+    .bind(manager_staff_id)
+    .bind(customer_id)
+    .bind(account_id)
+    .bind(program_code)
+    .bind(session_id)
+    .bind(checkout_client_id)
+    .fetch_one(pool)
+    .await?)
+}
+
 #[derive(Debug)]
 pub struct ResolvedPaymentSplit {
     pub method: String,
@@ -3586,6 +3711,54 @@ async fn execute_checkout_internal(
         for split in &mut payment_splits {
             if pos_rms_charge::is_rms_method(&split.method) || is_rms_payment_collection {
                 apply_manual_rms_tracking_metadata(&mut split.metadata);
+            }
+        }
+    }
+    if has_rms_charge {
+        let customer_id = payload.customer_id.ok_or_else(|| {
+            CheckoutError::InvalidPayload(
+                "RMS Charge checkout requires a selected customer".to_string(),
+            )
+        })?;
+        let checkout_client_id = payload.checkout_client_id.ok_or_else(|| {
+            CheckoutError::InvalidPayload(
+                "RMS Charge checkout requires a checkout identity".to_string(),
+            )
+        })?;
+        for split in payment_splits
+            .iter_mut()
+            .filter(|split| pos_rms_charge::is_rms_method(&split.method))
+        {
+            let account_id = metadata_optional_text(&split.metadata, "linked_rms_account_id")
+                .ok_or_else(|| {
+                    CheckoutError::InvalidPayload(
+                        "RMS Charge checkout requires the selected linked account".to_string(),
+                    )
+                })?;
+            if rms_account_has_no_open_to_buy(pool, customer_id, &account_id).await? {
+                if !rms_no_open_to_buy_approval_was_logged(
+                    pool,
+                    &split.metadata,
+                    customer_id,
+                    payload.session_id,
+                    checkout_client_id,
+                )
+                .await?
+                {
+                    return Err(CheckoutError::InvalidPayload(
+                        "This RMS account has no available credit. Manager Access approval is required before recording the sale.".to_string(),
+                    ));
+                }
+                if let Some(metadata) = split.metadata.as_object_mut() {
+                    metadata.insert(
+                        "warning_code".to_string(),
+                        Value::String("no_open_to_buy".to_string()),
+                    );
+                    metadata.insert(
+                        "manager_override_reason".to_string(),
+                        Value::String("RMS account has no available credit".to_string()),
+                    );
+                }
             }
         }
     }
