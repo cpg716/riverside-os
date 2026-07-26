@@ -3589,8 +3589,8 @@ export default function NexoCheckoutDrawer({
     <DetailDrawer
       isOpen={isOpen}
       onClose={onClose}
-      title="Checkout"
-      subtitle="Collect Payment & Record Sale"
+      showHeader
+      ariaLabel="Checkout"
       panelMaxClassName="max-w-5xl"
       noPadding
       contentContained
@@ -3811,7 +3811,7 @@ export default function NexoCheckoutDrawer({
         ) : null}
 
         {helcimAttentionBannerVisible ? (
-          <div className="m-3 mb-0 rounded-2xl border border-amber-400/35 bg-amber-400/10 px-4 py-3 text-amber-900 shadow-sm dark:text-amber-100 sm:m-4 sm:mb-0">
+          <div className="m-3 mb-0 shrink-0 rounded-2xl border border-amber-400/35 bg-amber-400/10 px-4 py-3 text-amber-900 shadow-sm dark:text-amber-100 sm:m-4 sm:mb-0">
             <p className="text-[10px] font-black uppercase tracking-[0.2em]">
               Card outcome review
             </p>
@@ -3824,7 +3824,7 @@ export default function NexoCheckoutDrawer({
         ) : null}
 
         {terminalRecoveryState ? (
-          <div className={`m-3 mb-0 rounded-2xl border px-4 py-3 shadow-sm sm:m-4 sm:mb-0 ${terminalRecoveryTone}`}>
+          <div className={`m-3 mb-0 shrink-0 rounded-2xl border px-4 py-3 shadow-sm sm:m-4 sm:mb-0 ${terminalRecoveryTone}`}>
             <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
               <div className="flex min-w-0 gap-3">
                 <AlertTriangle size={20} className="mt-0.5 shrink-0" />
@@ -3984,13 +3984,13 @@ export default function NexoCheckoutDrawer({
             </div>
           )}
 
-        <div className="flex min-h-0 flex-1 flex-col p-3 sm:p-4">
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-3 sm:p-4">
           <div className="flex min-h-0 flex-1 flex-col items-stretch gap-3 lg:flex-row lg:items-start lg:justify-center lg:gap-4">
 
             {/* 1. Tender Tabs Matrix (Left) */}
-            <div className="w-full shrink-0 pb-1 lg:w-48 lg:pb-4">
+            <div className="w-full shrink-0 pb-1 lg:flex lg:min-h-0 lg:w-48 lg:flex-col lg:pb-4">
               <span className="mb-2 block px-1 text-[11px] font-black uppercase tracking-[0.2em] text-app-text">Payment Method</span>
-              <div className="no-scrollbar flex gap-2 overflow-x-auto lg:flex-col lg:overflow-y-auto lg:overflow-x-visible">
+              <div className="no-scrollbar flex gap-2 overflow-x-auto lg:min-h-0 lg:flex-1 lg:flex-col lg:overflow-y-auto lg:overflow-x-visible">
                 {tenderTabIds.map((id) => {
                   const meta = TAB_META[id];
                   const Icon = meta.icon;

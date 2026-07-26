@@ -169,9 +169,13 @@ export function PosSearchResultList({
 
           if (startsShippingFee) {
             return (
-              <div
+              <button
+                type="button"
                 key={item.product_id}
-                className="flex min-h-[88px] items-center gap-4 rounded-2xl border-2 border-app-accent bg-app-accent/5 p-4"
+                data-testid="pos-shipping-fee-add"
+                onPointerDown={(event) => event.preventDefault()}
+                onClick={selectResult}
+                className="flex min-h-[88px] w-full items-center gap-4 rounded-2xl border-2 border-app-accent bg-app-accent/5 p-4 text-left transition-colors hover:bg-app-accent/10"
               >
                 <div className="h-16 w-16 shrink-0 rounded-xl border border-app-border bg-app-surface p-4 text-app-text-muted">
                   <Truck className="h-full w-full" aria-hidden />
@@ -182,16 +186,10 @@ export function PosSearchResultList({
                     Add a non-taxable shipping charge without creating a shipment.
                   </p>
                 </div>
-                <button
-                  type="button"
-                  data-testid="pos-shipping-fee-add"
-                  onPointerDown={(event) => event.preventDefault()}
-                  onClick={selectResult}
-                  className="ui-btn-primary h-10 shrink-0 px-4 text-[10px] font-black uppercase tracking-widest"
-                >
+                <span className="ui-btn-primary flex h-10 shrink-0 items-center px-4 text-[10px] font-black uppercase tracking-widest">
                   Add fee
-                </button>
-              </div>
+                </span>
+              </button>
             );
           }
 

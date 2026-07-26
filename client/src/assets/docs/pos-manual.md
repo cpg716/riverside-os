@@ -88,7 +88,7 @@ The quantity/price keypad remains readable before a cart line is selected: muted
 For a Register service shortcut:
 
 - **ALTERATIONS** requires a selected customer and opens a Quick Alteration Record. Attach a current-cart item, past purchase, catalog item, or customer-owned item with a description; set the due date and either a fee or free status. Tag # and work requested are optional; scan the physical tag into **Tag #** when available. The checkout/drop-off receipt prints the **Customer item** description, and the pickup receipt repeats it. It records and tracks the alteration for pickup, while scheduling and delegation remain in the Alterations workspace. It can be picked up at Register while marked **In Custody** or **Ready for pickup**; use **Ready** when the work is complete and customer-notification workflows should begin.
-- Type **SHIP** or **SHIPPING** in product search to add a non-taxable shipping fee without creating a shipment. Use **Ship current sale** when an address, carrier/service, shipment record, or tracking workflow is required.
+- Type **SHIP** or **SHIPPING** in product search, then select anywhere on the **Shipping fee** result to add a non-taxable shipping fee without creating a shipment. Use **Ship current sale** when an address, carrier/service, shipment record, or tracking workflow is required.
 
 Use the Register **Alteration** toolbar action for the full intake workflow.
 
@@ -170,7 +170,7 @@ Inventory and bookkeeping follow server rules for takeaway, order, and wedding l
 
 1. When the cart is correct, select **Proceed to Payment**.
 2. If you are not using a saved customer, confirm **walk-in** when asked.
-3. The **Payment ledger** side panel opens. Enter amounts on the keypad, then **Apply payment** for each tender (card, cash, gift card, etc.) the way you were trained.
+3. The **Payment ledger** side panel opens. The compact top strip shows the terminal status; use the payment workspace below it. Enter amounts on the keypad, then **Apply payment** for each tender (card, cash, gift card, etc.) the way you were trained. If a tender list or payment detail is longer than the available space, scroll within the payment workspace; it remains above the fixed **Complete Sale** controls.
    - If the terminal is canceled but ROS remains on **Waiting for Card**, cancel the payment on the physical terminal, then select **I canceled on terminal — clear ROS**. This clears the stale attempt so you can retry the card or choose another payment method.
    - **Card reader** approvals are bound to the checkout that started them. They cannot be applied to a later customer or sale. If ROS reports that an approval belongs to a different sale, do not run the card again; use **POS → Payments → Health** for the audited recovery or refund path.
    - If an approved card attempt from a failed checkout is still visible while starting a new sale, **Clear Sale** may be used to reset the local cart and tender state. The approved provider attempt remains in Payments Health for manager recovery; it must never block a new cash, check, or card checkout.

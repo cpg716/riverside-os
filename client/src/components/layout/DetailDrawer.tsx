@@ -20,6 +20,10 @@ interface DetailDrawerProps {
   panelMaxClassName?: string;
   /** Pinned below the scroll region (e.g. checkout primary action). */
   footer?: ReactNode;
+  /** Render the drawer header even when it has no visible title. */
+  showHeader?: boolean;
+  /** Accessible name used when the drawer has no visible title. */
+  ariaLabel?: string;
   /**
    * When true with `footer`, the main body does not scroll; children should use
    * `h-full min-h-0 flex flex-col` and their own `overflow-y-auto` (register checkout).
@@ -40,6 +44,8 @@ export default function DetailDrawer({
   titleClassName = "",
   panelMaxClassName = "max-w-xl",
   footer,
+  showHeader = false,
+  ariaLabel,
   noPadding = false,
   contentContained = false,
   backdropClassName = "absolute inset-0 bg-black/25 backdrop-blur-[2px] transition-opacity duration-200",
@@ -60,7 +66,7 @@ export default function DetailDrawer({
       role="dialog"
       aria-modal="true"
       aria-labelledby={title ? titleId : undefined}
-      aria-label={title ? undefined : "Side panel"}
+      aria-label={title ? undefined : (ariaLabel ?? "Side panel")}
       tabIndex={-1}
     >
       <button
@@ -73,22 +79,24 @@ export default function DetailDrawer({
       <div
         className={`relative flex h-[92vh] w-full ${panelMaxClassName} animate-[drawerRise_0.22s_ease-out] flex-col rounded-t-2xl border border-app-border bg-app-surface shadow-[0_24px_60px_-34px_rgba(20,20,20,0.45)] sm:h-full sm:animate-[drawerSlide_0.22s_ease-out] sm:rounded-none sm:border-y-0 sm:border-r-0 sm:border-l`}
       >
-        {title && (
-          <header className={`shrink-0 border-b border-app-border bg-app-surface-2 ${subtitle ? 'px-4 py-4 sm:px-6' : 'px-4 py-3 sm:px-6'}`}>
+        {(title || showHeader) && (
+          <header className={`shrink-0 border-b border-app-border bg-app-surface-2 ${title ? (subtitle ? 'px-4 py-4 sm:px-6' : 'px-4 py-3 sm:px-6') : 'px-3 py-2 sm:px-4'}`}>
             <div className={`flex items-start justify-between gap-3 sm:gap-4 ${subtitle ? 'mb-2' : ''}`}>
-              <div className="min-w-0">
-                <h2
-                  id={titleId}
-                  className={`text-xl font-black tracking-tight text-app-text ${titleClassName}`.trim()}
-                >
-                  {title}
-                </h2>
-                {subtitle ? (
-                  <div className="mt-1 text-xs font-semibold leading-snug tracking-normal text-app-text/70 normal-case">
-                    {subtitle}
-                  </div>
-                ) : null}
-              </div>
+              {title ? (
+                <div className="min-w-0">
+                  <h2
+                    id={titleId}
+                    className={`text-xl font-black tracking-tight text-app-text ${titleClassName}`.trim()}
+                  >
+                    {title}
+                  </h2>
+                  {subtitle ? (
+                    <div className="mt-1 text-xs font-semibold leading-snug tracking-normal text-app-text/70 normal-case">
+                      {subtitle}
+                    </div>
+                  ) : null}
+                </div>
+              ) : <div aria-hidden />}
               <div className="flex shrink-0 items-start gap-2">
                 {headerActions}
                 <button
