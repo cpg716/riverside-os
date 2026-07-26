@@ -165,8 +165,11 @@ export default function IntegrationCredentialsCard({
         {fields.map((field) => {
           const isConfigured = Boolean(configured[field.key]);
           return (
-            <label key={field.key} className="block">
-              <span className="mb-1 flex items-center justify-between gap-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+            <div key={field.key} className="block">
+              <label
+                htmlFor={`integration-credential-${field.key}`}
+                className="mb-1 flex items-center justify-between gap-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted"
+              >
                 <span>{field.label}</span>
                 <span
                   className={
@@ -175,9 +178,10 @@ export default function IntegrationCredentialsCard({
                 >
                   {isConfigured ? "Saved" : "Needed"}
                 </span>
-              </span>
+              </label>
               {field.type === "textarea" ? (
                 <textarea
+                  id={`integration-credential-${field.key}`}
                   value={draft[field.key] ?? ""}
                   onChange={(event) =>
                     setDraft((current) => ({
@@ -199,6 +203,7 @@ export default function IntegrationCredentialsCard({
                 <div className="relative">
                   <KeyRound className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-app-text-muted" />
                   <input
+                    id={`integration-credential-${field.key}`}
                     type={field.type ?? "password"}
                     value={draft[field.key] ?? ""}
                     onChange={(event) =>
@@ -235,7 +240,7 @@ export default function IntegrationCredentialsCard({
                     : "Clear saved value"}
                 </button>
               ) : null}
-            </label>
+            </div>
           );
         })}
       </div>

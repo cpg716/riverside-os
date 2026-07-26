@@ -175,7 +175,7 @@ const WeddingHealthHeatmap: React.FC<WeddingReadinessDashboardProps> = ({ onPart
                         onChange={(value) => setWindowDays(Number(value))}
                         options={WINDOW_OPTIONS.map((option) => ({ ...option, value: String(option.value) }))}
                     />
-                    <label className="min-w-[13rem] flex-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                    <div className="min-w-[13rem] flex-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                         Salesperson
                         <div className="mt-2">
                             <StaffMiniSelector
@@ -191,7 +191,7 @@ const WeddingHealthHeatmap: React.FC<WeddingReadinessDashboardProps> = ({ onPart
                                 fullWidth
                             />
                         </div>
-                    </label>
+                    </div>
                 </div>
                 <p className="mt-3 text-xs font-bold text-app-text-muted">
                     Showing {filteredParties.length} of {stats.parties.length} party readiness record(s).

@@ -150,12 +150,13 @@ function VariantIdentifierEditor({
   return (
     <div className="mt-4 space-y-2 rounded-xl border border-app-border bg-app-surface-2/60 p-3">
       <div className="grid gap-2">
-        <label className="grid gap-1">
+        <div className="grid gap-1">
           <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
             Product UPC
           </span>
           <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
             <input
+              aria-label="Product UPC"
               value={barcodeDraft}
               onChange={(event) => setBarcodeDraft(event.target.value)}
               className={identifierInputClass}
@@ -171,13 +172,14 @@ function VariantIdentifierEditor({
               Save
             </button>
           </div>
-        </label>
-        <label className="grid gap-1">
+        </div>
+        <div className="grid gap-1">
           <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
             Catalog # / vendor style #
           </span>
           <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
             <input
+              aria-label="Catalog number or vendor style number"
               value={vendorUpcDraft}
               onChange={(event) => setVendorUpcDraft(event.target.value)}
               className={identifierInputClass}
@@ -193,7 +195,7 @@ function VariantIdentifierEditor({
               Save
             </button>
           </div>
-        </label>
+        </div>
       </div>
       {message ? (
         <p className="text-[10px] font-semibold text-app-text-muted">{message}</p>

@@ -123,6 +123,7 @@ async function selectCustomer(page: Page): Promise<void> {
 async function selectDefaultSalesperson(page: Page): Promise<void> {
   await page.locator("button").filter({ hasText: /Default \(None\)|Select Salesperson/i }).first().click();
   await page.getByRole("button", { name: /Staff Admin/i }).last().click();
+  await expect(page.getByTestId("staff-selector-dropdown")).toHaveCount(0);
 }
 
 async function addProductToCart(page: Page): Promise<void> {

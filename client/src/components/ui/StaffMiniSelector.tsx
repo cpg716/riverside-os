@@ -1,5 +1,5 @@
 import { getBaseUrl } from "../../lib/apiConfig";
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, type MouseEvent as ReactMouseEvent } from "react";
 import { ChevronDown, User } from "lucide-react";
 
 interface StaffRow {
@@ -95,7 +95,9 @@ export default function StaffMiniSelector({
   const buttonPadding = size === "lg" ? "px-6 py-3" : size === "sm" ? "px-2 py-1" : "px-4 py-2";
   const buttonText = size === "lg" ? "text-base" : size === "sm" ? "text-[10px]" : "text-sm";
   const dropdownItemPadding = size === "lg" ? "px-4 py-3 text-sm" : "px-2 py-2 text-xs";
-  const handleSelect = (id: string) => {
+  const handleSelect = (event: ReactMouseEvent<HTMLButtonElement>, id: string) => {
+    event.preventDefault();
+    event.stopPropagation();
     setIsOpen(false);
     onSelect(id);
   };
@@ -130,8 +132,8 @@ export default function StaffMiniSelector({
           >
             <button
               type="button"
-              onClick={() => {
-                handleSelect("");
+              onClick={(event) => {
+                handleSelect(event, "");
               }}
               className={`flex w-full items-center gap-2 rounded-lg transition-colors hover:bg-app-surface-2 ${dropdownItemPadding} font-bold text-app-text-muted text-left`}
             >
@@ -150,8 +152,8 @@ export default function StaffMiniSelector({
                 type="button"
                 data-testid={`staff-identity-selector-${idx + 1}`}
                 data-staff-id={s.id}
-                onClick={() => {
-                  handleSelect(s.id);
+                onClick={(event) => {
+                  handleSelect(event, s.id);
                 }}
                 className={`flex w-full items-center gap-2 rounded-lg transition-colors ${
                   selectedId === s.id

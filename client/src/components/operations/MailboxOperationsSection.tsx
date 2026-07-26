@@ -529,11 +529,15 @@ export default function MailboxOperationsSection({
           Quick email
         </div>
         <div className="grid gap-3 lg:grid-cols-[minmax(0,16rem)_minmax(0,16rem)_minmax(0,1fr)_auto] lg:items-end">
-          <label className="relative block">
-            <span className="mb-1 block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+          <div className="relative block">
+            <label
+              htmlFor="mailbox-quick-email-recipient"
+              className="mb-1 block text-[10px] font-black uppercase tracking-widest text-app-text-muted"
+            >
               To
-            </span>
+            </label>
             <input
+              id="mailbox-quick-email-recipient"
               value={draftTo}
               onFocus={() => setShowRecipientSuggestions(true)}
               onChange={(event) => {
@@ -571,7 +575,7 @@ export default function MailboxOperationsSection({
                 ))}
               </div>
             ) : null}
-          </label>
+          </div>
           <label className="block">
             <span className="mb-1 block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
               Subject

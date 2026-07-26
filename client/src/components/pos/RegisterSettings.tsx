@@ -193,7 +193,7 @@ export default function RegisterSettings({
               </div>
             </div>
             <div className="ui-card p-6 border-app-border space-y-6">
-              <label className="flex flex-col gap-3">
+              <div className="flex flex-col gap-3">
                 <span className="text-sm font-bold">Sound Profile</span>
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-5">
                    {(['classic', 'modern', 'retro', 'soft', 'silent'] as PosSoundProfile[]).map(profile => (
@@ -208,7 +208,7 @@ export default function RegisterSettings({
                      </button>
                    ))}
                 </div>
-              </label>
+              </div>
             </div>
           </section>
 

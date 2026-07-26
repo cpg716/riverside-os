@@ -709,10 +709,13 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
                 </button>
               </div>
 
-              <label className="block">
-                <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-60">
+              <div className="block">
+                <label
+                  htmlFor="receipt-template-editor"
+                  className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-60"
+                >
                   {activeTab === "standard" ? "Standard Receipt Template" : "Picked Up Receipt Template"}
-                </span>
+                </label>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {[
                     ["Logo", "{{LOGO_IMAGE}}"],
@@ -765,6 +768,7 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
                   </button>
                 </div>
                 <textarea
+                  id="receipt-template-editor"
                   value={effectiveTemplate}
                   onChange={(e) =>
                     setCfg({
@@ -801,7 +805,7 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
                     The logo token prints the full Riverside Men's Shop logo lockup at the top of the receipt. Use the Receipt Logo toggle to hide it without removing the token from the template.
                   </p>
                 </div>
-              </label>
+              </div>
 
               <div className="rounded-xl border border-app-border bg-app-surface-2 p-4">
                 <p className="text-[10px] font-black uppercase tracking-widest text-app-text">

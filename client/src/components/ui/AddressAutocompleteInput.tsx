@@ -2,7 +2,7 @@ import { getBaseUrl } from "../../lib/apiConfig";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { Loader2, MapPin, Search } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 
 export interface AddressSuggestion {
   id: string;
@@ -54,6 +54,7 @@ export default function AddressAutocompleteInput({
 }: AddressAutocompleteInputProps) {
   const { backofficeHeaders } = useBackofficeAuth();
   const baseUrl = getBaseUrl();
+  const inputId = useId();
   const [suggestions, setSuggestions] = useState<AddressSuggestion[]>([]);
   const [busy, setBusy] = useState(false);
   const [validating, setValidating] = useState(false);
@@ -201,14 +202,15 @@ export default function AddressAutocompleteInput({
   );
 
   return (
-    <label className={`relative block text-[10px] font-black uppercase tracking-widest text-app-text-muted ${className}`}>
-      {label}
+    <div className={`relative block text-[10px] font-black uppercase tracking-widest text-app-text-muted ${className}`}>
+      <label htmlFor={inputId}>{label}</label>
       <div className="relative mt-1">
         <Search
           size={14}
           className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-app-text-muted"
         />
         <input
+          id={inputId}
           readOnly={readOnly}
           value={value}
           onBlur={handleBlur}
@@ -269,6 +271,6 @@ export default function AddressAutocompleteInput({
           ))}
         </div>
       ) : null}
-    </label>
+    </div>
   );
 }

@@ -1166,9 +1166,10 @@ export default function OrderLoadModal({
                   >
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div className="flex flex-1 flex-col">
-                        <label className="flex items-start gap-3">
+                        <div className="flex items-start gap-3">
                           <input
                             type="checkbox"
+                            aria-label={`Select ${item.product_name}`}
                             disabled={isCompletedOrderItem(item)}
                             checked={Boolean(
                               pickupSelection[item.transaction_line_id],
@@ -1190,7 +1191,7 @@ export default function OrderLoadModal({
                           >
                             {item.product_name}
                           </button>
-                        </label>
+                        </div>
                         <span className="text-app-text-muted">
                           {lineDrafts[item.transaction_line_id]?.sku ??
                             item.sku}{" "}

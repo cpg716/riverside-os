@@ -223,7 +223,7 @@ export default function QuickProcurementItemModal({
             />
           </label>
 
-          <label className="space-y-1">
+          <div className="space-y-1">
             <span className="ml-1 text-[10px] font-bold uppercase tracking-wider text-app-text-muted">SKU</span>
             <div className="flex gap-2">
               <input
@@ -243,7 +243,7 @@ export default function QuickProcurementItemModal({
                 <Barcode size={15} />
               </button>
             </div>
-          </label>
+          </div>
 
           <label className="space-y-1">
             <span className="ml-1 text-[10px] font-bold uppercase tracking-wider text-app-text-muted">Variation</span>
