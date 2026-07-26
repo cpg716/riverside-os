@@ -705,7 +705,7 @@ export default function Cart({
   const [staffAccountPaymentOpen, setStaffAccountPaymentOpen] = useState(false);
   const [parkSalePromptOpen, setParkSalePromptOpen] = useState(false);
   const [parkSaleDraftLabel, setParkSaleDraftLabel] = useState("");
-  const [feePromptKind, setFeePromptKind] = useState<"alterations" | "shipping" | null>(null);
+  const [feePromptKind, setFeePromptKind] = useState<"shipping" | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const requestProductSearchFocus = useCallback(() => {
     window.requestAnimationFrame(() => {
@@ -801,34 +801,6 @@ export default function Cart({
       return false;
     }
 
-    if (feePromptKind === "alterations") {
-      setLines((prev) => [
-        ...prev,
-        {
-          product_id: ALTERATION_SERVICE_PRODUCT_ID,
-          variant_id: ALTERATION_SERVICE_VARIANT_ID,
-          sku: ALTERATION_SERVICE_SKU,
-          name: "ALTERATIONS FEE",
-          variation_label: "Standalone fee",
-          standard_retail_price: centsToFixed2(amountCents),
-          unit_cost: "0.00",
-          state_tax: "0.00",
-          local_tax: "0.00",
-          tax_category: "service",
-          quantity: 1,
-          fulfillment: "takeaway",
-          cart_row_id: newCartRowId(),
-          line_type: "merchandise",
-          price_override_reason: "alteration_service",
-          original_unit_price: "0.00",
-          custom_item_type: "alteration_service",
-        },
-      ]);
-      setFeePromptKind(null);
-      toast("Non-taxable alterations fee added.", "success");
-      return true;
-    }
-
     if (feePromptKind === "shipping") {
       try {
         const response = await fetch(`${baseUrl}/api/pos/shipping/manual-quote`, {
@@ -868,7 +840,7 @@ export default function Cart({
     }
 
     return false;
-  }, [apiAuth, baseUrl, feePromptKind, setLines, toast]);
+  }, [apiAuth, baseUrl, feePromptKind, toast]);
 
   const [pendingReturnLineDrafts, setPendingReturnLineDrafts] = useState<
     Record<string, ExchangeReturnHandoffLine[]>
@@ -2841,6 +2813,12 @@ export default function Cart({
 
   // --- Search Coordination ---
   const onSearchResultClick = (item: SearchResult) => {
+    if (item.sku === ALTERATION_SERVICE_SKU) {
+      setSearch("");
+      setSearchResults([]);
+      toast("Use ALTERATIONS to start a Quick Alteration Record.", "info");
+      return;
+    }
     if (item.sku === "ROS-ALTERATION-FEE") {
       setSearch("");
       setSearchResults([]);
@@ -3205,7 +3183,7 @@ export default function Cart({
                   if (!results) return;
                   const exact = results.filter(r => r.sku.toLowerCase() === q.toLowerCase() || r.vendor_sku?.toLowerCase() === q.toLowerCase());
                   if (exact.length === 1) {
-                    addItem(exact[0]);
+                    onSearchResultClick(exact[0]);
                   }
                 }).catch(() => {});
               }}
@@ -5091,7 +5069,12 @@ export default function Cart({
         open={alterationIntakeOpen}
         mode={alterationIntakeMode}
         customer={selectedCustomer}
-        cartLines={lines.filter((line) => line.line_type !== "alteration_service")}
+        cartLines={lines.filter(
+          (line) =>
+            line.line_type !== "alteration_service" &&
+            line.custom_item_type !== "alteration_service" &&
+            line.sku !== ALTERATION_SERVICE_SKU,
+        )}
         baseUrl={baseUrl}
         apiAuth={apiAuth}
         editingIntake={editingAlterationIntake}
@@ -5263,12 +5246,8 @@ export default function Cart({
         isOpen={feePromptKind !== null}
         onClose={() => setFeePromptKind(null)}
         onSubmit={addFeeShortcut}
-        title={feePromptKind === "shipping" ? "Add Shipping Fee" : "Add Alterations Fee"}
-        message={
-          feePromptKind === "shipping"
-            ? "Enter the shipping fee. This fee is non-taxable and does not create a shipment. Use Ship Current Sale when an address, carrier, and tracking workflow are needed."
-            : "Enter the standalone alterations fee. This line is non-taxable and does not create an alterations work order."
-        }
+        title="Add Shipping Fee"
+        message="Enter the shipping fee. This fee is non-taxable and does not create a shipment. Use Ship Current Sale when an address, carrier, and tracking workflow are needed."
         placeholder="0.00"
         type="numeric"
         confirmLabel="Add Fee"

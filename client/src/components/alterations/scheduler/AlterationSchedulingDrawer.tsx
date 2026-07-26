@@ -28,6 +28,14 @@ type AlterationRow = {
   ticket_number: string | null;
 };
 
+type AlterationActivity = {
+  id: string;
+  action: string;
+  detail: Record<string, unknown>;
+  created_at: string;
+  staff_name: string | null;
+};
+
 type AlterationSchedulingDrawerProps = {
   alteration: AlterationRow;
   apiAuth: () => Record<string, string>;
@@ -44,6 +52,7 @@ export default function AlterationSchedulingDrawer({
   const [activeTab, setActiveTab] = useState<"items" | "schedule">("items");
   const [localAlt, setLocalAlt] = useState(alteration);
   const [ticketDraft, setTicketDraft] = useState(alteration.ticket_number ?? "");
+  const [activity, setActivity] = useState<AlterationActivity[]>([]);
   const { toast } = useToast();
 
   const customerName = `${localAlt.customer_first_name ?? ""} ${localAlt.customer_last_name ?? ""}`.trim() || "Unassigned Customer";
@@ -58,9 +67,23 @@ export default function AlterationSchedulingDrawer({
         const updated = await res.json();
         setLocalAlt(updated);
         onUpdated();
+        void reloadActivity();
       }
     } catch (e) {
       console.error("Failed to reload alteration", e);
+    }
+  };
+
+  const reloadActivity = async () => {
+    try {
+      const res = await fetch(`${baseUrl}/api/alterations/${localAlt.id}/activity`, {
+        headers: apiAuth(),
+      });
+      if (res.ok) {
+        setActivity(await res.json());
+      }
+    } catch (e) {
+      console.error("Failed to load alteration activity", e);
     }
   };
 
@@ -75,6 +98,7 @@ export default function AlterationSchedulingDrawer({
         const updated = await res.json();
         setLocalAlt(updated);
         onUpdated();
+        void reloadActivity();
       } else {
         const b = (await res.json().catch(() => ({}))) as { error?: string };
         toast(b.error ?? "Could not update alteration.", "error");
@@ -99,6 +123,12 @@ export default function AlterationSchedulingDrawer({
       scrollContainer.scrollTop = 0;
     }
   }, [alteration.id, activeTab]);
+
+  useEffect(() => {
+    setLocalAlt(alteration);
+    setTicketDraft(alteration.ticket_number ?? "");
+    void reloadActivity();
+  }, [alteration.id]);
 
   const root = document.getElementById("drawer-root") || document.body;
 
@@ -195,7 +225,10 @@ export default function AlterationSchedulingDrawer({
               <AlterationItemEditor
                 alterationId={localAlt.id}
                 apiAuth={apiAuth}
-                onItemsChanged={() => void reloadAlteration()}
+                onItemsChanged={() => {
+                  void reloadAlteration();
+                  void reloadActivity();
+                }}
               />
 
               <div className="pt-6 border-t border-white/5 flex flex-col gap-2">
@@ -235,6 +268,26 @@ export default function AlterationSchedulingDrawer({
                 apiAuth={apiAuth}
                 onSlotSelected={handleSlotSelected}
               />
+
+              <details className="rounded-xl border border-app-border bg-app-surface-2 p-4">
+                <summary className="cursor-pointer text-xs font-black uppercase tracking-widest text-app-text">
+                  Audit trail ({activity.length})
+                </summary>
+                <div className="mt-3 space-y-3">
+                  {activity.length === 0 ? (
+                    <p className="text-sm text-app-text-muted">No recorded activity yet.</p>
+                  ) : activity.map((entry) => (
+                    <div key={entry.id} className="border-l-2 border-app-accent/40 pl-3">
+                      <p className="text-xs font-black uppercase tracking-wider text-app-text">
+                        {entry.action.replaceAll("_", " ")}
+                      </p>
+                      <p className="mt-1 text-xs text-app-text-muted">
+                        {new Date(entry.created_at).toLocaleString()} · {entry.staff_name ?? "System"}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </details>
             </div>
           )}
         </div>

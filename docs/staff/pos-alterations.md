@@ -14,12 +14,14 @@ Use **Alterations** from POS when you are **at the register** with a customer an
 
 This screen shares the same alterations queue as Back Office. The Register **ALTERATIONS** quick record attaches a cart item, past purchase, catalog item, or customer-owned item to the selected customer; it records the due-by date, fee or free status, and optional work/tag details without scheduling or delegation. Scan the physical ticket into **Tag #** when it has a barcode. It appears in this queue like any other alteration. Charged work shows the entered service amount and free/included work shows **$0.00**. Open tickets are **in custody** until they are picked up. **Ready** remains an optional completion status that can start customer-notification workflows; it is not required for Register pickup. The source garment is tracked separately and is not sold again. The checkout/drop-off receipt prints the **Customer item** description, and the pickup receipt repeats it. Charged alteration lines stay labeled as **Alteration** on the cart, receipt, Daily Sales, and printed audit reports.
 
+**Alteration Service** is an internal checkout line created only after intake; it is not a product staff can add from POS search.
+
 ## How to use this screen
 
 1. Open POS mode with an **active register session** if your store requires it for POS navigation.
 2. Tap **Alterations** in the left rail.
 3. Use the queue filters (**All**, **Intake**, **In Work**, **Ready**, **Picked Up**) to narrow the list.
-4. Review **customer**, **item**, **work requested**, **source**, **charge note**, **status**, **due date**, and **notes**. Scan a ticket barcode into the dashboard search to open its alteration directly. Status changes are optional for Quick Alterations; marking a job **Ready** may notify the customer. Complete the actual customer pickup in **Register → Customer Orders**, whether it is still **In Custody** or marked **Ready**.
+4. Review **customer**, **item**, **work requested**, **source**, **charge note**, **status**, **due date**, and **notes**. Scan a ticket barcode into the dashboard search to open its alteration directly. Status changes are optional for Quick Alterations; marking a job **Ready** may notify the customer. Open **Plan & Schedule → Schedule → Audit trail** to review who created, changed, completed, or removed work items and who recorded pickup. Complete the actual customer pickup in **Register → Customer Orders**, whether it is still **In Custody** or marked **Ready**.
 
 ## Common tasks
 

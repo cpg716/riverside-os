@@ -86,6 +86,10 @@ For a Register service shortcut:
 
 Use the Register **Alteration** toolbar action for the full intake workflow.
 
+The full intake starts with the garment, fitting decision, work requested, and timing. Workload capacity, fee, Tag #, and notes remain available when needed without blocking the basic intake.
+
+**Alteration Service** is an internal checkout line created only after an intake record is saved. It is not a sellable SKU and should never be added directly from product search. In the Alterations workspace, **Plan & Schedule → Schedule → Audit trail** shows the recorded intake, status, work-item, and pickup history for authorized staff.
+
 Each ordinary sale line has a tax badge. Tap it to cycle that one line through **Standard**, **Clothing**, and **No Tax**:
 
 - **Standard** applies the full standard state and local sales tax.

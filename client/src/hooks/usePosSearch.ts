@@ -4,6 +4,11 @@ import { type SearchResult } from "../components/pos/cart/PosSearchResultList";
 import { fetchWithTimeout } from "../lib/api";
 
 const POS_SEARCH_TIMEOUT_MS = 5_000;
+const ALTERATION_SERVICE_SKU = "ROS-ALTERATION-SERVICE";
+
+function isInternalAlterationServiceSku(sku: string | null | undefined): boolean {
+  return sku?.trim().toUpperCase() === ALTERATION_SERVICE_SKU;
+}
 
 function hasSearchableTerm(query: string): boolean {
   return /[\p{L}\p{N}]/u.test(query);
@@ -66,6 +71,11 @@ export function usePosSearch({
     searchAbortRef.current = abortController;
 
     const feeShortcut = q.toUpperCase();
+    if (isInternalAlterationServiceSku(q)) {
+      setSearchResults([]);
+      toast("Use ALTERATIONS to start a Quick Alteration Record.", "info");
+      return [];
+    }
     if (feeShortcut === "ALTERATION" || feeShortcut === "ALTERATIONS") {
       const results: SearchResult[] = [{
         product_id: "b7c0a006-0006-4006-8006-000000000006",
@@ -270,6 +280,7 @@ export function usePosSearch({
       if (!isCurrent()) return [];
       const seen = new Set<string>();
       const finalResults = collected.filter((it) => {
+        if (isInternalAlterationServiceSku(it.sku)) return false;
         if (seen.has(it.variant_id)) return false;
         seen.add(it.variant_id);
         return true;

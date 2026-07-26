@@ -76,6 +76,16 @@ pub struct AlterationOrderItemRow {
     pub created_at: DateTime<Utc>,
 }
 
+#[derive(Debug, Serialize, FromRow)]
+pub struct AlterationActivityRow {
+    pub id: Uuid,
+    pub action: String,
+    pub detail: Value,
+    pub created_at: DateTime<Utc>,
+    pub staff_id: Option<Uuid>,
+    pub staff_name: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct ListAlterationsQuery {
     pub status: Option<String>,
@@ -313,6 +323,7 @@ pub fn router() -> Router<AppState> {
         .route("/{id}/pickup", post(post_alteration_pickup))
         .route("/{id}/pickup-receipt", get(get_alteration_pickup_receipt))
         .route("/{id}/card", get(get_alteration_card))
+        .route("/{id}/activity", get(list_alteration_activity))
         .route(
             "/{id}/items",
             get(list_alteration_items).post(add_alteration_item),
@@ -381,13 +392,35 @@ async fn list_alteration_items(
     Ok(Json(rows))
 }
 
+async fn list_alteration_activity(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Vec<AlterationActivityRow>>, AlterationError> {
+    let _staff = require_manage(&state, &headers).await?;
+    let rows = sqlx::query_as::<_, AlterationActivityRow>(
+        r#"
+        SELECT aa.id, aa.action, aa.detail, aa.created_at, aa.staff_id,
+               COALESCE(s.full_name, s.display_name) AS staff_name
+        FROM alteration_activity aa
+        LEFT JOIN staff s ON s.id = aa.staff_id
+        WHERE aa.alteration_id = $1
+        ORDER BY aa.created_at DESC, aa.id DESC
+        "#,
+    )
+    .bind(id)
+    .fetch_all(&state.db)
+    .await?;
+    Ok(Json(rows))
+}
+
 async fn add_alteration_item(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(id): Path<Uuid>,
     Json(body): Json<CreateOrderItemBody>,
 ) -> Result<Json<AlterationOrderItemRow>, AlterationError> {
-    let _staff = require_manage(&state, &headers).await?;
+    let staff = require_manage(&state, &headers).await?;
 
     let mut tx = state.db.begin().await?;
 
@@ -412,6 +445,23 @@ async fn add_alteration_item(
     .fetch_one(&mut *tx)
     .await?;
 
+    sqlx::query(
+        r#"
+        INSERT INTO alteration_activity (alteration_id, staff_id, action, detail)
+        VALUES ($1, $2, 'work_item_added', $3)
+        "#,
+    )
+    .bind(id)
+    .bind(staff.id)
+    .bind(SqlxJson(json!({
+        "item_id": row.id,
+        "label": &row.label,
+        "capacity_bucket": &row.capacity_bucket,
+        "units": row.units,
+    })))
+    .execute(&mut *tx)
+    .await?;
+
     tx.commit().await?;
     Ok(Json(row))
 }
@@ -427,15 +477,26 @@ async fn patch_alteration_item(
     Path((id, item_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<PatchOrderItemBody>,
 ) -> Result<Json<AlterationOrderItemRow>, AlterationError> {
-    let _staff = require_manage(&state, &headers).await?;
+    let staff = require_manage(&state, &headers).await?;
+
+    if body.completed_at.is_none() {
+        return Err(AlterationError::BadRequest(
+            "no fields to update".to_string(),
+        ));
+    }
+
+    let mut tx = state.db.begin().await?;
 
     if let Some(completed_at) = body.completed_at {
-        sqlx::query("UPDATE alteration_order_items SET completed_at = $1 WHERE id = $2 AND alteration_order_id = $3")
+        let result = sqlx::query("UPDATE alteration_order_items SET completed_at = $1 WHERE id = $2 AND alteration_order_id = $3")
             .bind(completed_at)
             .bind(item_id)
             .bind(id)
-            .execute(&state.db)
+            .execute(&mut *tx)
             .await?;
+        if result.rows_affected() == 0 {
+            return Err(AlterationError::NotFound);
+        }
     }
 
     let row = sqlx::query_as::<_, AlterationOrderItemRow>(
@@ -443,8 +504,26 @@ async fn patch_alteration_item(
          FROM alteration_order_items WHERE id = $1"
     )
     .bind(item_id)
-    .fetch_one(&state.db)
+    .fetch_one(&mut *tx)
     .await?;
+
+    sqlx::query(
+        r#"
+        INSERT INTO alteration_activity (alteration_id, staff_id, action, detail)
+        VALUES ($1, $2, 'work_item_updated', $3)
+        "#,
+    )
+    .bind(id)
+    .bind(staff.id)
+    .bind(SqlxJson(json!({
+        "item_id": row.id,
+        "label": &row.label,
+        "completed_at": row.completed_at.as_ref().map(|at| at.to_rfc3339()),
+    })))
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
 
     Ok(Json(row))
 }
@@ -454,9 +533,19 @@ async fn delete_alteration_item(
     headers: HeaderMap,
     Path((id, item_id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, AlterationError> {
-    let _staff = require_manage(&state, &headers).await?;
+    let staff = require_manage(&state, &headers).await?;
 
     let mut tx = state.db.begin().await?;
+
+    let item = sqlx::query_as::<_, AlterationOrderItemRow>(
+        "SELECT id, alteration_order_id, label, capacity_bucket::text, units, completed_at, created_at
+         FROM alteration_order_items WHERE id = $1 AND alteration_order_id = $2 FOR UPDATE",
+    )
+    .bind(item_id)
+    .bind(id)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or(AlterationError::NotFound)?;
 
     sqlx::query("DELETE FROM alteration_order_items WHERE id = $1 AND alteration_order_id = $2")
         .bind(item_id)
@@ -465,6 +554,24 @@ async fn delete_alteration_item(
         .await?;
 
     crate::logic::alterations_scheduler::update_order_unit_totals(&mut tx, id).await?;
+
+    sqlx::query(
+        r#"
+        INSERT INTO alteration_activity (alteration_id, staff_id, action, detail)
+        VALUES ($1, $2, 'work_item_deleted', $3)
+        "#,
+    )
+    .bind(id)
+    .bind(staff.id)
+    .bind(SqlxJson(json!({
+        "item_id": item.id,
+        "label": item.label,
+        "capacity_bucket": item.capacity_bucket,
+        "units": item.units,
+        "completed_at": item.completed_at.map(|at| at.to_rfc3339()),
+    })))
+    .execute(&mut *tx)
+    .await?;
 
     tx.commit().await?;
     Ok(StatusCode::NO_CONTENT)
@@ -815,7 +922,8 @@ async fn patch_alteration(
         || body.due_at.is_some()
         || body.fitting_at.is_some()
         || body.appointment_id.is_some()
-        || body.notes.is_some();
+        || body.notes.is_some()
+        || body.ticket_number.is_some();
     if !will_change {
         return Err(AlterationError::BadRequest(
             "no fields to update".to_string(),
@@ -910,6 +1018,7 @@ async fn patch_alteration(
         "fitting_at": body.fitting_at.map(|d| d.to_rfc3339()),
         "appointment_id": body.appointment_id,
         "notes_set": body.notes.is_some(),
+        "ticket_number": &body.ticket_number,
     });
     sqlx::query(
         r#"
