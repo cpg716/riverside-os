@@ -53,6 +53,9 @@ export function usePosSearch({
 }: UsePosSearchProps) {
   const [search, setSearch] = useState("");
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [searchStatus, setSearchStatus] = useState<
+    "idle" | "loading" | "complete" | "error"
+  >("idle");
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchRequestRef = useRef(0);
   const searchAbortRef = useRef<AbortController | null>(null);
@@ -65,14 +68,17 @@ export function usePosSearch({
     if (q.length < 2 || !hasSearchableTerm(q)) {
       searchAbortRef.current = null;
       setSearchResults([]);
+      setSearchStatus("idle");
       return [];
     }
     const abortController = new AbortController();
     searchAbortRef.current = abortController;
+    setSearchStatus("loading");
 
     const feeShortcut = q.toUpperCase();
     if (isInternalAlterationServiceSku(q)) {
       setSearchResults([]);
+      setSearchStatus("complete");
       toast("Use ALTERATIONS to start a Quick Alteration Record.", "info");
       return [];
     }
@@ -92,7 +98,10 @@ export function usePosSearch({
         stock_on_hand: 0,
         vendor_sku: "",
       }];
-      if (isCurrent()) setSearchResults(results);
+      if (isCurrent()) {
+        setSearchResults(results);
+        setSearchStatus("complete");
+      }
       return results;
     }
 
@@ -110,7 +119,10 @@ export function usePosSearch({
         stock_on_hand: 0,
         vendor_sku: "",
       }];
-      if (isCurrent()) setSearchResults(results);
+      if (isCurrent()) {
+        setSearchResults(results);
+        setSearchStatus("complete");
+      }
       return results;
     }
 
@@ -125,6 +137,7 @@ export function usePosSearch({
           if (!isCurrent()) return [];
           if (!res.ok) {
             setSearchResults([]);
+            setSearchStatus("error");
             toast(
               "RMS payment line is not available. Sign in or run migrations.",
               "error",
@@ -134,6 +147,7 @@ export function usePosSearch({
           const payload = (await res.json()) as RmsPaymentLineMeta | null;
           if (!payload) {
             setSearchResults([]);
+            setSearchStatus("error");
             toast(
               "RMS payment line is not available. Ensure layout POS products are created.",
               "error",
@@ -159,10 +173,12 @@ export function usePosSearch({
         ];
         if (!isCurrent()) return [];
         setSearchResults(results);
+        setSearchStatus("complete");
         return results;
       } catch (error) {
         if (error instanceof DOMException && error.name === "AbortError") return [];
         setSearchResults([]);
+        setSearchStatus("error");
         toast("Could not load RMS payment line.", "error");
       }
       return [];
@@ -203,7 +219,11 @@ export function usePosSearch({
             });
           } else if (exactSkuOnly && res.status === 404) {
             toast(`SKU NOT FOUND: ${q}`, "error");
-          } else if (res.status !== 404) {
+          // A numeric or short barcode-like entry may match more than one scan
+          // code. That is not a failed product search: let the parent catalog
+          // search present the verified matches instead of discarding the whole
+          // lookup behind a misleading source-failed message.
+          } else if (res.status !== 404 && !(res.status === 400 && !exactSkuOnly)) {
             throw new Error(`SKU scan failed with status ${res.status}`);
           }
         }),
@@ -215,17 +235,20 @@ export function usePosSearch({
         await Promise.all(requests);
         if (!isCurrent()) return [];
         setSearchResults(collected);
+        setSearchStatus("complete");
         return collected;
       } catch (e) {
         if (e instanceof DOMException && e.name === "AbortError") {
           if (abortController.signal.aborted || !isCurrent()) return [];
           setSearchResults([]);
+          setSearchStatus("error");
           toast("SKU lookup timed out. Check the Main Hub connection and try again.", "error");
           return [];
         }
         if (!isCurrent()) return [];
         console.error("POS SKU Scan Error", e);
         setSearchResults([]);
+        setSearchStatus("error");
         toast(`SKU NOT FOUND: ${q}`, "error");
         return [];
       } finally {
@@ -309,11 +332,13 @@ export function usePosSearch({
           );
         }
       }
+      setSearchStatus(failures.length > 0 && finalResults.length === 0 ? "error" : "complete");
       return finalResults;
     } catch (e) {
       if (e instanceof DOMException && e.name === "AbortError") return [];
       console.error("POS Search Error", e);
       setSearchResults([]);
+      setSearchStatus("error");
       toast("Product search failed. Check the Main Hub connection and try again.", "error");
       return [];
     } finally {
@@ -327,6 +352,7 @@ export function usePosSearch({
       searchAbortRef.current?.abort();
       searchAbortRef.current = null;
       setSearchResults([]);
+      setSearchStatus("idle");
       if (searchDebounceRef.current) {
         clearTimeout(searchDebounceRef.current);
         searchDebounceRef.current = null;
@@ -336,6 +362,8 @@ export function usePosSearch({
     if (searchDebounceRef.current) {
       clearTimeout(searchDebounceRef.current);
     }
+    setSearchResults([]);
+    setSearchStatus("loading");
     searchDebounceRef.current = setTimeout(() => {
       void runSearch(search);
     }, 400);
@@ -375,6 +403,7 @@ export function usePosSearch({
     setSearch,
     searchResults,
     setSearchResults,
+    searchStatus,
     groupedSearchResults,
     runSearch,
   };
