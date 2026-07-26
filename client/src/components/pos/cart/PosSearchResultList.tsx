@@ -1,4 +1,4 @@
-import { Package, ArrowRight } from "lucide-react";
+import { AlertTriangle, ArrowRight, Loader2, Package, SearchX } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { type ResolvedSkuItem } from "../types";
 
@@ -8,6 +8,8 @@ export interface SearchResult extends ResolvedSkuItem {
 
 interface PosSearchResultListProps {
   search: string;
+  isActive: boolean;
+  searchStatus: "idle" | "loading" | "complete" | "error";
   groupedSearchResults: SearchResult[][];
   onSearchResultClick: (item: SearchResult) => void;
   onQuickAlterationFeeOnly: () => void;
@@ -15,6 +17,8 @@ interface PosSearchResultListProps {
 
 export function PosSearchResultList({
   search,
+  isActive,
+  searchStatus,
   groupedSearchResults,
   onSearchResultClick,
   onQuickAlterationFeeOnly,
@@ -23,7 +27,7 @@ export function PosSearchResultList({
   const panelRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    if (groupedSearchResults.length === 0) {
+    if (!isActive || searchStatus === "idle") {
       setOpenUpward(false);
       return;
     }
@@ -49,17 +53,51 @@ export function PosSearchResultList({
       window.removeEventListener("resize", recomputePlacement);
       window.removeEventListener("scroll", recomputePlacement, true);
     };
-  }, [groupedSearchResults.length, search]);
+  }, [groupedSearchResults.length, isActive, search, searchStatus]);
 
-  if (groupedSearchResults.length === 0) return null;
+  if (!isActive || search.trim().length < 2 || searchStatus === "idle") return null;
 
   return (
     <div
       ref={panelRef}
-      className={`absolute left-0 right-0 z-50 max-h-[65vh] overflow-y-auto rounded-3xl border-2 border-app-text bg-app-surface p-3 shadow-[0_32px_96px_-16px_rgba(0,0,0,0.5)] transition-all no-scrollbar ${
+      className={`absolute left-0 right-0 z-50 max-h-[65vh] overflow-y-auto rounded-2xl border-2 border-app-border bg-app-surface p-3 shadow-[0_24px_72px_-20px_rgba(0,0,0,0.45)] transition-all no-scrollbar ${
         openUpward ? "bottom-full mb-2" : "top-full mt-2"
       }`}
     >
+      {searchStatus === "loading" ? (
+        <div
+          role="status"
+          className="flex min-h-24 items-center justify-center gap-3 rounded-xl bg-app-surface-2 px-4 text-sm font-bold text-app-text-muted"
+        >
+          <Loader2 className="h-5 w-5 animate-spin text-app-accent" aria-hidden />
+          Searching products…
+        </div>
+      ) : groupedSearchResults.length === 0 ? (
+        <div
+          role="status"
+          className={`flex min-h-24 items-center gap-3 rounded-xl border px-4 ${
+            searchStatus === "error"
+              ? "border-app-danger/30 bg-app-danger/10"
+              : "border-app-border bg-app-surface-2"
+          }`}
+        >
+          {searchStatus === "error" ? (
+            <AlertTriangle className="h-6 w-6 shrink-0 text-app-danger" aria-hidden />
+          ) : (
+            <SearchX className="h-6 w-6 shrink-0 text-app-text-muted" aria-hidden />
+          )}
+          <div>
+            <p className="text-sm font-black text-app-text">
+              {searchStatus === "error" ? "Search unavailable" : "No products found"}
+            </p>
+            <p className="mt-1 text-xs font-semibold text-app-text-muted">
+              {searchStatus === "error"
+                ? "Check the Main Hub connection and try again."
+                : `No product name, SKU, or supplier SKU matches “${search.trim()}”.`}
+            </p>
+          </div>
+        </div>
+      ) : (
       <div className="flex flex-col gap-2">
         {groupedSearchResults.map((group) => {
           const item = group[0];
@@ -211,6 +249,7 @@ export function PosSearchResultList({
           );
         })}
       </div>
+      )}
     </div>
   );
 }

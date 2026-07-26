@@ -687,6 +687,7 @@ export default function Cart({
     setSearch,
     searchResults,
     setSearchResults,
+    searchStatus,
     groupedSearchResults,
     runSearch,
   } = usePosSearch({
@@ -707,6 +708,7 @@ export default function Cart({
   const [parkSaleDraftLabel, setParkSaleDraftLabel] = useState("");
   const [feePromptKind, setFeePromptKind] = useState<"shipping" | "alteration" | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const [searchFocused, setSearchFocused] = useState(false);
   const requestProductSearchFocus = useCallback(() => {
     window.requestAnimationFrame(() => {
       searchInputRef.current?.focus();
@@ -3197,6 +3199,7 @@ export default function Cart({
               if (nextFocus instanceof Node && event.currentTarget.contains(nextFocus)) {
                 return;
               }
+              setSearchFocused(false);
               setSearchResults([]);
             }}
           >
@@ -3210,6 +3213,7 @@ export default function Cart({
               data-testid="pos-product-search"
               placeholder="Search Name, SKU, or Supplier SKUs..."
               value={search}
+              onFocus={() => setSearchFocused(true)}
               onChange={(e) => {
                 const nextSearch = e.target.value;
                 setSearch(nextSearch);
@@ -3243,6 +3247,8 @@ export default function Cart({
             </button>
             <PosSearchResultList
               search={search}
+              isActive={searchFocused}
+              searchStatus={searchStatus}
               groupedSearchResults={groupedSearchResults}
                 onSearchResultClick={onSearchResultClick}
                 onQuickAlterationFeeOnly={startAlterationFeeOnly}
@@ -3280,7 +3286,7 @@ export default function Cart({
                   scrollActionRibbon("end");
                 }
               }}
-              className="flex min-w-0 flex-1 gap-3 overflow-x-auto rounded-xl pr-1 outline-none focus-visible:ring-2 focus-visible:ring-app-accent/60 [&>button]:grow-0"
+              className="flex min-w-0 flex-1 snap-x snap-mandatory gap-3 overflow-x-auto rounded-xl pr-1 outline-none focus-visible:ring-2 focus-visible:ring-app-accent/60 [&>button]:!grow-0 [&>button]:snap-start"
             >
               <button
                 type="button"
@@ -4098,7 +4104,7 @@ export default function Cart({
         {/* ── Keypad — uses all remaining space ── */}
         <div className="flex min-h-0 flex-1 flex-col px-2 pb-2 pt-2 sm:px-2.5">
           {/* Display / mode hint */}
-          <div className="mb-2 shrink-0 rounded-xl border border-app-border/60 bg-app-surface-2/80 px-3 py-2">
+          <div className="mb-2 shrink-0 rounded-xl border border-app-border bg-app-surface-2 px-3 py-2">
             <p className="text-[9px] font-black uppercase leading-snug tracking-widest text-app-text-muted">
               {selectedLineKey
                 ? keypadMode === "qty"
@@ -4116,7 +4122,7 @@ export default function Cart({
             </p>
           </div>
 
-          <div className="min-h-0 flex-1 rounded-2xl border border-app-border/40 bg-app-surface-2 p-2 shadow-inner">
+          <div className="min-h-0 flex-1 rounded-2xl border border-app-border bg-app-surface-2 p-2 shadow-inner">
             <div className="grid h-full grid-cols-3 grid-rows-5 gap-2">
               {["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "CLEAR"].map((key) => (
                 <button
@@ -4124,7 +4130,7 @@ export default function Cart({
                   type="button"
                   disabled={!selectedLineKey}
                   onClick={() => handleNumpadKey(key)}
-                  className={`flex cursor-pointer items-center justify-center rounded-xl border-b-4 text-lg font-black transition-all duration-150 active:translate-y-0.5 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/20 disabled:cursor-not-allowed disabled:opacity-35 sm:text-xl ${key === "CLEAR" ? "border-app-danger/35 bg-app-danger/10 text-app-danger hover:bg-app-danger/18 focus-visible:ring-app-danger/20" : "border-app-border/40 bg-app-surface text-app-text hover:bg-app-surface-3"}`}
+                  className={`flex cursor-pointer items-center justify-center rounded-xl border-b-4 text-lg font-black transition-all duration-150 active:translate-y-0.5 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/20 disabled:cursor-not-allowed disabled:border-app-border disabled:bg-app-surface-3 disabled:text-app-text-disabled disabled:opacity-100 disabled:shadow-none sm:text-xl ${key === "CLEAR" ? "border-app-danger/50 bg-app-danger/10 text-app-danger hover:bg-app-danger/18 focus-visible:ring-app-danger/20" : "border-app-border bg-app-surface text-app-text hover:bg-app-surface-3"}`}
                 >
                   {key}
                 </button>
@@ -4134,7 +4140,7 @@ export default function Cart({
                 type="button"
                 disabled={!selectedLineKey}
                 onClick={() => handleNumpadKey(keypadMode === "qty" ? "-" : "%")}
-                className={`flex cursor-pointer items-center justify-center rounded-xl border-b-4 text-lg font-black text-white shadow-xl transition-all duration-150 hover:brightness-110 active:translate-y-0.5 active:scale-95 focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-35 sm:text-xl ${
+                className={`flex cursor-pointer items-center justify-center rounded-xl border-b-4 text-lg font-black text-white shadow-xl transition-all duration-150 hover:brightness-110 active:translate-y-0.5 active:scale-95 focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:border-app-border disabled:bg-app-surface-3 disabled:text-app-text-disabled disabled:opacity-100 disabled:shadow-none sm:text-xl ${
                   keypadMode === "qty"
                     ? "border-app-danger bg-app-danger shadow-app-danger/20 focus-visible:ring-app-danger/25"
                     : "border-app-info bg-app-info shadow-app-info/20 focus-visible:ring-app-info/25"
@@ -4146,7 +4152,7 @@ export default function Cart({
                 type="button"
                 disabled={!selectedLineKey}
                 onClick={() => handleNumpadKey("$")}
-                className="flex cursor-pointer items-center justify-center rounded-xl border-b-4 border-app-info bg-app-info text-lg font-black text-white shadow-xl shadow-app-info/20 transition-all duration-150 hover:brightness-110 active:translate-y-0.5 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-info/25 disabled:cursor-not-allowed disabled:opacity-35 sm:text-xl"
+                className="flex cursor-pointer items-center justify-center rounded-xl border-b-4 border-app-info bg-app-info text-lg font-black text-white shadow-xl shadow-app-info/20 transition-all duration-150 hover:brightness-110 active:translate-y-0.5 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-info/25 disabled:cursor-not-allowed disabled:border-app-border disabled:bg-app-surface-3 disabled:text-app-text-disabled disabled:opacity-100 disabled:shadow-none sm:text-xl"
               >
                 $
               </button>
@@ -4154,7 +4160,7 @@ export default function Cart({
                 type="button"
                 disabled={!selectedLineKey}
                 onClick={() => handleNumpadKey("ENTER")}
-                className="flex cursor-pointer items-center justify-center rounded-xl border-b-[6px] border-app-success bg-app-success text-base font-black uppercase tracking-widest text-white shadow-2xl shadow-app-success/25 transition-all duration-150 hover:brightness-110 active:translate-y-0.5 active:scale-95 active:border-b-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-success/25 disabled:cursor-not-allowed disabled:opacity-35"
+                className="flex cursor-pointer items-center justify-center rounded-xl border-b-[6px] border-app-success bg-app-success text-base font-black uppercase tracking-widest text-white shadow-2xl shadow-app-success/25 transition-all duration-150 hover:brightness-110 active:translate-y-0.5 active:scale-95 active:border-b-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-success/25 disabled:cursor-not-allowed disabled:border-app-border disabled:bg-app-surface-3 disabled:text-app-text-disabled disabled:opacity-100 disabled:shadow-none"
               >
                 Apply
               </button>
@@ -4251,7 +4257,7 @@ export default function Cart({
                  openCheckoutDrawerWithGuard();
                }
              }}
-             className={`ui-touch-target group relative flex h-[4.25rem] w-full items-center justify-between rounded-2xl border-b-[6px] transition-all duration-150 active:translate-y-0.5 active:scale-[0.98] shadow-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-success/25 ${hasCheckoutWork ? 'bg-app-success border-app-success text-white hover:brightness-110 shadow-app-success/40' : 'bg-app-surface-2 border-app-border text-app-text-muted cursor-not-allowed opacity-50'}`}
+             className={`ui-touch-target group relative flex h-[4.25rem] w-full items-center justify-between rounded-2xl border-b-[6px] transition-all duration-150 active:translate-y-0.5 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-success/25 ${hasCheckoutWork ? 'bg-app-success border-app-success text-white hover:brightness-110 shadow-2xl shadow-app-success/40' : 'cursor-not-allowed border-app-border bg-app-surface-3 text-app-text-disabled shadow-none'}`}
            >
              <div className="flex flex-col items-start pl-3 sm:pl-5">
                 <span className="text-[9px] font-black uppercase tracking-[0.28em] opacity-70">

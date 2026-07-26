@@ -237,6 +237,55 @@ test("POS dropdowns stay visible near bottom of scrollable cart", async ({ page 
   await productResult.click({ force: true });
 });
 
+test("POS product search explains no matches and action cards are not clipped", async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  await mockDropdownSearches(page);
+  await page.route("**/api/products/pos-parent-search?**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: "[]",
+    });
+  });
+  await openPosRegisterSurface(page);
+  await closeExchangeWizardIfOpen(page);
+
+  const productInput = page.getByTestId("pos-product-search");
+  await productInput.fill("shoe");
+  await expect(page.getByText("No products found", { exact: true })).toBeVisible({
+    timeout: 10_000,
+  });
+  await expect(page.getByText(/No product name, SKU, or supplier SKU matches “shoe”/i)).toBeVisible();
+
+  const actionToolbar = page.getByRole("toolbar", { name: "Cart actions" });
+  const clippedVisibleActions = await actionToolbar.evaluate((toolbar) => {
+    const bounds = toolbar.getBoundingClientRect();
+    return Array.from(toolbar.children)
+      .filter((child): child is HTMLElement => child instanceof HTMLElement)
+      .filter((child) => {
+        const rect = child.getBoundingClientRect();
+        const intersects = rect.right > bounds.left && rect.left < bounds.right;
+        const fullyVisible = rect.left >= bounds.left - 1 && rect.right <= bounds.right + 1;
+        return intersects && !fullyVisible;
+      })
+      .map((child) => child.innerText.trim());
+  });
+  expect(clippedVisibleActions).toEqual([]);
+
+  const registerSidebar = page.getByRole("complementary", {
+    name: "Customer, sale totals and keypad",
+  });
+  for (const key of ["1", "$", "Apply"]) {
+    const button = registerSidebar.getByRole("button", { name: key, exact: true });
+    await expect(button).toBeDisabled();
+    await expect(button).toHaveCSS("opacity", "1");
+  }
+  await expect(page.getByTestId("pos-pay-button")).toBeDisabled();
+  await expect(page.getByTestId("pos-pay-button")).toHaveCSS("opacity", "1");
+});
+
 test("POS variation picker adds selected SKU after search results close", async ({ page }) => {
   test.setTimeout(90_000);
 
