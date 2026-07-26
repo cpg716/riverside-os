@@ -26,6 +26,8 @@
    - **Sales by Hour** and **Recent Activity** — sales pace and live store or wedding events.
 3. Treat the dashboard as a routing surface. Open the source workspace before making customer, inventory, close, or manager decisions.
 
+The small line beneath a KPI is a related count, not a change-over-time trend. For example, **Inventory Alerts** may also show issue-alert count and **Pickup Queue** may show how many are ready. Riverside does not use up/down arrows for these related totals.
+
 **If a block is missing:** assume **permission** or **not configured** before assuming a bug.
 
 Use the full **Alterations Hub**, **Pickup Queue**, **Daily Sales**, or **Inventory Stock Guidance** when you need search, source filters, status movement, or sign-off. The Operations block is the fast triage snapshot.

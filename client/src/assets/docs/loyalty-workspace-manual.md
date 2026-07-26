@@ -27,7 +27,7 @@ Use this workspace to manage Riverside loyalty rewards, review reward readiness,
 ## How to use it
 
 1. Start in **Customers Ready For Reward** to see who is eligible.
-2. Use **Redeem** when you are ready to issue the loyalty reward to a gift card.
+2. Confirm the visible reward count, dollar value, and points-per-reward threshold, then use **Redeem Reward** when you are ready to issue the loyalty reward to a gift card.
 3. Review **Loyalty Activity** or **History** when a customer needs explanation or fulfillment follow-up.
 4. Use **Program Settings** only when an authorized admin needs to change loyalty rules or letter content.
 
@@ -46,7 +46,7 @@ This is the primary operational list. It shows customers who have reached the re
 ### Fulfillment Workflow
 1. **Refresh Eligible Customers**: Use the refresh button to pull the latest balances.
 2. Use **Previous** and **Next** when the eligible pool spans more than one page.
-3. **Redeem Reward**: Click the **Redeem** button to open the redemption dialog. This deducts the points and issues the full reward to a loyalty gift card.
+3. **Redeem Reward**: Each row shows the number and dollar value of rewards ready plus the current points threshold. Click **Redeem Reward** to open the redemption dialog. This deducts the points and issues the selected reward value to a loyalty gift card.
 4. **Page selection and labels**: **Select Page** and **Print Page Labels** apply to the currently visible eligible customers. Select individual customers before starting a batch when you do not want the whole page.
 
 ## Loyalty Activity

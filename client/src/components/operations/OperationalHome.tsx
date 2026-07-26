@@ -1966,7 +1966,6 @@ export default function OperationalHome({
           sparklineData={salesHistory}
           trend={{
             value: todaySummary?.sales_count ?? 0,
-            isUp: true,
             label: "sales today",
           }}
           color="blue"
@@ -1980,7 +1979,6 @@ export default function OperationalHome({
           icon={ClipboardCheck}
           trend={{
             value: registerCloseStats.reconciling > 0 ? registerCloseStats.openDrawers : 0,
-            isUp: registerCloseStats.reconciling === 0,
             label: registerCloseStats.reconciling > 0 ? `drawer${registerCloseStats.openDrawers !== 1 ? "s" : ""} open` : "all drawers clear",
           }}
           color={registerCloseStats.reconciling > 0 ? "orange" : "green"}
@@ -1994,7 +1992,6 @@ export default function OperationalHome({
           icon={ShoppingBag}
           trend={{
             value: fulfillmentStats.ready,
-            isUp: true,
             label: "ready for pickup",
           }}
           color="purple"
@@ -2008,7 +2005,6 @@ export default function OperationalHome({
           icon={Scissors}
           trend={{
             value: alterationStats.ready,
-            isUp: true,
             label: "ready",
           }}
           color="purple"
@@ -2022,7 +2018,6 @@ export default function OperationalHome({
           icon={Ruler}
           trend={{
             value: issueNotifications.length,
-            isUp: false,
             label: "issue alerts",
           }}
           color="orange"
@@ -2034,11 +2029,6 @@ export default function OperationalHome({
           title="Today's Appointments"
           value={feedLoadErrors.todaySummary ? "Not loaded" : todaySummary?.appointment_count ?? 0}
           icon={CalendarCheck}
-          trend={{
-            value: topIssues.length + activeNotifications.length,
-            isUp: false,
-            label: "items need attention",
-          }}
           color="rose"
           className="min-h-[142px] p-4"
           onClick={() => onNavigateMetric?.({ tab: "appointments", section: "scheduler" })}

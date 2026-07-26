@@ -46,7 +46,7 @@ When Helcim supplies explicit fee or net values, **Sync Batches** promotes them 
 
 Automatic Helcim deposit links require current USD evidence and either an explicit provider deposit/net amount or a complete net total from every current successful batch transaction. Helcim **net sales** is sales activity, not bank-deposit evidence. If a later sync loses complete net evidence, changes away from USD, or otherwise no longer supports the automatic link, Riverside preserves the prior value for review, marks the deposit **Needs review**, unlinks the batch, and records the before/after state in the deposit audit history. A later verified snapshot can relink it with another audit event.
 
-If there are no card payments yet, the tab shows **No payments yet today**. Run sync later after card activity begins.
+If there are no card payments yet, the tab shows **No payments yet today**. When the last settlement sync is more than 24 hours old or missing, ROS also shows **Sync overdue** and instructs staff to run **Sync Batches** before treating the zero as current. A historical **completed** run is not proof that today has been checked.
 
 ## POS Payments
 

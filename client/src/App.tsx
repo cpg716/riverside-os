@@ -982,6 +982,8 @@ function App() {
         { label: "Loyalty", onClick: tabClick },
         ...(subLabel ? [{ label: subLabel }] : []),
       ];
+    if (activeTab === "rms-charge")
+      return [{ label: "RMS Charge", onClick: tabClick }];
     if (activeTab === "appointments")
       return [
         { label: "Appointments", onClick: tabClick },

@@ -4,24 +4,24 @@
 
 :root {
   color-scheme: light;
-  --app-bg: #ebe7df;
+  --app-bg: #ebe6de;
   --app-surface: #fffdfa;
-  --app-surface-2: #f1ebe3;
-  --app-surface-3: #e1d7ca;
+  --app-surface-2: #f3eee7;
+  --app-surface-3: #e3dacf;
   --app-text: #111827;
-  --app-text-muted: #5b6472;
-  --app-text-disabled: #8f98a7;
-  --app-border: #d3d9e1;
-  --app-accent: #cf54e4; /* softened fuchsia */
+  --app-text-muted: #4b5563;
+  --app-text-disabled: #6b7480;
+  --app-border: #b9c2ce;
+  --app-accent: #b83ecb;
   --app-accent-2: #0ea5e9; /* Sky-500 */
-  --app-success: #1f8d68;
-  --app-warning: #ab7a33;
-  --app-danger: #c87979;
-  --app-info: #467fc5;
+  --app-success: #147759;
+  --app-warning: #875b1d;
+  --app-danger: #ad4f58;
+  --app-info: #336dad;
   --app-shell: #e7e1d8;
   --app-rail: #faf7f1;
   /* Stronger than --app-border so form controls read clearly on white cards (light mode). */
-  --app-input-border: #99a3b2;
+  --app-input-border: #8792a2;
   --app-input-bg: var(--app-surface);
   --app-input-inset: inset 0 1px 2px rgba(15, 23, 42, 0.07);
 }
@@ -246,6 +246,20 @@ html[data-theme="dark"] :where(
     filter: brightness(1.05);
   }
 
+  .ui-btn-primary:disabled,
+  .ui-btn-secondary:disabled {
+    cursor: not-allowed;
+    filter: none;
+    box-shadow: none;
+  }
+
+  .ui-btn-primary:disabled {
+    border: 1px solid var(--app-border);
+    background: var(--app-surface-3);
+    color: var(--app-text-disabled);
+    opacity: 1;
+  }
+
   .ui-btn-secondary {
     border: 1px solid color-mix(in srgb, var(--app-border) 72%, transparent);
     background: var(--app-surface);
@@ -260,6 +274,11 @@ html[data-theme="dark"] :where(
 
   .ui-pill {
     @apply inline-flex rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-wide;
+  }
+
+  .ui-chip {
+    border: 1px solid color-mix(in srgb, var(--app-border) 82%, transparent);
+    @apply inline-flex items-center rounded-full px-2.5 py-1 leading-none;
   }
 
   .ui-table-shell {

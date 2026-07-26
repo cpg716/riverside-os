@@ -177,7 +177,7 @@ type SettingsHubGroup = {
 };
 
 const SETTINGS_HUB_DESCRIPTIONS: Record<string, string> = {
-  profile: "Your staff profile, contact details, PIN, and notification preferences.",
+  profile: "Your staff profile, contact details, Access PIN, and notification preferences.",
   "staff-access-defaults": "Role templates, default access, and discount caps.",
   "online-store": "Storefront publishing, product exposure, and customer checkout setup.",
   printing: "Printers, scanners, labels, test tools, and workstation hardware.",

@@ -12,6 +12,8 @@
 
 This is your **shift overview** before you jump into the cart. Scan top-to-bottom: the six command cards, **What Needs Action First**, **Wedding Pulse**, **weather / sales pace**, and **notifications**. Anything that looks actionable should take you back to the source workflow.
 
+The small line beneath a command-card total is a related count, not a change from yesterday. For example, **Notifications** shows unread items and **Overdue Pickups** can also show rush orders without implying either number went up or down.
+
 ## When you land here
 
 ROS usually opens **Dashboard** when the drawer opens **unless** you are resuming a **customer**, **order**, **SKU**, or **wedding** deep link — then you may land on **Register** instead.
@@ -72,4 +74,4 @@ You see a message to **open the register**. Dashboard metrics tied to the sessio
 - [../TILL_GROUP_AND_REGISTER_OPEN.md](../TILL_GROUP_AND_REGISTER_OPEN.md)
 - [../PLAN_NOTIFICATION_CENTER.md](../PLAN_NOTIFICATION_CENTER.md)
 
-**Last reviewed:** 2026-05-17 (v0.60.0 POS dashboard cleanup)
+**Last reviewed:** 2026-07-26

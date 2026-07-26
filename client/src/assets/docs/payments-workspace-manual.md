@@ -41,9 +41,10 @@ Use the Register checkout drawer to collect payment. Start card refunds from the
 
 1. Open **Payments → Overview**.
 2. Review card sales, known fees, expected net, expected deposits, open review items, and last sync status.
-3. Treat warning and critical issues as evidence to investigate, not automatic permission to edit a Transaction Record.
-4. Open the related tab for details.
-5. Record a review note when the issue requires follow-up across shifts.
+3. If **Sync Status** says **Sync overdue**, run **Sync Batches** before treating a zero-payment day as current. A completed historical run is not current payment evidence.
+4. Treat warning and critical issues as evidence to investigate, not automatic permission to edit a Transaction Record.
+5. Open the related tab for details.
+6. Record a review note when the issue requires follow-up across shifts.
 
 ## Review batches and deposits
 

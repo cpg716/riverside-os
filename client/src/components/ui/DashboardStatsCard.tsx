@@ -104,10 +104,15 @@ export default function DashboardStatsCard({
                 <span
                   className={cn(
                     "shrink-0 text-xs font-bold",
-                    trend.isUp ? styles.trendUp : styles.trendDown,
+                    trend.isUp === true
+                      ? styles.trendUp
+                      : trend.isUp === false
+                        ? styles.trendDown
+                        : "text-app-text",
                   )}
                 >
-                  {trend.isUp ? "▲" : "▼"} {trend.value}
+                  {trend.isUp === true ? "▲ " : trend.isUp === false ? "▼ " : ""}
+                  {trend.value}
                 </span>
                 {trend.label && (
                   <span className="min-w-0 truncate text-[10px] font-medium text-app-text-muted">

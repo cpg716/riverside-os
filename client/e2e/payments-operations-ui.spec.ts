@@ -92,8 +92,12 @@ DELETE FROM payment_provider_batches WHERE id = ${sqlLiteral(row.batchId)} OR pr
 DELETE FROM payment_transactions WHERE id = ${sqlLiteral(row.paymentId)} OR metadata->>'e2e_suite' = ${sqlLiteral(row.suite)};
 DELETE FROM payment_settlement_runs WHERE id = ${sqlLiteral(row.runId)};
 
-INSERT INTO payment_settlement_runs (id, provider, scope, status, summary)
-VALUES (${sqlLiteral(row.runId)}, 'helcim', 'batch_sync', 'completed', '{"e2e_ui": true}'::jsonb);
+INSERT INTO payment_settlement_runs (id, provider, scope, status, started_at, completed_at, summary)
+VALUES (
+  ${sqlLiteral(row.runId)}, 'helcim', 'batch_sync', 'completed',
+  now() - interval '2 days', now() - interval '2 days',
+  '{"e2e_ui": true}'::jsonb
+);
 
 INSERT INTO payment_provider_batches (
   id, provider, provider_batch_id, status, currency, closed_at, settled_at,
@@ -224,6 +228,7 @@ test.describe.serial("Payments Operations workspace smoke", () => {
     await expect(page.getByText("Fee not ready").first()).toBeVisible();
     await expect(page.getByText("Net not ready").first()).toBeVisible();
     await expect(page.getByText("Expected Deposit").first()).toBeVisible();
+    await expect(page.getByText("Sync overdue").first()).toBeVisible();
 
     await paymentsHeader.getByRole("button", { name: /^batches/i }).click();
     await expect(page.getByLabel("From")).toBeVisible();

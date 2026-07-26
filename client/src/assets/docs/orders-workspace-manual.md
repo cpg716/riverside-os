@@ -33,7 +33,7 @@ The Orders workspace is the main place to review Special, Custom, and Wedding or
 - Use **Mark Ready + Notify** in Order Detail only to mark an item operationally ready. Customer pickup completion must be finished from Register with **Open in Register** so recognition, inventory, and register audit stay together.
 - After Register checkout activity, reopen the parent Transaction Record or return to Orders to see the latest authoritative data instead of a stale snapshot.
 - For a card refund already completed in a prior processor or another external card system, choose **External card refund already completed (record only)**. Enter the external refund reference, card last four, and reason, then complete Manager Access. Riverside records the server-issued approval reference with the negative external-card tender and never stores the Access PIN in the refund ledger.
-- Use the `Order Integrity` summary at the top of the workspace to quickly see which shown orders are still waiting on booking details, still carrying balance due, or already showing action-needed / overdue follow-up counts from the existing pipeline stats feed.
+- Use the **Order Integrity** summary at the top of the workspace to quickly see which shown orders are still waiting on booking details, how many **Orders with Balance Due** remain, or which orders already show action-needed / overdue follow-up.
 - Use the search bar and filter chips above the list to narrow the table before opening a row. The desktop table separates the secondary header labels, such as date, lifecycle, cashier, and deposit, so staff can scan the main work first.
 - Results load in numbered pages. Use **Previous** and **Next** to review every match; the range below the list shows exactly which matching orders are currently loaded.
 
@@ -55,6 +55,7 @@ The Orders workspace is the main place to review Special, Custom, and Wedding or
 - A paid wedding balance does not automatically mean the order is ready. Confirm the linked member is actually ready for pickup before release.
 - The **Order Progress** panel in Order Detail is the quickest way to tell whether items still need details, are ready to order, have been ordered, were received, are ready for pickup, or were picked up.
 - In the list view, read each column from left to right: Transaction, Customer, Order Items, Salesperson, Status, Amounts, and Balance. Use **Register** from the row when the work needs register review.
+- Imported active Counterpoint obligations are labeled **Counterpoint Open Document** rather than an abbreviated internal code.
 
 Check the order type before making changes so the right team follows up on it.
 

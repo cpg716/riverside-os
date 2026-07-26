@@ -349,7 +349,6 @@ export default function RegisterDashboard({
             color="green"
             trend={{
               value: todayBookedSales?.count ?? 0,
-              isUp: (todayBookedSales?.count ?? 0) > 0,
               label: "booked today",
             }}
             className="min-h-[138px] p-4"
@@ -363,7 +362,6 @@ export default function RegisterDashboard({
             color={unread > 0 ? "rose" : "green"}
             trend={{
               value: unread,
-              isUp: unread === 0,
               label: unread === 0 ? "all read" : "unread",
             }}
             className="min-h-[138px] p-4"
@@ -375,7 +373,7 @@ export default function RegisterDashboard({
             value={stats?.overdue_pickups ?? 0}
             icon={PackageCheck}
             color={(stats?.overdue_pickups ?? 0) > 0 ? "rose" : "green"}
-            trend={{ value: stats?.rush_orders ?? 0, isUp: (stats?.overdue_pickups ?? 0) === 0, label: "rush orders" }}
+            trend={{ value: stats?.rush_orders ?? 0, label: "rush orders" }}
             className="min-h-[138px] p-4"
             onClick={onGoToOrders}
             ariaLabel="Open Orders"
@@ -385,7 +383,7 @@ export default function RegisterDashboard({
             value={alterationAlerts.length}
             icon={Scissors}
             color={alterationAlerts.length > 0 ? "rose" : "green"}
-            trend={{ value: alterationAlerts.length, isUp: alterationAlerts.length === 0, label: "in inbox" }}
+            trend={{ value: alterationAlerts.length, label: "in inbox" }}
             className="min-h-[138px] p-4"
             onClick={canOpenAlterations ? onGoToAlterations : undefined}
             ariaLabel="Open Alterations"
@@ -395,7 +393,7 @@ export default function RegisterDashboard({
             value={taskOpen.length}
             icon={ClipboardCheck}
             color={taskOpen.length > 0 ? "orange" : "green"}
-            trend={{ value: taskOpen.filter((task) => task.due_date != null).length, isUp: taskOpen.length === 0, label: "dated" }}
+            trend={{ value: taskOpen.filter((task) => task.due_date != null).length, label: "dated" }}
             className="min-h-[138px] p-4"
             onClick={canOpenTasks ? onGoToTasks : undefined}
             ariaLabel="Open Tasks"
@@ -405,7 +403,7 @@ export default function RegisterDashboard({
             value={inventoryAlerts.length}
             icon={Package}
             color={inventoryAlerts.length > 0 ? "orange" : "green"}
-            trend={{ value: activeNotifications.length, isUp: inventoryAlerts.length === 0, label: "total alerts" }}
+            trend={{ value: activeNotifications.length, label: "total alerts" }}
             className="min-h-[138px] p-4"
             onClick={onGoToInventory ?? openDrawer}
             ariaLabel="Open Inventory Alerts"

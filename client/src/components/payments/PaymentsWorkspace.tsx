@@ -461,6 +461,13 @@ function shortDateTime(value: string | null | undefined) {
   });
 }
 
+function isOlderThanHours(value: string | null | undefined, hours: number) {
+  if (!value) return true;
+  const timestamp = new Date(value).getTime();
+  if (Number.isNaN(timestamp)) return true;
+  return Date.now() - timestamp > hours * 60 * 60 * 1000;
+}
+
 function shortDate(value: string | null | undefined) {
   if (!value) return "Not ready";
   const date = new Date(value);
@@ -1779,12 +1786,25 @@ function OverviewPanel({
   const missingPayments = issues.filter((issue) => issue.issue_label === "Missing Payment").length;
   const notInDeposit = issues.filter((issue) => issue.issue_label === "Not in Deposit").length;
   const noPaymentsToday = Number(overview?.card_sales_gross ?? 0) === 0;
+  const lastSettlementSync = overview?.last_settlement_sync ?? null;
+  const lastSettlementSyncAt = lastSettlementSync?.completed_at ?? lastSettlementSync?.started_at;
+  const settlementSyncOverdue = isOlderThanHours(lastSettlementSyncAt, 24);
+  const settlementSyncHealthy =
+    Boolean(overview?.helcim_api_active) &&
+    !settlementSyncOverdue &&
+    ["complete", "completed", "success", "successful"].includes(
+      lastSettlementSync?.status.toLowerCase() ?? "",
+    );
   return (
     <div className="space-y-6">
       {noPaymentsToday ? (
         <EmptyState
           title="No payments yet today"
-          body="Run sync to check for updates when card activity begins."
+          body={
+            settlementSyncOverdue
+              ? "Settlement data is out of date. Run Sync Batches before treating today as having no card activity."
+              : "The latest settlement sync is current and no card activity is recorded for today."
+          }
           compact
         />
       ) : null}
@@ -1815,9 +1835,17 @@ function OverviewPanel({
         />
         <MetricCard
           label="Sync Status"
-          value={overview?.last_settlement_sync?.status ?? "Not ready"}
-          note={overview?.last_settlement_sync ? shortDateTime(overview.last_settlement_sync.started_at) : "No sync yet"}
-          tone={overview?.helcim_api_active ? "good" : "warning"}
+          value={
+            settlementSyncOverdue
+              ? "Sync overdue"
+              : staffLabel(lastSettlementSync?.status, "Not ready")
+          }
+          note={
+            lastSettlementSyncAt
+              ? `Last settlement sync ${shortDateTime(lastSettlementSyncAt)}`
+              : "No settlement sync recorded"
+          }
+          tone={settlementSyncHealthy ? "good" : "warning"}
         />
       </div>
       <div className="grid gap-4 lg:grid-cols-3">

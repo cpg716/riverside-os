@@ -1078,7 +1078,7 @@ export default function CustomersWorkspace({
                   {stat.label}
                 </p>
                 <p className="text-2xl font-black tabular-nums text-app-text">
-                  {stat.count ?? "—"}
+                  {stat.count == null ? "—" : stat.count.toLocaleString()}
                 </p>
               </div>
             </div>
@@ -1097,7 +1097,7 @@ export default function CustomersWorkspace({
                 </p>
               </div>
               <span className="rounded-full border border-app-border bg-app-surface-3 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                {customerQualitySummary.visibleCustomers} customers in view
+                {customerQualitySummary.visibleCustomers.toLocaleString()} customers in view
               </span>
             </div>
             <div className="mt-4 grid gap-2 sm:grid-cols-3">
@@ -1114,7 +1114,7 @@ export default function CustomersWorkspace({
                     {label}
                   </p>
                   <p className="mt-1 text-lg font-black tabular-nums text-app-text">
-                    {value}
+                    {Number(value).toLocaleString()}
                   </p>
                 </div>
               ))}
@@ -1482,6 +1482,13 @@ export default function CustomersWorkspace({
                   {rows.map((r) => {
                     const hasBalance =
                       parseMoneyToCents(r.open_balance_due) > 0;
+                    const customerName =
+                      [r.first_name, r.last_name]
+                        .map((part) => part?.trim())
+                        .filter(Boolean)
+                        .join(" ") ||
+                      r.company_name?.trim() ||
+                      "Unnamed customer";
                     return (
                       <tr
                         key={r.id}
@@ -1506,7 +1513,7 @@ export default function CustomersWorkspace({
                               className="min-w-0 flex-1 text-left group-hover:translate-x-1 transition-transform"
                             >
                               <span className="block truncate text-base font-black tracking-tight text-app-text group-hover:text-app-accent">
-                                {r.first_name} {r.last_name}
+                                {customerName}
                               </span>
                               <div className="mt-1 flex flex-wrap items-center gap-2">
                                 <span className="font-mono text-[11px] font-bold uppercase tracking-[0.08em] text-app-text-muted">
@@ -1550,7 +1557,7 @@ export default function CustomersWorkspace({
                               }}
                               className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-app-success/20 bg-app-success/10 text-app-success transition-all hover:bg-app-success/15 active:scale-95"
                               title="Start sale"
-                              aria-label={`Start sale for ${r.first_name} ${r.last_name}`}
+                              aria-label={`Start sale for ${customerName}`}
                             >
                               <ShoppingBag size={18} />
                             </button>
@@ -1592,7 +1599,7 @@ export default function CustomersWorkspace({
                             {moneyDec(r.lifetime_sales)}
                           </div>
                           <div className="text-[10px] font-black uppercase tracking-[0.14em] text-app-text-disabled">
-                            LTV Sales
+                            Lifetime Sales
                           </div>
                         </td>
                         <td className="px-4 py-3 align-middle text-center">

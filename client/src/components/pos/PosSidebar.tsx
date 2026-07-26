@@ -4,6 +4,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import SidebarRailTooltip from "../ui/SidebarRailTooltip";
+import RiversideJustLogo from "../../assets/images/logo1.png";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { subSectionVisible } from "../../context/BackofficeAuthPermissions";
 import { SidebarTabId } from "../layout/sidebarSections";
@@ -93,8 +94,12 @@ export default function PosSidebar({
         {/* Brand row */}
         <div className={`mb-5 flex min-h-[44px] items-center ${collapsed ? "justify-center" : "justify-between"}`}>
           <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-app-border bg-[linear-gradient(145deg,color-mix(in_srgb,var(--app-accent)_18%,var(--app-surface-2)),var(--app-surface-2))] text-[10px] font-black tracking-tight text-app-text">
-              ROS
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-app-border bg-app-surface-2 shadow-sm">
+              <img
+                src={RiversideJustLogo}
+                alt="Riverside"
+                className="h-full w-full object-contain"
+              />
             </div>
             {!collapsed && (
               <div className="min-w-0">
@@ -133,7 +138,7 @@ export default function PosSidebar({
                       collapsed ? "h-11 w-full justify-center" : "min-h-11 w-full px-3 py-3"
                     } ${
                       isActive
-                        ? "border border-app-border bg-app-surface-2 text-app-text shadow-sm active:scale-[0.99]"
+                        ? "border border-app-accent/35 bg-app-accent/10 text-app-text shadow-sm active:scale-[0.99]"
                         : "text-app-text-muted hover:bg-app-surface-2 hover:text-app-text hover:shadow-sm active:scale-[0.99]"
                     }`}
                   >
@@ -164,7 +169,7 @@ export default function PosSidebar({
                         onClick={() => onSubSectionChange?.(sub.id)}
                         className={`flex w-full cursor-pointer items-center gap-1 rounded-lg px-2.5 py-1.5 text-left text-[11px] transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/20 ${
                           activeSubSection === sub.id
-                            ? "bg-app-surface-2 font-black text-app-accent"
+                            ? "border border-app-accent/25 bg-app-accent/10 font-black text-app-accent shadow-sm"
                             : "font-semibold text-app-text-muted hover:bg-app-surface-2 hover:text-app-text"
                         }`}
                       >

@@ -864,12 +864,14 @@ function ReportTile({ report, onSelect }: { report: ReportDef; onSelect: () => v
             {report.category}
           </span>
           <span className="ui-chip bg-app-surface-2 text-xs font-bold text-app-text-muted">
-            For {report.audience}
+            {report.audience} report
           </span>
           <span className="ui-chip bg-app-surface-2 text-xs font-bold text-app-text-muted">
             {report.sensitivity === "Staff-safe"
-              ? "Staff-safe"
-              : `${report.sensitivity} access`}
+              ? "Staff Access"
+              : report.sensitivity === "Admin-only"
+                ? "Admin Access"
+                : "Manager Access"}
           </span>
           {!isAvailableReport(report) ? (
             <span className="ui-chip bg-app-accent/10 text-xs font-bold text-app-accent">

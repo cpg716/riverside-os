@@ -21,6 +21,8 @@
 5. Optionally link **wedding party** or **member** if the visit is party-related.
 6. **Save**; confirm on **week** view.
 
+When a selected day has no appointments, the Scheduler says so above the time grid. Select **New Appointment** there or choose any time slot below; an empty grid is not a loading result.
+
 **Privacy:** Do not announce **full** customer names across the lobby if policy restricts it.
 
 ## Conflicts
@@ -62,4 +64,4 @@
 - [weddings-back-office.md](weddings-back-office.md)
 - [../APPOINTMENTS_AND_CALENDAR.md](../APPOINTMENTS_AND_CALENDAR.md)
 
-**Last reviewed:** 2026-04-04
+**Last reviewed:** 2026-07-26

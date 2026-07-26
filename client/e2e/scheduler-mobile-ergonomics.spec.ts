@@ -20,6 +20,13 @@ for (const viewport of SCHEDULER_VIEWPORTS) {
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
     await signInToBackOffice(page);
 
+    await page.route("**/api/weddings/appointments?**", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([]),
+      });
+    });
     await page.route("**/api/weddings/appointments/search?**", async (route) => {
       await route.fulfill({
         status: 200,
@@ -40,6 +47,12 @@ for (const viewport of SCHEDULER_VIEWPORTS) {
     await expect(page.getByRole("heading", { name: /appointment schedule/i })).toBeVisible({
       timeout: 20_000,
     });
+    await expect(
+      page.getByText("No appointments scheduled for this day"),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "New Appointment" }),
+    ).toBeVisible();
 
     await page.getByRole("button", { name: /^week$/i }).click();
     await expect(page.getByTestId("scheduler-week-grid-shell")).toBeVisible({ timeout: 15_000 });

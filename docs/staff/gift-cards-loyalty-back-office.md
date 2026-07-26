@@ -60,11 +60,12 @@ Gift card codes are normalized to uppercase for scanner workflows. Reusing a dep
 
 1. **Loyalty** → **Monthly Eligible** (requires **loyalty.program_settings**).
 2. Select the customers you want to fulfill in this batch.
-3. Click **Start Batch**.
-4. For each customer, scan one loyalty gift card per reward block. With the standard 5,000-point / $50 program, a customer with 15,000 points gets three separate $50 gift cards.
-5. ROS prints one award letter after the customer has no more reward blocks available. The letter can include the issue date, one-year expiration date, card count, card codes, and card table from the template.
-6. When the batch is complete, print the mailing labels for the completed customers.
-7. Open **Reward History** if you need to reprint an award letter or an individual mailing label.
+3. Confirm each row's visible reward count, dollar value, and points-per-reward threshold before starting fulfillment.
+4. Click **Start Batch**.
+5. For each customer, scan one loyalty gift card per reward block. With the standard 5,000-point / $50 program, a customer with 15,000 points gets three separate $50 gift cards.
+6. ROS prints one award letter after the customer has no more reward blocks available. The letter can include the issue date, one-year expiration date, card count, card codes, and card table from the template.
+7. When the batch is complete, print the mailing labels for the completed customers.
+8. Open **Reward History** if you need to reprint an award letter or an individual mailing label.
 
 ### Adjust Points
 

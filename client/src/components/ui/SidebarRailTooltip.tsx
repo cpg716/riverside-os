@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-const SHOW_DELAY_MS = 280;
+const SHOW_DELAY_MS = 550;
 
 function mergeRefs<T>(
   ...refs: (React.Ref<T> | undefined)[]

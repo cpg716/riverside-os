@@ -231,7 +231,7 @@ function counterpointImportLabel(
   >,
 ) {
   if (!row.is_counterpoint_import) return null;
-  if (isCounterpointOpenDoc(row)) return "CP Open Doc";
+  if (isCounterpointOpenDoc(row)) return "Counterpoint Open Document";
   if (row.counterpoint_ticket_ref) return "CP History";
   return "CP Sync";
 }
@@ -1885,7 +1885,7 @@ export default function OrdersWorkspace({
       border: "border-app-warning/16",
     },
     {
-      label: "Balance Due",
+      label: "Orders with Balance Due",
       value: orderIntegritySummary.balanceStillDue,
       icon: Wallet,
       tint: "ui-tint-danger",
@@ -2074,7 +2074,7 @@ export default function OrdersWorkspace({
 
         <div className="px-4 sm:px-6">
           <div className="ui-card ui-tint-warning px-4 py-4">
-            <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="flex flex-wrap items-start gap-3">
               <div>
                 <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">
                   Fulfillment Follow-Up
@@ -2085,9 +2085,6 @@ export default function OrdersWorkspace({
                   receipts, and non-order items.
                 </p>
               </div>
-              <span className="rounded-full border border-app-border bg-app-surface-3 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                {totalCount} orders found
-              </span>
             </div>
             <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
               {orderFollowUpMetrics.map((metric) => {

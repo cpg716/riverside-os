@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { X, Scissors, User } from "lucide-react";
 import AlterationItemEditor from "./AlterationItemEditor";
@@ -58,6 +58,19 @@ export default function AlterationSchedulingDrawer({
   const customerName = `${localAlt.customer_first_name ?? ""} ${localAlt.customer_last_name ?? ""}`.trim() || "Unassigned Customer";
   useBodyScrollLock(true);
 
+  const reloadActivity = useCallback(async (alterationId: string) => {
+    try {
+      const res = await fetch(`${baseUrl}/api/alterations/${alterationId}/activity`, {
+        headers: apiAuth(),
+      });
+      if (res.ok) {
+        setActivity(await res.json());
+      }
+    } catch (e) {
+      console.error("Failed to load alteration activity", e);
+    }
+  }, [apiAuth]);
+
   const reloadAlteration = async () => {
     try {
       const res = await fetch(`${baseUrl}/api/alterations/${localAlt.id}`, {
@@ -67,23 +80,10 @@ export default function AlterationSchedulingDrawer({
         const updated = await res.json();
         setLocalAlt(updated);
         onUpdated();
-        void reloadActivity();
+        void reloadActivity(localAlt.id);
       }
     } catch (e) {
       console.error("Failed to reload alteration", e);
-    }
-  };
-
-  const reloadActivity = async () => {
-    try {
-      const res = await fetch(`${baseUrl}/api/alterations/${localAlt.id}/activity`, {
-        headers: apiAuth(),
-      });
-      if (res.ok) {
-        setActivity(await res.json());
-      }
-    } catch (e) {
-      console.error("Failed to load alteration activity", e);
     }
   };
 
@@ -98,7 +98,7 @@ export default function AlterationSchedulingDrawer({
         const updated = await res.json();
         setLocalAlt(updated);
         onUpdated();
-        void reloadActivity();
+        void reloadActivity(localAlt.id);
       } else {
         const b = (await res.json().catch(() => ({}))) as { error?: string };
         toast(b.error ?? "Could not update alteration.", "error");
@@ -127,8 +127,8 @@ export default function AlterationSchedulingDrawer({
   useEffect(() => {
     setLocalAlt(alteration);
     setTicketDraft(alteration.ticket_number ?? "");
-    void reloadActivity();
-  }, [alteration.id]);
+    void reloadActivity(alteration.id);
+  }, [alteration, reloadActivity]);
 
   const root = document.getElementById("drawer-root") || document.body;
 
@@ -227,7 +227,7 @@ export default function AlterationSchedulingDrawer({
                 apiAuth={apiAuth}
                 onItemsChanged={() => {
                   void reloadAlteration();
-                  void reloadActivity();
+                  void reloadActivity(localAlt.id);
                 }}
               />
 

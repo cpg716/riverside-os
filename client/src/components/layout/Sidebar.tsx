@@ -172,7 +172,7 @@ export default function Sidebar({
                     collapsed ? "ui-touch-target justify-center px-2 py-2.5" : "min-h-11 px-3 py-2.5"
                   } ${
                     isActive
-                      ? "border border-app-border bg-app-surface-2 text-app-text shadow-sm active:scale-[0.99]"
+                      ? "border border-app-accent/35 bg-app-accent/10 text-app-text shadow-sm active:scale-[0.99]"
                       : "text-app-text-muted hover:bg-app-surface-2 hover:text-app-text hover:shadow-sm active:scale-[0.99]"
                   }`}
                 >
@@ -236,7 +236,7 @@ export default function Sidebar({
                         onClick={() => onSubSectionChange(sub.id)}
                         className={`flex min-h-11 w-full cursor-pointer items-center gap-1 rounded-lg px-2.5 py-2 text-left text-xs transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/20 ${
                           activeSubSection === sub.id
-                            ? "bg-app-surface-2 font-black text-app-accent"
+                            ? "border border-app-accent/25 bg-app-accent/10 font-black text-app-accent shadow-sm"
                             : "font-semibold text-app-text-muted hover:bg-app-surface-2 hover:text-app-text"
                         }`}
                       >

@@ -482,7 +482,7 @@ export default function GiftCardsWorkspace({ activeSection }: { activeSection: s
             color: "text-sky-500",
             bg: "bg-sky-500/10",
             border: "border-sky-500/20",
-            trend: openOnly ? "POS parity" : "all rows",
+            trend: openOnly ? "Open cards only" : "All visible cards",
           },
           {
             label: "Liability",
@@ -491,7 +491,7 @@ export default function GiftCardsWorkspace({ activeSection }: { activeSection: s
             color: "text-emerald-500",
             bg: "bg-emerald-500/10",
             border: "border-emerald-500/20",
-            trend: "active balance",
+            trend: "Total active balance",
           },
           {
             label: "Loyalty Cards",
@@ -500,7 +500,7 @@ export default function GiftCardsWorkspace({ activeSection }: { activeSection: s
             color: "text-amber-500",
             bg: "bg-amber-500/10",
             border: "border-amber-500/20",
-            trend: "reward issued",
+            trend: "Issued as rewards",
           },
           {
             label: "Donated Cards",
@@ -509,7 +509,7 @@ export default function GiftCardsWorkspace({ activeSection }: { activeSection: s
             color: "text-purple-500",
             bg: "bg-purple-500/10",
             border: "border-purple-500/20",
-            trend: "community",
+            trend: "Community cards",
           },
           {
             label: "Promo Cards",
@@ -518,7 +518,7 @@ export default function GiftCardsWorkspace({ activeSection }: { activeSection: s
             color: "text-fuchsia-500",
             bg: "bg-fuchsia-500/10",
             border: "border-fuchsia-500/20",
-            trend: "events",
+            trend: "Promotional cards",
           },
         ].map((s, idx) => (
           <div key={idx} className={`group relative flex min-w-[210px] flex-1 items-center gap-4 overflow-hidden rounded-[28px] border ${s.border} ${s.bg} p-5 shadow-sm backdrop-blur-3xl transition-transform duration-500 hover:scale-[1.02] sm:min-w-[240px]`}>
@@ -529,11 +529,11 @@ export default function GiftCardsWorkspace({ activeSection }: { activeSection: s
               <s.icon size={26} className={s.color} />
             </div>
             <div className="min-w-0 flex-1">
-              <div className="flex min-w-0 items-start gap-2">
-                <p className="min-w-0 flex-1 text-[10px] font-black uppercase leading-tight tracking-[0.12em] text-app-text-muted opacity-80">{s.label}</p>
-                <span className="max-w-20 shrink-0 rounded-full bg-black/5 px-1.5 py-0.5 text-center text-[8px] font-black leading-tight tabular-nums text-app-text-muted dark:bg-app-surface/5">{s.trend}</span>
-              </div>
+              <p className="text-[11px] font-black uppercase leading-tight tracking-[0.1em] text-app-text-muted">{s.label}</p>
               <p className={`max-w-full whitespace-nowrap font-black leading-none tabular-nums tracking-tight text-app-text ${summaryValueSize(s.val)}`}>{s.val}</p>
+              <p className="mt-1 text-[10px] font-bold leading-tight text-app-text-muted">
+                {s.trend}
+              </p>
             </div>
           </div>
         ))}

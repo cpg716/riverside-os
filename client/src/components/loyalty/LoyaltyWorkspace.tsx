@@ -1235,7 +1235,15 @@ function EligibleList({
 
             <div className="space-y-3">
               {customers.map(c => {
-                const isMultiReward = c.loyalty_points >= (settings?.loyalty_point_threshold || 5000) * 2;
+                const rewardThreshold = settings?.loyalty_point_threshold || 5000;
+                const rewardsReady = Math.max(
+                  1,
+                  Math.floor(c.loyalty_points / rewardThreshold),
+                );
+                const rewardAmount = centsToFixed2(
+                  parseMoneyToCents(settings?.loyalty_reward_amount ?? "0"),
+                );
+                const isMultiReward = rewardsReady > 1;
                 const pointsValue = c.loyalty_points.toLocaleString();
                 const selected = selectedIds.has(c.id);
                 
@@ -1278,12 +1286,12 @@ function EligibleList({
                          <div className="flex flex-col">
                             <div className="flex items-center gap-1.5">
 	                               <span className={`text-xs font-black ${isMultiReward ? 'text-app-accent' : 'text-app-success'}`}>
-                                  {isMultiReward ? "Two rewards ready" : "Reward ready"}
+                                  {rewardsReady.toLocaleString()} × ${rewardAmount} {rewardsReady === 1 ? "reward" : "rewards"} ready
                                </span>
                                {isMultiReward && <Award size={14} className="text-purple-500 animate-pulse" />}
                             </div>
 	                            <span className="mt-1 text-xs font-bold text-app-text-muted opacity-70">
-                               Reward status
+                               {rewardThreshold.toLocaleString()} points per reward
                             </span>
                          </div>
                       </div>
@@ -1316,7 +1324,7 @@ function EligibleList({
 	                           className="flex min-h-11 items-center gap-3 rounded-2xl border-b-4 border-emerald-800 bg-emerald-600 px-6 text-sm font-black text-white shadow-2xl shadow-emerald-500/20 transition-all hover:brightness-110 active:scale-95"
                          >
                            <Award size={18} />
-                           Redeem
+                           Redeem Reward
                          </button>
                          <button
                            type="button"

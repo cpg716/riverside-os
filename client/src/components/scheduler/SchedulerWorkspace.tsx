@@ -365,6 +365,15 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
     return dates;
   }, [selectedDate]);
 
+  const selectedDayAppointments = useMemo(() => {
+    const dateKey = localDateKey(selectedDate);
+    return appointments.filter(
+      (appointment) =>
+        appointmentLocalDateKey(appointment.datetime) === dateKey &&
+        isOpenAppointment(appointment),
+    );
+  }, [appointments, selectedDate]);
+
   const printableRows = useMemo<PrintableRow[]>(() => {
     if (viewMode === "day") {
       const dateStr = localDateKey(selectedDate);
@@ -689,6 +698,26 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
         ) : null}
         {viewMode === 'day' ? (
           <div className="mx-auto max-w-5xl rounded-2xl border border-app-border bg-app-surface shadow-2xl shadow-black/10 overflow-hidden print:border-0 print:shadow-none">
+            {!loadError && selectedDayAppointments.length === 0 ? (
+              <div className="flex flex-col gap-3 border-b border-app-border bg-app-surface-2 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-sm font-black text-app-text">
+                    No appointments scheduled for this day
+                  </p>
+                  <p className="mt-1 text-sm text-app-text-muted">
+                    Choose any time slot below or create an appointment now.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleAddApptAtDate(selectedDate, "09:00")}
+                  className="ui-btn-primary inline-flex items-center justify-center gap-2"
+                >
+                  <Plus size={16} aria-hidden />
+                  New Appointment
+                </button>
+              </div>
+            ) : null}
             <div className={`grid ${isCompactLayout ? "grid-cols-[72px_1fr]" : "grid-cols-[100px_1fr]"} divide-y divide-app-border/40`}>
               {timeSlots.map(time => {
                 const dateStr = localDateKey(selectedDate);

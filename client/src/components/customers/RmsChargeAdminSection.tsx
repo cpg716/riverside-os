@@ -566,7 +566,7 @@ export default function RmsChargeAdminSection({
             RMS Charge Workspace
           </h2>
           <p className="mt-1 text-xs text-app-text-muted">
-            View manual RMS Charge transactions log, reference postings, and upload the weekly accounts lists.
+            Review manual RMS Charge activity, posting reference numbers, and weekly account-list uploads.
           </p>
         </div>
         {activeTab === "transactions" ? (
@@ -688,7 +688,9 @@ export default function RmsChargeAdminSection({
             </select>
           </label>
           <label className="flex flex-col gap-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-            Report to R2S
+            <span title="Whether staff have recorded this activity in the external R2S workflow">
+              Reported to R2S
+            </span>
             <select
               value={reportStatus}
               onChange={(event) =>
@@ -732,8 +734,40 @@ export default function RmsChargeAdminSection({
             <tbody>
               {records.length === 0 && !loadingRecords ? (
                 <tr>
-                  <td colSpan={10} className="px-4 py-10 text-center text-sm text-app-text-muted">
-                    No RMS Charge activity found.
+                  <td colSpan={10} className="px-4 py-10 text-center">
+                    <p className="text-sm font-black text-app-text">
+                      No RMS Charge activity matches these filters
+                    </p>
+                    <p className="mx-auto mt-2 max-w-xl text-sm text-app-text-muted">
+                      Clear the customer and record filters, widen the date range, or open Weekly Account Import to review the latest account list.
+                    </p>
+                    <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const widenedFrom = new Date();
+                          widenedFrom.setDate(widenedFrom.getDate() - 90);
+                          setFrom(widenedFrom.toISOString().split("T")[0]);
+                          setTo(new Date().toISOString().split("T")[0]);
+                          setKind("");
+                          setReportStatus("all");
+                          setQ("");
+                          setSelectedCustomerId("");
+                          setSelectedCustomerLabel("");
+                          setOffset(0);
+                        }}
+                        className="ui-btn-secondary"
+                      >
+                        Clear Filters and Show 90 Days
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab("import")}
+                        className="ui-btn-primary"
+                      >
+                        Weekly Account Import
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ) : null}

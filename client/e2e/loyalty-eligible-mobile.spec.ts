@@ -76,5 +76,8 @@ for (const viewport of LOYALTY_VIEWPORTS) {
     await expect(page.getByTestId("loyalty-eligible-actions").first()).toBeVisible({
       timeout: 15_000,
     });
+    await expect(page.getByText("1 × $25.00 reward ready")).toBeVisible();
+    await expect(page.getByText("5,000 points per reward")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Redeem Reward" })).toBeVisible();
   });
 }
