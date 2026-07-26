@@ -1,12 +1,12 @@
 # Backup System Verification Report
 
 **Updated:** 2026-07-24
-**Version:** v0.95.0 source candidate
+**Version:** v0.95.5 source candidate
 **Status:** Implementation contract validated locally; production backup proof pending
 
 ## Summary
 
-This document describes the backup safety contract implemented by the v0.95.0 source candidate. Local unit, migration, and compilation checks validate the code paths, but they do not prove that the production Main Hub has created a current backup, retained its key, uploaded an off-site copy, or completed a restore drill. Production readiness requires the exact artifact checks listed below.
+This document describes the backup safety contract implemented by the v0.95.5 source candidate. Local unit, migration, and compilation checks validate the code paths, but they do not prove that the production Main Hub has created a current backup, retained its key, uploaded an off-site copy, or completed a restore drill. Production readiness requires the exact artifact checks listed below.
 
 ## Automated Backup System
 

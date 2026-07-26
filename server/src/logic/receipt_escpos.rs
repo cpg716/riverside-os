@@ -1118,8 +1118,7 @@ mod tests {
             HashMap::new(),
         ))
         .expect("receipt bytes are text apart from printer controls");
-        let markdown =
-            receiptline_item_lines(&order, &ReceiptConfig::default(), false, false).join("\n");
+        let markdown = receiptline_item_lines(&order, &ReceiptConfig::default(), false, false);
 
         assert!(thermal.contains("Customer item: Customer-owned navy suit pants"));
         assert!(markdown.contains("Customer item: Customer-owned navy suit pants |"));

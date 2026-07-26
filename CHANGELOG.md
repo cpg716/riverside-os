@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.95.5] - 2026-07-26
+
 - Added an auditable Manager-only legacy Counterpoint order reconciliation workflow that scans all stored imported accounts, repairs only exact open-order/ticket/payment matches, moves legitimate later payments to the original order, supersedes duplicate imported artifacts, and leaves ambiguous cases unchanged for review without rerunning Counterpoint imports.
 - Added manager-approved Register backdating that changes the transaction business date without moving actual tender-day evidence, plus explicit receipt and QBO clearing documentation.
 

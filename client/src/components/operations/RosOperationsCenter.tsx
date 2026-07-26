@@ -1037,7 +1037,7 @@ export default function RosOperationsCenter({
               : `All loaded stations match ${CLIENT_SEMVER}.`,
         required: true,
         targetTab: "stations",
-        evidence: "docs/releases/v0.95.0-certification.md",
+        evidence: "docs/releases/v0.95.5-certification.md",
       },
       {
         key: "migrations",

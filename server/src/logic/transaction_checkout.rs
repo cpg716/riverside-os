@@ -7700,6 +7700,8 @@ mod tests {
             charge_amount: None,
             due_at: None,
             notes: Some("Customer prefers a shorter break.".to_string()),
+            ticket_number: None,
+            intake_mode: None,
         }
     }
 
