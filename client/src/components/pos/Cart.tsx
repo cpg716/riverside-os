@@ -615,6 +615,7 @@ export default function Cart({
   const [orderLoadOpen, setOrderLoadOpen] = useState(false);
   const [orderReviewOpen, setOrderReviewOpen] = useState(false);
   const [alterationIntakeOpen, setAlterationIntakeOpen] = useState(false);
+  const [alterationIntakeMode, setAlterationIntakeMode] = useState<"quick" | "full">("full");
   const [editingAlterationIntake, setEditingAlterationIntake] = useState<PendingAlterationIntake | null>(null);
   const [sourceRemovalPrompt, setSourceRemovalPrompt] = useState<{
     line: CartLineItem;
@@ -1348,6 +1349,7 @@ export default function Cart({
       line_type: "alteration_service",
       alteration_intake_id: intake.id,
       alteration_source_cart_row_id: intake.cart_row_id ?? null,
+      alteration_item_description: intake.item_description,
       price_override_reason: "alteration_service",
       original_unit_price: "0.00",
       custom_item_type: "alteration_service",
@@ -2839,10 +2841,25 @@ export default function Cart({
 
   // --- Search Coordination ---
   const onSearchResultClick = (item: SearchResult) => {
-    if (item.sku === "ROS-ALTERATION-FEE" || item.sku === "ROS-SHIPPING-FEE") {
+    if (item.sku === "ROS-ALTERATION-FEE") {
       setSearch("");
       setSearchResults([]);
-      setFeePromptKind(item.sku === "ROS-ALTERATION-FEE" ? "alterations" : "shipping");
+      if (!selectedCustomer) {
+        toast("Select or create a customer before starting an alteration.", "error");
+        window.requestAnimationFrame(() => {
+          document.querySelector<HTMLInputElement>("[data-testid='pos-customer-search']")?.focus();
+        });
+        return;
+      }
+      setEditingAlterationIntake(null);
+      setAlterationIntakeMode("quick");
+      setAlterationIntakeOpen(true);
+      return;
+    }
+    if (item.sku === "ROS-SHIPPING-FEE") {
+      setSearch("");
+      setSearchResults([]);
+      setFeePromptKind("shipping");
       return;
     }
     handleSearchResultClick(item, searchResults, search, setActiveVariationSelection);
@@ -3262,9 +3279,13 @@ export default function Cart({
                 onClick={() => {
                   if (!selectedCustomer) {
                     toast("Select or create a customer before starting an alteration.", "error");
+                    window.requestAnimationFrame(() => {
+                      document.querySelector<HTMLInputElement>("[data-testid='pos-customer-search']")?.focus();
+                    });
                     return;
                   }
                   setEditingAlterationIntake(null);
+                  setAlterationIntakeMode("full");
                   setAlterationIntakeOpen(true);
                 }}
                 title={selectedCustomer ? "Start alteration intake" : "Select a customer to start alteration intake"}
@@ -3546,6 +3567,7 @@ export default function Cart({
                     const intake = pendingAlterationIntakes.find((row) => row.id === intakeId);
                     if (!intake) return;
                     setEditingAlterationIntake(intake);
+                    setAlterationIntakeMode("full");
                     setAlterationIntakeOpen(true);
                   }}
                   onLineProductTitleClick={openLineProductBrowser}
@@ -5067,6 +5089,7 @@ export default function Cart({
       />
       <PosAlterationIntakeModal
         open={alterationIntakeOpen}
+        mode={alterationIntakeMode}
         customer={selectedCustomer}
         cartLines={lines.filter((line) => line.line_type !== "alteration_service")}
         baseUrl={baseUrl}

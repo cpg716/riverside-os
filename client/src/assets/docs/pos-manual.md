@@ -79,11 +79,12 @@ When the drawer is active, you often land on **Dashboard**. Here you can see shi
 5. If the system asks you to choose a size or variation, pick the correct line and confirm.
 6. Repeat for each item. The cart lists each line with quantity and price.
 
-For a standalone service fee, type **ALTERATIONS** or **SHIPPING** and select the fee shortcut:
+For a Register service shortcut:
 
-- **ALTERATIONS** adds a non-tracked, non-taxable Alterations Fee after staff enter the amount. Use the full Alterations workflow when a work order, garment, due date, or fitting must be tracked.
+- **ALTERATIONS** requires a selected customer and opens a Quick Alteration Record. Attach a current-cart item, past purchase, catalog item, or customer-owned item with a description; set the due date and either a fee or free status. Tag # and work requested are optional; scan the physical tag into **Tag #** when available. The checkout/drop-off receipt prints the **Customer item** description, and the pickup receipt repeats it. It records and tracks the alteration for pickup, while scheduling and delegation remain in the Alterations workspace. It can be picked up at Register while marked **In Custody** or **Ready for pickup**; use **Ready** when the work is complete and customer-notification workflows should begin.
 - **SHIPPING** adds a non-taxable shipping fee without creating a shipment. Use **Ship current sale** when an address, carrier/service, shipment record, or tracking workflow is required.
-- Both fee lines can be removed before recording the sale. The shipping fee appears as **SHIPPING FEE** on the customer receipt, and the alterations fee appears as **ALTERATIONS FEE**.
+
+Use the Register **Alteration** toolbar action for the full intake workflow.
 
 Each ordinary sale line has a tax badge. Tap it to cycle that one line through **Standard**, **Clothing**, and **No Tax**:
 

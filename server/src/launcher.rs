@@ -388,7 +388,8 @@ async fn resolve_meilisearch_client(
             if strict_production {
                 return Err(msg.into());
             }
-            tracing::warn!(message = %msg, "Meilisearch runtime version differs from the Riverside pin");
+            tracing::warn!(message = %msg, "Meilisearch runtime is incompatible; using PostgreSQL search fallback");
+            return Ok(None);
         }
         return Ok(Some(client));
     }

@@ -63,6 +63,8 @@ export interface CartLineItem extends ResolvedSkuItem {
   cart_row_id: string;
   alteration_intake_id?: string | null;
   alteration_source_cart_row_id?: string | null;
+  /** Customer-owned garment detail printed on the alteration drop-off receipt. */
+  alteration_item_description?: string | null;
   /** Set on internal `pos_gift_card_load` lines; sent as `gift_card_load_code` at checkout. */
   gift_card_load_code?: string | null;
   price_override_reason?: string;
@@ -112,6 +114,7 @@ export interface PendingAlterationIntake {
   due_at?: string | null;
   notes?: string | null;
   ticket_number?: string | null;
+  intake_mode?: "quick" | "full";
   created_at: string;
 }
 
@@ -133,6 +136,7 @@ export interface CheckoutAlterationIntakePayload {
   due_at?: string | null;
   notes?: string | null;
   ticket_number?: string | null;
+  intake_mode?: "quick" | "full";
 }
 
 export interface OrderPaymentCartLine {

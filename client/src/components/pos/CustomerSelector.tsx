@@ -518,6 +518,7 @@ export default function CustomerSelector({
         width: resultsPanelPosition.width,
         top: resultsPanelPosition.top,
         bottom: resultsPanelPosition.bottom,
+        height: resultsPanelPosition.maxHeight,
         maxHeight: resultsPanelPosition.maxHeight,
       }
     : undefined;
@@ -554,9 +555,9 @@ export default function CustomerSelector({
               onPointerDown={(event) => event.stopPropagation()}
               onClick={(event) => event.stopPropagation()}
               style={resultsPanelStyle}
-              className="fixed z-[300] isolate overflow-hidden rounded-xl border border-app-border bg-app-surface text-app-text shadow-2xl shadow-black/30 ring-1 ring-black/10"
+              className="fixed z-[300] isolate flex flex-col overflow-hidden rounded-xl border border-app-border bg-app-surface text-app-text shadow-2xl shadow-black/30 ring-1 ring-black/10"
             >
-               <div className="max-h-full overflow-y-auto no-scrollbar">
+               <div className="min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain">
                {showWalkInOption && (
                  <button
                    type="button"

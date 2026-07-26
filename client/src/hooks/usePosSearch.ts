@@ -71,7 +71,7 @@ export function usePosSearch({
         product_id: "b7c0a006-0006-4006-8006-000000000006",
         variant_id: "b7c0a007-0007-4007-8007-000000000007",
         sku: "ROS-ALTERATION-FEE",
-        name: "ALTERATIONS FEE — ENTER AMOUNT",
+        name: "ALTERATIONS — QUICK RECORD",
         standard_retail_price: 0,
         unit_cost: 0,
         state_tax: 0,

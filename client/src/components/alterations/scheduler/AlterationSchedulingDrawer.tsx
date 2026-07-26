@@ -145,7 +145,7 @@ export default function AlterationSchedulingDrawer({
         {/* Ticket Number */}
         <div className="px-6 py-4 bg-app-surface border-b border-app-border">
           <label className="block space-y-2">
-            <span className="text-[10px] text-app-text-muted uppercase font-black tracking-widest">Ticket #</span>
+            <span className="text-[10px] text-app-text-muted uppercase font-black tracking-widest">Tag # (scan or enter)</span>
             <input
               type="text"
               value={ticketDraft}
@@ -161,7 +161,8 @@ export default function AlterationSchedulingDrawer({
                   e.currentTarget.blur();
                 }
               }}
-              placeholder="Physical ticket number"
+              autoComplete="off"
+              placeholder="Scan or enter physical tag #"
               className="w-full bg-app-surface-2 border border-app-border rounded-xl px-4 py-3 text-sm font-bold text-app-text focus:outline-none focus:border-app-accent/50"
             />
           </label>

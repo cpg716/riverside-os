@@ -184,6 +184,27 @@ test.describe("POS alteration intake", () => {
     await expect(page.getByTestId("pos-alteration-intake-dialog")).toHaveCount(0);
   });
 
+  test("ALTERATIONS quick search opens the non-scheduling record", async ({ page }) => {
+    await selectCustomer(page);
+    const search = page.getByTestId("pos-product-search");
+    await search.fill("ALTERATIONS");
+    await page.getByRole("button", { name: /alterations.*quick record/i }).click();
+    const dialog = page.getByTestId("pos-alteration-intake-dialog");
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByText(/quick alteration record/i)).toBeVisible();
+    await expect(dialog.getByText(/tailor workload/i)).toHaveCount(0);
+    await expect(dialog.getByText(/fitting plan/i)).toHaveCount(0);
+  });
+
+  test("alteration intake accepts a scanned tag number", async ({ page }) => {
+    await selectCustomer(page);
+    const dialog = await openAlterationIntakeDialog(page);
+
+    const tag = dialog.getByTestId("alteration-tag-number");
+    await tag.fill("ALT-2026-00042");
+    await expect(tag).toHaveValue("ALT-2026-00042");
+  });
+
   test("lookup-only source selection does not add item to cart", async ({ page }) => {
     await selectCustomer(page);
 

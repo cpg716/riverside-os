@@ -54,6 +54,7 @@ type SelectedSource = {
 
 interface PosAlterationIntakeModalProps {
   open: boolean;
+  mode?: "quick" | "full";
   customer: Customer | null;
   cartLines: CartLineItem[];
   baseUrl: string;
@@ -127,6 +128,7 @@ function mapControlBoardRow(row: Record<string, unknown>): SearchResult {
 
 export default function PosAlterationIntakeModal({
   open,
+  mode = "full",
   customer,
   cartLines,
   baseUrl,
@@ -137,6 +139,7 @@ export default function PosAlterationIntakeModal({
   onSavePending,
 }: PosAlterationIntakeModalProps) {
   const { toast } = useToast();
+  const isQuick = mode === "quick";
   const [sourceMode, setSourceMode] = useState<SourceMode>("current_cart_item");
   const [selectedSource, setSelectedSource] = useState<SelectedSource | null>(null);
   const [workRequested, setWorkRequested] = useState("");
@@ -339,7 +342,7 @@ export default function PosAlterationIntakeModal({
     }
 
     const work = workRequested.trim();
-    if (!work && !fittingNeeded) {
+    if (!isQuick && !work && !fittingNeeded) {
       toast("Enter the work requested before saving an alteration that does not need a fitting.", "error");
       return;
     }
@@ -356,7 +359,7 @@ export default function PosAlterationIntakeModal({
     }
 
     const dueIso = dueAt ? new Date(`${dueAt}T12:00:00`).toISOString() : null;
-    const finalWork = work || (fittingNeeded ? "Fitting Needed" : "");
+    const finalWork = work || (isQuick ? "Alteration service" : fittingNeeded ? "Fitting Needed" : "");
     const chargeValue = chargeEnabled ? charge : null;
     const noteValue = notes.trim() || null;
     const ticketValue = ticketNumber.trim() || null;
@@ -382,6 +385,7 @@ export default function PosAlterationIntakeModal({
         due_at: dueIso,
         notes: noteValue,
         ticket_number: ticketValue,
+        intake_mode: isQuick ? "quick" : "full",
         created_at: editingIntake?.created_at ?? new Date().toISOString(),
       });
     toast(editingIntake ? "Alteration line updated." : "Alteration line added to the cart.", "success");
@@ -408,7 +412,7 @@ export default function PosAlterationIntakeModal({
             <Scissors className="h-5 w-5 text-app-accent" />
             <div>
               <h2 className="text-sm font-black uppercase tracking-widest text-app-text">
-                Alteration intake
+                {isQuick ? "Quick alteration record" : "Alteration intake"}
               </h2>
               <p className="text-xs font-semibold text-app-text-muted">
                 {customer ? customerName(customer) : "Select a customer before saving"}
@@ -438,10 +442,9 @@ export default function PosAlterationIntakeModal({
                 {customerName(customer)}
               </p>
               <p className="mt-1 text-xs font-semibold text-app-text-muted">
-                This intake stays attached to the current cart until checkout creates the tailor queue work.
-              </p>
-              <p className="mt-1 text-xs font-bold text-amber-700">
-                Pilot watch: saved intake is still pending until checkout, ticket print, or tailor handoff is completed.
+                {isQuick
+                  ? "Record the item, due date, fee or free status, and any optional tag or work details. Scheduling can be completed later in Alterations."
+                  : "This intake stays attached to the current cart until checkout creates the tailor queue work."}
               </p>
             </div>
           )}
@@ -473,7 +476,7 @@ export default function PosAlterationIntakeModal({
               </div>
             ) : null}
 
-            <div className="mb-4 rounded-xl border border-app-border bg-app-surface-2 p-3">
+            {!isQuick ? <div className="mb-4 rounded-xl border border-app-border bg-app-surface-2 p-3">
               <div className="flex items-center justify-between gap-2 mb-0.5">
                 <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                   Tailor workload
@@ -543,7 +546,7 @@ export default function PosAlterationIntakeModal({
                   </button>
                 </div>
               </div>
-            </div>
+            </div> : null}
 
             {sourceMode === "current_cart_item" ? (
               <div className="space-y-2">
@@ -773,7 +776,7 @@ export default function PosAlterationIntakeModal({
                 ) : null}
               </div>
 
-              <div className="space-y-2">
+              {!isQuick ? <div className="space-y-2">
                 <span className="px-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                   Fitting plan
                 </span>
@@ -806,16 +809,16 @@ export default function PosAlterationIntakeModal({
                     ? "Save the intake now; the tailor can define final work after the fitting."
                     : "Due date is required so this can move straight into the tailor queue."}
                 </p>
-              </div>
+              </div> : null}
 
               <label className="block space-y-2">
                 <span className="px-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                  {fittingNeeded ? "Initial work request (Optional)" : "Work requested"}
+                  {isQuick || fittingNeeded ? "Work requested (Optional)" : "Work requested"}
                 </span>
                 <input
                   value={workRequested}
                   onChange={(event) => setWorkRequested(event.target.value)}
-                  placeholder={fittingNeeded ? "e.g. Needs hem" : "Hem pants, take in waist..."}
+                  placeholder={isQuick || fittingNeeded ? "e.g. Needs hem" : "Hem pants, take in waist..."}
                   data-testid="pos-alteration-work-requested"
                   className="ui-input h-11 w-full text-sm font-bold"
                 />
@@ -823,7 +826,7 @@ export default function PosAlterationIntakeModal({
 
               <label className="flex items-center justify-between rounded-xl border border-app-border bg-app-surface p-3">
                 <span className="text-xs font-black uppercase tracking-widest text-app-text">
-                  Optional charge
+                  {isQuick ? "Fee (leave off for free)" : "Optional charge"}
                 </span>
                 <input
                   type="checkbox"
@@ -857,25 +860,25 @@ export default function PosAlterationIntakeModal({
 
               <label className="block space-y-2">
                 <span className="px-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                  Due date {!fittingNeeded && <span className="text-red-500">*</span>}
+                  Due date {(isQuick || !fittingNeeded) && <span className="text-red-500">*</span>}
                 </span>
                 <input
                   type="date"
                   value={dueAt}
                   onChange={(event) => setDueAt(event.target.value)}
-                  className={`ui-input h-11 w-full text-sm font-bold ${!fittingNeeded && !dueAt ? "border-red-500/50 bg-red-500/5" : ""}`}
+                  className={`ui-input h-11 w-full text-sm font-bold ${(isQuick || !fittingNeeded) && !dueAt ? "border-red-500/50 bg-red-500/5" : ""}`}
                 />
                 <p
                   className={`rounded-xl border px-3 py-2 text-[11px] font-bold ${
-                    !fittingNeeded && !dueAt
+                    (isQuick || !fittingNeeded) && !dueAt
                       ? "border-rose-200 bg-rose-50 text-rose-800"
                       : dueAt
                         ? "border-emerald-200 bg-emerald-50 text-emerald-800"
                         : "border-app-border bg-app-surface text-app-text-muted"
                   }`}
                 >
-                  {!fittingNeeded && !dueAt
-                    ? "Action required: choose a due date before this can go straight to the tailor queue."
+                  {(isQuick || !fittingNeeded) && !dueAt
+                    ? "Action required: choose a due date before saving this alteration record."
                     : dueAt
                       ? "Due date set. After checkout, this can be scheduled or printed from Alterations."
                       : "Fitting first. Save the intake now; final work can be confirmed during the fitting."}
@@ -884,13 +887,15 @@ export default function PosAlterationIntakeModal({
 
               <label className="block space-y-2">
                 <span className="px-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                  Ticket #
+                  Tag # (scan or enter)
                 </span>
                 <input
                   type="text"
                   value={ticketNumber}
                   onChange={(event) => setTicketNumber(event.target.value)}
-                  placeholder="Physical ticket number (optional)"
+                  data-testid="alteration-tag-number"
+                  autoComplete="off"
+                  placeholder="Scan or enter physical tag # (optional)"
                   className="ui-input h-11 w-full text-sm font-bold"
                 />
               </label>
@@ -909,7 +914,9 @@ export default function PosAlterationIntakeModal({
 
               <div className="sticky bottom-0 -mx-4 -mb-4 border-t border-app-border bg-app-surface-2/95 p-4 backdrop-blur sm:-mx-5 sm:-mb-5 sm:p-5">
                 <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
-                  Next: save intake, finish checkout, then schedule or print from Alterations.
+                  {isQuick
+                    ? "Next: save the record, finish checkout, then schedule or print from Alterations when needed."
+                    : "Next: save intake, finish checkout, then schedule or print from Alterations."}
                 </p>
                 <button
                   type="button"
@@ -919,7 +926,7 @@ export default function PosAlterationIntakeModal({
                   className="ui-btn-primary flex h-12 w-full items-center justify-center gap-2 text-[11px] font-black uppercase tracking-widest disabled:opacity-50"
                 >
                   <Scissors className="h-4 w-4" />
-                  Save intake
+                  {isQuick ? "Save quick record" : "Save intake"}
                 </button>
               </div>
             </div>

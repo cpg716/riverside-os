@@ -46,10 +46,11 @@ Use this workspace when you need to:
 1. Open **Alterations** from the sidebar.
 2. Review the **Summary Cards** at the top to gauge the day's priorities.
 3. Use the **Search** bar or **Filters** (Vendor, Status, Source) to find a specific garment or customer.
-4. Tap a garment card to see the full work description and charge notes.
-5. **Change Status**: Drag-and-drop or use the status buttons to move the work through the pipeline (Intake → In Work → Ready → Picked Up).
-6. For a standalone alteration pickup, use **Pick Up & Print** on a **Ready** alteration card.
-7. For an alteration linked to an order, mark the alteration **Ready**, then complete the customer order pickup from the Register. The Register includes ready linked alteration pickups with the order.
+4. From **Search Across Riverside**, select an alteration result to open its **Plan / Reassign** workspace directly, even when it is not in the currently loaded queue page.
+5. Tap a garment card to see the full work description and charge notes.
+6. **Change Status**: Drag-and-drop or use the status buttons to move the work through the pipeline (Intake → In Work → Ready → Picked Up).
+7. For a standalone alteration pickup, use **Pick Up & Print** on a **Ready** alteration card.
+8. For an alteration linked to an order, mark the alteration **Ready**, then complete the customer order pickup from the Register. The Register includes ready linked alteration pickups with the order.
 
 Alteration labor added through the alteration intake workflow is non-taxable. Changing its charge or applying a discount in the Register must not add state or local tax.
 

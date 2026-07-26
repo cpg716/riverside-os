@@ -271,13 +271,20 @@ fn push_items(out: &mut Vec<u8>, d: &ReceiptOrder, gift: bool) {
         if it.quantity != 1 {
             push_line(out, &format!("Qty {}", it.quantity));
         }
-        if let Some(var) = it
+        if let Some(description) = alteration_customer_item_description(it) {
+            push_line(out, &format!("Customer item: {description}"));
+        } else if let Some(var) = it
             .variation_label
             .as_deref()
             .map(str::trim)
             .filter(|v| !v.is_empty())
         {
-            push_line(out, &format!("Variation: {var}"));
+            let label = if is_alteration_service_line(it) {
+                "Customer item"
+            } else {
+                "Variation"
+            };
+            push_line(out, &format!("{label}: {var}"));
         }
         if gift {
             push_line(out, &format!("SKU {}", it.sku));
@@ -540,8 +547,18 @@ fn receiptline_item_lines(
                 if it.quantity != 1 {
                     out_lines.push(format!("Qty {} |", it.quantity));
                 }
-                if let Some(v) = variation {
-                    out_lines.push(format!("Variation: {} |", receiptline_escape(v)));
+                if let Some(description) = alteration_customer_item_description(it) {
+                    out_lines.push(format!(
+                        "Customer item: {} |",
+                        receiptline_escape(description)
+                    ));
+                } else if let Some(v) = variation {
+                    let label = if is_alteration_service_line(it) {
+                        "Customer item"
+                    } else {
+                        "Variation"
+                    };
+                    out_lines.push(format!("{label}: {} |", receiptline_escape(v)));
                 }
                 out_lines.push(format!("| SKU {} |", receiptline_escape(&it.sku)));
                 if let Some(code) = it
@@ -557,8 +574,18 @@ fn receiptline_item_lines(
                 if it.quantity != 1 {
                     out_lines.push(format!("Qty {} |", it.quantity));
                 }
-                if let Some(v) = variation {
-                    out_lines.push(format!("Variation: {} |", receiptline_escape(v)));
+                if let Some(description) = alteration_customer_item_description(it) {
+                    out_lines.push(format!(
+                        "Customer item: {} |",
+                        receiptline_escape(description)
+                    ));
+                } else if let Some(v) = variation {
+                    let label = if is_alteration_service_line(it) {
+                        "Customer item"
+                    } else {
+                        "Variation"
+                    };
+                    out_lines.push(format!("{label}: {} |", receiptline_escape(v)));
                 }
                 if is_pickup && label == "PICKED UP" {
                     out_lines.push(format!("Order Date: {} |", receipt_date(d, cfg)));
@@ -614,6 +641,19 @@ fn is_rms_charge_payment_line(it: &crate::logic::receipt_shared::ReceiptLine) ->
 
 fn is_alteration_service_line(it: &crate::logic::receipt_shared::ReceiptLine) -> bool {
     it.custom_item_type.as_deref() == Some("alteration_service")
+}
+
+fn alteration_customer_item_description(
+    it: &crate::logic::receipt_shared::ReceiptLine,
+) -> Option<&str> {
+    is_alteration_service_line(it)
+        .then_some(())
+        .and_then(|_| it.custom_order_details.as_ref())
+        .and_then(serde_json::Value::as_object)
+        .and_then(|details| details.get("alteration_item_description"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
 }
 
 fn is_shipping_fee_line(it: &crate::logic::receipt_shared::ReceiptLine) -> bool {
@@ -987,6 +1027,7 @@ mod tests {
     use crate::logic::receipt_shared::{ReceiptKind, ReceiptLine, ReceiptOrder, ReceiptPayment};
     use crate::models::DbOrderStatus;
     use chrono::Utc;
+    use serde_json::json;
     use uuid::Uuid;
 
     fn receipt_order_with(items: Vec<ReceiptLine>) -> ReceiptOrder {
@@ -1057,6 +1098,31 @@ mod tests {
         assert!(lines.contains("Alteration: Hem Pants"));
         assert!(lines.contains("^^^Shipping"));
         assert!(lines.contains("SHIPPING FEE"));
+    }
+
+    #[test]
+    fn alteration_receipts_show_the_customer_item_description() {
+        let mut alteration = receipt_line(
+            "Alteration: Hem pants",
+            "ROS-ALTERATION-SERVICE",
+            Some("alteration_service"),
+        );
+        alteration.custom_order_details = Some(json!({
+            "alteration_item_description": "Customer-owned navy suit pants"
+        }));
+        let order = receipt_order_with(vec![alteration]);
+
+        let thermal = String::from_utf8(build_receipt_escpos(
+            &order,
+            &ReceiptConfig::default(),
+            HashMap::new(),
+        ))
+        .expect("receipt bytes are text apart from printer controls");
+        let markdown =
+            receiptline_item_lines(&order, &ReceiptConfig::default(), false, false).join("\n");
+
+        assert!(thermal.contains("Customer item: Customer-owned navy suit pants"));
+        assert!(markdown.contains("Customer item: Customer-owned navy suit pants |"));
     }
 
     #[test]

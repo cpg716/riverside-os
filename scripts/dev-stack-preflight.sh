@@ -119,6 +119,7 @@ try {
 }
 
 ensure_meilisearch_ready() {
+  local expected_version="1.49.0"
   local url
   url="$(meilisearch_url)"
   if [[ -z "$url" ]]; then
@@ -204,6 +205,24 @@ try {
   if ! curl -fsS -H "Authorization: Bearer ${api_key}" "${url%/}/indexes?limit=1" >/dev/null 2>&1; then
     echo "[dev-preflight] Meilisearch rejected RIVERSIDE_MEILISEARCH_API_KEY for ${url}." >&2
     echo "[dev-preflight] Keep server/.env RIVERSIDE_MEILISEARCH_API_KEY and docker-compose.yml MEILI_MASTER_KEY in sync." >&2
+    exit 1
+  fi
+
+  local runtime_version
+  runtime_version="$(curl -fsS -H "Authorization: Bearer ${api_key}" "${url%/}/version" 2>/dev/null | node -e '
+let body = "";
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (chunk) => { body += chunk; });
+process.stdin.on("end", () => {
+  try {
+    const version = JSON.parse(body).pkgVersion;
+    if (typeof version === "string") process.stdout.write(version);
+  } catch {}
+});
+' || true)"
+  if [[ "$runtime_version" != "$expected_version" ]]; then
+    echo "[dev-preflight] Meilisearch ${runtime_version:-version unavailable} is incompatible; Riverside requires ${expected_version}." >&2
+    echo "[dev-preflight] Update the local sidecar from docker-compose.yml, then rebuild its derived indexes from PostgreSQL." >&2
     exit 1
   fi
 

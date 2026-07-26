@@ -68,6 +68,7 @@ export function PosSearchResultList({
             group.length,
             Number(item.total_variant_count ?? 0) || group.length,
           );
+          const startsQuickAlteration = item.sku === "ROS-ALTERATION-FEE";
           const minPrice = Number(item.retail_price_min ?? item.standard_retail_price);
           const maxPrice = Number(item.retail_price_max ?? item.standard_retail_price);
           const priceLabel = variationCount > 1 && !isExactSku
@@ -158,6 +159,8 @@ export function PosSearchResultList({
                   <span className="text-xs uppercase tracking-wide">
                     {variationCount > 1 && !isExactSku
                       ? "Size Select"
+                      : startsQuickAlteration
+                        ? "Quick Record"
                       : "Add Cart"}
                   </span>
                   <ArrowRight size={14} />

@@ -615,7 +615,11 @@ export function useCartCheckout({
               tax_category_override: taxCategoryOverride,
               salesperson_id: isEmployeeSale ? null : l.salesperson_id?.trim() || null,
               custom_item_type: l.custom_item_type,
-              custom_order_details: l.custom_order_details ?? undefined,
+              custom_order_details: l.custom_order_details ?? (
+                l.alteration_item_description?.trim()
+                  ? { alteration_item_description: l.alteration_item_description.trim() }
+                  : undefined
+              ),
               is_rush: l.is_rush || (appliesOrderOptions ? Boolean(options?.is_rush) : false),
               need_by_date: l.need_by_date ?? (appliesOrderOptions ? options?.need_by_date ?? null : null),
               needs_gift_wrap: l.needs_gift_wrap,
@@ -644,6 +648,8 @@ export function useCartCheckout({
           charge_amount: intake.charge_amount ?? null,
           due_at: intake.due_at ?? null,
           notes: intake.notes ?? null,
+          ticket_number: intake.ticket_number ?? null,
+          intake_mode: intake.intake_mode ?? "full",
         })),
         order_payments: positiveOrderPaymentLines.length > 0 ? positiveOrderPaymentLines.map((line) => ({
           client_line_id: line.cart_row_id,

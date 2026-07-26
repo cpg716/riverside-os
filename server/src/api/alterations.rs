@@ -506,6 +506,7 @@ async fn list_alterations(
         .filter(|s| !s.is_empty())
         .map(str::to_string);
     let search = raw_search.as_deref().map(literal_ilike_pattern);
+    let ticket_search = raw_search.as_deref().map(literal_ilike_pattern);
     let search_digits = raw_search
         .as_deref()
         .map(digits_only)
@@ -557,9 +558,14 @@ async fn list_alterations(
         LEFT JOIN transactions lt ON lt.id = COALESCE(a.transaction_id, a.source_transaction_id)
         WHERE ($1::uuid IS NULL OR a.customer_id = $1)
           AND ($2::text IS NULL OR a.status::text = $2)
-          AND ($5::uuid[] IS NULL OR a.id = ANY($5))
+          AND (
+            $5::uuid[] IS NULL
+            OR a.id = ANY($5)
+            OR ($6::text IS NOT NULL AND COALESCE(a.ticket_number, '') ILIKE $6)
+          )
           AND (
             $3::text IS NULL
+            OR COALESCE(a.ticket_number, '') ILIKE $3
             OR a.id::text ILIKE $3
             OR COALESCE(c.first_name, '') ILIKE $3
             OR COALESCE(c.last_name, '') ILIKE $3
@@ -581,7 +587,7 @@ async fn list_alterations(
             )
           )
         ORDER BY a.created_at DESC, a.id DESC
-        LIMIT $6 OFFSET $7
+        LIMIT $7 OFFSET $8
         "#,
     )
     .bind(q.customer_id)
@@ -589,6 +595,7 @@ async fn list_alterations(
     .bind(sql_search)
     .bind(search_digits)
     .bind(meili_ids.as_deref())
+    .bind(ticket_search)
     .bind(limit)
     .bind(offset)
     .fetch_all(&state.db)

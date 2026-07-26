@@ -1,5 +1,6 @@
 import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useScanner } from "../../hooks/useScanner";
 import {
   Loader2,
   Scissors,
@@ -166,6 +167,7 @@ const rowMatchesSearch = (row: AlterationRow, search: string) => {
     row.work_requested,
     row.notes,
     row.source_sku,
+    row.ticket_number,
     row.linked_transaction_display_id,
     row.source_transaction_id,
     alterationSourceLabel(row),
@@ -336,6 +338,41 @@ export default function CustomerAlterationsPanel({
     }
   }, [apiAuth, customerId, debouncedSearch, hasMore, loading, loadingMore, rows.length, toast]);
 
+  const openTicket = useCallback(async (rawTicket: string, silent = false) => {
+    const ticket = rawTicket.trim();
+    if (!ticket) return;
+    try {
+      const params = new URLSearchParams({
+        search: ticket,
+        limit: "10",
+        offset: "0",
+      });
+      const res = await fetch(`${baseUrl}/api/alterations?${params.toString()}`, {
+        headers: apiAuth(),
+      });
+      if (!res.ok) throw new Error("ticket lookup");
+      const matches = (await res.json()) as AlterationRow[];
+      const normalizedTicket = ticket.toLowerCase();
+      const alteration = matches.find(
+        (row) => row.ticket_number?.trim().toLowerCase() === normalizedTicket,
+      );
+      if (!alteration) {
+        if (!silent) toast("No alteration matches that tag number.", "error");
+        return;
+      }
+      setRows((current) =>
+        current.some((row) => row.id === alteration.id) ? current : [alteration, ...current],
+      );
+      setSchedulingAlt(alteration);
+    } catch {
+      if (!silent) toast("Could not open that alteration tag.", "error");
+    }
+  }, [apiAuth, toast]);
+
+  useScanner({
+    onScan: (code) => void openTicket(code),
+  });
+
   useEffect(() => {
     void load();
   }, [load]);
@@ -371,12 +408,41 @@ export default function CustomerAlterationsPanel({
 
   useEffect(() => {
     const id = highlightAlterationId?.trim();
-    if (!id || rows.length === 0) return;
-    if (!rows.some((r) => r.id === id)) return;
-    const el = rowRefs.current[id];
-    el?.scrollIntoView({ block: "center", behavior: "smooth" });
-    onHighlightConsumed?.();
-  }, [highlightAlterationId, rows, onHighlightConsumed]);
+    if (!id) return;
+
+    const openAlteration = (alteration: AlterationRow) => {
+      setSchedulingAlt(alteration);
+      rowRefs.current[id]?.scrollIntoView({ block: "center", behavior: "smooth" });
+      onHighlightConsumed?.();
+    };
+
+    const loaded = rows.find((row) => row.id === id);
+    if (loaded) {
+      openAlteration(loaded);
+      return;
+    }
+
+    let cancelled = false;
+    const loadSelectedAlteration = async () => {
+      try {
+        const res = await fetch(`${baseUrl}/api/alterations/${id}`, { headers: apiAuth() });
+        if (!res.ok) throw new Error("load selected alteration");
+        const alteration = (await res.json()) as AlterationRow;
+        if (cancelled) return;
+        setRows((current) =>
+          current.some((row) => row.id === alteration.id) ? current : [alteration, ...current],
+        );
+        openAlteration(alteration);
+      } catch {
+        if (!cancelled) toast("Could not open the selected alteration.", "error");
+      }
+    };
+    void loadSelectedAlteration();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [apiAuth, highlightAlterationId, onHighlightConsumed, rows, toast]);
 
   const setStatus = async (id: string, status: string) => {
     setBusy(true);
@@ -838,7 +904,7 @@ export default function CustomerAlterationsPanel({
                 {s.replace("_", " ")}
               </button>
             ))}
-            {r.status === "ready" ? (
+            {r.status !== "picked_up" ? (
               <span className="rounded-xl border border-app-success/30 bg-app-success/10 px-3 py-1.5 text-[9px] font-black uppercase tracking-tight text-app-success">
                 Pick up at Register
               </span>
@@ -1028,8 +1094,13 @@ export default function CustomerAlterationsPanel({
               <input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter") return;
+                  event.preventDefault();
+                  void openTicket(event.currentTarget.value, true);
+                }}
                 data-testid="alterations-search"
-                placeholder="SEARCH NAME, PHONE, GARMENT..."
+                placeholder="SEARCH OR SCAN TAG #..."
                 className="ui-input h-10 w-full rounded-xl pl-10 text-[10px] font-black uppercase tracking-widest"
                 aria-label="Search alterations"
               />

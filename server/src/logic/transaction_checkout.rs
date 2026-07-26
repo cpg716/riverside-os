@@ -156,6 +156,10 @@ pub struct CheckoutAlterationIntake {
     pub due_at: Option<chrono::DateTime<Utc>>,
     #[serde(default)]
     pub notes: Option<String>,
+    #[serde(default)]
+    pub ticket_number: Option<String>,
+    #[serde(default)]
+    pub intake_mode: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -1312,6 +1316,16 @@ fn initial_order_lifecycle_status(
 
 fn is_alteration_service_item(item: &CheckoutItem) -> bool {
     checkout_line_type(item) == "alteration_service"
+}
+
+fn canonical_alteration_receipt_details(details: Option<&Value>) -> Option<Value> {
+    let item_description = details?
+        .as_object()?
+        .get("alteration_item_description")?
+        .as_str()?
+        .trim();
+    (!item_description.is_empty())
+        .then(|| json!({ "alteration_item_description": item_description }))
 }
 
 async fn resolve_checkout_tax_category_tx(
@@ -5001,9 +5015,12 @@ async fn execute_checkout_internal(
                     .await?
                     .as_deref()
                     .and_then(known_custom_subtype_for_sku);
-            if let Some(details) =
+            let custom_order_details = if is_alteration_service_item(item) {
+                canonical_alteration_receipt_details(item.custom_order_details.as_ref())
+            } else {
                 canonical_custom_order_details(custom_subtype, item.custom_order_details.as_ref())
-            {
+            };
+            if let Some(details) = custom_order_details {
                 let mut base = override_meta.unwrap_or_else(|| json!({}));
                 if let Value::Object(ref mut map) = base {
                     map.insert("custom_order_details".to_string(), details);
@@ -5201,6 +5218,11 @@ async fn execute_checkout_internal(
             let item_description = trimmed_non_empty(intake.item_description.as_deref());
             let source_sku = trimmed_non_empty(intake.source_sku.as_deref());
             let notes = trimmed_non_empty(intake.notes.as_deref());
+            let ticket_number = trimmed_non_empty(intake.ticket_number.as_deref());
+            let intake_mode = match intake.intake_mode.as_deref().map(str::trim) {
+                Some("quick") => "quick",
+                _ => "full",
+            };
             let source_type = intake.source_type.trim();
             let source_transaction_id = if source_type == "current_cart_item" {
                 Some(transaction_id)
@@ -5215,13 +5237,6 @@ async fn execute_checkout_internal(
                 .filter(|bucket| matches!(*bucket, "jacket" | "pant" | "other"))
                 .unwrap_or("other");
             let capacity_units = intake.capacity_units.unwrap_or(1).max(1);
-            let source_snapshot = json!({
-                "intake_id": intake_id,
-                "alteration_line_client_id": alteration_line_client_id,
-                "source_client_line_id": source_client_line_id,
-                "phase": "pos_register_alteration_service_checkout",
-            });
-
             let alteration_id: Uuid = sqlx::query_scalar(
                 r#"
             INSERT INTO alteration_orders (
@@ -5230,7 +5245,7 @@ async fn execute_checkout_internal(
                 source_product_id, source_variant_id, source_sku,
                 source_transaction_id, source_transaction_line_id,
                 charge_amount, charge_transaction_line_id,
-                intake_channel, source_snapshot
+                intake_channel, source_snapshot, ticket_number
             )
             VALUES (
                 $1, $2, $3, $4,
@@ -5238,7 +5253,7 @@ async fn execute_checkout_internal(
                 $8, $9, $10,
                 $11, $12,
                 $13, $14,
-                'pos_register'::alteration_intake_channel, $15
+                'pos_register'::alteration_intake_channel, $15, $16
             )
             RETURNING id
             "#,
@@ -5257,7 +5272,14 @@ async fn execute_checkout_internal(
             .bind(source_transaction_line_id)
             .bind(charge_amount)
             .bind(charge_transaction_line_id)
-            .bind(Json(source_snapshot.clone()))
+            .bind(Json(json!({
+                "intake_id": intake_id,
+                "alteration_line_client_id": alteration_line_client_id,
+                "source_client_line_id": source_client_line_id,
+                "phase": "pos_register_alteration_service_checkout",
+                "register_flow": intake_mode,
+            })))
+            .bind(ticket_number.as_deref())
             .fetch_one(&mut *tx)
             .await?;
             alteration_order_ids.push(alteration_id);
@@ -5315,6 +5337,8 @@ async fn execute_checkout_internal(
                 "charge_amount": charge_amount.to_string(),
                 "charge_transaction_line_id": charge_transaction_line_id,
                 "intake_channel": "pos_register",
+                "intake_mode": intake_mode,
+                "ticket_number": ticket_number,
                 "source_snapshot_set": true,
             });
             sqlx::query(
@@ -6665,22 +6689,22 @@ where
 #[cfg(test)]
 mod tests {
     use super::{
-        build_payment_allocation_plan, canonical_helcim_ledger_transaction_id,
-        checkout_processing_intent_fingerprint, checkout_request_fingerprints,
-        checkout_total_matches, evaluate_combo_incentives, exact_order_payment_helcim_replay_shape,
-        execute_checkout, fetch_variant_pos_line_kind, helcim_attempt_comparison_cents,
-        helcim_checkout_references, helcim_tender_method_matches_amount,
-        is_fee_only_shipping_quote, parse_combo_reward_amount, payment_effective_date,
-        resolve_payment_splits, strip_sensitive_checkout_request, strip_sensitive_payment_metadata,
-        tender_sum_excluding_deposit_ledger, validate_checkout_alteration_intakes,
-        validate_checkout_item_quantity, validate_checkout_replay_fingerprints,
-        validate_exchange_checkout_intent, validate_helcim_attempt_checkout_binding,
-        validate_open_deposit_scope, validate_order_payment_against_target,
-        validate_order_payment_shape, validate_processing_intent_fingerprint,
-        validate_wedding_disbursement_against_balance, CheckoutAlterationIntake, CheckoutDone,
-        CheckoutItem, CheckoutOrderPayment, CheckoutPaymentSplit, CheckoutRequest,
-        ExistingOrderPaymentTarget, ResolvedOrderPayment, ResolvedPaymentSplit,
-        WeddingDisbursement,
+        build_payment_allocation_plan, canonical_alteration_receipt_details,
+        canonical_helcim_ledger_transaction_id, checkout_processing_intent_fingerprint,
+        checkout_request_fingerprints, checkout_total_matches, evaluate_combo_incentives,
+        exact_order_payment_helcim_replay_shape, execute_checkout, fetch_variant_pos_line_kind,
+        helcim_attempt_comparison_cents, helcim_checkout_references,
+        helcim_tender_method_matches_amount, is_fee_only_shipping_quote, parse_combo_reward_amount,
+        payment_effective_date, resolve_payment_splits, strip_sensitive_checkout_request,
+        strip_sensitive_payment_metadata, tender_sum_excluding_deposit_ledger,
+        validate_checkout_alteration_intakes, validate_checkout_item_quantity,
+        validate_checkout_replay_fingerprints, validate_exchange_checkout_intent,
+        validate_helcim_attempt_checkout_binding, validate_open_deposit_scope,
+        validate_order_payment_against_target, validate_order_payment_shape,
+        validate_processing_intent_fingerprint, validate_wedding_disbursement_against_balance,
+        CheckoutAlterationIntake, CheckoutDone, CheckoutItem, CheckoutOrderPayment,
+        CheckoutPaymentSplit, CheckoutRequest, ExistingOrderPaymentTarget, ResolvedOrderPayment,
+        ResolvedPaymentSplit, WeddingDisbursement,
     };
     use crate::logic::customer_open_deposit;
     use crate::logic::customers::{insert_customer, CustomerCreatedSource, InsertCustomerParams};
@@ -7466,6 +7490,20 @@ mod tests {
             needs_gift_wrap: false,
             order_lifecycle_status: None,
         }
+    }
+
+    #[test]
+    fn canonical_alteration_receipt_details_keep_only_customer_item_description() {
+        let details = canonical_alteration_receipt_details(Some(&json!({
+            "alteration_item_description": "  Customer-owned navy suit pants  ",
+            "untrusted_field": "discard"
+        })))
+        .expect("customer item description is retained");
+
+        assert_eq!(
+            details,
+            json!({ "alteration_item_description": "Customer-owned navy suit pants" })
+        );
     }
 
     fn current_cart_alteration(source_client_line_id: &str) -> CheckoutAlterationIntake {
