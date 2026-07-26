@@ -164,7 +164,7 @@ export default function VariantSelectionModal({
                    setSelections(prev => prev.slice(0, -1));
                  }
               }}
-              className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl border-2 border-app-border text-app-text-muted hover:border-app-text hover:text-app-text transition-all active:scale-90 bg-app-surface"
+              className="flex h-16 w-16 shrink-0 items-center justify-center rounded-xl border border-app-border bg-app-surface text-app-text-muted transition-all hover:border-app-input-border hover:text-app-text active:scale-95"
             >
               <ArrowLeft size={24} />
             </button>
@@ -174,10 +174,10 @@ export default function VariantSelectionModal({
             type="button"
             disabled={!isSelectionComplete || !finalVariant}
             onClick={() => finalVariant && onSelect(finalVariant, priceOverride || undefined)}
-            className={`group relative flex h-16 flex-1 items-center justify-center overflow-hidden rounded-2xl border-b-4 transition-all active:scale-[0.98] active:translate-y-1 ${
+            className={`group relative flex h-16 flex-1 items-center justify-center overflow-hidden rounded-xl border transition-all active:scale-[0.98] ${
               isSelectionComplete && finalVariant
-               ? "bg-emerald-600 border-emerald-800 text-white shadow-xl shadow-emerald-500/40 hover:bg-emerald-500"
-               : "bg-app-surface-2 border-app-input-border text-app-text-muted cursor-not-allowed opacity-50"
+               ? "border-emerald-600 bg-emerald-600 text-white shadow-lg shadow-emerald-500/20 hover:bg-emerald-500"
+               : "cursor-not-allowed border-app-border bg-app-surface-2 text-app-text-muted opacity-50"
             }`}
           >
              <div className="flex items-center gap-3">
@@ -188,14 +188,14 @@ export default function VariantSelectionModal({
         </div>
       }
     >
-      <div className="flex flex-col bg-app-bg px-6 pt-2">
+      <div className="flex h-full flex-col bg-app-surface px-5 py-4">
         {/* Identity & Progress Header */}
-        <div className="mb-6 flex flex-col gap-3 pt-2">
+        <div className="mb-3 flex min-h-7 flex-col justify-center gap-2">
            {selections.length > 0 && (
              <div className="flex flex-wrap gap-2">
                {selections.map((sel, i) => (
-                 <div key={i} className="flex items-center gap-1.5 rounded-full border border-app-border bg-app-surface-2 px-3 py-1 shadow-sm">
-                   <span className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">{sel}</span>
+                 <div key={i} className="flex items-center gap-1.5 rounded-full border border-app-input-border bg-app-surface-2 px-3 py-1.5">
+                   <span className="text-xs font-black uppercase tracking-wide text-app-text">{sel}</span>
                  </div>
                ))}
                {selections.length < attributeSteps.length && (
@@ -212,18 +212,18 @@ export default function VariantSelectionModal({
         <div className="flex-1 overflow-y-auto no-scrollbar">
           {!isSelectionComplete ? (
             <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-2 rounded-2xl border border-app-border bg-app-surface-2 p-3">
                 {choices.map(choice => (
                   <button
                     key={choice}
                     onClick={() => setSelections(prev => [...prev, choice])}
-                    className="group relative flex h-20 flex-col items-center justify-center overflow-hidden rounded-3xl border-2 border-app-border bg-app-surface transition-all hover:border-app-text hover:bg-app-surface-2 active:scale-95 shadow-sm hover:shadow-xl translate-y-0 hover:-translate-y-1"
+                    className="group relative flex h-24 flex-col items-center justify-center overflow-hidden rounded-xl border border-app-border bg-app-surface px-3 transition-all hover:border-app-accent hover:bg-app-accent/5 active:scale-[0.98]"
                   >
-                    <span className="text-sm font-black uppercase tracking-tighter text-app-text group-hover:scale-110 transition-transform">
+                    <span className="text-lg font-black uppercase leading-tight tracking-tight text-app-text sm:text-xl">
                       {choice}
                     </span>
-                    <div className="absolute bottom-1 right-3 opacity-10 group-hover:opacity-100 transition-opacity">
-                       <Plus size={14} />
+                    <div className="absolute bottom-2 right-2 text-app-text-muted opacity-45 transition-opacity group-hover:text-app-accent group-hover:opacity-100">
+                       <Plus size={16} />
                     </div>
                   </button>
                 ))}
@@ -232,7 +232,7 @@ export default function VariantSelectionModal({
           ) : (
             <div className="animate-in zoom-in-95 duration-500 space-y-4 pb-4">
               {/* Product Confirmation Identity (Ultra-Condensed) */}
-               <div className="relative overflow-hidden rounded-2xl bg-app-surface-2 border border-app-border p-3 shadow-lg">
+               <div className="relative overflow-hidden rounded-2xl border border-app-border bg-app-surface-2 p-3">
                  <div className="absolute -right-1 -top-1 opacity-5 text-app-text">
                     <Package size={60} strokeWidth={1} />
                  </div>
@@ -250,7 +250,7 @@ export default function VariantSelectionModal({
               </div>
 
               {/* Price Intelligence Numpad (Integrated into Modal) */}
-              {allowPriceOverride ? <div className="rounded-3xl border-2 border-app-border bg-app-surface p-5 shadow-lg space-y-4">
+              {allowPriceOverride ? <div className="space-y-4 rounded-2xl border border-app-border bg-app-surface-2 p-5">
                  <div className="flex items-center justify-between">
                     <div className="flex items-center gap-1.5 text-app-text">
                        <CircleDollarSign size={14} />

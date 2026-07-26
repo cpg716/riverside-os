@@ -3695,7 +3695,7 @@ export default function NexoCheckoutDrawer({
                   className={`flex h-12 w-full items-center justify-center gap-2 rounded-2xl px-6 text-sm font-black uppercase tracking-[0.2em] transition-all sm:min-w-[210px] sm:w-auto ${
                     canFinalize
                       ? "bg-app-accent text-white shadow-xl shadow-app-accent/30 hover:brightness-110 active:scale-[0.98]"
-                      : "bg-zinc-800 text-zinc-600 cursor-not-allowed"
+                      : "cursor-not-allowed border border-app-border bg-app-surface-2 text-app-text-muted"
                   }`}
                 >
                   {busy ? (
@@ -3989,7 +3989,7 @@ export default function NexoCheckoutDrawer({
 
             {/* 1. Tender Tabs Matrix (Left) */}
             <div className="w-full shrink-0 pb-1 lg:w-48 lg:pb-4">
-              <span className="text-[10px] font-black uppercase tracking-[0.25em] text-app-text-muted mb-2 px-1 opacity-60">Payment Method</span>
+              <span className="mb-2 block px-1 text-[11px] font-black uppercase tracking-[0.2em] text-app-text">Payment Method</span>
               <div className="no-scrollbar flex gap-2 overflow-x-auto lg:flex-col lg:overflow-y-auto lg:overflow-x-visible">
                 {tenderTabIds.map((id) => {
                   const meta = TAB_META[id];
@@ -4002,10 +4002,14 @@ export default function NexoCheckoutDrawer({
                       disabled={helcimOutcomeBlocksCheckout}
                       data-testid={id === "rms_charge" ? "pos-tender-rms-charge" : undefined}
                       onClick={() => { setTab(id); setKeypad(""); }}
-                      className={`flex h-14 min-w-[132px] items-center gap-3 rounded-2xl px-3 text-left shadow-sm transition-all disabled:cursor-not-allowed disabled:opacity-45 sm:min-w-[160px] lg:h-16 lg:w-full lg:min-w-0 lg:gap-4 lg:px-4 ${isActive ? `${meta.active} scale-[1.02] z-10` : meta.idle}`}
+                      className={`flex h-14 min-w-[148px] items-center gap-3 rounded-xl border px-3 text-left transition-all disabled:cursor-not-allowed disabled:opacity-45 sm:min-w-[168px] lg:h-16 lg:w-full lg:min-w-0 lg:gap-3 lg:px-4 ${
+                        isActive
+                          ? "z-10 border-app-accent bg-app-accent text-white shadow-md shadow-app-accent/20"
+                          : "border-app-border bg-app-surface text-app-text hover:border-app-input-border hover:bg-app-surface-2"
+                      }`}
                     >
-                      <Icon size={20} className={isActive ? "" : "opacity-40"} />
-                      <span className="truncate text-[10px] font-black uppercase tracking-widest lg:text-[11px]">{meta.label}</span>
+                      <Icon size={20} className={isActive ? "" : "opacity-70"} />
+                      <span className="text-[11px] font-black uppercase leading-tight tracking-[0.12em] lg:text-xs">{meta.label}</span>
                     </button>
                   );
                 })}
@@ -4734,16 +4738,16 @@ export default function NexoCheckoutDrawer({
             </div>
 
             {/* 3. Payment status and sale summary (Right) */}
-            <div className="flex h-full min-h-0 w-full shrink-0 flex-col gap-4 lg:w-72">
-              <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 text-white shadow-xl flex flex-col min-h-0 flex-1">
+            <div className="flex h-full min-h-0 w-full shrink-0 flex-col gap-3 lg:w-72">
+              <div className="flex min-h-0 flex-1 flex-col rounded-2xl border border-app-border bg-app-surface p-4 text-app-text shadow-sm">
                 <div className="flex items-center justify-between mb-3">
-                   <h5 className="text-[9px] font-black uppercase tracking-[0.2em] text-zinc-500 italic opacity-80">Payment Status</h5>
-                   <Sparkles size={14} className="text-emerald-500 opacity-40 shrink-0" />
+                   <h5 className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text">Payment Status</h5>
+                   <Sparkles size={14} className="shrink-0 text-app-accent opacity-70" />
                 </div>
 
                 <div className="flex-1 space-y-1.5 overflow-y-auto no-scrollbar mb-3">
                    {applied.length === 0 && depositDisplayCents === 0 && existingPaidAmountCents === 0 && !helcimAttempt && !helcimUnverifiedNotice && (
-                     <div className="flex h-full flex-col items-center justify-center py-6 text-center opacity-30">
+                     <div className="flex h-full flex-col items-center justify-center py-6 text-center text-app-text-muted">
                         <Wallet size={24} strokeWidth={1} />
                         <p className="mt-2 px-6 text-xs font-black uppercase tracking-wide leading-tight">
                           No payments added yet
@@ -4789,21 +4793,21 @@ export default function NexoCheckoutDrawer({
                              aria-hidden="true"
                            />
                            <div className="min-w-0">
-                             <p className="text-[9px] font-black uppercase tracking-[0.18em] text-zinc-400">
+                             <p className="text-[9px] font-black uppercase tracking-[0.18em] text-app-text-muted">
                                {helcimAttemptSourceLabel(helcimAttempt)}
                              </p>
-                             <p className="mt-1 text-sm font-black uppercase tracking-wide text-white">
+                             <p className="mt-1 text-sm font-black uppercase tracking-wide text-app-text">
                                {helcimAttemptStatusLabel(helcimAttempt)}
                              </p>
-                             <p className="mt-1 text-[11px] font-semibold leading-snug text-zinc-300">
+                             <p className="mt-1 text-[11px] font-semibold leading-snug text-app-text-muted">
                                {helcimAttemptDetail(helcimAttempt)}
                              </p>
-                             <p className="mt-1 text-[10px] font-semibold leading-snug text-zinc-400">
+                             <p className="mt-1 text-[10px] font-semibold leading-snug text-app-text-muted">
                                ${centsToFixed2(helcimAttempt.amount_cents)} · {helcimAttemptTerminalName(helcimAttempt)}
                                {pendingHelcimAttemptNeedsAttention ? ` · ${helcimAttemptAgeLabel(helcimAttempt)}` : ""}
                              </p>
                              {helcimAttempt.error_code && (
-                               <p className="mt-1 truncate font-mono text-[10px] font-bold text-zinc-400">
+                               <p className="mt-1 truncate font-mono text-[10px] font-bold text-app-text-muted">
                                  Error code: {helcimAttempt.error_code}
                                </p>
                              )}
@@ -4823,7 +4827,7 @@ export default function NexoCheckoutDrawer({
                                type="button"
                                disabled={helcimAttemptLoading}
                                onClick={() => void refreshHelcimAttempt(helcimAttempt.id)}
-                               className="min-h-9 rounded-lg border border-white/10 bg-app-surface-2/50 px-2.5 text-[9px] font-black uppercase tracking-widest text-zinc-300 transition-colors hover:bg-app-surface-2 disabled:opacity-50"
+                               className="min-h-9 rounded-lg border border-app-border bg-app-surface-2 px-2.5 text-[9px] font-black uppercase tracking-widest text-app-text transition-colors hover:border-app-input-border disabled:opacity-50"
                              >
                                {helcimAttemptLoading ? "Checking" : "Check status"}
                              </button>
@@ -4881,29 +4885,29 @@ export default function NexoCheckoutDrawer({
                      </div>
                    )}
                     {existingPaidAmountCents > 0 && (
-                      <div className="flex items-center justify-between p-2.5 rounded-lg bg-zinc-800/60 border border-emerald-500/20 group">
+                      <div className="group flex items-center justify-between rounded-lg border border-emerald-500/20 bg-emerald-500/10 p-2.5">
                          <div className="flex flex-col min-w-0">
-                            <span className="truncate text-xs font-black uppercase text-emerald-400">Prior Deposit / Paid</span>
-                            <span className="mt-0.5 text-[10px] text-zinc-400 font-medium">Applied to this order</span>
+                            <span className="truncate text-xs font-black uppercase text-emerald-700 dark:text-emerald-400">Prior Deposit / Paid</span>
+                            <span className="mt-0.5 text-[10px] font-medium text-app-text-muted">Applied to this order</span>
                          </div>
                          <div className="flex items-center gap-2.5 ml-2 pr-2">
-                            <span className="text-[11px] font-black tabular-nums tracking-tight text-emerald-400">${centsToFixed2(existingPaidAmountCents)}</span>
+                            <span className="text-[11px] font-black tabular-nums tracking-tight text-emerald-700 dark:text-emerald-400">${centsToFixed2(existingPaidAmountCents)}</span>
                          </div>
                       </div>
                     )}
                    {applied.map(p => (
-                     <div key={p.id} className="flex items-center justify-between p-2.5 rounded-lg bg-zinc-800/40 border border-white/5 group transition-all hover:bg-zinc-800/80">
+                     <div key={p.id} className="group flex items-center justify-between rounded-lg border border-app-border bg-app-surface-2 p-2.5 transition-all hover:border-app-input-border">
                         <div className="flex flex-col min-w-0">
                            <span className="truncate text-xs font-black uppercase">{p.label}</span>
-                           {p.metadata?.check_number && <span className="mt-0.5 truncate font-mono text-[10px] text-zinc-400">Check #{p.metadata.check_number}</span>}
-                           {p.gift_card_code && <span className="mt-0.5 truncate font-mono text-[10px] text-zinc-400">{p.gift_card_code}</span>}
+                           {p.metadata?.check_number && <span className="mt-0.5 truncate font-mono text-[10px] text-app-text-muted">Check #{p.metadata.check_number}</span>}
+                           {p.gift_card_code && <span className="mt-0.5 truncate font-mono text-[10px] text-app-text-muted">{p.gift_card_code}</span>}
                            {p.metadata?.program_label && p.metadata?.masked_account && (
-                             <span className="mt-0.5 truncate font-mono text-[10px] text-zinc-400">
+                             <span className="mt-0.5 truncate font-mono text-[10px] text-app-text-muted">
                                {p.metadata.program_label} · {p.metadata.masked_account}
                              </span>
                            )}
                            {p.metadata?.rms_charge_collection && p.metadata?.masked_account && !p.metadata?.program_label && (
-                             <span className="mt-0.5 truncate font-mono text-[10px] text-zinc-400">
+                             <span className="mt-0.5 truncate font-mono text-[10px] text-app-text-muted">
                                RMS Payment · {p.metadata.masked_account}
                              </span>
                            )}
@@ -4914,15 +4918,15 @@ export default function NexoCheckoutDrawer({
                                ? `Refund $${centsToFixed2(Math.abs(p.amountCents))}`
                                : `$${centsToFixed2(p.amountCents)}`}
                            </span>
-                           <button onClick={() => void removePaymentLine(p)} className="flex min-h-11 min-w-11 items-center justify-center rounded-lg text-zinc-400 transition-all hover:bg-rose-500/10 hover:text-rose-400" aria-label={`Remove ${p.label} payment`}><Trash2 size={14} /></button>
+                           <button onClick={() => void removePaymentLine(p)} className="flex min-h-11 min-w-11 items-center justify-center rounded-lg text-app-text-muted transition-all hover:bg-rose-500/10 hover:text-rose-500" aria-label={`Remove ${p.label} payment`}><Trash2 size={14} /></button>
                         </div>
                      </div>
                    ))}
                    {depositDisplayCents > 0 && (
                      <div className="flex flex-col gap-2">
                        <div className="flex items-center justify-between p-2.5 rounded-lg bg-indigo-500/10 border border-indigo-500/20">
-                          <span className="text-[10px] font-black uppercase italic text-indigo-200">Partial Payment Today</span>
-                          <span className="text-[11px] font-black tabular-nums text-white opacity-90">${centsToFixed2(depositDisplayCents)}</span>
+                          <span className="text-[10px] font-black uppercase italic text-indigo-700 dark:text-indigo-300">Partial Payment Today</span>
+                          <span className="text-[11px] font-black tabular-nums text-app-text">${centsToFixed2(depositDisplayCents)}</span>
                        </div>
                        {onOpenSplitDeposit && (
                          <button
@@ -4939,15 +4943,15 @@ export default function NexoCheckoutDrawer({
                    )}
                 </div>
 
-                <div className="border-t border-white/5 pt-3 space-y-1.5 opacity-90">
+                <div className="space-y-1.5 border-t border-app-border pt-3">
                    {depositDisplayCents > 0 && depositDisplayCents !== amountDueCents && (
-                     <div className="flex items-center justify-between text-zinc-500">
+                     <div className="flex items-center justify-between text-app-text-muted">
                         <span className="text-xs font-black uppercase tracking-wide">Due Now</span>
                         <span className="text-xs font-bold tabular-nums">${centsToFixed2(depositDisplayCents)}</span>
                      </div>
                    )}
                    <div className="flex items-center justify-between pt-1">
-                      <span className={`text-2xl font-black tabular-nums italic tracking-tighter ${balanceSettled ? "text-emerald-500" : "text-white"}`}>
+                      <span className={`text-2xl font-black tabular-nums italic tracking-tighter ${balanceSettled ? "text-emerald-500" : "text-app-text"}`}>
                         {balanceSettled ? "READY" : `$${centsToFixed2(Math.abs(tab === "cash" ? cashRounding.rounded : remainingCents))}`}
                       </span>
                    </div>
@@ -4955,7 +4959,7 @@ export default function NexoCheckoutDrawer({
               </div>
 
               <div className="bg-app-surface border border-app-border rounded-xl p-3.5 space-y-2.5 shadow-sm overflow-hidden mt-auto">
-                <span className="text-xs font-black uppercase tracking-wide text-app-text-muted opacity-70">Sale Summary</span>
+                <span className="text-xs font-black uppercase tracking-wide text-app-text">Sale Summary</span>
                 <div className="space-y-1.5 pt-1">
                   <div className="flex justify-between text-xs">
                     <span className="text-app-text-muted">Merchandise</span>

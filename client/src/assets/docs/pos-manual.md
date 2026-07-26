@@ -205,7 +205,7 @@ When staff open the loaded customer's profile from Register and save updated con
 
 Customer search accepts initials and partial first-and-last-name fragments. For example, `C Garcia`, `Ch Gar`, and `Gar C` can find Chris Garcia; enter enough of each name to distinguish people with similar names, then confirm the phone or email shown before selecting the profile.
 
-When Register search opens a parent product with variations, Riverside shows the full variation matrix for that parent. Barcode scans still add the exact scanned variation directly.
+When Register search opens a parent product with variations, Riverside shows the full variation matrix for that parent in one grouped selection surface. Choose the large option labels one step at a time; the selected values remain visible above the next set of choices. Barcode scans still add the exact scanned variation directly.
 
 For a product whose variations have different prices, the Register search result shows the lowest-to-highest price range. Riverside must finish loading every available variation before opening the size picker. If that lookup fails, no item is added; keep the search result open and use it to retry.
 

@@ -33,6 +33,7 @@ The checkout drawer collects payment, shows the remaining balance due, and compl
 ## Payment methods
 
 Choose the tender type on the left, then collect the amount in the center panel.
+The active tender is shown with the Riverside accent color; all other tenders use the same high-contrast neutral surface so the selected payment method is easy to identify without relying on faint color tints.
 
 - **Card reader** sends the payment to the selected Helcim terminal. Each terminal request is bound to the sale that opened it. An approval from another sale never appears as tender for the current customer; stop and use **Payments Health** for audited recovery or refund instead of running the card again.
 - **Card Not Present** is for phone orders. It opens the public HTTPS ROS handoff page; select **Open Helcim Card Entry** on that page to render the secure HelcimPay.js card form. After Helcim approves, ROS automatically attaches the validated approval amount as a **CARD NOT PRESENT** tender; verify it appears in the register ledger before recording the sale. The approval screen's **Add Payment to Sale** button remains available as an idempotent recovery action if the handoff was interrupted. If the customer stops, cancel inside Helcim and use **Recover payment** until ROS receives a definitive canceled result; do not clear the pending attempt locally.
