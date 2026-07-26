@@ -52,6 +52,8 @@ export interface ReceiptSummaryModalProps {
   transactionId: string | null;
   onClose: () => void;
   baseUrl: string;
+  /** Completion is the just-finished checkout handoff; historical is a read/reprint entry point. */
+  presentation?: "completion" | "historical";
   /** When set, order read/receipt use register-session authorization (no BO headers). */
   registerSessionId?: string | null;
   /** Required: POS + staff merged headers for `/api/transactions/*`. */
@@ -160,6 +162,7 @@ export default function ReceiptSummaryModal({
   transactionId,
   onClose,
   baseUrl,
+  presentation = "completion",
   registerSessionId,
   getAuthHeaders,
   orderPaymentLines = EMPTY_ORDER_PAYMENT_LINES,
@@ -796,7 +799,9 @@ export default function ReceiptSummaryModal({
     ),
   );
   const giftPickEmpty = itemRows.length > 0 && getGiftLineIds().length === 0;
+  const historicalPresentation = presentation === "historical";
   const reviewInviteEligible =
+    !historicalPresentation &&
     !!transactionDetail?.customer &&
     transactionDetail.store_review_invites_enabled === true &&
     !transactionDetail.review_invite_sent_at &&
@@ -877,23 +882,27 @@ export default function ReceiptSummaryModal({
               : orderPaymentTotalCents > 0
                 ? "Sale and payment recorded"
                 : "Sale recorded";
-  const completionTitle = refundCheckout
-    ? pendingRefundAmountCents != null
-      ? "Refund pending"
-      : "Refund complete"
-    : exchangeCheckout
+  const completionTitle = historicalPresentation
+    ? refundCheckout || exchangeCheckout
+      ? "Return / exchange receipt"
+      : "Transaction receipt"
+    : refundCheckout
       ? pendingRefundAmountCents != null
         ? "Refund pending"
-        : "Exchange complete"
-      : pickupCheckout
-        ? "Pickup complete"
-        : paymentOnlyCheckout
-          ? "Payment recorded"
-          : linkedPickupCheckout
-            ? "Sale and pickup complete"
-            : orderPaymentTotalCents > 0
-              ? "Sale and payment complete"
-              : "Sale complete";
+        : "Refund complete"
+      : exchangeCheckout
+        ? pendingRefundAmountCents != null
+          ? "Refund pending"
+          : "Exchange complete"
+        : pickupCheckout
+          ? "Pickup complete"
+          : paymentOnlyCheckout
+            ? "Payment recorded"
+            : linkedPickupCheckout
+              ? "Sale and pickup complete"
+              : orderPaymentTotalCents > 0
+                ? "Sale and payment complete"
+                : "Sale complete";
   const completionKind = refundCheckout
     ? "Refund"
     : exchangeCheckout
@@ -1318,7 +1327,10 @@ export default function ReceiptSummaryModal({
                       <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-app-danger" strokeWidth={2} />
                       <div className="min-w-0 flex-1">
                         <p className="text-[9px] font-black uppercase tracking-widest text-app-danger">
-                          {completionKind} succeeded · {printingFailureTitle ?? "Receipt did not print"}
+                          {historicalPresentation
+                            ? "Receipt reprint"
+                            : `${completionKind} succeeded`}{" "}
+                          · {printingFailureTitle ?? "Receipt did not print"}
                         </p>
                         <p className="mt-1 text-[11px] font-semibold leading-relaxed text-app-text">
                           {printingFailure}
@@ -1522,17 +1534,30 @@ export default function ReceiptSummaryModal({
                 type="button"
                 onClick={() => void closeWithReviewChoice()}
                 disabled={reviewInviteSaving}
-                className="group flex min-h-12 w-full items-center justify-between rounded-2xl bg-app-accent px-4 py-1.5 text-white shadow-lg transition-all hover:opacity-90 active:scale-[0.99] touch-manipulation disabled:opacity-60"
+                className={
+                  historicalPresentation
+                    ? "ui-btn-secondary flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl text-xs font-black uppercase tracking-widest touch-manipulation disabled:opacity-60"
+                    : "group flex min-h-12 w-full items-center justify-between rounded-2xl bg-app-accent px-4 py-1.5 text-white shadow-lg transition-all hover:opacity-90 active:scale-[0.99] touch-manipulation disabled:opacity-60"
+                }
               >
-                <div className="flex flex-col text-left">
-                  <span className="text-[8px] font-black uppercase tracking-widest text-white/80">Next guest</span>
-                  <span className="text-sm font-black tracking-tight">
-                    {reviewInviteSaving ? "Saving review preference…" : "Begin new sale"}
-                  </span>
-                </div>
-                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-app-surface text-app-accent shadow-lg transition-transform group-hover:translate-x-0.5">
-                  <ArrowRight className="h-[18px] w-[18px]" />
-                </div>
+                {historicalPresentation ? (
+                  <>
+                    <X className="h-4 w-4" />
+                    Close receipt
+                  </>
+                ) : (
+                  <>
+                    <div className="flex flex-col text-left">
+                      <span className="text-[8px] font-black uppercase tracking-widest text-white/80">Next guest</span>
+                      <span className="text-sm font-black tracking-tight">
+                        {reviewInviteSaving ? "Saving review preference…" : "Begin new sale"}
+                      </span>
+                    </div>
+                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-app-surface text-app-accent shadow-lg transition-transform group-hover:translate-x-0.5">
+                      <ArrowRight className="h-[18px] w-[18px]" />
+                    </div>
+                  </>
+                )}
               </button>
             </footer>
           </div>
@@ -1612,7 +1637,7 @@ export default function ReceiptSummaryModal({
               )}
               {cust ? (
                 <p className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-2 text-[10px] font-semibold text-app-text-muted">
-                  Text and email use the phone/email currently shown on the sale complete screen.
+                  Text and email use the phone/email currently shown on this receipt screen.
                 </p>
               ) : null}
               <div className="grid gap-2 sm:grid-cols-3">

@@ -2,7 +2,7 @@
 id: pos-receipt-summary-modal
 title: "Receipt Preview and Delivery"
 order: 1068
-summary: "Preview, print, text, or email the completed sale receipt."
+summary: "Preview, print, text, or email a completion or historical transaction receipt."
 source: client/src/components/pos/ReceiptSummaryModal.tsx
 last_scanned: 2026-07-17
 tags: pos-receipt-summary-modal, pos, receipt, printing
@@ -21,7 +21,7 @@ status: approved
 
 ## What this is
 
-The sale complete receipt preview shows the customer receipt after checkout. It should match the Receipt Builder style closely enough that staff can trust what will print, email, or text.
+The receipt preview shows the customer receipt after checkout or when reopening a historical Transaction Receipt. It should match the Receipt Builder style closely enough that staff can trust what will print, email, or text.
 
 ## How to use it
 
@@ -29,6 +29,8 @@ The sale complete receipt preview shows the customer receipt after checkout. It 
 2. Choose print, view, text, email, gift receipt, or reports printer from the receipt action bar, which stays visible without scrolling.
 3. Confirm the preview or printer path shows the formatted receipt before handing it off.
 4. Choose **Begin new sale** when finished. The next-sale Access PIN screen appears only after the completion screen closes.
+
+When a receipt is opened from Daily Sales, Transaction History, or Staff Profile history, Riverside labels it **Transaction Receipt** (or **Return / Exchange Receipt**) and ends with **Close receipt**. Historical receipt review never presents **Sale complete** or **Begin new sale** because no new checkout was just completed.
 
 ## Actions
 
@@ -41,7 +43,7 @@ The sale complete receipt preview shows the customer receipt after checkout. It 
 
 ## Review requests
 
-The review request option appears on eligible sale completion screens when Podium review requests are enabled. Riverside only sends after completed or picked-up sales, and only once per customer every 180 days. If the customer was asked recently, has no phone or email, or the cashier chooses **Do not send**, Riverside records that outcome instead of silently failing.
+The review request option appears only on eligible just-completed sale screens when Podium review requests are enabled. Historical receipt reprints do not reopen the review-request decision. Riverside only sends after completed or picked-up sales, and only once per customer every 180 days. If the customer was asked recently, has no phone or email, or the cashier chooses **Do not send**, Riverside records that outcome instead of silently failing.
 
 ## Receipt preview
 
@@ -49,7 +51,7 @@ The preview is intentionally narrow and receipt-like. It uses the same receipt c
 
 Receipt line items keep the product name as the primary line, show quantity only when more than one unit is sold, and place SKU with the price on the item detail line. Pickup receipts still use the normal **RECEIPT** heading; picked-up merchandise appears in the body under **PICKED UP** with the original order date on those lines. Items still remaining on the transaction are not printed on the pickup receipt.
 
-Receipt totals are sourced from the completed transaction ledger. Shipping and alteration charges remain visible as separate non-merchandise lines, **Paid** and **Balance** reflect the transaction’s actual stored values, and payments applied to existing Transaction Records are listed separately. A payment-only receipt uses the actual applied payment amount instead of the new transaction header amount.
+Receipt totals are sourced from the completed transaction ledger. Fee-only charges print as one concise **SHIPPING FEE** or **ALTERATION FEE** line with its price; they do not print merchandise variation, SKU, fulfillment, or service-section detail. Tracked alteration work can still show its customer-item context. **Paid** and **Balance** reflect the transaction’s actual stored values, and payments applied to existing Transaction Records are listed separately. A payment-only receipt uses the actual applied payment amount instead of the new transaction header amount.
 
 The completion screen identifies the customer and Transaction number and labels the completed event as a sale, payment, pickup, refund, exchange, or combined sale/pickup/payment outcome. Pickup handoffs show the amount collected during that pickup event and preserve the Transaction Record's actual remaining balance. Payment applications and linked pickups are read back from the completed transaction so their target Transaction numbers, applied amounts, remaining balances, and picked-up item counts match the saved result.
 

@@ -1047,6 +1047,7 @@ export default function StaffProfilePanel() {
       {selectedTransactionId && (
         <ReceiptSummaryModal
           transactionId={selectedTransactionId}
+          presentation="historical"
           onClose={() => setSelectedTransactionId(null)}
           baseUrl={baseUrl}
           getAuthHeaders={backofficeHeaders as () => Record<string, string>}

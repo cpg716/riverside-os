@@ -10,6 +10,16 @@ const isCi = process.env.CI === "true" || process.env.CI === "1";
 const autoBootLocalStack = (process.env.E2E_AUTO_BOOT ?? "1") !== "0";
 const reuseExistingServer = process.env.E2E_REUSE_EXISTING_SERVER === "1";
 const usingLocalViteBase = /^https?:\/\/localhost:43173\/?$/.test(baseURL);
+const usingIsolatedApiBase =
+  /^https?:\/\/(127\.0\.0\.1|localhost):43300\/?$/.test(apiBase);
+if (
+  autoBootLocalStack &&
+  usingLocalViteBase &&
+  usingIsolatedApiBase &&
+  !reuseExistingServer
+) {
+  process.env.E2E_ALLOW_REGISTER_RESET = "1";
+}
 
 /** Optional: inject staff headers on every browser request (use the same 4-digit value for code + pin when `pin_hash` is set). */
 const e2eStaffCode = process.env.E2E_STAFF_CODE?.trim();

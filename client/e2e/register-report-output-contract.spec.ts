@@ -126,6 +126,11 @@ test.describe("Register report output integrity contracts", () => {
     expect(registerDayServerSource).toContain(
       "shipping_total: Some(money_label",
     );
+    expect(registerDayServerSource).toContain("AS is_shipping_only_sale");
+    expect(registerDayServerSource).toContain('"Shipping Sale".to_string()');
+    expect(registerDayServerSource).toContain(
+      'line_kind: Some("shipping_service".to_string())',
+    );
     expect(registerReportsSource).toContain(
       'if (kind === "shipping_service") return "Shipping"',
     );

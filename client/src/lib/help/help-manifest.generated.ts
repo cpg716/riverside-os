@@ -422,7 +422,7 @@ export const HELP_MANUALS: HelpManual[] = [
   {
     id: "pos-receipt-summary-modal",
     title: "Receipt Preview and Delivery",
-    summary: "Preview, print, text, or email the completed sale receipt.",
+    summary: "Preview, print, text, or email a completion or historical transaction receipt.",
     markdown: manual_49_raw,
     tags: ["pos-receipt-summary-modal","pos","receipt","printing"],
   },

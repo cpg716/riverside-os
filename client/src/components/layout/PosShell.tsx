@@ -81,7 +81,6 @@ interface PosShellProps {
   clearPendingWeddingPosLink: () => void;
   onSessionOpened: (p: SessionOpenedPayload) => void;
   setShowCloseModal: (v: boolean) => void;
-  handleSessionClosed: () => void;
   refreshOpenSessionMeta: () => Promise<void>;
   onRegisterTransactionCommitted: () => void;
   onOpenWeddingParty?: (partyId: string) => void;
@@ -119,7 +118,6 @@ export default function PosShell({
   clearPendingWeddingPosLink,
   onSessionOpened,
   setShowCloseModal,
-  handleSessionClosed,
   refreshOpenSessionMeta,
   onRegisterTransactionCommitted,
   onOpenWeddingParty,
@@ -135,6 +133,7 @@ export default function PosShell({
   onTabChange,
 }: PosShellProps) {
   const [activePosTab, setActivePosTab] = useState<PosTabId>(activeTab as PosTabId || "pos-dashboard");
+  const [isRegisterLocked, setIsRegisterLocked] = useState(false);
 
   useEffect(() => {
     // Keep this parent -> local hydration one-way.
@@ -150,25 +149,25 @@ export default function PosShell({
   const [pendingInventorySku, setPendingInventorySku] = useState<string | null>(null);
 
   // ─── Idle timeout ────────────────────────────────────────────────────────────
-  // 10-min register idle  → call handleSessionClosed (PIN overlay reappears)
+  // 10-min register idle  → lock this station without financially closing the server session
   // 5-min  PIN-overlay idle → navigate to pos-dashboard
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const resetIdleTimer = useCallback(() => {
     if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
 
-    if (isRegisterOpen && sessionId) {
+    if (isRegisterOpen && sessionId && !isRegisterLocked) {
       // Register is open — fire after REGISTER_IDLE_MS of inactivity
       idleTimerRef.current = setTimeout(() => {
-        handleSessionClosed();
+        setIsRegisterLocked(true);
       }, REGISTER_IDLE_MS);
-    } else if (!isRegisterOpen) {
+    } else if (!isRegisterOpen && !isRegisterLocked) {
       // PIN overlay is showing — navigate to dashboard after PIN_IDLE_MS
       idleTimerRef.current = setTimeout(() => {
         setActivePosTab("pos-dashboard");
       }, PIN_IDLE_MS);
     }
-  }, [isRegisterOpen, sessionId, handleSessionClosed]);
+  }, [isRegisterOpen, sessionId, isRegisterLocked]);
 
   useEffect(() => {
     // Start the idle timer and reset on any user interaction
@@ -237,8 +236,15 @@ export default function PosShell({
   ]);
 
   const handleSessionOpenedWithAuth: typeof onSessionOpened = (p) => {
+    setIsRegisterLocked(false);
     onSessionOpened(p);
   };
+
+  useEffect(() => {
+    if (!isRegisterOpen) {
+      setIsRegisterLocked(false);
+    }
+  }, [isRegisterOpen]);
 
   const { setSlotContent } = useTopBar();
 
@@ -372,7 +378,13 @@ export default function PosShell({
               className="relative flex min-h-0 flex-1 flex-col overflow-hidden"
               data-testid="pos-register-panel"
               data-register-state={
-                !isRegisterOpen ? "needs-open" : sessionId ? "mounted" : "missing-session"
+                isRegisterLocked
+                  ? "locked"
+                  : !isRegisterOpen
+                    ? "needs-open"
+                    : sessionId
+                      ? "mounted"
+                      : "missing-session"
               }
             >
               {!isRegisterOpen ? (
@@ -384,35 +396,45 @@ export default function PosShell({
                   }}
                 />
               ) : sessionId ? (
-                <Cart
-                  sessionId={sessionId}
-                  registerLane={registerLane}
-                  receiptTimezone={receiptTimezone}
-                  cashierName={cashierName}
-                  cashierCode={cashierCode}
-                  initialCustomer={pendingPosCustomer}
-                  onInitialCustomerConsumed={clearPendingPosCustomer}
-                  initialTransactionId={pendingPosTransactionId}
-                  initialTransactionForPickup={pendingPosTransactionForPickup}
-                  initialTransactionForRefund={pendingPosTransactionForRefund}
-                  initialTransactionReturnLineId={pendingPosTransactionReturnLineId}
-                  onInitialTransactionConsumed={clearPendingPosTransaction}
-                  initialWeddingLookupOpen={false}
-                  initialWeddingPosLink={pendingWeddingPosLink}
-                  onInitialWeddingPosLinkConsumed={clearPendingWeddingPosLink}
-                  pendingInventorySku={pendingInventorySku}
-                  onPendingInventorySkuConsumed={() => setPendingInventorySku(null)}
-                  onCartInteraction={() => {
-                    if (!collapsed) onToggleCollapse();
-                  }}
-                  onOpenWeddingParty={(id) => {
-                    setActivePosTab("weddings");
-                    onOpenWeddingParty?.(id);
-                  }}
-                  onSaleCompleted={() => setActivePosTab("register")}
-                  onRegisterTransactionCommitted={onRegisterTransactionCommitted}
-                  onExitPosMode={() => setActivePosTab("pos-dashboard")}
-                />
+                <>
+                  <Cart
+                    sessionId={sessionId}
+                    registerLane={registerLane}
+                    receiptTimezone={receiptTimezone}
+                    cashierName={cashierName}
+                    cashierCode={cashierCode}
+                    initialCustomer={pendingPosCustomer}
+                    onInitialCustomerConsumed={clearPendingPosCustomer}
+                    initialTransactionId={pendingPosTransactionId}
+                    initialTransactionForPickup={pendingPosTransactionForPickup}
+                    initialTransactionForRefund={pendingPosTransactionForRefund}
+                    initialTransactionReturnLineId={pendingPosTransactionReturnLineId}
+                    onInitialTransactionConsumed={clearPendingPosTransaction}
+                    initialWeddingLookupOpen={false}
+                    initialWeddingPosLink={pendingWeddingPosLink}
+                    onInitialWeddingPosLinkConsumed={clearPendingWeddingPosLink}
+                    pendingInventorySku={pendingInventorySku}
+                    onPendingInventorySkuConsumed={() => setPendingInventorySku(null)}
+                    onCartInteraction={() => {
+                      if (!collapsed) onToggleCollapse();
+                    }}
+                    onOpenWeddingParty={(id) => {
+                      setActivePosTab("weddings");
+                      onOpenWeddingParty?.(id);
+                    }}
+                    onSaleCompleted={() => setActivePosTab("register")}
+                    onRegisterTransactionCommitted={onRegisterTransactionCommitted}
+                    onExitPosMode={() => setActivePosTab("pos-dashboard")}
+                  />
+                  {isRegisterLocked ? (
+                    <RegisterOverlay
+                      accessMode="unlock"
+                      lockedRegisterLane={registerLane}
+                      onSessionOpened={handleSessionOpenedWithAuth}
+                      onCancel={() => setActivePosTab("pos-dashboard")}
+                    />
+                  ) : null}
+                </>
               ) : null}
             </div>
           )}

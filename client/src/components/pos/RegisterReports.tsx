@@ -91,7 +91,7 @@ interface ActivityItemDetail {
   quantity: number;
   reg_price: string;
   price: string;
-  product_id: string;
+  product_id?: string | null;
   fulfillment?: string | null;
   is_internal?: boolean;
   line_kind?: string | null;
@@ -1990,6 +1990,7 @@ export default function RegisterReports({
       )}
       <ReceiptSummaryModal
         transactionId={receiptOrderId}
+        presentation="historical"
         onClose={() => {
           setReceiptOrderId(null);
           setReceiptRefundEventId(null);

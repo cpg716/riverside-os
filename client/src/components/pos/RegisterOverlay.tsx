@@ -59,6 +59,8 @@ export interface SessionOpenedPayload {
 interface RegisterOverlayProps {
   onSessionOpened: (payload: SessionOpenedPayload) => void;
   onCancel?: () => void;
+  accessMode?: "open" | "unlock";
+  lockedRegisterLane?: number | null;
 }
 
 type CurrentSessionJson = {
@@ -175,6 +177,8 @@ function payloadFromSessionJson(
 export default function RegisterOverlay({
   onSessionOpened,
   onCancel,
+  accessMode = "open",
+  lockedRegisterLane = null,
 }: RegisterOverlayProps) {
   const { backofficeHeaders, staffRole, permissionsLoaded } =
     useBackofficeAuth();
@@ -185,7 +189,8 @@ export default function RegisterOverlay({
     return window.localStorage.getItem("ros_last_staff_id") || "";
   });
   const stationRegisterLane = useMemo(() => installedRegisterLane(), []);
-  const stationLocksRegisterLane = stationRegisterLane != null;
+  const unlocking = accessMode === "unlock";
+  const stationLocksRegisterLane = unlocking || stationRegisterLane != null;
 
   const baseUrl = getBaseUrl();
 
@@ -234,7 +239,7 @@ export default function RegisterOverlay({
   }, [baseUrl, stationRegisterLane]);
 
   const [registerLane, setRegisterLane] = useState(
-    () => stationRegisterLane ?? 1,
+    () => lockedRegisterLane ?? stationRegisterLane ?? 1,
   );
   /** After the user picks a lane, do not auto-switch (e.g. admin default to #2). */
   const registerLaneUserChosenRef = useRef(false);
@@ -582,8 +587,13 @@ export default function RegisterOverlay({
   }, [baseUrl, attachOpenLane]);
 
   useEffect(() => {
+    if (unlocking) {
+      setBooting(false);
+      setError(null);
+      return;
+    }
     void tryResumeOrBypass();
-  }, [tryResumeOrBypass]);
+  }, [tryResumeOrBypass, unlocking]);
 
   const openWithCredential = async (code: string) => {
     await verifySelectedStaffCredential(code);
@@ -593,6 +603,14 @@ export default function RegisterOverlay({
         linkStatus?.includes("Register #1")
           ? linkStatus
           : "Register #1 must be open before opening this lane.",
+      );
+    }
+    if (unlocking) {
+      if (await attachOpenLane(lane)) {
+        return;
+      }
+      throw new Error(
+        `Register #${lane} is no longer open. Start a new drawer only after confirming the prior Register session was closed.`,
       );
     }
     if (stationLocksRegisterLane && (await attachOpenLane(lane))) {
@@ -913,6 +931,7 @@ export default function RegisterOverlay({
   ) : null;
 
   const adminGate =
+    !unlocking &&
     staffRole === "admin" &&
     permissionsLoaded &&
     !booting &&
@@ -1115,7 +1134,11 @@ export default function RegisterOverlay({
   }
 
   return createPortal(
-    <div className="ui-overlay-backdrop !z-[200]">
+    <div
+      className={`ui-overlay-backdrop ${
+        unlocking ? "!z-[320]" : "!z-[200]"
+      }`}
+    >
       <div
         ref={dialogRef}
         role="dialog"
@@ -1222,12 +1245,25 @@ export default function RegisterOverlay({
                   id={titleId}
                   className="mt-2 text-3xl font-black text-app-text tracking-tight"
                 >
-                  {booting ? "Initializing…" : "Open Register"}
+                  {booting
+                    ? "Initializing…"
+                    : unlocking
+                      ? "Unlock Register"
+                      : "Open Register"}
                 </h2>
+                {unlocking ? (
+                  <p className="mt-2 text-xs font-semibold leading-relaxed text-app-text-muted">
+                    Enter your Access PIN to rejoin the existing drawer. Its opening float and close record remain unchanged.
+                  </p>
+                ) : null}
               </div>
 
               <div className="space-y-5">
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_150px]">
+                <div
+                  className={`grid grid-cols-1 gap-3 ${
+                    unlocking ? "" : "sm:grid-cols-[minmax(0,1fr)_150px]"
+                  }`}
+                >
                   <div className="space-y-2">
                     <label className="px-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                       Terminal #
@@ -1259,24 +1295,26 @@ export default function RegisterOverlay({
                       })}
                     </select>
                   </div>
-                  <div className="space-y-2">
-                    <label className="px-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                      {registerLane === 1 ? "Opening Float" : "Satellite Mode"}
-                    </label>
-                    <div className="relative">
-                      <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm font-bold text-app-text-muted">
-                        $
-                      </span>
-                      <input
-                        type="number"
-                        step="0.01"
-                        disabled={registerLane > 1}
-                        value={openingFloat}
-                        onChange={(e) => setOpeningFloat(e.target.value)}
-                        className="ui-input h-14 w-full bg-app-surface/50 pl-8 text-center font-mono text-base font-black disabled:opacity-50"
-                      />
+                  {!unlocking ? (
+                    <div className="space-y-2">
+                      <label className="px-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                        {registerLane === 1 ? "Opening Float" : "Satellite Mode"}
+                      </label>
+                      <div className="relative">
+                        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm font-bold text-app-text-muted">
+                          $
+                        </span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          disabled={registerLane > 1}
+                          value={openingFloat}
+                          onChange={(e) => setOpeningFloat(e.target.value)}
+                          className="ui-input h-14 w-full bg-app-surface/50 pl-8 text-center font-mono text-base font-black disabled:opacity-50"
+                        />
+                      </div>
                     </div>
-                  </div>
+                  ) : null}
                 </div>
 
                 {linkStatus ? (
@@ -1284,6 +1322,13 @@ export default function RegisterOverlay({
                     <Wifi size={14} className="mt-0.5 text-app-accent" />
                     <p className="text-[10px] font-bold leading-relaxed text-app-text-muted">
                       {linkStatus}
+                    </p>
+                  </div>
+                ) : unlocking ? (
+                  <div className="flex gap-3 rounded-2xl border border-app-success/20 bg-app-success/5 p-3">
+                    <Wifi size={14} className="mt-0.5 text-app-success" />
+                    <p className="text-[10px] font-bold leading-relaxed text-app-text-muted">
+                      This unlock only rejoins the existing Register #{registerLane} session. It cannot create a new drawer.
                     </p>
                   </div>
                 ) : (

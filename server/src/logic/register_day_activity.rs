@@ -151,7 +151,8 @@ pub struct ActivityItemDetail {
     pub quantity: i32,
     pub price: String,
     pub reg_price: Option<String>,
-    pub product_id: Uuid,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub product_id: Option<Uuid>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fulfillment: Option<String>,
     #[serde(default)]
@@ -1501,6 +1502,8 @@ async fn fetch_register_day_summary_page_on_connection(
         net_amount: Option<Decimal>,
         target_display_id: Option<String>,
         metadata: Option<serde_json::Value>,
+        shipping_total: Decimal,
+        is_shipping_only_sale: bool,
         refund_subtotal: Decimal,
         refund_tax: Decimal,
         replacement_subtotal: Decimal,
@@ -2083,6 +2086,23 @@ async fn fetch_register_day_summary_page_on_connection(
             pt.net_amount,
             COALESCE(NULLIF(TRIM(o.display_id), ''), o.counterpoint_doc_ref, o.counterpoint_ticket_ref, o.id::text) AS target_display_id,
             pt.metadata,
+            COALESCE(o.shipping_amount_usd, 0)::numeric(14,2) AS shipping_total,
+            (
+                COALESCE(o.shipping_amount_usd, 0) <> 0
+                AND COALESCE(
+                    o.business_date,
+                    (o.booked_at AT TIME ZONE reporting.effective_store_timezone())::date
+                ) >= ($1 AT TIME ZONE reporting.effective_store_timezone())::date
+                AND COALESCE(
+                    o.business_date,
+                    (o.booked_at AT TIME ZONE reporting.effective_store_timezone())::date
+                ) < ($2 AT TIME ZONE reporting.effective_store_timezone())::date
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM transaction_lines shipping_only_line
+                    WHERE shipping_only_line.transaction_id = o.id
+                )
+            ) AS is_shipping_only_sale,
             COALESCE((
                 SELECT SUM(
                     COALESCE(trl.refund_subtotal, tl.unit_price * trl.quantity_returned)
@@ -2486,7 +2506,28 @@ async fn fetch_register_day_summary_page_on_connection(
                 Some(money_label(event_tax_total)),
             )
         } else {
-            (None, None)
+            (
+                p.is_shipping_only_sale.then(|| money_label(Decimal::ZERO)),
+                p.is_shipping_only_sale.then(|| money_label(Decimal::ZERO)),
+            )
+        };
+        let items = if is_refund {
+            p.refund_items_json
+                .and_then(|value| serde_json::from_value::<Vec<ActivityItemDetail>>(value).ok())
+        } else if p.is_shipping_only_sale {
+            Some(vec![ActivityItemDetail {
+                name: "SHIPPING FEE".to_string(),
+                sku: "ROS-SHIPPING-FEE".to_string(),
+                quantity: 1,
+                price: money_label(p.shipping_total),
+                reg_price: Some(money_label(p.shipping_total)),
+                product_id: None,
+                fulfillment: Some("takeaway".to_string()),
+                is_internal: false,
+                line_kind: Some("shipping_service".to_string()),
+            }])
+        } else {
+            None
         };
 
         activities.push(RegisterActivityItem {
@@ -2498,6 +2539,8 @@ async fn fetch_register_day_summary_page_on_connection(
             ),
             kind: if is_refund {
                 "refund".to_string()
+            } else if p.is_shipping_only_sale {
+                "sale".to_string()
             } else {
                 "payment".to_string()
             },
@@ -2506,6 +2549,8 @@ async fn fetch_register_day_summary_page_on_connection(
                 "Return / Exchange".to_string()
             } else if is_refund {
                 "Return / Refund".to_string()
+            } else if p.is_shipping_only_sale {
+                "Shipping Sale".to_string()
             } else {
                 "Payment Recorded".to_string()
             },
@@ -2527,17 +2572,14 @@ async fn fetch_register_day_summary_page_on_connection(
             }]),
             sales_total,
             tax_total,
-            shipping_total: None,
+            shipping_total: p
+                .is_shipping_only_sale
+                .then(|| money_label(p.shipping_total)),
             alterations_total: None,
-            is_takeaway: None,
+            is_takeaway: p.is_shipping_only_sale.then_some(true),
             channel: None,
             wedding_party_name: None,
-            items: if is_refund {
-                p.refund_items_json
-                    .and_then(|value| serde_json::from_value::<Vec<ActivityItemDetail>>(value).ok())
-            } else {
-                None
-            },
+            items,
             merchant_fees_total: p.merchant_fee.map(money_label),
             net_amount: p.net_amount.map(money_label),
             customer_id: p.customer_id,
@@ -2549,7 +2591,14 @@ async fn fetch_register_day_summary_page_on_connection(
             customer_email: p.customer_email,
             deposits_paid: Some(money_label(p.amount)),
             balance_due: None,
-            fulfillment_type: Some("payment".to_string()),
+            fulfillment_type: Some(
+                if p.is_shipping_only_sale {
+                    "takeaway"
+                } else {
+                    "payment"
+                }
+                .to_string(),
+            ),
             transaction_total: Some(money_label(p.amount)),
             wedding_deposit_contributions: None,
             wedding_deposit_member_count: None,

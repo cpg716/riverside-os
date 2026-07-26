@@ -254,6 +254,18 @@ fn push_header(out: &mut Vec<u8>, d: &ReceiptOrder, cfg: &ReceiptConfig, gift: b
 
 fn push_items(out: &mut Vec<u8>, d: &ReceiptOrder, gift: bool) {
     for it in &d.items {
+        if is_simple_fee_line(it) {
+            set_bold(out, true);
+            let label = simple_fee_label(it);
+            if gift {
+                push_line(out, label);
+            } else {
+                push_line(out, &right_pair(label, &money(line_total(it))));
+            }
+            set_bold(out, false);
+            out.push(b'\n');
+            continue;
+        }
         if it.adjustment.is_some()
             || is_rms_charge_payment_line(it)
             || is_alteration_service_line(it)
@@ -483,6 +495,15 @@ fn receiptline_item_lines(
 ) -> String {
     let mut out_lines = Vec::new();
 
+    for it in d.items.iter().filter(|item| is_simple_fee_line(item)) {
+        let label = receiptline_emphasis(simple_fee_label(it));
+        if gift {
+            out_lines.push(format!("{label} |"));
+        } else {
+            out_lines.push(format!("{label} | {}", money(line_total(it))));
+        }
+    }
+
     let labels = [
         "PAYMENT",
         "Alterations",
@@ -503,6 +524,9 @@ fn receiptline_item_lines(
             .items
             .iter()
             .filter(|it| {
+                if is_simple_fee_line(it) {
+                    return false;
+                }
                 let section = receipt_item_section_label(d, it);
                 section == label
                     && (!is_pickup || matches!(section, "PICKED UP" | "Alterations" | "Shipping"))
@@ -659,6 +683,23 @@ fn alteration_customer_item_description(
 fn is_shipping_fee_line(it: &crate::logic::receipt_shared::ReceiptLine) -> bool {
     it.custom_item_type.as_deref() == Some("shipping_fee")
         || it.sku.trim().eq_ignore_ascii_case("ROS-SHIPPING-FEE")
+}
+
+fn is_alteration_fee_line(it: &crate::logic::receipt_shared::ReceiptLine) -> bool {
+    it.custom_item_type.as_deref() == Some("alteration_fee")
+        || it.sku.trim().eq_ignore_ascii_case("ROS-ALTERATION-FEE")
+}
+
+fn is_simple_fee_line(it: &crate::logic::receipt_shared::ReceiptLine) -> bool {
+    is_shipping_fee_line(it) || is_alteration_fee_line(it)
+}
+
+fn simple_fee_label(it: &crate::logic::receipt_shared::ReceiptLine) -> &'static str {
+    if is_shipping_fee_line(it) {
+        "SHIPPING FEE"
+    } else {
+        "ALTERATION FEE"
+    }
 }
 
 fn receipt_item_section_label(
@@ -1084,7 +1125,7 @@ mod tests {
             receipt_line("RMS CHARGE PAYMENT", "ROS-RMS-CHARGE-PAYMENT", None),
             receipt_line(
                 "Alteration: Hem Pants",
-                "ALT-001",
+                "ROS-ALTERATION-SERVICE",
                 Some("alteration_service"),
             ),
             receipt_line("SHIPPING FEE", "ROS-SHIPPING-FEE", Some("shipping_fee")),
@@ -1096,8 +1137,40 @@ mod tests {
         assert!(lines.contains("RMS CHARGE PAYMENT"));
         assert!(lines.contains("^^^Alterations"));
         assert!(lines.contains("Alteration: Hem Pants"));
-        assert!(lines.contains("^^^Shipping"));
         assert!(lines.contains("SHIPPING FEE"));
+        assert!(!lines.contains("^^^Shipping"));
+    }
+
+    #[test]
+    fn fee_only_receipt_lines_show_only_the_fee_name_and_price() {
+        let mut shipping = receipt_line("Shipping", "ROS-SHIPPING-FEE", Some("shipping_fee"));
+        shipping.variation_label = Some("Non-taxable delivery charge".to_string());
+        let mut alteration = receipt_line(
+            "ALTERATION SERVICE",
+            "ROS-ALTERATION-FEE",
+            Some("alteration_fee"),
+        );
+        alteration.variation_label = Some("Fee only — no alteration record".to_string());
+        let order = receipt_order_with(vec![shipping, alteration]);
+
+        let thermal = String::from_utf8(build_receipt_escpos(
+            &order,
+            &ReceiptConfig::default(),
+            HashMap::new(),
+        ))
+        .expect("receipt bytes are text apart from printer controls");
+        let markdown = receiptline_item_lines(&order, &ReceiptConfig::default(), false, false);
+
+        for output in [&thermal, &markdown] {
+            assert!(output.contains("SHIPPING FEE"));
+            assert!(output.contains("ALTERATION FEE"));
+            assert!(!output.contains("ROS-SHIPPING-FEE"));
+            assert!(!output.contains("ROS-ALTERATION-FEE"));
+            assert!(!output.contains("Non-taxable delivery charge"));
+            assert!(!output.contains("Fee only"));
+        }
+        assert!(!markdown.contains("^^^Shipping"));
+        assert!(!markdown.contains("^^^Alterations"));
     }
 
     #[test]
@@ -1158,7 +1231,7 @@ mod tests {
             receipt_line(
                 "ALTERATIONS FEE",
                 "ROS-ALTERATION-FEE",
-                Some("alteration_service"),
+                Some("alteration_fee"),
             ),
             receipt_line("SHIPPING FEE", "ROS-SHIPPING-FEE", Some("shipping_fee")),
         ]);
@@ -1172,7 +1245,7 @@ mod tests {
             &LoyaltyReceiptData::default(),
         );
 
-        assert!(markdown.contains("ALTERATIONS FEE"));
+        assert!(markdown.contains("ALTERATION FEE"));
         assert!(markdown.contains("SHIPPING FEE"));
     }
 

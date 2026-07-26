@@ -81,7 +81,7 @@ async function installApiMocks(
   page: Page,
   options: {
     staffCurrentSessionStatus: 200 | 404;
-    healthStatus?: 200 | 503 | (() => 200 | 503);
+    liveStatus?: 200 | 503 | (() => 200 | 503);
     listOpenStatus?: 200 | 503;
     openSessionStatus?: 409 | 503;
     posCurrentSessionStatus?: 200 | 503;
@@ -133,27 +133,30 @@ async function installApiMocks(
       return json(route, { max_register_lanes: 4 });
     }
 
-    if (path === "/api/health") {
-      const healthStatus =
-        typeof options.healthStatus === "function"
-          ? options.healthStatus()
-          : options.healthStatus;
+    if (path === "/api/live") {
+      const liveStatus =
+        typeof options.liveStatus === "function"
+          ? options.liveStatus()
+          : options.liveStatus;
       return json(
         route,
-        healthStatus === 503 ? { status: "offline" } : { status: "ok" },
-        healthStatus ?? 200,
+        liveStatus === 503 ? { status: "offline" } : { status: "ok" },
+        liveStatus ?? 200,
       );
     }
 
     if (path === "/api/sessions/current") {
-      const hasPosToken = Boolean(request.headers()["x-riverside-pos-session-id"]);
+      const hasPosToken = Boolean(
+        request.headers()["x-riverside-pos-session-id"],
+      );
       if (hasPosToken) {
         posCurrentSessionCount += 1;
       }
       if (
         hasPosToken &&
         (options.posCurrentSessionStatus === 503 ||
-          (options.posCurrentSessionFailureAfterFirst && posCurrentSessionCount > 1))
+          (options.posCurrentSessionFailureAfterFirst &&
+            posCurrentSessionCount > 1))
       ) {
         return json(route, { error: "Main Hub unavailable" }, 503);
       }
@@ -220,6 +223,65 @@ async function installApiMocks(
 }
 
 test.describe("register state stability", () => {
+  test("idle station lock rejoins the existing drawer without opening a new one", async ({
+    page,
+  }) => {
+    await seedBackofficeSession(page, "Register #1", { posSession: true });
+    await installApiMocks(page, { staffCurrentSessionStatus: 200 });
+    let openSessionRequests = 0;
+    page.on("request", (request) => {
+      if (
+        request.method() === "POST" &&
+        new URL(request.url()).pathname === "/api/sessions/open"
+      ) {
+        openSessionRequests += 1;
+      }
+    });
+
+    await page.goto("/pos", { waitUntil: "domcontentloaded" });
+    await page.getByRole("button", { name: /go to register/i }).click();
+
+    const registerPanel = page.getByTestId("pos-register-panel");
+    await expect(registerPanel).toHaveAttribute(
+      "data-register-state",
+      "mounted",
+      {
+        timeout: 20_000,
+      },
+    );
+
+    await page.clock.install();
+    await page.dispatchEvent("body", "pointerdown");
+    await page.clock.fastForward(10 * 60 * 1000);
+
+    await expect(registerPanel).toHaveAttribute(
+      "data-register-state",
+      "locked",
+    );
+    const unlockDialog = page.getByRole("dialog", { name: "Unlock Register" });
+    await expect(unlockDialog).toBeVisible();
+    await expect(page.getByText("Till Open")).toBeVisible();
+    await expect(
+      unlockDialog.getByText(
+        /opening float and close record remain unchanged/i,
+      ),
+    ).toBeVisible();
+    await expect(unlockDialog.getByLabel("Opening Float")).toHaveCount(0);
+
+    await unlockDialog.getByTestId("staff-selector-button").click();
+    await unlockDialog.getByTestId("staff-identity-selector-1").click();
+    for (const digit of ["1", "2", "3", "4"]) {
+      await unlockDialog.getByTestId(`pin-key-${digit}`).click();
+    }
+
+    await expect(registerPanel).toHaveAttribute(
+      "data-register-state",
+      "mounted",
+    );
+    await expect(unlockDialog).toHaveCount(0);
+    expect(openSessionRequests).toBe(0);
+  });
+
   test("Back Office top bar keeps authenticated staff separate from Register #1 cashier", async ({
     page,
   }) => {
@@ -243,15 +305,22 @@ test.describe("register state stability", () => {
     await page.getByRole("button", { name: /go to register/i }).click();
 
     const registerPanel = page.getByTestId("pos-register-panel");
-    await expect(registerPanel).toHaveAttribute("data-register-state", "mounted", {
-      timeout: 20_000,
-    });
+    await expect(registerPanel).toHaveAttribute(
+      "data-register-state",
+      "mounted",
+      {
+        timeout: 20_000,
+      },
+    );
 
     const posShell = page.getByTestId("pos-shell-root");
     await expect(posShell).toHaveAttribute("data-register-open", "true", {
       timeout: 20_000,
     });
-    await expect(posShell).toHaveAttribute("data-register-session-ready", "true");
+    await expect(posShell).toHaveAttribute(
+      "data-register-session-ready",
+      "true",
+    );
     await expect(page.getByText(/Register #1/i).first()).toBeVisible();
     await expect(page.getByText(/already has an open session/i)).toHaveCount(0);
   });
@@ -262,7 +331,7 @@ test.describe("register state stability", () => {
     await seedBackofficeSession(page, "Register #1", { posSession: true });
     await installApiMocks(page, {
       staffCurrentSessionStatus: 200,
-      healthStatus: 503,
+      liveStatus: 503,
       posCurrentSessionFailureAfterFirst: true,
     });
 
@@ -272,24 +341,28 @@ test.describe("register state stability", () => {
     await expect(posShell).toHaveAttribute("data-register-open", "true", {
       timeout: 20_000,
     });
-    await expect(page.getByTestId("server-connection-lost-banner")).toBeVisible({
-      timeout: 20_000,
-    });
+    await expect(page.getByTestId("server-connection-lost-banner")).toBeVisible(
+      {
+        timeout: 20_000,
+      },
+    );
     await page.evaluate(() => {
       window.dispatchEvent(new CustomEvent("ros-backoffice-session-changed"));
     });
     await expect(posShell).toHaveAttribute("data-register-open", "true");
-    await expect(page.getByRole("dialog", { name: "Open Register" })).toHaveCount(0);
+    await expect(
+      page.getByRole("dialog", { name: "Open Register" }),
+    ).toHaveCount(0);
   });
 
   test("Main Hub outage banner clears after manual recheck succeeds", async ({
     page,
   }) => {
-    let healthStatus: 200 | 503 = 503;
+    let liveStatus: 200 | 503 = 503;
     await seedBackofficeSession(page, "Register #1", { posSession: true });
     await installApiMocks(page, {
       staffCurrentSessionStatus: 200,
-      healthStatus: () => healthStatus,
+      liveStatus: () => liveStatus,
     });
 
     await page.goto("/pos", { waitUntil: "domcontentloaded" });
@@ -297,7 +370,7 @@ test.describe("register state stability", () => {
     const banner = page.getByTestId("server-connection-lost-banner");
     await expect(banner).toBeVisible({ timeout: 20_000 });
 
-    healthStatus = 200;
+    liveStatus = 200;
     await banner.getByRole("button", { name: /recheck/i }).click();
 
     await expect(banner).toHaveCount(0, { timeout: 10_000 });
@@ -313,7 +386,7 @@ test.describe("register state stability", () => {
     await seedBackofficeSession(page, "Register #1");
     await installApiMocks(page, {
       staffCurrentSessionStatus: 404,
-      healthStatus: 503,
+      liveStatus: 503,
       listOpenStatus: 503,
       openSessionStatus: 503,
     });
@@ -321,15 +394,24 @@ test.describe("register state stability", () => {
     await page.goto("/pos", { waitUntil: "domcontentloaded" });
 
     const registerPanel = page.getByTestId("pos-register-panel");
-    await expect(registerPanel).toHaveAttribute("data-register-state", "needs-open", {
-      timeout: 20_000,
-    });
+    await expect(registerPanel).toHaveAttribute(
+      "data-register-state",
+      "needs-open",
+      {
+        timeout: 20_000,
+      },
+    );
 
     const dialog = page.getByRole("dialog", { name: "Open Register" });
     await expect(dialog.getByTestId("staff-selector-button")).toBeVisible();
     await expect(page.getByTestId("pin-key-1")).toBeDisabled();
     await expect(dialog.getByText(/Main Hub is unavailable/i)).toBeVisible();
-    await expect(dialog.getByText(/already has an open session/i)).toHaveCount(0);
-    await expect(registerPanel).toHaveAttribute("data-register-state", "needs-open");
+    await expect(dialog.getByText(/already has an open session/i)).toHaveCount(
+      0,
+    );
+    await expect(registerPanel).toHaveAttribute(
+      "data-register-state",
+      "needs-open",
+    );
   });
 });

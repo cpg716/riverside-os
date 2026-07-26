@@ -29,10 +29,14 @@ If the register overlay blocks entry, read the displayed readiness message befor
 
 If the Main Hub connection drops while opening or joining a register, keep the register screen open. Check again after the red connection banner clears; do not try to force a second drawer open for the same Register #.
 
+After ten minutes without station activity, Riverside shows **Unlock Register**. This is a station lock, not a drawer close: the existing opening float, Register session, and eventual Z-close remain unchanged. Select your name and enter your Access PIN to rejoin the same Register. The unlock flow cannot create a new drawer. A true close still requires the Register #1 close and reconciliation workflow.
+
+Installing or reloading an application update does not close the server-backed drawer. After restart, Riverside should rejoin an open Register session even though the local browser token was replaced. If **Open Register** appears instead, stop before entering a new float and have a manager verify the Register session and close audit; only an explicit close/reset record should make a new drawer necessary.
 
 ## Tips
 
 - Register #1 is the main drawer and the only lane that performs the shared Z-close.
+- **Unlock Register** means the drawer is still open. **Open Register** appears only when Riverside has no active Register session attached to the station.
 - If the readiness panel shows the station is not ready, fix the server URL, network path, or printer settings before opening the terminal for customers.
 - Register #2 or #3 should not be opened first. They attach to the till group created by Register #1.
 - Product search auto-focuses after the register opens. If a scan lands in the wrong place later, use **Focus /** in the cart, or press **/** on a keyboard station, to reclaim the search field.
@@ -45,7 +49,6 @@ If the Main Hub connection drops while opening or joining a register, keep the r
 ![Cart with lines](../images/help/pos-register-overlay/workflow-2.png)
 
 ![Checkout drawer](../images/help/pos-register-overlay/workflow-3.png)
-
 
 ## Related workflows
 

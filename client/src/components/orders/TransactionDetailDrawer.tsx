@@ -3072,6 +3072,7 @@ export default function TransactionDetailDrawer({
       {showReceiptModal && orderId ? (
         <ReceiptSummaryModal
           transactionId={orderId}
+          presentation="historical"
           onClose={() => setShowReceiptModal(false)}
           baseUrl={baseUrl}
           getAuthHeaders={auth}

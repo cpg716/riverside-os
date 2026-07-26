@@ -25,6 +25,13 @@ const transactionDetailDrawer = repoFile(
 const customerRelationshipHub = repoFile(
   "client/src/components/customers/CustomerRelationshipHubDrawer.tsx",
 );
+const posShell = repoFile("client/src/components/layout/PosShell.tsx");
+const registerOverlay = repoFile(
+  "client/src/components/pos/RegisterOverlay.tsx",
+);
+const staffProfilePanel = repoFile(
+  "client/src/components/settings/StaffProfilePanel.tsx",
+);
 
 test("deferred original-card refunds retain the server event and exact provider result", () => {
   expect(cart).toContain("parseRefundEventId(settlementPayload)");
@@ -128,4 +135,33 @@ test("transaction history reprints settled exchanges through the event receipt",
   expect(customerRelationshipHub).toContain("has_returns?: boolean");
   expect(customerRelationshipHub).toContain("row.has_returns");
   expect(customerRelationshipHub).toContain("Returned Item");
+});
+
+test("historical receipt entry points do not reuse checkout completion actions", () => {
+  expect(receiptModal).toContain('presentation?: "completion" | "historical"');
+  expect(receiptModal).toContain('presentation = "completion"');
+  expect(receiptModal).toContain('"Transaction receipt"');
+  expect(receiptModal).toContain("Close receipt");
+  expect(receiptModal).toContain("!historicalPresentation &&");
+  expect(registerReports).toContain('presentation="historical"');
+  expect(transactionDetailDrawer).toContain('presentation="historical"');
+  expect(staffProfilePanel).toContain('presentation="historical"');
+});
+
+test("idle security locks and rejoins the existing drawer without closing it", () => {
+  expect(posShell).toContain("setIsRegisterLocked(true)");
+  expect(posShell).not.toContain(
+    "idleTimerRef.current = setTimeout(() => {\n        handleSessionClosed();",
+  );
+  expect(posShell).toContain('accessMode="unlock"');
+  expect(registerOverlay).toContain('"Unlock Register"');
+  expect(registerOverlay).toContain(
+    "This unlock only rejoins the existing Register",
+  );
+  expect(registerOverlay).toContain(
+    "if (unlocking) {\n      if (await attachOpenLane(lane))",
+  );
+  expect(registerOverlay).toContain(
+    "Its opening float and close record remain unchanged.",
+  );
 });

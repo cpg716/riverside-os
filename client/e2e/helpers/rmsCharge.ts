@@ -201,6 +201,12 @@ export async function ensureSessionAuth(
 }
 
 export async function resetOpenRegisterSessions(request: APIRequestContext) {
+  if (process.env.E2E_ALLOW_REGISTER_RESET !== "1") {
+    throw new Error(
+      "Refusing to close open register sessions without E2E_ALLOW_REGISTER_RESET=1. Use the isolated E2E stack for destructive register reset coverage.",
+    );
+  }
+
   const listRes = await request.get(`${apiBase()}/api/sessions/list-open`, {
     headers: staffHeaders(),
     failOnStatusCode: false,
