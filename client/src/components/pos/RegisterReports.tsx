@@ -68,6 +68,7 @@ const isBookedToday = (occurredAtStr?: string | null) => {
 function registerLineKindLabel(kind?: string | null): string | null {
   if (kind === "rms_charge_payment") return "RMS Payment";
   if (kind === "alteration_service") return "Alteration";
+  if (kind === "shipping_service") return "Shipping";
   if (kind === "pos_gift_card_load") return "Gift Card";
   return null;
 }
@@ -118,6 +119,8 @@ interface RegisterActivityItem {
   payment_summary?: string | null;
   sales_total?: string | null;
   tax_total?: string | null;
+  shipping_total?: string | null;
+  alterations_total?: string | null;
   is_takeaway?: boolean | null;
   channel?: string | null;
   wedding_party_name?: string | null;
@@ -556,11 +559,21 @@ function activityDetailTransactionId(row: RegisterActivityItem): string | null {
 function activitySubtotalBeforeTaxCents(
   row: Pick<
     RegisterActivityItem,
-    "items" | "sales_total" | "tax_total" | "transaction_total"
+    | "items"
+    | "sales_total"
+    | "tax_total"
+    | "transaction_total"
+    | "shipping_total"
+    | "alterations_total"
   >,
 ): number {
   const itemSubtotal = (row.items ?? [])
-    .filter((item) => !item.is_internal)
+    .filter(
+      (item) =>
+        !item.is_internal &&
+        item.line_kind !== "alteration_service" &&
+        item.line_kind !== "shipping_service",
+    )
     .reduce(
       (sum, item) => sum + parseMoneyToCents(item.price) * item.quantity,
       0,
@@ -571,7 +584,10 @@ function activitySubtotalBeforeTaxCents(
     row.transaction_total ?? row.sales_total ?? "0",
   );
   const taxCents = parseMoneyToCents(row.tax_total ?? "0");
-  return grossCents - taxCents;
+  const serviceCents =
+    parseMoneyToCents(row.shipping_total ?? "0") +
+    parseMoneyToCents(row.alterations_total ?? "0");
+  return grossCents - taxCents - serviceCents;
 }
 
 function moneyFromCents(cents: number): string {
@@ -968,10 +984,12 @@ export default function RegisterReports({
   const [zLoading, setZLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [receiptOrderId, setReceiptOrderId] = useState<string | null>(null);
-  const [receiptRefundEventId, setReceiptRefundEventId] =
-    useState<string | null>(null);
-  const [receiptEventTransactionId, setReceiptEventTransactionId] =
-    useState<string | null>(null);
+  const [receiptRefundEventId, setReceiptRefundEventId] = useState<
+    string | null
+  >(null);
+  const [receiptEventTransactionId, setReceiptEventTransactionId] = useState<
+    string | null
+  >(null);
   const [detailOrderId, setDetailOrderId] = useState<string | null>(null);
   const [hubProductId, setHubProductId] = useState<string | null>(null);
   const [zPreset, setZPreset] = useState<ZPresetId>("recent");
@@ -1713,6 +1731,8 @@ export default function RegisterReports({
                     ),
                 )
               : "",
+          Shipping: idx === 0 ? a.shipping_total || "0" : "",
+          Alterations: idx === 0 ? a.alterations_total || "0" : "",
           "Sales Total": idx === 0 ? a.sales_total || "0" : "",
           Tax: idx === 0 ? a.tax_total || "0" : "",
           "Net Total": idx === 0 ? a.amount_label || "0" : "",
@@ -1747,6 +1767,16 @@ export default function RegisterReports({
           sum + parseRegisterReportMoneyToCents(activity.tax_total),
         0,
       );
+      const totalShippingCents = exportSummary.activities.reduce(
+        (sum, activity) =>
+          sum + parseRegisterReportMoneyToCents(activity.shipping_total),
+        0,
+      );
+      const totalAlterationsCents = exportSummary.activities.reduce(
+        (sum, activity) =>
+          sum + parseRegisterReportMoneyToCents(activity.alterations_total),
+        0,
+      );
       const totalNetCents = exportSummary.activities.reduce(
         (sum, activity) =>
           sum + parseRegisterReportMoneyToCents(activity.amount_label),
@@ -1778,6 +1808,8 @@ export default function RegisterReports({
         "Total Tender Collected": centsToFixed2(
           totalTransactionCents + totalWeddingDepositsCents,
         ),
+        Shipping: centsToFixed2(totalShippingCents),
+        Alterations: centsToFixed2(totalAlterationsCents),
         "Sales Total": centsToFixed2(totalSalesCents),
         Tax: centsToFixed2(totalTaxCents),
         "Net Total": centsToFixed2(totalNetCents),
@@ -1806,6 +1838,8 @@ export default function RegisterReports({
         "Wedding Deposits Placed",
         "Wedding Members Funded",
         "Total Tender Collected",
+        "Shipping",
+        "Alterations",
         "Sales Total",
         "Tax",
         "Net Total",
@@ -2756,7 +2790,9 @@ export default function RegisterReports({
                                       activityDetailTransactionId(row);
                                     if (transactionId) {
                                       setReceiptRefundEventId(
-                                        normalizeActivityId(row.refund_event_id),
+                                        normalizeActivityId(
+                                          row.refund_event_id,
+                                        ),
                                       );
                                       setReceiptEventTransactionId(
                                         normalizeActivityId(row.transaction_id),
@@ -2941,6 +2977,22 @@ export default function RegisterReports({
                                   {row.tax_total ? (
                                     <span className="text-[11px] font-bold text-app-text-muted tabular-nums">
                                       Tax {moneyFromValue(row.tax_total)}
+                                    </span>
+                                  ) : null}
+                                  {parseMoneyToCents(
+                                    row.shipping_total ?? "0",
+                                  ) !== 0 ? (
+                                    <span className="text-[11px] font-bold text-app-info tabular-nums">
+                                      Shipping{" "}
+                                      {moneyFromValue(row.shipping_total)}
+                                    </span>
+                                  ) : null}
+                                  {parseMoneyToCents(
+                                    row.alterations_total ?? "0",
+                                  ) !== 0 ? (
+                                    <span className="text-[11px] font-bold text-app-info tabular-nums">
+                                      Alterations{" "}
+                                      {moneyFromValue(row.alterations_total)}
                                     </span>
                                   ) : null}
                                 </div>

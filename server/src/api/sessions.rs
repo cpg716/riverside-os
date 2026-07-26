@@ -1960,7 +1960,11 @@ async fn build_reconciliation(
                         'overridden_unit_price', oi.size_specs ->> 'overridden_unit_price',
                         'fulfillment', oi.fulfillment::text,
                         'is_internal', COALESCE(oi.is_internal, false),
-                        'line_kind', p.pos_line_kind::text
+                        'line_kind', CASE
+                            WHEN UPPER(TRIM(COALESCE(pv.sku, ''))) IN ('SHIPPING', 'ROS-SHIPPING-FEE')
+                            THEN 'shipping_service'
+                            ELSE COALESCE(p.pos_line_kind::text, oi.custom_item_type)
+                        END
                     )
                 ) FILTER (WHERE oi.id IS NOT NULL AND (pay_tx.amount >= 0 OR trl.id IS NOT NULL)),
                 '[]'::jsonb

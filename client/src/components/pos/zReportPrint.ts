@@ -406,7 +406,12 @@ function auditItemsSubtotalBeforeTaxCents(
   items: ZReportAuditItem[] | null | undefined,
 ): number {
   return (items ?? [])
-    .filter((item) => !item.is_internal)
+    .filter(
+      (item) =>
+        !item.is_internal &&
+        item.line_kind !== "alteration_service" &&
+        item.line_kind !== "shipping_service",
+    )
     .reduce(
       (lineTotal, item) =>
         lineTotal + parseMoneyToCents(item.unit_price) * item.quantity,
@@ -425,6 +430,7 @@ function auditSubtotalBeforeTaxCents(
 function auditItemKindLabel(item: ZReportAuditItem): string | null {
   if (item.line_kind === "rms_charge_payment") return "RMS Payment";
   if (item.line_kind === "alteration_service") return "Alteration";
+  if (item.line_kind === "shipping_service") return "Shipping";
   if (item.line_kind === "pos_gift_card_load") return "Gift Card";
   return null;
 }
@@ -872,7 +878,16 @@ export async function openProfessionalZReportPrint(opts: {
   }, 0);
   const shippingTotalCents = transactions.reduce(
     (sum, transaction) =>
-      sum + parseMoneyToCents(transaction.shipping_amount ?? "0"),
+      sum +
+      parseMoneyToCents(transaction.shipping_amount ?? "0") +
+      (transaction.items ?? []).reduce(
+        (itemSum, item) =>
+          item.line_kind === "shipping_service"
+            ? itemSum +
+              parseMoneyToCents(item.unit_price) * Math.max(item.quantity, 0)
+            : itemSum,
+        0,
+      ),
     0,
   );
   const alterationTotalCents = transactions.reduce((sum, transaction) => {
@@ -1055,6 +1070,26 @@ export async function openProfessionalZReportPrint(opts: {
             });
             const transactionSubtotalBeforeTaxCents =
               auditItemsSubtotalBeforeTaxCents(t.items);
+            const transactionShippingCents =
+              parseMoneyToCents(t.shipping_amount ?? "0") +
+              (t.items ?? []).reduce(
+                (sum, item) =>
+                  item.line_kind === "shipping_service"
+                    ? sum +
+                      parseMoneyToCents(item.unit_price) *
+                        Math.max(item.quantity, 0)
+                    : sum,
+                0,
+              );
+            const transactionAlterationsCents = (t.items ?? []).reduce(
+              (sum, item) =>
+                item.line_kind === "alteration_service"
+                  ? sum +
+                    parseMoneyToCents(item.unit_price) *
+                      Math.max(item.quantity, 0)
+                  : sum,
+              0,
+            );
             const visibleItems = (t.items ?? [])
               .filter(isVisibleAuditItem)
               .slice(0, 4);
@@ -1116,6 +1151,8 @@ export async function openProfessionalZReportPrint(opts: {
                   <div class="money-total">${formatReportMoney(t.amount)}</div>
                   ${paymentRows ? `<div class="money-sub">${paymentRows}</div>` : ""}
                   <div class="money-sub">Subtotal Before Tax: ${formatReportMoney(transactionSubtotalBeforeTaxCents)}</div>
+                  ${transactionShippingCents !== 0 ? `<div class="money-sub">Shipping: ${formatReportMoney(transactionShippingCents)}</div>` : ""}
+                  ${transactionAlterationsCents !== 0 ? `<div class="money-sub">Alterations: ${formatReportMoney(transactionAlterationsCents)}</div>` : ""}
                   ${t.transaction_total ? `<div class="money-sub">Sale Total: ${formatReportMoney(t.transaction_total)}</div>` : ""}
                   ${t.transaction_paid ? `<div class="money-sub">Paid: ${formatReportMoney(t.transaction_paid)}</div>` : ""}
                   ${t.transaction_balance_due && parseMoneyToCents(t.transaction_balance_due) > 0 ? `<div class="money-due">Balance: ${formatReportMoney(t.transaction_balance_due)}</div>` : ""}
@@ -1834,6 +1871,8 @@ export async function openProfessionalDailySalesPrint(opts: {
     amount_label?: string | null;
     subtotal_before_tax?: string | null;
     tax_total?: string | null;
+    shipping_total?: string | null;
+    alterations_total?: string | null;
     kind: string;
     payment_summary?: string | null;
     payments?:
@@ -1981,6 +2020,8 @@ export async function openProfessionalDailySalesPrint(opts: {
             <div class="money-total">${row.sales_total ? `$${row.sales_total}` : row.amount_label || "—"}</div>
             <div class="money-sub">Subtotal Before Tax: ${row.subtotal_before_tax ? `$${row.subtotal_before_tax}` : "—"}</div>
             ${row.tax_total ? `<div class="money-sub">Tax: ${formatReportMoney(row.tax_total)}</div>` : ""}
+            ${parseRegisterReportMoneyToCents(row.shipping_total) !== 0 ? `<div class="money-sub">Shipping: ${formatReportMoney(row.shipping_total ?? "0")}</div>` : ""}
+            ${parseRegisterReportMoneyToCents(row.alterations_total) !== 0 ? `<div class="money-sub">Alterations: ${formatReportMoney(row.alterations_total ?? "0")}</div>` : ""}
             <div class="money-sub">Transaction Total: ${row.transaction_total ? `$${row.transaction_total}` : "—"}</div>
             ${row.wedding_deposit_contributions ? `<div class="money-good">Wedding Deposits Placed: ${formatReportMoney(row.wedding_deposit_contributions)} for ${row.wedding_deposit_member_count ?? 0} member${row.wedding_deposit_member_count === 1 ? "" : "s"}</div>` : ""}
             ${row.wedding_deposit_contributions ? `<div class="money-sub">Total Tender Collected: ${formatReportMoney(parseRegisterReportMoneyToCents(row.transaction_total) + parseRegisterReportMoneyToCents(row.wedding_deposit_contributions))}</div>` : ""}
@@ -2190,6 +2231,14 @@ export async function openProfessionalDailySalesPrint(opts: {
               ? `Subtotal Before Tax: ${formatReportMoney(row.subtotal_before_tax)}`
               : "",
             row.tax_total ? `Tax: ${formatReportMoney(row.tax_total)}` : "",
+            row.shipping_total &&
+            parseRegisterReportMoneyToCents(row.shipping_total) !== 0
+              ? `Shipping: ${formatReportMoney(row.shipping_total)}`
+              : "",
+            row.alterations_total &&
+            parseRegisterReportMoneyToCents(row.alterations_total) !== 0
+              ? `Alterations: ${formatReportMoney(row.alterations_total)}`
+              : "",
             row.transaction_total
               ? `Transaction Total: ${formatReportMoney(row.transaction_total)}`
               : "",

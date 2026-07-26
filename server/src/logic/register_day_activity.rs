@@ -205,6 +205,10 @@ pub struct RegisterActivityItem {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tax_total: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub shipping_total: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub alterations_total: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub is_takeaway: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub channel: Option<String>,
@@ -1046,32 +1050,62 @@ async fn fetch_register_day_summary_page_on_connection(
     let summary_line_source = match basis {
         ReportBasis::Booked => r#"
             SELECT
-                transaction_id,
-                SUM(subtotal_delta)::numeric(14,2) AS line_subtotal,
-                SUM(tax_delta)::numeric(14,2) AS line_tax
-            FROM transaction_line_booking_events
-            WHERE booked_at >= $1
-              AND booked_at < $2
-              AND is_internal = FALSE
-              AND COALESCE(metadata->>'reporting_excluded', '') <> 'counterpoint_financial_repair'
-              AND line_kind IS DISTINCT FROM 'rms_charge_payment'
-              AND line_kind IS DISTINCT FROM 'pos_gift_card_load'
-              AND line_kind IS DISTINCT FROM 'alteration_service'
-            GROUP BY transaction_id
+                e.transaction_id,
+                SUM(
+                    CASE
+                        WHEN e.line_kind = 'alteration_service'
+                          OR UPPER(TRIM(COALESCE(pv.sku, ''))) IN ('SHIPPING', 'ROS-SHIPPING-FEE')
+                        THEN 0::numeric
+                        ELSE e.subtotal_delta
+                    END
+                )::numeric(14,2) AS line_subtotal,
+                SUM(
+                    CASE
+                        WHEN e.line_kind = 'alteration_service'
+                          OR UPPER(TRIM(COALESCE(pv.sku, ''))) IN ('SHIPPING', 'ROS-SHIPPING-FEE')
+                        THEN 0::numeric
+                        ELSE e.tax_delta
+                    END
+                )::numeric(14,2) AS line_tax
+            FROM transaction_line_booking_events e
+            LEFT JOIN product_variants pv
+              ON pv.id = NULLIF(e.metadata->>'variant_id', '')::uuid
+            WHERE e.booked_at >= $1
+              AND e.booked_at < $2
+              AND e.is_internal = FALSE
+              AND COALESCE(e.metadata->>'reporting_excluded', '') <> 'counterpoint_financial_repair'
+              AND e.line_kind IS DISTINCT FROM 'rms_charge_payment'
+              AND e.line_kind IS DISTINCT FROM 'pos_gift_card_load'
+            GROUP BY e.transaction_id
         "#
         .to_string(),
         ReportBasis::Completed => r#"
             SELECT
                 oi.transaction_id,
-                SUM(oi.quantity::numeric * oi.unit_price)::numeric(14,2) AS line_subtotal,
-                SUM(oi.quantity::numeric * (oi.state_tax + oi.local_tax))::numeric(14,2) AS line_tax
+                SUM(
+                    CASE
+                        WHEN p.pos_line_kind = 'alteration_service'
+                          OR oi.custom_item_type = 'alteration_service'
+                          OR UPPER(TRIM(COALESCE(pv.sku, ''))) IN ('SHIPPING', 'ROS-SHIPPING-FEE')
+                        THEN 0::numeric
+                        ELSE oi.quantity::numeric * oi.unit_price
+                    END
+                )::numeric(14,2) AS line_subtotal,
+                SUM(
+                    CASE
+                        WHEN p.pos_line_kind = 'alteration_service'
+                          OR oi.custom_item_type = 'alteration_service'
+                          OR UPPER(TRIM(COALESCE(pv.sku, ''))) IN ('SHIPPING', 'ROS-SHIPPING-FEE')
+                        THEN 0::numeric
+                        ELSE oi.quantity::numeric * (oi.state_tax + oi.local_tax)
+                    END
+                )::numeric(14,2) AS line_tax
             FROM transaction_lines oi
             LEFT JOIN products p ON p.id = oi.product_id
+            LEFT JOIN product_variants pv ON pv.id = oi.variant_id
             WHERE COALESCE(oi.is_internal, false) = FALSE
               AND (p.pos_line_kind IS DISTINCT FROM 'rms_charge_payment')
               AND (p.pos_line_kind IS DISTINCT FROM 'pos_gift_card_load')
-              AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
-              AND (oi.custom_item_type IS DISTINCT FROM 'alteration_service')
             GROUP BY oi.transaction_id
         "#
         .to_string(),
@@ -1079,10 +1113,15 @@ async fn fetch_register_day_summary_page_on_connection(
     let agg_sql = format!(
         r#"
         SELECT
-            COUNT(DISTINCT o.id)::bigint AS sale_count,
+            COUNT(DISTINCT o.id) FILTER (
+                WHERE ln.line_subtotal <> 0 OR ln.line_tax <> 0
+            )::bigint AS sale_count,
             COALESCE(SUM(ln.line_subtotal), 0::numeric) AS subtotal_no_tax,
             COALESCE(SUM(ln.line_tax), 0::numeric) AS tax_total,
-            COUNT(DISTINCT o.id) FILTER (WHERE o.sale_channel = 'web')::bigint AS web_count
+            COUNT(DISTINCT o.id) FILTER (
+                WHERE o.sale_channel = 'web'
+                  AND (ln.line_subtotal <> 0 OR ln.line_tax <> 0)
+            )::bigint AS web_count
         FROM transactions o
         INNER JOIN ({summary_line_source}) ln ON ln.transaction_id = o.id
         WHERE {summary_order_in_range}
@@ -1112,12 +1151,16 @@ async fn fetch_register_day_summary_page_on_connection(
         FROM transaction_return_lines trl
         INNER JOIN transaction_lines tl ON tl.id = trl.transaction_line_id
         LEFT JOIN products p ON p.id = tl.product_id
+        LEFT JOIN product_variants pv ON pv.id = tl.variant_id
         WHERE trl.created_at >= $1
           AND trl.created_at < $2
           AND ($3::uuid IS NULL OR trl.register_session_id = $3)
           AND COALESCE(tl.is_internal, false) = false
           AND (p.pos_line_kind IS DISTINCT FROM 'rms_charge_payment')
           AND (p.pos_line_kind IS DISTINCT FROM 'pos_gift_card_load')
+          AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
+          AND (tl.custom_item_type IS DISTINCT FROM 'alteration_service')
+          AND UPPER(TRIM(COALESCE(pv.sku, ''))) NOT IN ('SHIPPING', 'ROS-SHIPPING-FEE')
         "#,
     )
     .bind(start_utc)
@@ -1132,7 +1175,25 @@ async fn fetch_register_day_summary_page_on_connection(
 
     let shipping_sql = format!(
         r#"
-        SELECT COALESCE(SUM(o.shipping_amount_usd), 0)::numeric(14,2)
+        SELECT COALESCE(SUM(
+            COALESCE(o.shipping_amount_usd, 0)
+            + COALESCE((
+                SELECT SUM(
+                    GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0)::numeric
+                    * oi.unit_price
+                )
+                FROM transaction_lines oi
+                INNER JOIN product_variants pv ON pv.id = oi.variant_id
+                LEFT JOIN (
+                    SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
+                    FROM transaction_return_lines
+                    GROUP BY transaction_line_id
+                ) orl ON orl.transaction_line_id = oi.id
+                WHERE oi.transaction_id = o.id
+                  AND COALESCE(oi.is_internal, false) = FALSE
+                  AND UPPER(TRIM(pv.sku)) IN ('SHIPPING', 'ROS-SHIPPING-FEE')
+            ), 0)
+        ), 0)::numeric(14,2)
         FROM transactions o
         WHERE {order_in_range}
         {order_session_filter}
@@ -1396,6 +1457,8 @@ async fn fetch_register_day_summary_page_on_connection(
         total_price: Decimal,
         sales_total_booked: Decimal,
         tax_total: Decimal,
+        shipping_total: Decimal,
+        alterations_total: Decimal,
         wedding_party_id: Option<Uuid>,
         party_name: Option<String>,
         customer_id: Option<Uuid>,
@@ -1416,6 +1479,7 @@ async fn fetch_register_day_summary_page_on_connection(
         balance_due: Decimal,
         has_rms_charge_payment_line: bool,
         has_alteration_service_line: bool,
+        has_shipping_service_line: bool,
     }
 
     #[derive(sqlx::FromRow)]
@@ -1445,27 +1509,63 @@ async fn fetch_register_day_summary_page_on_connection(
     }
 
     let sales_line_join = match basis {
-        ReportBasis::Booked => {
-            "LEFT JOIN transaction_lines oi ON oi.transaction_id = o.id".to_string()
-        }
-        ReportBasis::Completed => {
-            "LEFT JOIN transaction_lines oi ON oi.transaction_id = o.id".to_string()
-        }
+        ReportBasis::Booked => r#"
+            LEFT JOIN transaction_lines oi ON oi.transaction_id = o.id
+            LEFT JOIN products p_line ON p_line.id = oi.product_id
+            LEFT JOIN product_variants pv_line ON pv_line.id = oi.variant_id
+            "#
+        .to_string(),
+        ReportBasis::Completed => r#"
+            LEFT JOIN transaction_lines oi ON oi.transaction_id = o.id
+            LEFT JOIN products p_line ON p_line.id = oi.product_id
+            LEFT JOIN product_variants pv_line ON pv_line.id = oi.variant_id
+            "#
+        .to_string(),
     };
     let sales_event_join = match basis {
         ReportBasis::Booked => r#"
             INNER JOIN (
-                SELECT transaction_id, MAX(booked_at) AS last_booked_at,
-                       SUM(subtotal_delta)::numeric(14,2) AS line_subtotal,
-                       SUM(tax_delta)::numeric(14,2) AS line_tax
-                FROM transaction_line_booking_events
-                WHERE booked_at >= $1 AND booked_at < $2
-                  AND is_internal = FALSE
-                  AND COALESCE(metadata->>'reporting_excluded', '') <> 'counterpoint_financial_repair'
-                  AND line_kind IS DISTINCT FROM 'rms_charge_payment'
-                  AND line_kind IS DISTINCT FROM 'pos_gift_card_load'
-                  AND line_kind IS DISTINCT FROM 'alteration_service'
-                GROUP BY transaction_id
+                SELECT
+                    e.transaction_id,
+                    MAX(e.booked_at) AS last_booked_at,
+                    SUM(
+                        CASE
+                            WHEN e.line_kind = 'alteration_service'
+                              OR UPPER(TRIM(COALESCE(pv.sku, ''))) IN ('SHIPPING', 'ROS-SHIPPING-FEE')
+                            THEN 0::numeric
+                            ELSE e.subtotal_delta
+                        END
+                    )::numeric(14,2) AS line_subtotal,
+                    SUM(
+                        CASE
+                            WHEN e.line_kind = 'alteration_service'
+                              OR UPPER(TRIM(COALESCE(pv.sku, ''))) IN ('SHIPPING', 'ROS-SHIPPING-FEE')
+                            THEN 0::numeric
+                            ELSE e.tax_delta
+                        END
+                    )::numeric(14,2) AS line_tax,
+                    SUM(
+                        CASE WHEN e.line_kind = 'alteration_service'
+                            THEN e.subtotal_delta
+                            ELSE 0::numeric
+                        END
+                    )::numeric(14,2) AS alterations_total,
+                    SUM(
+                        CASE
+                            WHEN UPPER(TRIM(COALESCE(pv.sku, ''))) IN ('SHIPPING', 'ROS-SHIPPING-FEE')
+                            THEN e.subtotal_delta
+                            ELSE 0::numeric
+                        END
+                    )::numeric(14,2) AS shipping_line_total
+                FROM transaction_line_booking_events e
+                LEFT JOIN product_variants pv
+                  ON pv.id = NULLIF(e.metadata->>'variant_id', '')::uuid
+                WHERE e.booked_at >= $1 AND e.booked_at < $2
+                  AND e.is_internal = FALSE
+                  AND COALESCE(e.metadata->>'reporting_excluded', '') <> 'counterpoint_financial_repair'
+                  AND e.line_kind IS DISTINCT FROM 'rms_charge_payment'
+                  AND e.line_kind IS DISTINCT FROM 'pos_gift_card_load'
+                GROUP BY e.transaction_id
             ) be ON be.transaction_id = o.id
         "#
         .to_string(),
@@ -1489,23 +1589,71 @@ async fn fetch_register_day_summary_page_on_connection(
         ),
     };
     let sale_group_by = match basis {
-        ReportBasis::Booked => "o.id, be.line_subtotal, be.line_tax".to_string(),
+        ReportBasis::Booked => {
+            "o.id, be.line_subtotal, be.line_tax, be.alterations_total, be.shipping_line_total"
+                .to_string()
+        }
         ReportBasis::Completed => sale_ts.clone(),
     };
     let sales_tax_expr = match basis {
         ReportBasis::Booked => "be.line_tax".to_string(),
         ReportBasis::Completed => r#"COALESCE(SUM(
-                GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0)::numeric
-                * (oi.state_tax + oi.local_tax)
+                CASE
+                    WHEN COALESCE(oi.is_internal, false)
+                      OR p_line.pos_line_kind IN ('rms_charge_payment', 'pos_gift_card_load')
+                      OR p_line.pos_line_kind = 'alteration_service'
+                      OR oi.custom_item_type = 'alteration_service'
+                      OR UPPER(TRIM(COALESCE(pv_line.sku, ''))) IN ('SHIPPING', 'ROS-SHIPPING-FEE')
+                    THEN 0::numeric
+                    ELSE GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0)::numeric
+                        * (oi.state_tax + oi.local_tax)
+                END
             ), 0)::numeric(14,2)"#
             .to_string(),
     };
     let sales_total_expr = match basis {
-        ReportBasis::Booked => "(be.line_subtotal + be.line_tax)".to_string(),
+        ReportBasis::Booked => "(be.line_subtotal + be.line_tax)::numeric(14,2)".to_string(),
         ReportBasis::Completed => r#"COALESCE(SUM(
-                GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0)::numeric
-                * (oi.unit_price + oi.state_tax + oi.local_tax)
+                CASE
+                    WHEN COALESCE(oi.is_internal, false)
+                      OR p_line.pos_line_kind IN ('rms_charge_payment', 'pos_gift_card_load')
+                      OR p_line.pos_line_kind = 'alteration_service'
+                      OR oi.custom_item_type = 'alteration_service'
+                      OR UPPER(TRIM(COALESCE(pv_line.sku, ''))) IN ('SHIPPING', 'ROS-SHIPPING-FEE')
+                    THEN 0::numeric
+                    ELSE GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0)::numeric
+                        * (oi.unit_price + oi.state_tax + oi.local_tax)
+                END
             ), 0)::numeric(14,2)"#
+            .to_string(),
+    };
+    let activity_shipping_expr = match basis {
+        ReportBasis::Booked => {
+            "(be.shipping_line_total + COALESCE(o.shipping_amount_usd, 0))::numeric(14,2)"
+                .to_string()
+        }
+        ReportBasis::Completed => r#"(
+            COALESCE(SUM(
+                CASE
+                    WHEN UPPER(TRIM(COALESCE(pv_line.sku, ''))) IN ('SHIPPING', 'ROS-SHIPPING-FEE')
+                    THEN GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0)::numeric * oi.unit_price
+                    ELSE 0::numeric
+                END
+            ), 0)
+            + COALESCE(o.shipping_amount_usd, 0)
+        )::numeric(14,2)"#
+            .to_string(),
+    };
+    let activity_alterations_expr = match basis {
+        ReportBasis::Booked => "be.alterations_total".to_string(),
+        ReportBasis::Completed => r#"COALESCE(SUM(
+            CASE
+                WHEN p_line.pos_line_kind = 'alteration_service'
+                  OR oi.custom_item_type = 'alteration_service'
+                THEN GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0)::numeric * oi.unit_price
+                ELSE 0::numeric
+            END
+        ), 0)::numeric(14,2)"#
             .to_string(),
     };
     let sales_payment_date_filter = match basis {
@@ -1527,6 +1675,8 @@ async fn fetch_register_day_summary_page_on_connection(
             o.counterpoint_doc_ref,
             o.total_price,
             {sales_tax_expr} AS tax_total,
+            {activity_shipping_expr} AS shipping_total,
+            {activity_alterations_expr} AS alterations_total,
             wp.id AS wedding_party_id,
             wp.party_name,
             c.id AS customer_id,
@@ -1644,6 +1794,13 @@ async fn fetch_register_day_summary_page_on_connection(
                     OR tl_alt.custom_item_type = 'alteration_service'
                   )
             ) AS has_alteration_service_line,
+            EXISTS (
+                SELECT 1
+                FROM transaction_lines tl_shipping
+                INNER JOIN product_variants pv_shipping ON pv_shipping.id = tl_shipping.variant_id
+                WHERE tl_shipping.transaction_id = o.id
+                  AND UPPER(TRIM(pv_shipping.sku)) IN ('SHIPPING', 'ROS-SHIPPING-FEE')
+            ) OR COALESCE(o.shipping_amount_usd, 0) <> 0 AS has_shipping_service_line,
             (
                 SELECT jsonb_agg(jsonb_build_object(
                     'name', px.name,
@@ -1654,7 +1811,11 @@ async fn fetch_register_day_summary_page_on_connection(
                     'product_id', px.id,
                     'fulfillment', oix.fulfillment::text,
                     'is_internal', COALESCE(oix.is_internal, false),
-                    'line_kind', COALESCE(NULLIF(TRIM(px.pos_line_kind), ''), NULLIF(TRIM(oix.custom_item_type), ''))
+                    'line_kind', CASE
+                        WHEN UPPER(TRIM(pvx.sku)) IN ('SHIPPING', 'ROS-SHIPPING-FEE')
+                        THEN 'shipping_service'
+                        ELSE COALESCE(NULLIF(TRIM(px.pos_line_kind), ''), NULLIF(TRIM(oix.custom_item_type), ''))
+                    END
                 ) ORDER BY oix.id)
                 FROM transaction_lines oix
                 INNER JOIN products px ON px.id = oix.product_id
@@ -1777,6 +1938,15 @@ async fn fetch_register_day_summary_page_on_connection(
                 GREATEST(tl.quantity - COALESCE(orl.returned, 0), 0)::numeric
                 * (tl.state_tax + tl.local_tax)
             ), 0)::numeric(14,2) AS tax_total,
+            COALESCE(o.shipping_amount_usd, 0)::numeric(14,2) AS shipping_total,
+            COALESCE(SUM(
+                CASE
+                    WHEN p_line.pos_line_kind = 'alteration_service'
+                      OR tl.custom_item_type = 'alteration_service'
+                    THEN GREATEST(tl.quantity - COALESCE(orl.returned, 0), 0)::numeric * tl.unit_price
+                    ELSE 0::numeric
+                END
+            ), 0)::numeric(14,2) AS alterations_total,
             wp.id AS wedding_party_id,
             wp.party_name,
             c.id AS customer_id,
@@ -1799,7 +1969,11 @@ async fn fetch_register_day_summary_page_on_connection(
             'pickup'::text AS fulfillment_type,
             o.balance_due,
             false AS has_rms_charge_payment_line,
-            false AS has_alteration_service_line,
+            COALESCE(BOOL_OR(
+                p_line.pos_line_kind = 'alteration_service'
+                OR tl.custom_item_type = 'alteration_service'
+            ), false) AS has_alteration_service_line,
+            COALESCE(o.shipping_amount_usd, 0) <> 0 AS has_shipping_service_line,
             (
                 SELECT jsonb_agg(jsonb_build_object(
                     'name', px.name,
@@ -1810,7 +1984,11 @@ async fn fetch_register_day_summary_page_on_connection(
                     'product_id', px.id,
                     'fulfillment', 'pickup',
                     'is_internal', COALESCE(tlx.is_internal, false),
-                    'line_kind', COALESCE(NULLIF(TRIM(px.pos_line_kind), ''), NULLIF(TRIM(tlx.custom_item_type), ''))
+                    'line_kind', CASE
+                        WHEN UPPER(TRIM(pvx.sku)) IN ('SHIPPING', 'ROS-SHIPPING-FEE')
+                        THEN 'shipping_service'
+                        ELSE COALESCE(NULLIF(TRIM(px.pos_line_kind), ''), NULLIF(TRIM(tlx.custom_item_type), ''))
+                    END
                 ) ORDER BY tlx.fulfilled_at, tlx.id)
                 FROM transaction_lines tlx
                 INNER JOIN products px ON px.id = tlx.product_id
@@ -1823,6 +2001,7 @@ async fn fetch_register_day_summary_page_on_connection(
             ) AS items_json
         FROM transactions o
         INNER JOIN transaction_lines tl ON tl.transaction_id = o.id
+        LEFT JOIN products p_line ON p_line.id = tl.product_id
         LEFT JOIN customers c ON c.id = o.customer_id
         LEFT JOIN wedding_members wm ON wm.id = o.wedding_member_id
         LEFT JOIN wedding_parties wp ON wp.id = wm.wedding_party_id
@@ -2106,8 +2285,12 @@ async fn fetch_register_day_summary_page_on_connection(
             matches!(basis, ReportBasis::Completed) && !s.is_takeaway && !is_rms_payment_activity;
         let title = if is_rms_payment_activity {
             "RMS Charge Payment".to_string()
+        } else if s.has_alteration_service_line && s.has_shipping_service_line {
+            "Service Sale".to_string()
         } else if s.has_alteration_service_line && s.is_takeaway {
             "Alteration Sale".to_string()
+        } else if s.has_shipping_service_line && s.is_takeaway {
+            "Shipping Sale".to_string()
         } else {
             match basis {
                 ReportBasis::Completed => {
@@ -2211,6 +2394,8 @@ async fn fetch_register_day_summary_page_on_connection(
             payments,
             sales_total: Some(money_label(s.sales_total_booked)),
             tax_total: Some(money_label(s.tax_total)),
+            shipping_total: Some(money_label(s.shipping_total)),
+            alterations_total: Some(money_label(s.alterations_total)),
             is_takeaway: Some(s.is_takeaway),
             channel: Some(s.channel),
             wedding_party_name: s.party_name,
@@ -2342,6 +2527,8 @@ async fn fetch_register_day_summary_page_on_connection(
             }]),
             sales_total,
             tax_total,
+            shipping_total: None,
+            alterations_total: None,
             is_takeaway: None,
             channel: None,
             wedding_party_name: None,
@@ -2419,6 +2606,8 @@ async fn fetch_register_day_summary_page_on_connection(
                 payments: None,
                 sales_total: Some(money_label(p.sales_total_booked)),
                 tax_total: Some(money_label(p.tax_total)),
+                shipping_total: Some(money_label(p.shipping_total)),
+                alterations_total: Some(money_label(p.alterations_total)),
                 is_takeaway: Some(false),
                 channel: Some(p.channel),
                 wedding_party_name: p.party_name,

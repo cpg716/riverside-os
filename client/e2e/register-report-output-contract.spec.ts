@@ -113,6 +113,32 @@ test.describe("Register report output integrity contracts", () => {
     expect(registerReportsSource).not.toContain("summary.amount_label");
   });
 
+  test("services stay visible without inflating Daily Sales totals", () => {
+    expect(registerDayServerSource).toContain(
+      '"(be.line_subtotal + be.line_tax)::numeric(14,2)"',
+    );
+    expect(registerDayServerSource).toContain(
+      "WHERE ln.line_subtotal <> 0 OR ln.line_tax <> 0",
+    );
+    expect(registerDayServerSource).toContain(
+      "IN ('SHIPPING', 'ROS-SHIPPING-FEE')",
+    );
+    expect(registerDayServerSource).toContain(
+      "shipping_total: Some(money_label",
+    );
+    expect(registerReportsSource).toContain(
+      'if (kind === "shipping_service") return "Shipping"',
+    );
+    expect(registerReportsSource).toContain('"Shipping"');
+    expect(registerReportsSource).toContain('"Alterations"');
+    expect(sessionsServerSource).toContain("THEN 'shipping_service'");
+    expect(reportPrintSource).toContain(
+      'item.line_kind === "shipping_service"',
+    );
+    expect(reportPrintSource).toContain("Shipping:");
+    expect(reportPrintSource).toContain("Alterations:");
+  });
+
   test("interactive reports render one basis and one audited page at a time", () => {
     const summaryLoader = registerReportsSource.slice(
       registerReportsSource.indexOf("const loadSummaries"),
@@ -387,9 +413,7 @@ test.describe("Register report output integrity contracts", () => {
     expect(sessionsServerSource).toContain(
       "target.checkout_client_id IS DISTINCT FROM ppa.checkout_client_id",
     );
-    expect(sessionsServerSource).toContain(
-      "ppa.checkout_client_id IS NULL",
-    );
+    expect(sessionsServerSource).toContain("ppa.checkout_client_id IS NULL");
     expect(sessionsServerSource).toContain("z_report_snapshot: z_snapshot");
   });
 
@@ -435,9 +459,7 @@ test.describe("Register report output integrity contracts", () => {
     expect(reconciliationHandler).toContain(
       "let open_period_scope = prior_business_day_closes == 0",
     );
-    expect(reconciliationHandler).toContain(
-      "$3::boolean",
-    );
+    expect(reconciliationHandler).toContain("$3::boolean");
     expect(sessionsServerSource).toContain(
       "return vec![open_period_business_date]",
     );

@@ -69,7 +69,7 @@ Upon closing, a professional, full-page **Z-Audit Report** is generated.
 - **Audit Grade**: Produces high-fidelity Letter/A4 documents for accounting review.
 - **Reporting Station**: The header confirms the assigned printer name for accountability.
 - **Open-period audit dates**: The header separates the business date from the open timestamp, close timestamp, and current print date/time.
-- **Per-Transaction Subtotal Before Tax**: The audit list separates merchandise subtotal before tax from payment totals. Shipping and alteration-service charges are shown separately from merchandise subtotal, while gift-card loads are shown as separate liability activity and are not included in merchandise sales.
+- **Per-Transaction Subtotal Before Tax**: The audit list separates merchandise subtotal before tax from payment totals. Shipping and alteration-service charges are shown on the matching Transaction card and in their separate daily totals, while gift-card loads are shown as separate liability activity and are not included in merchandise sales.
 - **Line Discounts**: Each transaction line shows the final line price plus the regular price and discount percent applied.
 - **Daily Cash Deposit**: Captures the bank deposit date and cash deposit amount for deposit verification and accounting review.
 - **Unresolved Issues at Close**: Freezes the exact card, recovery, and linked-workstation warnings that existed immediately before close. Recovery entries include their close-time kind, status, label, identifiers, timestamps, attempt count, and last error when available. Before close, the preview is explicitly labeled as current preview evidence; only the completed close labels the evidence **at close**. Later repair does not rewrite the archived report.
