@@ -8,7 +8,7 @@ Target: Hybrid Tauri Host retail deployment.
 - [x] Source-side QBO fallback mapping has been removed; exportable financial activity must resolve to an explicit Chart of Accounts mapping before posting.
 - [x] Source-side local review evidence is recorded in [`docs/reviews/legacy/2026-06/PRE_GO_LIVE_LOCAL_REVIEW_2026_06_05.md`](reviews/legacy/2026-06/PRE_GO_LIVE_LOCAL_REVIEW_2026_06_05.md).
 - [x] v0.95.5 release notes and candidate certification requirements are recorded in [`docs/releases/v0.95.5-release-notes.md`](releases/v0.95.5-release-notes.md) and [`docs/releases/v0.95.5-certification.md`](releases/v0.95.5-certification.md).
-- [ ] Exact-commit v0.95.5 GitHub Lint, blocking Playwright, Windows packaging, macOS packaging, release assets, and updater/build manifests are verified.
+- [x] Exact-commit v0.95.5 GitHub Lint, blocking Playwright, Windows packaging, macOS packaging, 26 release assets, and all updater/build manifests are verified for `e3307d38`.
 - [x] Before the replacement retag, GitHub release **`v0.95.0`** was published as Latest from superseded build `feb0db16`; that asset set remains historical evidence only.
 - [x] The 2026-07-23 Register/search/reporting/runtime replacement is committed, retagged, promoted, published, and independently verified at `d9e68018f99f0778a21b0ffca1b57f287594561c`.
 - [x] Non-E2E local release checks passed for the final replacement source tree on 2026-07-23. Local Playwright is intentionally skipped at operator direction.
@@ -40,7 +40,7 @@ v0.95.0 preserves the v0.85.x GO LIVE readiness baseline, incorporates the exten
 
 ## Code Gate
 
-- [ ] Final v0.95.5 source and publication validation is recorded in [`docs/releases/v0.95.5-certification.md`](releases/v0.95.5-certification.md), including exact-commit CI, release state, manifests, signatures, asset count, and deployment-ZIP provenance.
+- [x] Final v0.95.5 source and publication validation is recorded in [`docs/releases/v0.95.5-certification.md`](releases/v0.95.5-certification.md), including exact-commit CI, release state, manifests, signatures, asset count, and deployment-ZIP provenance.
 - [x] Final replacement source and publication validation is recorded in [`docs/releases/v0.95.0-certification.md`](releases/v0.95.0-certification.md), including exact-commit CI, candidate runs, promotion, release state, manifests, signatures, asset count, and deployment-ZIP provenance.
 - [x] Replacement local validation passed before tagging: whitespace, version parity, client lint/typecheck, locked Rust checks, deployment release gates, go-live blockers, and Help impact. Local Playwright is intentionally skipped at operator direction.
 - [x] Exact-commit GitHub Lint run `30006157344` and blocking Playwright run `30006157349` passed on full commit `d9e68018f99f0778a21b0ffca1b57f287594561c`.
