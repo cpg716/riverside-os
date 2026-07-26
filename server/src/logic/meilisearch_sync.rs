@@ -1551,7 +1551,18 @@ async fn swap_temp_into_live(
     client: &Client,
     live_uid: &str,
     temp_uid: &str,
-) -> Result<(), meilisearch_sdk::errors::Error> {
+    expected_document_count: usize,
+) -> anyhow::Result<()> {
+    let temp_stats = client.index(temp_uid).get_stats().await?;
+    if temp_stats.is_indexing {
+        anyhow::bail!("Meilisearch temporary index {temp_uid} is still indexing");
+    }
+    if temp_stats.number_of_documents != expected_document_count {
+        anyhow::bail!(
+            "Meilisearch temporary index {temp_uid} has {} documents; expected {expected_document_count}",
+            temp_stats.number_of_documents,
+        );
+    }
     ensure_live_index_exists_for_swap(client, live_uid).await?;
     let swap = SwapIndexes {
         indexes: (live_uid.to_string(), temp_uid.to_string()),
@@ -1559,6 +1570,13 @@ async fn swap_temp_into_live(
     };
     let task = client.swap_indexes([&swap]).await?;
     crate::logic::meilisearch_client::wait_task_ok(client, task).await?;
+    let live_stats = client.index(live_uid).get_stats().await?;
+    if live_stats.is_indexing || live_stats.number_of_documents != expected_document_count {
+        anyhow::bail!(
+            "Meilisearch live index {live_uid} did not verify after swap: {} documents; expected {expected_document_count}",
+            live_stats.number_of_documents,
+        );
+    }
     match client.delete_index(temp_uid).await {
         Ok(task) => {
             if let Err(e) = crate::logic::meilisearch_client::wait_task_ok(client, task).await {
@@ -1654,7 +1672,7 @@ async fn reindex_all_meilisearch_inner(client: &Client, pool: &PgPool) -> anyhow
         enqueue_documents(&index_v, &v_batch, &mut variant_tasks).await?;
     }
     wait_pending_tasks(client, variant_tasks).await?;
-    swap_temp_into_live(client, INDEX_VARIANTS, &temp_variants).await?;
+    swap_temp_into_live(client, INDEX_VARIANTS, &temp_variants, n_variants).await?;
     record_sync_status(pool, INDEX_VARIANTS, true, n_variants as i64, None).await;
 
     // 2. Store Products
@@ -1710,7 +1728,7 @@ async fn reindex_all_meilisearch_inner(client: &Client, pool: &PgPool) -> anyhow
         enqueue_documents(&index_p, &p_batch, &mut product_tasks).await?;
     }
     wait_pending_tasks(client, product_tasks).await?;
-    swap_temp_into_live(client, INDEX_STORE_PRODUCTS, &temp_products).await?;
+    swap_temp_into_live(client, INDEX_STORE_PRODUCTS, &temp_products, n_products).await?;
     record_sync_status(pool, INDEX_STORE_PRODUCTS, true, n_products as i64, None).await;
 
     // 3. Customers
@@ -1789,7 +1807,7 @@ async fn reindex_all_meilisearch_inner(client: &Client, pool: &PgPool) -> anyhow
         enqueue_documents(&index_c, &c_batch, &mut customer_tasks).await?;
     }
     wait_pending_tasks(client, customer_tasks).await?;
-    swap_temp_into_live(client, INDEX_CUSTOMERS, &temp_customers).await?;
+    swap_temp_into_live(client, INDEX_CUSTOMERS, &temp_customers, n_customers).await?;
     record_sync_status(pool, INDEX_CUSTOMERS, true, n_customers as i64, None).await;
 
     // 4. Wedding Parties
@@ -1856,7 +1874,7 @@ async fn reindex_all_meilisearch_inner(client: &Client, pool: &PgPool) -> anyhow
         enqueue_documents(&index_w, &w_batch, &mut wedding_tasks).await?;
     }
     wait_pending_tasks(client, wedding_tasks).await?;
-    swap_temp_into_live(client, INDEX_WEDDING_PARTIES, &temp_weddings).await?;
+    swap_temp_into_live(client, INDEX_WEDDING_PARTIES, &temp_weddings, n_weddings).await?;
     record_sync_status(pool, INDEX_WEDDING_PARTIES, true, n_weddings as i64, None).await;
 
     // 5. Transactions
@@ -1944,7 +1962,7 @@ async fn reindex_all_meilisearch_inner(client: &Client, pool: &PgPool) -> anyhow
         enqueue_documents(&index_txns, &txn_batch, &mut txn_tasks).await?;
     }
     wait_pending_tasks(client, txn_tasks).await?;
-    swap_temp_into_live(client, INDEX_TRANSACTIONS, &temp_txns).await?;
+    swap_temp_into_live(client, INDEX_TRANSACTIONS, &temp_txns, n_txns).await?;
     record_sync_status(pool, INDEX_TRANSACTIONS, true, n_txns as i64, None).await;
 
     // 6. Orders workspace records (transaction-backed order work, not every checkout)
@@ -2043,7 +2061,7 @@ async fn reindex_all_meilisearch_inner(client: &Client, pool: &PgPool) -> anyhow
         enqueue_documents(&index_orders, &order_batch, &mut order_tasks).await?;
     }
     wait_pending_tasks(client, order_tasks).await?;
-    swap_temp_into_live(client, INDEX_ORDERS, &temp_orders).await?;
+    swap_temp_into_live(client, INDEX_ORDERS, &temp_orders, n_orders).await?;
     record_sync_status(pool, INDEX_ORDERS, true, n_orders as i64, None).await;
 
     // 7. Help
@@ -2085,7 +2103,7 @@ async fn reindex_all_meilisearch_inner(client: &Client, pool: &PgPool) -> anyhow
         enqueue_documents(&index_staff, &staff_batch, &mut staff_tasks).await?;
     }
     wait_pending_tasks(client, staff_tasks).await?;
-    swap_temp_into_live(client, INDEX_STAFF, &temp_staff).await?;
+    swap_temp_into_live(client, INDEX_STAFF, &temp_staff, staff_batch.len()).await?;
     record_sync_status(pool, INDEX_STAFF, true, staff_batch.len() as i64, None).await;
 
     // 9. Vendors
@@ -2110,7 +2128,7 @@ async fn reindex_all_meilisearch_inner(client: &Client, pool: &PgPool) -> anyhow
         enqueue_documents(&index_vendors, &vendor_batch, &mut vendor_tasks).await?;
     }
     wait_pending_tasks(client, vendor_tasks).await?;
-    swap_temp_into_live(client, INDEX_VENDORS, &temp_vendors).await?;
+    swap_temp_into_live(client, INDEX_VENDORS, &temp_vendors, vendor_batch.len()).await?;
     record_sync_status(pool, INDEX_VENDORS, true, vendor_batch.len() as i64, None).await;
 
     // 10. Categories
@@ -2131,7 +2149,13 @@ async fn reindex_all_meilisearch_inner(client: &Client, pool: &PgPool) -> anyhow
         enqueue_documents(&index_categories, &category_batch, &mut category_tasks).await?;
     }
     wait_pending_tasks(client, category_tasks).await?;
-    swap_temp_into_live(client, INDEX_CATEGORIES, &temp_categories).await?;
+    swap_temp_into_live(
+        client,
+        INDEX_CATEGORIES,
+        &temp_categories,
+        category_batch.len(),
+    )
+    .await?;
     record_sync_status(
         pool,
         INDEX_CATEGORIES,
@@ -2193,7 +2217,13 @@ async fn reindex_all_meilisearch_inner(client: &Client, pool: &PgPool) -> anyhow
         enqueue_documents(&index_appointments, &appt_batch, &mut appointment_tasks).await?;
     }
     wait_pending_tasks(client, appointment_tasks).await?;
-    swap_temp_into_live(client, INDEX_APPOINTMENTS, &temp_appointments).await?;
+    swap_temp_into_live(
+        client,
+        INDEX_APPOINTMENTS,
+        &temp_appointments,
+        n_appointments,
+    )
+    .await?;
     record_sync_status(pool, INDEX_APPOINTMENTS, true, n_appointments as i64, None).await;
 
     // 12. Tasks
@@ -2237,7 +2267,7 @@ async fn reindex_all_meilisearch_inner(client: &Client, pool: &PgPool) -> anyhow
         enqueue_documents(&index_tasks, &task_batch, &mut task_tasks).await?;
     }
     wait_pending_tasks(client, task_tasks).await?;
-    swap_temp_into_live(client, INDEX_TASKS, &temp_tasks).await?;
+    swap_temp_into_live(client, INDEX_TASKS, &temp_tasks, n_tasks).await?;
     record_sync_status(pool, INDEX_TASKS, true, n_tasks as i64, None).await;
 
     // 13. Alterations
@@ -2331,7 +2361,7 @@ async fn reindex_all_meilisearch_inner(client: &Client, pool: &PgPool) -> anyhow
         enqueue_documents(&index_alterations, &alteration_batch, &mut alteration_tasks).await?;
     }
     wait_pending_tasks(client, alteration_tasks).await?;
-    swap_temp_into_live(client, INDEX_ALTERATIONS, &temp_alterations).await?;
+    swap_temp_into_live(client, INDEX_ALTERATIONS, &temp_alterations, n_alterations).await?;
     record_sync_status(pool, INDEX_ALTERATIONS, true, n_alterations as i64, None).await;
 
     tracing::info!(variants = n_variants, "Meilisearch reindex completed");

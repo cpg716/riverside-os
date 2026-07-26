@@ -105,7 +105,9 @@ export function usePosSearch({
       return results;
     }
 
-    if (feeShortcut === "SHIPPING") {
+    const isShippingShortcut =
+      feeShortcut.length >= 4 && "SHIPPING".startsWith(feeShortcut);
+    if (isShippingShortcut) {
       const results: SearchResult[] = [{
         product_id: "pos-shipping-fee",
         variant_id: "pos-shipping-fee",

@@ -454,7 +454,14 @@ AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
                 ORDER BY created_at, id
             ) AS source_payments
         FROM payment_transactions
-        WHERE COALESCE(effective_date, (created_at AT TIME ZONE reporting.effective_store_timezone())::date) = $1::date
+        WHERE (
+                effective_date = $1::date
+             OR (
+                    effective_date IS NULL
+                AND created_at >= ($1::date::timestamp AT TIME ZONE reporting.effective_store_timezone())
+                AND created_at < (($1::date + 1)::timestamp AT TIME ZONE reporting.effective_store_timezone())
+             )
+        )
           AND (
               LOWER(TRIM(payment_method)) <> 'open_deposit'
               OR EXISTS (
@@ -2325,7 +2332,12 @@ AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
               AND COALESCE((metadata->>'rms_charge_collection')::boolean, FALSE) = TRUE
         ), 0)::numeric(14, 2)
         FROM payment_transactions
-        WHERE COALESCE(effective_date, (created_at AT TIME ZONE reporting.effective_store_timezone())::date) = $1::date
+        WHERE effective_date = $1::date
+           OR (
+                effective_date IS NULL
+            AND created_at >= ($1::date::timestamp AT TIME ZONE reporting.effective_store_timezone())
+            AND created_at < (($1::date + 1)::timestamp AT TIME ZONE reporting.effective_store_timezone())
+           )
         "#,
     )
     .bind(activity_date)
@@ -2403,7 +2415,12 @@ AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
               AND COALESCE((metadata->>'staff_account_collection')::boolean, FALSE) = TRUE
         ), 0)::numeric(14, 2)
         FROM payment_transactions
-        WHERE COALESCE(effective_date, (created_at AT TIME ZONE reporting.effective_store_timezone())::date) = $1::date
+        WHERE effective_date = $1::date
+           OR (
+                effective_date IS NULL
+            AND created_at >= ($1::date::timestamp AT TIME ZONE reporting.effective_store_timezone())
+            AND created_at < (($1::date + 1)::timestamp AT TIME ZONE reporting.effective_store_timezone())
+           )
         "#,
     )
     .bind(activity_date)

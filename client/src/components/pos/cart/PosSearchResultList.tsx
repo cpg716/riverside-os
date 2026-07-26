@@ -1,4 +1,4 @@
-import { AlertTriangle, ArrowRight, Loader2, Package, SearchX } from "lucide-react";
+import { AlertTriangle, ArrowRight, Loader2, Package, SearchX, Truck } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { type ResolvedSkuItem } from "../types";
 
@@ -109,6 +109,7 @@ export function PosSearchResultList({
             Number(item.total_variant_count ?? 0) || group.length,
           );
           const startsQuickAlteration = item.sku === "ROS-ALTERATION-FEE";
+          const startsShippingFee = item.sku === "ROS-SHIPPING-FEE";
           const minPrice = Number(item.retail_price_min ?? item.standard_retail_price);
           const maxPrice = Number(item.retail_price_max ?? item.standard_retail_price);
           const priceLabel = variationCount > 1 && !isExactSku
@@ -162,6 +163,34 @@ export function PosSearchResultList({
                     Fee only
                   </button>
                 </div>
+              </div>
+            );
+          }
+
+          if (startsShippingFee) {
+            return (
+              <div
+                key={item.product_id}
+                className="flex min-h-[88px] items-center gap-4 rounded-2xl border-2 border-app-accent bg-app-accent/5 p-4"
+              >
+                <div className="h-16 w-16 shrink-0 rounded-xl border border-app-border bg-app-surface p-4 text-app-text-muted">
+                  <Truck className="h-full w-full" aria-hidden />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-base font-black text-app-text">Shipping fee</p>
+                  <p className="mt-1 text-xs font-bold text-app-text-muted">
+                    Add a non-taxable shipping charge without creating a shipment.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  data-testid="pos-shipping-fee-add"
+                  onPointerDown={(event) => event.preventDefault()}
+                  onClick={selectResult}
+                  className="ui-btn-primary h-10 shrink-0 px-4 text-[10px] font-black uppercase tracking-widest"
+                >
+                  Add fee
+                </button>
               </div>
             );
           }

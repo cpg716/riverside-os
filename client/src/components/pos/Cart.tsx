@@ -1830,6 +1830,7 @@ export default function Cart({
       "custom_order_booking",
       "pending_return_refund",
       "alteration_service",
+      "alteration_fee_only",
       "wedding promo (free suit selection)",
     ]);
     return lines
@@ -1839,7 +1840,14 @@ export default function Cart({
         if (line.discount_event_id) return false;
         if (line.gift_card_load_code) return false;
         if (line.quantity <= 0) return false;
-        if (line.line_type === "alteration_service" || line.fulfillment === "custom") {
+        if (
+          line.line_type === "alteration_service" ||
+          line.line_type === "alteration_fee" ||
+          line.custom_item_type === "alteration_service" ||
+          line.custom_item_type === "alteration_fee" ||
+          line.sku === ALTERATION_SERVICE_SKU ||
+          line.fulfillment === "custom"
+        ) {
           return false;
         }
         const unitCents = parseMoneyToCents(line.standard_retail_price);
@@ -3162,7 +3170,7 @@ export default function Cart({
                     </span>
                   </div>
                 ) : (
-                  <label className="flex min-w-[18rem] flex-1 items-center justify-center gap-2">
+                  <div className="flex min-w-[18rem] flex-1 items-center justify-center gap-2">
                     <span className="shrink-0 text-[9px] font-black uppercase tracking-[0.2em] text-app-text-muted">
                       Salesperson:
                     </span>
@@ -3180,7 +3188,7 @@ export default function Cart({
                       displayLabel={hasLineSalespersonOverrides ? "SPLIT" : undefined}
                       className="min-w-[12rem]"
                     />
-                  </label>
+                  </div>
                 )
               ) : null}
               <PosRegisterLiveClock

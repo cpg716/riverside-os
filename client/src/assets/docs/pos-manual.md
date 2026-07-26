@@ -88,13 +88,13 @@ The quantity/price keypad remains readable before a cart line is selected: muted
 For a Register service shortcut:
 
 - **ALTERATIONS** requires a selected customer and opens a Quick Alteration Record. Attach a current-cart item, past purchase, catalog item, or customer-owned item with a description; set the due date and either a fee or free status. Tag # and work requested are optional; scan the physical tag into **Tag #** when available. The checkout/drop-off receipt prints the **Customer item** description, and the pickup receipt repeats it. It records and tracks the alteration for pickup, while scheduling and delegation remain in the Alterations workspace. It can be picked up at Register while marked **In Custody** or **Ready for pickup**; use **Ready** when the work is complete and customer-notification workflows should begin.
-- **SHIPPING** adds a non-taxable shipping fee without creating a shipment. Use **Ship current sale** when an address, carrier/service, shipment record, or tracking workflow is required.
+- Type **SHIP** or **SHIPPING** in product search to add a non-taxable shipping fee without creating a shipment. Use **Ship current sale** when an address, carrier/service, shipment record, or tracking workflow is required.
 
 Use the Register **Alteration** toolbar action for the full intake workflow.
 
 The full intake starts with the garment, fitting decision, work requested, and timing. Workload capacity, fee, Tag #, and notes remain available when needed without blocking the basic intake.
 
-**Alteration Service** is an internal checkout line created only after an intake record is saved. It is not a sellable SKU and should never be added directly from product search. In the Alterations workspace, **Plan & Schedule → Schedule → Audit trail** shows the recorded intake, status, work-item, and pickup history for authorized staff.
+**Alteration Service** is an internal checkout line created only after an intake record is saved. It is not a sellable SKU and should never be added directly from product search. Charged alteration fees are services, not merchandise discounts, and do not require Below-Cost Approval. In the Alterations workspace, **Plan & Schedule → Schedule → Audit trail** shows the recorded intake, status, work-item, and pickup history for authorized staff.
 
 Each ordinary sale line has a tax badge. Tap it to cycle that one line through **Standard**, **Clothing**, and **No Tax**:
 
@@ -202,6 +202,8 @@ Select **View Receipt** to inspect the same formatted receipt layout used for cu
 Gift card load receipts list the sold gift card number under the gift-card line so staff and customers can confirm which card was activated.
 
 When staff open the loaded customer's profile from Register and save updated contact details, the selected customer shown in Register refreshes immediately.
+
+Choose the sale's primary salesperson from the Register header. The salesperson list closes as soon as a selection is made, and the chosen name remains visible on the header control.
 
 Customer search accepts initials and partial first-and-last-name fragments. For example, `C Garcia`, `Ch Gar`, and `Gar C` can find Chris Garcia; enter enough of each name to distinguish people with similar names, then confirm the phone or email shown before selecting the profile.
 

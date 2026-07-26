@@ -1656,6 +1656,7 @@ fn is_manual_below_cost_reason(reason: &str) -> bool {
         "custom_order_booking",
         "pending_return_refund",
         "alteration_service",
+        "alteration_fee_only",
         "Wedding Promo (Free Suit Selection)",
     ]
     .iter()
@@ -3528,8 +3529,10 @@ async fn execute_checkout_internal(
                 | Some("pos_gift_card_load")
                 | Some("staff_account_payment")
                 | Some("alteration_service")
-        ) || item.line_type.as_deref() == Some("alteration_service")
-            || item.fulfillment == DbFulfillmentType::Custom
+        ) || matches!(
+            item.line_type.as_deref(),
+            Some("alteration_service") | Some("alteration_fee")
+        ) || item.fulfillment == DbFulfillmentType::Custom
         {
             continue;
         }
