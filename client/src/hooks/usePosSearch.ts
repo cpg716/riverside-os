@@ -76,7 +76,9 @@ export function usePosSearch({
       toast("Use ALTERATIONS to start a Quick Alteration Record.", "info");
       return [];
     }
-    if (feeShortcut === "ALTERATION" || feeShortcut === "ALTERATIONS") {
+    const isAlterationShortcut =
+      feeShortcut.length >= 5 && "ALTERATIONS".startsWith(feeShortcut);
+    if (isAlterationShortcut) {
       const results: SearchResult[] = [{
         product_id: "b7c0a006-0006-4006-8006-000000000006",
         variant_id: "b7c0a007-0007-4007-8007-000000000007",

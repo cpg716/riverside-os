@@ -52,6 +52,12 @@ Use this workspace when you need to:
 7. For a standalone alteration pickup, use **Pick Up & Print** on a **Ready** alteration card.
 8. For an alteration linked to an order, mark the alteration **Ready**, then complete the customer order pickup from the Register. The Register includes ready linked alteration pickups with the order.
 
+For a new job at the Register, choose **Alteration** for full intake. Search **ALTERATIONS** for two distinct choices: **Quick Add** starts a tracked garment record and needs a customer; **Fee Only** adds a non-taxable alteration charge without a garment record, due date, or tailor-queue work.
+
+Alteration intake keeps item selection and work details together in one wide workspace. For full intake, choose a service to prefill the work request and planned tailor capacity. Use **Add tag / notes** only when those optional details are needed; the Save action stays pinned and available after a fee is entered.
+
+The page behind the modal does not scroll while intake is open.
+
 Alteration labor added through the alteration intake workflow is non-taxable. Changing its charge or applying a discount in the Register must not add state or local tax.
 
 ## What to watch for

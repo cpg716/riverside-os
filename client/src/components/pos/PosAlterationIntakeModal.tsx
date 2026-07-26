@@ -153,6 +153,7 @@ export default function PosAlterationIntakeModal({
   const [chargeAmount, setChargeAmount] = useState("");
   const [customItemDescription, setCustomItemDescription] = useState("");
   const [showValidation, setShowValidation] = useState(false);
+  const [showOptionalDetails, setShowOptionalDetails] = useState(false);
 
   const [catalogSearch, setCatalogSearch] = useState("");
   const [catalogResults, setCatalogResults] = useState<SearchResult[]>([]);
@@ -194,6 +195,7 @@ export default function PosAlterationIntakeModal({
     setChargeAmount("");
     setCustomItemDescription("");
     setShowValidation(false);
+    setShowOptionalDetails(false);
     setCatalogSearch("");
     setCatalogResults([]);
     setCatalogLoading(false);
@@ -404,7 +406,7 @@ export default function PosAlterationIntakeModal({
   return createPortal(
     <div className="ui-overlay-backdrop !z-[200]">
       <div
-        className="ui-card relative flex max-h-[96dvh] w-full max-w-none flex-col overflow-hidden rounded-t-3xl border border-app-border bg-app-surface shadow-2xl sm:max-h-[92vh] sm:max-w-4xl sm:rounded-2xl"
+        className="ui-card relative flex max-h-[96dvh] w-full max-w-none flex-col overflow-hidden rounded-t-3xl border border-app-border bg-app-surface shadow-2xl sm:h-[min(82vh,44rem)] sm:max-h-[92vh] sm:w-[min(96vw,88rem)] sm:rounded-2xl"
         role="dialog"
         aria-modal="true"
         aria-label="Alteration intake"
@@ -437,14 +439,14 @@ export default function PosAlterationIntakeModal({
             Select or create a customer on the Register before starting alteration intake.
           </div>
         ) : (
-            <div className="mx-5 mt-4 rounded-2xl border border-app-accent/25 bg-app-accent/10 p-3">
+            <div className="mx-5 mt-3 rounded-2xl border border-app-accent/25 bg-app-accent/10 px-3 py-2">
               <p className="text-[10px] font-black uppercase tracking-widest text-app-accent">
                 Working on
               </p>
               <p className="mt-1 text-sm font-black text-app-text">
                 {customerName(customer)}
               </p>
-              <p className="mt-1 text-xs font-semibold text-app-text-muted">
+              <p className="mt-0.5 text-xs font-semibold text-app-text-muted">
                 {isQuick
                   ? "Record the item, due date, fee or free status, and any optional tag or work details. Scheduling can be completed later in Alterations."
                   : "This intake stays attached to the current cart until checkout creates the tailor queue work."}
@@ -452,8 +454,11 @@ export default function PosAlterationIntakeModal({
             </div>
           )}
 
-        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-          <div className="min-h-0 overflow-visible p-4 sm:p-5">
+        <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[minmax(22rem,0.8fr)_minmax(30rem,1.2fr)]">
+          <div
+            data-testid="pos-alteration-item-panel"
+            className="min-h-0 overflow-y-auto border-b border-app-border p-5 lg:border-b-0 lg:border-r"
+          >
             <div className="mb-4">
               <p className="text-[10px] font-black uppercase tracking-widest text-app-accent">
                 1. Choose the item
@@ -489,14 +494,14 @@ export default function PosAlterationIntakeModal({
               </div>
             ) : null}
 
-            {!isQuick ? <details className="mb-4 rounded-xl border border-app-border bg-app-surface-2 p-3">
-              <summary className="cursor-pointer list-none text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                Advanced workload planning <span className="ml-1 font-semibold normal-case tracking-normal">(optional)</span>
-              </summary>
-              <p className="mt-2 text-xs font-semibold text-app-text-muted">
-                Set preliminary tailor capacity now, or leave the defaults for the Alterations queue to finalize.
+            {!isQuick ? <section className="mb-4 rounded-xl border border-app-border bg-app-surface-2 p-3">
+              <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                Services <span className="ml-1 font-semibold normal-case tracking-normal">(optional)</span>
               </p>
-              <div className="mt-3 flex flex-wrap gap-2">
+              <p className="mt-1 text-xs font-semibold text-app-text-muted">
+                Choose a service to prefill the work request and tailor capacity.
+              </p>
+              <div className="mt-2 flex flex-wrap gap-1.5">
                 {ALTERATION_WORK_TYPES.map((task) => {
                   const active =
                     workRequested === task.label &&
@@ -517,47 +522,12 @@ export default function PosAlterationIntakeModal({
                           : "border-app-border bg-app-surface text-app-text-muted hover:text-app-text"
                       }`}
                     >
-                      {task.label} · {task.units} slot{task.units === 1 ? "" : "s"}
+                      {task.label}
                     </button>
                   );
                 })}
               </div>
-              <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_auto]">
-                <select
-                  value={capacityBucket}
-                  onChange={(event) =>
-                    setCapacityBucket(event.target.value as "jacket" | "pant" | "other")
-                  }
-                  className="ui-input text-xs font-black uppercase tracking-widest"
-                  aria-label="Alteration capacity bucket"
-                >
-                  <option value="jacket">Jacket capacity</option>
-                  <option value="pant">Pant capacity</option>
-                  <option value="other">Other capacity</option>
-                </select>
-                <div className="flex items-center gap-2 rounded-xl border border-app-border bg-app-surface px-2 py-1">
-                  <button
-                    type="button"
-                    onClick={() => setCapacityUnits((value) => Math.max(1, value - 1))}
-                    className="h-8 w-8 rounded-lg border border-app-border text-sm font-black text-app-text"
-                    aria-label="Decrease alteration units"
-                  >
-                    -
-                  </button>
-                  <span className="w-10 text-center text-sm font-black text-app-text">
-                    {capacityUnits}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setCapacityUnits((value) => value + 1)}
-                    className="h-8 w-8 rounded-lg border border-app-border text-sm font-black text-app-text"
-                    aria-label="Increase alteration units"
-                  >
-                    +
-                  </button>
-                </div>
-              </div>
-            </details> : null}
+            </section> : null}
 
             {sourceMode === "current_cart_item" ? (
               <div className="space-y-2">
@@ -771,8 +741,11 @@ export default function PosAlterationIntakeModal({
             ) : null}
           </div>
 
-          <div className="min-h-0 overflow-visible border-t border-app-border bg-app-surface-2/50 p-4 sm:p-5">
-            <div className="space-y-4">
+          <div
+            data-testid="pos-alteration-details-panel"
+            className="min-h-0 overflow-y-auto bg-app-surface-2/50 p-5"
+          >
+            <div className="flex h-full min-h-0 flex-col gap-2.5">
               <div>
                 <p className="text-[10px] font-black uppercase tracking-widest text-app-accent">
                   2. Set {isQuick ? "pickup details" : "work and timing"}
@@ -783,7 +756,7 @@ export default function PosAlterationIntakeModal({
                     : "Choose whether a fitting comes first, then capture the work and timing needed for the queue."}
                 </p>
               </div>
-              <div className="rounded-xl border border-app-border bg-app-surface p-3">
+              <div className="rounded-xl border border-app-border bg-app-surface px-3 py-2">
                 <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                   Selected item
                 </p>
@@ -832,7 +805,19 @@ export default function PosAlterationIntakeModal({
                 </p>
               </div> : null}
 
-              <label className="block space-y-2">
+              <div className="flex items-center justify-end">
+                {!showOptionalDetails ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowOptionalDetails(true)}
+                    className="text-[10px] font-black uppercase tracking-widest text-app-text-muted hover:text-app-text"
+                  >
+                    Add tag / notes
+                  </button>
+                ) : null}
+              </div>
+
+              <label className="block space-y-1">
                 <span className="px-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                   {isQuick || fittingNeeded ? "Work requested (Optional)" : "Work requested"}
                 </span>
@@ -841,15 +826,15 @@ export default function PosAlterationIntakeModal({
                   onChange={(event) => setWorkRequested(event.target.value)}
                   placeholder={isQuick || fittingNeeded ? "e.g. Needs hem" : "Hem pants, take in waist..."}
                   data-testid="pos-alteration-work-requested"
-                  className="ui-input h-11 w-full text-sm font-bold"
+                  className="ui-input h-10 w-full text-sm font-bold"
                 />
               </label>
 
-              <div className="rounded-xl border border-app-border bg-app-surface p-3">
+              <div className="rounded-xl border border-app-border bg-app-surface px-3 py-2">
                 <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                   Fee status
                 </p>
-                <div className="mt-2 grid grid-cols-2 gap-2">
+                <div className="mt-1 grid grid-cols-2 gap-2">
                     <button
                       type="button"
                       onClick={() => setChargeEnabled(false)}
@@ -877,7 +862,7 @@ export default function PosAlterationIntakeModal({
               </div>
 
               {chargeEnabled ? (
-                <label className="block space-y-2">
+                <label className="block space-y-1">
                   <span className="px-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                     Charge amount
                   </span>
@@ -889,46 +874,29 @@ export default function PosAlterationIntakeModal({
                     onChange={(event) => setChargeAmount(event.target.value)}
                     placeholder="0.00"
                     data-testid="pos-alteration-charge-amount"
-                    className="ui-input h-11 w-full text-sm font-bold"
+                    className="ui-input h-10 w-full text-sm font-bold"
                   />
-                  <p className="text-[10px] font-semibold text-app-text-muted">
-                    This updates the alteration cart line amount. The garment lookup is not sold again.
-                  </p>
                 </label>
               ) : null}
 
-              <label className="block space-y-2">
+              <label className="block space-y-1">
                 <span className="px-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                  Due date {(isQuick || !fittingNeeded) && <span className="text-red-500">*</span>}
+                  Due date <span className="text-red-500">*</span>
                 </span>
                 <input
                   type="date"
                   value={dueAt}
                   onChange={(event) => setDueAt(event.target.value)}
-                  className={`ui-input h-11 w-full text-sm font-bold ${showValidation && !dueAt ? "border-red-500/50 bg-red-500/5" : ""}`}
+                  className={`ui-input h-10 w-full text-sm font-bold ${showValidation && !dueAt ? "border-red-500/50 bg-red-500/5" : ""}`}
                 />
-                <p
-                  className={`rounded-xl border px-3 py-2 text-[11px] font-bold ${
-                    showValidation && !dueAt
-                      ? "border-rose-200 bg-rose-50 text-rose-800"
-                      : dueAt
-                        ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-                        : "border-app-border bg-app-surface text-app-text-muted"
-                  }`}
-                >
-                  {showValidation && !dueAt
-                    ? "Action required: choose a due date before saving this alteration record."
-                    : dueAt
-                      ? "Due date set. After checkout, this can be scheduled or printed from Alterations."
-                      : isQuick
-                        ? "Choose the date the customer expects to pick this up."
-                        : !fittingNeeded
-                          ? "Choose the due date before saving an intake that does not need a fitting."
-                        : "Fitting first. Save the intake now; final work can be confirmed during the fitting."}
-                </p>
+                {showValidation && !dueAt ? (
+                  <p className="text-[11px] font-bold text-app-danger">
+                    Choose a due date before saving.
+                  </p>
+                ) : null}
               </label>
 
-              <label className="block space-y-2">
+              {showOptionalDetails ? <label className="block space-y-2">
                 <span className="px-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                   Tag # (scan or enter)
                 </span>
@@ -941,9 +909,9 @@ export default function PosAlterationIntakeModal({
                   placeholder="Scan or enter physical tag # (optional)"
                   className="ui-input h-11 w-full text-sm font-bold"
                 />
-              </label>
+              </label> : null}
 
-              <label className="block space-y-2">
+              {showOptionalDetails ? <label className="block space-y-2">
                 <span className="px-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                   Notes
                 </span>
@@ -951,11 +919,11 @@ export default function PosAlterationIntakeModal({
                   value={notes}
                   onChange={(event) => setNotes(event.target.value)}
                   placeholder="Staff notes for the tailor..."
-                  className="ui-input min-h-[96px] w-full p-3 text-sm"
+                  className="ui-input min-h-[64px] w-full p-3 text-sm"
                 />
-              </label>
+              </label> : null}
 
-              <div className="sticky bottom-0 -mx-4 -mb-4 border-t border-app-border bg-app-surface-2/95 p-4 backdrop-blur sm:-mx-5 sm:-mb-5 sm:p-5">
+              <div className="sticky bottom-0 mt-auto shrink-0 border-t border-app-border bg-app-surface-2/95 pt-2">
                 <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
                   {isQuick
                     ? "Next: save the record, finish checkout, then schedule or print from Alterations when needed."

@@ -56,7 +56,7 @@ export type OrderLifecycleStatus =
   | "picked_up";
 
 export interface CartLineItem extends ResolvedSkuItem {
-  line_type?: "merchandise" | "alteration_service";
+  line_type?: "merchandise" | "alteration_service" | "alteration_fee";
   quantity: number;
   fulfillment: FulfillmentKind;
   /** Stable row identity (e.g. multiple POS gift card loads share the same internal SKU). */

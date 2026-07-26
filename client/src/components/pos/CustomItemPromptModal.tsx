@@ -50,6 +50,7 @@ export default function CustomItemPromptModal({
   const [needByDate, setNeedByDate] = useState("");
   const [isRush, setIsRush] = useState(false);
   const [needsGiftWrap, setNeedsGiftWrap] = useState(false);
+  const [showVendorDetails, setShowVendorDetails] = useState(mode === "editDetails");
   const [taxCategory, setTaxCategory] = useState<TaxCategory>("clothing");
   const [garmentDescription, setGarmentDescription] = useState("");
   const [fabricReference, setFabricReference] = useState("");
@@ -276,7 +277,7 @@ export default function CustomItemPromptModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="custom-order-modal-title"
-        className="relative flex max-h-[96dvh] w-full max-w-none flex-col overflow-hidden rounded-t-3xl border border-app-border bg-app-surface shadow-2xl animate-in zoom-in-95 duration-200 sm:max-h-[88vh] sm:max-w-4xl sm:rounded-3xl"
+        className="relative flex max-h-[96dvh] w-full max-w-none flex-col overflow-hidden rounded-t-3xl border border-app-border bg-app-surface shadow-2xl animate-in zoom-in-95 duration-200 sm:h-[min(88vh,48rem)] sm:max-h-[88vh] sm:w-[min(96vw,76rem)] sm:rounded-3xl"
       >
         <div className="border-b border-app-border bg-app-surface-2 px-6 py-4">
           <h3
@@ -383,6 +384,7 @@ export default function CustomItemPromptModal({
             ) : null}
 
             <div className="min-w-0">
+          {showVendorDetails ? <>
           {selectedSubtype.vendorFormFamily === "hart_schaffner_marx" && (
             <div className="ui-panel ui-tint-neutral space-y-3 p-4">
               <div>
@@ -1004,6 +1006,23 @@ export default function CustomItemPromptModal({
                 </div>
               </div>
             </div>
+          )}
+          </> : (
+            <button
+              type="button"
+              onClick={() => setShowVendorDetails(true)}
+              className="flex w-full items-center justify-between rounded-2xl border border-app-border bg-app-surface-2 p-4 text-left transition-colors hover:border-app-accent/50 hover:bg-app-surface"
+            >
+              <span>
+                <span className="block text-[10px] font-black uppercase tracking-widest text-app-text">
+                  Garment and vendor details
+                </span>
+                <span className="mt-1 block text-xs font-semibold text-app-text-muted">
+                  Add form references, sizing, and customization details when available.
+                </span>
+              </span>
+              <span className="text-sm font-black text-app-accent">Add</span>
+            </button>
           )}
             </div>
           </div>

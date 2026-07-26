@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import { signInToBackOffice } from "./helpers/backofficeSignIn";
 import {
   ensurePosRegisterSessionOpen,
@@ -144,6 +144,13 @@ async function openAlterationIntakeDialog(page: Page) {
   return dialog;
 }
 
+async function continueToAlterationDetails(dialog: Locator) {
+  const detailsPanel = dialog.getByTestId("pos-alteration-details-panel");
+  await expect(detailsPanel).toBeVisible();
+  await expect(detailsPanel).toHaveCSS("overflow-y", "auto");
+  await detailsPanel.getByLabel(/due date/i).fill("2026-08-15");
+}
+
 test.describe("POS alteration intake", () => {
   test.skip(
     quarantineUnstablePosUi,
@@ -176,7 +183,7 @@ test.describe("POS alteration intake", () => {
     expect(boxes[1]?.width).toBeGreaterThan(0);
   });
 
-  test("modal requires customer before opening", async ({ page }) => {
+  test("regular intake requires a selected customer", async ({ page }) => {
     await page.getByTestId("pos-alteration-intake-trigger").click({ force: true });
     await expect(
       page.getByText(/select or create a customer before starting an alteration/i),
@@ -184,22 +191,27 @@ test.describe("POS alteration intake", () => {
     await expect(page.getByTestId("pos-alteration-intake-dialog")).toHaveCount(0);
   });
 
-  test("ALTERATIONS quick search opens the non-scheduling record", async ({ page }) => {
+  test("typing ALTERATIONS presents tracked and fee-only actions", async ({ page }) => {
     await selectCustomer(page);
     const search = page.getByTestId("pos-product-search");
     await search.fill("ALTERATIONS");
-    await page.getByRole("button", { name: /alterations.*quick record/i }).click();
-    const dialog = page.getByTestId("pos-alteration-intake-dialog");
-    await expect(dialog).toBeVisible();
-    await expect(dialog.getByText(/quick alteration record/i)).toBeVisible();
-    await expect(dialog.getByText(/tailor workload/i)).toHaveCount(0);
-    await expect(dialog.getByText(/fitting plan/i)).toHaveCount(0);
+    await expect(page.getByTestId("pos-alteration-quick-add")).toBeVisible();
+    await expect(page.getByTestId("pos-alteration-fee-only")).toBeVisible();
+  });
+
+  test("ALTER search prefix opens the tracked quick record from its explicit action", async ({ page }) => {
+    await selectCustomer(page);
+    const search = page.getByTestId("pos-product-search");
+    await search.fill("ALTER");
+    await page.getByTestId("pos-alteration-quick-add").click();
+    await expect(page.getByTestId("pos-alteration-intake-dialog")).toBeVisible();
   });
 
   test("alteration intake accepts a scanned tag number", async ({ page }) => {
     await selectCustomer(page);
     const dialog = await openAlterationIntakeDialog(page);
 
+    await dialog.getByRole("button", { name: /add tag \/ notes/i }).click();
     const tag = dialog.getByTestId("alteration-tag-number");
     await tag.fill("ALT-2026-00042");
     await expect(tag).toHaveValue("ALT-2026-00042");
@@ -239,6 +251,7 @@ test.describe("POS alteration intake", () => {
 
     const dialog = await openAlterationIntakeDialog(page);
     await dialog.getByTestId("pos-alteration-cart-source-option").click();
+    await continueToAlterationDetails(dialog);
     await dialog.getByTestId("pos-alteration-work-requested").fill("Hem sleeves");
     await dialog.getByTestId("pos-alteration-save").click();
 
@@ -261,8 +274,9 @@ test.describe("POS alteration intake", () => {
 
     const dialog = await openAlterationIntakeDialog(page);
     await dialog.getByTestId("pos-alteration-cart-source-option").click();
+    await continueToAlterationDetails(dialog);
     await dialog.getByTestId("pos-alteration-work-requested").fill("Hem pants");
-    await dialog.getByTestId("pos-alteration-charge-toggle").check();
+    await dialog.getByTestId("pos-alteration-charge-toggle").click();
     await dialog.getByTestId("pos-alteration-charge-amount").fill("18.00");
     await dialog.getByTestId("pos-alteration-save").click();
 
@@ -288,7 +302,8 @@ test.describe("POS alteration intake", () => {
 
     const dialog = await openAlterationIntakeDialog(page);
     await dialog.getByTestId("pos-alteration-cart-source-option").click();
-    await dialog.getByRole("button", { name: /Shorten Sleeves · 4 slots/i }).click();
+    await continueToAlterationDetails(dialog);
+    await dialog.getByRole("button", { name: /^Shorten Sleeves$/i }).click();
     await dialog.getByTestId("pos-alteration-save").click();
 
     let checkoutBody: Record<string, unknown> | null = null;
@@ -518,6 +533,7 @@ test.describe("POS alteration intake", () => {
     await dialog
       .getByTestId("pos-alteration-custom-description")
       .fill("Outside tuxedo jacket");
+    await continueToAlterationDetails(dialog);
     await dialog.getByTestId("pos-alteration-work-requested").fill("Take in sides");
     await dialog.getByTestId("pos-alteration-save").click();
 

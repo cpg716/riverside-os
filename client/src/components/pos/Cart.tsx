@@ -705,7 +705,7 @@ export default function Cart({
   const [staffAccountPaymentOpen, setStaffAccountPaymentOpen] = useState(false);
   const [parkSalePromptOpen, setParkSalePromptOpen] = useState(false);
   const [parkSaleDraftLabel, setParkSaleDraftLabel] = useState("");
-  const [feePromptKind, setFeePromptKind] = useState<"shipping" | null>(null);
+  const [feePromptKind, setFeePromptKind] = useState<"shipping" | "alteration" | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const requestProductSearchFocus = useCallback(() => {
     window.requestAnimationFrame(() => {
@@ -839,8 +839,34 @@ export default function Cart({
       }
     }
 
+    if (feePromptKind === "alteration") {
+      const feeLine: CartLineItem = {
+        product_id: ALTERATION_SERVICE_PRODUCT_ID,
+        variant_id: ALTERATION_SERVICE_VARIANT_ID,
+        sku: ALTERATION_SERVICE_SKU,
+        name: "Alteration fee",
+        variation_label: "Fee only — no alteration record",
+        standard_retail_price: centsToFixed2(amountCents),
+        unit_cost: "0.00",
+        state_tax: "0.00",
+        local_tax: "0.00",
+        tax_category: "service",
+        quantity: 1,
+        fulfillment: "takeaway",
+        cart_row_id: newCartRowId(),
+        line_type: "alteration_fee",
+        price_override_reason: "alteration_fee_only",
+        original_unit_price: "0.00",
+        custom_item_type: "alteration_fee",
+      };
+      setLines((previous) => [...previous, feeLine]);
+      setFeePromptKind(null);
+      toast("Non-taxable alteration fee added. No alteration record was created.", "success");
+      return true;
+    }
+
     return false;
-  }, [apiAuth, baseUrl, feePromptKind, toast]);
+  }, [apiAuth, baseUrl, feePromptKind, setLines, toast]);
 
   const [pendingReturnLineDrafts, setPendingReturnLineDrafts] = useState<
     Record<string, ExchangeReturnHandoffLine[]>
@@ -2812,6 +2838,25 @@ export default function Cart({
   }, [initialWeddingPosLink, baseUrl, onInitialWeddingPosLinkConsumed, apiAuth, toast, setLines, setActiveWeddingMember, setActiveWeddingPartyName, selectCustomerForSale, updateSelectedCustomerSnapshot]);
 
   // --- Search Coordination ---
+  const startAlterationIntake = (mode: "quick" | "full", source: string) => {
+    if (!selectedCustomer) {
+      console.info("[ROS POS] Alteration intake blocked", {
+        mode,
+        source,
+        reason: "customer_required",
+      });
+      toast("Select or create a customer before starting an alteration.", "error");
+      window.requestAnimationFrame(() => {
+        document.querySelector<HTMLInputElement>("[data-testid='pos-customer-search']")?.focus();
+      });
+      return;
+    }
+    console.info("[ROS POS] Alteration intake opened", { mode, source });
+    setEditingAlterationIntake(null);
+    setAlterationIntakeMode(mode);
+    setAlterationIntakeOpen(true);
+  };
+
   const onSearchResultClick = (item: SearchResult) => {
     if (item.sku === ALTERATION_SERVICE_SKU) {
       setSearch("");
@@ -2822,16 +2867,7 @@ export default function Cart({
     if (item.sku === "ROS-ALTERATION-FEE") {
       setSearch("");
       setSearchResults([]);
-      if (!selectedCustomer) {
-        toast("Select or create a customer before starting an alteration.", "error");
-        window.requestAnimationFrame(() => {
-          document.querySelector<HTMLInputElement>("[data-testid='pos-customer-search']")?.focus();
-        });
-        return;
-      }
-      setEditingAlterationIntake(null);
-      setAlterationIntakeMode("quick");
-      setAlterationIntakeOpen(true);
+      startAlterationIntake("quick", "product_search");
       return;
     }
     if (item.sku === "ROS-SHIPPING-FEE") {
@@ -2841,6 +2877,12 @@ export default function Cart({
       return;
     }
     handleSearchResultClick(item, searchResults, search, setActiveVariationSelection);
+  };
+
+  const startAlterationFeeOnly = () => {
+    setSearch("");
+    setSearchResults([]);
+    setFeePromptKind("alteration");
   };
 
   const scannerOverlayOpen = useMemo(
@@ -3169,8 +3211,9 @@ export default function Cart({
               placeholder="Search Name, SKU, or Supplier SKUs..."
               value={search}
               onChange={(e) => {
-                setSearch(e.target.value);
-                if (e.target.value === "") {
+                const nextSearch = e.target.value;
+                setSearch(nextSearch);
+                if (nextSearch === "") {
                   setSearchResults([]);
                 }
               }}
@@ -3201,7 +3244,8 @@ export default function Cart({
             <PosSearchResultList
               search={search}
               groupedSearchResults={groupedSearchResults}
-              onSearchResultClick={onSearchResultClick}
+                onSearchResultClick={onSearchResultClick}
+                onQuickAlterationFeeOnly={startAlterationFeeOnly}
             />
           </div>
 
@@ -3236,7 +3280,7 @@ export default function Cart({
                   scrollActionRibbon("end");
                 }
               }}
-              className="flex min-w-0 flex-1 gap-3 overflow-x-auto rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-app-accent/60"
+              className="flex min-w-0 flex-1 gap-3 overflow-x-auto rounded-xl pr-1 outline-none focus-visible:ring-2 focus-visible:ring-app-accent/60 [&>button]:grow-0"
             >
               <button
                 type="button"
@@ -3255,16 +3299,7 @@ export default function Cart({
                 type="button"
                 data-testid="pos-alteration-intake-trigger"
                 onClick={() => {
-                  if (!selectedCustomer) {
-                    toast("Select or create a customer before starting an alteration.", "error");
-                    window.requestAnimationFrame(() => {
-                      document.querySelector<HTMLInputElement>("[data-testid='pos-customer-search']")?.focus();
-                    });
-                    return;
-                  }
-                  setEditingAlterationIntake(null);
-                  setAlterationIntakeMode("full");
-                  setAlterationIntakeOpen(true);
+                  startAlterationIntake("full", "pos_action");
                 }}
                 title={selectedCustomer ? "Start alteration intake" : "Select a customer to start alteration intake"}
                 className="ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border border-app-accent/60 bg-app-accent/10 px-2 text-center text-app-accent shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-accent hover:text-white active:scale-95 dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px]"
@@ -3418,13 +3453,15 @@ export default function Cart({
               <button
                 type="button"
                 onClick={() => setOrderReviewOpen(true)}
-                disabled={lines.length === 0}
-                title="Set rush and pickup/order details. Use Shipping to ship this current sale."
+                disabled={!hasSpecialOrWeddingLines}
+                title={hasSpecialOrWeddingLines
+                  ? "Set rush and pickup details for order items."
+                  : "Order options are available only when this sale has an order, wedding, custom, or layaway item."}
                 className="ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border border-app-success/60 bg-app-success/10 px-2 text-center text-app-success shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-success hover:text-white disabled:cursor-not-allowed disabled:border-app-border disabled:bg-app-surface-3 disabled:text-app-text-muted disabled:opacity-80 disabled:shadow-none disabled:hover:bg-app-surface-3 disabled:hover:text-app-text-muted dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px]"
               >
                 <Zap size={20} className="shrink-0" aria-hidden />
                 <span className="text-[10px] font-black uppercase leading-[12px] tracking-widest">
-                  Options
+                  Order options
                 </span>
               </button>
               <button
@@ -5246,8 +5283,10 @@ export default function Cart({
         isOpen={feePromptKind !== null}
         onClose={() => setFeePromptKind(null)}
         onSubmit={addFeeShortcut}
-        title="Add Shipping Fee"
-        message="Enter the shipping fee. This fee is non-taxable and does not create a shipment. Use Ship Current Sale when an address, carrier, and tracking workflow are needed."
+        title={feePromptKind === "alteration" ? "Add alteration fee" : "Add Shipping Fee"}
+        message={feePromptKind === "alteration"
+          ? "Enter the alteration fee. This non-taxable charge does not create an alteration record, garment tracking, due date, or tailor queue work."
+          : "Enter the shipping fee. This fee is non-taxable and does not create a shipment. Use Ship Current Sale when an address, carrier, and tracking workflow are needed."}
         placeholder="0.00"
         type="numeric"
         confirmLabel="Add Fee"

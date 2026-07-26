@@ -48,7 +48,7 @@ Custom orders are used for made-to-measure garments that must stay separate from
    - sale price
    - need-by date if needed
    - rush flag if needed
-   - the main vendor-form reference fields for that garment
+   - vendor-form reference fields when they are available; choose **Add** in the Garment and vendor details card to open them
 3. Add the line to the cart and complete the sale as a fulfillment order.
 4. Track the order in **Orders** under the **Custom** filter.
 

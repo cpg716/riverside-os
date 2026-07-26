@@ -10,12 +10,14 @@ interface PosSearchResultListProps {
   search: string;
   groupedSearchResults: SearchResult[][];
   onSearchResultClick: (item: SearchResult) => void;
+  onQuickAlterationFeeOnly: () => void;
 }
 
 export function PosSearchResultList({
   search,
   groupedSearchResults,
   onSearchResultClick,
+  onQuickAlterationFeeOnly,
 }: PosSearchResultListProps) {
   const [openUpward, setOpenUpward] = useState(false);
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -76,19 +78,60 @@ export function PosSearchResultList({
               ? `$${minPrice.toFixed(2)} – $${maxPrice.toFixed(2)}`
               : `$${(Number.isFinite(minPrice) ? minPrice : 0).toFixed(2)}`
             : `$${Number(item.standard_retail_price || 0).toFixed(2)}`;
-
-          return (
-            <button
-              key={item.product_id}
-              onClick={() =>
-                onSearchResultClick(
-                  group.find(
+          const selectResult = () =>
+            onSearchResultClick(
+              startsQuickAlteration
+                ? item
+                : group.find(
                     (g) =>
                       g.sku.toLowerCase() ===
                       search.trim().toLowerCase(),
                   ) || item,
-                )
-              }
+            );
+
+          if (startsQuickAlteration) {
+            return (
+              <div
+                key={item.product_id}
+                className="flex min-h-[88px] items-center gap-4 rounded-2xl border-2 border-app-accent bg-app-accent/5 p-4"
+              >
+                <div className="h-16 w-16 shrink-0 rounded-xl border border-app-border bg-app-surface p-4 text-app-text-muted">
+                  <Package className="h-full w-full" aria-hidden />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-base font-black text-app-text">Alterations</p>
+                  <p className="mt-1 text-xs font-bold text-app-text-muted">
+                    Start a tracked alteration, or add only the service fee.
+                  </p>
+                </div>
+                <div className="flex shrink-0 flex-wrap justify-end gap-2">
+                  <button
+                    type="button"
+                    data-testid="pos-alteration-quick-add"
+                    onPointerDown={(event) => event.preventDefault()}
+                    onClick={selectResult}
+                    className="ui-btn-primary h-10 px-4 text-[10px] font-black uppercase tracking-widest"
+                  >
+                    Quick add
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="pos-alteration-fee-only"
+                    onPointerDown={(event) => event.preventDefault()}
+                    onClick={onQuickAlterationFeeOnly}
+                    className="ui-btn-secondary h-10 px-4 text-[10px] font-black uppercase tracking-widest"
+                  >
+                    Fee only
+                  </button>
+                </div>
+              </div>
+            );
+          }
+
+          return (
+            <button
+              key={item.product_id}
+              onClick={selectResult}
               className={`group relative flex min-h-[76px] items-start gap-3 overflow-hidden rounded-2xl border-2 p-3 text-left transition-all sm:min-h-[88px] sm:items-center sm:gap-4 sm:p-4 ${
                 isExactSku
                   ? "border-app-accent bg-app-accent/5"
@@ -159,8 +202,6 @@ export function PosSearchResultList({
                   <span className="text-xs uppercase tracking-wide">
                     {variationCount > 1 && !isExactSku
                       ? "Size Select"
-                      : startsQuickAlteration
-                        ? "Quick Record"
                       : "Add Cart"}
                   </span>
                   <ArrowRight size={14} />
