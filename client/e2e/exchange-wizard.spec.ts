@@ -545,7 +545,14 @@ test.describe("POS exchange wizard", () => {
       .click();
 
     await expect(wizardDialog).toBeHidden({ timeout: 15_000 });
-    await expect(page.getByText(/exchange return/i).first()).toBeVisible({
+    await expect(page.getByText(sku, { exact: true })).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(
+      page.getByText(
+        new RegExp(`return from ${checkout.transaction_display_id}`, "i"),
+      ),
+    ).toBeVisible({
       timeout: 15_000,
     });
     await expect(page.getByText("$100.00").first()).toBeVisible();
