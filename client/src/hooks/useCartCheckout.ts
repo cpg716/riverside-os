@@ -23,6 +23,7 @@ import {
 } from "../lib/offlineQueue";
 import { playPosScanError } from "../lib/posAudio";
 import { isRegisterReconciliationLocked } from "../lib/serverRecovery";
+import { printReceiptText } from "../lib/receiptPrint";
 
 interface UseCartCheckoutProps {
   sessionId: string;
@@ -123,6 +124,65 @@ function hasProviderBackedPayment(applied: AppliedPaymentLine[]): boolean {
     const provider = payment.metadata?.payment_provider;
     return typeof provider === "string" && provider.trim().length > 0;
   });
+}
+
+function hasApprovedHelcimPayment(applied: AppliedPaymentLine[]): boolean {
+  return applied.some((payment) => {
+    const metadata = payment.metadata;
+    const provider = String(metadata?.payment_provider ?? "").trim().toLowerCase();
+    const status = String(metadata?.provider_status ?? "").trim().toLowerCase();
+    const attemptId = String(metadata?.payment_provider_attempt_id ?? "").trim();
+    return (
+      provider === "helcim" &&
+      (status === "approved" || status === "captured") &&
+      attemptId.length > 0 &&
+      payment.amountCents > 0
+    );
+  });
+}
+
+async function printApprovedPaymentPendingSyncReceipt(args: {
+  checkoutClientId: string;
+  customer: Customer | null;
+  lines: CartLineItem[];
+  payments: AppliedPaymentLine[];
+  totalCents: number;
+}) {
+  const customerName = args.customer
+    ? `${args.customer.first_name} ${args.customer.last_name}`.trim()
+    : "Walk-in";
+  const items = args.lines
+    .filter((line) => !line.transaction_line_id)
+    .map((line) => `${line.quantity}x ${line.name}`)
+    .join("\n");
+  const approvals = args.payments
+    .filter((payment) => String(payment.metadata?.payment_provider ?? "").trim().toLowerCase() === "helcim")
+    .map((payment) => {
+      const brand = String(payment.metadata?.card_brand ?? "Card").trim() || "Card";
+      const last4 = String(payment.metadata?.card_last4 ?? "").trim();
+      const auth = String(payment.metadata?.provider_auth_code ?? "").trim();
+      return `${brand}${last4 ? ` ****${last4}` : ""}${auth ? ` AUTH ${auth}` : ""}`;
+    })
+    .join("\n");
+
+  await printReceiptText(
+    [
+      "RIVERSIDE MEN'S SHOP",
+      "PAYMENT APPROVED - PENDING SYNC",
+      "This sale is safely saved on this Register",
+      "and will post when the Main Hub reconnects.",
+      "",
+      `Customer: ${customerName}`,
+      `Recovery: ${args.checkoutClientId}`,
+      "",
+      items || "Sale lines saved in Riverside OS",
+      "",
+      approvals || "Helcim approval saved",
+      `TOTAL PAID: $${centsToFixed2(args.totalCents)}`,
+      "",
+      "Keep this receipt. Do not run the card again.",
+    ].join("\n"),
+  );
 }
 
 function isTransientSessionProbeStatus(status: number): boolean {
@@ -256,6 +316,28 @@ export function useCartCheckout({
       return null;
     }
 
+    const approvedHelcimPayment = hasApprovedHelcimPayment(applied);
+    // A deferred card sale is deliberately limited to an ordinary take-now sale.
+    // Fulfillment, pickup, exchange, shipping, and alteration workflows make
+    // additional server-side state changes that must be confirmed live.
+    const approvedHelcimDeferredSyncEligible =
+      approvedHelcimPayment &&
+      checkoutLines.length > 0 &&
+      checkoutLines.every(
+        (line) =>
+          !line.transaction_line_id &&
+          !line.alteration_intake_id &&
+          (line.fulfillment ?? "takeaway") === "takeaway",
+      ) &&
+      !posShipping &&
+      orderPaymentLines.length === 0 &&
+      disbursementMembers.length === 0 &&
+      pickupAlterationIds.length === 0 &&
+      !pickupTransactionId &&
+      pickupTransactions.length === 0 &&
+      !execution?.exchangeSettlement;
+    let queueApprovedHelcimSale = false;
+
     if (navigator.onLine) {
       // Verify session is still open before tendering (gives early feedback if closed by another terminal)
       try {
@@ -264,7 +346,13 @@ export function useCartCheckout({
           cache: "no-store",
         });
         if (!sessionRes.ok) {
-          if (isTransientSessionProbeStatus(sessionRes.status)) {
+          if (isTransientSessionProbeStatus(sessionRes.status) && approvedHelcimDeferredSyncEligible) {
+            queueApprovedHelcimSale = true;
+            toast(
+              "Main Hub is unavailable after the approved card payment. Riverside will save this sale locally and sync it when the Main Hub reconnects.",
+              "info",
+            );
+          } else if (isTransientSessionProbeStatus(sessionRes.status)) {
             toast(
               "Main Hub is unavailable. Keep this checkout open and retry when the connection banner clears.",
               "error",
@@ -272,14 +360,22 @@ export function useCartCheckout({
           } else {
             toast("Your register session is no longer active. Re-open the till to continue.", "error");
           }
-          return null;
+          if (!queueApprovedHelcimSale) return null;
         }
       } catch {
-        toast(
-          "Main Hub is unavailable. Keep this checkout open and retry when the connection banner clears.",
-          "error",
-        );
-        return null;
+        if (approvedHelcimDeferredSyncEligible) {
+          queueApprovedHelcimSale = true;
+          toast(
+            "Main Hub is unavailable after the approved card payment. Riverside will save this sale locally and sync it when the Main Hub reconnects.",
+            "info",
+          );
+        } else {
+          toast(
+            "Main Hub is unavailable. Keep this checkout open and retry when the connection banner clears.",
+            "error",
+          );
+          return null;
+        }
       }
     }
 
@@ -674,10 +770,44 @@ export function useCartCheckout({
           : {}),
       };
 
-      if (!navigator.onLine) {
-        if (providerBackedPayment) {
+      const queueApprovedProviderSale = async () => {
+        await enqueueCheckout(payload, apiAuth());
+        try {
+          await printApprovedPaymentPendingSyncReceipt({
+            checkoutClientId,
+            customer: selectedCustomer,
+            lines: checkoutLines,
+            payments: applied,
+            totalCents: checkoutTotals.totalCents,
+          });
+          toast(
+            "Approved card sale saved locally and printed as Pending Sync. Riverside will post it automatically when the Main Hub reconnects.",
+            "success",
+          );
+        } catch (printError) {
+          console.error("Pending-sync receipt print failed", printError);
+          toast(
+            "Approved card sale is saved locally for sync, but the Pending Sync receipt did not print. Do not run the card again.",
+            "error",
+          );
+        }
+        if (execution?.clearAfterCheckout !== false) {
+          clearCart();
+          setCheckoutClientId(newCheckoutClientId());
+        }
+        if (execution?.emitSaleCompleted !== false) {
+          onSaleCompleted?.();
+        }
+      };
+
+      if (!navigator.onLine || queueApprovedHelcimSale) {
+        if (providerBackedPayment && !approvedHelcimDeferredSyncEligible) {
           toast("Card provider payments cannot be queued offline. Keep the checkout open and reconnect before recording the sale.", "error");
           setCheckoutBusy(false);
+          return null;
+        }
+        if (approvedHelcimDeferredSyncEligible) {
+          await queueApprovedProviderSale();
           return null;
         }
         await enqueueCheckout(payload, apiAuth());
@@ -715,6 +845,10 @@ export function useCartCheckout({
           checkoutNetworkError instanceof Error
             ? checkoutNetworkError.message
             : "Network failure while recording checkout.";
+        if (approvedHelcimDeferredSyncEligible) {
+          await queueApprovedProviderSale();
+          return null;
+        }
         await recordBlockedCheckoutRecovery(payload, 0, detail, {
           recoveryKind: "online_unconfirmed",
           recoveryKey: checkoutClientId,
@@ -738,6 +872,10 @@ export function useCartCheckout({
           });
         }
         if (res.status >= 500) {
+          if (approvedHelcimDeferredSyncEligible) {
+            await queueApprovedProviderSale();
+            return null;
+          }
           await recordBlockedCheckoutRecovery(payload, res.status, detail, {
             recoveryKind: "online_unconfirmed",
             recoveryKey: checkoutClientId,

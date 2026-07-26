@@ -21,6 +21,7 @@ import type { SidebarTabId } from "./sidebarSections";
 import RegisterPickModal, {
   type OpenRegisterOption,
 } from "./RegisterPickModal";
+import { discardPersistedSaleForSession } from "../../hooks/useCartPersistence";
 
 const SESSION_CURRENT_FETCH_MS = 12_000;
 
@@ -325,7 +326,9 @@ export default function RegisterSessionBootstrap({
           ) {
             setRegisterPickSessions(body.open_sessions);
           }
+          const endedSessionId = lastShellApplySessionIdRef.current;
           lastShellApplySessionIdRef.current = null;
+          void discardPersistedSaleForSession(endedSessionId);
           setIsRegisterOpen(false);
           setSessionId(null);
           setRegisterLane(null);
@@ -347,8 +350,10 @@ export default function RegisterSessionBootstrap({
           return;
         } else {
           setRegisterPickSessions(null);
-          const hadSession = lastShellApplySessionIdRef.current !== null;
+          const endedSessionId = lastShellApplySessionIdRef.current;
+          const hadSession = endedSessionId !== null;
           lastShellApplySessionIdRef.current = null;
+          void discardPersistedSaleForSession(endedSessionId);
           setIsRegisterOpen(false);
           setSessionId(null);
           setRegisterLane(null);

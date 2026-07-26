@@ -93,3 +93,31 @@ test("only exact audited recovery evidence clears the active Register sale", () 
     'key={`${checkoutClientId}:${selectedCustomer?.id ?? "no-customer"}`}',
   );
 });
+
+test("a closed register session immediately discards only its own local cart", () => {
+  const persistence = repoFile("client/src/hooks/useCartPersistence.ts");
+  const app = repoFile("client/src/App.tsx");
+  const bootstrap = repoFile("client/src/components/layout/RegisterSessionBootstrap.tsx");
+
+  expect(persistence).toContain("export async function discardPersistedSaleForSession");
+  expect(persistence).toContain("saved?.sessionId === expectedSessionId");
+  expect(app).toContain("discardPersistedSaleForSession(sessionId)");
+  expect(bootstrap).toContain("discardPersistedSaleForSession(endedSessionId)");
+  expect(bootstrap).toContain("shouldPreserveRegisterState(res.status)");
+});
+
+test("an already-approved Helcim take-now sale can sync safely after a Hub outage", () => {
+  const checkout = repoFile("client/src/hooks/useCartCheckout.ts");
+
+  expect(checkout).toContain("function hasApprovedHelcimPayment");
+  expect(checkout).toContain('provider === "helcim"');
+  expect(checkout).toContain('status === "approved" || status === "captured"');
+  expect(checkout).toContain("const approvedHelcimDeferredSyncEligible");
+  expect(checkout).toContain("!posShipping");
+  expect(checkout).toContain("orderPaymentLines.length === 0");
+  expect(checkout).toContain("!execution?.exchangeSettlement");
+  expect(checkout).toContain("await enqueueCheckout(payload, apiAuth())");
+  expect(checkout).toContain("printApprovedPaymentPendingSyncReceipt");
+  expect(checkout).toContain("PAYMENT APPROVED - PENDING SYNC");
+  expect(checkout).toContain("Do not run the card again.");
+});

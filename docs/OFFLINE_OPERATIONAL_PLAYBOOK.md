@@ -5,6 +5,7 @@
 ## What keeps working
 
 - **Completed checkouts** can be **queued on the device** (`client/src/lib/offlineQueue.ts`). When connectivity returns, the client replays them and mirrors unresolved recovery state to the Main Hub. Watch the app header for **offline / pending sync** indicators.
+- If Helcim already approved a **simple take-now** sale but the Main Hub drops before checkout confirmation, staff select **Record Sale** once. ROS saves the exact checkout identity, prints a **PAYMENT APPROVED - PENDING SYNC** receipt, and replays that unchanged checkout after reconnecting. This is not a new offline card authorization; never run the card again. Shipping, pickup, orders, exchanges, alterations, and wedding disbursements require live recovery instead.
 - If replay returns a server/client validation error, Riverside keeps the checkout as a **blocked recovery** item instead of deleting it. A manager must review, retry, or export/resolve the blocked item.
 - Failed receipt-print jobs are also mirrored to the Main Hub and can be restored on another linked register in the same open till shift. A successful retry or explicit dismissal resolves the central copy.
 - **Already loaded** product and customer data in memory may still be usable for reference until the next hard refresh.

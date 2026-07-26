@@ -110,6 +110,7 @@ import {
   hydratePosRegisterAuthIfNeeded,
   setPosRegisterAuth,
 } from "./lib/posRegisterAuth";
+import { discardPersistedSaleForSession } from "./hooks/useCartPersistence";
 
 export type ThemeMode = "light" | "dark" | "system";
 
@@ -452,6 +453,7 @@ function App() {
   };
 
   const handleSessionClosed = () => {
+    void discardPersistedSaleForSession(sessionId);
     if (activeTab && activeTab !== "register") {
       sessionStorage.setItem("ros.pos.active_tab", activeTab);
     }

@@ -68,6 +68,24 @@ interface UseCartPersistenceProps {
   clearCart: () => void;
 }
 
+/**
+ * Remove a saved local sale only when it belongs to the session that just ended.
+ * This prevents a late close/poll response from deleting a newer session's sale.
+ */
+export async function discardPersistedSaleForSession(sessionId: string | null) {
+  const expectedSessionId = sessionId?.trim();
+  if (!expectedSessionId) return;
+
+  try {
+    const saved = await localforage.getItem<PersistedSale>("ros_pos_active_sale");
+    if (saved?.sessionId === expectedSessionId) {
+      await localforage.removeItem("ros_pos_active_sale");
+    }
+  } catch (error) {
+    console.error("POS sale persistence cleanup failed", error);
+  }
+}
+
 export function useCartPersistence({
   sessionId,
   checkoutClientId,
