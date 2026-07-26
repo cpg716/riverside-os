@@ -1,13 +1,52 @@
 import { expect, test } from "@playwright/test";
 import {
+  apiBase,
   checkoutFinancedSale,
   openCustomersRmsWorkspace,
   seedRmsFixture,
+  staffHeaders,
 } from "./helpers/rmsCharge";
 import { signInToBackOffice } from "./helpers/backofficeSignIn";
 
 test.describe("Back Office RMS Charge workspace", () => {
   test.describe.configure({ timeout: 90_000 });
+
+  test("customer browse and Register search expose RMS Charge account presence", async ({
+    request,
+  }) => {
+    const fixture = await seedRmsFixture(request, "single_valid", "Customer Pill");
+    const params = new URLSearchParams({
+      q: fixture.customer.search_label,
+      limit: "50",
+      offset: "0",
+    });
+
+    const searchResponse = await request.get(
+      `${apiBase()}/api/customers/search?${params.toString()}`,
+      { headers: staffHeaders() },
+    );
+    expect(searchResponse.status()).toBe(200);
+    const searchRows = (await searchResponse.json()) as Array<{
+      id: string;
+      has_rms_charge?: boolean;
+    }>;
+    expect(searchRows.find((row) => row.id === fixture.customer.id)).toMatchObject({
+      has_rms_charge: true,
+    });
+
+    const browseResponse = await request.get(
+      `${apiBase()}/api/customers/browse?${params.toString()}`,
+      { headers: staffHeaders() },
+    );
+    expect(browseResponse.status()).toBe(200);
+    const browseRows = (await browseResponse.json()) as Array<{
+      id: string;
+      has_rms_charge?: boolean;
+    }>;
+    expect(browseRows.find((row) => row.id === fixture.customer.id)).toMatchObject({
+      has_rms_charge: true,
+    });
+  });
 
   test("transactions log shows manual RMS Charge activity without external host dependency", async ({
     request,

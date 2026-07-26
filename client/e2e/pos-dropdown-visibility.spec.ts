@@ -26,6 +26,7 @@ async function mockDropdownSearches(
           phone: "716-555-0111",
           open_balance_due: "142.50",
           open_orders_count: 3,
+          has_rms_charge: true,
         },
       ]),
     });
@@ -220,6 +221,9 @@ test("POS dropdowns stay visible near bottom of scrollable cart", async ({ page 
   );
   await expect(page.getByRole("option", { name: new RegExp(CUSTOMER_NAME, "i") })).toContainText(
     "3 open",
+  );
+  await expect(page.getByRole("option", { name: new RegExp(CUSTOMER_NAME, "i") })).toContainText(
+    "RMS Charge",
   );
   await customerResult.click();
   await closeExchangeWizardIfOpen(page);

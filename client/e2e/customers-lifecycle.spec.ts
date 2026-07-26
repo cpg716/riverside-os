@@ -45,6 +45,7 @@ const issueCustomer = {
   wedding_party_name: null,
   wedding_party_id: null,
   lifecycle_state: "issue",
+  has_rms_charge: true,
 };
 
 const issueHubResponse = {
@@ -439,6 +440,7 @@ test("customer lifecycle filter and hub badge use the same explicit state", asyn
   await expect(
     issueRow,
   ).toBeVisible();
+  await expect(issueRow).toContainText("RMS Charge");
   await expect(
     page.getByRole("button", {
       name: new RegExp(pendingCustomer.first_name, "i"),

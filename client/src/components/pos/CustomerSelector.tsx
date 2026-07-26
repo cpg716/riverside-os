@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties, type Keyb
 import { createPortal } from "react-dom";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
-import { CheckCircle2, Gem, Ruler, Search, ShoppingBag, User, UserPlus, X, UserX, Clock } from "lucide-react";
+import { CheckCircle2, Gem, Ruler, Search, ShoppingBag, User, UserPlus, Wallet, X, UserX, Clock } from "lucide-react";
 import { useToast } from "../ui/ToastProviderLogic";
 import { AddCustomerDrawer } from "../customers/CustomersWorkspace";
 import { formatUsdFromCents, parseMoneyToCents } from "../../lib/money";
@@ -28,6 +28,7 @@ export interface Customer {
   wedding_member_id?: string | null;
   open_balance_due?: string | number;
   open_orders_count?: number;
+  has_rms_charge?: boolean;
 }
 
 interface CustomerSelectorProps {
@@ -224,6 +225,7 @@ export default function CustomerSelector({
                 wedding_party_id: r.wedding_party_id ?? null,
                 open_balance_due: r.open_balance_due,
                 open_orders_count: r.open_orders_count,
+                has_rms_charge: r.has_rms_charge,
               }))
             : (data as Customer[]);
           setResults(mapped);
@@ -296,6 +298,7 @@ export default function CustomerSelector({
             wedding_party_id: r.wedding_party_id ?? null,
             open_balance_due: r.open_balance_due,
             open_orders_count: r.open_orders_count,
+            has_rms_charge: r.has_rms_charge,
           }))
         : (data as Customer[]);
       if (searchRequestIdRef.current !== requestId) return;
@@ -655,6 +658,12 @@ export default function CustomerSelector({
                          {customer.employee_discount_eligible ? (
                            <span className="inline-flex items-center rounded-full border border-app-info/20 bg-app-info/10 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-app-info">
                              Staff
+                           </span>
+                         ) : null}
+                         {customer.has_rms_charge ? (
+                           <span className="inline-flex items-center gap-1 rounded-full border border-app-accent/25 bg-app-accent/10 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-app-accent">
+                             <Wallet size={10} aria-hidden />
+                             RMS Charge
                            </span>
                          ) : null}
                          {customer.wedding_party_name ? (

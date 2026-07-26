@@ -131,6 +131,7 @@ interface CustomerBrowseRow {
   couple_id: string | null;
   couple_primary_id: string | null;
   lifecycle_state: CustomerLifecycleState;
+  has_rms_charge: boolean;
 }
 
 interface CustomerQualitySummary {
@@ -159,6 +160,7 @@ function rowToCustomer(r: CustomerBrowseRow): Customer {
     phone: r.phone,
     employee_discount_eligible: r.employee_discount_eligible,
     couple_id: r.couple_id,
+    has_rms_charge: r.has_rms_charge,
   };
 }
 
@@ -1327,6 +1329,12 @@ export default function CustomersWorkspace({
                           Staff
                         </span>
                       ) : null}
+                      {r.has_rms_charge ? (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-app-accent/25 bg-app-accent/10 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-app-accent">
+                          <Wallet size={10} aria-hidden />
+                          RMS Charge
+                        </span>
+                      ) : null}
                       {r.couple_id ? (
                         <span className="inline-flex items-center gap-1 rounded-full border border-app-accent/20 bg-app-accent/10 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-app-accent">
                           <Heart size={10} fill="currentColor" />
@@ -1539,6 +1547,12 @@ export default function CustomersWorkspace({
                                 {!customerProfileComplete(r) ? (
                                   <span className="inline-flex items-center rounded-full border border-app-warning/16 bg-app-warning/8 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-[0.1em] text-app-warning">
                                     Profile incomplete
+                                  </span>
+                                ) : null}
+                                {r.has_rms_charge ? (
+                                  <span className="inline-flex items-center gap-1 rounded-full border border-app-accent/25 bg-app-accent/10 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-[0.1em] text-app-accent">
+                                    <Wallet size={12} aria-hidden />
+                                    RMS Charge
                                   </span>
                                 ) : null}
                                 {r.couple_id ? (

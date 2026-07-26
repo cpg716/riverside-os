@@ -39,6 +39,7 @@ Each customer row is a quick support summary. Staff can usually see:
 
 This list helps you decide which customer to open. It is not the full support record by itself.
 Normal customer search and browse results show active profiles. Inactive profiles from duplicate cleanup or import repair are kept for audit/history but are not offered for normal customer selection.
+Customers with an active linked RMS Charge account or a match in the latest weekly RMS account list show an **RMS Charge** pill. The pill is a quick account-presence signal; open the customer relationship hub or RMS Charge workspace to review balances, account details, and reporting status.
 
 The workspace now also shows a `Customer Completeness` summary above the list. That summary uses the same existing profile-complete expectation already used elsewhere in Riverside: a complete customer profile has both a phone number and an email address. Use it to spot records that may block future receipt, pickup, or follow-up work.
 

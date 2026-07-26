@@ -891,6 +891,9 @@ pub struct Customer {
     pub wedding_party_id: Option<Uuid>,
     pub wedding_member_id: Option<Uuid>,
     pub couple_id: Option<Uuid>,
+    #[serde(default)]
+    #[sqlx(default)]
+    pub has_rms_charge: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1339,6 +1342,77 @@ pub struct CustomerBrowseRow {
     pub couple_id: Option<Uuid>,
     pub couple_primary_id: Option<Uuid>,
     pub lifecycle_state: String,
+    #[sqlx(default)]
+    pub has_rms_charge: bool,
+}
+
+async fn customer_ids_with_rms_charge(
+    pool: &sqlx::PgPool,
+    customer_ids: &[Uuid],
+) -> Result<HashSet<Uuid>, sqlx::Error> {
+    if customer_ids.is_empty() {
+        return Ok(HashSet::new());
+    }
+
+    let ids: Vec<Uuid> = sqlx::query_scalar(
+        r#"
+        WITH latest_batch AS (
+            SELECT id
+            FROM rms_account_list_import_batches
+            WHERE status = 'imported'
+            ORDER BY uploaded_at DESC, created_at DESC
+            LIMIT 1
+        ),
+        unique_customer_phone AS (
+            SELECT phone_digits
+            FROM (
+                SELECT NULLIF(
+                    REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '', 'g'),
+                    ''
+                ) AS phone_digits
+                FROM customers
+            ) normalized
+            WHERE phone_digits IS NOT NULL
+            GROUP BY phone_digits
+            HAVING COUNT(*) = 1
+        )
+        SELECT c.id
+        FROM customers c
+        WHERE c.id = ANY($1)
+          AND (
+            EXISTS (
+                SELECT 1
+                FROM customer_corecredit_accounts a
+                WHERE a.customer_id = c.id
+                  AND lower(a.status) NOT IN ('closed', 'inactive')
+            )
+            OR EXISTS (
+                SELECT 1
+                FROM rms_account_list_snapshots s
+                JOIN latest_batch b ON b.id = s.batch_id
+                WHERE s.matched_customer_id = c.id
+                   OR (
+                        s.matched_customer_id IS NULL
+                        AND s.normalized_phone IS NOT NULL
+                        AND s.normalized_phone = NULLIF(
+                            REGEXP_REPLACE(COALESCE(c.phone, ''), '[^0-9]', '', 'g'),
+                            ''
+                        )
+                        AND EXISTS (
+                            SELECT 1
+                            FROM unique_customer_phone u
+                            WHERE u.phone_digits = s.normalized_phone
+                        )
+                   )
+            )
+          )
+        "#,
+    )
+    .bind(customer_ids)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(ids.into_iter().collect())
 }
 
 #[derive(Debug, Deserialize)]
@@ -3871,7 +3945,7 @@ async fn browse_customers(
             None
         };
 
-    let rows = if let Some(ids) = meili_browse_ids {
+    let mut rows = if let Some(ids) = meili_browse_ids {
         sqlx::query_as::<_, CustomerBrowseRow>(&format!(
             r#"
             WITH browse_base AS (
@@ -4656,6 +4730,15 @@ async fn browse_customers(
         .await?
     };
 
+    let rms_customer_ids = customer_ids_with_rms_charge(
+        &state.db,
+        &rows.iter().map(|row| row.id).collect::<Vec<_>>(),
+    )
+    .await?;
+    for row in &mut rows {
+        row.has_rms_charge = rms_customer_ids.contains(&row.id);
+    }
+
     Ok(Json(rows))
 }
 
@@ -4788,7 +4871,7 @@ async fn search_customers(
         None
     };
 
-    let results = if let Some(ids) = meili_ids {
+    let mut results = if let Some(ids) = meili_ids {
         sqlx::query_as::<_, Customer>(&format!(
             r#"
             SELECT
@@ -5012,6 +5095,18 @@ async fn search_customers(
         .fetch_all(&state.db)
         .await?
     };
+
+    let rms_customer_ids = customer_ids_with_rms_charge(
+        &state.db,
+        &results
+            .iter()
+            .map(|customer| customer.id)
+            .collect::<Vec<_>>(),
+    )
+    .await?;
+    for customer in &mut results {
+        customer.has_rms_charge = rms_customer_ids.contains(&customer.id);
+    }
 
     Ok(Json(results))
 }
