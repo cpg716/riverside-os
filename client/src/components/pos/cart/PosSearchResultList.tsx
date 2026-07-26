@@ -169,6 +169,7 @@ export function PosSearchResultList({
           return (
             <button
               key={item.product_id}
+              onPointerDown={(event) => event.preventDefault()}
               onClick={selectResult}
               className={`group relative flex min-h-[76px] items-start gap-3 overflow-hidden rounded-2xl border-2 p-3 text-left transition-all sm:min-h-[88px] sm:items-center sm:gap-4 sm:p-4 ${
                 isExactSku
