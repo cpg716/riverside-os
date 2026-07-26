@@ -44,11 +44,12 @@ Use this panel when setting up Helcim, rotating credentials, adding or replacing
 1. Open Settings, then Helcim.
 2. Check API access and terminal readiness.
 3. Save or replace the API token and the Terminal 1 / Terminal 2 device codes needed for the store's active registers.
-4. If public webhooks are enabled, paste the public HTTPS delivery URL into Helcim with this path: `/api/webhooks/card-events`. Helcim requires HTTPS and does not allow the word Helcim in the URL.
-5. Enable only the Helcim events ROS handles: `cardTransaction` and `terminalCancel`.
-6. Save the Helcim webhook signing secret in the Optional webhook signing secret field.
-7. Use Check Connection after saving credentials.
-8. Verify payment updates in Payments > Health, Payment Updates, and Helcim Terminal Review.
+4. Keep **API host** set to `https://api.helcim.com/v2` for live payments. Riverside rejects an unsupported host before saving it; custom hosts require an explicit development/test configuration and are never a live-production shortcut.
+5. If public webhooks are enabled, paste the public HTTPS delivery URL into Helcim with this path: `/api/webhooks/card-events`. Helcim requires HTTPS and does not allow the word Helcim in the URL.
+6. Enable only the Helcim events ROS handles: `cardTransaction` and `terminalCancel`.
+7. Save the Helcim webhook signing secret in the Optional webhook signing secret field.
+8. Use Check Connection after saving credentials.
+9. Verify payment updates in Payments > Health, Payment Updates, and Helcim Terminal Review.
 
 ## What to watch for
 

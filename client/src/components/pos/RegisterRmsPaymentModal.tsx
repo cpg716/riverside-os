@@ -234,7 +234,7 @@ export default function RegisterRmsPaymentModal({
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className="ui-modal relative flex max-h-[96dvh] w-full max-w-none flex-col overflow-hidden rounded-t-3xl outline-none sm:max-h-[90vh] sm:w-[min(44rem,calc(100vw-1.25rem))] sm:rounded-3xl"
+        className="ui-modal relative flex max-h-[96dvh] w-full max-w-none flex-col overflow-hidden rounded-t-3xl outline-none sm:h-[min(42rem,calc(100dvh-2rem))] sm:max-h-[90vh] sm:w-[min(44rem,calc(100vw-1.25rem))] sm:rounded-3xl"
       >
         {/* Header */}
         <div className="flex shrink-0 items-center justify-between border-b border-app-border/70 bg-app-surface-2 px-5 py-4">
@@ -265,9 +265,9 @@ export default function RegisterRmsPaymentModal({
         </div>
 
         {/* Body */}
-        <div className="grid flex-1 grid-cols-1 gap-5 overflow-y-auto p-4 sm:grid-cols-2 sm:gap-6 sm:overflow-hidden sm:p-6">
+        <div className="grid min-h-0 flex-1 grid-cols-1 gap-5 overflow-hidden p-4 sm:grid-cols-2 sm:gap-5 sm:p-5">
           {/* Left Column: Keypad & Input */}
-          <div className="flex min-h-0 flex-col gap-3">
+          <div className="flex min-h-0 flex-col gap-2.5">
             <p className="text-xs leading-snug text-app-text-muted">
               Select a customer, enter the amount to pay, and add the line to the cart.
               The account balance will be updated once checkout completes.
@@ -276,7 +276,7 @@ export default function RegisterRmsPaymentModal({
               <p className="mb-1.5 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                 Payment amount
               </p>
-              <div className="mb-3 flex h-16 items-center justify-between rounded-2xl border-2 border-app-border/80 bg-app-surface-2/80 px-4 shadow-inner">
+              <div className="mb-2 flex h-14 items-center justify-between rounded-2xl border-2 border-app-border/80 bg-app-surface-2/80 px-4 shadow-inner">
                 <span className="text-[10px] font-black uppercase text-app-text-muted">
                   Amount
                 </span>
@@ -291,7 +291,7 @@ export default function RegisterRmsPaymentModal({
                     type="button"
                     disabled={busy}
                     onClick={() => appendAmountKey(k)}
-                    className="flex h-12 items-center justify-center rounded-xl border border-app-border/60 bg-app-surface-2 text-lg font-black text-app-text transition-colors hover:bg-app-surface sm:h-[3.25rem] sm:text-xl"
+                  className="flex h-10 items-center justify-center rounded-xl border border-app-border/60 bg-app-surface-2 text-lg font-black text-app-text transition-colors hover:bg-app-surface sm:h-11 sm:text-xl"
                   >
                     {k === "del" ? "DEL" : k}
                   </button>
@@ -300,7 +300,7 @@ export default function RegisterRmsPaymentModal({
                   type="button"
                   disabled={busy}
                   onClick={clearAmount}
-                  className="col-span-3 flex h-11 items-center justify-center rounded-xl bg-app-danger/10 text-xs font-black uppercase tracking-widest text-app-danger transition-colors hover:bg-app-danger/15"
+                  className="col-span-3 flex h-9 items-center justify-center rounded-xl bg-app-danger/10 text-xs font-black uppercase tracking-widest text-app-danger transition-colors hover:bg-app-danger/15"
                 >
                   Clear amount
                 </button>
@@ -309,7 +309,7 @@ export default function RegisterRmsPaymentModal({
           </div>
 
           {/* Right Column: Customer & Account Info */}
-          <div className="flex min-h-0 flex-col gap-4">
+          <div className="flex min-h-0 flex-col gap-3">
             <div className="shrink-0 space-y-2">
               <label
                 className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted"
@@ -367,8 +367,8 @@ export default function RegisterRmsPaymentModal({
             </div>
 
             {/* Account Details Panel */}
-            <div className="ui-panel ui-tint-success flex min-h-[9rem] flex-1 flex-col p-3.5 sm:p-4">
-              <p className="mb-3 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">
+            <div className="ui-panel ui-tint-success flex min-h-0 flex-1 flex-col p-3 sm:p-3.5">
+              <p className="mb-2 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">
                 Financing Account Data
               </p>
 
@@ -402,36 +402,36 @@ export default function RegisterRmsPaymentModal({
                   No linked RMS Charge account found for this customer.
                 </p>
               ) : account && summary ? (
-                <dl className="space-y-2.5 text-sm">
-                  <div className="flex justify-between gap-3 border-b border-app-border/50 pb-2">
+                <dl className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="rounded-lg border border-app-border/50 p-2">
                     <dt className="font-black uppercase tracking-wide text-app-text-muted">
                       Financed Account
                     </dt>
-                    <dd className="text-right font-mono font-bold text-app-text">
+                    <dd className="mt-0.5 font-mono font-bold text-app-text">
                       {summary.masked_account}
                     </dd>
                   </div>
-                  <div className="flex justify-between gap-3 border-b border-app-border/50 pb-2">
+                  <div className="rounded-lg border border-app-border/50 p-2">
                     <dt className="font-black uppercase tracking-wide text-app-text-muted">
                       Status
                     </dt>
-                    <dd className="text-right font-bold text-app-success capitalize">
+                    <dd className="mt-0.5 font-bold text-app-success capitalize">
                       {summary.account_status}
                     </dd>
                   </div>
-                  <div className="flex justify-between gap-3 border-b border-app-border/50 pb-2">
+                  <div className="rounded-lg border border-app-border/50 p-2">
                     <dt className="font-black uppercase tracking-wide text-app-text-muted">
                       Available Credit
                     </dt>
-                    <dd className="text-right font-bold tabular-nums text-app-text">
+                    <dd className="mt-0.5 font-bold tabular-nums text-app-text">
                       {summary.available_credit ? `$${summary.available_credit}` : "$0.00"}
                     </dd>
                   </div>
-                  <div className="flex justify-between gap-3 border-b border-app-border/50 pb-2">
+                  <div className="rounded-lg border border-app-border/50 p-2">
                     <dt className="font-black uppercase tracking-wide text-app-text-muted">
                       Outstanding Balance
                     </dt>
-                    <dd className="text-right text-base font-black tabular-nums text-app-text">
+                    <dd className="mt-0.5 text-sm font-black tabular-nums text-app-text">
                       {summary.current_balance ? `$${summary.current_balance}` : "$0.00"}
                     </dd>
                   </div>

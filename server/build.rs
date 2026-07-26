@@ -9,9 +9,11 @@ fn main() {
 
     // Inject git SHA so update_check.rs can detect same-version rebuilds.
     // CI sets RIVERSIDE_BUILD_SHA/GITHUB_SHA; local builds fall back to `git rev-parse HEAD`; then "dev".
-    let sha = std::env::var("RIVERSIDE_BUILD_SHA")
+    let release_build_sha = std::env::var("RIVERSIDE_BUILD_SHA")
         .ok()
-        .filter(|s| !s.is_empty())
+        .filter(|s| !s.is_empty());
+    let is_release_build = release_build_sha.is_some();
+    let sha = release_build_sha
         .or_else(|| std::env::var("GITHUB_SHA").ok().filter(|s| !s.is_empty()))
         .or_else(|| {
             Command::new("git")
@@ -25,6 +27,7 @@ fn main() {
         .unwrap_or_else(|| "dev".to_string());
 
     println!("cargo:rustc-env=RIVERSIDE_GIT_SHA={sha}");
+    println!("cargo:rustc-env=RIVERSIDE_RELEASE_BUILD={is_release_build}");
 
     let migrations_dir = Path::new("../migrations");
     let mut entries = fs::read_dir(migrations_dir)

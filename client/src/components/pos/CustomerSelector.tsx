@@ -617,7 +617,7 @@ export default function CustomerSelector({
                  </button>
                )}
                {searchBusy && (
-                 <div className="p-3 text-sm text-app-text-muted">Searching\u2026</div>
+                 <div className="p-3 text-sm text-app-text-muted">Searching…</div>
                )}
                {!searchBusy && results.length === 0 && searchLookupFailed && (
                  <div className="p-3 text-sm text-app-text-muted">

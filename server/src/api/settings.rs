@@ -1239,6 +1239,14 @@ fn clean_integration_credential_value_for_integration(
     value: String,
 ) -> Result<Option<String>, SettingsError> {
     let cleaned = clean_integration_credential_value(credential_key, value)?;
+    if integration_key == "helcim" && credential_key == "api_base_url" {
+        return cleaned
+            .map(|value| {
+                crate::logic::helcim::validate_helcim_api_base_url(&value)
+                    .map_err(SettingsError::InvalidPayload)
+            })
+            .transpose();
+    }
     if integration_key == "helcim"
         && matches!(
             credential_key,
@@ -4049,8 +4057,9 @@ async fn get_fal_usage(
 #[cfg(test)]
 mod tests {
     use super::{
-        validate_restore_catalog_membership, validate_restore_confirmation,
-        validate_restore_environment, validate_restore_register_blocker, SettingsError,
+        clean_integration_credential_value_for_integration, validate_restore_catalog_membership,
+        validate_restore_confirmation, validate_restore_environment,
+        validate_restore_register_blocker, SettingsError,
     };
 
     fn err_message(err: SettingsError) -> String {
@@ -4111,5 +4120,25 @@ mod tests {
             validate_restore_catalog_membership(false).expect_err("non-catalog backup rejected");
         assert!(matches!(missing, SettingsError::InvalidPayload(_)));
         assert!(err_message(missing).contains("local backup catalog"));
+    }
+
+    #[test]
+    fn helcim_api_host_is_validated_before_credentials_are_saved() {
+        let canonical = clean_integration_credential_value_for_integration(
+            "helcim",
+            "api_base_url",
+            "https://api.helcim.com/v2/".to_string(),
+        )
+        .expect("canonical Helcim endpoint")
+        .expect("non-empty endpoint");
+        assert_eq!(canonical, "https://api.helcim.com/v2");
+
+        let unsafe_url = clean_integration_credential_value_for_integration(
+            "helcim",
+            "api_base_url",
+            "https://user:password@api.helcim.com/v2".to_string(),
+        )
+        .expect_err("credential-bearing endpoint must be rejected");
+        assert!(err_message(unsafe_url).contains("Helcim API host"));
     }
 }

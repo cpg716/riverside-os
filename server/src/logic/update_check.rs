@@ -14,6 +14,9 @@ const LATEST_JSON_URL: &str =
 /// Build SHA injected at compile time by the build script (`build.rs`).
 /// Falls back to "dev" in local builds where the env var is absent.
 const CURRENT_BUILD_SHA: &str = env!("RIVERSIDE_GIT_SHA");
+/// Only packaged builds should notify admins about same-version rebuilds.
+/// Local developer checkouts naturally have a different SHA from the release.
+const RELEASE_BUILD_MARKER: &str = env!("RIVERSIDE_RELEASE_BUILD");
 
 #[derive(Debug, Clone, Serialize)]
 pub struct UpdateCheckResult {
@@ -134,9 +137,19 @@ fn same_version_rebuild_available(current_sha: &str, latest_sha: Option<&str>) -
     latest_short != current_short
 }
 
+fn should_notify_admin(
+    update_available: bool,
+    rebuild_available: bool,
+    is_release_build: bool,
+) -> bool {
+    update_available && (!rebuild_available || is_release_build)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{latest_version_is_newer, same_version_rebuild_available, version_core};
+    use super::{
+        latest_version_is_newer, same_version_rebuild_available, should_notify_admin, version_core,
+    };
 
     #[test]
     fn version_core_strips_tag_prefix_and_build_metadata() {
@@ -167,6 +180,14 @@ mod tests {
             Some("aaaa1111dddd")
         ));
         assert!(!same_version_rebuild_available("aaaa1111", None));
+    }
+
+    #[test]
+    fn admin_notification_requires_a_release_build_for_same_version_rebuilds() {
+        assert!(!should_notify_admin(true, true, false));
+        assert!(should_notify_admin(true, true, true));
+        assert!(should_notify_admin(true, false, false));
+        assert!(!should_notify_admin(false, false, false));
     }
 }
 
@@ -233,11 +254,15 @@ pub async fn run_daily_update_check(pool: &PgPool, client: &reqwest::Client) {
         }
     };
 
-    if !result.update_available {
+    if !should_notify_admin(
+        result.update_available,
+        result.rebuild_available,
+        RELEASE_BUILD_MARKER == "true",
+    ) {
         tracing::debug!(
             version = %result.current_version,
             sha = %result.current_build_sha,
-            "Daily update check: already on latest"
+            "Daily update check: no admin notification required"
         );
         return;
     }

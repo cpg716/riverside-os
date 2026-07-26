@@ -60,6 +60,25 @@ type Detail = {
   resolver_name: string | null;
 };
 
+function screenshotCaptureStatus(detail: Detail): {
+  state: string | null;
+  error: string | null;
+} {
+  const eventCapture = detail.client_meta.event_capture;
+  if (!eventCapture || typeof eventCapture !== "object") {
+    return { state: null, error: null };
+  }
+  const screenshotCapture = (eventCapture as Record<string, unknown>).screenshot_capture;
+  if (!screenshotCapture || typeof screenshotCapture !== "object") {
+    return { state: null, error: null };
+  }
+  const capture = screenshotCapture as Record<string, unknown>;
+  return {
+    state: typeof capture.state === "string" ? capture.state : null,
+    error: typeof capture.error === "string" ? capture.error : null,
+  };
+}
+
 type ErrorEventRow = {
   id: string;
   created_at: string;
@@ -1142,11 +1161,22 @@ export default function BugReportsSettingsPanel({
                 <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                   Screenshot
                 </p>
-                <img
-                  src={`data:image/png;base64,${detail.screenshot_png_base64}`}
-                  alt=""
-                  className="mt-2 max-h-64 w-full rounded-xl border border-app-border object-contain object-top bg-app-surface-2"
-                />
+                {screenshotCaptureStatus(detail).state === "captured" ||
+                (screenshotCaptureStatus(detail).state == null &&
+                  detail.screenshot_png_base64.length > 100) ? (
+                  <img
+                    src={`data:image/png;base64,${detail.screenshot_png_base64}`}
+                    alt=""
+                    className="mt-2 max-h-64 w-full rounded-xl border border-app-border object-contain object-top bg-app-surface-2"
+                  />
+                ) : (
+                  <p className="mt-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-app-text">
+                    No screenshot attached
+                    {screenshotCaptureStatus(detail).error
+                      ? `: ${screenshotCaptureStatus(detail).error}`
+                      : "."}
+                  </p>
+                )}
               </div>
               <div>
                 <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">

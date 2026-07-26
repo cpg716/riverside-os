@@ -113,6 +113,18 @@ fn meilisearch_daily_reindex_retry_delay(completed_attempts: u32) -> std::time::
     std::time::Duration::from_secs(30 * 4_u64.pow(exponent))
 }
 
+fn meilisearch_daily_reindex_is_due(
+    today: NaiveDate,
+    hour: u32,
+    reindex_hour: u32,
+    attempted_day: Option<NaiveDate>,
+    last_success_day: Option<NaiveDate>,
+) -> bool {
+    hour >= reindex_hour
+        && attempted_day != Some(today)
+        && last_success_day.is_none_or(|last_success| last_success < today)
+}
+
 async fn run_daily_meilisearch_reindex_with_retry(
     client: &meilisearch_sdk::client::Client,
     pool: &sqlx::PgPool,
@@ -732,9 +744,6 @@ async fn launch_server_inner(
         tokio::spawn(async move {
             let mut ticker = tokio::time::interval(std::time::Duration::from_secs(3600));
             let mut attempted_day: Option<chrono::NaiveDate> = None;
-            // Tokio intervals tick immediately once. Consume that scheduling tick so a missing
-            // daily marker cannot start a full catalog reindex during server startup.
-            ticker.tick().await;
             loop {
                 ticker.tick().await;
                 crate::api::health::WorkerHealth::mark_heartbeat("meilisearch_reindex").await;
@@ -749,17 +758,12 @@ async fn launch_server_inner(
                             continue;
                         }
                     };
-                if hour < reindex_hour {
-                    continue;
-                }
-                if attempted_day == Some(today) {
-                    continue;
-                }
-                match latest_successful_meilisearch_reindex_day(&meilisearch_reindex_state.db)
-                    .await
+                let last_success_day = match latest_successful_meilisearch_reindex_day(
+                    &meilisearch_reindex_state.db,
+                )
+                .await
                 {
-                    Ok(Some(last_success_day)) if last_success_day >= today => continue,
-                    Ok(_) => {}
+                    Ok(last_success_day) => last_success_day,
                     Err(e) => {
                         tracing::error!(
                             error = %e,
@@ -767,6 +771,15 @@ async fn launch_server_inner(
                         );
                         continue;
                     }
+                };
+                if !meilisearch_daily_reindex_is_due(
+                    today,
+                    hour,
+                    reindex_hour,
+                    attempted_day,
+                    last_success_day,
+                ) {
+                    continue;
                 }
                 let Some(client) = meilisearch_reindex_state.meilisearch.as_ref() else {
                     continue;
@@ -1122,8 +1135,8 @@ pub async fn launch_server_with_ready_signal(
 #[cfg(test)]
 mod tests {
     use super::{
-        helcim_value_looks_placeholder, meilisearch_daily_reindex_retry_delay,
-        static_cache_control_for_path,
+        helcim_value_looks_placeholder, meilisearch_daily_reindex_is_due,
+        meilisearch_daily_reindex_retry_delay, static_cache_control_for_path,
     };
 
     #[test]
@@ -1193,6 +1206,41 @@ mod tests {
             meilisearch_daily_reindex_retry_delay(20),
             std::time::Duration::from_secs(480)
         );
+    }
+
+    #[test]
+    fn daily_meilisearch_reindex_checks_stale_state_on_startup() {
+        let today = chrono::NaiveDate::from_ymd_opt(2026, 7, 26).unwrap();
+        let yesterday = today.pred_opt().unwrap();
+
+        assert!(meilisearch_daily_reindex_is_due(
+            today,
+            10,
+            3,
+            None,
+            Some(yesterday)
+        ));
+        assert!(!meilisearch_daily_reindex_is_due(
+            today,
+            2,
+            3,
+            None,
+            Some(yesterday)
+        ));
+        assert!(!meilisearch_daily_reindex_is_due(
+            today,
+            10,
+            3,
+            None,
+            Some(today)
+        ));
+        assert!(!meilisearch_daily_reindex_is_due(
+            today,
+            10,
+            3,
+            Some(today),
+            Some(yesterday)
+        ));
     }
 }
 

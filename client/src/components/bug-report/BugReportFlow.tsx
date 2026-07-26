@@ -22,6 +22,7 @@ const PLACEHOLDER_PNG_B64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 
 type Phase = "capture" | "form";
+type ScreenshotCaptureState = "capturing" | "captured" | "failed" | "skipped";
 
 const CAPTURE_COLOR_PROPERTIES = [
   "color",
@@ -38,12 +39,24 @@ function replaceUnsupportedCaptureColor(
   value: string,
   fallback: string,
 ) {
-  return value.includes("color(") ? fallback : value;
+  return /(?:color|oklch|oklab|lab|lch)\(/i.test(value) ? fallback : value;
 }
 
 function sanitizeUnsupportedCaptureColors(clonedDocument: Document) {
   const clonedWindow = clonedDocument.defaultView;
   if (!clonedWindow) return;
+
+  const captureStyle = clonedDocument.createElement("style");
+  captureStyle.textContent = `
+    *, *::before, *::after {
+      background-image: none !important;
+      box-shadow: none !important;
+      text-shadow: none !important;
+      filter: none !important;
+      backdrop-filter: none !important;
+    }
+  `;
+  clonedDocument.head.append(captureStyle);
 
   for (const element of Array.from(clonedDocument.querySelectorAll<HTMLElement>("*"))) {
     const computed = clonedWindow.getComputedStyle(element);
@@ -60,6 +73,22 @@ function sanitizeUnsupportedCaptureColors(clonedDocument: Document) {
     }
     if (computed.textShadow.includes("color(")) {
       element.style.textShadow = "none";
+    }
+    element.style.setProperty("background-image", "none", "important");
+    element.style.setProperty("filter", "none", "important");
+    element.style.setProperty("backdrop-filter", "none", "important");
+    for (const property of [
+      "caret-color",
+      "column-rule-color",
+      "fill",
+      "stroke",
+      "stop-color",
+      "flood-color",
+      "lighting-color",
+      "-webkit-text-fill-color",
+      "-webkit-text-stroke-color",
+    ]) {
+      element.style.setProperty(property, "#111827", "important");
     }
   }
 }
@@ -103,6 +132,8 @@ export default function BugReportFlow({
   const [phase, setPhase] = useState<Phase>("capture");
   const [captureErr, setCaptureErr] = useState<string | null>(null);
   const [screenshotPngBase64, setScreenshotPngBase64] = useState<string | null>(null);
+  const [screenshotCaptureState, setScreenshotCaptureState] =
+    useState<ScreenshotCaptureState>("capturing");
   const [includeCapture, setIncludeCapture] = useState(true);
   const [summary, setSummary] = useState("");
   const [steps, setSteps] = useState("");
@@ -112,6 +143,7 @@ export default function BugReportFlow({
     setPhase("capture");
     setCaptureErr(null);
     setScreenshotPngBase64(null);
+    setScreenshotCaptureState("capturing");
     setIncludeCapture(true);
     setSummary("");
     setSteps("");
@@ -129,6 +161,7 @@ export default function BugReportFlow({
 
     if (!includeCapture) {
       setScreenshotPngBase64(PLACEHOLDER_PNG_B64);
+      setScreenshotCaptureState("skipped");
       setPhase("form");
       return;
     }
@@ -140,6 +173,7 @@ export default function BugReportFlow({
           if (!cancelled) {
             setCaptureErr("Could not find app root for screenshot.");
             setScreenshotPngBase64(PLACEHOLDER_PNG_B64);
+            setScreenshotCaptureState("failed");
             setPhase("form");
           }
           return;
@@ -162,15 +196,20 @@ export default function BugReportFlow({
               : undefined,
           onclone: sanitizeUnsupportedCaptureColors,
         });
+        if (canvas.width <= 1 || canvas.height <= 1) {
+          throw new Error("Captured image was empty.");
+        }
         const dataUrl = canvas.toDataURL("image/png");
         const b64 = dataUrl.replace(/^data:image\/png;base64,/, "");
         if (cancelled) return;
         setScreenshotPngBase64(b64);
+        setScreenshotCaptureState("captured");
         setPhase("form");
       } catch (e) {
         if (!cancelled) {
           setCaptureErr(e instanceof Error ? e.message : "Screenshot failed");
           setScreenshotPngBase64(PLACEHOLDER_PNG_B64);
+          setScreenshotCaptureState("failed");
           setPhase("form");
         }
       }
@@ -200,6 +239,10 @@ export default function BugReportFlow({
           git_short: GIT_SHORT,
           ros_navigation: navigationContext ?? null,
           include_capture: includeCapture,
+          screenshot_capture: {
+            state: screenshotCaptureState,
+            error: captureErr,
+          },
           steps_context: safeSteps,
           summary: safeSummary,
         },
@@ -215,7 +258,7 @@ export default function BugReportFlow({
           steps_context: safeSteps,
           client_console_log: consoleLog,
           client_meta: meta,
-          include_screenshot: includeCapture,
+          include_screenshot: screenshotCaptureState === "captured",
           screenshot_png_base64: screenshotPngBase64 ?? PLACEHOLDER_PNG_B64,
         }),
       });
@@ -329,12 +372,12 @@ export default function BugReportFlow({
           ) : null}
           {phase === "form" ? (
             <div className="space-y-4">
-              {screenshotPngBase64 ? (
+              {screenshotPngBase64 && screenshotCaptureState === "captured" ? (
                 <div>
                   <p className="mb-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                    {includeCapture && screenshotPngBase64.length > 100
+                    {screenshotCaptureState === "captured" && screenshotPngBase64.length > 100
                       ? `Screen capture (${screenshotPngBase64.length > 50_000 ? "large" : "ok"})`
-                      : "No screen capture (placeholder only)"}
+                      : "No screen capture attached"}
                   </p>
                   <img
                     src={`data:image/png;base64,${screenshotPngBase64}`}

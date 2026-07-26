@@ -25,7 +25,7 @@ Use the bug report flow when something in Riverside OS blocks work, looks wrong,
 
 The report is built for support. It keeps useful context such as the current route, browser details, screen size, recent non-sensitive console messages, correlation ID, and an optional screenshot. It redacts obvious sensitive values before the report is submitted or downloaded.
 
-Screenshot capture runs inside the current app view, including Tauri desktop, installed PWA, and browser sessions. Riverside sanitizes unsupported capture-only color values before taking the screenshot so the live screen is not changed.
+Screenshot capture runs inside the current app view, including Tauri desktop, installed PWA, and browser sessions. Riverside sanitizes unsupported capture-only color values before taking the screenshot so the live screen is not changed. If capture fails, the report clearly records that no screenshot was attached and shows the capture error to support instead of presenting a blank image as evidence.
 
 ## How to use it
 
