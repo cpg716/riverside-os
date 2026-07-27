@@ -349,6 +349,7 @@ interface HandoffOrderDetail {
   total_price?: string;
   amount_paid?: string;
   balance_due?: string;
+  original_helcim_transaction_id_for_refund?: string | null;
   customer: {
     id: string;
     first_name: string;
@@ -1810,12 +1811,38 @@ export default function Cart({
       receiptLabel: returnLines[0].return_tender_receipt_label ?? originalTransactionId.slice(0, 8).toUpperCase(),
       refundAmountCents,
       returnLines: settledReturnLines,
+      returnLineIntegrityOk:
+        settledReturnLines.length > 0 &&
+        returnLines.every((line) =>
+          settledReturnLines.some(
+            (candidate) =>
+              candidate.transaction_line_id === line.return_tender_transaction_line_id,
+          ),
+        ) &&
+        settledReturnLines.reduce((sum, line) => sum + line.quantity, 0) ===
+          returnLines.reduce((sum, line) => sum + Math.abs(line.quantity), 0) &&
+        settledReturnLines.every(
+          (line) =>
+            Boolean(line.transaction_line_id) &&
+            line.quantity > 0 &&
+            (line.refund_total_cents ?? 0) > 0,
+        ),
       originalHelcimTransactionIdForRefund:
         sourceLines[0]
           ?.original_helcim_transaction_id_for_refund ?? null,
       returnOnly: returnLines.length === lines.length && orderPaymentLines.length === 0,
     };
   }, [lines, orderPaymentLines.length, pendingReturnLineDrafts]);
+  const preflightCheckoutBeforeTender = useCallback(async () => {
+    if (pendingReturnTender && !pendingReturnTender.returnLineIntegrityOk) {
+      toast(
+        "Refund blocked before tender: the selected item details are incomplete. Close Pay and reload the return from the Transaction Record.",
+        "error",
+      );
+      return false;
+    }
+    return preflightOrderPaymentsBeforeTender();
+  }, [pendingReturnTender, preflightOrderPaymentsBeforeTender, toast]);
   useEffect(() => {
     if (!pendingReturnTender || orderPaymentLines.length === 0) return;
     setOrderPaymentLines([]);
@@ -2509,6 +2536,7 @@ export default function Cart({
         }
 
         let allocatedCents = 0;
+        const settledReturnLinesById = new Map<string, ExchangeReturnHandoffLine>();
         const refundCreditLines: CartLineItem[] = sourceUnits.map(
           ({ item, grossCents }, index) => {
             const unitCreditCents =
@@ -2542,6 +2570,43 @@ export default function Cart({
                 : 0;
             const localTaxCents = taxCreditCents - stateTaxCents;
             const subtotalCents = unitCreditCents - taxCreditCents;
+            const existingReturnLine = settledReturnLinesById.get(item.transaction_line_id);
+            if (existingReturnLine) {
+              existingReturnLine.quantity += 1;
+              existingReturnLine.refund_subtotal_cents =
+                (existingReturnLine.refund_subtotal_cents ?? 0) + subtotalCents;
+              existingReturnLine.refund_state_tax_cents =
+                (existingReturnLine.refund_state_tax_cents ?? 0) + stateTaxCents;
+              existingReturnLine.refund_local_tax_cents =
+                (existingReturnLine.refund_local_tax_cents ?? 0) + localTaxCents;
+              existingReturnLine.refund_total_cents =
+                (existingReturnLine.refund_total_cents ?? 0) + unitCreditCents;
+            } else {
+              settledReturnLinesById.set(item.transaction_line_id, {
+                transaction_line_id: item.transaction_line_id,
+                product_id: item.product_id,
+                variant_id: item.variant_id,
+                sku: item.sku,
+                product_name: item.product_name,
+                variation_label: item.variation_label ?? null,
+                quantity: 1,
+                unit_price_cents: parseMoneyToCents(item.unit_price),
+                unit_cost: item.unit_cost ?? "0.00",
+                state_tax_cents: parseMoneyToCents(item.state_tax ?? "0"),
+                local_tax_cents: parseMoneyToCents(item.local_tax ?? "0"),
+                tax_cents:
+                  parseMoneyToCents(item.state_tax ?? "0") +
+                  parseMoneyToCents(item.local_tax ?? "0"),
+                reason: "refund",
+                restock: false,
+                refund_subtotal_cents: subtotalCents,
+                refund_state_tax_cents: stateTaxCents,
+                refund_local_tax_cents: localTaxCents,
+                refund_total_cents: unitCreditCents,
+                original_helcim_transaction_id_for_refund:
+                  detail.original_helcim_transaction_id_for_refund ?? null,
+              });
+            }
             return {
               product_id: item.product_id,
               variant_id: item.variant_id,
@@ -2566,6 +2631,10 @@ export default function Cart({
           },
         );
 
+        setPendingReturnLineDrafts((previous) => ({
+          ...previous,
+          [detail.transaction_id]: Array.from(settledReturnLinesById.values()),
+        }));
         setLines(refundCreditLines);
         setSelectedLineKey(refundCreditLines[0]?.cart_row_id ?? null);
 
@@ -4248,7 +4317,14 @@ export default function Cart({
              disabled={!hasCheckoutWork || checkoutBusy}
              onClick={async () => {
                if (!hasCheckoutWork) return toast("Add at least one item, transaction payment, or wedding group payment before checking out.", "error");
-                if (!ensureSaleCashier()) return;
+               if (!ensureSaleCashier()) return;
+               if (pendingReturnTender && !pendingReturnTender.returnLineIntegrityOk) {
+                 toast(
+                   "Refund blocked: reload the return from the Transaction Record so every returned item is attached before payment.",
+                   "error",
+                 );
+                 return;
+               }
                if (pendingReturnTender?.returnOnly) {
                  openCheckoutDrawerWithGuard();
                  return;
@@ -4468,7 +4544,7 @@ export default function Cart({
         profileBlocksCheckout={false}
         onOpenProfileGate={() => {}}
         onCheckoutIdentityHoldChange={setProviderCheckoutIdentityHeld}
-        beforeApplyTender={preflightOrderPaymentsBeforeTender}
+        beforeApplyTender={preflightCheckoutBeforeTender}
         busy={checkoutBusy}
         onFinalize={async (applied, op, ledger) => {
           if (pendingReturnTender) {

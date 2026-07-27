@@ -51,6 +51,8 @@ The **Daily Sales** view shows a chronological timeline of every transaction. Ea
 
 A completed return or exchange that produces a customer refund appears once as one **Return / Exchange** event, not as separate refund and zero-detail payment entries. Its detail and reprint are scoped to that event: today's returned items appear as negative lines, today's new merchandise or services appear as positive lines, and retained original items and historical tenders are omitted. Mixed exchanges show the exact net **Refund to customer** or **Amount due** on the event receipt. When **Original Card** is used, the event remains pending until the provider responds; successful completion identifies Helcim, the approved amount, and the masked card.
 
+ROS blocks a merchandise refund before tender if any selected returned-item detail is missing. Close Pay and reload the return from the original Transaction Record; never substitute a payment-only refund. If a previously completed refund appears with **0 units**, no itemized lines, or zero tax when tax was returned, stop and escalate it for the Manager-approved refund-line repair. The repair attaches the original item, subtotal, and tax to the existing refund event and does not send another refund to the card.
+
 Use this for:
 
 - Verifying the status of recent sales.

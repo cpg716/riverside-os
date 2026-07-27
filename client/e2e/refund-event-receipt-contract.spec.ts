@@ -59,6 +59,18 @@ test("paid order cancellation hands the refund directly back to the Register", (
   expect(cart).toContain(
     "Select Original Card to complete the Helcim refund.",
   );
+  expect(cart).toContain("[detail.transaction_id]: Array.from(settledReturnLinesById.values())");
+  expect(cart).toContain("returnLineIntegrityOk:");
+  expect(cart).toContain(
+    "Refund blocked before tender: the selected item details are incomplete.",
+  );
+  expect(transactionsApi).toContain(
+    "Refund blocked before payment: at least one exact returned item line is required",
+  );
+  expect(transactionsApi).toContain(
+    "/{transaction_id}/refunds/{refund_event_id}/repair-lines",
+  );
+  expect(transactionsApi).toContain('"refund_lines_repaired"');
   expect(transactionsApi).toContain(
     "event_kind IN ('exchange_settled', 'refund_processed')",
   );

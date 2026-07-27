@@ -63,6 +63,36 @@ pub async fn apply_transaction_returns_in_tx(
     staff_id: Option<Uuid>,
     lines: Vec<ReturnLineInput>,
 ) -> Result<(), TransactionReturnError> {
+    apply_transaction_returns_in_tx_with_cancelled_policy(
+        tx,
+        transaction_id,
+        staff_id,
+        lines,
+        false,
+    )
+    .await
+}
+
+/// Records exact item lines for a refund that is already authorized by the
+/// transaction refund workflow. Cancelled transactions are accepted here
+/// because cancellation creates the refund obligation before Register tender.
+pub async fn apply_refund_return_lines_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    transaction_id: Uuid,
+    staff_id: Option<Uuid>,
+    lines: Vec<ReturnLineInput>,
+) -> Result<(), TransactionReturnError> {
+    apply_transaction_returns_in_tx_with_cancelled_policy(tx, transaction_id, staff_id, lines, true)
+        .await
+}
+
+async fn apply_transaction_returns_in_tx_with_cancelled_policy(
+    tx: &mut Transaction<'_, Postgres>,
+    transaction_id: Uuid,
+    staff_id: Option<Uuid>,
+    lines: Vec<ReturnLineInput>,
+    allow_cancelled: bool,
+) -> Result<(), TransactionReturnError> {
     if lines.is_empty() {
         return Err(TransactionReturnError::BadRequest(
             "no return lines".to_string(),
@@ -86,7 +116,7 @@ pub async fn apply_transaction_returns_in_tx(
             "order not found".to_string(),
         ));
     };
-    if status == "cancelled" {
+    if status == "cancelled" && !allow_cancelled {
         return Err(TransactionReturnError::BadRequest(
             "cannot return lines on a cancelled order".to_string(),
         ));

@@ -3459,6 +3459,14 @@ pub struct ProcessRefundRequest {
     pub return_lines: Vec<TransactionReturnLineBody>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct RepairRefundLinesRequest {
+    pub manager_staff_id: Uuid,
+    pub manager_pin: String,
+    pub reason: String,
+    pub return_lines: Vec<TransactionReturnLineBody>,
+}
+
 #[derive(Debug, Serialize)]
 pub struct ProcessRefundResponse {
     pub status: String,
@@ -3610,6 +3618,10 @@ pub fn router() -> Router<AppState> {
         .route("/{transaction_id}/audit", get(get_transaction_audit))
         .route("/{transaction_id}/void", post(post_transaction_void))
         .route("/{transaction_id}/refunds/process", post(process_refund))
+        .route(
+            "/{transaction_id}/refunds/{refund_event_id}/repair-lines",
+            post(repair_refund_return_lines),
+        )
         .route(
             "/{transaction_id}/exchange-settlement",
             post(process_exchange_settlement),
@@ -7313,6 +7325,28 @@ async fn process_refund(
         return Err(TransactionError::InvalidPayload(
             "register session is not open".to_string(),
         ));
+    }
+    if body.refund_event_id.is_none() && body.return_lines.is_empty() {
+        let has_itemized_lines: bool = sqlx::query_scalar(
+            r#"
+            SELECT EXISTS (
+                SELECT 1
+                FROM transaction_lines
+                WHERE transaction_id = $1
+                  AND quantity > 0
+                  AND COALESCE(is_internal, FALSE) = FALSE
+            )
+            "#,
+        )
+        .bind(transaction_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if has_itemized_lines {
+            return Err(TransactionError::InvalidPayload(
+                "Refund blocked before payment: at least one exact returned item line is required for this Transaction Record. Reload the return in the Register and try again."
+                    .to_string(),
+            ));
+        }
     }
 
     let deferred_event_context = if body.refund_event_id.is_some() {
@@ -11732,7 +11766,7 @@ async fn apply_refund_return_lines_in_tx(
     if lines.is_empty() {
         return Ok(());
     }
-    transaction_returns::apply_transaction_returns_in_tx(
+    transaction_returns::apply_refund_return_lines_in_tx(
         tx,
         transaction_id,
         Some(staff_id),
@@ -11748,6 +11782,130 @@ async fn apply_refund_return_lines_in_tx(
         }
     })?;
     Ok(())
+}
+
+async fn repair_refund_return_lines(
+    State(state): State<AppState>,
+    Path((transaction_id, refund_event_id)): Path<(Uuid, Uuid)>,
+    headers: HeaderMap,
+    Json(body): Json<RepairRefundLinesRequest>,
+) -> Result<Json<TransactionDetailResponse>, TransactionError> {
+    middleware::require_staff_with_permission(&state, &headers, ORDERS_REFUND_PROCESS)
+        .await
+        .map_err(map_perm_err)?;
+    let reason = body.reason.trim();
+    if reason.len() < 12 {
+        return Err(TransactionError::InvalidPayload(
+            "A specific recovery reason of at least 12 characters is required.".to_string(),
+        ));
+    }
+    if body.return_lines.is_empty() {
+        return Err(TransactionError::InvalidPayload(
+            "At least one exact returned item line is required.".to_string(),
+        ));
+    }
+    let manager = authenticate_manager_approval(
+        &state,
+        body.manager_staff_id,
+        body.manager_pin.as_str(),
+        "Manager Access approval is required to repair refund item details",
+    )
+    .await?;
+
+    let mut tx = state.db.begin().await?;
+    let refund: Option<(Option<Uuid>, Decimal, Option<Uuid>)> = sqlx::query_as(
+        r#"
+        SELECT
+            pt.session_id,
+            ABS(pt.amount)::numeric(14,2),
+            o.customer_id
+        FROM payment_transactions pt
+        INNER JOIN payment_allocations pa ON pa.transaction_id = pt.id
+        INNER JOIN transactions o ON o.id = pa.target_transaction_id
+        WHERE pa.target_transaction_id = $1
+          AND pt.amount < 0
+          AND LOWER(pt.status) IN ('success', 'approved', 'captured')
+          AND pt.metadata->>'refund_event_id' = $2
+          AND pt.metadata->>'kind' IN (
+              'order_refund',
+              'exchange_refund_remainder',
+              'external_card_refund',
+              'legacy_migration_refund'
+          )
+        ORDER BY pt.created_at DESC
+        LIMIT 1
+        FOR UPDATE OF pt
+        "#,
+    )
+    .bind(transaction_id)
+    .bind(refund_event_id.to_string())
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some((register_session_id, refund_amount, customer_id)) = refund else {
+        return Err(TransactionError::InvalidPayload(
+            "The completed refund event was not found for this Transaction Record.".to_string(),
+        ));
+    };
+    let register_session_id = register_session_id.ok_or_else(|| {
+        TransactionError::InvalidPayload(
+            "The completed refund has no Register session and cannot be repaired automatically."
+                .to_string(),
+        )
+    })?;
+    let existing_lines: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM transaction_return_lines WHERE refund_event_id = $1",
+    )
+    .bind(refund_event_id)
+    .fetch_one(&mut *tx)
+    .await?;
+    if existing_lines > 0 {
+        return Err(TransactionError::InvalidPayload(
+            "This refund event already has itemized return lines; no repair was applied."
+                .to_string(),
+        ));
+    }
+    validate_return_line_financial_total(&body.return_lines, refund_amount)?;
+    apply_refund_return_lines_in_tx(
+        &mut tx,
+        transaction_id,
+        manager.id,
+        register_session_id,
+        refund_event_id,
+        &body.return_lines,
+    )
+    .await?;
+    insert_transaction_activity_log_tx(
+        &mut tx,
+        transaction_id,
+        customer_id,
+        "refund_lines_repaired",
+        "Missing refund item details repaired under Manager Access",
+        json!({
+            "refund_event_id": refund_event_id,
+            "refund_amount": refund_amount,
+            "return_line_count": body.return_lines.len(),
+            "manager_staff_id": manager.id,
+            "reason": reason,
+        }),
+    )
+    .await?;
+    tx.commit().await?;
+
+    let _ = log_staff_access(
+        &state.db,
+        manager.id,
+        "refund_lines_repaired",
+        json!({
+            "transaction_id": transaction_id,
+            "refund_event_id": refund_event_id,
+            "refund_amount": refund_amount,
+            "return_line_count": body.return_lines.len(),
+            "reason": reason,
+        }),
+    )
+    .await;
+    let detail = load_transaction_detail(&state.db, transaction_id).await?;
+    Ok(Json(detail))
 }
 
 async fn post_transaction_returns(

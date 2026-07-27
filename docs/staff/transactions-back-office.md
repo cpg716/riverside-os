@@ -69,6 +69,7 @@
 - Refund to the actual tender: linked Helcim card, cash, check, gift card, Store Credit, Staff Account, or RMS Charge. Check requires the refund check number. RMS Charge requires the completed RMS/R2S reference plus Manager Access. Open Deposit is restored by cancellation/void, not selected as a refund tender.
 - If an exchange finishes but Helcim cannot return a card remainder, the exchange and inventory return remain saved and the unresolved amount stays in the refund queue. Retry that queue item; do not repeat the exchange or manually change inventory.
 - From a Transaction Record, use **Return / Exchange** on an item line to open Register with that customer, transaction, and item already selected. Use **Return All** only when every returnable line on the transaction is coming back.
+- A merchandise refund cannot finish unless its exact returned lines, quantities, subtotal, and tax remain attached through tender. If Pay says the item details are incomplete, close Pay and reload the return from the original Transaction Record. If an older completed refund shows **0 units**, do not refund again; a manager or support operator must use the audited refund-line repair against that existing refund event.
 - **Void sale** (unpaid mistake carts) differs from **refund after payment** — permission and SOP differ.
 
 ## Till / POS coordination
