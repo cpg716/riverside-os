@@ -551,7 +551,9 @@ impl TransactionDetailResponse {
         let selected = self.selected_receipt_items(transaction_line_ids)?;
         let customer_items = selected
             .into_iter()
-            .filter(|item| !is_order_payment_receipt_item(item))
+            .filter(|item| {
+                self.payment_applications.is_empty() || !is_order_payment_receipt_item(item)
+            })
             .collect::<Vec<_>>();
         let payment_only = customer_items.is_empty() && !self.payment_applications.is_empty();
         let refund_receipt = !customer_items.is_empty()
