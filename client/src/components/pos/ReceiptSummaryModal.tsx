@@ -255,8 +255,6 @@ export default function ReceiptSummaryModal({
         sp.set("exchange_return_transaction_id", exchangeReturnTransactionId);
       }
       if (
-        (!refundRequest &&
-          isOrderStatus(transactionDetail?.status, "fulfilled")) ||
         (!refundRequest && ids.length > 0) ||
         (orderPaymentLines && orderPaymentLines.length > 0)
       ) {
@@ -268,7 +266,6 @@ export default function ReceiptSummaryModal({
     [
       registerSessionId,
       refundEventId,
-      transactionDetail?.status,
       transactionDetail?.items,
       receiptTransactionLineIds,
       exchangeReturnTransactionId,

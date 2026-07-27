@@ -2101,9 +2101,9 @@ async fn fetch_register_day_summary_page_on_connection(
                     INNER JOIN fulfillment_orders fo ON fo.id = target_line.fulfillment_order_id
                     WHERE target_line.transaction_id = o.id
                 ),
+                NULLIF(TRIM(o.display_id), ''),
                 NULLIF(TRIM(o.counterpoint_doc_ref), ''),
                 NULLIF(TRIM(o.counterpoint_ticket_ref), ''),
-                NULLIF(TRIM(o.display_id), ''),
                 'Transaction ' || UPPER(LEFT(REPLACE(o.id::text, '-', ''), 8))
             ) AS target_display_id,
             COALESCE(o.balance_due, 0)::numeric(14,2) AS target_balance_due,

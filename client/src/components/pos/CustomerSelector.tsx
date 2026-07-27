@@ -546,10 +546,18 @@ export default function CustomerSelector({
                 ? `pos-customer-result-${results[activeResultIndex].id}`
                 : undefined
             }
-            aria-controls={query.trim().length >= 2 ? "pos-customer-results" : undefined}
+            aria-controls={
+              !addDrawerOpen && query.trim().length >= 2
+                ? "pos-customer-results"
+                : undefined
+            }
           />
 
-          {query.trim().length >= 2 && resultsOverlayRoot && resultsPanelStyle && createPortal(
+          {!addDrawerOpen &&
+            query.trim().length >= 2 &&
+            resultsOverlayRoot &&
+            resultsPanelStyle &&
+            createPortal(
             <div
               id="pos-customer-results"
               ref={resultsPanelRef}
@@ -714,7 +722,7 @@ export default function CustomerSelector({
                )}
                </div>
             </div>
-          , resultsOverlayRoot)}
+            , resultsOverlayRoot)}
       </div>
 
       {/* 2. Walk-in / Parked / Options Row */}

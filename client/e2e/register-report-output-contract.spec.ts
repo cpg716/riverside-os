@@ -39,6 +39,18 @@ const sessionsServerSource = readFileSync(
   new URL("../../server/src/api/sessions.rs", import.meta.url),
   "utf8",
 );
+const receiptSummarySource = readFileSync(
+  new URL("../src/components/pos/ReceiptSummaryModal.tsx", import.meta.url),
+  "utf8",
+);
+const customerSelectorSource = readFileSync(
+  new URL("../src/components/pos/CustomerSelector.tsx", import.meta.url),
+  "utf8",
+);
+const transactionsServerSource = readFileSync(
+  new URL("../../server/src/api/transactions.rs", import.meta.url),
+  "utf8",
+);
 
 test.describe("Register report output integrity contracts", () => {
   test("currency labels and large totals are summed in integer cents", () => {
@@ -191,6 +203,30 @@ test.describe("Register report output integrity contracts", () => {
     );
     expect(registerDayServerSource).not.toContain(
       "WHERE checkout_o.id::text = pt.metadata->>'checkout_transaction_id'",
+    );
+    expect(registerDayServerSource).toContain(
+      "NULLIF(TRIM(o.display_id), ''),\n                NULLIF(TRIM(o.counterpoint_doc_ref), '')",
+    );
+    expect(transactionsServerSource).toContain(
+      "NULLIF(TRIM(target.display_id), ''),\n                NULLIF(TRIM(target.counterpoint_doc_ref), '')",
+    );
+  });
+
+  test("receipt and customer overlays use explicit workflow state", () => {
+    const receiptQueryBuilder = receiptSummarySource.slice(
+      receiptSummarySource.indexOf("const buildReceiptQuery"),
+      receiptSummarySource.indexOf("const shouldKickCashDrawer"),
+    );
+
+    expect(receiptQueryBuilder).toContain("!refundRequest && ids.length > 0");
+    expect(receiptQueryBuilder).toContain(
+      "orderPaymentLines && orderPaymentLines.length > 0",
+    );
+    expect(receiptQueryBuilder).not.toContain(
+      'isOrderStatus(transactionDetail?.status, "fulfilled")',
+    );
+    expect(customerSelectorSource).toContain(
+      "!addDrawerOpen && query.trim().length >= 2",
     );
   });
 

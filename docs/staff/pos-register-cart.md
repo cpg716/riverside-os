@@ -79,6 +79,7 @@ Attach **before** completing tax-sensitive or loyalty-linked sales if your SOP r
 
 1. Use **customer search** at the top of the right-hand rail. Search by name, phone, or email to attach a profile to the sale. Walk-in and Parked options are located directly below the search bar for quick access.
 2. If the search has no match, use **Add Customer** at the top of the results. The Add Customer drawer is the same intake used in Back Office and will pre-fill the name, phone, or email you typed.
+   - After the drawer opens, the register search results close and stay behind the customer form. Complete or cancel the customer form before returning to register search.
 3. With a customer on the sale, tap the **customer strip** to open the **relationship hub** slideout (same hub as Back Office \u2014 timeline, transactions, profile, and more where your role allows). Use the **ruler / measurements** control on that strip when you only need **measurements**, not the full hub.
 4. **Load more** if the list is long; try **last name + phone** if name is common.
 5. If **duplicate profiles** appear, **do not merge** at the register unless trained — pick the profile the store uses for that person or get a manager.
