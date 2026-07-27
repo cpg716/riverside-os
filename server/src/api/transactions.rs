@@ -3939,6 +3939,43 @@ async fn completed_refund_event_in_tx(
     .map_err(TransactionError::Database)
 }
 
+async fn unpaid_return_event_for_refund_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    transaction_id: Uuid,
+    exact_refund_amount: Decimal,
+) -> Result<Option<Uuid>, TransactionError> {
+    sqlx::query_scalar(
+        r#"
+        SELECT trl.refund_event_id
+        FROM transaction_return_lines trl
+        INNER JOIN transaction_lines tl ON tl.id = trl.transaction_line_id
+        WHERE trl.transaction_id = $1
+          AND trl.refund_event_id IS NOT NULL
+          AND NOT EXISTS (
+              SELECT 1
+              FROM payment_transactions pt
+              INNER JOIN payment_allocations pa ON pa.transaction_id = pt.id
+              WHERE pa.target_transaction_id = $1
+                AND pa.amount_allocated < 0
+                AND pt.status IN ('success', 'approved', 'captured')
+                AND pt.metadata->>'refund_event_id' = trl.refund_event_id::text
+          )
+        GROUP BY trl.refund_event_id
+        HAVING ROUND(SUM(COALESCE(
+            trl.refund_total,
+            (tl.unit_price + tl.state_tax + tl.local_tax) * trl.quantity_returned
+        )), 2) = $2
+        ORDER BY MIN(trl.created_at), trl.refund_event_id
+        LIMIT 1
+        "#,
+    )
+    .bind(transaction_id)
+    .bind(exact_refund_amount)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(TransactionError::Database)
+}
+
 fn refund_confirmation_message(
     refund_amount: Decimal,
     payment_method: &str,
@@ -7244,7 +7281,7 @@ async fn process_refund(
     }
     let check_number = required_refund_check_number(refund_method, body.check_number.as_deref())?;
     let exact_refund_amount = body.amount.round_dp(2);
-    let refund_event_id = body.refund_event_id.unwrap_or_else(Uuid::new_v4);
+    let mut refund_event_id = body.refund_event_id.unwrap_or_else(Uuid::new_v4);
     validate_return_line_financial_total(&body.return_lines, exact_refund_amount)?;
     let (cash_tender_amount, cash_rounding_adjustment) = cash_refund_tender_amount(
         &body.payment_method,
@@ -7342,10 +7379,17 @@ async fn process_refund(
         .fetch_one(&mut *tx)
         .await?;
         if has_itemized_lines {
-            return Err(TransactionError::InvalidPayload(
-                "Refund blocked before payment: at least one exact returned item line is required for this Transaction Record. Reload the return in the Register and try again."
-                    .to_string(),
-            ));
+            if let Some(existing_return_event_id) =
+                unpaid_return_event_for_refund_in_tx(&mut tx, transaction_id, exact_refund_amount)
+                    .await?
+            {
+                refund_event_id = existing_return_event_id;
+            } else {
+                return Err(TransactionError::InvalidPayload(
+                    "Refund blocked before payment: at least one exact returned item line is required for this Transaction Record. Reload the return in the Register and try again."
+                        .to_string(),
+                ));
+            }
         }
     }
 
