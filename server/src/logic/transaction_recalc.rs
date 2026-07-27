@@ -8,12 +8,12 @@ use crate::logic::checkout_validate::is_shipping_charge_sku;
 use crate::logic::tax::{erie_local_tax_usd, nys_state_tax_usd, TaxCategory};
 
 fn recalculated_balance_due(
-    is_cancelled: bool,
+    is_cancelled_or_fully_refunded: bool,
     total_price: Decimal,
     rounding_adjustment: Decimal,
     amount_paid: Decimal,
 ) -> Decimal {
-    if is_cancelled {
+    if is_cancelled_or_fully_refunded {
         Decimal::ZERO
     } else {
         total_price + rounding_adjustment - amount_paid
@@ -55,11 +55,12 @@ pub async fn recalc_transaction_totals(
     tx: &mut Transaction<'_, Postgres>,
     transaction_id: Uuid,
 ) -> Result<(), sqlx::Error> {
-    let (total, amount_paid, rounding_adjustment, _ship, is_cancelled): (
+    let (total, amount_paid, rounding_adjustment, _ship, is_cancelled, is_fully_refunded): (
         Option<Decimal>,
         Decimal,
         Decimal,
         Option<Decimal>,
+        bool,
         bool,
     ) = sqlx::query_as(
         r#"
@@ -71,7 +72,15 @@ pub async fn recalc_transaction_totals(
             o.amount_paid,
             COALESCE(o.rounding_adjustment, 0)::numeric AS rounding_adjustment,
             o.shipping_amount_usd,
-            o.status = 'cancelled'::order_status AS is_cancelled
+            o.status = 'cancelled'::order_status AS is_cancelled,
+            EXISTS (
+                SELECT 1
+                FROM transaction_refund_queue q
+                WHERE q.transaction_id = o.id
+                  AND q.is_open = FALSE
+                  AND q.amount_due > 0
+                  AND q.amount_refunded >= q.amount_due
+            ) AS is_fully_refunded
         FROM transactions o
         LEFT JOIN transaction_lines oi ON oi.transaction_id = o.id
         LEFT JOIN (
@@ -80,7 +89,7 @@ pub async fn recalc_transaction_totals(
             GROUP BY transaction_line_id
         ) orl ON orl.transaction_line_id = oi.id
         WHERE o.id = $1
-        GROUP BY o.amount_paid, o.rounding_adjustment, o.shipping_amount_usd, o.status
+        GROUP BY o.id, o.amount_paid, o.rounding_adjustment, o.shipping_amount_usd, o.status
         "#,
     )
     .bind(transaction_id)
@@ -88,8 +97,12 @@ pub async fn recalc_transaction_totals(
     .await?;
 
     let total_price = total.unwrap_or(Decimal::ZERO);
-    let balance_due =
-        recalculated_balance_due(is_cancelled, total_price, rounding_adjustment, amount_paid);
+    let balance_due = recalculated_balance_due(
+        is_cancelled || is_fully_refunded,
+        total_price,
+        rounding_adjustment,
+        amount_paid,
+    );
 
     sqlx::query(
         r#"
@@ -174,6 +187,14 @@ mod tests {
         assert_eq!(
             recalculated_balance_due(false, dec!(282.75), Decimal::ZERO, Decimal::ZERO),
             dec!(282.75),
+        );
+    }
+
+    #[test]
+    fn fully_refunded_transaction_never_reopens_a_customer_balance() {
+        assert_eq!(
+            recalculated_balance_due(true, dec!(316.00), Decimal::ZERO, Decimal::ZERO),
+            Decimal::ZERO,
         );
     }
 
