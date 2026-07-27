@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Restart-Safe Daily Backups**: The Main Hub now catches up a missing daily PostgreSQL backup after a restart or outage that spans the configured backup time, uses verified store-local backup evidence to avoid duplicate scheduled runs, and records pre-attempt schedule-context or verification-evidence failures instead of surfacing them only as generic overdue alerts.
+
 ## [0.95.5] - 2026-07-26
 
 - Added an auditable Manager-only legacy Counterpoint order reconciliation workflow that scans all stored imported accounts, repairs only exact open-order/ticket/payment matches, moves legitimate later payments to the original order, supersedes duplicate imported artifacts, and leaves ambiguous cases unchanged for review without rerunning Counterpoint imports.

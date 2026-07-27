@@ -27,6 +27,8 @@ Backup behavior is controlled via the `store_settings` table (JSONB `backup_sett
 | `replication_targets` | `[]` | Local, external-drive, SMB/NAS, or synced-folder paths that receive verified backup copies. |
 | `encryption_enabled` | `false` | When true, local and off-site snapshots are written as encrypted `.dump.enc` archives. |
 
+The Main Hub checks the schedule every minute. Once the configured store-local time has passed, it runs the daily backup only when no verified backup exists for that store-local day. A restart or outage spanning the configured time therefore triggers a catch-up backup after startup instead of silently skipping the day. A failed scheduled attempt is recorded once per running Main Hub/store-local day; after correcting the reported problem, use **Create Backup** for an immediate retry.
+
 ## PostgreSQL Backup Access
 
 Production `pg_dump` and `pg_restore` commands use `RIVERSIDE_BACKUP_DATABASE_URL` when it is configured. This protected connection must be able to read every database schema, including operational or repair-evidence schemas owned by a different PostgreSQL role. The normal `DATABASE_URL` remains the limited application connection.

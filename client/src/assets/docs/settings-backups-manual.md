@@ -27,6 +27,7 @@ Snapshots are full PostgreSQL dumps stored in the configured backup directory on
 
 ### Automatic Backups:
 *   **Cron Schedule**: Configurable via **System Control → Cloud Backups**. Default is `0 2 * * *` (2:00 AM daily).
+*   **Restart Catch-Up**: If the Main Hub is stopped or restarting at the configured time, Riverside runs the missing daily backup after the server returns, provided no verified backup exists for that store-local day.
 *   **Retention**: The system automatically cleans up snapshots older than the configured "Retention Policy" (default: 30 days).
 
 ### Create Backup:
@@ -78,6 +79,7 @@ The Settings restore action is reserved for an explicitly enabled non-production
 - Take a fresh manual backup before restoring an older snapshot.
 - Confirm encrypted backups have the correct recovery key available before restore.
 - Treat **Backup Verification Tools: Unavailable** or **backup_recent_verified** readiness warnings as unresolved data-protection issues, even when the backup scheduler itself is running.
+- A failed automatic attempt is recorded and is not repeated continuously throughout the day. Correct the reported problem, then use **Create Backup** for an immediate verified retry.
 - Treat **Complete database backup access is not configured** as unresolved. PostgreSQL tools can be installed and healthy while the database account still cannot read every schema.
 - Treat restore as an offline operations event: confirm timing, scope, archive filename, and who approved it.
 

@@ -2,7 +2,7 @@
 
 use crate::api::{build_router, AppState};
 use crate::logic::backups::{
-    daily_backup_schedule_matches_time, record_cloud_backup_failure, record_cloud_backup_success,
+    parse_daily_backup_schedule, record_cloud_backup_failure, record_cloud_backup_success,
     record_local_backup_failure, record_local_backup_verified_success, BackupManager,
     BackupSettings,
 };
@@ -123,6 +123,22 @@ fn meilisearch_daily_reindex_is_due(
     hour >= reindex_hour
         && attempted_day != Some(today)
         && last_success_day.is_none_or(|last_success| last_success < today)
+}
+
+fn daily_backup_is_due(
+    today: NaiveDate,
+    hour: u32,
+    minute: u32,
+    schedule: &str,
+    attempted_day: Option<NaiveDate>,
+    last_verified_day: Option<NaiveDate>,
+) -> bool {
+    let Some((scheduled_hour, scheduled_minute)) = parse_daily_backup_schedule(schedule) else {
+        return false;
+    };
+    (hour, minute) >= (scheduled_hour, scheduled_minute)
+        && attempted_day != Some(today)
+        && last_verified_day.is_none_or(|last_verified| last_verified < today)
 }
 
 async fn run_daily_meilisearch_reindex_with_retry(
@@ -1135,7 +1151,7 @@ pub async fn launch_server_with_ready_signal(
 #[cfg(test)]
 mod tests {
     use super::{
-        helcim_value_looks_placeholder, meilisearch_daily_reindex_is_due,
+        daily_backup_is_due, helcim_value_looks_placeholder, meilisearch_daily_reindex_is_due,
         meilisearch_daily_reindex_retry_delay, static_cache_control_for_path,
     };
 
@@ -1242,6 +1258,45 @@ mod tests {
             Some(yesterday)
         ));
     }
+
+    #[test]
+    fn daily_backup_catches_up_after_scheduled_time_without_duplicate_attempts() {
+        let today = chrono::NaiveDate::from_ymd_opt(2026, 7, 27).unwrap();
+        let yesterday = today.pred_opt().unwrap();
+
+        assert!(!daily_backup_is_due(
+            today,
+            1,
+            59,
+            "0 2 * * *",
+            None,
+            Some(yesterday)
+        ));
+        assert!(daily_backup_is_due(
+            today,
+            8,
+            52,
+            "0 2 * * *",
+            None,
+            Some(yesterday)
+        ));
+        assert!(!daily_backup_is_due(
+            today,
+            8,
+            53,
+            "0 2 * * *",
+            Some(today),
+            Some(yesterday)
+        ));
+        assert!(!daily_backup_is_due(
+            today,
+            8,
+            53,
+            "0 2 * * *",
+            None,
+            Some(today)
+        ));
+    }
 }
 
 async fn load_backup_worker_settings(pool: &sqlx::PgPool) -> Result<BackupSettings, String> {
@@ -1309,8 +1364,10 @@ async fn start_backup_worker(state: AppState) -> Result<(), anyhow::Error> {
     sched.add(ops_retention_job).await?;
 
     let backup_state = state.clone();
+    let backup_attempted_day = std::sync::Arc::new(tokio::sync::Mutex::new(None::<NaiveDate>));
     let backup_checker = Job::new_async("0 * * * * *", move |_uuid, _l| {
         let st = backup_state.clone();
+        let attempted_day = backup_attempted_day.clone();
         Box::pin(async move {
             crate::api::health::WorkerHealth::mark_heartbeat("backup").await;
             let settings = match load_backup_worker_settings(&st.db).await {
@@ -1320,14 +1377,48 @@ async fn start_backup_worker(state: AppState) -> Result<(), anyhow::Error> {
                     return;
                 }
             };
-            let now = match store_local_hh_mm(&st.db).await {
-                Ok(v) => v,
-                Err(e) => {
-                    tracing::error!(error = %e, "Background backup worker failed to load store-local clock");
+            let (today, hour, minute, last_verified_day) =
+                match store_local_backup_schedule_context(&st.db).await {
+                    Ok(v) => v,
+                    Err(e) => {
+                        let detail = format!(
+                            "Background backup worker failed to load store-local schedule context: {e}"
+                        );
+                        tracing::error!(error = %e, "Background backup worker failed to load store-local schedule context");
+                        if let Err(record_error) =
+                            record_local_backup_failure(&st.db, &detail).await
+                        {
+                            tracing::error!(
+                                error = %record_error,
+                                "Failed to record backup schedule-context failure"
+                            );
+                        }
+                        return;
+                    }
+                };
+            {
+                let mut attempted_day_guard = attempted_day.lock().await;
+                if !daily_backup_is_due(
+                    today,
+                    hour,
+                    minute,
+                    &settings.schedule_cron,
+                    *attempted_day_guard,
+                    last_verified_day,
+                ) {
                     return;
                 }
-            };
-            if daily_backup_schedule_matches_time(&settings.schedule_cron, &now) {
+                *attempted_day_guard = Some(today);
+            }
+
+            tracing::info!(
+                activity_date = %today,
+                hour,
+                minute,
+                schedule = %settings.schedule_cron,
+                "Background backup worker: running due daily backup"
+            );
+            {
                 let manager = BackupManager::new(st.database_url.clone());
                 match manager.create_backup_with_settings(&settings).await {
                     Ok(filename) => {
@@ -1339,6 +1430,17 @@ async fn start_backup_worker(state: AppState) -> Result<(), anyhow::Error> {
                                 %filename,
                                 "Scheduled backup verified but audit evidence could not be recorded"
                             );
+                            let detail = format!(
+                                "Scheduled backup {filename} was verified, but its audit evidence could not be recorded: {error}"
+                            );
+                            if let Err(record_error) =
+                                record_local_backup_failure(&st.db, &detail).await
+                            {
+                                tracing::error!(
+                                    error = %record_error,
+                                    "Failed to record backup audit-evidence failure"
+                                );
+                            }
                         }
 
                         let offsite_enabled = settings.cloud_storage_enabled
@@ -1382,7 +1484,7 @@ async fn start_backup_worker(state: AppState) -> Result<(), anyhow::Error> {
 
     sched.start().await?;
     // Readiness tracks whether the scheduler itself is alive, not whether today's scheduled
-    // backup minute has arrived yet.
+    // backup time has arrived yet.
     crate::api::health::WorkerHealth::mark_heartbeat("backup").await;
     Ok(())
 }
@@ -1416,17 +1518,33 @@ async fn latest_successful_meilisearch_reindex_day(
     .await
 }
 
-async fn store_local_hh_mm(pool: &sqlx::PgPool) -> Result<String, sqlx::Error> {
-    sqlx::query_scalar(
-        r#"
-        SELECT to_char(
-            CURRENT_TIMESTAMP AT TIME ZONE reporting.effective_store_timezone(),
-            'HH24:MI'
+async fn store_local_backup_schedule_context(
+    pool: &sqlx::PgPool,
+) -> Result<(NaiveDate, u32, u32, Option<NaiveDate>), sqlx::Error> {
+    let (today, hour, minute, last_verified_day): (NaiveDate, i32, i32, Option<NaiveDate>) =
+        sqlx::query_as(
+            r#"
+            SELECT
+                (CURRENT_TIMESTAMP AT TIME ZONE reporting.effective_store_timezone())::date,
+                EXTRACT(HOUR FROM CURRENT_TIMESTAMP AT TIME ZONE reporting.effective_store_timezone())::int4,
+                EXTRACT(MINUTE FROM CURRENT_TIMESTAMP AT TIME ZONE reporting.effective_store_timezone())::int4,
+                (
+                    SELECT
+                        last_local_verified_at
+                            AT TIME ZONE reporting.effective_store_timezone()
+                    FROM store_backup_health
+                    WHERE id = 1
+                )::date
+            "#,
         )
-        "#,
-    )
-    .fetch_one(pool)
-    .await
+        .fetch_one(pool)
+        .await?;
+    Ok((
+        today,
+        hour.max(0) as u32,
+        minute.max(0) as u32,
+        last_verified_day,
+    ))
 }
 
 async fn perform_weather_backfill(state: &AppState) -> Result<(), anyhow::Error> {

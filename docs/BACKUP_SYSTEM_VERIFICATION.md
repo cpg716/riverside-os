@@ -15,16 +15,19 @@ This document describes the backup safety contract implemented by the v0.95.5 so
 **Implementation:**
 - Uses `tokio-cron-scheduler` for a minute-level backup checker
 - Default daily schedule expression: `0 2 * * *` (2:00 AM daily)
-- Runs every minute to check whether the configured daily HH:MM backup time matches current local time
+- Runs every minute to check whether the configured daily HH:MM has passed and the current store-local day still lacks a verified backup
+- Catches up automatically after a Main Hub restart or outage that spans the configured backup time
+- Uses durable verified-backup evidence plus an in-process store-local daily attempt guard to prevent duplicate scheduled attempts
 - Loads backup settings from `store_settings.backup_settings` JSONB field
 - Performs automatic cleanup of old backups (default 30 days retention)
 - Records catalog-verified success evidence separately from scheduler/failure timestamps in `store_backup_health`
+- Records settings, store-local clock, and verified-evidence recording failures instead of allowing pre-attempt scheduler errors to appear only as generic overdue alerts
 - Supports cloud sync and replication targets if configured
 
 **Safety Features:**
 - Heartbeat monitoring via `WorkerHealth::mark_heartbeat("backup")`
 - Error logging with detailed context
-- Automatic retry on next scheduled run if failed
+- One automatic scheduled attempt per running Main Hub/store-local day; operators can use **Create Backup** for an immediate retry after correcting a reported failure
 
 **Source Status:** Implemented and locally validated. Confirm the scheduled worker and current verified artifact on the production Main Hub.
 
