@@ -824,6 +824,24 @@ mod tests {
     use super::*;
 
     #[test]
+    fn cancelled_transaction_refundable_credit_uses_amount_paid() {
+        let amount_paid = Decimal::new(28_275, 2);
+
+        assert_eq!(
+            refundable_credit_for_non_void_refund("cancelled", amount_paid, Decimal::ZERO),
+            amount_paid,
+        );
+        assert_eq!(
+            refundable_credit_for_non_void_refund(
+                "completed",
+                amount_paid,
+                Decimal::new(-5_000, 2),
+            ),
+            Decimal::new(5_000, 2),
+        );
+    }
+
+    #[test]
     fn release_requires_an_open_transaction_record() {
         assert!(validate_release_transaction_status(DbOrderStatus::Open, "Pickup").is_ok());
         assert!(matches!(
@@ -1849,7 +1867,7 @@ mod tests {
                 id, operator_id, primary_salesperson_id, status, total_price,
                 amount_paid, balance_due, display_id, business_date
             )
-            VALUES ($1, $2, $2, 'open', 0.00, 100.00, -100.00, $3, CURRENT_DATE)
+            VALUES ($1, $2, $2, 'open', 100.00, 100.00, 0.00, $3, CURRENT_DATE)
             "#,
         )
         .bind(transaction_id)
@@ -3881,19 +3899,21 @@ async fn validate_refund_capacity_in_tx(
     refund: &RefundQueueRow,
     exact_refund_amount: Decimal,
 ) -> Result<RefundCapacity, TransactionError> {
-    let (current_paid, current_balance_due): (Decimal, Decimal) = sqlx::query_as(
-        r#"
+    let (current_paid, current_balance_due, transaction_status): (Decimal, Decimal, String) =
+        sqlx::query_as(
+            r#"
         SELECT
             COALESCE(amount_paid, 0)::numeric(14,2),
-            COALESCE(balance_due, 0)::numeric(14,2)
+            COALESCE(balance_due, 0)::numeric(14,2),
+            status::text
         FROM transactions
         WHERE id = $1
         FOR UPDATE
         "#,
-    )
-    .bind(transaction_id)
-    .fetch_one(&mut **tx)
-    .await?;
+        )
+        .bind(transaction_id)
+        .fetch_one(&mut **tx)
+        .await?;
     let void_original_paid: Option<Decimal> = sqlx::query_scalar(
         r#"
         SELECT original_amount_paid::numeric(14,2)
@@ -3923,11 +3943,11 @@ async fn validate_refund_capacity_in_tx(
             };
             (remaining, refund.amount_due, original_paid)
         } else {
-            let refundable_credit = if current_balance_due < Decimal::ZERO {
-                -current_balance_due
-            } else {
-                Decimal::ZERO
-            };
+            let refundable_credit = refundable_credit_for_non_void_refund(
+                &transaction_status,
+                current_paid,
+                current_balance_due,
+            );
             let remaining = if refundable_credit < current_paid {
                 refundable_credit
             } else {
@@ -3964,6 +3984,20 @@ async fn validate_refund_capacity_in_tx(
         corrected_amount_due,
         void_original_paid,
     })
+}
+
+fn refundable_credit_for_non_void_refund(
+    transaction_status: &str,
+    current_paid: Decimal,
+    current_balance_due: Decimal,
+) -> Decimal {
+    if transaction_status == "cancelled" {
+        current_paid
+    } else if current_balance_due < Decimal::ZERO {
+        -current_balance_due
+    } else {
+        Decimal::ZERO
+    }
 }
 
 async fn validate_original_tender_refund_capacity_in_tx(

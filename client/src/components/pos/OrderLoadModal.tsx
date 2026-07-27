@@ -111,6 +111,7 @@ interface OrderLoadModalProps {
     item: OrderItem,
   ) => Promise<boolean>;
   onPickupToCart?: (selections: PickupSelection[]) => Promise<boolean>;
+  onCancelledToRefundCart?: (order: CustomerOrder) => Promise<boolean>;
 }
 
 const fulfillmentLabel = (fulfillment: string) => {
@@ -154,6 +155,7 @@ export default function OrderLoadModal({
   onUpdateOrderItem,
   onDeleteOrderItem,
   onPickupToCart,
+  onCancelledToRefundCart,
 }: OrderLoadModalProps) {
   const { toast } = useToast();
   const [orders, setOrders] = useState<CustomerOrder[]>([]);
@@ -826,10 +828,26 @@ export default function OrderLoadModal({
         toast((body.error ?? raw.trim()) || "Order could not be cancelled.", "error");
         return;
       }
-      toast(
-        "Order cancelled. Any refund due was queued for Register refund processing.",
-        "info",
-      );
+      const paidCents = parseMoneyToCents(cancelOrder.amount_paid);
+      const refundLoaded =
+        paidCents <= 0 ||
+        (onCancelledToRefundCart
+          ? await onCancelledToRefundCart(cancelOrder)
+          : false);
+      if (paidCents > 0 && !refundLoaded) {
+        toast(
+          "Order cancelled, but the refund could not be loaded into this Register. Do not refund the card separately; reopen the Transaction Record and complete the outstanding refund in ROS.",
+          "error",
+        );
+      } else if (paidCents > 0) {
+        toast(
+          "Order cancelled. Its negative items are in the cart; finish the refund before serving the next customer.",
+          "success",
+        );
+        onClose();
+      } else {
+        toast("Unpaid order cancelled. No customer refund is due.", "success");
+      }
       setCancelOrder(null);
       setSelectedOrderItems([]);
       setViewingItemsOrderId(null);
@@ -1587,7 +1605,7 @@ export default function OrderLoadModal({
         <ConfirmationModal
           isOpen={true}
           title="Cancel Order?"
-          message="This will cancel the Transaction Record and queue any paid deposits or payments for refund processing. It does not silently refund money."
+          message="This will cancel the Transaction Record. If money was paid, Riverside will load the order as negative items in this Register and open Pay so you can complete the refund to the original tender."
           confirmLabel={orderMutationBusy ? "Cancelling..." : "Cancel Order"}
           onConfirm={() => void runCancelOrder()}
           onClose={() => {

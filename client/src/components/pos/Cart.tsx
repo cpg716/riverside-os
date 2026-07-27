@@ -1794,10 +1794,17 @@ export default function Cart({
         refund_total_cents: refundTotalCents,
       }];
     });
-    const refundAmountCents = settledReturnLines.reduce(
-      (sum, line) => sum + (line.refund_total_cents ?? 0),
-      0,
-    );
+    const refundAmountCents =
+      settledReturnLines.length > 0
+        ? settledReturnLines.reduce(
+            (sum, line) => sum + (line.refund_total_cents ?? 0),
+            0,
+          )
+        : returnLines.reduce(
+            (sum, line) =>
+              sum + Math.max(0, line.return_tender_refund_cents ?? 0),
+            0,
+          );
     return {
       originalTransactionId,
       receiptLabel: returnLines[0].return_tender_receipt_label ?? originalTransactionId.slice(0, 8).toUpperCase(),
@@ -2477,39 +2484,96 @@ export default function Cart({
         }
 
         const receiptLabel = detail.transaction_display_id ?? detail.transaction_id.slice(0, 8).toUpperCase();
-        const rowId = newCartRowId();
+        const refundableItems = (detail.items ?? []).filter(
+          (item) => !item.is_internal && item.quantity > 0,
+        );
+        const sourceUnits = refundableItems.flatMap((item) =>
+          Array.from({ length: item.quantity }, () => ({
+            item,
+            grossCents:
+              parseMoneyToCents(item.unit_price) +
+              parseMoneyToCents(item.state_tax ?? "0") +
+              parseMoneyToCents(item.local_tax ?? "0"),
+          })),
+        );
+        const sourceGrossCents = sourceUnits.reduce(
+          (sum, unit) => sum + Math.max(0, unit.grossCents),
+          0,
+        );
+        if (sourceUnits.length === 0 || sourceGrossCents <= 0) {
+          toast(
+            "This cancelled order has a refund due, but its original item values could not be loaded. Open the Transaction Record before taking any refund action.",
+            "error",
+          );
+          return false;
+        }
 
-        const firstItem = detail.items?.[0];
-        const productId = firstItem?.product_id || "00000000-0000-0000-0000-000000000000";
-        const variantId = firstItem?.variant_id || "00000000-0000-0000-0000-000000000000";
-        const itemLabel = firstItem ? firstItem.product_name : "Voided transaction items";
+        let allocatedCents = 0;
+        const refundCreditLines: CartLineItem[] = sourceUnits.map(
+          ({ item, grossCents }, index) => {
+            const unitCreditCents =
+              index === sourceUnits.length - 1
+                ? refundAmountCents - allocatedCents
+                : Math.min(
+                    grossCents,
+                    Math.floor(
+                      (Math.max(0, grossCents) * refundAmountCents) /
+                        sourceGrossCents,
+                    ),
+                  );
+            allocatedCents += unitCreditCents;
+            const taxCents =
+              parseMoneyToCents(item.state_tax ?? "0") +
+              parseMoneyToCents(item.local_tax ?? "0");
+            const taxCreditCents = Math.min(
+              unitCreditCents,
+              Math.floor(
+                (Math.max(0, taxCents) * unitCreditCents) /
+                  Math.max(1, grossCents),
+              ),
+            );
+            const stateTaxCents =
+              taxCents > 0
+                ? Math.floor(
+                    (parseMoneyToCents(item.state_tax ?? "0") *
+                      taxCreditCents) /
+                      taxCents,
+                  )
+                : 0;
+            const localTaxCents = taxCreditCents - stateTaxCents;
+            const subtotalCents = unitCreditCents - taxCreditCents;
+            return {
+              product_id: item.product_id,
+              variant_id: item.variant_id,
+              sku: item.sku,
+              name: item.product_name,
+              variation_label: item.variation_label ?? null,
+              standard_retail_price: centsToFixed2(subtotalCents),
+              unit_cost: item.unit_cost ?? "0.00",
+              state_tax: centsToFixed2(stateTaxCents),
+              local_tax: centsToFixed2(localTaxCents),
+              tax_category: "other",
+              quantity: -1,
+              fulfillment: "takeaway",
+              cart_row_id: newCartRowId(),
+              price_override_reason: "pending_return_refund",
+              original_unit_price: centsToFixed2(subtotalCents),
+              return_tender_original_transaction_id: detail.transaction_id,
+              return_tender_receipt_label: receiptLabel,
+              return_tender_refund_cents: unitCreditCents,
+              return_tender_transaction_line_id: item.transaction_line_id,
+            };
+          },
+        );
 
-        const refundCreditLine: CartLineItem = {
-          product_id: productId,
-          variant_id: variantId,
-          sku: `RETURN-${receiptLabel}`,
-          name: `Refund credit ${receiptLabel}`,
-          variation_label: itemLabel,
-          standard_retail_price: centsToFixed2(refundAmountCents),
-          unit_cost: "0.00",
-          state_tax: "0.00",
-          local_tax: "0.00",
-          tax_category: "other",
-          quantity: -1,
-          fulfillment: "takeaway",
-          cart_row_id: rowId,
-          price_override_reason: "pending_return_refund",
-          original_unit_price: centsToFixed2(refundAmountCents),
-          return_tender_original_transaction_id: detail.transaction_id,
-          return_tender_receipt_label: receiptLabel,
-          return_tender_refund_cents: refundAmountCents,
-        };
-
-        setLines([refundCreditLine]);
-        setSelectedLineKey(rowId);
+        setLines(refundCreditLines);
+        setSelectedLineKey(refundCreditLines[0]?.cart_row_id ?? null);
 
         setCheckoutDrawerOpen(true);
-        toast(`Refund credit for ${receiptLabel} loaded. Select the refund tender to finish the void.`, "success");
+        toast(
+          `${refundCreditLines.length} negative item line(s) from ${receiptLabel} loaded. Select Original Card to complete the Helcim refund.`,
+          "success",
+        );
         return true;
       }
 
@@ -5918,6 +5982,9 @@ export default function Cart({
                 return false;
               }
             }}
+            onCancelledToRefundCart={(order) =>
+              loadTransactionIntoRegister(order.id, false, true)
+            }
           />
 
           <OrderReviewModal

@@ -10,6 +10,9 @@ function repoFile(relativePath: string): string {
 }
 
 const cart = repoFile("client/src/components/pos/Cart.tsx");
+const orderLoadModal = repoFile(
+  "client/src/components/pos/OrderLoadModal.tsx",
+);
 const checkoutDrawer = repoFile(
   "client/src/components/pos/NexoCheckoutDrawer.tsx",
 );
@@ -32,6 +35,30 @@ const registerOverlay = repoFile(
 const staffProfilePanel = repoFile(
   "client/src/components/settings/StaffProfilePanel.tsx",
 );
+
+test("paid order cancellation hands the refund directly back to the Register", () => {
+  expect(orderLoadModal).toContain(
+    "await onCancelledToRefundCart(cancelOrder)",
+  );
+  expect(orderLoadModal).toContain(
+    "Its negative items are in the cart; finish the refund",
+  );
+  expect(orderLoadModal).not.toContain(
+    "Any refund due was queued for Register refund processing.",
+  );
+  expect(cart).toContain(
+    "onCancelledToRefundCart={(order) =>",
+  );
+  expect(cart).toContain(
+    "loadTransactionIntoRegister(order.id, false, true)",
+  );
+  expect(cart).toContain(
+    "return_tender_original_transaction_id: detail.transaction_id",
+  );
+  expect(cart).toContain(
+    "Select Original Card to complete the Helcim refund.",
+  );
+});
 
 test("deferred original-card refunds retain the server event and exact provider result", () => {
   expect(cart).toContain("parseRefundEventId(settlementPayload)");
