@@ -119,7 +119,6 @@ export function useCartPersistence({
 }: UseCartPersistenceProps) {
   const [saleHydrated, setSaleHydrated] = useState(false);
   const prevSessionIdForHydrateRef = useRef<string | null>(null);
-  const hadActiveSaleRef = useRef(false);
   const persistenceWriteQueueRef = useRef<Promise<void>>(Promise.resolve());
 
   const queuePersistenceWrite = useCallback((write: () => Promise<void>) => {
@@ -261,14 +260,8 @@ export function useCartPersistence({
       retainCheckoutIdentity;
     if (!hasActiveSale) {
       queuePersistenceWrite(() => localforage.removeItem("ros_pos_active_sale"));
-      if (hadActiveSaleRef.current) {
-        hadActiveSaleRef.current = false;
-        setCheckoutClientId(newCheckoutClientId());
-        setAppliedPayments([]);
-      }
       return;
     }
-    hadActiveSaleRef.current = true;
     const sale: PersistedSale = {
       sessionId,
       checkoutClientId,

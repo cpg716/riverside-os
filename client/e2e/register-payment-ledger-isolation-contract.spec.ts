@@ -121,3 +121,30 @@ test("an already-approved Helcim take-now sale can sync safely after a Hub outag
   expect(checkout).toContain("PAYMENT APPROVED - PENDING SYNC");
   expect(checkout).toContain("Do not run the card again.");
 });
+
+test("a nonmatching terminal attempt is refreshed without entering the active sale", () => {
+  const drawer = repoFile("client/src/components/pos/NexoCheckoutDrawer.tsx");
+  const persistence = repoFile("client/src/hooks/useCartPersistence.ts");
+
+  expect(drawer).toContain("selectedTerminalEarlierCheckoutAttemptId");
+  expect(drawer).toContain("refreshEarlierCheckoutTerminalAttempt");
+  expect(drawer).toContain("importOnlyIfCurrentCheckout: true");
+  expect(drawer).toContain(
+    "void refreshEarlierCheckoutTerminalAttempt(selectedTerminalEarlierCheckoutAttemptId)",
+  );
+  expect(drawer).toContain(
+    "activeTerminalAttemptIdForRefresh ?? selectedTerminalEarlierCheckoutAttemptId",
+  );
+  expect(drawer).toContain(
+    "setPhysicalTerminalCancelAttemptId(terminalRecoveryAttemptId)",
+  );
+
+  const persistenceUpdates = persistence.slice(
+    persistence.indexOf("// Persist to disk on change"),
+    persistence.indexOf("return { saleHydrated };"),
+  );
+  expect(persistenceUpdates).toContain("if (!hasActiveSale)");
+  expect(persistenceUpdates).not.toContain(
+    "setCheckoutClientId(newCheckoutClientId())",
+  );
+});

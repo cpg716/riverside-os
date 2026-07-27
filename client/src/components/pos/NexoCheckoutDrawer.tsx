@@ -732,6 +732,7 @@ export default function NexoCheckoutDrawer({
   const [helcimAttempt, setHelcimAttempt] = useState<HelcimAttempt | null>(null);
   const [helcimUnverifiedNotice, setHelcimUnverifiedNotice] = useState<string | null>(null);
   const [helcimAttemptLoading, setHelcimAttemptLoading] = useState(false);
+  const [earlierTerminalAttemptRefreshing, setEarlierTerminalAttemptRefreshing] = useState(false);
   const [physicalTerminalCancelAttemptId, setPhysicalTerminalCancelAttemptId] = useState<string | null>(null);
   const originalHelcimRefundReference = String(originalHelcimTransactionIdForRefund ?? "").trim();
   const hasOriginalHelcimRefundReference = originalHelcimRefundReference.length > 0;
@@ -1095,6 +1096,10 @@ export default function NexoCheckoutDrawer({
     selectedTerminalInUseByCurrentRegister &&
     Boolean(selectedTerminalStatus?.active_attempt_id?.trim()) &&
     selectedTerminalStatus?.active_attempt_id?.trim() !== currentCheckoutRoutingAttemptId;
+  const selectedTerminalEarlierCheckoutAttemptId =
+    selectedTerminalInUseByEarlierCheckoutOnCurrentRegister
+      ? selectedTerminalStatus?.active_attempt_id?.trim() || null
+      : null;
   const helcimRoutingAttemptBelongsToCurrentCheckout =
     currentCheckoutRoutingAttemptId != null;
   const helcimAttemptBelongsToCurrentCheckout = helcimAttemptMatchesCheckout(
@@ -1148,7 +1153,7 @@ export default function NexoCheckoutDrawer({
                   : selectedTerminalInUseByOtherRegister
                     ? `In use R${selectedTerminalInUseBy}`
                     : selectedTerminalInUseByEarlierCheckoutOnCurrentRegister
-                      ? "Earlier checkout needs review"
+                      ? "Terminal request needs review"
                     : selectedTerminalInUseByCurrentRegister
                       ? "Active here"
                     : selectedTerminalNeedsOverride && !terminalOverrideConfirmed
@@ -2009,6 +2014,32 @@ export default function NexoCheckoutDrawer({
     },
     [applyHelcimAttemptUpdate, backofficeHeaders, baseUrl, toast],
   );
+
+  const refreshEarlierCheckoutTerminalAttempt = useCallback(
+    async (attemptId: string) => {
+      setEarlierTerminalAttemptRefreshing(true);
+      try {
+        await refreshHelcimAttempt(attemptId, {
+          quietPending: true,
+          quietStaleSession: true,
+          importOnlyIfCurrentCheckout: true,
+        });
+        await loadProviderSettings();
+      } finally {
+        setEarlierTerminalAttemptRefreshing(false);
+      }
+    },
+    [loadProviderSettings, refreshHelcimAttempt],
+  );
+
+  useEffect(() => {
+    if (!isOpen || !selectedTerminalEarlierCheckoutAttemptId) return;
+    void refreshEarlierCheckoutTerminalAttempt(selectedTerminalEarlierCheckoutAttemptId);
+  }, [
+    isOpen,
+    refreshEarlierCheckoutTerminalAttempt,
+    selectedTerminalEarlierCheckoutAttemptId,
+  ]);
 
   useEffect(() => {
     if (!isOpen || !helcimAttempt?.id) return;
@@ -2965,7 +2996,7 @@ export default function NexoCheckoutDrawer({
       }
       if (selectedTerminalInUseByEarlierCheckoutOnCurrentRegister) {
         toast(
-          `${terminalLabel(selectedTerminalKey)} has an unresolved card request from an earlier checkout on Register #${registerLane}. Review it in Payments Health before starting another card request.`,
+          `${terminalLabel(selectedTerminalKey)} has a pending card request whose checkout reference does not match this drawer. Recover or release that exact request before starting another card payment.`,
           "error",
         );
         return;
@@ -3348,6 +3379,8 @@ export default function NexoCheckoutDrawer({
     helcimAttemptBelongsToCurrentCheckout
       ? helcimAttempt.id
       : currentCheckoutRoutingAttemptId;
+  const terminalRecoveryAttemptId =
+    activeTerminalAttemptIdForRefresh ?? selectedTerminalEarlierCheckoutAttemptId;
   const pendingHelcimAttemptNeedsAttention =
     helcimAttemptBelongsToCurrentCheckout &&
     helcimAttempt.status === "pending" &&
@@ -3369,9 +3402,9 @@ export default function NexoCheckoutDrawer({
     }
     if (selectedTerminalInUseByEarlierCheckoutOnCurrentRegister) {
       return {
-        title: "Earlier checkout still owns this terminal",
-        detail: `${selectedTerminalKey ? terminalLabel(selectedTerminalKey) : "Terminal"} has an unresolved card request from an earlier checkout on Register #${registerLane}.`,
-        action: "Review that request in Payments Health before starting another card payment.",
+        title: "Terminal request needs review",
+        detail: `${selectedTerminalKey ? terminalLabel(selectedTerminalKey) : "Terminal"} has a pending request whose checkout reference does not match this drawer on Register #${registerLane}.`,
+        action: "Recover that request, or release it after confirming the physical terminal is idle.",
         escalation: "Do not run the card again until ROS shows the earlier request as final.",
         tone: "warning",
       };
@@ -3534,7 +3567,7 @@ export default function NexoCheckoutDrawer({
                 : !configured
                   ? "Not configured"
                   : isEarlierCheckoutOnCurrentRegister
-                    ? "Earlier checkout needs review"
+                    ? "Terminal request needs review"
                   : inUseBy != null && inUseBy === registerLane
                     ? "Active on this register"
                     : inUseBy
@@ -3900,25 +3933,33 @@ export default function NexoCheckoutDrawer({
                 <button
                   type="button"
                   onClick={() => {
-                    if (activeTerminalAttemptIdForRefresh) {
+                    if (selectedTerminalEarlierCheckoutAttemptId) {
+                      void refreshEarlierCheckoutTerminalAttempt(
+                        selectedTerminalEarlierCheckoutAttemptId,
+                      );
+                    } else if (activeTerminalAttemptIdForRefresh) {
                       void refreshHelcimAttempt(activeTerminalAttemptIdForRefresh);
                     } else {
                       setTerminalPickerOpen(true);
                     }
                   }}
-                  disabled={helcimAttemptLoading}
+                  disabled={helcimAttemptLoading || earlierTerminalAttemptRefreshing}
                   className="min-h-10 rounded-xl border border-current/30 bg-app-surface px-3 text-[10px] font-black uppercase tracking-widest text-app-text disabled:opacity-50"
                 >
-                  {helcimAttemptLoading ? "Checking" : activeTerminalAttemptIdForRefresh ? "Recover payment" : "Review Terminal"}
+                  {helcimAttemptLoading || earlierTerminalAttemptRefreshing
+                    ? "Checking"
+                    : terminalRecoveryAttemptId
+                      ? "Recover payment"
+                      : "Review Terminal"}
                 </button>
-                {activeTerminalAttemptIdForRefresh &&
+                {terminalRecoveryAttemptId &&
                 !providerSettings?.helcim.simulator_enabled ? (
                   <button
                     type="button"
                     onClick={() =>
-                      setPhysicalTerminalCancelAttemptId(activeTerminalAttemptIdForRefresh)
+                      setPhysicalTerminalCancelAttemptId(terminalRecoveryAttemptId)
                     }
-                    disabled={helcimAttemptLoading}
+                    disabled={helcimAttemptLoading || earlierTerminalAttemptRefreshing}
                     className="min-h-10 rounded-xl border border-app-warning/30 bg-app-warning/10 px-3 text-[10px] font-black uppercase tracking-widest text-app-warning disabled:opacity-50"
                   >
                     I canceled Terminal

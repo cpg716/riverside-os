@@ -291,7 +291,9 @@ Staff never type Helcim device codes in POS. Device codes are configured only in
 
 If POS shows **Terminal in use by Register #X**, another payment attempt is still pending or unresolved on that terminal. Do not send another payment to that terminal until provider recovery proves that the existing attempt was approved and attached, canceled, or declined. Live attempts do not expire locally. If the message does not clear after the customer leaves the terminal flow, check **Payments -> Health** and escalate before retrying.
 
-The Main Hub refreshes the existing terminal attempt before showing this conflict. A historical attempt that has already reached a verified final state remains recorded for audit but does not reserve the terminal or block a new checkout.
+When a new checkout finds an earlier request on its terminal, ROS refreshes that exact attempt without importing its payment into the new sale. A verified final result releases the route immediately. If the request remains pending after the old prompt was canceled on the physical terminal, use **I canceled Terminal**; ROS checks Helcim again, releases the idle terminal, and retains the earlier attempt for reconciliation.
+
+A checkout-reference mismatch or stale ROS row by itself does not block the next sale. After the in-flight request window, ROS checks the exact Helcim invoice and automatically releases only an evidence-free local reservation with no provider payment ID, transaction ID, dispatch audit reference, or unknown-outcome error. A verified provider request or approval still requires recovery because customer payment evidence must never be discarded.
 
 Register #1/#2 non-default terminal use requires Manager Access through `payments.terminal.override` or admin compatibility. Register #3/#4 choosing either configured terminal does not require that override because choosing is the normal workflow for those lanes.
 
