@@ -3224,6 +3224,7 @@ async fn sales_by_day_report(
             FROM transaction_lines oi
             INNER JOIN transactions o ON o.id = oi.transaction_id
             INNER JOIN products p ON p.id = oi.product_id
+            INNER JOIN product_variants pv ON pv.id = oi.variant_id
             LEFT JOIN (
                 SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
                 FROM transaction_return_lines
