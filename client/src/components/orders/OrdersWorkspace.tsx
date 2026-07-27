@@ -34,6 +34,10 @@ import { twMerge } from "tailwind-merge";
 import { getAppIcon } from "../../lib/icons";
 import type { CustomOrderDetails } from "../../lib/customOrders";
 import { openPrintableHtml } from "../../lib/browserPrint";
+import {
+  isOrderStatus,
+  normalizeOrderStatus,
+} from "../pos/orderLoadStatus";
 
 const WEDDINGS_ICON = getAppIcon("weddings");
 const ORDERS_ICON = getAppIcon("orders");
@@ -619,7 +623,7 @@ function orderKindLabel(kind: string) {
 }
 
 function formatOrderStatusLabel(status: string) {
-  return status.replace(/_/g, " ");
+  return normalizeOrderStatus(status).replace(/_/g, " ");
 }
 
 function orderLifecycleToneClass(
@@ -643,7 +647,7 @@ function deriveOrderLifecycleBadge(
   row: TransactionRow,
   hydratedSummaries: Record<string, OrderLineSummary>,
 ) {
-  if (row.status === "cancelled") {
+  if (isOrderStatus(row.status, "cancelled")) {
     return { label: "Cancelled", tone: "danger" as const };
   }
 
@@ -671,13 +675,15 @@ function deriveOrderLifecycleBadge(
   if (labels.length > 0 && labels.every((label) => label === "picked up")) {
     return { label: "Picked Up", tone: "success" as const };
   }
-  if (row.status === "fulfilled") {
+  if (isOrderStatus(row.status, "fulfilled")) {
     return { label: "Closed", tone: "success" as const };
   }
 
   return {
     label: formatOrderStatusLabel(row.status),
-    tone: row.status === "open" ? ("info" as const) : ("neutral" as const),
+    tone: isOrderStatus(row.status, "open")
+      ? ("info" as const)
+      : ("neutral" as const),
   };
 }
 
@@ -1518,8 +1524,19 @@ export default function OrdersWorkspace({
       },
     );
     if (!res.ok) {
-      await res.json().catch(() => ({}));
-      toast("We couldn't cancel this transaction. Please try again.", "error");
+      const raw = await res.text();
+      const body = (() => {
+        try {
+          return JSON.parse(raw) as { error?: string };
+        } catch {
+          return {};
+        }
+      })();
+      toast(
+        (body.error ?? raw.trim()) ||
+          "We couldn't cancel this transaction. Please try again.",
+        "error",
+      );
       return;
     }
     setCancelConfirmOpen(false);
@@ -1652,7 +1669,8 @@ export default function OrdersWorkspace({
 
   /** applyReturns is used in ConfirmationModal or similar, if unused prefix with _ */
   const _applyReturns = async () => {
-    if (!detail || !canModify || detail.status === "cancelled") return;
+    if (!detail || !canModify || isOrderStatus(detail.status, "cancelled"))
+      return;
     const lines: {
       order_item_id: string;
       quantity: number;
@@ -1852,7 +1870,7 @@ export default function OrdersWorkspace({
         visibleOrders: summary.visibleOrders + 1,
         waitingOnDetails:
           summary.waitingOnDetails +
-          (row.status === "pending_measurement" ? 1 : 0),
+          (isOrderStatus(row.status, "pending_measurement") ? 1 : 0),
         balanceStillDue:
           summary.balanceStillDue +
           (parseMoneyToCents(row.balance_due) > 0 ? 1 : 0),

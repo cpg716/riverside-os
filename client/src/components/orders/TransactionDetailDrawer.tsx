@@ -39,6 +39,10 @@ import type { FulfillmentKind } from "../pos/types";
 import VariantSearchInput from "../ui/VariantSearchInput";
 import RosieInsightSummary from "../help/RosieInsightSummary";
 import TransactionAttributionModal from "../pos/TransactionAttributionModal";
+import {
+  isOrderStatus,
+  normalizeOrderStatus,
+} from "../pos/orderLoadStatus";
 
 function fmtMoney(v: string | number): string {
   return formatUsdFromCents(parseMoneyToCents(v));
@@ -261,7 +265,7 @@ function formatAuditKind(kind: string): string {
 }
 
 function formatStatusLabel(status: string): string {
-  return status.replace(/_/g, " ");
+  return normalizeOrderStatus(status).replace(/_/g, " ");
 }
 
 type BadgeTone = "success" | "info" | "warning" | "neutral" | "rose";
@@ -473,7 +477,7 @@ function deriveLifecycleOverview(
   activeStep: LifecycleStepKey;
   nextAction: string;
 } {
-  if (detail.status === "cancelled") {
+  if (isOrderStatus(detail.status, "cancelled")) {
     return {
       label: "Cancelled",
       tone: "rose",
@@ -481,7 +485,7 @@ function deriveLifecycleOverview(
       nextAction: "No pickup work should continue on a cancelled transaction.",
     };
   }
-  if (summary.pending === 0 || detail.status === "fulfilled") {
+  if (summary.pending === 0 || isOrderStatus(detail.status, "fulfilled")) {
     return {
       label: "Closed / Picked Up",
       tone: "success",
@@ -569,10 +573,10 @@ function readinessSummary(
 
   let readinessLabel: string;
   let readinessTone: "success" | "warning" | "info";
-  if (detail.status === "fulfilled" || summary.pending === 0) {
+  if (isOrderStatus(detail.status, "fulfilled") || summary.pending === 0) {
     readinessLabel = "Complete";
     readinessTone = "success";
-  } else if (detail.status === "pending_measurement") {
+  } else if (isOrderStatus(detail.status, "pending_measurement")) {
     readinessLabel = "Waiting on Details";
     readinessTone = "warning";
   } else if (summary.fulfilled > 0) {
@@ -695,7 +699,7 @@ function buildReadinessCheck(
     );
   }
 
-  if (detail.status === "pending_measurement") {
+  if (isOrderStatus(detail.status, "pending_measurement")) {
     blockers.push("Measurements/details still need follow-up.");
   }
 
@@ -747,7 +751,8 @@ function buildReadinessCheck(
   if (
     openAgeDays !== null &&
     openAgeDays > 30 &&
-    !["fulfilled", "cancelled"].includes(detail.status)
+    !isOrderStatus(detail.status, "fulfilled") &&
+    !isOrderStatus(detail.status, "cancelled")
   ) {
     warnings.push(`Open more than 30 days; booked ${openAgeDays} days ago.`);
   }
@@ -822,7 +827,7 @@ function mapOrderActionButtons(
       ) : null}
       {orderActions.canModify &&
       !detail.wedding_member_id &&
-      detail.status !== "cancelled" &&
+      !isOrderStatus(detail.status, "cancelled") &&
       orderActions.onAttachToWedding ? (
         <button
           type="button"
@@ -833,7 +838,7 @@ function mapOrderActionButtons(
         </button>
       ) : null}
       {orderActions.canAttemptCancel &&
-      detail.status !== "cancelled" &&
+      !isOrderStatus(detail.status, "cancelled") &&
       orderActions.onCancel ? (
         <button
           type="button"
@@ -844,7 +849,7 @@ function mapOrderActionButtons(
         </button>
       ) : null}
       {orderActions.canModify &&
-      detail.status !== "cancelled" &&
+      !isOrderStatus(detail.status, "cancelled") &&
       orderActions.onReturnAll ? (
         <button
           type="button"
@@ -1478,9 +1483,9 @@ export default function TransactionDetailDrawer({
         </span>
         <span
           className={`rounded-full border px-2 py-1 text-[9px] font-black uppercase tracking-widest ${badgeClassName(
-            detail.status === "fulfilled"
+            isOrderStatus(detail.status, "fulfilled")
               ? "success"
-              : detail.status === "cancelled"
+              : isOrderStatus(detail.status, "cancelled")
                 ? "rose"
                 : parseMoneyToCents(detail.balance_due) > 0
                   ? "warning"
@@ -2083,7 +2088,7 @@ export default function TransactionDetailDrawer({
                   </h3>
                 </div>
                 {orderActions?.canModify &&
-                detail.status !== "cancelled" &&
+                !isOrderStatus(detail.status, "cancelled") &&
                 orderActions.setSku &&
                 orderActions.addBySku ? (
                   <div className="flex min-w-[280px] items-center gap-2">
@@ -2183,7 +2188,7 @@ export default function TransactionDetailDrawer({
                         const returnableQty = Math.max(0, item.quantity - returnedQty);
                         const canReturnLine = Boolean(
                           orderActions?.canModify &&
-                            detail.status !== "cancelled" &&
+                            !isOrderStatus(detail.status, "cancelled") &&
                             orderActions.onReturnLine &&
                             item.transaction_line_id &&
                             returnableQty > 0,
@@ -2305,7 +2310,7 @@ export default function TransactionDetailDrawer({
                                   </button>
                                 ) : null}
                                 {orderActions?.canModify &&
-                                detail.status !== "cancelled" &&
+                                !isOrderStatus(detail.status, "cancelled") &&
                                 !item.is_fulfilled &&
                                 orderActions.updateLine &&
                                 item.transaction_line_id ? (
@@ -2327,7 +2332,7 @@ export default function TransactionDetailDrawer({
                                   </div>
                                 ) : null}
                                 {orderActions?.canModify &&
-                                detail.status !== "cancelled" &&
+                                !isOrderStatus(detail.status, "cancelled") &&
                                 orderActions.deleteLine &&
                                 itemId ? (
                                   <button
@@ -2514,7 +2519,7 @@ export default function TransactionDetailDrawer({
                                     ) : null}
                                   </div>
                                   {orderActions?.canModify &&
-                                  detail.status !== "cancelled" &&
+                                  !isOrderStatus(detail.status, "cancelled") &&
                                   !item.is_fulfilled &&
                                   orderActions.updateLine &&
                                   canEditCustomOrderDetails &&

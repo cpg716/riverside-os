@@ -34,6 +34,7 @@ import {
   staffAvatarGroupLabel
 } from "../../lib/staffAvatars";
 import ReceiptSummaryModal from "../pos/ReceiptSummaryModal";
+import { isOrderStatus } from "../pos/orderLoadStatus";
 
 interface TransactionListItem {
   transaction_id: string;
@@ -878,9 +879,11 @@ export default function StaffProfilePanel() {
                           </td>
                           <td className="py-4 px-6">
                             <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                              tx.status === "completed" || tx.status === "fulfilled"
+                              tx.status === "completed" ||
+                              isOrderStatus(tx.status, "fulfilled")
                                 ? "bg-emerald-500/10 text-emerald-500"
-                                : tx.status === "cancelled" || tx.status === "voided"
+                                : isOrderStatus(tx.status, "cancelled") ||
+                                    tx.status === "voided"
                                 ? "bg-red-500/10 text-red-500"
                                 : "bg-amber-500/10 text-amber-500"
                             }`}>

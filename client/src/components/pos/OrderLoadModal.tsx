@@ -815,8 +815,15 @@ export default function OrderLoadModal({
         body: JSON.stringify({ status: "cancelled" }),
       });
       if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
-        toast(body.error ?? "Order could not be cancelled.", "error");
+        const raw = await res.text();
+        const body = (() => {
+          try {
+            return JSON.parse(raw) as { error?: string };
+          } catch {
+            return {};
+          }
+        })();
+        toast((body.error ?? raw.trim()) || "Order could not be cancelled.", "error");
         return;
       }
       toast(

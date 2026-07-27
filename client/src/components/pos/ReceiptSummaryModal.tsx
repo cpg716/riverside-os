@@ -30,6 +30,7 @@ import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
 import { enqueueFailedPrint } from "../../lib/printRetryQueue";
 import { openPrintableHtml } from "../../lib/browserPrint";
 import type { OrderPaymentCartLine } from "./types";
+import { isOrderStatus } from "./orderLoadStatus";
 
 export type RefundProcessResult = {
   status: string;
@@ -254,7 +255,8 @@ export default function ReceiptSummaryModal({
         sp.set("exchange_return_transaction_id", exchangeReturnTransactionId);
       }
       if (
-        (!refundRequest && transactionDetail?.status === "fulfilled") ||
+        (!refundRequest &&
+          isOrderStatus(transactionDetail?.status, "fulfilled")) ||
         (!refundRequest && ids.length > 0) ||
         (orderPaymentLines && orderPaymentLines.length > 0)
       ) {
@@ -391,7 +393,7 @@ export default function ReceiptSummaryModal({
       !transactionDetail.review_invite_sent_at &&
       !transactionDetail.review_invite_suppressed_at &&
       transactionDetail.customer_review_requests_opt_out !== true &&
-      transactionDetail.status === "fulfilled" &&
+      isOrderStatus(transactionDetail.status, "fulfilled") &&
       (transactionDetail.items ?? []).length > 0 &&
       (transactionDetail.items ?? [])
         .filter((it) => !it.is_internal)
@@ -411,7 +413,7 @@ export default function ReceiptSummaryModal({
       !transactionDetail.review_invite_sent_at &&
       !transactionDetail.review_invite_suppressed_at &&
       transactionDetail.customer_review_requests_opt_out !== true &&
-      transactionDetail.status === "fulfilled" &&
+      isOrderStatus(transactionDetail.status, "fulfilled") &&
       (transactionDetail.items ?? []).length > 0 &&
       (transactionDetail.items ?? [])
         .filter((it) => !it.is_internal)
@@ -807,7 +809,7 @@ export default function ReceiptSummaryModal({
     !transactionDetail.review_invite_sent_at &&
     !transactionDetail.review_invite_suppressed_at &&
     transactionDetail.customer_review_requests_opt_out !== true &&
-    transactionDetail.status === "fulfilled" &&
+    isOrderStatus(transactionDetail.status, "fulfilled") &&
     itemRows.length > 0 &&
     itemRows.filter((it) => !it.is_internal).every((it) => it.is_fulfilled === true);
   const serverOrderPayments = transactionDetail?.payment_applications ?? [];
@@ -1515,7 +1517,9 @@ export default function ReceiptSummaryModal({
                   <p className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-2 text-[9px] font-semibold uppercase tracking-wide text-app-text-muted">
                     Review invite choice already saved for this transaction.
                   </p>
-                ) : transactionDetail?.store_review_invites_enabled === false && transactionDetail?.status === "fulfilled" && !!transactionDetail?.customer ? (
+                ) : transactionDetail?.store_review_invites_enabled === false &&
+                  isOrderStatus(transactionDetail?.status, "fulfilled") &&
+                  !!transactionDetail?.customer ? (
                   <p className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-2 text-[9px] font-semibold uppercase tracking-wide text-app-text-muted">
                     Review invites are off in Back Office → Settings → Reviews.
                   </p>

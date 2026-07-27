@@ -7,6 +7,7 @@ import type { Customer } from "./CustomerSelector";
 import type { CustomerOrder } from "./OrderLoadModal";
 import IntegrationBrandLogo from "../ui/IntegrationBrandLogo";
 import AddressAutocompleteInput from "../ui/AddressAutocompleteInput";
+import { isOrderStatus } from "./orderLoadStatus";
 
 export interface PosShippingSelection {
   rate_quote_id: string;
@@ -144,8 +145,16 @@ export default function PosShippingModal({
         const data = await res.json();
         const rows = Array.isArray(data?.items) ? data.items : [];
         return rows
-          .map((row: CustomerOrder) => ({ ...row, id: row.id ?? row.transaction_id }))
-          .filter((row: CustomerOrder) => row.id && row.status !== "fulfilled" && row.status !== "cancelled");
+          .map((row: CustomerOrder) => ({
+            ...row,
+            id: row.id ?? row.transaction_id,
+          }))
+          .filter(
+            (row: CustomerOrder) =>
+              row.id &&
+              !isOrderStatus(row.status, "fulfilled") &&
+              !isOrderStatus(row.status, "cancelled"),
+          );
       })
       .then((rows: CustomerOrder[]) => {
         if (!ignore) setLinkableOrders(rows);

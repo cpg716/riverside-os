@@ -549,7 +549,7 @@ impl TransactionDetailResponse {
             self.payment_applications
                 .iter()
                 .map(|app| receipt_shared::ReceiptLine {
-                    product_name: format!("Applied payment to {}", app.target_display_id),
+                    product_name: format!("Payment toward order {}", app.target_display_id),
                     sku: app.target_display_id.clone(),
                     quantity: 1,
                     unit_price: app.amount,
@@ -1148,6 +1148,61 @@ mod tests {
     }
 
     #[test]
+    fn cancellation_wire_status_accepts_register_value() {
+        let request: PatchTransactionRequest =
+            serde_json::from_value(json!({ "status": "cancelled" }))
+                .expect("register cancellation status should deserialize");
+        assert_eq!(request.status, Some(DbOrderStatus::Cancelled));
+    }
+
+    #[test]
+    fn order_status_wire_values_are_canonical_and_backwards_compatible() {
+        let cases = [
+            (DbOrderStatus::Open, "open", "Open"),
+            (DbOrderStatus::Fulfilled, "fulfilled", "Fulfilled"),
+            (DbOrderStatus::Cancelled, "cancelled", "Cancelled"),
+            (
+                DbOrderStatus::PendingMeasurement,
+                "pending_measurement",
+                "PendingMeasurement",
+            ),
+            (DbOrderStatus::Processing, "processing", "Processing"),
+        ];
+
+        for (status, canonical, legacy) in cases {
+            assert_eq!(
+                serde_json::to_value(status).expect("serialize order status"),
+                json!(canonical)
+            );
+            assert_eq!(
+                serde_json::from_value::<DbOrderStatus>(json!(canonical))
+                    .expect("deserialize canonical order status"),
+                status
+            );
+            assert_eq!(
+                serde_json::from_value::<DbOrderStatus>(json!(legacy))
+                    .expect("deserialize legacy order status"),
+                status
+            );
+        }
+    }
+
+    #[test]
+    fn helcim_refund_wire_body_uses_original_transaction_id() {
+        let body = serde_json::to_value(helcim::HelcimCardRefundRequest {
+            original_transaction_id: 12_345_678,
+            amount: "282.75".to_string(),
+            ip_address: "127.0.0.1".to_string(),
+            ecommerce: false,
+        })
+        .expect("serialize Helcim refund request");
+
+        assert_eq!(body["originalTransactionId"], json!(12_345_678));
+        assert_eq!(body["amount"], json!("282.75"));
+        assert!(body.get("cardTransactionId").is_none());
+    }
+
+    #[test]
     fn fee_lines_render_in_all_customer_receipt_formats() {
         let mut alteration = sample_item(1, 0);
         alteration.sku = "ROS-ALTERATION-FEE".to_string();
@@ -1341,7 +1396,7 @@ mod tests {
         assert_eq!(receipt.items.len(), 1);
         assert_eq!(
             receipt.items[0].product_name,
-            "Applied payment to TXN-ORDER"
+            "Payment toward order TXN-ORDER"
         );
         assert_eq!(receipt.items[0].unit_price, Decimal::new(5000, 2));
         assert_eq!(receipt.payment_applications.len(), 1);
@@ -1351,6 +1406,30 @@ mod tests {
         );
         assert_eq!(receipt.total_price, Decimal::new(5000, 2));
         assert_eq!(receipt.amount_paid, Decimal::new(5000, 2));
+
+        let cfg = crate::api::settings::ReceiptConfig::default();
+        let rendered = [
+            crate::logic::receipt_escpos::build_receiptline_markdown(
+                &receipt,
+                &cfg,
+                &std::collections::HashMap::new(),
+                &crate::logic::receipt_escpos::LoyaltyReceiptData::default(),
+            ),
+            String::from_utf8_lossy(&crate::logic::receipt_escpos::build_receipt_escpos(
+                &receipt,
+                &cfg,
+                std::collections::HashMap::new(),
+            ))
+            .into_owned(),
+            crate::logic::receipt_studio_html::render_standard_receipt_html(&receipt, &cfg, false),
+            crate::logic::receipt_plain_text::format_pos_receipt_text_message(&receipt, &cfg),
+        ];
+        for output in rendered {
+            assert!(output.contains("Payments toward existing orders"));
+            assert!(output.contains("Order TXN-ORDER"));
+            assert!(output.to_ascii_lowercase().contains("remaining balance"));
+            assert!(!output.contains("Applied payments"));
+        }
     }
 
     #[test]
@@ -1642,7 +1721,6 @@ mod tests {
         let till_close_group_id = Uuid::new_v4();
         let transaction_id = Uuid::new_v4();
         let original_payment_id = Uuid::new_v4();
-        let refund_queue_id = Uuid::new_v4();
         let test_suffix = Uuid::new_v4().simple().to_string();
         let cashier_code = format!("T{}", &test_suffix[..9]);
         let display_id = format!("TXN-DUR-{}", &test_suffix[..12]);
@@ -1770,20 +1848,6 @@ mod tests {
         .await
         .expect("insert original allocation");
 
-        sqlx::query(
-            r#"
-            INSERT INTO transaction_refund_queue (
-                id, transaction_id, amount_due, amount_refunded, is_open, reason
-            )
-            VALUES ($1, $2, 100.00, 0.00, TRUE, 'refund durability regression')
-            "#,
-        )
-        .bind(refund_queue_id)
-        .bind(transaction_id)
-        .execute(&pool)
-        .await
-        .expect("insert refund queue");
-
         let mut headers = HeaderMap::new();
         headers.insert(
             "x-riverside-staff-code",
@@ -1793,6 +1857,59 @@ mod tests {
             "x-riverside-staff-pin",
             HeaderValue::from_str(&cashier_code).expect("staff pin header"),
         );
+
+        let cancellation: PatchTransactionRequest =
+            serde_json::from_value(json!({ "status": "cancelled" }))
+                .expect("deserialize register cancellation request");
+        patch_transaction(
+            State(state.clone()),
+            Path(transaction_id),
+            headers.clone(),
+            Json(cancellation),
+        )
+        .await
+        .expect("cancel paid transaction");
+
+        let repeated_cancellation: PatchTransactionRequest =
+            serde_json::from_value(json!({ "status": "Cancelled" }))
+                .expect("deserialize legacy cancellation request");
+        patch_transaction(
+            State(state.clone()),
+            Path(transaction_id),
+            headers.clone(),
+            Json(repeated_cancellation),
+        )
+        .await
+        .expect("repeated cancellation should be idempotent");
+
+        let Json(refunds_due) = list_refunds_due(State(state.clone()), headers.clone())
+            .await
+            .expect("load Register refund queue");
+        let queued_refund = refunds_due
+            .iter()
+            .find(|row| row.transaction_id == transaction_id)
+            .expect("cancelled transaction should be handed to Register refund queue");
+        assert_eq!(queued_refund.amount_due, Decimal::new(10000, 2));
+        assert_eq!(queued_refund.amount_refunded, Decimal::ZERO);
+        assert!(queued_refund.is_open);
+        let refund_queue_id = queued_refund.id;
+        let refund_queue_events: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*)
+            FROM transaction_activity_log
+            WHERE transaction_id = $1
+              AND event_kind = 'refund_queued'
+            "#,
+        )
+        .bind(transaction_id)
+        .fetch_one(&pool)
+        .await
+        .expect("count cancellation refund queue events");
+        assert_eq!(
+            refund_queue_events, 1,
+            "repeated cancellation must not duplicate refund obligations"
+        );
+
         let make_request = || ProcessRefundRequest {
             session_id,
             payment_method: "card".to_string(),
@@ -1832,6 +1949,19 @@ mod tests {
             3,
             "first attempt should perform two safety lookups and one refund"
         );
+        let refund_request = provider_calls
+            .iter()
+            .find(|request| request.url.path() == "/payment/refund")
+            .expect("Helcim refund request");
+        let refund_request_body: serde_json::Value =
+            serde_json::from_slice(&refund_request.body).expect("Helcim refund request JSON");
+        assert_eq!(
+            refund_request_body["originalTransactionId"],
+            json!(original_provider_transaction_id
+                .parse::<i64>()
+                .expect("numeric original Helcim transaction id"))
+        );
+        assert_eq!(refund_request_body["amount"], json!("100.00"));
 
         let attempt_after_failure: (Uuid, String, Option<String>, String) = sqlx::query_as(
             r#"
@@ -4600,6 +4730,23 @@ async fn patch_transaction(
 
         let mut tx = state.db.begin().await?;
         if status == DbOrderStatus::Cancelled {
+            // A retry or concurrent request must not repeat reversals or add the
+            // same customer refund obligation to the Register queue again.
+            let current_status: Option<DbOrderStatus> =
+                sqlx::query_scalar("SELECT status FROM transactions WHERE id = $1 FOR UPDATE")
+                    .bind(transaction_id)
+                    .fetch_optional(&mut *tx)
+                    .await?;
+            match current_status {
+                None => return Err(TransactionError::NotFound),
+                Some(DbOrderStatus::Cancelled) => {
+                    tx.rollback().await?;
+                    let detail = load_transaction_detail(&state.db, transaction_id).await?;
+                    return Ok(Json(detail));
+                }
+                Some(_) => {}
+            }
+
             loyalty_logic::reverse_order_accrual_in_tx(&mut tx, transaction_id)
                 .await
                 .map_err(TransactionError::Database)?;
@@ -10745,10 +10892,14 @@ pub(crate) async fn load_transaction_detail(
     >(
         r#"
         SELECT
-            pa.id,
+            pt.id,
             pt.created_at,
             pt.payment_method,
-            COALESCE(pa.amount_allocated, pt.amount)::numeric(14,2) AS amount,
+            CASE
+                WHEN pt.metadata->>'checkout_transaction_id' = $1::text
+                THEN pt.amount
+                ELSE SUM(COALESCE(pa.amount_allocated, 0))
+            END::numeric(14,2) AS amount,
             CASE
                 WHEN LOWER(pt.payment_method) = 'cash'
                  AND COALESCE(pt.metadata->>'cash_tendered_cents', '') ~ '^[0-9]+$'
@@ -10771,6 +10922,7 @@ pub(crate) async fn load_transaction_detail(
         INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
         WHERE pa.target_transaction_id = $1
            OR pt.metadata->>'checkout_transaction_id' = $1::text
+        GROUP BY pt.id
         ORDER BY pt.created_at ASC
         "#,
     )
@@ -10864,17 +11016,16 @@ pub(crate) async fn load_transaction_detail(
         SELECT
             target.id AS target_transaction_id,
             COALESCE(
-                NULLIF(TRIM(pa.metadata->>'target_display_id'), ''),
                 (
                     SELECT string_agg(DISTINCT fo.display_id, ', ' ORDER BY fo.display_id)
                     FROM transaction_lines tl
                     INNER JOIN fulfillment_orders fo ON fo.id = tl.fulfillment_order_id
                     WHERE tl.transaction_id = target.id
                 ),
-                target.counterpoint_doc_ref,
-                target.counterpoint_ticket_ref,
-                target.display_id,
-                target.id::text
+                NULLIF(TRIM(target.counterpoint_doc_ref), ''),
+                NULLIF(TRIM(target.counterpoint_ticket_ref), ''),
+                NULLIF(TRIM(target.display_id), ''),
+                'Transaction ' || UPPER(LEFT(REPLACE(target.id::text, '-', ''), 8))
             ) AS target_display_id,
             COALESCE(pa.amount_allocated, 0)::numeric(14,2) AS amount,
             COALESCE(target.balance_due, 0)::numeric(14,2) AS remaining_balance

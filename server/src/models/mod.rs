@@ -34,12 +34,18 @@ pub enum DbFulfillmentType {
 }
 
 #[derive(Debug, Serialize, Deserialize, Type, PartialEq, Eq, Clone, Copy)]
+#[serde(rename_all = "snake_case")]
 #[sqlx(type_name = "order_status", rename_all = "snake_case")]
 pub enum DbOrderStatus {
+    #[serde(alias = "Open")]
     Open,
+    #[serde(alias = "Fulfilled")]
     Fulfilled,
+    #[serde(alias = "Cancelled")]
     Cancelled,
+    #[serde(alias = "PendingMeasurement")]
     PendingMeasurement,
+    #[serde(alias = "Processing")]
     Processing,
 }
 

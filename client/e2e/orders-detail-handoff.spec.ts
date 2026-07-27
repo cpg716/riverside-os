@@ -3,6 +3,7 @@ import { parseMoneyToCents } from "../src/lib/money";
 import { calculateNysErieTaxStringsForUnit } from "../src/lib/tax";
 import {
   isOrderStatus,
+  normalizeOrderStatus,
   REGISTER_ORDER_STATUS_SCOPE,
 } from "../src/components/pos/orderLoadStatus";
 import {
@@ -39,6 +40,11 @@ test("Register order lookup excludes completed work and accepts API status casin
   expect(isOrderStatus("Fulfilled", "fulfilled")).toBe(true);
   expect(isOrderStatus("fulfilled", "fulfilled")).toBe(true);
   expect(isOrderStatus("Open", "fulfilled")).toBe(false);
+  expect(isOrderStatus("Cancelled", "cancelled")).toBe(true);
+  expect(isOrderStatus("PendingMeasurement", "pending_measurement")).toBe(true);
+  expect(normalizeOrderStatus("pending-measurement")).toBe(
+    "pending_measurement",
+  );
 });
 
 async function createSpecialOrder(

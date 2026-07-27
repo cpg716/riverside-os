@@ -4,6 +4,7 @@ import { Shirt, X, Loader2 } from "lucide-react";
 import { useToast } from "../ui/ToastProviderLogic";
 import { useShellBackdropLayer } from "../layout/ShellBackdropContextLogic";
 import TransactionSearchInput from "../ui/TransactionSearchInput";
+import { isOrderStatus } from "./orderLoadStatus";
 
 type FulfillmentKind = "takeaway" | "special_order" | "wedding_order";
 
@@ -84,7 +85,7 @@ export default function PosSuitSwapWizard({
         return;
       }
       const d = (await res.json()) as OrderDetailLite;
-      if (d.status === "cancelled") {
+      if (isOrderStatus(d.status, "cancelled")) {
         toast("Cancelled orders cannot be edited here.", "error");
         return;
       }
