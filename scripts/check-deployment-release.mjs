@@ -13,7 +13,7 @@ function fail(message) {
 }
 
 function read(path) {
-  return readFileSync(join(repoRoot, path), "utf8");
+  return readFileSync(join(repoRoot, path), "utf8").replace(/\r\n/g, "\n");
 }
 
 function sha256(path) {
