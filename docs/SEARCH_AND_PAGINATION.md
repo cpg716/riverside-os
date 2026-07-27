@@ -66,6 +66,17 @@ Complete `TXN-*` input is a literal financial-record lookup. The server checks t
 - The palette aborts and invalidates outstanding work on every input change. A Main Hub timeout is reported as a timeout, never as “No matches.” Deterministic records render as soon as the universal endpoint returns; optional ROSIE shortcut suggestions can arrive afterward without hiding those records.
 - Universal alterations include both open and historical records. The “Wedding party customer list” action appears only when the deterministic wedding source found a matching party.
 
+### Deterministic E2E isolation
+
+The local Playwright stack uses a resettable, sparsely seeded PostgreSQL
+database and intentionally leaves Meilisearch unconfigured. The launcher must
+therefore use PostgreSQL fallback for E2E search. `scripts/e2e-local-stack.sh`
+clears `RIVERSIDE_MEILISEARCH_URL` and disables the daily reindex worker before
+the server loads `server/.env`; otherwise a startup rebuild from
+`riverside_os_e2e` can atomically replace shared indexes with empty or
+fixture-sized indexes. Production and normal development retain their configured
+Meilisearch client and count/freshness verification behavior.
+
 ---
 
 ## Inventory — control board (`list_control_board`)

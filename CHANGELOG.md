@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added manager-approved Register backdating that changes the transaction business date without moving actual tender-day evidence, plus explicit receipt and QBO clearing documentation.
 
 ### Fixed
+- **E2E Meilisearch Isolation**: The deterministic Playwright stack now forces
+  PostgreSQL search fallback and disables its daily Meilisearch rebuild worker.
+  Resetting the sparsely seeded E2E database can no longer replace shared
+  development or production indexes with empty or fixture-sized data, and the
+  release gate preserves this boundary.
 - **Main Hub Migration 159 Update Compatibility**: Restored the canonical
   migration file byte-for-byte to the checksum already recorded on the Main
   Hub. The failed updater correctly rolled back before applying changes; the

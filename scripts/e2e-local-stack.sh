@@ -17,6 +17,10 @@ export E2E_API_BASE="${E2E_API_BASE:-http://127.0.0.1:43300}"
 export E2E_BASE_URL="${E2E_BASE_URL:-http://localhost:43173}"
 export RIVERSIDE_ENABLE_E2E_TEST_SUPPORT="${RIVERSIDE_ENABLE_E2E_TEST_SUPPORT:-1}"
 export E2E_ALLOW_REGISTER_RESET="${E2E_ALLOW_REGISTER_RESET:-1}"
+# The deterministic E2E database must never rebuild or incrementally update the
+# developer/production Meilisearch indexes loaded from server/.env.
+export RIVERSIDE_MEILISEARCH_URL=""
+export RIVERSIDE_MEILISEARCH_DAILY_REINDEX_ENABLED="0"
 export COUNTERPOINT_SYNC_TOKEN="${COUNTERPOINT_SYNC_TOKEN:-e2e-counterpoint-sync-token}"
 export HELCIM_SIMULATOR_ENABLED="${HELCIM_SIMULATOR_ENABLED:-1}"
 

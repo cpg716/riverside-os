@@ -101,6 +101,18 @@ function assertAsciiOnly(path, source, message) {
   }
 }
 
+const e2eLocalStack = "scripts/e2e-local-stack.sh";
+assertIncludes(
+  e2eLocalStack,
+  'export RIVERSIDE_MEILISEARCH_URL=""',
+  "the isolated E2E database must not write to a shared Meilisearch instance",
+);
+assertIncludes(
+  e2eLocalStack,
+  'export RIVERSIDE_MEILISEARCH_DAILY_REINDEX_ENABLED="0"',
+  "the isolated E2E server must not start the shared daily reindex worker",
+);
+
 const managerApp = "deployment/manager-app/src/App.tsx";
 assertNotIncludes(
   managerApp,

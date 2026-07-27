@@ -467,6 +467,12 @@ Optional: set **`E2E_STAFF_CODE`** and **`E2E_STAFF_PIN`** (use the **same four 
 
 **Canonical E2E inventory:** **`docs/E2E_REGRESSION_MATRIX.md`** maps **`client/e2e/*.spec.ts`** to product areas, documents **`api-gates`** route coverage, and lists **known gaps** (workspaces without automation, CI).
 
+**Meilisearch isolation:** `scripts/e2e-local-stack.sh` explicitly clears
+`RIVERSIDE_MEILISEARCH_URL` and disables the daily reindex worker before
+starting the API. The E2E database is reset and sparsely seeded by design; it
+must use PostgreSQL fallback rather than rebuilding or incrementally updating a
+shared development or production Meilisearch instance.
+
 **Non-Admin API gate seed:** **`scripts/seeds/seed_e2e.sql`** inserts deterministic non-Admin staff including salesperson **`5678`** so **`api-gates`** can assert **403** on **`GET /api/insights/margin-pivot`** (Admin-only). The deterministic E2E stack applies it automatically after the baseline and required/RBAC seeds.
 
 **Register session + Back Office navigation:** **`client/src/components/layout/RegisterSessionBootstrap.tsx`** hydrates **`GET /api/sessions/current`**. With an **open till**, **`applyShellForLoggedInRole`** (e.g. admin → Operations) runs **only when the register `session_id` changes** (attach / pick). With **no till**, repeated **`runBootstrap`** calls **do not** re-apply that routing for unchanged staff code, PIN, and role (deduped key), so **`activeTab`** stays put in Reports, Staff, QBO, etc. Transient fetch errors do not reset routing via the bootstrap **`catch`** path. See **`docs/ROS_UI_CONSISTENCY_PLAN.md`** (Phase 5).

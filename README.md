@@ -156,6 +156,10 @@ For this repo to behave the same way in a local RC worktree as it does in the va
 - Expected local DB/application state:
   - **`store_settings`** row **`id = 1`**
   - seeded E2E staff accounts **`1234`** (Admin) and **`5678`** (non-Admin) for the release-focused browser/API suites
+- The deterministic E2E stack is intentionally **PostgreSQL-search only**. It
+  clears `RIVERSIDE_MEILISEARCH_URL` and disables the daily reindex worker
+  before server startup so resetting `riverside_os_e2e` cannot replace the
+  shared development or production search indexes.
 - **`npm run pack`** is expected to work directly from the repo root on a normal install; release validation should not rely on borrowed `node_modules` or symlinks from another checkout.
 
 Environment variables:
