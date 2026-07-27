@@ -1868,6 +1868,7 @@ export async function openProfessionalDailySalesPrint(opts: {
   activities: {
     occurred_at: string;
     title: string;
+    subtitle?: string | null;
     amount_label?: string | null;
     subtotal_before_tax?: string | null;
     tax_total?: string | null;
@@ -2012,22 +2013,26 @@ export async function openProfessionalDailySalesPrint(opts: {
             <div class="chips">${row.short_id ? `<span class="chip mono">Transaction ${row.short_id}</span>` : ""}${chips}</div>
           </div>
           <div class="activity-items">
-            <div class="section-label">Line Items</div>
-            ${itemsHtml || `<div class="muted" style="padding:18px 0;text-align:center;">No item details recorded for this transaction</div>`}
+            <div class="section-label">${row.kind === "payment" ? "Payment Details" : "Line Items"}</div>
+            ${
+              row.kind === "payment"
+                ? `<div style="padding:18px 0;"><strong>Payment on Order ${escapeReportHtml(row.subtitle || "—")}</strong><div class="muted" style="margin-top:6px;">Payment receipt: ${escapeReportHtml(row.short_id || "—")}</div></div>`
+                : itemsHtml || `<div class="muted" style="padding:18px 0;text-align:center;">No item details recorded for this transaction</div>`
+            }
           </div>
           <div class="activity-money">
-            <div class="money-label">Sales Total</div>
-            <div class="money-total">${row.sales_total ? `$${row.sales_total}` : row.amount_label || "—"}</div>
-            <div class="money-sub">Subtotal Before Tax: ${row.subtotal_before_tax ? `$${row.subtotal_before_tax}` : "—"}</div>
-            ${row.tax_total ? `<div class="money-sub">Tax: ${formatReportMoney(row.tax_total)}</div>` : ""}
-            ${parseRegisterReportMoneyToCents(row.shipping_total) !== 0 ? `<div class="money-sub">Shipping: ${formatReportMoney(row.shipping_total ?? "0")}</div>` : ""}
-            ${parseRegisterReportMoneyToCents(row.alterations_total) !== 0 ? `<div class="money-sub">Alterations: ${formatReportMoney(row.alterations_total ?? "0")}</div>` : ""}
-            <div class="money-sub">Transaction Total: ${row.transaction_total ? `$${row.transaction_total}` : "—"}</div>
+            <div class="money-label">${row.kind === "payment" ? "Payment Applied Today" : "Sales Total"}</div>
+            <div class="money-total">${row.kind === "payment" ? formatReportMoney(row.transaction_total ?? row.amount_label ?? "0") : row.sales_total ? `$${row.sales_total}` : row.amount_label || "—"}</div>
+            ${row.kind !== "payment" ? `<div class="money-sub">Subtotal Before Tax: ${row.subtotal_before_tax ? `$${row.subtotal_before_tax}` : "—"}</div>` : ""}
+            ${row.kind !== "payment" && row.tax_total ? `<div class="money-sub">Tax: ${formatReportMoney(row.tax_total)}</div>` : ""}
+            ${row.kind !== "payment" && parseRegisterReportMoneyToCents(row.shipping_total) !== 0 ? `<div class="money-sub">Shipping: ${formatReportMoney(row.shipping_total ?? "0")}</div>` : ""}
+            ${row.kind !== "payment" && parseRegisterReportMoneyToCents(row.alterations_total) !== 0 ? `<div class="money-sub">Alterations: ${formatReportMoney(row.alterations_total ?? "0")}</div>` : ""}
+            ${row.kind !== "payment" ? `<div class="money-sub">Transaction Total: ${row.transaction_total ? `$${row.transaction_total}` : "—"}</div>` : ""}
             ${row.wedding_deposit_contributions ? `<div class="money-good">Wedding Deposits Placed: ${formatReportMoney(row.wedding_deposit_contributions)} for ${row.wedding_deposit_member_count ?? 0} member${row.wedding_deposit_member_count === 1 ? "" : "s"}</div>` : ""}
             ${row.wedding_deposit_contributions ? `<div class="money-sub">Total Tender Collected: ${formatReportMoney(parseRegisterReportMoneyToCents(row.transaction_total) + parseRegisterReportMoneyToCents(row.wedding_deposit_contributions))}</div>` : ""}
             ${paymentRows}
             ${row.deposits_paid ? `<div class="money-good">Paid: $${row.deposits_paid}</div>` : ""}
-            ${row.balance_due && parseRegisterReportMoneyToCents(row.balance_due) > 0 ? `<div class="money-due">Balance: ${formatReportMoney(row.balance_due)}</div>` : ""}
+            ${row.balance_due && (row.kind === "payment" || parseRegisterReportMoneyToCents(row.balance_due) > 0) ? `<div class="money-due">${row.kind === "payment" ? "Remaining Balance" : "Balance"}: ${formatReportMoney(row.balance_due)}</div>` : ""}
           </div>
         </section>
       `;
@@ -2208,10 +2213,20 @@ export async function openProfessionalDailySalesPrint(opts: {
             .filter(Boolean)
             .join(" | ");
           const header = `${new Date(row.occurred_at).toLocaleString()} | ${textValue(row.title)}${
+            row.kind === "payment" && row.subtitle
+              ? ` ${textValue(row.subtitle)}`
+              : ""
+          }${
             row.short_id ? ` | Transaction: ${row.short_id}` : ""
           } | ${
             customerInfo || "Walk-in Customer"
-          } | Sales: ${row.sales_total ? formatReportMoney(row.sales_total) : textValue(row.amount_label) || "-"}`;
+          } | ${row.kind === "payment" ? "Payment" : "Sales"}: ${
+            row.kind === "payment"
+              ? formatReportMoney(row.transaction_total ?? row.amount_label ?? "0")
+              : row.sales_total
+                ? formatReportMoney(row.sales_total)
+                : textValue(row.amount_label) || "-"
+          }`;
           const paymentDetails =
             row.payments && row.payments.length > 0
               ? row.payments.map(
@@ -2223,23 +2238,30 @@ export async function openProfessionalDailySalesPrint(opts: {
                 : [];
           const details = [
             row.short_id ? `Transaction: ${row.short_id}` : "",
+            row.kind === "payment"
+              ? `Payment on Order: ${textValue(row.subtitle)}`
+              : "",
             row.imported_at
               ? `Imported at: ${new Date(row.imported_at).toLocaleString()}`
               : "",
             ...paymentDetails,
-            row.subtotal_before_tax
+            row.kind !== "payment" && row.subtotal_before_tax
               ? `Subtotal Before Tax: ${formatReportMoney(row.subtotal_before_tax)}`
               : "",
-            row.tax_total ? `Tax: ${formatReportMoney(row.tax_total)}` : "",
+            row.kind !== "payment" && row.tax_total
+              ? `Tax: ${formatReportMoney(row.tax_total)}`
+              : "",
+            row.kind !== "payment" &&
             row.shipping_total &&
             parseRegisterReportMoneyToCents(row.shipping_total) !== 0
               ? `Shipping: ${formatReportMoney(row.shipping_total)}`
               : "",
+            row.kind !== "payment" &&
             row.alterations_total &&
             parseRegisterReportMoneyToCents(row.alterations_total) !== 0
               ? `Alterations: ${formatReportMoney(row.alterations_total)}`
               : "",
-            row.transaction_total
+            row.kind !== "payment" && row.transaction_total
               ? `Transaction Total: ${formatReportMoney(row.transaction_total)}`
               : "",
             row.wedding_deposit_contributions
@@ -2252,8 +2274,9 @@ export async function openProfessionalDailySalesPrint(opts: {
               ? `Paid: ${formatReportMoney(row.deposits_paid)}`
               : "",
             row.balance_due &&
-            parseRegisterReportMoneyToCents(row.balance_due) > 0
-              ? `Balance: ${formatReportMoney(row.balance_due)}`
+            (row.kind === "payment" ||
+              parseRegisterReportMoneyToCents(row.balance_due) > 0)
+              ? `${row.kind === "payment" ? "Remaining Balance" : "Balance"}: ${formatReportMoney(row.balance_due)}`
               : "",
             row.fulfillment_label
               ? `Fulfillment: ${row.fulfillment_label}`

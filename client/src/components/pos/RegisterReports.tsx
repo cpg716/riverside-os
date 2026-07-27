@@ -109,6 +109,7 @@ interface RegisterActivityItem {
   title: string;
   subtitle?: string | null;
   transaction_id?: string | null;
+  receipt_transaction_id?: string | null;
   refund_event_id?: string | null;
   replacement_transaction_id?: string | null;
   payment_id?: string | null;
@@ -553,6 +554,13 @@ function activityDetailTransactionId(row: RegisterActivityItem): string | null {
   return (
     normalizeActivityId(row.replacement_transaction_id) ??
     activityTransactionId(row)
+  );
+}
+
+function activityReceiptTransactionId(row: RegisterActivityItem): string | null {
+  return (
+    normalizeActivityId(row.receipt_transaction_id) ??
+    activityDetailTransactionId(row)
   );
 }
 
@@ -2788,7 +2796,7 @@ export default function RegisterReports({
                                   type="button"
                                   onClick={() => {
                                     const transactionId =
-                                      activityDetailTransactionId(row);
+                                      activityReceiptTransactionId(row);
                                     if (transactionId) {
                                       setReceiptRefundEventId(
                                         normalizeActivityId(
@@ -2796,12 +2804,12 @@ export default function RegisterReports({
                                         ),
                                       );
                                       setReceiptEventTransactionId(
-                                        normalizeActivityId(row.transaction_id),
+                                        transactionId,
                                       );
                                       setReceiptOrderId(transactionId);
                                     }
                                   }}
-                                  disabled={!activityDetailTransactionId(row)}
+                                  disabled={!activityReceiptTransactionId(row)}
                                   className="ui-btn-secondary flex min-h-11 w-full items-center justify-center gap-2 py-2 text-sm font-bold shadow-sm transition-all hover:bg-app-accent hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
                                 >
                                   <Receipt size={14} />
@@ -2864,13 +2872,37 @@ export default function RegisterReports({
                             <div className="p-5 flex-1 lg:max-w-xl">
                               <div className="mb-3 flex items-center justify-between">
                                 <h5 className="text-sm font-black text-app-text-muted">
-                                  Line Items
+                                  {row.kind === "payment"
+                                    ? "Payment Details"
+                                    : "Line Items"}
                                 </h5>
-                                <span className="text-xs font-semibold text-app-text-muted opacity-70">
-                                  ({row.items?.length || 0} units)
-                                </span>
+                                {row.kind !== "payment" ? (
+                                  <span className="text-xs font-semibold text-app-text-muted opacity-70">
+                                    ({row.items?.length || 0} units)
+                                  </span>
+                                ) : null}
                               </div>
-                              <table className="w-full text-left">
+                              {row.kind === "payment" ? (
+                                <div className="rounded-xl border border-app-border bg-app-surface-2/50 p-4">
+                                  <div className="text-sm font-black text-app-text">
+                                    Payment on Order{" "}
+                                    {row.subtitle || "—"}
+                                  </div>
+                                  <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-xs font-bold text-app-text-muted">
+                                    <span>
+                                      Payment receipt:{" "}
+                                      {row.short_id || "—"}
+                                    </span>
+                                    <span>
+                                      Amount:{" "}
+                                      {moneyFromValue(
+                                        row.transaction_total || "0.00",
+                                      )}
+                                    </span>
+                                  </div>
+                                </div>
+                              ) : (
+                                <table className="w-full text-left">
                                 <thead>
                                   <tr className="border-b border-app-border/40 pb-2 text-xs font-bold text-app-text-muted">
                                     <th className="pb-2">Description / SKU</th>
@@ -2960,13 +2992,15 @@ export default function RegisterReports({
                                     </tr>
                                   )}
                                 </tbody>
-                              </table>
+                                </table>
+                              )}
                             </div>
 
                             {/* 3. Financial Breakdown (Right) */}
                             <div className="flex flex-col justify-between bg-app-surface-2/60 p-5 lg:w-1/4">
                               <div className="space-y-3">
-                                <div className="flex flex-col items-end gap-0.5">
+                                {row.kind !== "payment" ? (
+                                  <div className="flex flex-col items-end gap-0.5">
                                   <span className="text-xs font-bold text-app-text-muted">
                                     Subtotal Before Tax
                                   </span>
@@ -2996,20 +3030,25 @@ export default function RegisterReports({
                                       {moneyFromValue(row.alterations_total)}
                                     </span>
                                   ) : null}
-                                </div>
+                                  </div>
+                                ) : null}
 
-                                <div className="flex flex-col items-end gap-0.5 pt-2 border-t border-app-border/40">
-                                  <span className="text-xs font-bold text-app-text-muted">
-                                    Sales Total (Booked)
-                                  </span>
-                                  <span className="text-lg font-black text-app-text tabular-nums leading-none tracking-tighter">
-                                    {moneyFromValue(row.sales_total || "0.00")}
-                                  </span>
-                                </div>
+                                {row.kind !== "payment" ? (
+                                  <div className="flex flex-col items-end gap-0.5 pt-2 border-t border-app-border/40">
+                                    <span className="text-xs font-bold text-app-text-muted">
+                                      Sales Total (Booked)
+                                    </span>
+                                    <span className="text-lg font-black text-app-text tabular-nums leading-none tracking-tighter">
+                                      {moneyFromValue(row.sales_total || "0.00")}
+                                    </span>
+                                  </div>
+                                ) : null}
 
                                 <div className="flex flex-col items-end gap-0.5 pt-2 border-t border-app-border/40">
                                   <span className="text-xs font-bold text-app-success">
-                                    Paid on this Transaction
+                                    {row.kind === "payment"
+                                      ? "Payment Applied Today"
+                                      : "Paid on this Transaction"}
                                   </span>
                                   <span className="text-base font-black text-app-text tabular-nums leading-none tracking-tighter">
                                     {moneyFromValue(

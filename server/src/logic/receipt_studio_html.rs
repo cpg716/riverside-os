@@ -98,7 +98,7 @@ fn build_payment_applications(order: &ReceiptOrder) -> String {
         .iter()
         .map(|app| {
             format!(
-                "<div style=\"display:flex;justify-content:space-between;gap:12px\"><span>Payment on {}</span><span>{} · remaining {}</span></div>",
+                "<div style=\"display:flex;justify-content:space-between;gap:12px\"><span>Order {}</span><span>{} · remaining balance {}</span></div>",
                 html_escape(&app.target_display_id),
                 app.amount,
                 app.remaining_balance
@@ -106,7 +106,7 @@ fn build_payment_applications(order: &ReceiptOrder) -> String {
         })
         .collect::<Vec<_>>()
         .join("");
-    format!("<div style=\"margin-top:8px;font-size:12px\"><strong>Applied payments</strong>{rows}</div>")
+    format!("<div style=\"margin-top:8px;font-size:12px\"><strong>Payments toward existing orders</strong>{rows}</div>")
 }
 
 fn build_wedding_deposit_summary(order: &ReceiptOrder) -> String {
@@ -197,13 +197,18 @@ pub fn render_standard_receipt_html(
         format!(
             r#"<div class="totals">
   <div><span>Total</span><strong>{}</strong></div>
-  <div><span>Paid</span><strong>{}</strong></div>
+  <div><span>{}</span><strong>{}</strong></div>
   <div><span>Balance</span><strong>{}</strong></div>
   <div><span>Tender</span><strong>{}</strong></div>
   {}
   {}
 </div>"#,
             order.total_price,
+            if order.payment_applications.is_empty() {
+                "Paid"
+            } else {
+                "Paid on this transaction"
+            },
             order.amount_paid,
             order.balance_due,
             html_escape(&order.payment_methods_summary),

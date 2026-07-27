@@ -27,12 +27,12 @@ Near-turnkey Windows deployment package: [`WINDOWS_INSTALLER_PACKAGE.md`](WINDOW
 
 - [x] Target Riverside version is now **`v0.95.5`** across root, client/PWA, server, Tauri, standalone apps, ROS Dev Center, and Deployment Manager metadata.
 - [x] Release workflows run `npm run check:version` so mismatched release metadata blocks packaging.
-- [x] The v0.95.5 Windows updater produced `latest.json`, the Windows MSI, `.sig`, and an updater build manifest for exact release commit `e3307d38`.
-- [x] The published v0.95.5 Windows deployment package is `RiversideOS-v0.95.5-e3307d38-Windows-Deployment.zip` and contains the server binary, web bundle, register installer, Deployment Manager, migrations, and PowerShell scripts.
+- [ ] The v0.95.5 replacement Windows updater produces `latest.json`, the Windows MSI, `.sig`, and an updater build manifest for the exact replacement tag commit. Prior build `2fe02440` is superseded.
+- [ ] The replacement v0.95.5 Windows deployment package is the sole `RiversideOS-v0.95.5-<replacement-sha>-Windows-Deployment.zip` and contains the server binary, web bundle, register installer, Deployment Manager, migrations, and PowerShell scripts.
 - [x] The v0.95.5 macOS ROS Dev Center build produced a universal Apple Silicon / Intel DMG for DevOps companion access.
 - [x] The target GitHub release contains 26 non-empty current assets and no older Riverside MSI/signature set.
-- [x] **Lint Checks** passed on exact release target `e3307d38` in run `30214157888`.
-- [x] **Playwright E2E** passed all blocking shards and the aggregate gate on exact release target `e3307d38` in run `30214157880`.
+- [ ] **Lint Checks** pass on the exact replacement release target.
+- [ ] **Playwright E2E** passes all blocking shards and the aggregate gate on the exact replacement release target. Local Playwright is intentionally skipped by operator direction.
 
 ---
 

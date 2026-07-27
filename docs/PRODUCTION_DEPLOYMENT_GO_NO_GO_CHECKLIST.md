@@ -2,13 +2,13 @@
 
 Target: Hybrid Tauri Host retail deployment.
 
-### Current Deployment Status (2026-07-26 v0.95.5 candidate)
+### Current Deployment Status (2026-07-27 v0.95.5 replacement candidate)
 
 - [x] Target source release version is **`v0.95.5`** across root, client, server, Tauri, standalone apps, ROS Dev Center, and Windows deployment metadata.
 - [x] Source-side QBO fallback mapping has been removed; exportable financial activity must resolve to an explicit Chart of Accounts mapping before posting.
 - [x] Source-side local review evidence is recorded in [`docs/reviews/legacy/2026-06/PRE_GO_LIVE_LOCAL_REVIEW_2026_06_05.md`](reviews/legacy/2026-06/PRE_GO_LIVE_LOCAL_REVIEW_2026_06_05.md).
 - [x] v0.95.5 release notes and candidate certification requirements are recorded in [`docs/releases/v0.95.5-release-notes.md`](releases/v0.95.5-release-notes.md) and [`docs/releases/v0.95.5-certification.md`](releases/v0.95.5-certification.md).
-- [x] Exact-commit v0.95.5 GitHub Lint, blocking Playwright, Windows packaging, macOS packaging, 26 release assets, and all updater/build manifests are verified for `e3307d38`.
+- [ ] Exact-commit v0.95.5 GitHub Lint, blocking Playwright, Windows packaging, macOS packaging, 26 release assets, and all updater/build manifests are verified for the replacement tag. Prior build `2fe02440` is superseded and cannot certify the replacement.
 - [x] Before the replacement retag, GitHub release **`v0.95.0`** was published as Latest from superseded build `feb0db16`; that asset set remains historical evidence only.
 - [x] The 2026-07-23 Register/search/reporting/runtime replacement is committed, retagged, promoted, published, and independently verified at `d9e68018f99f0778a21b0ffca1b57f287594561c`.
 - [x] Non-E2E local release checks passed for the final replacement source tree on 2026-07-23. Local Playwright is intentionally skipped at operator direction.

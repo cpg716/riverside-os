@@ -184,6 +184,8 @@ pub struct RegisterActivityItem {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub transaction_id: Option<Uuid>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub receipt_transaction_id: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub payment_id: Option<Uuid>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub payment_allocation_id: Option<Uuid>,
@@ -1489,6 +1491,8 @@ async fn fetch_register_day_summary_page_on_connection(
         payment_id: Uuid,
         payment_allocation_id: Uuid,
         target_transaction_id: Option<Uuid>,
+        receipt_transaction_id: Option<Uuid>,
+        receipt_display_id: Option<String>,
         created_at: chrono::DateTime<Utc>,
         amount: Decimal,
         payment_method: String,
@@ -1501,6 +1505,7 @@ async fn fetch_register_day_summary_page_on_connection(
         merchant_fee: Option<Decimal>,
         net_amount: Option<Decimal>,
         target_display_id: Option<String>,
+        target_balance_due: Decimal,
         metadata: Option<serde_json::Value>,
         shipping_total: Decimal,
         is_shipping_only_sale: bool,
@@ -2059,6 +2064,11 @@ async fn fetch_register_day_summary_page_on_connection(
             pt.id AS payment_id,
             pa.id AS payment_allocation_id,
             pa.target_transaction_id,
+            checkout_o.id AS receipt_transaction_id,
+            COALESCE(
+                NULLIF(TRIM(checkout_o.display_id), ''),
+                'Transaction ' || UPPER(LEFT(REPLACE(checkout_o.id::text, '-', ''), 8))
+            ) AS receipt_display_id,
             pt.created_at,
             pa.amount_allocated AS amount,
             CASE
@@ -2084,7 +2094,19 @@ async fn fetch_register_day_summary_page_on_connection(
             c.email AS customer_email,
             pt.merchant_fee,
             pt.net_amount,
-            COALESCE(NULLIF(TRIM(o.display_id), ''), o.counterpoint_doc_ref, o.counterpoint_ticket_ref, o.id::text) AS target_display_id,
+            COALESCE(
+                (
+                    SELECT string_agg(DISTINCT fo.display_id, ', ' ORDER BY fo.display_id)
+                    FROM transaction_lines target_line
+                    INNER JOIN fulfillment_orders fo ON fo.id = target_line.fulfillment_order_id
+                    WHERE target_line.transaction_id = o.id
+                ),
+                NULLIF(TRIM(o.counterpoint_doc_ref), ''),
+                NULLIF(TRIM(o.counterpoint_ticket_ref), ''),
+                NULLIF(TRIM(o.display_id), ''),
+                'Transaction ' || UPPER(LEFT(REPLACE(o.id::text, '-', ''), 8))
+            ) AS target_display_id,
+            COALESCE(o.balance_due, 0)::numeric(14,2) AS target_balance_due,
             pt.metadata,
             COALESCE(o.shipping_amount_usd, 0)::numeric(14,2) AS shipping_total,
             (
@@ -2195,6 +2217,8 @@ async fn fetch_register_day_summary_page_on_connection(
         FROM payment_transactions pt
         INNER JOIN payment_allocations pa ON pa.transaction_id = pt.id
         INNER JOIN transactions o ON o.id = pa.target_transaction_id
+        LEFT JOIN transactions checkout_o
+            ON checkout_o.id::text = pt.metadata->>'checkout_transaction_id'
         LEFT JOIN customers c ON c.id = COALESCE(pt.payer_id, o.customer_id)
         WHERE COALESCE(pt.effective_date, (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date) >= ($1 AT TIME ZONE reporting.effective_store_timezone())::date
           AND COALESCE(pt.effective_date, (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date) < ($2 AT TIME ZONE reporting.effective_store_timezone())::date
@@ -2228,34 +2252,6 @@ async fn fetch_register_day_summary_page_on_connection(
                   FROM transaction_lines tl_same_day_sale
                   WHERE tl_same_day_sale.transaction_id = o.id
               )
-          )
-          AND NOT EXISTS (
-              SELECT 1
-              FROM payment_allocations pa_same_day_sale
-              INNER JOIN transactions o_same_day_sale ON o_same_day_sale.id = pa_same_day_sale.target_transaction_id
-              WHERE pa_same_day_sale.transaction_id = pt.id
-                AND pa_same_day_sale.id <> pa.id
-                AND o_same_day_sale.status::text <> 'cancelled'
-                AND COALESCE(o_same_day_sale.business_date, (o_same_day_sale.booked_at AT TIME ZONE reporting.effective_store_timezone())::date) >= ($1 AT TIME ZONE reporting.effective_store_timezone())::date
-                AND COALESCE(o_same_day_sale.business_date, (o_same_day_sale.booked_at AT TIME ZONE reporting.effective_store_timezone())::date) < ($2 AT TIME ZONE reporting.effective_store_timezone())::date
-                AND EXISTS (
-                    SELECT 1
-                    FROM transaction_lines tl_same_day_sale
-                    WHERE tl_same_day_sale.transaction_id = o_same_day_sale.id
-                )
-          )
-          AND NOT EXISTS (
-              SELECT 1
-              FROM transactions checkout_o
-              WHERE checkout_o.id::text = pt.metadata->>'checkout_transaction_id'
-                AND checkout_o.status::text <> 'cancelled'
-                AND COALESCE(checkout_o.business_date, (checkout_o.booked_at AT TIME ZONE reporting.effective_store_timezone())::date) >= ($1 AT TIME ZONE reporting.effective_store_timezone())::date
-                AND COALESCE(checkout_o.business_date, (checkout_o.booked_at AT TIME ZONE reporting.effective_store_timezone())::date) < ($2 AT TIME ZONE reporting.effective_store_timezone())::date
-                AND EXISTS (
-                    SELECT 1
-                    FROM transaction_lines checkout_line
-                    WHERE checkout_line.transaction_id = checkout_o.id
-                )
           )
         ORDER BY pt.created_at DESC, pa.id ASC, pt.id ASC
         LIMIT $5
@@ -2404,6 +2400,7 @@ async fn fetch_register_day_summary_page_on_connection(
                 s.customer_last.as_deref(),
             ),
             transaction_id: Some(s.transaction_id),
+            receipt_transaction_id: Some(s.transaction_id),
             payment_id: None,
             payment_allocation_id: None,
             refund_event_id: None,
@@ -2552,13 +2549,11 @@ async fn fetch_register_day_summary_page_on_connection(
             } else if p.is_shipping_only_sale {
                 "Shipping Sale".to_string()
             } else {
-                "Payment Recorded".to_string()
+                "Payment on Order".to_string()
             },
-            subtitle: p
-                .target_display_id
-                .as_deref()
-                .map(|display_id| format!("Applied to {display_id}")),
+            subtitle: p.target_display_id.clone(),
             transaction_id: p.target_transaction_id,
+            receipt_transaction_id: p.receipt_transaction_id,
             payment_id: Some(p.payment_id),
             payment_allocation_id: Some(p.payment_allocation_id),
             refund_event_id,
@@ -2590,7 +2585,7 @@ async fn fetch_register_day_summary_page_on_connection(
             customer_phone: p.customer_phone,
             customer_email: p.customer_email,
             deposits_paid: Some(money_label(p.amount)),
-            balance_due: None,
+            balance_due: Some(money_label(p.target_balance_due)),
             fulfillment_type: Some(
                 if p.is_shipping_only_sale {
                     "takeaway"
@@ -2602,7 +2597,7 @@ async fn fetch_register_day_summary_page_on_connection(
             transaction_total: Some(money_label(p.amount)),
             wedding_deposit_contributions: None,
             wedding_deposit_member_count: None,
-            short_id: p.target_display_id,
+            short_id: p.receipt_display_id.or(p.target_display_id),
             imported_at: None,
         });
     }
@@ -2645,6 +2640,7 @@ async fn fetch_register_day_summary_page_on_connection(
                     p.customer_last.as_deref(),
                 ),
                 transaction_id: Some(p.transaction_id),
+                receipt_transaction_id: Some(p.transaction_id),
                 payment_id: None,
                 payment_allocation_id: None,
                 refund_event_id: None,

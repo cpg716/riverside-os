@@ -25,6 +25,15 @@ type TransactionDetail = {
   amount_paid: string;
   balance_due: string;
   status: string;
+  payment_applications: Array<{
+    target_display_id: string;
+    amount: string;
+    remaining_balance: string;
+  }>;
+  payments: Array<{
+    method: string;
+    amount: string;
+  }>;
 };
 
 type QboJournalLine = {
@@ -49,6 +58,17 @@ type QboStagingRow = {
       balanced?: boolean;
     };
   };
+};
+
+type RegisterDayActivityResponse = {
+  activities: Array<{
+    kind: string;
+    transaction_id?: string | null;
+    receipt_transaction_id?: string | null;
+    short_id?: string | null;
+    transaction_total?: string | null;
+    balance_due?: string | null;
+  }>;
 };
 
 function futureUtcDate(offsetDays: number): string {
@@ -270,6 +290,11 @@ test.describe("checkout tender financial contract", () => {
     const orderCheckout = await expectSuccessfulCheckout(orderRes);
     const orderBefore = await fetchTransactionDetail(request, orderCheckout.transaction_id);
     expect(orderBefore.balance_due).toBe("194.69");
+    await assignQboDate(
+      request,
+      orderCheckout.transaction_id,
+      futureUtcDate(-1),
+    );
 
     const currentRes = await checkoutFixtureProduct(request, {
       fixture,
@@ -296,12 +321,32 @@ test.describe("checkout tender financial contract", () => {
     });
     const currentCheckout = await expectSuccessfulCheckout(currentRes);
     const currentArtifacts = await getTransactionArtifacts(request, currentCheckout.transaction_id);
+    const currentDetail = await fetchTransactionDetail(request, currentCheckout.transaction_id);
     const orderAfter = await fetchTransactionDetail(request, orderCheckout.transaction_id);
 
     expect(currentArtifacts.total_price).toBe("244.69");
     expect(currentArtifacts.amount_paid).toBe("244.69");
     expect(moneyToCents(currentArtifacts.balance_due)).toBe(0);
     expect(moneyToCents(orderAfter.balance_due)).toBe(0);
+    expect(currentDetail.payment_applications).toEqual([
+      expect.objectContaining({
+        target_display_id: expect.stringMatching(/^ORD-\d+$/),
+        amount: "194.69",
+        remaining_balance: "0",
+      }),
+    ]);
+    expect(currentDetail.payments).toHaveLength(2);
+    expect(
+      currentDetail.payments.reduce(
+        (sum, payment) => sum + moneyToCents(payment.amount),
+        0,
+      ),
+    ).toBe(43_938);
+    expect(
+      currentDetail.payments.filter(
+        (payment) => payment.method.toLowerCase() === "check",
+      ),
+    ).toHaveLength(1);
 
     const allocations = currentArtifacts.allocation_rows;
     expect(allocations).toHaveLength(3);
@@ -348,6 +393,41 @@ test.describe("checkout tender financial contract", () => {
       projected_balance_after: "0.00",
       applied_deposit_amount: "194.69",
     });
+
+    const activityParams = new URLSearchParams({
+      preset: "today",
+      basis: "booked",
+      register_session_id: sessionId,
+      activity_search: orderBefore.transaction_display_id,
+    });
+    const activityRes = await request.get(
+      `${apiBase()}/api/insights/register-day-activity?${activityParams.toString()}`,
+      {
+        headers: {
+          ...staffHeaders(),
+          "x-riverside-pos-session-id": sessionId,
+          "x-riverside-pos-session-token": sessionToken,
+        },
+        failOnStatusCode: false,
+      },
+    );
+    const activityBodyText = await activityRes.text();
+    expect(activityRes.status(), activityBodyText.slice(0, 1000)).toBe(200);
+    const activityBody = JSON.parse(
+      activityBodyText,
+    ) as RegisterDayActivityResponse;
+    expect(activityBody.activities).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "payment",
+          transaction_id: orderCheckout.transaction_id,
+          receipt_transaction_id: currentCheckout.transaction_id,
+          short_id: currentCheckout.transaction_display_id,
+          transaction_total: "194.69",
+          balance_due: "0",
+        }),
+      ]),
+    );
   });
 
   test("rounded-up cash amount records balanced transaction artifacts and QBO rounding impact", async ({

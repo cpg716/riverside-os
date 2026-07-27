@@ -360,7 +360,17 @@ fn push_totals(out: &mut Vec<u8>, d: &ReceiptOrder) {
     set_bold(out, true);
     push_line(out, &right_pair("Total", &money(d.total_price)));
     set_bold(out, false);
-    push_line(out, &right_pair("Paid", &money(d.amount_paid)));
+    push_line(
+        out,
+        &right_pair(
+            if d.payment_applications.is_empty() {
+                "Paid"
+            } else {
+                "Paid on this transaction"
+            },
+            &money(d.amount_paid),
+        ),
+    );
     if d.balance_due > Decimal::ZERO {
         push_line(out, &right_pair("Balance", &money(d.balance_due)));
     }
@@ -396,16 +406,18 @@ fn push_totals(out: &mut Vec<u8>, d: &ReceiptOrder) {
         );
     }
     if !d.payment_applications.is_empty() {
-        push_line(out, "Applied payments:");
+        push_line(out, "Payments toward existing orders:");
         for app in &d.payment_applications {
             push_line(
                 out,
-                &format!(
-                    "Applied to {} {} rem {}",
-                    app.target_display_id,
-                    money(app.amount),
-                    money(app.remaining_balance)
+                &right_pair(
+                    &format!("Order {}", app.target_display_id),
+                    &money(app.amount),
                 ),
+            );
+            push_line(
+                out,
+                &right_pair("Remaining balance", &money(app.remaining_balance)),
             );
         }
     }
@@ -746,14 +758,17 @@ fn receiptline_payment_lines(d: &ReceiptOrder) -> String {
     if d.payment_applications.is_empty() {
         return String::new();
     }
-    let mut lines = vec!["Applied payments:".to_string()];
+    let mut lines = vec!["Payments toward existing orders:".to_string()];
     for app in &d.payment_applications {
         lines.push(format!(
-            "Applied to {} | {}",
+            "Order {} | {}",
             receiptline_escape(&app.target_display_id),
             money(app.amount)
         ));
-        lines.push(format!("Remaining | {}", money(app.remaining_balance)));
+        lines.push(format!(
+            "Remaining balance | {}",
+            money(app.remaining_balance)
+        ));
     }
     lines.join("\n")
 }
@@ -959,7 +974,15 @@ pub fn build_receiptline_markdown(
     let paid_line = if gift {
         String::new()
     } else {
-        format!("Paid | {}", money(d.amount_paid))
+        format!(
+            "{} | {}",
+            if d.payment_applications.is_empty() {
+                "Paid"
+            } else {
+                "Paid on this transaction"
+            },
+            money(d.amount_paid)
+        )
     };
     let footer_lines = centered_lines(&cfg.footer_lines);
 

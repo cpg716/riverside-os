@@ -1,6 +1,6 @@
 # Riverside OS
 
-**Riverside OS (ROS)** is a production-grade desktop ERM/POS platform for formalwear and wedding retail. Version 0.95.5 is the current release line and adds focused Register, alterations, returns, RMS Charge, reporting, search, and payment-recovery safeguards to the v0.95.0 baseline. The exact published source is always the commit referenced by the `v0.95.5` tag; physical Windows Main Hub update verification remains a separate operational gate.
+**Riverside OS (ROS)** is a production-grade desktop ERM/POS platform for formalwear and wedding retail. Version 0.95.5 is the current release line and adds focused Register, alterations, returns, RMS Charge, reporting, search, payment-recovery, and payment-event receipt safeguards to the v0.95.0 baseline. Daily Sales and Z-Reports preserve payment-on-order activity without turning service charges or older-order allocations into merchandise sales. The exact published source is always the commit referenced by the `v0.95.5` tag; physical Windows Main Hub update verification remains a separate operational gate.
 
 Current Version: **v0.95.5** (See [CHANGELOG.md](CHANGELOG.md))
 

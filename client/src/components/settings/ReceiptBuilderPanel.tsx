@@ -327,7 +327,12 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
       .replaceAll(
         "{{PAYMENT_BLOCK}}",
         activeTab === "standard"
-          ? ["---", "Applied payments:", "Payment on TXN-566027 | $140.00", "Remaining | $120.00"].join("\n")
+          ? [
+              "---",
+              "Payments toward existing orders:",
+              "Order TXN-566027 | $140.00",
+              "Remaining balance | $120.00",
+            ].join("\n")
           : "",
       )
       .replaceAll(

@@ -346,6 +346,10 @@ const SALES_PIVOT_EXCLUDED_LINE_KINDS_SQL: &str = r#"
         AND COALESCE(oi.is_internal, false) = FALSE
         AND (p.pos_line_kind IS DISTINCT FROM 'rms_charge_payment')
         AND (p.pos_line_kind IS DISTINCT FROM 'pos_gift_card_load')
+        AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
+        AND (oi.custom_item_type IS DISTINCT FROM 'alteration_service')
+        AND (oi.custom_item_type IS DISTINCT FROM 'alteration_fee')
+        AND UPPER(TRIM(COALESCE(pv.sku, ''))) NOT IN ('SHIPPING', 'ROS-SHIPPING-FEE')
 "#;
 
 #[derive(Debug, Serialize, FromRow)]
@@ -429,6 +433,7 @@ pub async fn run_sales_pivot(
             FROM transaction_lines oi
             INNER JOIN transactions o ON o.id = oi.transaction_id
             INNER JOIN products p ON p.id = oi.product_id
+            INNER JOIN product_variants pv ON pv.id = oi.variant_id
             LEFT JOIN customers cust ON cust.id = o.customer_id
             LEFT JOIN categories c ON c.id = p.category_id
             LEFT JOIN staff st ON st.id = oi.salesperson_id
@@ -487,6 +492,7 @@ pub async fn run_sales_pivot(
                 FROM transaction_lines oi
                 INNER JOIN transactions o ON o.id = oi.transaction_id
                 INNER JOIN products p ON p.id = oi.product_id
+                INNER JOIN product_variants pv ON pv.id = oi.variant_id
                 LEFT JOIN categories c ON c.id = p.category_id
                 LEFT JOIN staff st ON st.id = oi.salesperson_id
                 {returns_join}
@@ -542,6 +548,7 @@ pub async fn run_sales_pivot(
             FROM transaction_lines oi
             INNER JOIN transactions o ON o.id = oi.transaction_id
             INNER JOIN products p ON p.id = oi.product_id
+            INNER JOIN product_variants pv ON pv.id = oi.variant_id
             LEFT JOIN categories c ON c.id = p.category_id
             LEFT JOIN staff st ON st.id = oi.salesperson_id
             {returns_join}
@@ -1074,6 +1081,7 @@ async fn nys_tax_audit(
             FROM transaction_lines oi
             INNER JOIN transactions o ON o.id = oi.transaction_id
             INNER JOIN products p ON p.id = oi.product_id
+            INNER JOIN product_variants pv ON pv.id = oi.variant_id
             LEFT JOIN (
                 SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
                 FROM transaction_return_lines
@@ -3184,6 +3192,7 @@ async fn sales_by_day_report(
             FROM transaction_lines oi
             INNER JOIN transactions o ON o.id = oi.transaction_id
             INNER JOIN products p ON p.id = oi.product_id
+            INNER JOIN product_variants pv ON pv.id = oi.variant_id
             LEFT JOIN (
                 SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
                 FROM transaction_return_lines

@@ -225,4 +225,4 @@ Source: `client/src/components/pos/PosSidebar.tsx` (`PosTabId`).
 
 ---
 
-**Last reviewed:** 2026-07-26 (v0.95.5 release, current navigation, and Help/ROSIE review)
+**Last reviewed:** 2026-07-27 (v0.95.5 payment-event receipts, Daily Sales/Z-Report truth, current navigation, and Help/ROSIE review)

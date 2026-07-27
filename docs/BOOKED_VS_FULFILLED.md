@@ -15,6 +15,12 @@ Register backdating changes the transaction's **business/booked date** only afte
 
 QBO uses a dedicated `BACKDATED_SALE_CLEARING` account to link the actual payment-day tender entry to the backdated business-day revenue or deposit-liability entry. This keeps daily tender reconciliation and business-date reporting separate without leaving the journal out of balance.
 
+### Payment events and target orders
+
+A payment processed today is a current-day payment event even when its allocation reduces an older Transaction Record. Daily Sales and the booked Z-Report show **Payment on Order** with the payment receipt Transaction number, public target Order/Transaction number, amount, tender, and remaining balance. The allocation does not become a new merchandise sale and does not move the older order's booked date. Receipt reprint uses the payment-event Transaction Record; order Detail uses the allocation target.
+
+When one physical tender funds both a current sale and an older order, drawer and tender reconciliation count that tender once. Allocation detail remains visible for audit without repeating cash tendered, change, or card/check evidence.
+
 ### Imported Counterpoint history
 
 For Counterpoint history, the source business date is the booked date. ROS copies that same timestamp to the imported Transaction Record, every imported transaction line, and the initial booking event. The later ROS import timestamp remains separate audit context and must never become Booked Sales activity. A history row with a missing or invalid source booking timestamp is held for import review instead of being stamped with the current time. If older imported lines or booking events were stamped with the import time, managers use the Counterpoint booking-date dry-run manifest and guarded repair; transaction totals and tender ledgers remain unchanged. A source rerun also suppresses artificial line-delete booking activity and retains the superseded initial event as excluded audit evidence.

@@ -1398,7 +1398,7 @@ export default function ReceiptSummaryModal({
                     ) : null}
                     {displayedOrderPayments.map((payment) => (
                       <div key={payment.key} className="flex items-baseline justify-between gap-3 text-[10px] font-bold text-app-text">
-                        <span className="min-w-0 truncate">Payment on {payment.targetDisplayId}</span>
+                        <span className="min-w-0 truncate">Payment toward order {payment.targetDisplayId}</span>
                         <span className="shrink-0 tabular-nums">
                           ${payment.amount} · ${payment.remainingBalance} due
                         </span>

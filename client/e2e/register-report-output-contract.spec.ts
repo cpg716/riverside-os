@@ -131,6 +131,18 @@ test.describe("Register report output integrity contracts", () => {
     expect(registerDayServerSource).toContain(
       'line_kind: Some("shipping_service".to_string())',
     );
+    expect(insightsServerSource).toContain(
+      "(p.pos_line_kind IS DISTINCT FROM 'alteration_service')",
+    );
+    expect(insightsServerSource).toContain(
+      "(oi.custom_item_type IS DISTINCT FROM 'alteration_service')",
+    );
+    expect(insightsServerSource).toContain(
+      "(oi.custom_item_type IS DISTINCT FROM 'alteration_fee')",
+    );
+    expect(insightsServerSource).toContain(
+      "NOT IN ('SHIPPING', 'ROS-SHIPPING-FEE')",
+    );
     expect(registerReportsSource).toContain(
       'if (kind === "shipping_service") return "Shipping"',
     );
@@ -142,6 +154,44 @@ test.describe("Register report output integrity contracts", () => {
     );
     expect(reportPrintSource).toContain("Shipping:");
     expect(reportPrintSource).toContain("Alterations:");
+  });
+
+  test("combined checkout payments remain visible at allocation level", () => {
+    expect(registerDayServerSource).toContain(
+      '"Payment on Order".to_string()',
+    );
+    expect(registerDayServerSource).toContain(
+      "subtitle: p.target_display_id.clone()",
+    );
+    expect(registerDayServerSource).toContain(
+      "checkout_o.id AS receipt_transaction_id",
+    );
+    expect(registerDayServerSource).toContain(
+      "short_id: p.receipt_display_id.or(p.target_display_id)",
+    );
+    expect(registerReportsSource).toContain(
+      "normalizeActivityId(row.receipt_transaction_id)",
+    );
+    expect(registerReportsSource).toContain(
+      "activityReceiptTransactionId(row)",
+    );
+    expect(registerReportsSource).toContain('"Payment Applied Today"');
+    expect(registerReportsSource).toContain(
+      '{row.kind !== "payment" ? (',
+    );
+    expect(registerReportsSource).toContain("Payment on Order");
+    expect(reportPrintSource).toContain(
+      'row.kind === "payment" ? "Payment Details" : "Line Items"',
+    );
+    expect(reportPrintSource).toContain("Payment on Order");
+    expect(reportPrintSource).toContain("Payment Applied Today");
+    expect(reportPrintSource).toContain("Remaining Balance");
+    expect(registerDayServerSource).not.toContain(
+      "pa_same_day_sale.transaction_id = pt.id",
+    );
+    expect(registerDayServerSource).not.toContain(
+      "WHERE checkout_o.id::text = pt.metadata->>'checkout_transaction_id'",
+    );
   });
 
   test("interactive reports render one basis and one audited page at a time", () => {
