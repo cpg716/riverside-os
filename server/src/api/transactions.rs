@@ -11022,9 +11022,15 @@ pub(crate) async fn load_transaction_detail(
                     INNER JOIN fulfillment_orders fo ON fo.id = tl.fulfillment_order_id
                     WHERE tl.transaction_id = target.id
                 ),
+                substring(
+                    NULLIF(TRIM(target.counterpoint_doc_ref), '')
+                    FROM '(O-[A-Za-z0-9-]+)$'
+                ),
+                substring(
+                    NULLIF(TRIM(target.counterpoint_ticket_ref), '')
+                    FROM '(O-[A-Za-z0-9-]+)$'
+                ),
                 NULLIF(TRIM(target.display_id), ''),
-                NULLIF(TRIM(target.counterpoint_doc_ref), ''),
-                NULLIF(TRIM(target.counterpoint_ticket_ref), ''),
                 'Transaction ' || UPPER(LEFT(REPLACE(target.id::text, '-', ''), 8))
             ) AS target_display_id,
             COALESCE(pa.amount_allocated, 0)::numeric(14,2) AS amount,

@@ -205,10 +205,16 @@ test.describe("Register report output integrity contracts", () => {
       "WHERE checkout_o.id::text = pt.metadata->>'checkout_transaction_id'",
     );
     expect(registerDayServerSource).toContain(
-      "NULLIF(TRIM(o.display_id), ''),\n                NULLIF(TRIM(o.counterpoint_doc_ref), '')",
+      "NULLIF(TRIM(o.counterpoint_doc_ref), '')\n                    FROM '(O-[A-Za-z0-9-]+)$'",
     );
     expect(transactionsServerSource).toContain(
-      "NULLIF(TRIM(target.display_id), ''),\n                NULLIF(TRIM(target.counterpoint_doc_ref), '')",
+      "NULLIF(TRIM(target.counterpoint_doc_ref), '')\n                    FROM '(O-[A-Za-z0-9-]+)$'",
+    );
+    expect(registerDayServerSource).toContain(
+      "FROM '(O-[A-Za-z0-9-]+)$'\n                ),\n                NULLIF(TRIM(o.display_id), '')",
+    );
+    expect(transactionsServerSource).toContain(
+      "FROM '(O-[A-Za-z0-9-]+)$'\n                ),\n                NULLIF(TRIM(target.display_id), '')",
     );
   });
 
