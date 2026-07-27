@@ -100,6 +100,8 @@ Revenue recognition is strictly tied to the `fulfilled_at` timestamp on individu
 - `fulfilled` — active lines are fulfilled and the Transaction has no customer balance due.
 - `cancelled` — cancelled Transaction that should stay out of active recognition flows.
 
+API request and response status values use lowercase snake_case (`open`, `pending_measurement`, `processing`, `fulfilled`, `cancelled`). During mixed-version upgrades the server also accepts the former PascalCase request values, but it always emits the canonical lowercase form. UI eligibility and action guards must use the shared status normalizer instead of comparing raw response casing.
+
 `fulfilled` status must be produced by the checkout, pickup / release, or shipment recognition workflow that also updates `transaction_lines.is_fulfilled`, `transaction_lines.fulfilled_at`, loyalty accrual, commission evidence, reporting views, and QBO staging inputs. Do not use a generic status edit to force a Transaction to `fulfilled`.
 
 Admin / IT can use `reporting.transaction_status_integrity` to find Transactions whose aggregate status, line fulfillment evidence, or recognition timestamps disagree.
