@@ -924,16 +924,16 @@ function checkReleaseWorkflowPreBuildGates() {
     assert(
       content.includes("npm run check:pre-retag") &&
         content.includes("pre-retag-gate"),
-      `Release workflow runs the unified pre-retag gate before expensive build work in ${file}`,
+      `Release workflow runs the unified pre-retag gate before publishing in ${file}`,
       file,
-      "Print, Counterpoint, Help packaging, dirty migration, version, and installer regressions should fail before asset packaging.",
+      "Print, Counterpoint, Help packaging, dirty migration, version, and installer regressions must block publication even when compilation runs concurrently.",
     );
     assert(
       content.includes("package-lock.json") &&
         content.includes("client/package-lock.json"),
-      `Release workflow installs pre-retag dependencies before build work in ${file}`,
+      `Release workflow installs dependencies for its pre-retag publication gate in ${file}`,
       file,
-      "The unified pre-retag gate needs root and client dependencies before asset packaging begins.",
+      "The unified pre-retag gate needs root and client dependencies before release publication.",
     );
   }
 

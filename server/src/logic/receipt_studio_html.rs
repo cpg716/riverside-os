@@ -106,7 +106,10 @@ fn build_payment_applications(order: &ReceiptOrder) -> String {
         })
         .collect::<Vec<_>>()
         .join("");
-    format!("<div style=\"margin-top:8px;font-size:12px\"><strong>Payments toward existing orders</strong>{rows}</div>")
+    format!(
+        "<div style=\"margin-top:8px;font-size:12px\"><strong>{}</strong>{rows}</div>",
+        order.order_payment_heading()
+    )
 }
 
 fn build_wedding_deposit_summary(order: &ReceiptOrder) -> String {
@@ -196,19 +199,16 @@ pub fn render_standard_receipt_html(
     } else {
         format!(
             r#"<div class="totals">
-  <div><span>Total</span><strong>{}</strong></div>
+  <div><span>{}</span><strong>{}</strong></div>
   <div><span>{}</span><strong>{}</strong></div>
   <div><span>Balance</span><strong>{}</strong></div>
   <div><span>Tender</span><strong>{}</strong></div>
   {}
   {}
 </div>"#,
+            order.total_label(),
             order.total_price,
-            if order.payment_applications.is_empty() {
-                "Paid"
-            } else {
-                "Paid on this transaction"
-            },
+            order.paid_label(),
             order.amount_paid,
             order.balance_due,
             html_escape(&order.payment_methods_summary),

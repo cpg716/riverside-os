@@ -153,6 +153,36 @@ pub struct ReceiptOrder {
     pub payments: Vec<ReceiptPayment>,
 }
 
+impl ReceiptOrder {
+    pub fn has_order_payments(&self) -> bool {
+        !self.payment_applications.is_empty()
+    }
+
+    pub fn total_label(&self) -> &'static str {
+        if self.has_order_payments() {
+            "Total charged today"
+        } else {
+            "Total"
+        }
+    }
+
+    pub fn paid_label(&self) -> &'static str {
+        if self.has_order_payments() {
+            "Paid today"
+        } else {
+            "Paid"
+        }
+    }
+
+    pub fn order_payment_heading(&self) -> &'static str {
+        if self.payment_applications.len() == 1 {
+            "Payment on Order"
+        } else {
+            "Payments on Orders"
+        }
+    }
+}
+
 pub fn receipt_display_ref(order: &ReceiptOrder) -> String {
     let display_id = order.transaction_display_id.trim();
     if !display_id.is_empty() {

@@ -1205,6 +1205,15 @@ Riverside OS uses GitHub Actions for continuous integration and automated depend
 | `promote-release-candidate.yml` | Manual | Verifies and publishes existing exact-SHA Windows/macOS candidate artifacts without rebuilding |
 | `dependabot-auto-merge.yml` | Dependabot PR | Auto-squash merges patch-level dependency updates |
 
+The Windows release lane cancels a superseded run for the same tag so a
+same-version replacement does not wait behind binaries that can no longer be
+published. PowerShell validation remains first, while the pre-retag gate runs
+in parallel with the signed component builds. Release publication still waits
+for the completed pre-retag gate and exact-commit Playwright proof. Each
+Windows component keeps an independent Rust cache and retains its workspace
+crate outputs, avoiding the previous behavior where a restored dependency
+cache still forced every Riverside crate to compile from scratch.
+
 ### Releasing a New Version
 
 1. Bump version in all manifests (must match):

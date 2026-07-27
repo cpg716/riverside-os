@@ -102,6 +102,12 @@ interface TransactionPayment {
   amount_label: string;
 }
 
+interface OrderPaymentApplication {
+  target_display_id: string;
+  amount_label: string;
+  remaining_balance: string;
+}
+
 interface RegisterActivityItem {
   id: string;
   kind: string;
@@ -142,6 +148,7 @@ interface RegisterActivityItem {
   short_id?: string | null;
   imported_at?: string | null;
   payments?: TransactionPayment[] | null;
+  payment_applications?: OrderPaymentApplication[];
   cashier_name?: string | null;
 }
 
@@ -557,7 +564,9 @@ function activityDetailTransactionId(row: RegisterActivityItem): string | null {
   );
 }
 
-function activityReceiptTransactionId(row: RegisterActivityItem): string | null {
+function activityReceiptTransactionId(
+  row: RegisterActivityItem,
+): string | null {
   return (
     normalizeActivityId(row.receipt_transaction_id) ??
     activityDetailTransactionId(row)
@@ -2885,13 +2894,11 @@ export default function RegisterReports({
                               {row.kind === "payment" ? (
                                 <div className="rounded-xl border border-app-border bg-app-surface-2/50 p-4">
                                   <div className="text-sm font-black text-app-text">
-                                    Payment on Order{" "}
-                                    {row.subtitle || "—"}
+                                    Payment on Order {row.subtitle || "—"}
                                   </div>
                                   <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-xs font-bold text-app-text-muted">
                                     <span>
-                                      Payment receipt:{" "}
-                                      {row.short_id || "—"}
+                                      Payment receipt: {row.short_id || "—"}
                                     </span>
                                     <span>
                                       Amount:{" "}
@@ -2902,97 +2909,137 @@ export default function RegisterReports({
                                   </div>
                                 </div>
                               ) : (
-                                <table className="w-full text-left">
-                                <thead>
-                                  <tr className="border-b border-app-border/40 pb-2 text-xs font-bold text-app-text-muted">
-                                    <th className="pb-2">Description / SKU</th>
-                                    <th className="pb-2 text-center">Qty</th>
-                                    <th className="pb-2 text-center">Reg</th>
-                                    <th className="pb-2 text-center">Sale</th>
-                                    <th className="pb-2 text-right">
-                                      Fulfillment
-                                    </th>
-                                  </tr>
-                                </thead>
-                                <tbody className="divide-y divide-app-border/20">
-                                  {row.items?.map((it, i) => {
-                                    const lineKindLabel = registerLineKindLabel(
-                                      it.line_kind,
-                                    );
-                                    return (
-                                      <tr
-                                        key={i}
-                                        className="text-[11px] hover:bg-app-surface-2/30 transition-colors"
-                                      >
-                                        <td className="py-2.5 pr-4">
-                                          <div className="font-black text-app-text leading-snug">
-                                            {it.name}
-                                          </div>
-                                          <div className="mt-0.5 flex flex-wrap items-center gap-1.5 font-mono text-xs text-app-text-muted opacity-70">
-                                            <span>{it.sku}</span>
-                                            {lineKindLabel ? (
-                                              <span className="rounded bg-app-info/10 px-1.5 py-0.5 font-sans text-[9px] font-black uppercase tracking-widest text-app-info">
-                                                {lineKindLabel}
-                                              </span>
-                                            ) : null}
-                                          </div>
-                                        </td>
-                                        <td className="py-2.5 text-center align-top font-bold text-app-text">
-                                          {it.quantity}
-                                        </td>
-                                        <td className="py-2.5 text-center align-top text-app-text-muted/60 line-through font-medium tracking-tighter tabular-nums">
-                                          ${it.reg_price}
-                                        </td>
-                                        <td className="py-2.5 text-center align-top font-black text-app-text tracking-tighter tabular-nums">
-                                          ${it.price}
-                                        </td>
-                                        <td className="py-2.5 text-right align-top">
-                                          <span
-                                            className={`rounded px-2 py-0.5 text-xs font-bold ${
-                                              it.fulfillment === "takeaway"
-                                                ? "bg-app-warning/10 text-app-warning"
-                                                : it.fulfillment ===
-                                                      "special_order" ||
-                                                    it.fulfillment === "custom"
-                                                  ? "bg-app-info/10 text-app-info"
-                                                  : it.fulfillment === "layaway"
-                                                    ? "bg-app-accent/10 text-app-accent"
-                                                    : it.fulfillment ===
-                                                        "pickup"
-                                                      ? "bg-app-success/10 text-app-success"
-                                                      : "bg-app-surface-2 text-app-text-muted font-bold"
-                                            }`}
-                                          >
-                                            {it.fulfillment === "takeaway"
-                                              ? "Taken"
-                                              : it.fulfillment ===
-                                                    "special_order" ||
-                                                  it.fulfillment === "custom"
-                                                ? "Ordered"
-                                                : it.fulfillment === "layaway"
-                                                  ? "Layaway"
-                                                  : it.fulfillment === "pickup"
-                                                    ? "Pickup"
-                                                    : it.fulfillment ||
-                                                      "Unknown"}
-                                          </span>
-                                        </td>
+                                <div className="space-y-4">
+                                  <table className="w-full text-left">
+                                    <thead>
+                                      <tr className="border-b border-app-border/40 pb-2 text-xs font-bold text-app-text-muted">
+                                        <th className="pb-2">
+                                          Description / SKU
+                                        </th>
+                                        <th className="pb-2 text-center">
+                                          Qty
+                                        </th>
+                                        <th className="pb-2 text-center">
+                                          Reg
+                                        </th>
+                                        <th className="pb-2 text-center">
+                                          Sale
+                                        </th>
+                                        <th className="pb-2 text-right">
+                                          Fulfillment
+                                        </th>
                                       </tr>
-                                    );
-                                  })}
-                                  {!row.items?.length && (
-                                    <tr>
-                                      <td
-                                        colSpan={5}
-                                        className="py-8 text-center text-xs italic text-app-text-muted opacity-40"
+                                    </thead>
+                                    <tbody className="divide-y divide-app-border/20">
+                                      {row.items?.map((it, i) => {
+                                        const lineKindLabel =
+                                          registerLineKindLabel(it.line_kind);
+                                        return (
+                                          <tr
+                                            key={i}
+                                            className="text-[11px] hover:bg-app-surface-2/30 transition-colors"
+                                          >
+                                            <td className="py-2.5 pr-4">
+                                              <div className="font-black text-app-text leading-snug">
+                                                {it.name}
+                                              </div>
+                                              <div className="mt-0.5 flex flex-wrap items-center gap-1.5 font-mono text-xs text-app-text-muted opacity-70">
+                                                <span>{it.sku}</span>
+                                                {lineKindLabel ? (
+                                                  <span className="rounded bg-app-info/10 px-1.5 py-0.5 font-sans text-[9px] font-black uppercase tracking-widest text-app-info">
+                                                    {lineKindLabel}
+                                                  </span>
+                                                ) : null}
+                                              </div>
+                                            </td>
+                                            <td className="py-2.5 text-center align-top font-bold text-app-text">
+                                              {it.quantity}
+                                            </td>
+                                            <td className="py-2.5 text-center align-top text-app-text-muted/60 line-through font-medium tracking-tighter tabular-nums">
+                                              ${it.reg_price}
+                                            </td>
+                                            <td className="py-2.5 text-center align-top font-black text-app-text tracking-tighter tabular-nums">
+                                              ${it.price}
+                                            </td>
+                                            <td className="py-2.5 text-right align-top">
+                                              <span
+                                                className={`rounded px-2 py-0.5 text-xs font-bold ${
+                                                  it.fulfillment === "takeaway"
+                                                    ? "bg-app-warning/10 text-app-warning"
+                                                    : it.fulfillment ===
+                                                          "special_order" ||
+                                                        it.fulfillment ===
+                                                          "custom"
+                                                      ? "bg-app-info/10 text-app-info"
+                                                      : it.fulfillment ===
+                                                          "layaway"
+                                                        ? "bg-app-accent/10 text-app-accent"
+                                                        : it.fulfillment ===
+                                                            "pickup"
+                                                          ? "bg-app-success/10 text-app-success"
+                                                          : "bg-app-surface-2 text-app-text-muted font-bold"
+                                                }`}
+                                              >
+                                                {it.fulfillment === "takeaway"
+                                                  ? "Taken"
+                                                  : it.fulfillment ===
+                                                        "special_order" ||
+                                                      it.fulfillment ===
+                                                        "custom"
+                                                    ? "Ordered"
+                                                    : it.fulfillment ===
+                                                        "layaway"
+                                                      ? "Layaway"
+                                                      : it.fulfillment ===
+                                                          "pickup"
+                                                        ? "Pickup"
+                                                        : it.fulfillment ||
+                                                          "Unknown"}
+                                              </span>
+                                            </td>
+                                          </tr>
+                                        );
+                                      })}
+                                      {!row.items?.length && (
+                                        <tr>
+                                          <td
+                                            colSpan={5}
+                                            className="py-8 text-center text-xs italic text-app-text-muted opacity-40"
+                                          >
+                                            No item details recorded for this
+                                            transaction
+                                          </td>
+                                        </tr>
+                                      )}
+                                    </tbody>
+                                  </table>
+                                  {row.payment_applications?.map(
+                                    (application) => (
+                                      <div
+                                        key={application.target_display_id}
+                                        className="rounded-xl border border-app-success/30 bg-app-success/5 p-3"
                                       >
-                                        No item details recorded for this
-                                        transaction
-                                      </td>
-                                    </tr>
+                                        <div className="flex items-center justify-between gap-3 text-sm font-black text-app-text">
+                                          <span>
+                                            Payment on Order{" "}
+                                            {application.target_display_id}
+                                          </span>
+                                          <span className="tabular-nums text-app-success">
+                                            {moneyFromValue(
+                                              application.amount_label,
+                                            )}
+                                          </span>
+                                        </div>
+                                        <div className="mt-1 text-xs font-bold text-app-text-muted">
+                                          Remaining order balance:{" "}
+                                          {moneyFromValue(
+                                            application.remaining_balance,
+                                          )}
+                                        </div>
+                                      </div>
+                                    ),
                                   )}
-                                </tbody>
-                                </table>
+                                </div>
                               )}
                             </div>
 
@@ -3001,35 +3048,35 @@ export default function RegisterReports({
                               <div className="space-y-3">
                                 {row.kind !== "payment" ? (
                                   <div className="flex flex-col items-end gap-0.5">
-                                  <span className="text-xs font-bold text-app-text-muted">
-                                    Subtotal Before Tax
-                                  </span>
-                                  <span className="text-base font-black text-app-text tabular-nums leading-none tracking-tighter">
-                                    {moneyFromCents(
-                                      activitySubtotalBeforeTaxCents(row),
-                                    )}
-                                  </span>
-                                  {row.tax_total ? (
-                                    <span className="text-[11px] font-bold text-app-text-muted tabular-nums">
-                                      Tax {moneyFromValue(row.tax_total)}
+                                    <span className="text-xs font-bold text-app-text-muted">
+                                      Subtotal Before Tax
                                     </span>
-                                  ) : null}
-                                  {parseMoneyToCents(
-                                    row.shipping_total ?? "0",
-                                  ) !== 0 ? (
-                                    <span className="text-[11px] font-bold text-app-info tabular-nums">
-                                      Shipping{" "}
-                                      {moneyFromValue(row.shipping_total)}
+                                    <span className="text-base font-black text-app-text tabular-nums leading-none tracking-tighter">
+                                      {moneyFromCents(
+                                        activitySubtotalBeforeTaxCents(row),
+                                      )}
                                     </span>
-                                  ) : null}
-                                  {parseMoneyToCents(
-                                    row.alterations_total ?? "0",
-                                  ) !== 0 ? (
-                                    <span className="text-[11px] font-bold text-app-info tabular-nums">
-                                      Alterations{" "}
-                                      {moneyFromValue(row.alterations_total)}
-                                    </span>
-                                  ) : null}
+                                    {row.tax_total ? (
+                                      <span className="text-[11px] font-bold text-app-text-muted tabular-nums">
+                                        Tax {moneyFromValue(row.tax_total)}
+                                      </span>
+                                    ) : null}
+                                    {parseMoneyToCents(
+                                      row.shipping_total ?? "0",
+                                    ) !== 0 ? (
+                                      <span className="text-[11px] font-bold text-app-info tabular-nums">
+                                        Shipping{" "}
+                                        {moneyFromValue(row.shipping_total)}
+                                      </span>
+                                    ) : null}
+                                    {parseMoneyToCents(
+                                      row.alterations_total ?? "0",
+                                    ) !== 0 ? (
+                                      <span className="text-[11px] font-bold text-app-info tabular-nums">
+                                        Alterations{" "}
+                                        {moneyFromValue(row.alterations_total)}
+                                      </span>
+                                    ) : null}
                                   </div>
                                 ) : null}
 
@@ -3039,7 +3086,9 @@ export default function RegisterReports({
                                       Sales Total (Booked)
                                     </span>
                                     <span className="text-lg font-black text-app-text tabular-nums leading-none tracking-tighter">
-                                      {moneyFromValue(row.sales_total || "0.00")}
+                                      {moneyFromValue(
+                                        row.sales_total || "0.00",
+                                      )}
                                     </span>
                                   </div>
                                 ) : null}
@@ -3048,7 +3097,9 @@ export default function RegisterReports({
                                   <span className="text-xs font-bold text-app-success">
                                     {row.kind === "payment"
                                       ? "Payment Applied Today"
-                                      : "Paid on this Transaction"}
+                                      : row.payment_applications?.length
+                                        ? "Total Paid Today"
+                                        : "Paid on this Transaction"}
                                   </span>
                                   <span className="text-base font-black text-app-text tabular-nums leading-none tracking-tighter">
                                     {moneyFromValue(

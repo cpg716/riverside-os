@@ -358,19 +358,9 @@ fn push_totals(out: &mut Vec<u8>, d: &ReceiptOrder) {
         push_line(out, &right_pair("Total Savings", &money(d.total_savings)));
     }
     set_bold(out, true);
-    push_line(out, &right_pair("Total", &money(d.total_price)));
+    push_line(out, &right_pair(d.total_label(), &money(d.total_price)));
     set_bold(out, false);
-    push_line(
-        out,
-        &right_pair(
-            if d.payment_applications.is_empty() {
-                "Paid"
-            } else {
-                "Paid on this transaction"
-            },
-            &money(d.amount_paid),
-        ),
-    );
+    push_line(out, &right_pair(d.paid_label(), &money(d.amount_paid)));
     if d.balance_due > Decimal::ZERO {
         push_line(out, &right_pair("Balance", &money(d.balance_due)));
     }
@@ -406,7 +396,7 @@ fn push_totals(out: &mut Vec<u8>, d: &ReceiptOrder) {
         );
     }
     if !d.payment_applications.is_empty() {
-        push_line(out, "Payments toward existing orders:");
+        push_line(out, &format!("{}:", d.order_payment_heading()));
         for app in &d.payment_applications {
             push_line(
                 out,
@@ -758,7 +748,7 @@ fn receiptline_payment_lines(d: &ReceiptOrder) -> String {
     if d.payment_applications.is_empty() {
         return String::new();
     }
-    let mut lines = vec!["Payments toward existing orders:".to_string()];
+    let mut lines = vec![format!("^^^{}", d.order_payment_heading())];
     for app in &d.payment_applications {
         lines.push(format!(
             "Order {} | {}",
@@ -954,7 +944,7 @@ pub fn build_receiptline_markdown(
     let total_line = if gift {
         String::new()
     } else {
-        format!("Total | ^^{}", money(d.total_price))
+        format!("{} | ^^{}", d.total_label(), money(d.total_price))
     };
     let subtotal_line = if gift {
         String::new()
@@ -974,15 +964,7 @@ pub fn build_receiptline_markdown(
     let paid_line = if gift {
         String::new()
     } else {
-        format!(
-            "{} | {}",
-            if d.payment_applications.is_empty() {
-                "Paid"
-            } else {
-                "Paid on this transaction"
-            },
-            money(d.amount_paid)
-        )
+        format!("{} | {}", d.paid_label(), money(d.amount_paid))
     };
     let footer_lines = centered_lines(&cfg.footer_lines);
 

@@ -98,16 +98,8 @@ pub fn format_pos_receipt_text_message(order: &ReceiptOrder, cfg: &ReceiptConfig
     }
 
     lines.push(String::from("---"));
-    lines.push(format!("Total: {}", order.total_price));
-    lines.push(format!(
-        "{}: {}",
-        if order.payment_applications.is_empty() {
-            "Paid"
-        } else {
-            "Paid on this transaction"
-        },
-        order.amount_paid
-    ));
+    lines.push(format!("{}: {}", order.total_label(), order.total_price));
+    lines.push(format!("{}: {}", order.paid_label(), order.amount_paid));
     if order.balance_due > Decimal::ZERO {
         lines.push(format!("Balance: {}", order.balance_due));
     }
@@ -141,7 +133,7 @@ pub fn format_pos_receipt_text_message(order: &ReceiptOrder, cfg: &ReceiptConfig
         ));
     }
     if !order.payment_applications.is_empty() {
-        lines.push("Payments toward existing orders:".to_string());
+        lines.push(format!("{}:", order.order_payment_heading()));
         for app in &order.payment_applications {
             lines.push(format!(
                 "Order {}: {} (remaining balance {})",

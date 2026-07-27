@@ -140,6 +140,41 @@ for (const namespace of [
     "parallel Windows release jobs must keep independent sccache namespaces",
   );
 }
+for (const copy of [
+  "cancel-in-progress: true",
+  "build-register-updater:\n    needs: [validate-scripts]",
+  "cache-workspace-crates: true",
+  "build-register-updater, pre-retag-gate, require-playwright-green",
+  "build-server-binary, build-deployment-manager, build-server-manager, build-counterpoint-bridge-gui, pre-retag-gate, require-playwright-green",
+]) {
+  assertIncludes(
+    ".github/workflows/windows-deployment-package.yml",
+    copy,
+    "Windows release builds must cancel superseded same-tag runs, restore workspace outputs, overlap compilation with pre-retag checks, and keep publication gated",
+  );
+}
+const windowsReleaseWorkflow = read(".github/workflows/windows-deployment-package.yml");
+for (const job of [
+  "build-register-updater",
+  "build-server-binary",
+  "build-deployment-manager",
+  "build-server-manager",
+  "build-counterpoint-bridge-gui",
+]) {
+  const marker = `  ${job}:\n`;
+  const jobStart = windowsReleaseWorkflow.indexOf(marker);
+  const remainingWorkflow =
+    jobStart >= 0 ? windowsReleaseWorkflow.slice(jobStart + marker.length) : "";
+  const nextJob = remainingWorkflow.search(/\n  [a-zA-Z0-9_-]+:\n/);
+  const jobBlock =
+    nextJob >= 0 ? remainingWorkflow.slice(0, nextJob) : remainingWorkflow;
+  const startsAfterScriptValidation = jobBlock.includes("    needs: [validate-scripts]");
+  if (!startsAfterScriptValidation) {
+    fail(
+      `.github/workflows/windows-deployment-package.yml: ${job} must compile after script validation while the pre-retag publication gate runs concurrently`,
+    );
+  }
+}
 assertNotIncludes(
   managerApp,
   "Install or update this station",

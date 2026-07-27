@@ -167,6 +167,13 @@ pub struct RegisterActivityPayment {
     pub amount_label: String,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct RegisterActivityPaymentApplication {
+    pub target_display_id: String,
+    pub amount_label: String,
+    pub remaining_balance: String,
+}
+
 #[derive(Debug, Deserialize)]
 struct RegisterActivityPaymentRaw {
     method: String,
@@ -201,6 +208,8 @@ pub struct RegisterActivityItem {
     pub payment_summary: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub payments: Option<Vec<RegisterActivityPayment>>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub payment_applications: Vec<RegisterActivityPaymentApplication>,
 
     // High-density UI fields
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -254,6 +263,47 @@ pub struct RegisterActivityItem {
     pub short_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub imported_at: Option<chrono::DateTime<Utc>>,
+}
+
+fn merge_order_payment_into_sale(
+    activity: &mut RegisterActivityItem,
+    target_display_id: String,
+    amount: Decimal,
+    remaining_balance: Decimal,
+    payment_method: String,
+) {
+    activity
+        .payment_applications
+        .push(RegisterActivityPaymentApplication {
+            target_display_id,
+            amount_label: money_label(amount),
+            remaining_balance: money_label(remaining_balance),
+        });
+
+    let existing_total = activity
+        .transaction_total
+        .as_deref()
+        .and_then(|value| value.parse::<Decimal>().ok())
+        .unwrap_or(Decimal::ZERO);
+    activity.transaction_total = Some(money_label(existing_total + amount));
+
+    let payments = activity.payments.get_or_insert_with(Vec::new);
+    if let Some(existing) = payments
+        .iter_mut()
+        .find(|payment| payment.method == payment_method)
+    {
+        let existing_amount = existing
+            .amount_label
+            .parse::<Decimal>()
+            .unwrap_or(Decimal::ZERO);
+        existing.amount_label = money_label(existing_amount + amount);
+    } else {
+        payments.push(RegisterActivityPayment {
+            method: payment_method,
+            amount_label: money_label(amount),
+        });
+    }
+    activity.payment_summary = payment_summary_label(payments);
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -2277,8 +2327,6 @@ async fn fetch_register_day_summary_page_on_connection(
         .first()
         .map(|row| row.matched_count)
         .unwrap_or(0);
-    let activity_total_count = sales_matched_count.saturating_add(payments_matched_count);
-
     let mut activities: Vec<RegisterActivityItem> = Vec::new();
 
     fn customer_label(
@@ -2415,6 +2463,7 @@ async fn fetch_register_day_summary_page_on_connection(
             amount_label: Some(format!("${}", money_label(s.sales_total_booked))),
             payment_summary,
             payments,
+            payment_applications: Vec::new(),
             sales_total: Some(money_label(s.sales_total_booked)),
             tax_total: Some(money_label(s.tax_total)),
             shipping_total: Some(money_label(s.shipping_total)),
@@ -2453,6 +2502,7 @@ async fn fetch_register_day_summary_page_on_connection(
         });
     }
 
+    let mut merged_payment_count = 0_i64;
     for p in payments {
         let customer_full = match (
             p.customer_first
@@ -2495,6 +2545,26 @@ async fn fetch_register_day_summary_page_on_connection(
         } else {
             None
         };
+        if !is_refund && !p.is_shipping_only_sale {
+            if let Some(receipt_transaction_id) = p.receipt_transaction_id {
+                if let Some(activity) = activities.iter_mut().find(|activity| {
+                    activity.transaction_id == Some(receipt_transaction_id)
+                        && activity.kind != "payment"
+                }) {
+                    merge_order_payment_into_sale(
+                        activity,
+                        p.target_display_id
+                            .clone()
+                            .unwrap_or_else(|| "Order".to_string()),
+                        p.amount,
+                        p.target_balance_due,
+                        payment_label,
+                    );
+                    merged_payment_count = merged_payment_count.saturating_add(1);
+                    continue;
+                }
+            }
+        }
         let (sales_total, tax_total) = if is_refund {
             let (event_sales_total, event_tax_total) = refund_activity_totals(
                 p.amount,
@@ -2571,6 +2641,7 @@ async fn fetch_register_day_summary_page_on_connection(
                 method: payment_label,
                 amount_label: payment_amount,
             }]),
+            payment_applications: Vec::new(),
             sales_total,
             tax_total,
             shipping_total: p
@@ -2608,6 +2679,9 @@ async fn fetch_register_day_summary_page_on_connection(
         });
     }
 
+    let activity_total_count = sales_matched_count
+        .saturating_add(payments_matched_count)
+        .saturating_sub(merged_payment_count);
     activities.sort_by(compare_activity_desc);
     let activities = activities
         .into_iter()
@@ -2655,6 +2729,7 @@ async fn fetch_register_day_summary_page_on_connection(
                 amount_label: Some(format!("${}", money_label(p.sales_total_booked))),
                 payment_summary: None,
                 payments: None,
+                payment_applications: Vec::new(),
                 sales_total: Some(money_label(p.sales_total_booked)),
                 tax_total: Some(money_label(p.tax_total)),
                 shipping_total: Some(money_label(p.shipping_total)),
@@ -2734,9 +2809,9 @@ async fn fetch_register_day_summary_page_on_connection(
 mod tests {
     use super::{
         activity_metadata_uuid, activity_search_pattern, compare_activity_desc,
-        ensure_complete_eod_counts, format_weather_value, payment_activity_id,
-        refund_activity_totals, reporting_tender_label, validate_complete_row_bounds,
-        RegisterActivityItem, REGISTER_REPORT_OUTPUT_MAX_ROWS,
+        ensure_complete_eod_counts, format_weather_value, merge_order_payment_into_sale,
+        payment_activity_id, refund_activity_totals, reporting_tender_label,
+        validate_complete_row_bounds, RegisterActivityItem, REGISTER_REPORT_OUTPUT_MAX_ROWS,
     };
     use chrono::{TimeZone, Utc};
     use rust_decimal::Decimal;
@@ -2902,6 +2977,44 @@ mod tests {
             rows.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(),
             vec!["sale:1", "sale:2", "payment:3:4"]
         );
+    }
+
+    #[test]
+    fn same_checkout_order_payment_merges_into_sale_activity() {
+        let transaction_id = Uuid::new_v4();
+        let mut activity: RegisterActivityItem = serde_json::from_value(json!({
+            "id": format!("sale:{transaction_id}"),
+            "kind": "sale",
+            "occurred_at": Utc::now(),
+            "title": "POS Retail Sale",
+            "transaction_id": transaction_id,
+            "transaction_total": "207.59",
+            "payments": [{
+                "method": "CC",
+                "amount_label": "207.59"
+            }]
+        }))
+        .unwrap();
+
+        merge_order_payment_into_sale(
+            &mut activity,
+            "O-117694".to_string(),
+            Decimal::new(14275, 2),
+            Decimal::ZERO,
+            "CC".to_string(),
+        );
+
+        assert_eq!(activity.transaction_total.as_deref(), Some("350.34"));
+        assert_eq!(activity.payment_applications.len(), 1);
+        assert_eq!(
+            activity.payment_applications[0].target_display_id,
+            "O-117694"
+        );
+        assert_eq!(
+            activity.payments.as_ref().unwrap()[0].amount_label,
+            "350.34"
+        );
+        assert_eq!(activity.payment_summary.as_deref(), Some("CC $350.34"));
     }
 
     #[test]

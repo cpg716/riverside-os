@@ -494,6 +494,18 @@ pub struct TransactionPickupApplication {
     pub items: Vec<TransactionPickupApplicationItem>,
 }
 
+fn is_order_payment_receipt_item(item: &TransactionDetailItem) -> bool {
+    item.custom_item_type.as_deref() == Some("rms_charge_payment")
+        || item
+            .sku
+            .trim()
+            .eq_ignore_ascii_case("ROS-RMS-CHARGE-PAYMENT")
+        || item
+            .product_name
+            .trim()
+            .eq_ignore_ascii_case("RMS CHARGE PAYMENT")
+}
+
 impl TransactionDetailResponse {
     fn selected_receipt_items<'a>(
         &'a self,
@@ -537,38 +549,23 @@ impl TransactionDetailResponse {
         transaction_line_ids: Option<&[Uuid]>,
     ) -> Result<receipt_shared::ReceiptOrder, TransactionError> {
         let selected = self.selected_receipt_items(transaction_line_ids)?;
-        let payment_only = selected.is_empty() && !self.payment_applications.is_empty();
-        let refund_receipt = !selected.is_empty()
+        let customer_items = selected
+            .into_iter()
+            .filter(|item| !is_order_payment_receipt_item(item))
+            .collect::<Vec<_>>();
+        let payment_only = customer_items.is_empty() && !self.payment_applications.is_empty();
+        let refund_receipt = !customer_items.is_empty()
             && self.refund_total > Decimal::ZERO
-            && selected.iter().all(|item| item.quantity_returned > 0)
+            && customer_items.iter().all(|item| item.quantity_returned > 0)
             && (transaction_line_ids.is_some()
-                || selected
+                || customer_items
                     .iter()
                     .all(|item| item.quantity_returned >= item.quantity));
         let mut receipt_items: Vec<receipt_shared::ReceiptLine> = if payment_only {
-            self.payment_applications
-                .iter()
-                .map(|app| receipt_shared::ReceiptLine {
-                    product_name: format!("Payment toward order {}", app.target_display_id),
-                    sku: app.target_display_id.clone(),
-                    quantity: 1,
-                    unit_price: app.amount,
-                    fulfillment: DbFulfillmentType::Takeaway,
-                    salesperson_name: None,
-                    variation_label: None,
-                    original_unit_price: None,
-                    discount_event_label: None,
-                    gift_card_load_code: None,
-                    custom_order_details: None,
-                    custom_item_type: None,
-                    is_fulfilled: true,
-                    adjustment: None,
-                    contributes_to_totals: true,
-                })
-                .collect()
+            Vec::new()
         } else {
             let mut lines = Vec::new();
-            for it in &selected {
+            for it in &customer_items {
                 let effective_qty = (it.quantity - it.quantity_returned).max(0);
                 if effective_qty > 0 && !refund_receipt {
                     lines.push(receipt_shared::ReceiptLine {
@@ -678,7 +675,7 @@ impl TransactionDetailResponse {
                 contributes_to_totals: true,
             });
         }
-        if receipt_items.is_empty() {
+        if receipt_items.is_empty() && !payment_only {
             return Err(TransactionError::InvalidPayload(
                 "No order lines matched this receipt request.".to_string(),
             ));
@@ -693,11 +690,11 @@ impl TransactionDetailResponse {
         let tax_total = if payment_only {
             Decimal::ZERO
         } else if refund_receipt {
-            -selected.iter().fold(Decimal::ZERO, |sum, item| {
+            -customer_items.iter().fold(Decimal::ZERO, |sum, item| {
                 sum + item.returned_state_tax + item.returned_local_tax
             })
         } else {
-            selected.iter().fold(Decimal::ZERO, |sum, it| {
+            customer_items.iter().fold(Decimal::ZERO, |sum, it| {
                 let effective_qty = (it.quantity - it.quantity_returned).max(0);
                 sum + (it.state_tax + it.local_tax) * Decimal::from(effective_qty)
             })
@@ -705,7 +702,7 @@ impl TransactionDetailResponse {
         let total_savings = if payment_only {
             Decimal::ZERO
         } else {
-            selected.iter().fold(Decimal::ZERO, |sum, it| {
+            customer_items.iter().fold(Decimal::ZERO, |sum, it| {
                 let effective_qty = (it.quantity - it.quantity_returned).max(0);
                 match it.receipt_original_unit_price {
                     Some(original) if original > it.unit_price && original > Decimal::ZERO => {
@@ -715,23 +712,35 @@ impl TransactionDetailResponse {
                 }
             })
         };
-        let receipt_total_price = if payment_only {
-            subtotal_price
+        let order_payment_total = self
+            .payment_applications
+            .iter()
+            .fold(Decimal::ZERO, |sum, app| sum + app.amount)
+            .round_dp(2);
+        let merchandise_total = if payment_only {
+            Decimal::ZERO
         } else if refund_receipt {
-            -(selected
+            -(customer_items
                 .iter()
                 .fold(Decimal::ZERO, |sum, item| sum + item.returned_total))
             .round_dp(2)
         } else {
             self.total_price
         };
-        let receipt_amount_paid = if payment_only {
-            subtotal_price
-        } else if refund_receipt {
-            receipt_total_price
-        } else {
-            (self.amount_paid + self.wedding_deposit_amount).round_dp(2)
-        };
+        let receipt_total_price = (merchandise_total + order_payment_total).round_dp(2);
+        let tender_total = self
+            .payments
+            .iter()
+            .fold(Decimal::ZERO, |sum, payment| sum + payment.amount)
+            .round_dp(2);
+        let receipt_amount_paid =
+            if !self.payment_applications.is_empty() && tender_total != Decimal::ZERO {
+                tender_total
+            } else if refund_receipt {
+                receipt_total_price
+            } else {
+                (self.amount_paid + self.wedding_deposit_amount).round_dp(2)
+            };
         let receipt_balance_due = if payment_only {
             Decimal::ZERO
         } else if refund_receipt {
@@ -1388,17 +1397,21 @@ mod tests {
         detail.total_price = Decimal::ZERO;
         detail.amount_paid = Decimal::ZERO;
         detail.balance_due = Decimal::ZERO;
+        detail.payments = vec![TransactionDetailedPayment {
+            date: Utc::now(),
+            method: "CC".to_string(),
+            amount: Decimal::new(5000, 2),
+            cash_tendered: None,
+            change_due: None,
+            gift_card_balance_after: None,
+        }];
 
         let receipt = detail
             .build_receipt_data(None)
             .expect("payment-only receipt should build");
 
-        assert_eq!(receipt.items.len(), 1);
-        assert_eq!(
-            receipt.items[0].product_name,
-            "Payment toward order TXN-ORDER"
-        );
-        assert_eq!(receipt.items[0].unit_price, Decimal::new(5000, 2));
+        assert!(receipt.items.is_empty());
+        assert_eq!(receipt.subtotal_price, Decimal::ZERO);
         assert_eq!(receipt.payment_applications.len(), 1);
         assert_eq!(
             receipt.payment_applications[0].target_display_id,
@@ -1425,11 +1438,45 @@ mod tests {
             crate::logic::receipt_plain_text::format_pos_receipt_text_message(&receipt, &cfg),
         ];
         for output in rendered {
-            assert!(output.contains("Payments toward existing orders"));
+            assert!(output.contains("Payment on Order"));
             assert!(output.contains("Order TXN-ORDER"));
+            assert!(output.contains("Total charged today"));
+            assert!(output.contains("Paid today"));
             assert!(output.to_ascii_lowercase().contains("remaining balance"));
             assert!(!output.contains("Applied payments"));
+            assert!(!output.contains("Taken Today"));
+            assert!(!output.contains("Payments toward existing orders"));
         }
+    }
+
+    #[test]
+    fn receipt_builder_combines_merchandise_and_order_payment_into_tender_total() {
+        let mut detail = sample_transaction_detail(vec![sample_item(1, 0)]);
+        detail.total_price = Decimal::new(26500, 2);
+        detail.amount_paid = Decimal::new(26500, 2);
+        detail.payment_applications = vec![TransactionPaymentApplication {
+            target_transaction_id: Uuid::new_v4(),
+            target_display_id: "O-117694".to_string(),
+            amount: Decimal::new(14275, 2),
+            remaining_balance: Decimal::ZERO,
+        }];
+        detail.payments = vec![TransactionDetailedPayment {
+            date: Utc::now(),
+            method: "CC".to_string(),
+            amount: Decimal::new(40775, 2),
+            cash_tendered: None,
+            change_due: None,
+            gift_card_balance_after: None,
+        }];
+
+        let receipt = detail.build_receipt_data(None).expect("receipt builds");
+
+        assert_eq!(receipt.items.len(), 1);
+        assert_eq!(receipt.subtotal_price, Decimal::new(25000, 2));
+        assert_eq!(receipt.tax_total, Decimal::new(1500, 2));
+        assert_eq!(receipt.total_price, Decimal::new(40775, 2));
+        assert_eq!(receipt.amount_paid, Decimal::new(40775, 2));
+        assert_eq!(receipt.payment_applications.len(), 1);
     }
 
     #[test]

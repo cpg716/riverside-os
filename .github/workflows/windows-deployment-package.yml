@@ -2,7 +2,7 @@ name: Windows deployment package
 
 concurrency:
   group: riverside-windows-release-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 on:
   push:
@@ -149,7 +149,7 @@ jobs:
         run: node scripts/require-playwright-success.mjs --sha "${{ github.sha }}"
 
   build-register-updater:
-    needs: [validate-scripts, pre-retag-gate]
+    needs: [validate-scripts]
     runs-on: windows-latest
     timeout-minutes: 75
     env:
@@ -171,6 +171,8 @@ jobs:
           components: clippy, rustfmt
 
       - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
+        with:
+          cache-workspace-crates: true
 
       - name: Set up compiler cache
         id: sccache
@@ -375,7 +377,7 @@ jobs:
       contents: write
     timeout-minutes: 20
     if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.package_scope == 'app-updater-only' && inputs.publish_release }}
-    needs: [build-register-updater, require-playwright-green]
+    needs: [build-register-updater, pre-retag-gate, require-playwright-green]
     runs-on: windows-latest
     concurrency:
       group: ${{ format('riverside-release-publish-{0}', inputs.release_tag || github.ref_name) }}
@@ -432,7 +434,7 @@ jobs:
 
   build-server-binary:
     if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.package_scope != 'app-updater-only' }}
-    needs: [validate-scripts, pre-retag-gate]
+    needs: [validate-scripts]
     runs-on: windows-latest
     timeout-minutes: 75
     env:
@@ -446,6 +448,8 @@ jobs:
           components: clippy, rustfmt
 
       - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
+        with:
+          cache-workspace-crates: true
 
       - name: Set up compiler cache
         id: sccache
@@ -476,7 +480,7 @@ jobs:
 
   build-deployment-manager:
     if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.package_scope == 'full-deployment' }}
-    needs: [validate-scripts, pre-retag-gate]
+    needs: [validate-scripts]
     runs-on: windows-latest
     timeout-minutes: 75
     env:
@@ -498,6 +502,8 @@ jobs:
           components: clippy, rustfmt
 
       - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
+        with:
+          cache-workspace-crates: true
 
       - name: Set up compiler cache
         id: sccache
@@ -618,7 +624,7 @@ jobs:
 
   build-server-manager:
     if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.package_scope == 'full-deployment' }}
-    needs: [validate-scripts, pre-retag-gate]
+    needs: [validate-scripts]
     runs-on: windows-latest
     timeout-minutes: 75
     env:
@@ -640,6 +646,8 @@ jobs:
           components: clippy, rustfmt
 
       - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
+        with:
+          cache-workspace-crates: true
 
       - name: Set up compiler cache
         id: sccache
@@ -768,7 +776,7 @@ jobs:
 
   build-counterpoint-bridge-gui:
     if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.package_scope == 'full-deployment' }}
-    needs: [validate-scripts, pre-retag-gate]
+    needs: [validate-scripts]
     runs-on: windows-latest
     timeout-minutes: 75
     env:
@@ -790,6 +798,8 @@ jobs:
           components: clippy, rustfmt
 
       - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
+        with:
+          cache-workspace-crates: true
 
       - name: Set up compiler cache
         id: sccache
@@ -938,7 +948,7 @@ jobs:
       contents: write
     timeout-minutes: 30
     if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.package_scope == 'main-hub-update' && inputs.publish_release }}
-    needs: [build-register-updater, build-server-binary, require-playwright-green]
+    needs: [build-register-updater, build-server-binary, pre-retag-gate, require-playwright-green]
     runs-on: windows-latest
     concurrency:
       group: ${{ format('riverside-release-publish-{0}', inputs.release_tag || github.ref_name) }}
@@ -1085,7 +1095,7 @@ jobs:
       contents: write
     timeout-minutes: 120
     if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.package_scope == 'full-deployment' }}
-    needs: [build-register-updater, build-server-binary, build-deployment-manager, build-server-manager, build-counterpoint-bridge-gui, require-playwright-green]
+    needs: [build-register-updater, build-server-binary, build-deployment-manager, build-server-manager, build-counterpoint-bridge-gui, pre-retag-gate, require-playwright-green]
     runs-on: windows-latest
     concurrency:
       group: ${{ (github.event_name != 'workflow_dispatch' || inputs.publish_release) && format('riverside-release-publish-{0}', inputs.release_tag || github.ref_name) || format('riverside-windows-benchmark-{0}', github.run_id) }}

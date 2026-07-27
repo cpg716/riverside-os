@@ -182,13 +182,15 @@ export default function ReceiptSummaryModal({
   const [sendingSms, setSendingSms] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [printingFailure, setPrintingFailure] = useState<string | null>(null);
-  const [printingFailureTitle, setPrintingFailureTitle] = useState<string | null>(
-    null,
-  );
-  const [printingFailureDetail, setPrintingFailureDetail] = useState<string | null>(null);
-  const [lastPrintAttemptLabel, setLastPrintAttemptLabel] = useState<string | null>(
-    null,
-  );
+  const [printingFailureTitle, setPrintingFailureTitle] = useState<
+    string | null
+  >(null);
+  const [printingFailureDetail, setPrintingFailureDetail] = useState<
+    string | null
+  >(null);
+  const [lastPrintAttemptLabel, setLastPrintAttemptLabel] = useState<
+    string | null
+  >(null);
   const [lastPrintRequest, setLastPrintRequest] = useState<
     { gift?: boolean; transactionLineIds?: string[] } | undefined
   >(undefined);
@@ -200,7 +202,8 @@ export default function ReceiptSummaryModal({
   const [printerCheckMessage, setPrinterCheckMessage] = useState<string | null>(
     null,
   );
-  const [transactionDetail, setTransactionDetail] = useState<OrderDetail | null>(null);
+  const [transactionDetail, setTransactionDetail] =
+    useState<OrderDetail | null>(null);
   const [phoneDraft, setPhoneDraft] = useState("");
   const [emailDraft, setEmailDraft] = useState("");
   const [savingContact, setSavingContact] = useState(false);
@@ -208,9 +211,13 @@ export default function ReceiptSummaryModal({
   const [reviewInviteSaving, setReviewInviteSaving] = useState(false);
   const [giftDialogOpen, setGiftDialogOpen] = useState(false);
   const [receiptPreviewOpen, setReceiptPreviewOpen] = useState(false);
-  const [receiptPreviewHtml, setReceiptPreviewHtml] = useState<string | null>(null);
+  const [receiptPreviewHtml, setReceiptPreviewHtml] = useState<string | null>(
+    null,
+  );
   const [receiptPreviewLoading, setReceiptPreviewLoading] = useState(false);
-  const [receiptPreviewError, setReceiptPreviewError] = useState<string | null>(null);
+  const [receiptPreviewError, setReceiptPreviewError] = useState<string | null>(
+    null,
+  );
   /** Per line; only lines checked here are included on the next gift receipt. */
   const [giftLinePick, setGiftLinePick] = useState<Record<string, boolean>>({});
   const autoPrintAttemptedTransactionRef = useRef<string | null>(null);
@@ -275,7 +282,9 @@ export default function ReceiptSummaryModal({
 
   const shouldKickCashDrawer = useCallback(() => {
     if (!isTauri()) return false;
-    if (window.localStorage.getItem("ros.hardware.cashDrawer.enabled") === "false") {
+    if (
+      window.localStorage.getItem("ros.hardware.cashDrawer.enabled") === "false"
+    ) {
       return false;
     }
     const tenderSummary = transactionDetail?.payment_methods_summary ?? "";
@@ -289,7 +298,10 @@ export default function ReceiptSummaryModal({
       setCashDrawerKicked(true);
     } catch (e) {
       console.error("Cash drawer kick failed", e);
-      toast("Cash drawer did not open. Check the Epson receipt printer connection.", "error");
+      toast(
+        "Cash drawer did not open. Check the Epson receipt printer connection.",
+        "error",
+      );
     }
   }, [cashDrawerKicked, shouldKickCashDrawer, toast]);
 
@@ -343,7 +355,11 @@ export default function ReceiptSummaryModal({
               cache: "no-store",
               signal: controller.signal,
             });
-            if (res.ok || ![502, 503, 504].includes(res.status) || attempt === 1) {
+            if (
+              res.ok ||
+              ![502, 503, 504].includes(res.status) ||
+              attempt === 1
+            ) {
               break;
             }
           } catch (error) {
@@ -352,7 +368,8 @@ export default function ReceiptSummaryModal({
             if (attempt === 1) throw error;
           }
         }
-        if (!res) throw lastError ?? new Error("transaction detail request failed");
+        if (!res)
+          throw lastError ?? new Error("transaction detail request failed");
         if (res.ok) {
           const data = (await res.json()) as OrderDetail;
           if (controller.signal.aborted) return;
@@ -365,10 +382,12 @@ export default function ReceiptSummaryModal({
         } else {
           let body: { error?: string } = {};
           try {
-            body = await res.json() as { error?: string };
+            body = (await res.json()) as { error?: string };
           } catch {
             const text = await res.text().catch(() => "");
-            body = { error: text || `Could not load receipt details (${res.status})` };
+            body = {
+              error: text || `Could not load receipt details (${res.status})`,
+            };
           }
           toast(body.error || "Could not load receipt details.", "error");
         }
@@ -396,7 +415,9 @@ export default function ReceiptSummaryModal({
         .filter((it) => !it.is_internal)
         .every((it) => it.is_fulfilled === true);
     if (eligible) {
-      setSkipReviewInvite(transactionDetail.store_send_review_invite_by_default === false);
+      setSkipReviewInvite(
+        transactionDetail.store_send_review_invite_by_default === false,
+      );
     } else {
       setSkipReviewInvite(false);
     }
@@ -419,29 +440,46 @@ export default function ReceiptSummaryModal({
     setReviewInviteSaving(true);
     try {
       const q = buildReceiptQuery(undefined, false);
-      const res = await fetch(`${baseUrl}/api/transactions/${transactionId}/review-invite${q}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
-        body: JSON.stringify({ skip: skipReviewInvite }),
-      });
+      const res = await fetch(
+        `${baseUrl}/api/transactions/${transactionId}/review-invite${q}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+          body: JSON.stringify({ skip: skipReviewInvite }),
+        },
+      );
       if (!res.ok) {
         await res.json().catch(() => ({}));
         toast("Could not save review invite choice.", "error");
         return;
       }
-      const result = (await res.json().catch(() => ({}))) as ReviewInviteChoiceResult;
+      const result = (await res
+        .json()
+        .catch(() => ({}))) as ReviewInviteChoiceResult;
       if (result.status === "sent") {
         toast("Review request sent through Podium.", "success");
       } else if (result.status === "suppressed") {
         toast("Review request skipped for this sale.", "info");
       } else if (result.status === "skipped_recent_180d") {
-        toast("Review request skipped. This customer was asked in the last 180 days.", "info");
+        toast(
+          "Review request skipped. This customer was asked in the last 180 days.",
+          "info",
+        );
       } else if (result.status === "skipped_no_contact") {
-        toast("Review request skipped. Add a phone or email to ask later.", "info");
+        toast(
+          "Review request skipped. Add a phone or email to ask later.",
+          "info",
+        );
       } else if (result.status === "skipped_customer_opt_out") {
-        toast("Review request skipped. This customer has opted out of review requests.", "info");
+        toast(
+          "Review request skipped. This customer has opted out of review requests.",
+          "info",
+        );
       } else if (result.status === "not_ready") {
-        toast("Review request will only send after completed or picked-up sales.", "info");
+        toast(
+          "Review request will only send after completed or picked-up sales.",
+          "info",
+        );
       }
     } catch {
       toast("Could not save review invite choice", "error");
@@ -492,10 +530,13 @@ export default function ReceiptSummaryModal({
             : undefined,
         );
 
-        const res = await fetch(`${baseUrl}/api/transactions/${receiptDeliveryTransactionId}/receipt.escpos${q}`, {
-          headers: getAuthHeaders(),
-          cache: "no-store",
-        });
+        const res = await fetch(
+          `${baseUrl}/api/transactions/${receiptDeliveryTransactionId}/receipt.escpos${q}`,
+          {
+            headers: getAuthHeaders(),
+            cache: "no-store",
+          },
+        );
         if (!res.ok) throw new Error("Receipt generation failed");
         const escposPayload = (await res.json()) as {
           escpos_base64?: string;
@@ -516,7 +557,8 @@ export default function ReceiptSummaryModal({
         );
       } catch (e: unknown) {
         console.error("Printing failed", e);
-        const message = "Receipt did not print. Check the receipt printer, then use Reprint Receipt.";
+        const message =
+          "Receipt did not print. Check the receipt printer, then use Reprint Receipt.";
         setError(message);
         setPrintingFailureTitle(
           opts?.gift ? "Gift receipt did not print" : "Receipt did not print",
@@ -600,14 +642,17 @@ export default function ReceiptSummaryModal({
     if (!cid) return;
     setSavingContact(true);
     try {
-      const res = await fetch(`${baseUrl}/api/customers/${encodeURIComponent(cid)}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
-        body: JSON.stringify({
-          phone: phoneDraft.trim() || null,
-          email: emailDraft.trim() || null,
-        }),
-      });
+      const res = await fetch(
+        `${baseUrl}/api/customers/${encodeURIComponent(cid)}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+          body: JSON.stringify({
+            phone: phoneDraft.trim() || null,
+            email: emailDraft.trim() || null,
+          }),
+        },
+      );
       if (!res.ok) {
         await res.json().catch(() => ({}));
         toast("Could not save contact. Manager access may be needed.", "error");
@@ -661,18 +706,25 @@ export default function ReceiptSummaryModal({
         baseBody.gift = true;
         const rows = transactionDetail?.items ?? [];
         const picked = getGiftLineIds();
-        if (rows.length > 0 && picked.length > 0 && picked.length < rows.length) {
+        if (
+          rows.length > 0 &&
+          picked.length > 0 &&
+          picked.length < rows.length
+        ) {
           baseBody.transaction_line_ids = picked;
         }
       }
-      const res = await fetch(`${baseUrl}/api/transactions/${receiptDeliveryTransactionId}/receipt/send-email${q}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...getAuthHeaders(),
+      const res = await fetch(
+        `${baseUrl}/api/transactions/${receiptDeliveryTransactionId}/receipt/send-email${q}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...getAuthHeaders(),
+          },
+          body: JSON.stringify(baseBody),
         },
-        body: JSON.stringify(baseBody),
-      });
+      );
       if (!res.ok) {
         await res.json().catch(() => ({}));
         toast("Could not email receipt.", "error");
@@ -708,7 +760,10 @@ export default function ReceiptSummaryModal({
       const rows = transactionDetail?.items ?? [];
       const picked = getGiftLineIds();
       const giftItemParam =
-        gift && rows.length > 0 && picked.length > 0 && picked.length < rows.length
+        gift &&
+        rows.length > 0 &&
+        picked.length > 0 &&
+        picked.length < rows.length
           ? picked
           : undefined;
       const htmlQ = buildReceiptQuery(
@@ -718,10 +773,13 @@ export default function ReceiptSummaryModal({
       let pngBase64: string | undefined;
       if (transactionDetail?.receipt_studio_layout_available) {
         try {
-          const hres = await fetch(`${baseUrl}/api/transactions/${receiptDeliveryTransactionId}/receipt.html${htmlQ}`, {
-            headers: getAuthHeaders(),
-            cache: "no-store",
-          });
+          const hres = await fetch(
+            `${baseUrl}/api/transactions/${receiptDeliveryTransactionId}/receipt.html${htmlQ}`,
+            {
+              headers: getAuthHeaders(),
+              cache: "no-store",
+            },
+          );
           if (hres.ok) {
             const html = await hres.text();
             if (!html.toLowerCase().includes("no receipt builder html")) {
@@ -744,19 +802,26 @@ export default function ReceiptSummaryModal({
       if (pngBase64) payload.png_base64 = pngBase64;
       if (gift) {
         payload.gift = true;
-        if (rows.length > 0 && picked.length > 0 && picked.length < rows.length) {
+        if (
+          rows.length > 0 &&
+          picked.length > 0 &&
+          picked.length < rows.length
+        ) {
           payload.transaction_line_ids = picked;
         }
       }
 
-      const res = await fetch(`${baseUrl}/api/transactions/${receiptDeliveryTransactionId}/receipt/send-sms${postQ}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...getAuthHeaders(),
+      const res = await fetch(
+        `${baseUrl}/api/transactions/${receiptDeliveryTransactionId}/receipt/send-sms${postQ}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...getAuthHeaders(),
+          },
+          body: JSON.stringify(payload),
         },
-        body: JSON.stringify(payload),
-      });
+      );
       if (!res.ok) {
         await res.json().catch(() => ({}));
         toast("Could not text receipt.", "error");
@@ -808,7 +873,9 @@ export default function ReceiptSummaryModal({
     transactionDetail.customer_review_requests_opt_out !== true &&
     isOrderStatus(transactionDetail.status, "fulfilled") &&
     itemRows.length > 0 &&
-    itemRows.filter((it) => !it.is_internal).every((it) => it.is_fulfilled === true);
+    itemRows
+      .filter((it) => !it.is_internal)
+      .every((it) => it.is_fulfilled === true);
   const serverOrderPayments = transactionDetail?.payment_applications ?? [];
   const displayedOrderPayments =
     serverOrderPayments.length > 0
@@ -829,7 +896,9 @@ export default function ReceiptSummaryModal({
     0,
   );
   const pickupApplications = transactionDetail?.pickup_applications ?? [];
-  const transactionTotalCents = parseMoneyToCents(transactionDetail?.total_price ?? "0");
+  const transactionTotalCents = parseMoneyToCents(
+    transactionDetail?.total_price ?? "0",
+  );
   const exchangeCheckout = Boolean(exchangeReturnTransactionId);
   const refundCheckout =
     !exchangeCheckout &&
@@ -843,15 +912,25 @@ export default function ReceiptSummaryModal({
           );
         })));
   const pickupCheckout =
-    !refundCheckout && !exchangeCheckout && receiptTransactionLineIds.length > 0;
+    !refundCheckout &&
+    !exchangeCheckout &&
+    receiptTransactionLineIds.length > 0;
   const paymentOnlyCheckout =
     !refundCheckout &&
     !exchangeCheckout &&
     !pickupCheckout &&
     transactionTotalCents === 0 &&
     orderPaymentTotalCents > 0;
+  const combinedOrderPaymentCheckout =
+    !paymentOnlyCheckout &&
+    !refundCheckout &&
+    !exchangeCheckout &&
+    orderPaymentTotalCents > 0;
   const linkedPickupCheckout =
-    !refundCheckout && !exchangeCheckout && !pickupCheckout && pickupApplications.length > 0;
+    !refundCheckout &&
+    !exchangeCheckout &&
+    !pickupCheckout &&
+    pickupApplications.length > 0;
   const giftReceiptAvailable =
     !refundCheckout &&
     !paymentOnlyCheckout &&
@@ -863,7 +942,8 @@ export default function ReceiptSummaryModal({
     ? -(exactRefundAmountCents ?? 0)
     : pickupCheckout || paymentOnlyCheckout
       ? orderPaymentTotalCents
-      : parseMoneyToCents(transactionDetail?.amount_paid ?? "0");
+      : parseMoneyToCents(transactionDetail?.amount_paid ?? "0") +
+        orderPaymentTotalCents;
   const activityLabel = refundCheckout
     ? "Return and refund recorded"
     : exchangeCheckout
@@ -915,17 +995,18 @@ export default function ReceiptSummaryModal({
     ? "Total refunded"
     : exchangeCheckout
       ? "Replacement total"
-      : pickupCheckout || paymentOnlyCheckout
+      : pickupCheckout || paymentOnlyCheckout || combinedOrderPaymentCheckout
         ? "Collected now"
         : "Sale total";
-  const summaryTotal =
-    refundCheckout
-      ? exactRefundAmountCents == null
-        ? "…"
-        : `-${centsToFixed2(exactRefundAmountCents)}`
-      : pickupCheckout || paymentOnlyCheckout
-        ? centsToFixed2(currentCheckoutAmountCents)
-      : transactionDetail?.total_price ?? transactionDetail?.amount_paid ?? "…";
+  const summaryTotal = refundCheckout
+    ? exactRefundAmountCents == null
+      ? "…"
+      : `-${centsToFixed2(exactRefundAmountCents)}`
+    : pickupCheckout || paymentOnlyCheckout || combinedOrderPaymentCheckout
+      ? centsToFixed2(currentCheckoutAmountCents)
+      : (transactionDetail?.total_price ??
+        transactionDetail?.amount_paid ??
+        "…");
   const summaryPaid = transactionDetail?.amount_paid ?? "…";
   const summaryBalance = transactionDetail?.balance_due ?? "…";
   const refundProviderLabel =
@@ -933,7 +1014,9 @@ export default function ReceiptSummaryModal({
     refundResult?.payment_method.replaceAll("_", " ").trim() ||
     "Refund tender";
   const refundStatusLabel =
-    refundResult?.provider_status?.trim() || refundResult?.status.trim() || "Recorded";
+    refundResult?.provider_status?.trim() ||
+    refundResult?.status.trim() ||
+    "Recorded";
   const refundCardLabel = refundResult
     ? [
         refundResult.card_brand?.trim().toUpperCase(),
@@ -959,13 +1042,15 @@ export default function ReceiptSummaryModal({
     const ids = getGiftLineIds();
     void handlePrint({
       gift: true,
-      transactionLineIds: ids.length > 0 && ids.length < itemRows.length ? ids : undefined,
+      transactionLineIds:
+        ids.length > 0 && ids.length < itemRows.length ? ids : undefined,
     });
   };
 
-  const fetchReceiptHtml = async (
-    opts?: { gift?: boolean; transactionLineIds?: string[] },
-  ) => {
+  const fetchReceiptHtml = async (opts?: {
+    gift?: boolean;
+    transactionLineIds?: string[];
+  }) => {
     if (!transactionId) throw new Error("Missing transaction.");
     const q = buildReceiptQuery(opts);
     const res = await fetch(
@@ -979,16 +1064,20 @@ export default function ReceiptSummaryModal({
     return res.text();
   };
 
-  const fetchReceiptPreviewMarkup = async (
-    opts?: { gift?: boolean; transactionLineIds?: string[] },
-  ) => {
+  const fetchReceiptPreviewMarkup = async (opts?: {
+    gift?: boolean;
+    transactionLineIds?: string[];
+  }) => {
     if (!transactionId) throw new Error("Missing transaction.");
     const q = buildReceiptQuery(opts);
     try {
-      const res = await fetch(`${baseUrl}/api/transactions/${receiptDeliveryTransactionId}/receipt.escpos${q}`, {
-        headers: getAuthHeaders(),
-        cache: "no-store",
-      });
+      const res = await fetch(
+        `${baseUrl}/api/transactions/${receiptDeliveryTransactionId}/receipt.escpos${q}`,
+        {
+          headers: getAuthHeaders(),
+          cache: "no-store",
+        },
+      );
       if (res.ok) {
         const payload = (await res.json()) as { receiptline_markdown?: string };
         if (payload.receiptline_markdown?.trim()) {
@@ -1003,7 +1092,10 @@ export default function ReceiptSummaryModal({
         }
       }
     } catch (e) {
-      console.warn("ReceiptLine preview unavailable; falling back to HTML receipt", e);
+      console.warn(
+        "ReceiptLine preview unavailable; falling back to HTML receipt",
+        e,
+      );
     }
     return fetchReceiptHtml(opts);
   };
@@ -1096,15 +1188,23 @@ export default function ReceiptSummaryModal({
             data-testid="receipt-summary-modal"
           >
             <header className="relative flex shrink-0 items-center gap-3 border-b border-app-border px-3 py-3 pr-14 sm:px-5 sm:py-4 sm:pr-16">
-              <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full ring-1 sm:h-12 sm:w-12 ${
-                pendingRefundAmountCents != null
-                  ? "bg-app-warning/15 text-app-warning ring-app-warning/35"
-                  : "bg-[color-mix(in_srgb,var(--app-success)_18%,var(--app-surface-2))] text-[var(--app-success)] ring-[color-mix(in_srgb,var(--app-success)_35%,var(--app-border))]"
-              }`}>
+              <div
+                className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full ring-1 sm:h-12 sm:w-12 ${
+                  pendingRefundAmountCents != null
+                    ? "bg-app-warning/15 text-app-warning ring-app-warning/35"
+                    : "bg-[color-mix(in_srgb,var(--app-success)_18%,var(--app-surface-2))] text-[var(--app-success)] ring-[color-mix(in_srgb,var(--app-success)_35%,var(--app-border))]"
+                }`}
+              >
                 {pendingRefundAmountCents != null ? (
-                  <AlertTriangle className="h-6 w-6 sm:h-7 sm:w-7" strokeWidth={1.5} />
+                  <AlertTriangle
+                    className="h-6 w-6 sm:h-7 sm:w-7"
+                    strokeWidth={1.5}
+                  />
                 ) : (
-                  <CheckCircle2 className="h-6 w-6 sm:h-7 sm:w-7" strokeWidth={1.5} />
+                  <CheckCircle2
+                    className="h-6 w-6 sm:h-7 sm:w-7"
+                    strokeWidth={1.5}
+                  />
                 )}
               </div>
               <div className="min-w-0 text-left">
@@ -1115,7 +1215,9 @@ export default function ReceiptSummaryModal({
                   {completionTitle}
                 </h2>
                 <p className="line-clamp-2 text-[9px] font-bold uppercase tracking-wider text-app-text-muted sm:text-[10px] sm:tracking-widest">
-                  {activityLabel} · {customerName} · Transaction #{transactionDetail?.transaction_display_id ?? transactionDisplayFallback(transactionId)}
+                  {activityLabel} · {customerName} · Transaction #
+                  {transactionDetail?.transaction_display_id ??
+                    transactionDisplayFallback(transactionId)}
                 </p>
               </div>
               <button
@@ -1129,7 +1231,10 @@ export default function ReceiptSummaryModal({
               </button>
             </header>
 
-            <section className="shrink-0 border-b border-app-border bg-app-surface px-3 py-2.5 sm:px-5 sm:py-3" aria-label="Receipt actions">
+            <section
+              className="shrink-0 border-b border-app-border bg-app-surface px-3 py-2.5 sm:px-5 sm:py-3"
+              aria-label="Receipt actions"
+            >
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
                 <button
                   type="button"
@@ -1146,7 +1251,9 @@ export default function ReceiptSummaryModal({
                 </button>
                 <button
                   type="button"
-                  disabled={!transactionDetail || pendingRefundAmountCents != null}
+                  disabled={
+                    !transactionDetail || pendingRefundAmountCents != null
+                  }
                   onClick={() => void openReceiptPreview()}
                   className={compactActionButton}
                 >
@@ -1211,10 +1318,10 @@ export default function ReceiptSummaryModal({
                           ${centsToFixed2(pendingRefundAmountCents)} pending
                         </p>
                         <p className="mt-1 text-[11px] font-semibold leading-relaxed text-app-text">
-                          The exchange and returned items are saved, but Helcim has
-                          not approved this refund. Finish it from the refund queue.
-                          Receipt printing and delivery stay unavailable until the
-                          provider refund is complete.
+                          The exchange and returned items are saved, but Helcim
+                          has not approved this refund. Finish it from the
+                          refund queue. Receipt printing and delivery stay
+                          unavailable until the provider refund is complete.
                         </p>
                       </div>
                     </div>
@@ -1244,14 +1351,17 @@ export default function ReceiptSummaryModal({
                         <p className="mt-1 text-[11px] font-semibold leading-relaxed text-app-text">
                           {refundResult.message}
                         </p>
-                        {(refundCardLabel ||
-                          refundResult.provider_refund_id ||
-                          refundResult.original_provider_transaction_id) ? (
+                        {refundCardLabel ||
+                        refundResult.provider_refund_id ||
+                        refundResult.original_provider_transaction_id ? (
                           <div className="mt-2 space-y-0.5 border-t border-emerald-500/20 pt-2 text-[9px] font-semibold text-app-text-muted">
-                            {refundCardLabel ? <p>Card: {refundCardLabel}</p> : null}
+                            {refundCardLabel ? (
+                              <p>Card: {refundCardLabel}</p>
+                            ) : null}
                             {refundResult.provider_refund_id ? (
                               <p className="break-all">
-                                Refund reference: {refundResult.provider_refund_id}
+                                Refund reference:{" "}
+                                {refundResult.provider_refund_id}
                               </p>
                             ) : null}
                             {refundResult.original_provider_transaction_id ? (
@@ -1267,7 +1377,10 @@ export default function ReceiptSummaryModal({
                   </section>
                 ) : null}
 
-                <section className="rounded-2xl border border-app-border bg-app-surface-2 px-3 py-3 sm:px-4" aria-label="Transaction summary">
+                <section
+                  className="rounded-2xl border border-app-border bg-app-surface-2 px-3 py-3 sm:px-4"
+                  aria-label="Transaction summary"
+                >
                   <div className="flex items-end justify-between gap-3">
                     <div>
                       <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted sm:text-[10px]">
@@ -1291,7 +1404,8 @@ export default function ReceiptSummaryModal({
                         {refundCheckout
                           ? refundResult
                             ? `${refundProviderLabel}${refundCardLabel ? ` · ${refundCardLabel}` : ""}`
-                            : (transactionDetail?.refund_payment_methods_summary ?? "…")
+                            : (transactionDetail?.refund_payment_methods_summary ??
+                              "…")
                           : (transactionDetail?.payment_methods_summary ?? "…")}
                       </p>
                     </div>
@@ -1300,7 +1414,9 @@ export default function ReceiptSummaryModal({
                     <div className="mt-2.5 grid grid-cols-2 gap-3 border-t border-app-border/50 pt-2.5">
                       <div>
                         <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                          Paid on transaction
+                          {combinedOrderPaymentCheckout
+                            ? "Applied to new sale"
+                            : "Paid on transaction"}
                         </p>
                         <p className="mt-0.5 text-base font-black tabular-nums text-app-success sm:text-lg">
                           {summaryPaid.startsWith("-")
@@ -1321,9 +1437,15 @@ export default function ReceiptSummaryModal({
                 </section>
 
                 {printingFailure ? (
-                  <section className="rounded-2xl border border-app-danger/30 bg-app-danger/10 px-3 py-3" aria-label="Receipt print recovery">
+                  <section
+                    className="rounded-2xl border border-app-danger/30 bg-app-danger/10 px-3 py-3"
+                    aria-label="Receipt print recovery"
+                  >
                     <div className="flex items-start gap-2.5">
-                      <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-app-danger" strokeWidth={2} />
+                      <AlertTriangle
+                        className="mt-0.5 h-5 w-5 shrink-0 text-app-danger"
+                        strokeWidth={2}
+                      />
                       <div className="min-w-0 flex-1">
                         <p className="text-[9px] font-black uppercase tracking-widest text-app-danger">
                           {historicalPresentation
@@ -1344,7 +1466,9 @@ export default function ReceiptSummaryModal({
                         className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-app-danger/30 bg-app-surface px-2 text-[9px] font-black uppercase tracking-wider text-app-danger transition-colors hover:bg-app-danger/10 disabled:opacity-50"
                       >
                         <RefreshCw className="h-4 w-4" />
-                        {printing ? "Retrying…" : `Retry ${lastPrintAttemptLabel ?? "print"}`}
+                        {printing
+                          ? "Retrying…"
+                          : `Retry ${lastPrintAttemptLabel ?? "print"}`}
                       </button>
                       <button
                         type="button"
@@ -1374,15 +1498,20 @@ export default function ReceiptSummaryModal({
                   </p>
                 ) : null}
 
-                {(cashChangeDueCents > 0 ||
-                  loadedGiftCards.length > 0 ||
-                  displayedOrderPayments.length > 0 ||
-                  pickupApplications.length > 0) ? (
-                  <section className="space-y-2 rounded-2xl border border-app-border bg-app-surface-2 px-3 py-2.5" aria-label="Completion details">
+                {cashChangeDueCents > 0 ||
+                loadedGiftCards.length > 0 ||
+                displayedOrderPayments.length > 0 ||
+                pickupApplications.length > 0 ? (
+                  <section
+                    className="space-y-2 rounded-2xl border border-app-border bg-app-surface-2 px-3 py-2.5"
+                    aria-label="Completion details"
+                  >
                     {cashChangeDueCents > 0 ? (
                       <div className="flex items-center justify-between gap-3 text-sm font-black text-emerald-700 dark:text-emerald-200">
                         <span>Change due</span>
-                        <span className="tabular-nums">${centsToFixed2(cashChangeDueCents)}</span>
+                        <span className="tabular-nums">
+                          ${centsToFixed2(cashChangeDueCents)}
+                        </span>
                       </div>
                     ) : null}
                     {loadedGiftCards.length > 0 ? (
@@ -1394,8 +1523,13 @@ export default function ReceiptSummaryModal({
                       </div>
                     ) : null}
                     {displayedOrderPayments.map((payment) => (
-                      <div key={payment.key} className="flex items-baseline justify-between gap-3 text-[10px] font-bold text-app-text">
-                        <span className="min-w-0 truncate">Payment toward order {payment.targetDisplayId}</span>
+                      <div
+                        key={payment.key}
+                        className="flex items-baseline justify-between gap-3 text-[10px] font-bold text-app-text"
+                      >
+                        <span className="min-w-0 truncate">
+                          Payment on Order {payment.targetDisplayId}
+                        </span>
                         <span className="shrink-0 tabular-nums">
                           ${payment.amount} · ${payment.remainingBalance} due
                         </span>
@@ -1407,8 +1541,13 @@ export default function ReceiptSummaryModal({
                         0,
                       );
                       return (
-                        <div key={pickup.target_transaction_id} className="flex items-baseline justify-between gap-3 text-[10px] font-bold text-app-text">
-                          <span className="min-w-0 truncate">Picked up from {pickup.target_display_id}</span>
+                        <div
+                          key={pickup.target_transaction_id}
+                          className="flex items-baseline justify-between gap-3 text-[10px] font-bold text-app-text"
+                        >
+                          <span className="min-w-0 truncate">
+                            Picked up from {pickup.target_display_id}
+                          </span>
                           <span className="shrink-0 tabular-nums">
                             {itemCount} {itemCount === 1 ? "item" : "items"}
                           </span>
@@ -1421,16 +1560,23 @@ export default function ReceiptSummaryModal({
 
               <div className="min-w-0 space-y-3">
                 {cust ? (
-                  <section className="rounded-2xl border border-app-border bg-app-surface-2 p-3" aria-label="Receipt delivery contact">
+                  <section
+                    className="rounded-2xl border border-app-border bg-app-surface-2 p-3"
+                    aria-label="Receipt delivery contact"
+                  >
                     <div className="flex items-center justify-between gap-2">
                       <p className="min-w-0 truncate text-[9px] font-black uppercase tracking-widest text-app-text-muted">
                         Receipt contact · {cust.first_name} {cust.last_name}
                       </p>
-                      <p className="shrink-0 text-[8px] font-semibold text-app-text-muted">Save changes to profile</p>
+                      <p className="shrink-0 text-[8px] font-semibold text-app-text-muted">
+                        Save changes to profile
+                      </p>
                     </div>
                     <div className="mt-2 grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-2">
                       <label className="min-w-0">
-                        <span className="text-[8px] font-bold uppercase tracking-wider text-app-text-muted">Mobile</span>
+                        <span className="text-[8px] font-bold uppercase tracking-wider text-app-text-muted">
+                          Mobile
+                        </span>
                         <input
                           type="tel"
                           value={phoneDraft}
@@ -1441,7 +1587,9 @@ export default function ReceiptSummaryModal({
                         />
                       </label>
                       <label className="min-w-0">
-                        <span className="text-[8px] font-bold uppercase tracking-wider text-app-text-muted">Email</span>
+                        <span className="text-[8px] font-bold uppercase tracking-wider text-app-text-muted">
+                          Email
+                        </span>
                         <input
                           type="email"
                           value={emailDraft}
@@ -1463,21 +1611,36 @@ export default function ReceiptSummaryModal({
                     </div>
                     {!hasSmsTarget || !hasEmailTarget ? (
                       <p className="mt-1.5 text-[9px] font-semibold text-app-warning">
-                        Add the missing {(!hasSmsTarget && !hasEmailTarget) ? "mobile and email" : !hasSmsTarget ? "mobile" : "email"} to enable that receipt option.
+                        Add the missing{" "}
+                        {!hasSmsTarget && !hasEmailTarget
+                          ? "mobile and email"
+                          : !hasSmsTarget
+                            ? "mobile"
+                            : "email"}{" "}
+                        to enable that receipt option.
                       </p>
                     ) : null}
                   </section>
                 ) : (
                   <p className="rounded-xl border border-amber-500/35 bg-[color-mix(in_srgb,var(--app-warning)_12%,var(--app-surface-2))] px-3 py-2 text-left text-[9px] font-semibold uppercase tracking-wide text-app-text">
-                    Walk-in — print and view remain available. Text and email require a customer on file.
+                    Walk-in — print and view remain available. Text and email
+                    require a customer on file.
                   </p>
                 )}
 
                 {reviewInviteEligible ? (
-                  <section className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-app-border bg-app-surface-2 p-3" aria-label="Review request">
+                  <section
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-app-border bg-app-surface-2 p-3"
+                    aria-label="Review request"
+                  >
                     <div className="min-w-0 flex-1">
-                      <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Review request</p>
-                      <p className="mt-0.5 text-[9px] font-semibold text-app-text-muted">Eligible after this completed handoff; at most once per 180 days.</p>
+                      <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                        Review request
+                      </p>
+                      <p className="mt-0.5 text-[9px] font-semibold text-app-text-muted">
+                        Eligible after this completed handoff; at most once per
+                        180 days.
+                      </p>
                     </div>
                     <div className="flex shrink-0 gap-1.5">
                       <button
@@ -1506,11 +1669,13 @@ export default function ReceiptSummaryModal({
                       </button>
                     </div>
                   </section>
-                ) : transactionDetail?.customer_review_requests_opt_out === true ? (
+                ) : transactionDetail?.customer_review_requests_opt_out ===
+                  true ? (
                   <p className="rounded-xl border border-app-warning/20 bg-app-warning/5 px-3 py-2 text-[9px] font-semibold uppercase tracking-wide text-app-warning">
                     This customer has opted out of review requests.
                   </p>
-                ) : transactionDetail?.review_invite_sent_at || transactionDetail?.review_invite_suppressed_at ? (
+                ) : transactionDetail?.review_invite_sent_at ||
+                  transactionDetail?.review_invite_suppressed_at ? (
                   <p className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-2 text-[9px] font-semibold uppercase tracking-wide text-app-text-muted">
                     Review invite choice already saved for this transaction.
                   </p>
@@ -1549,9 +1714,13 @@ export default function ReceiptSummaryModal({
                 ) : (
                   <>
                     <div className="flex flex-col text-left">
-                      <span className="text-[8px] font-black uppercase tracking-widest text-white/80">Next guest</span>
+                      <span className="text-[8px] font-black uppercase tracking-widest text-white/80">
+                        Next guest
+                      </span>
                       <span className="text-sm font-black tracking-tight">
-                        {reviewInviteSaving ? "Saving review preference…" : "Begin new sale"}
+                        {reviewInviteSaving
+                          ? "Saving review preference…"
+                          : "Begin new sale"}
                       </span>
                     </div>
                     <div className="flex h-9 w-9 items-center justify-center rounded-full bg-app-surface text-app-accent shadow-lg transition-transform group-hover:translate-x-0.5">
@@ -1566,9 +1735,7 @@ export default function ReceiptSummaryModal({
       </div>
 
       {giftDialogOpen ? (
-        <div
-          className="ui-overlay-backdrop !z-[220] items-end justify-center p-0 sm:items-center sm:p-4"
-        >
+        <div className="ui-overlay-backdrop !z-[220] items-end justify-center p-0 sm:items-center sm:p-4">
           <div
             className="w-full max-w-none overflow-hidden rounded-t-3xl border border-app-border bg-app-surface text-app-text shadow-2xl sm:max-w-2xl sm:rounded-3xl"
             role="dialog"
@@ -1584,7 +1751,10 @@ export default function ReceiptSummaryModal({
                   <p className="text-[10px] font-black uppercase tracking-widest text-violet-700 dark:text-violet-300">
                     Gift receipt
                   </p>
-                  <h3 id="gift-receipt-dialog-title" className="text-lg font-black tracking-tight">
+                  <h3
+                    id="gift-receipt-dialog-title"
+                    className="text-lg font-black tracking-tight"
+                  >
                     Choose lines and delivery
                   </h3>
                 </div>
@@ -1606,7 +1776,9 @@ export default function ReceiptSummaryModal({
                       <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-app-border bg-app-surface-2 px-3 py-3 touch-manipulation">
                         <input
                           type="checkbox"
-                          checked={giftLinePick[it.transaction_line_id] !== false}
+                          checked={
+                            giftLinePick[it.transaction_line_id] !== false
+                          }
                           onChange={(e) =>
                             setGiftLinePick((p) => ({
                               ...p,
@@ -1623,7 +1795,8 @@ export default function ReceiptSummaryModal({
                           </span>
                           {it.gift_card_load_code ? (
                             <span className="mt-1 block text-[10px] font-semibold text-violet-700 dark:text-violet-300">
-                              Gift card {maskGiftCardCode(it.gift_card_load_code)}
+                              Gift card{" "}
+                              {maskGiftCardCode(it.gift_card_load_code)}
                             </span>
                           ) : null}
                         </span>
@@ -1633,12 +1806,14 @@ export default function ReceiptSummaryModal({
                 </ul>
               ) : (
                 <p className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-3 text-sm font-semibold text-app-text-muted">
-                  Line items are not shown here. Gift receipts still include every item from this sale.
+                  Line items are not shown here. Gift receipts still include
+                  every item from this sale.
                 </p>
               )}
               {cust ? (
                 <p className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-2 text-[10px] font-semibold text-app-text-muted">
-                  Text and email use the phone/email currently shown on this receipt screen.
+                  Text and email use the phone/email currently shown on this
+                  receipt screen.
                 </p>
               ) : null}
               <div className="grid gap-2 sm:grid-cols-3">
@@ -1676,9 +1851,7 @@ export default function ReceiptSummaryModal({
       ) : null}
 
       {receiptPreviewOpen ? (
-        <div
-          className="ui-overlay-backdrop !z-[220] items-end justify-center p-0 sm:items-center sm:p-4"
-        >
+        <div className="ui-overlay-backdrop !z-[220] items-end justify-center p-0 sm:items-center sm:p-4">
           <div
             className="flex max-h-[96dvh] w-full max-w-none flex-col overflow-hidden rounded-t-3xl border border-app-border bg-app-surface text-app-text shadow-2xl sm:max-h-[88dvh] sm:max-w-4xl sm:rounded-3xl"
             role="dialog"
@@ -1690,8 +1863,13 @@ export default function ReceiptSummaryModal({
                 <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                   Receipt preview
                 </p>
-                <h3 id="receipt-preview-dialog-title" className="text-lg font-black tracking-tight">
-                  Transaction #{transactionDetail?.transaction_display_id ?? transactionDisplayFallback(transactionId)}
+                <h3
+                  id="receipt-preview-dialog-title"
+                  className="text-lg font-black tracking-tight"
+                >
+                  Transaction #
+                  {transactionDetail?.transaction_display_id ??
+                    transactionDisplayFallback(transactionId)}
                 </h3>
               </div>
               <button
@@ -1748,7 +1926,9 @@ export default function ReceiptSummaryModal({
                   Reports printer
                 </button>
                 <p className="text-[10px] font-semibold leading-relaxed text-app-text-muted">
-                  Receipt printer sends to the station thermal printer. Reports printer opens the formatted receipt for the workstation report printer.
+                  Receipt printer sends to the station thermal printer. Reports
+                  printer opens the formatted receipt for the workstation report
+                  printer.
                 </p>
               </div>
             </div>

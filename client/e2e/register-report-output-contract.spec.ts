@@ -168,10 +168,8 @@ test.describe("Register report output integrity contracts", () => {
     expect(reportPrintSource).toContain("Alterations:");
   });
 
-  test("combined checkout payments remain visible at allocation level", () => {
-    expect(registerDayServerSource).toContain(
-      '"Payment on Order".to_string()',
-    );
+  test("combined checkout payments stay on one sale activity", () => {
+    expect(registerDayServerSource).toContain('"Payment on Order".to_string()');
     expect(registerDayServerSource).toContain(
       "subtitle: p.target_display_id.clone()",
     );
@@ -181,6 +179,10 @@ test.describe("Register report output integrity contracts", () => {
     expect(registerDayServerSource).toContain(
       "short_id: p.receipt_display_id.or(p.target_display_id)",
     );
+    expect(registerDayServerSource).toContain("merge_order_payment_into_sale(");
+    expect(registerDayServerSource).toContain(
+      "payment_applications: Vec::new()",
+    );
     expect(registerReportsSource).toContain(
       "normalizeActivityId(row.receipt_transaction_id)",
     );
@@ -188,15 +190,16 @@ test.describe("Register report output integrity contracts", () => {
       "activityReceiptTransactionId(row)",
     );
     expect(registerReportsSource).toContain('"Payment Applied Today"');
-    expect(registerReportsSource).toContain(
-      '{row.kind !== "payment" ? (',
-    );
+    expect(registerReportsSource).toContain('"Total Paid Today"');
+    expect(registerReportsSource).toContain("row.payment_applications?.map(");
+    expect(registerReportsSource).toContain('{row.kind !== "payment" ? (');
     expect(registerReportsSource).toContain("Payment on Order");
     expect(reportPrintSource).toContain(
       'row.kind === "payment" ? "Payment Details" : "Line Items"',
     );
     expect(reportPrintSource).toContain("Payment on Order");
     expect(reportPrintSource).toContain("Payment Applied Today");
+    expect(reportPrintSource).toContain("Total Paid Today");
     expect(reportPrintSource).toContain("Remaining Balance");
     expect(registerDayServerSource).not.toContain(
       "pa_same_day_sale.transaction_id = pt.id",
