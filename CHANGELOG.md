@@ -17,7 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   PostgreSQL search fallback and disables its daily Meilisearch rebuild worker.
   Resetting the sparsely seeded E2E database can no longer replace shared
   development or production indexes with empty or fixture-sized data, and the
-  release gate preserves this boundary.
+  release gate preserves this boundary. GitHub Playwright lanes explicitly
+  authorize destructive Register cleanup only inside their disposable
+  PostgreSQL service databases.
 - **Main Hub Migration 159 Update Compatibility**: Restored the canonical
   migration file byte-for-byte to the checksum already recorded on the Main
   Hub. The failed updater correctly rolled back before applying changes; the

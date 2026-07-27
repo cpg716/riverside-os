@@ -112,6 +112,14 @@ assertIncludes(
   'export RIVERSIDE_MEILISEARCH_DAILY_REINDEX_ENABLED="0"',
   "the isolated E2E server must not start the shared daily reindex worker",
 );
+const playwrightWorkflow = read(".github/workflows/playwright-e2e.yml");
+if (
+  playwrightWorkflow.split('E2E_ALLOW_REGISTER_RESET: "1"').length - 1 < 2
+) {
+  fail(
+    ".github/workflows/playwright-e2e.yml: every isolated Playwright lane must explicitly authorize register cleanup",
+  );
+}
 
 const managerApp = "deployment/manager-app/src/App.tsx";
 assertNotIncludes(
