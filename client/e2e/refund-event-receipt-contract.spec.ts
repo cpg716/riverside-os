@@ -25,6 +25,7 @@ const registerReports = repoFile(
 const transactionDetailDrawer = repoFile(
   "client/src/components/orders/TransactionDetailDrawer.tsx",
 );
+const transactionsApi = repoFile("server/src/api/transactions.rs");
 const customerRelationshipHub = repoFile(
   "client/src/components/customers/CustomerRelationshipHubDrawer.tsx",
 );
@@ -57,6 +58,12 @@ test("paid order cancellation hands the refund directly back to the Register", (
   );
   expect(cart).toContain(
     "Select Original Card to complete the Helcim refund.",
+  );
+  expect(transactionsApi).toContain(
+    "event_kind IN ('exchange_settled', 'refund_processed')",
+  );
+  expect(transactionsApi).toContain(
+    "cancelled_refund_receipt_rows(original_detail, refund_total, created_at)",
   );
 });
 

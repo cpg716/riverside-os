@@ -824,6 +824,28 @@ mod tests {
     use super::*;
 
     #[test]
+    fn cancelled_refund_receipt_uses_original_merchandise_and_exact_credit() {
+        let mut detail = sample_transaction_detail(vec![sample_item(1, 0)]);
+        detail.status = DbOrderStatus::Cancelled;
+        let event_time = Utc::now();
+
+        let rows = cancelled_refund_receipt_rows(&detail, Decimal::new(28_275, 2), event_time)
+            .expect("cancelled refund receipt rows");
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(
+            rows[0].transaction_line_id,
+            detail.items[0].transaction_line_id
+        );
+        assert_eq!(rows[0].quantity_returned, 1);
+        assert_eq!(rows[0].refund_total, Decimal::new(28_275, 2));
+        assert_eq!(
+            rows[0].refund_subtotal + rows[0].refund_state_tax + rows[0].refund_local_tax,
+            rows[0].refund_total,
+        );
+    }
+
+    #[test]
     fn cancelled_transaction_refundable_credit_uses_amount_paid() {
         let amount_paid = Decimal::new(28_275, 2);
 
@@ -2601,6 +2623,70 @@ struct ReceiptEventPaymentRow {
     card_last4: Option<String>,
 }
 
+fn cancelled_refund_receipt_rows(
+    original_detail: &TransactionDetailResponse,
+    refund_total: Decimal,
+    created_at: DateTime<Utc>,
+) -> Result<Vec<ReceiptEventReturnRow>, TransactionError> {
+    let refundable_items = original_detail
+        .items
+        .iter()
+        .filter(|item| !item.is_internal && item.quantity > 0)
+        .collect::<Vec<_>>();
+    let source_total = refundable_items.iter().fold(Decimal::ZERO, |sum, item| {
+        sum + (item.unit_price + item.state_tax + item.local_tax) * Decimal::from(item.quantity)
+    });
+    if refundable_items.is_empty() || source_total <= Decimal::ZERO || refund_total <= Decimal::ZERO
+    {
+        return Err(TransactionError::InvalidPayload(
+            "No original merchandise values were found for this cancelled refund receipt."
+                .to_string(),
+        ));
+    }
+
+    let mut allocated_total = Decimal::ZERO;
+    let last_index = refundable_items.len() - 1;
+    Ok(refundable_items
+        .into_iter()
+        .enumerate()
+        .map(|(index, item)| {
+            let quantity = Decimal::from(item.quantity);
+            let line_subtotal = item.unit_price * quantity;
+            let line_state_tax = item.state_tax * quantity;
+            let line_local_tax = item.local_tax * quantity;
+            let line_total = line_subtotal + line_state_tax + line_local_tax;
+            let line_credit = if index == last_index {
+                refund_total - allocated_total
+            } else {
+                (refund_total * line_total / source_total).round_dp(2)
+            };
+            allocated_total += line_credit;
+            let line_tax = line_state_tax + line_local_tax;
+            let tax_credit = if line_total > Decimal::ZERO {
+                (line_credit * line_tax / line_total).round_dp(2)
+            } else {
+                Decimal::ZERO
+            };
+            let state_tax_credit = if line_tax > Decimal::ZERO {
+                (tax_credit * line_state_tax / line_tax).round_dp(2)
+            } else {
+                Decimal::ZERO
+            };
+            let local_tax_credit = tax_credit - state_tax_credit;
+
+            ReceiptEventReturnRow {
+                transaction_line_id: item.transaction_line_id,
+                quantity_returned: item.quantity,
+                refund_subtotal: line_credit - tax_credit,
+                refund_state_tax: state_tax_credit,
+                refund_local_tax: local_tax_credit,
+                refund_total: line_credit,
+                created_at,
+            }
+        })
+        .collect())
+}
+
 async fn build_refund_event_receipt_order(
     state: &AppState,
     headers: &HeaderMap,
@@ -2608,7 +2694,7 @@ async fn build_refund_event_receipt_order(
     original_detail: &TransactionDetailResponse,
     refund_event_id: Uuid,
 ) -> Result<receipt_shared::ReceiptOrder, TransactionError> {
-    let return_rows: Vec<ReceiptEventReturnRow> = sqlx::query_as(
+    let mut return_rows: Vec<ReceiptEventReturnRow> = sqlx::query_as(
         r#"
         SELECT
             trl.transaction_line_id,
@@ -2641,6 +2727,28 @@ async fn build_refund_event_receipt_order(
     .bind(refund_event_id)
     .fetch_all(&state.db)
     .await?;
+    if return_rows.is_empty() && original_detail.status == DbOrderStatus::Cancelled {
+        let refund_activity: Option<(Decimal, DateTime<Utc>)> = sqlx::query_as(
+            r#"
+            SELECT
+                NULLIF(metadata->>'amount', '')::numeric(14,2),
+                created_at
+            FROM transaction_activity_log
+            WHERE transaction_id = $1
+              AND event_kind = 'refund_processed'
+              AND metadata->>'refund_event_id' = $2
+            ORDER BY created_at DESC, id DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(original_detail.transaction_id)
+        .bind(refund_event_id.to_string())
+        .fetch_optional(&state.db)
+        .await?;
+        if let Some((refund_total, created_at)) = refund_activity {
+            return_rows = cancelled_refund_receipt_rows(original_detail, refund_total, created_at)?;
+        }
+    }
     if return_rows.is_empty() {
         return Err(TransactionError::InvalidPayload(
             "No returned items were found for this receipt event.".to_string(),
@@ -11423,7 +11531,7 @@ pub(crate) async fn load_transaction_detail(
             ) AS receipt_event_transaction_id
         FROM transaction_activity_log
         WHERE transaction_id = $1
-          AND event_kind = 'exchange_settled'
+          AND event_kind IN ('exchange_settled', 'refund_processed')
           AND NULLIF(metadata->>'refund_event_id', '') IS NOT NULL
         ORDER BY created_at DESC, id DESC
         LIMIT 1
