@@ -1262,21 +1262,16 @@ async fn fetch_register_day_summary_page_on_connection(
     let alterations_sql = format!(
         r#"
         SELECT COALESCE(SUM(
-            GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0)::numeric * oi.unit_price
+            GREATEST(oi.quantity, 0)::numeric * oi.unit_price
         ), 0)::numeric(14,2)
         FROM transactions o
         INNER JOIN transaction_lines oi ON oi.transaction_id = o.id
         LEFT JOIN products p ON p.id = oi.product_id
-        LEFT JOIN (
-            SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
-            FROM transaction_return_lines
-            GROUP BY transaction_line_id
-        ) orl ON orl.transaction_line_id = oi.id
         WHERE {order_in_range}
           AND COALESCE(oi.is_internal, false) = FALSE
           AND (
               p.pos_line_kind = 'alteration_service'
-              OR oi.custom_item_type = 'alteration_service'
+              OR oi.custom_item_type IN ('alteration_service', 'alteration_fee')
           )
         {order_session_filter}
         "#,
@@ -1287,6 +1282,32 @@ async fn fetch_register_day_summary_page_on_connection(
         .bind(register_session_id)
         .fetch_one(&mut *connection)
         .await?;
+    let alteration_return_adjustments: (Decimal,) = sqlx::query_as(
+        r#"
+        SELECT COALESCE(SUM(COALESCE(
+            trl.refund_subtotal,
+            tl.unit_price * trl.quantity_returned
+        )), 0)::numeric(14,2)
+        FROM transaction_return_lines trl
+        INNER JOIN transaction_lines tl ON tl.id = trl.transaction_line_id
+        LEFT JOIN products p ON p.id = tl.product_id
+        WHERE trl.created_at >= $1
+          AND trl.created_at < $2
+          AND ($3::uuid IS NULL OR trl.register_session_id = $3)
+          AND COALESCE(tl.is_internal, false) = FALSE
+          AND (
+              p.pos_line_kind = 'alteration_service'
+              OR tl.custom_item_type IN ('alteration_service', 'alteration_fee')
+          )
+        "#,
+    )
+    .bind(start_utc)
+    .bind(end_utc)
+    .bind(register_session_id)
+    .fetch_one(&mut *connection)
+    .await?;
+    let alterations_net_total = alterations_total.0 - alteration_return_adjustments.0;
+    let reported_subtotal = subtotal + alterations_net_total;
 
     let gift_card_sql = format!(
         r#"
@@ -2775,7 +2796,7 @@ async fn fetch_register_day_summary_page_on_connection(
         from_eod_snapshot: false,
         reporting_basis: basis.as_str().to_string(),
         sales_count,
-        sales_subtotal_no_tax: money_label(subtotal),
+        sales_subtotal_no_tax: money_label(reported_subtotal),
         sales_tax_total: money_label(tax_total),
         avg_sale_no_tax: money_label(avg),
         online_order_count,
@@ -2786,9 +2807,9 @@ async fn fetch_register_day_summary_page_on_connection(
         new_wedding_parties_count,
         new_invoice_count,
         merchant_fees_total: money_label(merchant_fees),
-        net_sales: money_label(subtotal),
+        net_sales: money_label(reported_subtotal),
         shipping_total: money_label(shipping_total.0),
-        alterations_total: money_label(alterations_total.0),
+        alterations_total: money_label(alterations_net_total),
         gift_card_load_count: gift_card_totals.0,
         gift_card_load_total: money_label(gift_card_totals.1),
         cash_collected: money_label(cash_collected),

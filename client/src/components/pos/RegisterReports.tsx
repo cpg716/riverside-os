@@ -588,7 +588,6 @@ function activitySubtotalBeforeTaxCents(
     .filter(
       (item) =>
         !item.is_internal &&
-        item.line_kind !== "alteration_service" &&
         item.line_kind !== "shipping_service",
     )
     .reduce(
@@ -601,9 +600,7 @@ function activitySubtotalBeforeTaxCents(
     row.transaction_total ?? row.sales_total ?? "0",
   );
   const taxCents = parseMoneyToCents(row.tax_total ?? "0");
-  const serviceCents =
-    parseMoneyToCents(row.shipping_total ?? "0") +
-    parseMoneyToCents(row.alterations_total ?? "0");
+  const serviceCents = parseMoneyToCents(row.shipping_total ?? "0");
   return grossCents - taxCents - serviceCents;
 }
 
@@ -620,6 +617,7 @@ function isCreditCardTender(method: string): boolean {
   const tender = method.toLowerCase().replace(/[^a-z0-9]/g, "");
   return new Set([
     "card",
+    "cardpresent",
     "cardterminal",
     "cardreader",
     "cardmanual",

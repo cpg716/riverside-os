@@ -125,7 +125,7 @@ test.describe("Register report output integrity contracts", () => {
     expect(registerReportsSource).not.toContain("summary.amount_label");
   });
 
-  test("services stay visible without inflating Daily Sales totals", () => {
+  test("service reporting includes alterations in subtotal without inflating sales metrics", () => {
     expect(registerDayServerSource).toContain(
       '"(be.line_subtotal + be.line_tax)::numeric(14,2)"',
     );
@@ -160,6 +160,29 @@ test.describe("Register report output integrity contracts", () => {
     );
     expect(registerReportsSource).toContain('"Shipping"');
     expect(registerReportsSource).toContain('"Alterations"');
+    expect(registerReportsSource).toContain('"cardpresent"');
+    expect(registerDayServerSource).toContain(
+      "let alterations_net_total = alterations_total.0 - alteration_return_adjustments.0;",
+    );
+    expect(registerDayServerSource).toContain(
+      "let reported_subtotal = subtotal + alterations_net_total;",
+    );
+    expect(registerDayServerSource).toContain(
+      "sales_subtotal_no_tax: money_label(reported_subtotal)",
+    );
+    expect(registerDayServerSource).toContain(
+      "net_sales: money_label(reported_subtotal)",
+    );
+    const subtotalHelper = registerReportsSource.slice(
+      registerReportsSource.indexOf("function activitySubtotalBeforeTaxCents"),
+      registerReportsSource.indexOf("function moneyFromCents"),
+    );
+    expect(subtotalHelper).not.toContain(
+      'item.line_kind !== "alteration_service"',
+    );
+    expect(subtotalHelper).not.toContain(
+      "parseMoneyToCents(row.alterations_total",
+    );
     expect(sessionsServerSource).toContain("THEN 'shipping_service'");
     expect(reportPrintSource).toContain(
       'item.line_kind === "shipping_service"',
