@@ -701,8 +701,14 @@ function checkReleaseWiring() {
   );
   assertIncludes(
     launcher,
-    "store_local_hh_mm",
+    "store_local_backup_schedule_context",
     "Backup schedule checks use the configured store-local clock",
+    launcherFile,
+  );
+  assertIncludes(
+    launcher,
+    "EXTRACT(MINUTE FROM CURRENT_TIMESTAMP AT TIME ZONE reporting.effective_store_timezone())",
+    "Backup schedule checks include the configured store-local minute",
     launcherFile,
   );
 }
