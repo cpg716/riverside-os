@@ -7,6 +7,19 @@ use uuid::Uuid;
 use crate::logic::checkout_validate::is_shipping_charge_sku;
 use crate::logic::tax::{erie_local_tax_usd, nys_state_tax_usd, TaxCategory};
 
+fn recalculated_balance_due(
+    is_cancelled: bool,
+    total_price: Decimal,
+    rounding_adjustment: Decimal,
+    amount_paid: Decimal,
+) -> Decimal {
+    if is_cancelled {
+        Decimal::ZERO
+    } else {
+        total_price + rounding_adjustment - amount_paid
+    }
+}
+
 /// Recalculate per-unit tax for an amended open-order line from the price the
 /// customer is actually being charged. Client-supplied or previously stored tax
 /// must not survive a price change.
@@ -42,11 +55,12 @@ pub async fn recalc_transaction_totals(
     tx: &mut Transaction<'_, Postgres>,
     transaction_id: Uuid,
 ) -> Result<(), sqlx::Error> {
-    let (total, amount_paid, rounding_adjustment, _ship): (
+    let (total, amount_paid, rounding_adjustment, _ship, is_cancelled): (
         Option<Decimal>,
         Decimal,
         Decimal,
         Option<Decimal>,
+        bool,
     ) = sqlx::query_as(
         r#"
         SELECT
@@ -56,7 +70,8 @@ pub async fn recalc_transaction_totals(
             ), 0::numeric) + COALESCE(o.shipping_amount_usd, 0)::numeric AS total,
             o.amount_paid,
             COALESCE(o.rounding_adjustment, 0)::numeric AS rounding_adjustment,
-            o.shipping_amount_usd
+            o.shipping_amount_usd,
+            o.status = 'cancelled'::order_status AS is_cancelled
         FROM transactions o
         LEFT JOIN transaction_lines oi ON oi.transaction_id = o.id
         LEFT JOIN (
@@ -65,7 +80,7 @@ pub async fn recalc_transaction_totals(
             GROUP BY transaction_line_id
         ) orl ON orl.transaction_line_id = oi.id
         WHERE o.id = $1
-        GROUP BY o.amount_paid, o.rounding_adjustment, o.shipping_amount_usd
+        GROUP BY o.amount_paid, o.rounding_adjustment, o.shipping_amount_usd, o.status
         "#,
     )
     .bind(transaction_id)
@@ -73,7 +88,8 @@ pub async fn recalc_transaction_totals(
     .await?;
 
     let total_price = total.unwrap_or(Decimal::ZERO);
-    let balance_due = total_price + rounding_adjustment - amount_paid;
+    let balance_due =
+        recalculated_balance_due(is_cancelled, total_price, rounding_adjustment, amount_paid);
 
     sqlx::query(
         r#"
@@ -144,10 +160,22 @@ pub async fn recalc_transaction_totals(
 
 #[cfg(test)]
 mod tests {
-    use super::amended_order_line_tax;
+    use super::{amended_order_line_tax, recalculated_balance_due};
     use crate::logic::tax::TaxCategory;
     use rust_decimal::Decimal;
     use rust_decimal_macros::dec;
+
+    #[test]
+    fn cancelled_transaction_never_reopens_a_customer_balance() {
+        assert_eq!(
+            recalculated_balance_due(true, dec!(282.75), Decimal::ZERO, Decimal::ZERO),
+            Decimal::ZERO,
+        );
+        assert_eq!(
+            recalculated_balance_due(false, dec!(282.75), Decimal::ZERO, Decimal::ZERO),
+            dec!(282.75),
+        );
+    }
 
     #[test]
     fn amended_clothing_line_uses_actual_charged_price_for_threshold_tax() {
