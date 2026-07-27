@@ -55,6 +55,16 @@ test("CNP approval and handoff messages require the exact request, attempt, sale
   expect(handoff).not.toContain("ros_customer_id");
   expect(handoff).not.toContain("ros_checkout_client_id");
   expect(handoff).toContain("postHandoffOutcome(attemptId, \"approved\", saleContext)");
+  expect(handoff).toContain("HELCIM_CONFIRM_RETRY_DELAYS_MS");
+  expect(handoff).toContain("HELCIM_CONFIRM_RETRYABLE_STATUSES");
+  expect(handoff).toContain("Do not run the card again or close this page.");
+  expect(drawer).toContain("\"Waiting for CNP Confirmation\"");
+  expect(drawer).not.toContain("\"Waiting for Keyed Card\"");
+  expect(paymentsWorkspace).toContain("Recover CNP Approval");
+  expect(paymentsWorkspace).toContain(
+    "/api/payments/providers/helcim/terminal/recover-paid-order-payment-from-event",
+  );
+  expect(paymentsWorkspace).toContain("helcim_event_id: source.record.id");
 });
 
 test("an exact approved or pending CNP is handled before a new initialize call", () => {

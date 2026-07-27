@@ -231,6 +231,16 @@ type HelcimTerminalReviewEvent = {
   recovery_actions: HelcimTerminalRecoveryAction[];
 };
 
+type HelcimOrderPaymentRecoverySource =
+  | {
+      kind: "payment_provider_attempt";
+      record: HelcimTerminalReviewAttempt;
+    }
+  | {
+      kind: "helcim_event";
+      record: HelcimTerminalReviewEvent;
+    };
+
 type HelcimTerminalRecoverySourceKind = "payment_provider_attempt" | "helcim_event";
 
 type HelcimTerminalRecoveryActionName =
@@ -1446,18 +1456,23 @@ export default function PaymentsWorkspace({
 
   const recoverPaidOrderPayment = useCallback(
     async (
-      attempt: HelcimTerminalReviewAttempt,
+      source: HelcimOrderPaymentRecoverySource,
       targetTransactionDisplayId: string,
       note: string,
       confirmation: string,
     ) => {
       try {
+        const fromEvent = source.kind === "helcim_event";
         const response = await sendJson<{ target_transaction_display_id: string }>(
-          "/api/payments/providers/helcim/terminal/recover-paid-order-payment",
+          fromEvent
+            ? "/api/payments/providers/helcim/terminal/recover-paid-order-payment-from-event"
+            : "/api/payments/providers/helcim/terminal/recover-paid-order-payment",
           "POST",
           {
             target_transaction_display_id: targetTransactionDisplayId,
-            payment_provider_attempt_id: attempt.id,
+            ...(fromEvent
+              ? { helcim_event_id: source.record.id }
+              : { payment_provider_attempt_id: source.record.id }),
             confirmation,
             note,
           },
@@ -2488,7 +2503,7 @@ function HealthPanel({
     confirmation: string,
   ) => Promise<void>;
   onRecoverPaidOrderPayment: (
-    attempt: HelcimTerminalReviewAttempt,
+    source: HelcimOrderPaymentRecoverySource,
     targetTransactionDisplayId: string,
     note: string,
     confirmation: string,
@@ -2500,9 +2515,9 @@ function HealthPanel({
   const [recoveryNoteAttempt, setRecoveryNoteAttempt] = useState<HelcimTerminalReviewAttempt | null>(null);
   const [recoveryConfirmAttempt, setRecoveryConfirmAttempt] = useState<HelcimTerminalReviewAttempt | null>(null);
   const [recoveryNote, setRecoveryNote] = useState("");
-  const [orderRecoveryAttempt, setOrderRecoveryAttempt] = useState<HelcimTerminalReviewAttempt | null>(null);
-  const [orderRecoveryNoteAttempt, setOrderRecoveryNoteAttempt] = useState<HelcimTerminalReviewAttempt | null>(null);
-  const [orderRecoveryConfirmAttempt, setOrderRecoveryConfirmAttempt] = useState<HelcimTerminalReviewAttempt | null>(null);
+  const [orderRecoverySource, setOrderRecoverySource] = useState<HelcimOrderPaymentRecoverySource | null>(null);
+  const [orderRecoveryNoteSource, setOrderRecoveryNoteSource] = useState<HelcimOrderPaymentRecoverySource | null>(null);
+  const [orderRecoveryConfirmSource, setOrderRecoveryConfirmSource] = useState<HelcimOrderPaymentRecoverySource | null>(null);
   const [orderRecoveryTarget, setOrderRecoveryTarget] = useState("");
   const [orderRecoveryNote, setOrderRecoveryNote] = useState("");
   const unlinkedApprovalCount = terminalReviewAttempts.length + terminalReviewEvents.length;
@@ -2645,9 +2660,9 @@ function HealthPanel({
       <div className="rounded-lg border border-app-border bg-app-surface p-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <h2 className="text-lg font-black text-app-text">Helcim Terminal Review</h2>
+            <h2 className="text-lg font-black text-app-text">Helcim Approval Review</h2>
             <p className="mt-1 text-sm font-semibold text-app-text-muted">
-              Only approved Helcim card purchases or refunds missing from ROS appear here.
+              Approved terminal and Card Not Present payments missing from ROS appear here.
             </p>
           </div>
           <StatusPill value={unlinkedApprovalCount > 0 ? "Needs Review" : "Clear"} />
@@ -2703,7 +2718,12 @@ function HealthPanel({
                           <button
                             type="button"
                             className="mt-3 rounded-lg border border-app-accent px-3 py-2 text-sm font-black text-app-accent"
-                            onClick={() => setOrderRecoveryAttempt(attempt)}
+                            onClick={() =>
+                              setOrderRecoverySource({
+                                kind: "payment_provider_attempt",
+                                record: attempt,
+                              })
+                            }
                           >
                             Recover Order Payment
                           </button>
@@ -2743,6 +2763,26 @@ function HealthPanel({
                         <StatusPill value={event.processing_status} />
                       </div>
                       <p className="mt-3 text-sm font-semibold text-app-text-muted">{event.detail}</p>
+                      {canRecoveryResolve ? (
+                        <div className="mt-3 rounded-lg border border-app-border bg-app-surface p-3">
+                          <div className="text-sm font-black text-app-text">CNP approval for an existing order?</div>
+                          <div className="mt-1 text-xs font-semibold text-app-text-muted">
+                            Confirm the Helcim approval, amount, customer, and exact open Transaction Record before recovery.
+                          </div>
+                          <button
+                            type="button"
+                            className="mt-3 rounded-lg border border-app-accent px-3 py-2 text-sm font-black text-app-accent"
+                            onClick={() =>
+                              setOrderRecoverySource({
+                                kind: "helcim_event",
+                                record: event,
+                              })
+                            }
+                          >
+                            Recover CNP Approval
+                          </button>
+                        </div>
+                      ) : null}
                       <div className="mt-3 grid gap-2 text-xs font-semibold text-app-text-muted sm:grid-cols-2">
                         <span>Provider transaction {event.provider_transaction_id ?? "Not attached"}</span>
                         <span>Match {event.match_type ?? "none"}</span>
@@ -2902,28 +2942,28 @@ function HealthPanel({
         confirmLabel="Recover and Link"
       />
       <PromptModal
-        isOpen={orderRecoveryAttempt !== null}
-        onClose={() => setOrderRecoveryAttempt(null)}
+        isOpen={orderRecoverySource !== null}
+        onClose={() => setOrderRecoverySource(null)}
         onSubmit={(value) => {
           const target = value.trim().toUpperCase();
-          if (!/^TXN-\d+$/.test(target) || !orderRecoveryAttempt) return false;
+          if (!/^TXN-\d+$/.test(target) || !orderRecoverySource) return false;
           setOrderRecoveryTarget(target);
-          setOrderRecoveryNoteAttempt(orderRecoveryAttempt);
+          setOrderRecoveryNoteSource(orderRecoverySource);
           return true;
         }}
         title="Target Transaction Record"
-        message="Enter the exact open Transaction Record that should receive this approved Helcim payment. Confirm the terminal receipt, amount, and customer first."
+        message="Enter the exact open Transaction Record that should receive this approved Helcim payment. Confirm the Helcim approval, amount, and customer first."
         placeholder="TXN-######"
         confirmLabel="Continue"
       />
       <PromptModal
-        isOpen={orderRecoveryNoteAttempt !== null}
-        onClose={() => setOrderRecoveryNoteAttempt(null)}
+        isOpen={orderRecoveryNoteSource !== null}
+        onClose={() => setOrderRecoveryNoteSource(null)}
         onSubmit={(value) => {
           const trimmed = value.trim();
-          if (trimmed.length < 10 || !orderRecoveryNoteAttempt) return false;
+          if (trimmed.length < 10 || !orderRecoveryNoteSource) return false;
           setOrderRecoveryNote(trimmed);
-          setOrderRecoveryConfirmAttempt(orderRecoveryNoteAttempt);
+          setOrderRecoveryConfirmSource(orderRecoveryNoteSource);
           return true;
         }}
         title="Order Payment Recovery Note"
@@ -2932,17 +2972,17 @@ function HealthPanel({
         confirmLabel="Continue"
       />
       <PromptModal
-        isOpen={orderRecoveryConfirmAttempt !== null}
-        onClose={() => setOrderRecoveryConfirmAttempt(null)}
+        isOpen={orderRecoveryConfirmSource !== null}
+        onClose={() => setOrderRecoveryConfirmSource(null)}
         onSubmit={async (value) => {
           if (
             value.trim() !== "RECOVER ORDER PAYMENT" ||
-            !orderRecoveryConfirmAttempt
+            !orderRecoveryConfirmSource
           ) {
             return false;
           }
           await onRecoverPaidOrderPayment(
-            orderRecoveryConfirmAttempt,
+            orderRecoveryConfirmSource,
             orderRecoveryTarget,
             orderRecoveryNote,
             value.trim(),

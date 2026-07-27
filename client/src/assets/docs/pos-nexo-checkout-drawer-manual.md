@@ -94,6 +94,13 @@ While cash rounding is off, **Full balance** loads the exact-cent amount for eve
 
 The amount keypad is sized for register use while keeping the payment status, sale summary, and balance due visible. Any instructions for the selected tender should remain visible below the keypad without needing to scroll.
 
+Card Not Present approval does not use a physical terminal or keypad. After
+Helcim approves the card, ROS automatically retries a temporary ledger
+connection failure while the secure approval page remains open. **Do not run
+the card again or close that page** while ROS shows **Waiting for CNP
+Confirmation**. If confirmation still cannot complete, use Payments Health to
+review and attach or refund the exact provider transaction.
+
 ## Completing the sale
 
 The **Record Sale** button stays unavailable until the payment rules are satisfied and every Helcim request has a confirmed final outcome. After completion, Riverside OS opens the sale complete screen with print, view, text, email, and gift receipt actions. Receipts for returns and exchanges include the returned item as a returned/exchanged adjustment; exchange receipts also include the replacement item.

@@ -321,7 +321,9 @@ function helcimAttemptStatusLabel(attempt: HelcimAttempt): string {
   const { status } = attempt;
   if (status === "pending") {
     if (isHelcimCardRefundAttempt(attempt)) return "Waiting for Refund";
-    return isHostedManualHelcimAttempt(attempt) ? "Waiting for Keyed Card" : "Waiting for Card";
+    return isHostedManualHelcimAttempt(attempt)
+      ? "Waiting for CNP Confirmation"
+      : "Waiting for Card";
   }
   if (status === "approved" || status === "captured") return "Approved";
   if (status === "failed") return "Declined";

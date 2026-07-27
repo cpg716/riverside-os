@@ -11,6 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Faster Fail-Closed Windows Releases**: Same-tag Windows release reruns now cancel the superseded workflow instead of waiting behind assets that cannot be published. Signed component compilation overlaps the pre-retag gate, while package publication still requires both that gate and exact-commit Playwright success. Independent Rust caches now retain Riverside workspace-crate outputs so restored caches can accelerate repeat builds instead of preserving dependencies only. The release-contract validator normalizes Windows CRLF checkouts before evaluating workflow structure.
 
 ### Fixed
+- **Cancelled and Fully Refunded Order Balance Integrity**: Cancelling a paid
+  order now returns its exact negative merchandise to the Register for the
+  linked Helcim refund, preserves the approved refund event for receipt
+  reprinting, and never reopens a customer balance after settlement. Existing
+  cancelled or fulfilled Transaction Records with a closed, fully completed
+  refund obligation are repaired to `$0.00` balance due; partial returns and
+  exchanges retain only their legitimate unsettled remainder.
+- **Card Not Present Confirmation Recovery**: After hosted Helcim approval, the
+  secure handoff retries temporary ROS ledger connection failures without
+  asking staff to run the card again. Payments Health now reviews both terminal
+  attempts and hosted Card Not Present events and can attach an exact approved
+  provider event to an existing open Transaction Record through the audited
+  order-payment recovery flow.
 - **Takeaway Receipt and Add-Customer Overlay Regression**: Fully paid takeaway sales no longer inherit the pickup/payment-history receipt layout merely because their Transaction Record is fulfilled; pickup formatting now requires explicit picked-up line evidence or payment-on-order work. Opening Add Customer now closes the portaled Register search results instead of layering register controls over the customer form, and payment-on-order receipts and reports prefer the public fulfillment or imported Order number over both internal Counterpoint composite references and the fallback ROS Transaction number.
 - **Truthful Payment-Event Receipts and Register Reporting**: Combined and payment-only checkouts now preserve the payment receipt Transaction Record separately from the older order receiving the money. Daily Sales and Z-Reports show **Payment on Order** with the public target Order/Transaction number, payment receipt number, amount, tender, and remaining balance; Receipt reprints the payment event while Detail opens the target order. Customer receipts no longer expose internal allocation keys or repeat cash tender/change per allocation, and Shipping/Alterations remain visible service revenue without inflating merchandise Sales by Hour, Sales Total, sales count, or average sale.
 - **Combined Checkout Receipt and Report Reconciliation**: A checkout containing new takeaway merchandise plus a payment on an existing Order now appears as one Daily Sales and Z-Report transaction. Its receipt separates merchandise from **Payment on Order**, labels the full tender as **Total charged today**, and reconciles that total exactly; payment-only receipts no longer render a false **Taken Today** section or duplicate the payment as merchandise. A standalone RMS account collection remains an RMS payment receipt unless it carries an actual existing-Order allocation.

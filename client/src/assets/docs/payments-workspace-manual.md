@@ -70,7 +70,7 @@ Creating a manual deposit or accepting a variance is an audited manager/bookkeep
 
 1. Open **Transactions**, set the needed date range, and search by customer, `TXN-` number, provider transaction, batch, or payment method. Select **Apply** to search the complete period.
 2. Follow the Transaction number to the financial record when one is linked.
-3. An approved **Card Not Present** payment that lost its checkout attachment appears as **Unlinked** / **Missing ROS TXN**. Do not charge the card again; finish the retained checkout or use the audited recovery workflow in **Health → Helcim Terminal Review**.
+3. An approved **Card Not Present** payment that lost its checkout attachment appears as **Unlinked** / **Missing ROS TXN**. Do not charge the card again; finish the retained checkout or use the audited recovery workflow in **Health → Helcim Approval Review**.
 4. Open **Health** for terminal, automatic processor update, sync, provider-reference, and failed-update evidence.
 5. Replay only the stored failed update after its configuration or data problem is corrected.
 6. Confirm the replay attached existing provider evidence rather than creating a second charge.
@@ -79,7 +79,7 @@ Creating a manual deposit or accepting a variance is an audited manager/bookkeep
 
 ## Recover an approved card sale from a retained cart
 
-Use this only when **Health → Helcim Terminal Review** shows an approved charge and an **Exact retained cart found** card.
+Use this only when **Health → Helcim Approval Review** shows an approved charge and an **Exact retained cart found** card.
 
 1. Confirm the customer, parked-sale label, amount, Register number, provider transaction, and approval time all describe the same sale.
 2. Select **Recover Paid Sale**. This action requires payment-resolution access and Manager Access.
@@ -96,16 +96,16 @@ ROS refuses recovery when the retained cart is missing or ambiguous, the cart to
 2. Keep the checkout open while the card is entered. The hosted page returns the approval and provider transaction to the same checkout using its signed response. Riverside accepts it only for the exact handoff request, provider attempt, checkout, customer, and amount.
 3. Review the approval details in the Riverside handoff screen and select **Add Payment to Sale**. This posts the approved amount to the checkout ledger and enables **Record Sale**.
 4. If the handoff is interrupted, use **Recover Payment** or **Check Status** from the same checkout. These actions reuse the existing Helcim approval and are safe to repeat; they do not create a second charge.
-5. If the payment was approved but cannot be attached, stop retrying the card and use **Health → Helcim Terminal Review** to recover it to the exact retained checkout or target Transaction Record.
+5. If the payment was approved but cannot be attached, stop retrying the card and use **Health → Helcim Approval Review** to recover it to the exact retained checkout or target Transaction Record.
 
 The Card Not Present flow must never be routed to a physical terminal. A successful approval is not complete in Riverside until the payment appears in the checkout ledger and the resulting Transaction Record shows the Helcim provider reference. After the approval is attached—or provider recovery proves a definitive decline/cancel—completing or clearing the sale resets the hosted handoff. An unresolved result keeps the sale locked and visible in Payments Health.
 
 ## Recover an approved card payment onto an existing order
 
-Use this only when the customer has an open Transaction Record, Helcim approved the payment, and no retained-cart match exists.
+Use this only when the customer has an open Transaction Record, Helcim approved the payment, and no retained-cart match exists. The same audited recovery is available for a terminal attempt or a hosted Card Not Present provider event.
 
-1. Compare the terminal receipt, customer, amount, approval time, and provider transaction in **Health → Helcim Terminal Review**.
-2. Select **Recover Order Payment** on the exact approved terminal attempt.
+1. Compare the Helcim approval, customer, amount, approval time, and provider transaction in **Health → Helcim Approval Review**.
+2. Select **Recover Order Payment** on the exact approved terminal attempt, or **Recover CNP Approval** on the exact Card Not Present provider event.
 3. Enter the open target Transaction Record, such as `TXN-624363`.
 4. Enter a specific recovery note explaining why the approved payment was not recorded.
 5. Type **RECOVER ORDER PAYMENT** to authorize the financial recovery.

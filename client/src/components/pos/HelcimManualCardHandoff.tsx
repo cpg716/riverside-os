@@ -36,6 +36,18 @@ interface ApprovedHelcimAttempt {
 const HELCIM_DOMAIN_ERROR_MESSAGE =
   "Helcim secure card entry could not open. Confirm ros.riversidemens.com is added to the Helcim API Access Configuration for this API token.";
 const HELCIM_IFRAME_DIAGNOSTIC_MS = 6000;
+const HELCIM_CONFIRM_RETRY_DELAYS_MS = [0, 1000, 2500, 5000] as const;
+const HELCIM_CONFIRM_RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
+
+class HelcimConfirmationError extends Error {
+  constructor(
+    message: string,
+    readonly retryable: boolean,
+  ) {
+    super(message);
+    this.name = "HelcimConfirmationError";
+  }
+}
 
 function logHelcimDiagnostic(message: string, details?: Record<string, unknown>) {
   console.info("[ROS HelcimPay]", message, {
@@ -193,28 +205,49 @@ export default function HelcimManualCardHandoff() {
       setState("loading");
       setMessage("Attaching the approved Helcim payment to ROS...");
       try {
-        const res = await fetch(
-          `${baseUrl}/api/payments/providers/helcim/helcim-pay/public-confirm`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              attempt_id: attemptId,
-              checkout_token: checkoutToken,
-              data: payload.data,
-              hash: payload.hash,
-              raw_data: payload.rawData,
-            }),
-          },
-        );
-        const body = (await res.json().catch(() => ({}))) as ApprovedHelcimAttempt & {
+        let body: ApprovedHelcimAttempt & {
           error?: string;
           status?: string;
           error_message?: string | null;
           safe_message?: string | null;
-        };
-        if (!res.ok) {
-          throw new Error(body.error ?? "ROS could not confirm the Helcim payment.");
+        } = {};
+        for (let index = 0; index < HELCIM_CONFIRM_RETRY_DELAYS_MS.length; index += 1) {
+          const delayMs = HELCIM_CONFIRM_RETRY_DELAYS_MS[index];
+          if (delayMs > 0) {
+            await new Promise((resolve) => window.setTimeout(resolve, delayMs));
+          }
+          try {
+            const res = await fetch(
+              `${baseUrl}/api/payments/providers/helcim/helcim-pay/public-confirm`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  attempt_id: attemptId,
+                  checkout_token: checkoutToken,
+                  data: payload.data,
+                  hash: payload.hash,
+                  raw_data: payload.rawData,
+                }),
+              },
+            );
+            body = (await res.json().catch(() => ({}))) as typeof body;
+            if (!res.ok) {
+              throw new HelcimConfirmationError(
+                body.error ?? "ROS could not confirm the Helcim payment.",
+                HELCIM_CONFIRM_RETRYABLE_STATUSES.has(res.status),
+              );
+            }
+            break;
+          } catch (error) {
+            const retryable =
+              !(error instanceof HelcimConfirmationError) || error.retryable;
+            const hasAnotherAttempt = index + 1 < HELCIM_CONFIRM_RETRY_DELAYS_MS.length;
+            if (!retryable || !hasAnotherAttempt) throw error;
+            setMessage(
+              "Helcim approved the payment. ROS is retrying the ledger connection. Do not run the card again or close this page.",
+            );
+          }
         }
         if (body.status === "approved" || body.status === "captured") {
           pendingApprovalRef.current = null;
