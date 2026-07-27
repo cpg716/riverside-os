@@ -295,6 +295,8 @@ When a new checkout finds an earlier request on its terminal, ROS refreshes that
 
 A checkout-reference mismatch or stale ROS row by itself does not block the next sale. After the in-flight request window, ROS checks the exact Helcim invoice and automatically releases only an evidence-free local reservation with no provider payment ID, transaction ID, dispatch audit reference, or unknown-outcome error. A verified provider request or approval still requires recovery because customer payment evidence must never be discarded.
 
+Use **Recover terminal** directly in the checkout Payment screen when ROS reports a nonmatching terminal request. The action rechecks the exact Helcim invoice, clears only a proven ROS-only reservation, refreshes terminal availability, and keeps the cashier in checkout. Staff do not need to open Payments Health or enter internal identifiers for this recovery. Real provider activity remains protected and routes to the appropriate payment-recovery message.
+
 Register #1/#2 non-default terminal use requires Manager Access through `payments.terminal.override` or admin compatibility. Register #3/#4 choosing either configured terminal does not require that override because choosing is the normal workflow for those lanes.
 
 ## Refund safety

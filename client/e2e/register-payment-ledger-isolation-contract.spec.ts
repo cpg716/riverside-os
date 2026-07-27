@@ -128,6 +128,12 @@ test("a nonmatching terminal attempt is refreshed without entering the active sa
 
   expect(drawer).toContain("selectedTerminalEarlierCheckoutAttemptId");
   expect(drawer).toContain("refreshEarlierCheckoutTerminalAttempt");
+  expect(drawer).toContain("recoverRosTerminalError");
+  expect(drawer).toContain("ros_error_recovery_requested=true");
+  expect(drawer).toContain(
+    "ROS terminal error cleared. Ready for the customer's payment.",
+  );
+  expect(drawer).toContain('"Recover terminal"');
   expect(drawer).toContain("importOnlyIfCurrentCheckout: true");
   expect(drawer).toContain(
     "void refreshEarlierCheckoutTerminalAttempt(selectedTerminalEarlierCheckoutAttemptId)",

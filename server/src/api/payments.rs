@@ -50,6 +50,7 @@ const PAYMENTS_DEPOSIT_ADJUST: &str = "payments.deposit.adjust";
 const PAYMENTS_SYNC: &str = "payments.sync";
 const PAYMENTS_TERMINAL_OVERRIDE: &str = "payments.terminal.override";
 const HELCIM_TERMINAL_PENDING_TIMEOUT_MINUTES: i64 = 5;
+const HELCIM_ROS_ERROR_RECOVERY_MIN_SECONDS: i64 = 30;
 const HELCIM_PAY_INITIALIZATION_STALE_MINUTES: i64 = 2;
 const HELCIM_ATTEMPT_STREAM_MAX_SECONDS: u16 = 600;
 const HELCIM_SCHEDULED_ACCOUNTING_SYNC_HOUR_ET: u32 = 4;
@@ -975,6 +976,8 @@ pub struct HelcimPayConfirmRequestBody {
 struct ReleaseHelcimTerminalAttemptQuery {
     #[serde(default)]
     physical_terminal_cancel_confirmed: bool,
+    #[serde(default)]
+    ros_error_recovery_requested: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -11458,7 +11461,7 @@ async fn release_helcim_terminal_attempt(
     };
     let refreshed = load_helcim_attempt(&state, attempt_id, session_id).await?;
     if refreshed.status != "pending" {
-        if query.physical_terminal_cancel_confirmed
+        if (query.physical_terminal_cancel_confirmed || query.ros_error_recovery_requested)
             && matches!(refreshed.status.as_str(), "failed" | "canceled" | "expired")
         {
             return Ok(Json(refreshed));
@@ -11480,6 +11483,80 @@ async fn release_helcim_terminal_attempt(
                 "Helcim attempt does not belong to this register session.".to_string(),
             ));
         }
+    }
+    if query.ros_error_recovery_requested {
+        let evidence_free_local_reservation = !is_helcim_return_attempt(&attempt)
+            && attempt.status == "pending"
+            && (attempt.terminal_id.is_some() || attempt.device_id.is_some())
+            && attempt.provider_payment_id.is_none()
+            && attempt.provider_transaction_id.is_none()
+            && attempt.raw_audit_reference.is_none()
+            && attempt.error_code.is_none()
+            && attempt.created_at
+                < Utc::now() - ChronoDuration::seconds(HELCIM_ROS_ERROR_RECOVERY_MIN_SECONDS);
+        if !evidence_free_local_reservation {
+            return Err(PaymentError::Conflict(
+                "ROS cannot clear this request as a local error because Helcim evidence exists or the request is still inside the active dispatch window. Use Recover payment; a real provider request or approval remains protected."
+                    .to_string(),
+            ));
+        }
+
+        let config = helcim::HelcimConfig::from_env();
+        match recover_helcim_attempt_by_invoice(&state, &attempt, &config).await? {
+            HelcimInvoiceRecovery::Recovered(recovered)
+                if matches!(recovered.status.as_str(), "approved" | "captured") =>
+            {
+                return Err(PaymentError::Conflict(
+                    "Helcim reports that this card request was approved. ROS kept the approval protected; recover it in Payments Health instead of charging the card again."
+                        .to_string(),
+                ));
+            }
+            HelcimInvoiceRecovery::Recovered(_) => {
+                return load_helcim_attempt(&state, attempt_id, session_id)
+                    .await
+                    .map(Json);
+            }
+            HelcimInvoiceRecovery::Unresolved => {
+                return Err(PaymentError::Conflict(
+                    "ROS could not prove that this is only a local terminal error. The request remains protected; use Recover payment again or confirm the physical terminal cancellation."
+                        .to_string(),
+                ));
+            }
+            HelcimInvoiceRecovery::NoMatch => {}
+        }
+
+        let result = sqlx::query(
+            r#"
+            UPDATE payment_provider_attempts
+            SET status = 'expired',
+                error_code = 'operator_recovered_ros_reservation',
+                error_message = 'Staff recovered an evidence-free ROS terminal reservation from checkout after exact Helcim invoice reconciliation returned no match.',
+                completed_at = now()
+            WHERE id = $1
+              AND provider = 'helcim'
+              AND status = 'pending'
+              AND terminal_id IS NOT NULL
+              AND provider_payment_id IS NULL
+              AND provider_transaction_id IS NULL
+              AND raw_audit_reference IS NULL
+              AND error_code IS NULL
+              AND created_at < now() - ($2::bigint * interval '1 second')
+            "#,
+        )
+        .bind(attempt_id)
+        .bind(HELCIM_ROS_ERROR_RECOVERY_MIN_SECONDS)
+        .execute(&state.db)
+        .await
+        .map_err(|error| PaymentError::InvalidPayload(error.to_string()))?;
+        if result.rows_affected() == 0 {
+            return Err(PaymentError::Conflict(
+                "The terminal request changed while ROS was recovering it. Check status again before retrying the card."
+                    .to_string(),
+            ));
+        }
+        return load_helcim_attempt(&state, attempt_id, session_id)
+            .await
+            .map(Json);
     }
     let simulator_enabled = helcim::HelcimConfig::from_env().simulator_enabled();
     let abandoned_initialization: bool = sqlx::query_scalar(
@@ -13799,6 +13876,10 @@ mod tests {
         assert!(release.contains("provider_client_secret IS NULL"));
         assert!(release.contains("HELCIM_PAY_INITIALIZATION_STALE_MINUTES"));
         assert!(release.contains("physical_terminal_cancel_confirmed"));
+        assert!(release.contains("ros_error_recovery_requested"));
+        assert!(release.contains("HELCIM_ROS_ERROR_RECOVERY_MIN_SECONDS"));
+        assert!(release.contains("operator_recovered_ros_reservation"));
+        assert!(release.contains("HelcimInvoiceRecovery::NoMatch"));
         assert!(release.contains("status = CASE"));
         assert!(release.contains("WHEN $4 THEN 'expired'"));
         assert!(release.contains("provider_transaction_id IS NULL\n              OR $4"));

@@ -2032,6 +2032,50 @@ export default function NexoCheckoutDrawer({
     [loadProviderSettings, refreshHelcimAttempt],
   );
 
+  const recoverRosTerminalError = useCallback(
+    async (attemptId: string) => {
+      setEarlierTerminalAttemptRefreshing(true);
+      try {
+        const res = await fetch(
+          `${baseUrl}/api/payments/providers/helcim/attempts/${attemptId}/release?ros_error_recovery_requested=true`,
+          {
+            method: "POST",
+            headers: mergedPosStaffHeaders(backofficeHeaders),
+          },
+        );
+        const body = (await res.json().catch(() => ({}))) as
+          | HelcimAttempt
+          | { error?: string };
+        if (!res.ok) {
+          throw new Error(
+            "error" in body && body.error
+              ? body.error
+              : "ROS could not safely recover the terminal request.",
+          );
+        }
+        const attempt = body as HelcimAttempt;
+        if (!["failed", "canceled", "expired"].includes(attempt.status)) {
+          throw new Error(
+            "ROS found payment activity that still needs review. The terminal was not force-released.",
+          );
+        }
+        setTerminalPickerOpen(false);
+        toast("ROS terminal error cleared. Ready for the customer's payment.", "info");
+      } catch (error) {
+        toast(
+          error instanceof Error
+            ? error.message
+            : "ROS could not safely recover the terminal request.",
+          "error",
+        );
+      } finally {
+        await loadProviderSettings();
+        setEarlierTerminalAttemptRefreshing(false);
+      }
+    },
+    [backofficeHeaders, baseUrl, loadProviderSettings, toast],
+  );
+
   useEffect(() => {
     if (!isOpen || !selectedTerminalEarlierCheckoutAttemptId) return;
     void refreshEarlierCheckoutTerminalAttempt(selectedTerminalEarlierCheckoutAttemptId);
@@ -3404,7 +3448,7 @@ export default function NexoCheckoutDrawer({
       return {
         title: "Terminal request needs review",
         detail: `${selectedTerminalKey ? terminalLabel(selectedTerminalKey) : "Terminal"} has a pending request whose checkout reference does not match this drawer on Register #${registerLane}.`,
-        action: "Recover that request, or release it after confirming the physical terminal is idle.",
+        action: "Select Recover terminal. ROS will clear its own orphaned reservation or protect real Helcim activity.",
         escalation: "Do not run the card again until ROS shows the earlier request as final.",
         tone: "warning",
       };
@@ -3934,7 +3978,7 @@ export default function NexoCheckoutDrawer({
                   type="button"
                   onClick={() => {
                     if (selectedTerminalEarlierCheckoutAttemptId) {
-                      void refreshEarlierCheckoutTerminalAttempt(
+                      void recoverRosTerminalError(
                         selectedTerminalEarlierCheckoutAttemptId,
                       );
                     } else if (activeTerminalAttemptIdForRefresh) {
@@ -3949,7 +3993,9 @@ export default function NexoCheckoutDrawer({
                   {helcimAttemptLoading || earlierTerminalAttemptRefreshing
                     ? "Checking"
                     : terminalRecoveryAttemptId
-                      ? "Recover payment"
+                      ? selectedTerminalEarlierCheckoutAttemptId
+                        ? "Recover terminal"
+                        : "Recover payment"
                       : "Review Terminal"}
                 </button>
                 {terminalRecoveryAttemptId &&
