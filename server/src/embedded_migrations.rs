@@ -167,4 +167,6 @@ pub const EMBEDDED_MIGRATIONS: &[(&str, &str)] = &[
     ("164_close_fully_refunded_transaction_balances.sql", include_str!("../../migrations/164_close_fully_refunded_transaction_balances.sql")),
     ("165_restore_counterpoint_tender_aliases.sql", include_str!("../../migrations/165_restore_counterpoint_tender_aliases.sql")),
     ("166_repair_txn_624598_override_evidence.sql", include_str!("../../migrations/166_repair_txn_624598_override_evidence.sql")),
+    ("167_repair_recovered_helcim_payment_dates.sql", include_str!("../../migrations/167_repair_recovered_helcim_payment_dates.sql")),
+    ("168_repair_txn_566034_amended_line_price.sql", include_str!("../../migrations/168_repair_txn_566034_amended_line_price.sql")),
 ];

@@ -11,6 +11,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Faster Fail-Closed Windows Releases**: Same-tag Windows release reruns now cancel the superseded workflow instead of waiting behind assets that cannot be published. Signed component compilation overlaps the pre-retag gate, while package publication still requires both that gate and exact-commit Playwright success. Independent Rust caches now retain Riverside workspace-crate outputs so restored caches can accelerate repeat builds instead of preserving dependencies only. The release-contract validator normalizes Windows CRLF checkouts before evaluating workflow structure.
 
 ### Fixed
+- **Existing-Order Amendment Reporting and Audit Detail**: Merchandise added
+  to an older open Transaction is booked on the amendment date without moving
+  the parent Transaction's original business date. Daily Sales and Z-Reports
+  report only the net positive same-day value change, while zero-value swaps
+  and net decreases remain audit-only. Order and customer timelines identify
+  the affected item, SKU, before/after price, and signed value change, and
+  Register price edits verify the persisted server value before reporting
+  success.
+- **Recovered Helcim Payment Business Dates**: Attaching an already-approved
+  historical Helcim payment now preserves the processor approval date on the
+  payment movement, preventing a later ROS recovery from adding the old tender
+  to the current Daily Sales or Z-Report.
 - **Historical Counterpoint Repair Events Excluded From Daily Sales**:
   Counterpoint incident reconciliation now suppresses booking-event triggers
   while restoring historical line truth, so repair timestamps cannot make old

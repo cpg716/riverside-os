@@ -159,6 +159,12 @@ pub struct ActivityItemDetail {
     pub is_internal: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub line_kind: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub booking_delta: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub booking_tax_delta: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub booking_event_kind: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -1094,7 +1100,13 @@ async fn fetch_register_day_summary_page_on_connection(
     // evidence. Older EOD snapshots can predate reporting fixes, so they are not
     // used as the source for manager-selected historical activity.
 
-    let order_in_range = crate::logic::report_basis::order_date_filter_sql(basis);
+    let order_in_range = match basis {
+        // The booking-event window is the date authority for booked activity.
+        // Filtering the parent transaction by its original booking date would
+        // hide later additions and positive-value swaps from the day they occur.
+        ReportBasis::Booked => "o.status::text NOT IN ('cancelled')".to_string(),
+        ReportBasis::Completed => crate::logic::report_basis::order_date_filter_sql(basis),
+    };
     let order_session_filter = order_session_filter_sql(basis);
     let summary_order_in_range = order_in_range.clone();
     let summary_line_source = match basis {
@@ -1127,6 +1139,7 @@ async fn fetch_register_day_summary_page_on_connection(
               AND e.line_kind IS DISTINCT FROM 'rms_charge_payment'
               AND e.line_kind IS DISTINCT FROM 'pos_gift_card_load'
             GROUP BY e.transaction_id
+            HAVING SUM(e.subtotal_delta + e.tax_delta) > 0
         "#
         .to_string(),
         ReportBasis::Completed => r#"
@@ -1642,6 +1655,7 @@ async fn fetch_register_day_summary_page_on_connection(
                   AND e.line_kind IS DISTINCT FROM 'rms_charge_payment'
                   AND e.line_kind IS DISTINCT FROM 'pos_gift_card_load'
                 GROUP BY e.transaction_id
+                HAVING SUM(e.subtotal_delta + e.tax_delta) > 0
             ) be ON be.transaction_id = o.id
         "#
         .to_string(),
@@ -1728,6 +1742,87 @@ async fn fetch_register_day_summary_page_on_connection(
             END
         ), 0)::numeric(14,2)"#
             .to_string(),
+    };
+    let sales_items_expr = match basis {
+        ReportBasis::Booked => r#"
+            (
+                SELECT jsonb_agg(jsonb_build_object(
+                    'name', COALESCE(px.name, 'Order item'),
+                    'sku', COALESCE(pvx.sku, ''),
+                    'quantity', COALESCE(
+                        NULLIF(item_event.metadata->>'new_quantity', '')::int,
+                        NULLIF(item_event.metadata->>'old_quantity', '')::int,
+                        oix.quantity,
+                        1
+                    ),
+                    'price', COALESCE(
+                        NULLIF(item_event.metadata->>'new_unit_price', ''),
+                        NULLIF(item_event.metadata->>'old_unit_price', ''),
+                        oix.unit_price::text,
+                        CASE
+                            WHEN COALESCE(oix.quantity, 1) <> 0
+                            THEN (ABS(item_event.subtotal_delta) / COALESCE(oix.quantity, 1))::text
+                            ELSE ABS(item_event.subtotal_delta)::text
+                        END
+                    ),
+                    'reg_price', COALESCE(pvx.retail_price_override, px.base_retail_price)::text,
+                    'product_id', px.id,
+                    'fulfillment', oix.fulfillment::text,
+                    'is_internal', item_event.is_internal,
+                    'line_kind', CASE
+                        WHEN UPPER(TRIM(COALESCE(pvx.sku, ''))) IN ('SHIPPING', 'ROS-SHIPPING-FEE')
+                        THEN 'shipping_service'
+                        ELSE item_event.line_kind
+                    END,
+                    'booking_delta', item_event.subtotal_delta::text,
+                    'booking_tax_delta', item_event.tax_delta::text,
+                    'booking_event_kind', item_event.event_kind
+                ) ORDER BY item_event.booked_at, item_event.created_at, item_event.id)
+                FROM transaction_line_booking_events item_event
+                LEFT JOIN transaction_lines oix
+                  ON oix.id = item_event.transaction_line_id
+                LEFT JOIN products px ON px.id = COALESCE(
+                    oix.product_id,
+                    NULLIF(item_event.metadata->>'product_id', '')::uuid
+                )
+                LEFT JOIN product_variants pvx ON pvx.id = COALESCE(
+                    oix.variant_id,
+                    NULLIF(item_event.metadata->>'variant_id', '')::uuid,
+                    NULLIF(item_event.metadata->>'new_variant_id', '')::uuid,
+                    NULLIF(item_event.metadata->>'old_variant_id', '')::uuid
+                )
+                WHERE item_event.transaction_id = o.id
+                  AND item_event.booked_at >= $1
+                  AND item_event.booked_at < $2
+                  AND item_event.is_internal = FALSE
+                  AND COALESCE(item_event.metadata->>'reporting_excluded', '') = ''
+            )
+        "#
+        .to_string(),
+        ReportBasis::Completed => r#"
+            (
+                SELECT jsonb_agg(jsonb_build_object(
+                    'name', px.name,
+                    'sku', pvx.sku,
+                    'quantity', oix.quantity,
+                    'price', oix.unit_price::text,
+                    'reg_price', COALESCE(pvx.retail_price_override, px.base_retail_price)::text,
+                    'product_id', px.id,
+                    'fulfillment', oix.fulfillment::text,
+                    'is_internal', COALESCE(oix.is_internal, false),
+                    'line_kind', CASE
+                        WHEN UPPER(TRIM(pvx.sku)) IN ('SHIPPING', 'ROS-SHIPPING-FEE')
+                        THEN 'shipping_service'
+                        ELSE COALESCE(NULLIF(TRIM(px.pos_line_kind), ''), NULLIF(TRIM(oix.custom_item_type), ''))
+                    END
+                ) ORDER BY oix.id)
+                FROM transaction_lines oix
+                INNER JOIN products px ON px.id = oix.product_id
+                INNER JOIN product_variants pvx ON pvx.id = oix.variant_id
+                WHERE oix.transaction_id = o.id
+            )
+        "#
+        .to_string(),
     };
     let sales_payment_date_filter = match basis {
         ReportBasis::Booked => {
@@ -1874,27 +1969,7 @@ async fn fetch_register_day_summary_page_on_connection(
                 WHERE tl_shipping.transaction_id = o.id
                   AND UPPER(TRIM(pv_shipping.sku)) IN ('SHIPPING', 'ROS-SHIPPING-FEE')
             ) OR COALESCE(o.shipping_amount_usd, 0) <> 0 AS has_shipping_service_line,
-            (
-                SELECT jsonb_agg(jsonb_build_object(
-                    'name', px.name,
-                    'sku', pvx.sku,
-                    'quantity', oix.quantity,
-                    'price', oix.unit_price::text,
-                    'reg_price', COALESCE(pvx.retail_price_override, px.base_retail_price)::text,
-                    'product_id', px.id,
-                    'fulfillment', oix.fulfillment::text,
-                    'is_internal', COALESCE(oix.is_internal, false),
-                    'line_kind', CASE
-                        WHEN UPPER(TRIM(pvx.sku)) IN ('SHIPPING', 'ROS-SHIPPING-FEE')
-                        THEN 'shipping_service'
-                        ELSE COALESCE(NULLIF(TRIM(px.pos_line_kind), ''), NULLIF(TRIM(oix.custom_item_type), ''))
-                    END
-                ) ORDER BY oix.id)
-                FROM transaction_lines oix
-                INNER JOIN products px ON px.id = oix.product_id
-                INNER JOIN product_variants pvx ON pvx.id = oix.variant_id
-                WHERE oix.transaction_id = o.id
-            ) AS items_json
+            {sales_items_expr} AS items_json
         FROM transactions o
         {sales_event_join}
         LEFT JOIN customers c ON c.id = o.customer_id
@@ -2613,6 +2688,9 @@ async fn fetch_register_day_summary_page_on_connection(
                 fulfillment: Some("takeaway".to_string()),
                 is_internal: false,
                 line_kind: Some("shipping_service".to_string()),
+                booking_delta: None,
+                booking_tax_delta: None,
+                booking_event_kind: None,
             }])
         } else {
             None
@@ -2824,14 +2902,38 @@ async fn fetch_register_day_summary_page_on_connection(
 mod tests {
     use super::{
         activity_metadata_uuid, activity_search_pattern, compare_activity_desc,
-        ensure_complete_eod_counts, format_weather_value, merge_order_payment_into_sale,
-        payment_activity_id, refund_activity_totals, reporting_tender_label,
-        validate_complete_row_bounds, RegisterActivityItem, REGISTER_REPORT_OUTPUT_MAX_ROWS,
+        ensure_complete_eod_counts, fetch_register_day_summary_page, format_weather_value,
+        merge_order_payment_into_sale, payment_activity_id, refund_activity_totals,
+        reporting_tender_label, validate_complete_row_bounds, ActivityPageOptions,
+        RegisterActivityItem, REGISTER_REPORT_OUTPUT_MAX_ROWS,
     };
+    use crate::logic::report_basis::ReportBasis;
     use chrono::{TimeZone, Utc};
     use rust_decimal::Decimal;
     use serde_json::json;
     use uuid::Uuid;
+
+    #[tokio::test]
+    async fn booked_summary_query_executes_against_migrated_database() {
+        let Ok(database_url) = std::env::var("DATABASE_URL") else {
+            return;
+        };
+        let pool = sqlx::PgPool::connect(&database_url)
+            .await
+            .expect("connect migrated test database");
+        let today = Utc::now().date_naive();
+        fetch_register_day_summary_page(
+            &pool,
+            Some("custom".to_string()),
+            Some(today),
+            Some(today),
+            None,
+            ReportBasis::Booked,
+            ActivityPageOptions::default(),
+        )
+        .await
+        .expect("booked summary SQL should execute");
+    }
 
     #[test]
     fn reporting_tender_labels_preserve_card_entry_type() {

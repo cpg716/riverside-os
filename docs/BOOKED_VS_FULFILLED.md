@@ -6,7 +6,7 @@ Riverside OS uses a "Fulfilled-Recognition" model for financial and tax liabilit
 
 | Term | Meaning |
 |---|---|
-| **Booked Date** (`booked_at`) | The date the transaction was first created in the POS. This is when the customer committed to the purchase and paid a deposit. |
+| **Booked Date** (`booked_at`) | For an initial line, the date the Transaction was created in POS. For a later line addition or value amendment, the date that line value was added or changed. |
 | **Fulfilled Date** (`fulfilled_at`) | The date the items were physically taken by or delivered to the customer. This is when revenue is recognized and legal ownership transfers. |
 
 ### Manager-approved backdated sales
@@ -19,7 +19,15 @@ QBO uses a dedicated `BACKDATED_SALE_CLEARING` account to link the actual paymen
 
 A payment processed today is a current-day payment event even when its allocation reduces an older Transaction Record. Daily Sales and the booked Z-Report show **Payment on Order** with the payment receipt Transaction number, public target Order/Transaction number, amount, tender, and remaining balance. The allocation does not become a new merchandise sale and does not move the older order's booked date. Receipt reprint uses the payment-event Transaction Record; order Detail uses the allocation target.
 
+When staff recover an already-approved historical Helcim payment, its payment movement remains on the provider approval date. Attaching that approval to ROS later must not add the old tender to the current Daily Sales or Z-Report.
+
 When one physical tender funds both a current sale and an older order, drawer and tender reconciliation count that tender once. Allocation detail remains visible for audit without repeating cash tendered, change, or card/check evidence.
+
+### Existing-order amendments
+
+Adding merchandise to an older open Transaction creates a line-booking event on the amendment date; it does not rewrite the parent Transaction's original booked date. Daily Sales and the booked Z-Report net all same-day line additions, removals, and price/quantity adjustments for that Transaction. Only a positive net increase is Booked Sales for that day. A zero-value switch or net decrease remains auditable but is not reported as a new sale.
+
+Report detail uses the signed event components rather than the Transaction's entire current item list. Staff can therefore distinguish an item addition from a negative price correction or removed item, while the total reflects only the net increase.
 
 ### Imported Counterpoint history
 

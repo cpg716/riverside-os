@@ -95,6 +95,9 @@ interface ActivityItemDetail {
   fulfillment?: string | null;
   is_internal?: boolean;
   line_kind?: string | null;
+  booking_delta?: string | null;
+  booking_tax_delta?: string | null;
+  booking_event_kind?: string | null;
 }
 
 interface TransactionPayment {
@@ -584,14 +587,19 @@ function activitySubtotalBeforeTaxCents(
     | "alterations_total"
   >,
 ): number {
+  const usesBookingDeltas = (row.items ?? []).some(
+    (item) => item.booking_delta != null,
+  );
   const itemSubtotal = (row.items ?? [])
     .filter(
-      (item) =>
-        !item.is_internal &&
-        item.line_kind !== "shipping_service",
+      (item) => !item.is_internal && item.line_kind !== "shipping_service",
     )
     .reduce(
-      (sum, item) => sum + parseMoneyToCents(item.price) * item.quantity,
+      (sum, item) =>
+        sum +
+        (usesBookingDeltas
+          ? parseMoneyToCents(item.booking_delta ?? "0")
+          : parseMoneyToCents(item.price) * item.quantity),
       0,
     );
   if (itemSubtotal !== 0 || (row.items?.length ?? 0) > 0) return itemSubtotal;
@@ -2958,6 +2966,20 @@ export default function RegisterReports({
                                             </td>
                                             <td className="py-2.5 text-center align-top font-black text-app-text tracking-tighter tabular-nums">
                                               ${it.price}
+                                              {it.booking_delta != null ? (
+                                                <div className="mt-1 text-[9px] font-black uppercase tracking-wider text-app-accent">
+                                                  {it.booking_event_kind ===
+                                                  "line_deleted"
+                                                    ? "Removed"
+                                                    : it.booking_event_kind ===
+                                                        "line_amendment"
+                                                      ? "Change"
+                                                      : "Added"}{" "}
+                                                  {moneyFromValue(
+                                                    it.booking_delta,
+                                                  )}
+                                                </div>
+                                              ) : null}
                                             </td>
                                             <td className="py-2.5 text-right align-top">
                                               <span

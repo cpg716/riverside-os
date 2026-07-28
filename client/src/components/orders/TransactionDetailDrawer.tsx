@@ -157,6 +157,7 @@ export interface TransactionDrawerAudit {
   id: string;
   event_kind: string;
   summary: string;
+  metadata?: Record<string, unknown>;
   created_at: string;
 }
 
@@ -262,6 +263,79 @@ function formatAuditKind(kind: string): string {
     default:
       return kind.replace(/_/g, " ");
   }
+}
+
+function auditEventSummary(event: TransactionDrawerAudit): string {
+  const metadata = event.metadata;
+  if (!metadata) return event.summary;
+
+  const productName =
+    typeof metadata.product_name === "string"
+      ? metadata.product_name
+      : "Order item";
+  const sku = typeof metadata.sku === "string" ? metadata.sku : null;
+  const itemLabel = sku ? `${productName} (${sku})` : productName;
+
+  if (event.event_kind === "item_added") {
+    const quantity =
+      typeof metadata.quantity === "number" ? metadata.quantity : null;
+    const unitPrice =
+      typeof metadata.unit_price === "string" ||
+      typeof metadata.unit_price === "number"
+        ? metadata.unit_price
+        : null;
+    if (quantity !== null && unitPrice !== null) {
+      return `Added ${quantity}× ${itemLabel} at ${fmtMoney(unitPrice)} each.`;
+    }
+  }
+
+  if (event.event_kind === "item_updated") {
+    const before =
+      metadata.before && typeof metadata.before === "object"
+        ? (metadata.before as Record<string, unknown>)
+        : null;
+    const after =
+      metadata.after && typeof metadata.after === "object"
+        ? (metadata.after as Record<string, unknown>)
+        : null;
+    const changedFields = Array.isArray(metadata.changed_fields)
+      ? metadata.changed_fields.filter(
+          (field): field is string => typeof field === "string",
+        )
+      : [];
+    const changes: string[] = [];
+    if (
+      changedFields.includes("unit_price") &&
+      before?.unit_price != null &&
+      after?.unit_price != null
+    ) {
+      changes.push(
+        `price ${fmtMoney(before.unit_price as string | number)} → ${fmtMoney(
+          after.unit_price as string | number,
+        )}`,
+      );
+    }
+    if (
+      changedFields.includes("quantity") &&
+      before?.quantity != null &&
+      after?.quantity != null
+    ) {
+      changes.push(`quantity ${before.quantity} → ${after.quantity}`);
+    }
+    if (changes.length > 0) {
+      return `${itemLabel}: ${changes.join("; ")}.`;
+    }
+  }
+
+  if (event.event_kind === "item_deleted") {
+    const quantity =
+      typeof metadata.quantity === "number" ? metadata.quantity : null;
+    return quantity === null
+      ? `Removed ${itemLabel}.`
+      : `Removed ${quantity}× ${itemLabel}.`;
+  }
+
+  return event.summary;
 }
 
 function formatStatusLabel(status: string): string {
@@ -2640,7 +2714,7 @@ export default function TransactionDetailDrawer({
                         {formatAuditKind(event.event_kind)}
                       </p>
                       <p className="mt-1 text-[12px] font-bold leading-tight text-app-text">
-                        {event.summary}
+                        {auditEventSummary(event)}
                       </p>
                     </div>
                   ))

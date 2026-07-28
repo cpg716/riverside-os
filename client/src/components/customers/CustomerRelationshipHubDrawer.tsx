@@ -282,6 +282,8 @@ function customerTimelineKindLabel(kind: string): string {
   switch (kind) {
     case "sale":
       return "Purchase";
+    case "order_amendment":
+      return "Order amendment";
     case "payment":
       return "Payment";
     case "wedding":
@@ -2368,6 +2370,7 @@ export function CustomerRelationshipHubDrawer({
     () =>
       ({
         sale: "bg-emerald-500",
+        order_amendment: "bg-fuchsia-500",
         payment: "bg-sky-500",
         wedding: "bg-app-accent",
         note: "bg-amber-500",

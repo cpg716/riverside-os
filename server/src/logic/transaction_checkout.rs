@@ -539,7 +539,11 @@ fn payment_effective_date(
     method: &str,
     provider: Option<&str>,
     business_date: Option<NaiveDate>,
+    recovered_provider_approval: bool,
 ) -> Option<NaiveDate> {
+    if recovered_provider_approval {
+        return business_date;
+    }
     let _ = (method, provider, business_date);
     // Every tender movement remains on the actual processing day. This keeps
     // card batches, physical cash/check reconciliation, Z-Reports, and QBO
@@ -5921,6 +5925,13 @@ async fn execute_checkout_internal(
             }
 
             // 3. Create the movement record (payment_transactions)
+            let recovered_provider_approval = recovery.as_ref().is_some_and(|context| {
+                matches!(
+                    &context.source,
+                    CheckoutRecoverySource::ParkedSale { .. }
+                        | CheckoutRecoverySource::ExistingOrderPayment { .. }
+                )
+            });
             let payment_tx_id: Uuid = sqlx::query_scalar(
                 r#"
                 INSERT INTO payment_transactions (
@@ -5949,6 +5960,7 @@ async fn execute_checkout_internal(
                 &method,
                 split.payment_provider.as_deref(),
                 checkout_business_date,
+                recovered_provider_approval,
             ))
             .bind(&split.metadata)
             .bind(&split.payment_provider)
@@ -7333,20 +7345,35 @@ mod tests {
     fn backdated_card_payment_keeps_actual_provider_date() {
         let business_date = NaiveDate::from_ymd_opt(2026, 7, 1);
         assert_eq!(
-            payment_effective_date("card_not_present", Some("helcim"), business_date),
+            payment_effective_date("card_not_present", Some("helcim"), business_date, false),
             None
         );
         assert_eq!(
-            payment_effective_date("manual_card", None, business_date),
+            payment_effective_date("manual_card", None, business_date, false),
             None
+        );
+    }
+
+    #[test]
+    fn recovered_provider_payment_keeps_original_approval_date() {
+        let approval_date = NaiveDate::from_ymd_opt(2026, 7, 24);
+        assert_eq!(
+            payment_effective_date("card_terminal", Some("helcim"), approval_date, true),
+            approval_date
         );
     }
 
     #[test]
     fn backdated_internal_payment_keeps_actual_processing_date() {
         let business_date = NaiveDate::from_ymd_opt(2026, 7, 1);
-        assert_eq!(payment_effective_date("cash", None, business_date), None);
-        assert_eq!(payment_effective_date("check", None, business_date), None);
+        assert_eq!(
+            payment_effective_date("cash", None, business_date, false),
+            None
+        );
+        assert_eq!(
+            payment_effective_date("check", None, business_date, false),
+            None
+        );
     }
 
     #[test]

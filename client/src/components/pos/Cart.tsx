@@ -41,6 +41,7 @@ import { useToast } from "../ui/ToastProviderLogic";
 import ConfirmationModal from "../ui/ConfirmationModal";
 import {
   centsToFixed2,
+  formatUsdFromCents,
   parseMoneyToCents,
 } from "../../lib/money";
 import { isNonTaxableServiceLine } from "../../lib/cartTax";
@@ -1604,7 +1605,30 @@ export default function Cart({
           toast(payload.error || "We couldn't update that Transaction Record line.", "error");
           return false;
         }
-        toast("Transaction Record line updated. Booked totals were refreshed for that record.", "success");
+        const updated = (await res.json()) as {
+          items?: Array<{ transaction_line_id?: string; unit_price?: string }>;
+        };
+        const savedLine = updated.items?.find(
+          (candidate) => candidate.transaction_line_id === item.transaction_line_id,
+        );
+        if (
+          patch.unit_price !== undefined &&
+          parseMoneyToCents(savedLine?.unit_price) !== parseMoneyToCents(patch.unit_price)
+        ) {
+          toast(
+            "The Transaction Record did not retain the edited price. Nothing was reported as saved; reopen the line and try again.",
+            "error",
+          );
+          return false;
+        }
+        toast(
+          patch.unit_price !== undefined
+            ? `Transaction Record line saved at ${formatUsdFromCents(
+                parseMoneyToCents(patch.unit_price),
+              )}. Booked totals were refreshed.`
+            : "Transaction Record line updated. Booked totals were refreshed for that record.",
+          "success",
+        );
         return true;
       } catch {
         toast("We couldn't update that Transaction Record line. Please try again.", "error");

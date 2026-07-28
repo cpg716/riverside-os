@@ -6599,6 +6599,20 @@ struct OrderTimelineRow {
 }
 
 #[derive(Debug, FromRow)]
+struct OrderAmendmentTimelineRow {
+    transaction_id: Uuid,
+    display_id: Option<String>,
+    booked_at: DateTime<Utc>,
+    event_kind: String,
+    subtotal_delta: Decimal,
+    tax_delta: Decimal,
+    quantity: Option<i32>,
+    product_name: Option<String>,
+    sku: Option<String>,
+    metadata: serde_json::Value,
+}
+
+#[derive(Debug, FromRow)]
 struct PaymentTimelineRow {
     id: Uuid,
     created_at: DateTime<Utc>,
@@ -6747,7 +6761,15 @@ pub(crate) async fn build_customer_timeline(
                 ', ' ORDER BY COALESCE(p.name, '')
             ) FILTER (WHERE oi.id IS NOT NULL) AS items_summary
         FROM transactions o
-        LEFT JOIN transaction_lines oi ON oi.transaction_id = o.id
+        LEFT JOIN transaction_lines oi
+          ON oi.transaction_id = o.id
+         AND (
+              COALESCE(oi.booked_at, o.booked_at)
+                  AT TIME ZONE reporting.effective_store_timezone()
+             )::date = COALESCE(
+                 o.business_date,
+                 (o.booked_at AT TIME ZONE reporting.effective_store_timezone())::date
+             )
         LEFT JOIN products p ON p.id = oi.product_id
         WHERE (
             o.customer_id = $1
@@ -6789,6 +6811,69 @@ pub(crate) async fn build_customer_timeline(
         GROUP BY o.id, o.display_id, o.counterpoint_doc_ref, o.counterpoint_ticket_ref, o.booked_at
         ORDER BY o.booked_at DESC
         LIMIT 25
+        "#,
+    )
+    .bind(customer_id)
+    .fetch_all(pool)
+    .await?;
+
+    let order_amendments = sqlx::query_as::<_, OrderAmendmentTimelineRow>(
+        r#"
+        SELECT
+            e.transaction_id,
+            COALESCE(
+                NULLIF(TRIM(o.display_id), ''),
+                o.counterpoint_doc_ref,
+                o.counterpoint_ticket_ref,
+                o.id::text
+            ) AS display_id,
+            e.booked_at,
+            e.event_kind,
+            e.subtotal_delta,
+            e.tax_delta,
+            COALESCE(
+                line.quantity,
+                NULLIF(e.metadata->>'new_quantity', '')::int,
+                NULLIF(e.metadata->>'old_quantity', '')::int
+            ) AS quantity,
+            product.name AS product_name,
+            variant.sku,
+            e.metadata
+        FROM transaction_line_booking_events e
+        INNER JOIN transactions o ON o.id = e.transaction_id
+        LEFT JOIN transaction_lines line ON line.id = e.transaction_line_id
+        LEFT JOIN products product ON product.id = COALESCE(
+            line.product_id,
+            NULLIF(e.metadata->>'product_id', '')::uuid
+        )
+        LEFT JOIN product_variants variant ON variant.id = COALESCE(
+            line.variant_id,
+            NULLIF(e.metadata->>'variant_id', '')::uuid,
+            NULLIF(e.metadata->>'new_variant_id', '')::uuid,
+            NULLIF(e.metadata->>'old_variant_id', '')::uuid
+        )
+        WHERE (
+            o.customer_id = $1
+            OR EXISTS (
+                SELECT 1
+                FROM customer_relationship_periods crp
+                WHERE (
+                    (crp.parent_customer_id = $1 AND crp.child_customer_id = o.customer_id)
+                    OR
+                    (crp.child_customer_id = $1 AND crp.parent_customer_id = o.customer_id)
+                )
+                  AND e.booked_at >= crp.linked_at
+                  AND (crp.unlinked_at IS NULL OR e.booked_at <= crp.unlinked_at)
+                  AND (crp.unlinked_at IS NULL OR crp.parent_customer_id = $1)
+            )
+        )
+          AND COALESCE(e.metadata->>'backfilled', 'false') <> 'true'
+          AND (
+              e.event_kind <> 'initial_booking'
+              OR e.booked_at > o.booked_at + INTERVAL '1 minute'
+          )
+        ORDER BY e.booked_at DESC
+        LIMIT 40
         "#,
     )
     .bind(customer_id)
@@ -7249,6 +7334,64 @@ pub(crate) async fn build_customer_timeline(
             kind: "sale".to_string(),
             summary: format!("Purchased {items} ({display_id})"),
             reference_id: Some(o.id),
+            reference_type: Some("transaction".to_string()),
+            wedding_party_id: None,
+        });
+    }
+
+    for amendment in order_amendments {
+        let display_id = amendment
+            .display_id
+            .unwrap_or_else(|| short_order_ref(amendment.transaction_id));
+        let item_name = amendment.product_name.as_deref().unwrap_or("Order item");
+        let item_label = amendment
+            .sku
+            .as_deref()
+            .map(|sku| format!("{item_name} ({sku})"))
+            .unwrap_or_else(|| item_name.to_string());
+        let total_delta = amendment.subtotal_delta + amendment.tax_delta;
+        let summary = match amendment.event_kind.as_str() {
+            "initial_booking" => format!(
+                "Added {}× {} to {}; booked increase ${}",
+                amendment.quantity.unwrap_or(1),
+                item_label,
+                display_id,
+                total_delta
+            ),
+            "line_deleted" => format!(
+                "Removed {} from {}; booked adjustment ${}",
+                item_label, display_id, total_delta
+            ),
+            _ => {
+                let old_price = amendment.metadata.get("old_unit_price").map(|value| {
+                    value
+                        .as_str()
+                        .map(str::to_string)
+                        .unwrap_or_else(|| value.to_string())
+                });
+                let new_price = amendment.metadata.get("new_unit_price").map(|value| {
+                    value
+                        .as_str()
+                        .map(str::to_string)
+                        .unwrap_or_else(|| value.to_string())
+                });
+                match (old_price.as_deref(), new_price.as_deref()) {
+                    (Some(old_price), Some(new_price)) if old_price != new_price => format!(
+                        "Changed {} price ${} → ${} on {}; booked adjustment ${}",
+                        item_label, old_price, new_price, display_id, total_delta
+                    ),
+                    _ => format!(
+                        "Updated {} on {}; booked adjustment ${}",
+                        item_label, display_id, total_delta
+                    ),
+                }
+            }
+        };
+        events.push(CustomerTimelineEvent {
+            at: amendment.booked_at,
+            kind: "order_amendment".to_string(),
+            summary,
+            reference_id: Some(amendment.transaction_id),
             reference_type: Some("transaction".to_string()),
             wedding_party_id: None,
         });
@@ -7795,10 +7938,31 @@ async fn post_customer_timeline_note(
 #[cfg(test)]
 mod customer_timeline_tests {
     use super::{
-        literal_ilike_pattern, literal_ilike_prefix_pattern, open_deposit_timeline_summary,
-        wedding_deposit_contribution_timeline_summary,
+        build_customer_timeline, literal_ilike_pattern, literal_ilike_prefix_pattern,
+        open_deposit_timeline_summary, wedding_deposit_contribution_timeline_summary,
     };
     use rust_decimal::Decimal;
+
+    #[tokio::test]
+    async fn customer_timeline_query_executes_against_migrated_database() {
+        let Ok(database_url) = std::env::var("DATABASE_URL") else {
+            return;
+        };
+        let pool = sqlx::PgPool::connect(&database_url)
+            .await
+            .expect("connect migrated test database");
+        let customer_id: Option<uuid::Uuid> =
+            sqlx::query_scalar("SELECT id FROM customers ORDER BY id LIMIT 1")
+                .fetch_optional(&pool)
+                .await
+                .expect("load timeline test customer");
+        let Some(customer_id) = customer_id else {
+            return;
+        };
+        build_customer_timeline(&pool, customer_id)
+            .await
+            .expect("customer timeline SQL should execute");
+    }
 
     #[test]
     fn customer_sql_search_treats_wildcards_as_literal_text() {

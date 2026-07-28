@@ -1664,7 +1664,26 @@ export default function OrdersWorkspace({
         await res.json().catch(() => ({}));
         throw new Error("We couldn't save that item. Please try again.");
       }
-      toast(`${item.product_name} updated.`, "success");
+      const updated = (await res.json()) as WorkspaceOrderDetail;
+      const savedLine = updated.items.find(
+        (candidate) => candidate.transaction_line_id === item.transaction_line_id,
+      );
+      if (
+        body.unit_price !== undefined &&
+        parseMoneyToCents(savedLine?.unit_price) !== parseMoneyToCents(body.unit_price)
+      ) {
+        throw new Error(
+          "The Transaction Record did not retain the edited price. Reopen the item and try again.",
+        );
+      }
+      toast(
+        body.unit_price !== undefined
+          ? `${item.product_name} saved at ${formatUsdFromCents(
+              parseMoneyToCents(body.unit_price),
+            )}.`
+          : `${item.product_name} updated.`,
+        "success",
+      );
       await loadDetail(detail.transaction_id);
       await loadTransactions();
       setHydratedOrderLines((current) => {

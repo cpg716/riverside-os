@@ -27,6 +27,7 @@ The Orders workspace is the main place to review Special, Custom, and Wedding or
 - Open order work to see items, balances, and available actions.
 - Open an order to see order progress, pickup readiness, balances, and release-blocking cues at a glance.
 - Edit an open order item directly in the drawer when staff need to adjust quantity, price, or pickup type, or perform a Suit Component Swap when changing parts of a suit to a different product variation/SKU (recording inventory updates and QBO ledger cost/retail deltas automatically).
+- The Transaction timeline identifies the item, SKU, quantity, and saved price for additions, and shows before/after price or quantity values for edits. Confirm the saved value shown there before leaving the order.
 - Remove a saved order item only while the Transaction Record is open, unpaid, unfulfilled, and has no vendor, purchase-order, or receiving activity. Riverside also permits removal when a stale lifecycle label says Ready for Pickup but the line has no actual fulfillment activity. Use return, refund, exchange, cancellation, or void workflows after payment, pickup, vendor processing, or completed-sale activity starts.
 - Use **Edit Custom Order** on custom items to review or update the saved HSM or Individualized Shirts form details from the same field set used during POS custom-order booking.
 - Use **Return / Exchange** on a Transaction Record item to send that exact line to Register, where the return/exchange wizard opens with the customer and item already selected.
@@ -50,6 +51,7 @@ The Orders workspace is the main place to review Special, Custom, and Wedding or
 - **Custom** means a made-to-measure garment order.
 - **Wedding** means the order is tied to a wedding member or party workflow.
 - For Custom orders, sale price is entered at booking and actual vendor cost is entered when the garment is received.
+- Merchandise added to an older open Transaction is booked on the date it is added. If staff remove and add items as a switch, Daily Sales books only a positive net increase for that day; an equal or negative net change is retained in the audit timeline without becoming new Booked Sales.
 - Order detail shows the main Custom booking references, such as fabric, style, model, size anchors, sleeve or cuff measurements, and vendor reference notes. Use **Edit Custom Order** when those saved details need correction.
 - Wedding order detail should show the linked party, member role, and event date so staff know to keep balances and pickup work in the wedding workflow.
 - A paid wedding balance does not automatically mean the order is ready. Confirm the linked member is actually ready for pickup before release.

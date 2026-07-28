@@ -6445,9 +6445,52 @@ async fn get_transaction_audit(
         r#"
         SELECT id, event_kind, summary, metadata, created_at
         FROM (
-            SELECT id, event_kind, summary, metadata, created_at
-            FROM transaction_activity_log
-            WHERE transaction_id = $1
+            SELECT
+                activity.id,
+                activity.event_kind,
+                activity.summary,
+                activity.metadata || jsonb_strip_nulls(jsonb_build_object(
+                    'product_name', product.name,
+                    'sku', variant.sku,
+                    'unit_price', CASE
+                        WHEN activity.event_kind = 'item_added'
+                          AND booking.subtotal_delta IS NOT NULL
+                          AND COALESCE((activity.metadata->>'quantity')::numeric, 0) <> 0
+                        THEN booking.subtotal_delta
+                            / (activity.metadata->>'quantity')::numeric
+                        ELSE NULL
+                    END,
+                    'booked_subtotal_delta', booking.subtotal_delta,
+                    'booked_tax_delta', booking.tax_delta
+                )) AS metadata,
+                activity.created_at
+            FROM transaction_activity_log activity
+            LEFT JOIN LATERAL (
+                SELECT e.subtotal_delta, e.tax_delta
+                FROM transaction_line_booking_events e
+                WHERE e.transaction_id = activity.transaction_id
+                  AND (
+                      (activity.event_kind = 'item_added' AND e.event_kind = 'initial_booking')
+                      OR (activity.event_kind = 'item_updated' AND e.event_kind = 'line_amendment')
+                      OR (activity.event_kind = 'item_deleted' AND e.event_kind = 'line_deleted')
+                  )
+                  AND ABS(EXTRACT(EPOCH FROM (e.created_at - activity.created_at))) <= 120
+                ORDER BY ABS(EXTRACT(EPOCH FROM (e.created_at - activity.created_at)))
+                LIMIT 1
+            ) booking ON TRUE
+            LEFT JOIN transaction_lines line
+              ON line.id = NULLIF(activity.metadata->>'transaction_line_id', '')::uuid
+            LEFT JOIN products product ON product.id = COALESCE(
+                line.product_id,
+                NULLIF(activity.metadata->>'product_id', '')::uuid
+            )
+            LEFT JOIN product_variants variant ON variant.id = COALESCE(
+                line.variant_id,
+                NULLIF(activity.metadata->>'variant_id', '')::uuid,
+                NULLIF(activity.metadata#>>'{after,variant_id}', '')::uuid,
+                NULLIF(activity.metadata#>>'{before,variant_id}', '')::uuid
+            )
+            WHERE activity.transaction_id = $1
 
             UNION ALL
 
@@ -12427,8 +12470,23 @@ async fn add_transaction_line(
         transaction_id,
         customer_id,
         "item_added",
-        "Item added to order",
-        json!({ "product_id": body.product_id, "variant_id": body.variant_id, "quantity": body.quantity }),
+        &format!(
+            "Added {}× {} ({}) at ${} each",
+            body.quantity, resolved.name, resolved.sku, body.unit_price
+        ),
+        json!({
+            "transaction_line_id": transaction_line_id,
+            "product_id": body.product_id,
+            "variant_id": body.variant_id,
+            "product_name": resolved.name,
+            "sku": resolved.sku,
+            "quantity": body.quantity,
+            "unit_price": body.unit_price,
+            "state_tax": state_tax,
+            "local_tax": local_tax,
+            "booked_at": Utc::now(),
+            "added_by_staff_id": staff.id,
+        }),
     )
     .await?;
     tx.commit().await?;
@@ -12689,6 +12747,27 @@ async fn update_transaction_line(
     transaction_recalc::recalc_transaction_totals(&mut tx, transaction_id)
         .await
         .map_err(TransactionError::Database)?;
+    let updated_line: (String, String, Uuid, i32, Decimal, Decimal, Decimal) = sqlx::query_as(
+        r#"
+            SELECT
+                p.name,
+                pv.sku,
+                tl.variant_id,
+                tl.quantity,
+                tl.unit_price,
+                COALESCE(tl.state_tax, 0)::numeric,
+                COALESCE(tl.local_tax, 0)::numeric
+            FROM transaction_lines tl
+            INNER JOIN products p ON p.id = tl.product_id
+            INNER JOIN product_variants pv ON pv.id = tl.variant_id
+            WHERE tl.id = $1
+              AND tl.transaction_id = $2
+            "#,
+    )
+    .bind(transaction_line_id)
+    .bind(transaction_id)
+    .fetch_one(&mut *tx)
+    .await?;
     let mut changed_fields = Vec::new();
     if body
         .variant_id
@@ -12717,6 +12796,19 @@ async fn update_transaction_line(
     if canonical_custom_details.is_some() {
         changed_fields.push("custom_order_details");
     }
+    let summary = if changed_fields.contains(&"unit_price") {
+        format!(
+            "{} ({}): price changed from ${} to ${}",
+            updated_line.0, updated_line.1, current_unit_price, updated_line.4
+        )
+    } else if changed_fields.contains(&"quantity") {
+        format!(
+            "{} ({}): quantity changed from {} to {}",
+            updated_line.0, updated_line.1, current_quantity, updated_line.3
+        )
+    } else {
+        format!("{} ({}) details updated", updated_line.0, updated_line.1)
+    };
     let customer_id: Option<Uuid> =
         sqlx::query_scalar("SELECT customer_id FROM transactions WHERE id = $1")
             .bind(transaction_id)
@@ -12728,9 +12820,12 @@ async fn update_transaction_line(
         transaction_id,
         customer_id,
         "item_updated",
-        "Order item edited",
+        &summary,
         json!({
             "transaction_line_id": transaction_line_id,
+            "product_id": current_product_id,
+            "product_name": updated_line.0,
+            "sku": updated_line.1,
             "changed_fields": changed_fields,
             "before": {
                 "variant_id": current_variant_id,
@@ -12743,15 +12838,11 @@ async fn update_transaction_line(
                 "order_lifecycle_status": current_lifecycle_status.as_str(),
             },
             "after": {
-                "variant_id": body.variant_id.unwrap_or(current_variant_id),
-                "quantity": body.quantity.unwrap_or(current_quantity),
-                "unit_price": body.unit_price.unwrap_or(current_unit_price),
-                "state_tax": recalculated_tax
-                    .map(|(state_tax, _)| state_tax)
-                    .unwrap_or(current_state_tax),
-                "local_tax": recalculated_tax
-                    .map(|(_, local_tax)| local_tax)
-                    .unwrap_or(current_local_tax),
+                "variant_id": updated_line.2,
+                "quantity": updated_line.3,
+                "unit_price": updated_line.4,
+                "state_tax": updated_line.5,
+                "local_tax": updated_line.6,
                 "fulfillment": normalized_fulfillment.unwrap_or(current_fulfillment),
                 "order_lifecycle_status": body
                     .order_lifecycle_status
@@ -12759,6 +12850,7 @@ async fn update_transaction_line(
                     .unwrap_or(current_lifecycle_status.as_str()),
             },
             "custom_order_details_updated": canonical_custom_details.is_some(),
+            "updated_by_staff_id": staff.id,
         }),
     )
     .await?;
@@ -12922,6 +13014,13 @@ async fn delete_transaction_line(
         Option<Uuid>,
         Option<Uuid>,
         Option<chrono::DateTime<chrono::Utc>>,
+        Uuid,
+        Uuid,
+        String,
+        String,
+        Decimal,
+        Decimal,
+        Decimal,
     )> = sqlx::query_as(
         r#"
         SELECT
@@ -12933,9 +13032,18 @@ async fn delete_transaction_line(
             tl.quantity,
             tl.po_line_id,
             tl.vendor_id,
-            tl.received_at
+            tl.received_at,
+            tl.product_id,
+            tl.variant_id,
+            p.name,
+            pv.sku,
+            tl.unit_price,
+            COALESCE(tl.state_tax, 0)::numeric,
+            COALESCE(tl.local_tax, 0)::numeric
         FROM transactions t
         INNER JOIN transaction_lines tl ON tl.transaction_id = t.id
+        INNER JOIN products p ON p.id = tl.product_id
+        INNER JOIN product_variants pv ON pv.id = tl.variant_id
         WHERE t.id = $1 AND tl.id = $2
         FOR UPDATE OF t, tl
         "#,
@@ -12955,6 +13063,13 @@ async fn delete_transaction_line(
         po_line_id,
         vendor_id,
         received_at,
+        product_id,
+        variant_id,
+        product_name,
+        sku,
+        unit_price,
+        state_tax,
+        local_tax,
     )) = line_state
     else {
         return Err(TransactionError::NotFound);
@@ -13001,10 +13116,20 @@ async fn delete_transaction_line(
         transaction_id,
         customer_id,
         "item_deleted",
-        "Order item removed",
+        &format!(
+            "Removed {}× {} ({}) at ${} each",
+            quantity, product_name, sku, unit_price
+        ),
         json!({
             "transaction_line_id": transaction_line_id,
+            "product_id": product_id,
+            "variant_id": variant_id,
+            "product_name": product_name,
+            "sku": sku,
             "quantity": quantity,
+            "unit_price": unit_price,
+            "state_tax": state_tax,
+            "local_tax": local_tax,
             "fulfillment": fulfillment,
             "order_lifecycle_status": lifecycle_status,
             "payments_retained_on_transaction": true,

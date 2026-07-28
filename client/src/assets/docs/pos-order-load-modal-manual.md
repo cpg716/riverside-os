@@ -42,6 +42,8 @@ Use this window when a customer already has open Special, Custom, or Wedding wor
 ## Important
 
 - **Add to Order** and **Save Line** update the original fulfillment work and refresh the linked Transaction Record totals. Save Line changes an existing size, variation, quantity, or price in place; changing a price also recalculates that line's state and local tax from the actual saved price. When a single open line exists for a product, selecting another variant from the add search also updates that line instead of creating a duplicate.
+- After **Save Line**, Riverside confirms the price returned by the Main Hub. A success message includes the retained price; if the Main Hub does not return that exact value, Riverside shows an error instead of claiming the change was saved.
+- New merchandise is booked on the date it is added to the existing Transaction. A same-day remove/add switch is netted as one amendment: only a positive increase enters that day's Booked Sales, while zero or negative changes remain visible as audit adjustments.
 - Open, unfulfilled lines can be deleted even when the order has a deposit. The deposit and its payment allocation remain attached to the original Transaction Record, and any resulting credit or balance is recalculated there for the next payment/refund action.
 - Every line edit is recorded in the Transaction Record audit history with the staff member, changed fields, and before/after values—even when the price and total do not change.
 - Payment taken later remains a new payment movement, but it is attached to the original Transaction Record.
@@ -63,17 +65,20 @@ Use this window when a customer already has open Special, Custom, or Wedding wor
 Check the order type before continuing so the correct follow-up team handles it.
 
 For **Wedding** orders:
+
 - keep payment, deposit, and pickup work tied to the linked wedding member
 - confirm the party context before continuing the order in POS
 - a fully paid wedding order still needs member-readiness confirmation before pickup
 
 For **Custom** orders, remember:
+
 - sale price was entered when the order was booked
 - actual vendor cost should be entered when the garment is received
 - the main vendor-form references can be reviewed in the order detail before you continue pickup or payment work
 - order detail may now include size anchors, sleeve or cuff measurements, and vendor order references copied from the HSM or Individualized form
 
 For **Alterations linked to an order**:
+
 - Mark the alteration **Ready** in the Alterations workspace after final inspection.
 - Open the customer order from the Register and choose pickup.
 - Confirm the Register shows the ready alteration pickup badge before completing pickup.
