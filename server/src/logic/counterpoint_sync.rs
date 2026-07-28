@@ -4233,6 +4233,7 @@ pub struct SyncStatusResponse {
     pub last_seen_at: Option<DateTime<Utc>>,
     pub entity_runs: Vec<EntityRunRow>,
     pub recent_issues: Vec<SyncIssueRow>,
+    pub unresolved_issue_count: i64,
     pub token_configured: bool,
     pub counterpoint_staging_enabled: bool,
     pub staging_pending_count: i64,
@@ -4648,6 +4649,12 @@ pub async fn get_sync_status(
     .fetch_all(pool)
     .await?;
 
+    let unresolved_issue_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*)::bigint FROM counterpoint_sync_issue WHERE NOT resolved",
+    )
+    .fetch_one(pool)
+    .await?;
+
     let counterpoint_staging_enabled: bool = sqlx::query_scalar(
         r#"SELECT COALESCE((counterpoint_config->>'staging_enabled')::boolean, false) FROM store_settings WHERE id = 1"#,
     )
@@ -4672,6 +4679,7 @@ pub async fn get_sync_status(
         last_seen_at: last_seen,
         entity_runs,
         recent_issues,
+        unresolved_issue_count,
         token_configured: true,
         counterpoint_staging_enabled,
         staging_pending_count,

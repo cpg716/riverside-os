@@ -160,7 +160,8 @@ async fn reconstruct_attempt_from_approved_event(
                LOWER(COALESCE(
                    NULLIF(e.payload_json->>'_ros_provider_status', ''),
                    NULLIF(e.payload_json->>'status', ''),
-                   NULLIF(e.payload_json->'data'->>'status', '')
+                   NULLIF(e.payload_json->'data'->>'status', ''),
+                   NULLIF(b.status, '')
                )) AS provider_status,
                b.currency,
                b.transaction_type,

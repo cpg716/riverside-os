@@ -115,6 +115,7 @@ interface CounterpointStatus {
     message: string;
     created_at: string;
   }>;
+  unresolved_issue_count?: number;
   entity_runs?: Array<{
     entity: string;
     last_ok_at?: string | null;
@@ -164,6 +165,13 @@ interface PaymentIssue {
   issue_label?: string | null;
   severity?: string | null;
   status?: string | null;
+}
+
+interface HelcimSettlementStatus {
+  open_item_count: number;
+  actionable_open_item_count: number;
+  mismatch_count: number;
+  unmatched_transaction_count: number;
 }
 
 interface LifecycleQueueItem {
@@ -441,6 +449,7 @@ export default function RosOperationsCenter({
   const [paymentHealth, setPaymentHealth] = useState<LoadState<PaymentEventsHealth>>(emptyState());
   const [paymentProvider, setPaymentProvider] = useState<LoadState<ActiveProviderResponse>>(emptyState());
   const [paymentIssues, setPaymentIssues] = useState<LoadState<PaymentIssue[]>>(emptyState());
+  const [paymentSettlement, setPaymentSettlement] = useState<LoadState<HelcimSettlementStatus>>(emptyState());
   const [lifecycleQueues, setLifecycleQueues] = useState<LoadState<LifecycleQueueItem[]>>(emptyState());
   
   // Support Center state consolidation
@@ -482,6 +491,7 @@ export default function RosOperationsCenter({
       paymentHealthResult,
       paymentProviderResult,
       paymentIssuesResult,
+      paymentSettlementResult,
       lifecycleResult,
       stationsResult,
       alertsResult,
@@ -498,6 +508,7 @@ export default function RosOperationsCenter({
       fetchJson<PaymentEventsHealth>("/api/payments/providers/helcim/events/health", headers),
       fetchJson<ActiveProviderResponse>("/api/payments/providers/active", headers),
       fetchJson<PaymentIssue[]>("/api/payments/providers/helcim/reconciliation/items?status=open&limit=25", headers),
+      fetchJson<HelcimSettlementStatus>("/api/payments/providers/helcim/settlements/status", headers),
       fetchJson<LifecycleQueueItem[]>("/api/order-lifecycle/items", headers),
       fetchJson<StationRow[]>("/api/ops/stations", headers),
       fetchJson<AlertEventRow[]>("/api/ops/alerts", headers),
@@ -515,6 +526,7 @@ export default function RosOperationsCenter({
     setPaymentHealth(paymentHealthResult);
     setPaymentProvider(paymentProviderResult);
     setPaymentIssues(paymentIssuesResult);
+    setPaymentSettlement(paymentSettlementResult);
     setLifecycleQueues(lifecycleResult);
 
     if (stationsResult.data) setStations(stationsResult.data);
@@ -665,7 +677,7 @@ export default function RosOperationsCenter({
     }
   }, [headers, canRunActions, linkNote, load, selectedAlertId, selectedBugId, toast]);
 
-  const triggerHeartbeat = useCallback(async () => {
+  const triggerAuditProbes = useCallback(async () => {
     if (!canRunActions) return;
     setTriggerCheckBusy(true);
     try {
@@ -674,7 +686,7 @@ export default function RosOperationsCenter({
         headers,
       });
       if (res.ok) {
-        toast("Active integration connectivity heartbeat triggered.", "success");
+        toast("Production audit probes completed.", "success");
         setTimeout(() => void load(), 1500);
       } else {
         toast("Failed to trigger integration audit.", "error");
@@ -695,15 +707,12 @@ export default function RosOperationsCenter({
     const provider = paymentProvider.data;
     const paymentReviewItems = paymentIssues.data ?? [];
 
-    const cpIssues = cpData?.recent_issues?.length ?? 0;
-    const cpErrors =
-      cpData?.entity_runs?.filter((row) => row.last_error && row.last_error.trim().length > 0).length ?? 0;
-
     const rmsItems = rmsData?.items?.filter((item) => item.status !== "resolved") ?? [];
     const rmsBlocking = rmsItems.filter((item) => item.severity === "critical" || item.severity === "high").length;
     const rmsWarnings = rmsItems.filter((item) => item.severity === "warning" || item.severity === "medium").length;
 
-    const paymentReviewCount = paymentReviewItems.length;
+    const paymentReviewCount =
+      paymentSettlement.data?.actionable_open_item_count ?? paymentReviewItems.length;
     const failedPaymentUpdates = paymentEvents?.failed_event_count ?? 0;
     const unmatchedPaymentUpdates = paymentEvents?.unmatched_event_count ?? 0;
     const terminalReady = provider?.helcim?.terminal_payments_ready === true;
@@ -715,12 +724,19 @@ export default function RosOperationsCenter({
     const failedIntegrations = (opsData?.integrations ?? []).filter(i => i.status === "failed");
     if (failedIntegrations.some(i => i.severity === "critical")) {
       integrationsPillar = "WARNING";
-    } else if (failedIntegrations.length > 0 || (opsData?.integrations ?? []).some(i => i.status === "disabled" || i.status === "caution" || i.status === "CAUTION")) {
+    } else if (
+      failedIntegrations.length > 0
+      || (opsData?.integrations ?? []).some(
+        (i) => i.status === "caution" || i.status === "CAUTION",
+      )
+    ) {
       integrationsPillar = "CAUTION";
     }
 
     // 2. Updates Pillar Status
-    const appVersionMismatch = stations.some(s => s.app_version !== CLIENT_SEMVER);
+    const appVersionMismatch = stations
+      .filter((station) => station.online || station.actionable)
+      .some((station) => station.app_version !== CLIENT_SEMVER);
     const updatesPillar = (appVersionMismatch ? "WARNING" : "GOOD") as HealthStatus;
 
     // 3. POS Pillar Status
@@ -733,9 +749,13 @@ export default function RosOperationsCenter({
 
     // 4. Back Office Pillar Status
     let boPillar = "GOOD" as HealthStatus;
-    if (opsData?.db_ok === false || rmsBlocking > 0 || cpErrors > 0) {
+    if (opsData?.db_ok === false || rmsBlocking > 0) {
       boPillar = "WARNING";
-    } else if (rmsWarnings > 0 || cpIssues > 0 || (opsData?.stations_offline ?? 0) > 0 || (opsData?.pending_bug_reports ?? 0) > 0) {
+    } else if (
+      rmsWarnings > 0
+      || (opsData?.stations_offline ?? 0) > 0
+      || (opsData?.pending_bug_reports ?? 0) > 0
+    ) {
       boPillar = "CAUTION";
     }
 
@@ -795,6 +815,7 @@ export default function RosOperationsCenter({
     paymentHealth.data,
     paymentProvider.data,
     paymentIssues.data,
+    paymentSettlement.data,
     stations,
     loadedAt,
   ]);
@@ -854,11 +875,16 @@ export default function RosOperationsCenter({
     const paymentEvents = paymentHealth.data;
     const provider = paymentProvider.data;
     const paymentReviewItems = paymentIssues.data ?? [];
+    const paymentReviewCount =
+      paymentSettlement.data?.actionable_open_item_count ?? paymentReviewItems.length;
     const onlineStations = stations.filter((station) => station.online);
+    const operationalStations = stations.filter(
+      (station) => station.online || station.actionable,
+    );
     const offlineActionableStations = stations.filter(
       (station) => !station.online && station.actionable,
     );
-    const versionMismatches = stations.filter(
+    const versionMismatches = operationalStations.filter(
       (station) => station.app_version !== CLIENT_SEMVER,
     );
     const failedIntegrations = (opsData?.integrations ?? []).filter(
@@ -871,7 +897,7 @@ export default function RosOperationsCenter({
     const cpEntityErrors =
       cpData?.entity_runs?.filter((row) => row.last_error && row.last_error.trim().length > 0)
         .length ?? 0;
-    const cpIssues = cpData?.recent_issues?.length ?? 0;
+    const cpIssues = cpData?.unresolved_issue_count ?? cpData?.recent_issues?.length ?? 0;
     const paymentConfigured = provider?.helcim?.api_token_configured === true;
     const terminalReady = provider?.helcim?.terminal_payments_ready === true;
     const paymentFailures = paymentEvents?.failed_event_count ?? 0;
@@ -935,7 +961,7 @@ export default function RosOperationsCenter({
           ? "not_configured"
           : !terminalReady || paymentFailures > 0
             ? "blocked"
-            : paymentReviewItems.length > 0 || paymentUnmatched > 0
+            : paymentReviewCount > 0 || paymentUnmatched > 0
               ? "warning"
               : "ready",
         detail: !paymentConfigured
@@ -944,8 +970,8 @@ export default function RosOperationsCenter({
             ? "Terminal payments are not ready."
             : paymentFailures > 0
               ? `${paymentFailures} failed payment event(s) need review.`
-              : paymentReviewItems.length > 0 || paymentUnmatched > 0
-                ? `${paymentReviewItems.length} reconciliation item(s), ${paymentUnmatched} unmatched event(s).`
+              : paymentReviewCount > 0 || paymentUnmatched > 0
+                ? `${paymentReviewCount} actionable reconciliation item(s), ${paymentUnmatched} unmatched event(s).`
                 : "Terminal payments and recent events are clear.",
         required: true,
         targetTab: "integrations",
@@ -1024,17 +1050,17 @@ export default function RosOperationsCenter({
         key: "release-version",
         label: "Release / version verified",
         status:
-          stations.length === 0
+          operationalStations.length === 0
             ? "unknown"
             : versionMismatches.length > 0
               ? "warning"
               : "ready",
         detail:
-          stations.length === 0
+          operationalStations.length === 0
             ? `Current client is ${CLIENT_SEMVER}; no station fleet rows are loaded.`
             : versionMismatches.length > 0
               ? `${versionMismatches.length} station(s) do not match ${CLIENT_SEMVER}.`
-              : `All loaded stations match ${CLIENT_SEMVER}.`,
+              : `All active stations match ${CLIENT_SEMVER}.`,
         required: true,
         targetTab: "stations",
         evidence: "docs/releases/v0.95.5-certification.md",
@@ -1143,8 +1169,11 @@ export default function RosOperationsCenter({
       {
         key: "fleet",
         label: "Station fleet status",
-        status: stations.length > 0 ? "ready" : "unknown",
-        detail: stations.length > 0 ? `${stations.length} station row(s) available.` : "No station rows loaded.",
+        status: operationalStations.length > 0 ? "ready" : "unknown",
+        detail:
+          operationalStations.length > 0
+            ? `${operationalStations.length} active/actionable station row(s); ${stations.length - operationalStations.length} stale history row(s) excluded.`
+            : "No active or actionable station rows loaded.",
         required: false,
         targetTab: "stations",
       },
@@ -1209,6 +1238,7 @@ export default function RosOperationsCenter({
     ops.error,
     paymentHealth.data,
     paymentIssues.data,
+    paymentSettlement.data,
     paymentProvider.data,
     runtimeDiagnostics,
     readinessSignoffs,
@@ -1329,7 +1359,7 @@ export default function RosOperationsCenter({
                     <button
                       type="button"
                       disabled={triggerCheckBusy}
-                      onClick={() => void triggerHeartbeat()}
+                      onClick={() => void triggerAuditProbes()}
                       className="ui-btn-primary bg-app-danger hover:bg-app-danger/80 py-2 px-3 text-[10px] font-black uppercase tracking-widest text-center text-white"
                     >
                       {triggerCheckBusy ? "Probing..." : "Direct Fix"}
@@ -1989,10 +2019,10 @@ export default function RosOperationsCenter({
                 <button
                   type="button"
                   disabled={triggerCheckBusy}
-                  onClick={() => void triggerHeartbeat()}
+                  onClick={() => void triggerAuditProbes()}
                   className="ui-btn-primary py-2 px-4 text-xs font-black uppercase text-white"
                 >
-                  {triggerCheckBusy ? "Testing..." : "Force Heartbeat Poll"}
+                  {triggerCheckBusy ? "Testing..." : "Run Audit Probes"}
                 </button>
               </div>
 

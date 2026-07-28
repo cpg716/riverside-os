@@ -146,6 +146,21 @@ Readiness reuses existing runtime signals where available:
 - `/api/ops/runtime-diagnostics`
 - existing Helcim, Counterpoint, bug-report, and integration health endpoints already loaded by `RosOperationsCenter`
 
+Active release-version readiness considers only online or actionable station rows. Retained stale
+history remains visible behind **Show stale**, but it cannot create an update mismatch.
+
+Helcim readiness uses the settlement-status aggregate rather than the first page of review rows.
+Actionable reconciliation findings remain warnings; `fee_evidence_unavailable` and
+`net_evidence_unavailable` remain visible evidence but do not claim that a customer tender failed.
+Refund gross values are compared by absolute cents only after transaction direction is verified.
+When staff previously recorded an approved card manually, Payments Health may attach the exact
+Helcim transaction to that existing provider-unlinked `card_manual` or `credit_card` payment. The
+amount must match exactly and the payment cannot already carry another processor reference; the
+link action updates the existing ledger row instead of creating a duplicate customer payment.
+
+Counterpoint readiness reports the complete unresolved issue count while retaining a bounded recent
+issue list for display.
+
 Where a required check has no authoritative runtime source, it is shown as **Manual signoff required** instead of being marked ready. Examples include QBO/accounting signoff, hardware stress evidence, backup restore drill proof, Help Center freshness, and staff pilot/go-no-go approval.
 
 Integration health is evidence-based. Counterpoint sync is **degraded** when there is no run
@@ -167,6 +182,10 @@ Related operator-visible fallback surfaces:
 
 - `POST /alerts/ack`
   - body: `{ "alert_id": "<uuid>" }`
+
+- `POST /audit-probes`
+  - runs read-only production integrity probes and records the resulting run/alert evidence
+  - the Operations Center labels this action **Run Audit Probes**; it is not a bridge heartbeat
 
 - `POST /actions/{action_key}`
   - body: `{ "reason": "...", "payload": { ... }, "confirm_primary": true, "confirm_secondary": true }`

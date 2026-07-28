@@ -2424,8 +2424,13 @@ async fn validate_helcim_payment_splits(
             WHERE provider = 'helcim'
               AND (
                 ($1::uuid IS NOT NULL AND id = $1)
-                OR ($2::text IS NOT NULL AND provider_transaction_id = $2)
-                OR ($3::text IS NOT NULL AND provider_payment_id = $3)
+                OR (
+                    $1::uuid IS NULL
+                    AND (
+                        ($2::text IS NOT NULL AND provider_transaction_id = $2)
+                        OR ($3::text IS NOT NULL AND provider_payment_id = $3)
+                    )
+                )
               )
             ORDER BY created_at DESC
             "#,

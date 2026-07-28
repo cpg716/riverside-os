@@ -165,4 +165,6 @@ pub const EMBEDDED_MIGRATIONS: &[(&str, &str)] = &[
     ("162_qbo_payment_activity_date_indexes.sql", include_str!("../../migrations/162_qbo_payment_activity_date_indexes.sql")),
     ("163_close_fully_refunded_cancelled_balances.sql", include_str!("../../migrations/163_close_fully_refunded_cancelled_balances.sql")),
     ("164_close_fully_refunded_transaction_balances.sql", include_str!("../../migrations/164_close_fully_refunded_transaction_balances.sql")),
+    ("165_restore_counterpoint_tender_aliases.sql", include_str!("../../migrations/165_restore_counterpoint_tender_aliases.sql")),
+    ("166_repair_txn_624598_override_evidence.sql", include_str!("../../migrations/166_repair_txn_624598_override_evidence.sql")),
 ];

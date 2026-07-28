@@ -523,6 +523,12 @@ shipped or universal safeguard.
 | `DONATION` | `gift_card` |
 | `PROM GC` | `gift_card` |
 
+Migration `165_restore_counterpoint_tender_aliases.sql` restores these canonical aliases when a
+live mapping table has lost earlier seed rows. It reclassifies only imported
+`counterpoint_unmapped` payment rows whose exact Counterpoint tender remains in
+`metadata.counterpoint_pmt_typ`; it does not rerun the Counterpoint import or infer a tender from
+amount, customer, or date.
+
 ROS ships common Counterpoint tender mappings, and admins can review or change them in **Settings → Counterpoint → Payments**. Unknown tender codes no longer silently fall back to cash; they import as `counterpoint_unmapped`, preserve the original Counterpoint tender code in payment metadata, and create an unresolved sync issue that must be reviewed before sign-off.
 
 Historical tickets are not dropped solely because Counterpoint omitted line detail or provided only an ambiguous parent item key. When a closed historical record has payment/header value but no exact ROS variant can be selected, ROS imports it against the `HIST-CP-FALLBACK` item, preserves the original Counterpoint key in `transaction_lines.vendor_reference`, shows the original Counterpoint description/SKU in order review, and raises a review warning for operator cleanup.

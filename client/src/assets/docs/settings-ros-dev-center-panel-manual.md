@@ -69,6 +69,24 @@ reports a future value. Install time is accepted only from a confirmed native-up
 pending, failed, unavailable, and legacy browser/local-storage observations do not count as proof
 of an installed update.
 
+The Operations & Support Center excludes stale station-history rows from the active release-version
+check. Use **Show stale** when support needs historical telemetry; an old browser heartbeat is not
+an instruction to update a currently operating Register # station.
+
+Payment readiness counts actionable reconciliation findings. Missing processor fee or net fields
+remain visible in Payments Health as unavailable evidence, but they do not by themselves mean that
+the customer payment failed. Refund settlement matching compares exact absolute cents and separately
+verifies that the processor transaction is a refund.
+
+If an approved Helcim charge was already recorded as an exact-dollar Manual Card or provider-unlinked
+Credit Card payment, use the Payments Health link action. It attaches Helcim proof to the existing
+payment instead of adding a second tender. Never link by amount alone: confirm the customer,
+Transaction Record, date, and approval context first.
+
+**Run Audit Probes** runs the protected production data-integrity probes. It is not a Counterpoint
+bridge heartbeat or an automatic repair action. Review the resulting alert and source workflow
+before changing operational data.
+
 ## Protected actions
 
 Only use protected operations when a manager or developer has asked for them. These actions are audit-sensitive and should remain traceable.

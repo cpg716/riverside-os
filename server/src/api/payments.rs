@@ -1054,6 +1054,7 @@ pub struct HelcimSettlementStatusResponse {
     pub matched_transaction_count: i64,
     pub unmatched_transaction_count: i64,
     pub open_item_count: i64,
+    pub actionable_open_item_count: i64,
     pub mismatch_count: i64,
     pub api_integration_active: bool,
     pub last_run_at: Option<DateTime<Utc>>,
@@ -3297,6 +3298,7 @@ async fn get_helcim_settlement_status(
         matched_transaction_count: i64,
         unmatched_transaction_count: i64,
         open_item_count: i64,
+        actionable_open_item_count: i64,
         mismatch_count: i64,
     }
 
@@ -3320,6 +3322,16 @@ async fn get_helcim_settlement_status(
                 FROM payment_settlement_items
                 WHERE provider = 'helcim' AND status = 'open'
             ) AS open_item_count,
+            (
+                SELECT COUNT(*)::bigint
+                FROM payment_settlement_items
+                WHERE provider = 'helcim'
+                  AND status = 'open'
+                  AND item_type NOT IN (
+                      'fee_evidence_unavailable',
+                      'net_evidence_unavailable'
+                  )
+            ) AS actionable_open_item_count,
             (
                 SELECT COUNT(*)::bigint
                 FROM payment_settlement_items
@@ -3378,6 +3390,7 @@ async fn get_helcim_settlement_status(
         matched_transaction_count: counts.matched_transaction_count,
         unmatched_transaction_count: counts.unmatched_transaction_count,
         open_item_count: counts.open_item_count,
+        actionable_open_item_count: counts.actionable_open_item_count,
         mismatch_count: counts.mismatch_count,
         api_integration_active,
         last_run_at,
@@ -4087,7 +4100,7 @@ async fn list_helcim_reconciliation_candidate_payments(
             pt.payment_provider = 'helcim'
             OR (
                 pt.payment_provider IS NULL
-                AND pt.payment_method = 'card_manual'
+                AND pt.payment_method IN ('card_manual', 'credit_card')
             )
         )
           AND (NULLIF(TRIM(pt.provider_transaction_id), '') IS NULL OR pt.provider_transaction_id = $1)
@@ -4208,11 +4221,12 @@ async fn link_helcim_reconciliation_payment(
     .ok_or_else(|| PaymentError::InvalidPayload("Riverside payment was not found.".to_string()))?;
     let payment_provider: Option<String> = payment.get("payment_provider");
     let payment_method: String = payment.get("payment_method");
-    let is_manual_card_without_provider =
-        payment_provider.is_none() && payment_method == "card_manual";
-    if payment_provider.as_deref() != Some("helcim") && !is_manual_card_without_provider {
+    let is_provider_unlinked_card = payment_provider.is_none()
+        && matches!(payment_method.as_str(), "card_manual" | "credit_card");
+    if payment_provider.as_deref() != Some("helcim") && !is_provider_unlinked_card {
         return Err(PaymentError::InvalidPayload(
-            "Only an existing Helcim or Manual Card payment can be linked here.".to_string(),
+            "Only an existing Helcim or provider-unlinked card payment can be linked here."
+                .to_string(),
         ));
     }
     let payment_amount = payment.get::<Decimal, _>("amount").round_dp(2);
@@ -4275,7 +4289,7 @@ async fn link_helcim_reconciliation_payment(
         r#"
         UPDATE payment_transactions
         SET payment_method = CASE
-                WHEN payment_method = 'card_manual' THEN 'card_terminal'
+                WHEN payment_method IN ('card_manual', 'credit_card') THEN 'card_terminal'
                 ELSE payment_method
             END,
             payment_provider = 'helcim',
@@ -4290,7 +4304,7 @@ async fn link_helcim_reconciliation_payment(
               payment_provider = 'helcim'
               OR (
                   payment_provider IS NULL
-                  AND payment_method = 'card_manual'
+                  AND payment_method IN ('card_manual', 'credit_card')
               )
           )
           AND NULLIF(TRIM(provider_transaction_id), '') IS NULL
@@ -6641,6 +6655,46 @@ async fn resolve_stale_helcim_reconciliation_items(
     .await
     .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
 
+    sqlx::query(
+        r#"
+        UPDATE payment_settlement_items item
+        SET status = 'resolved',
+            resolved_at = now(),
+            resolution_type = 'auto_resolved',
+            resolution_note = 'Resolved automatically because the exact Helcim transaction and ROS payment now agree by absolute cents and payment direction.',
+            updated_at = now()
+        FROM payment_provider_batch_transactions btx
+        INNER JOIN payment_transactions payment
+          ON payment.id = btx.payment_transaction_id
+        WHERE item.provider = 'helcim'
+          AND item.status = 'open'
+          AND item.item_type = 'amount_mismatch'
+          AND item.provider_transaction_id = btx.provider_transaction_id
+          AND item.payment_transaction_id = btx.payment_transaction_id
+          AND btx.provider = 'helcim'
+          AND btx.match_status = 'matched'
+          AND btx.match_type = 'provider_transaction_id'
+          AND payment.payment_provider = 'helcim'
+          AND BTRIM(COALESCE(payment.provider_transaction_id, '')) = btx.provider_transaction_id
+          AND ROUND(ABS(btx.gross_amount), 2) = ROUND(ABS(payment.amount), 2)
+          AND (
+              (payment.amount >= 0 AND LOWER(BTRIM(COALESCE(btx.transaction_type, ''))) IN ('purchase', 'sale'))
+              OR
+              (payment.amount < 0 AND LOWER(BTRIM(COALESCE(btx.transaction_type, ''))) IN ('refund', 'return', 'reverse', 'reversal'))
+          )
+          AND (
+              (NOT $2::boolean AND btx.payment_transaction_id = ANY($3))
+              OR ($2::boolean AND btx.provider_transaction_id = ANY($1))
+          )
+        "#,
+    )
+    .bind(provider_transaction_ids)
+    .bind(processor_scope)
+    .bind(payment_transaction_ids)
+    .execute(&mut **tx)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+
     Ok(())
 }
 
@@ -7249,7 +7303,14 @@ async fn create_existing_batch_transaction_findings(
         let provider_transaction_id = row.get::<String, _>("provider_transaction_id");
         let payment_provider_batch_id = row.get::<Option<Uuid>, _>("payment_provider_batch_id");
         let payment_transaction_id = row.get::<Option<Uuid>, _>("payment_transaction_id");
+        let processor_status = row.get::<Option<String>, _>("processor_status");
         let Some(payment_transaction_id) = payment_transaction_id else {
+            if !settlement_statuses_confirmed_success_match(
+                processor_status.as_deref(),
+                Some("success"),
+            ) {
+                continue;
+            }
             stats.unmatched_processor_rows += 1;
             opened += insert_settlement_item(
                 tx,
@@ -7289,7 +7350,7 @@ async fn create_existing_batch_transaction_findings(
         let processor_amount = row.get::<Option<Decimal>, _>("processor_amount");
         let ros_amount = row.get::<Option<Decimal>, _>("ros_amount");
         if let (Some(processor_amount), Some(ros_amount)) = (processor_amount, ros_amount) {
-            if processor_amount.round_dp(2) != ros_amount.round_dp(2) {
+            if !settlement_amounts_match(processor_amount, ros_amount) {
                 stats.amount_mismatches += 1;
                 opened += insert_settlement_item(
                     tx,
@@ -7363,7 +7424,6 @@ async fn create_existing_batch_transaction_findings(
             .await?;
         }
 
-        let processor_status = row.get::<Option<String>, _>("processor_status");
         let ros_status = row
             .get::<Option<String>, _>("ros_provider_status")
             .or_else(|| row.get::<Option<String>, _>("ros_status"));
@@ -7520,7 +7580,17 @@ async fn insert_settlement_item(
             ros_values,
             message
         )
-        VALUES ($1, 'helcim', $2, $3, 'open', $4, $5, $6, $7, $8, $9, $10)
+        SELECT $1, 'helcim', $2, $3, 'open', $4, $5, $6, $7, $8, $9, $10
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM payment_settlement_items prior
+            WHERE prior.provider = 'helcim'
+              AND prior.status = 'ignored'
+              AND prior.item_type = $2
+              AND COALESCE(prior.provider_transaction_id, '') = COALESCE($5, '')
+              AND COALESCE(prior.payment_transaction_id::text, '') = COALESCE($6::uuid::text, '')
+              AND COALESCE(prior.provider_batch_id, '') = COALESCE($4, '')
+        )
         ON CONFLICT DO NOTHING
         "#,
     )
@@ -7544,6 +7614,10 @@ fn settlement_statuses_match(processor_status: Option<&str>, ros_status: Option<
     let processor = settlement_status_family(processor_status);
     let ros = settlement_status_family(ros_status);
     processor.is_none() || ros.is_none() || processor == ros
+}
+
+fn settlement_amounts_match(processor_amount: Decimal, ros_amount: Decimal) -> bool {
+    processor_amount.abs().round_dp(2) == ros_amount.abs().round_dp(2)
 }
 
 fn settlement_statuses_confirmed_success_match(
@@ -13086,6 +13160,22 @@ mod tests {
         assert!(!settlement_transaction_type_matches_amount(
             None,
             Some(Decimal::new(10000, 2))
+        ));
+    }
+
+    #[test]
+    fn processor_amount_match_preserves_refund_direction_semantics() {
+        assert!(settlement_amounts_match(
+            Decimal::new(16455, 2),
+            Decimal::new(-16455, 2)
+        ));
+        assert!(settlement_amounts_match(
+            Decimal::new(33722, 2),
+            Decimal::new(33722, 2)
+        ));
+        assert!(!settlement_amounts_match(
+            Decimal::new(16455, 2),
+            Decimal::new(-16454, 2)
         ));
     }
 
