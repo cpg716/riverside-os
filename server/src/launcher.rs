@@ -10,7 +10,7 @@ use crate::logic::ops_dev_center::{ops_retention_config_from_env, perform_retent
 use crate::logic::wedding_push::WeddingEventBus;
 use crate::observability::ServerLogRing;
 use axum::extract::DefaultBodyLimit;
-use axum::http::{header, HeaderValue, Method};
+use axum::http::{header, HeaderValue, Method, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::Response;
 use axum::serve;
@@ -181,14 +181,29 @@ async fn log_http_failures(request: axum::extract::Request, next: Next) -> Respo
     let uri = request.uri().clone();
     let response = next.run(request).await;
     if response.status().is_server_error() {
-        tracing::error!(
-            method = %method,
-            uri = %uri,
-            status = %response.status(),
-            "HTTP request returned a server error"
-        );
+        let uptime_seconds = crate::api::health::uptime_seconds();
+        if is_startup_readiness_failure(uri.path(), response.status(), uptime_seconds) {
+            tracing::warn!(
+                method = %method,
+                uri = %uri,
+                status = %response.status(),
+                uptime_seconds,
+                "Readiness probe waiting for startup dependencies"
+            );
+        } else {
+            tracing::error!(
+                method = %method,
+                uri = %uri,
+                status = %response.status(),
+                "HTTP request returned a server error"
+            );
+        }
     }
     response
+}
+
+fn is_startup_readiness_failure(path: &str, status: StatusCode, uptime_seconds: u64) -> bool {
+    path == "/api/ready" && status == StatusCode::SERVICE_UNAVAILABLE && uptime_seconds <= 30
 }
 
 fn helcim_value_looks_placeholder(value: &str) -> bool {
@@ -1097,7 +1112,10 @@ async fn launch_server_inner(
         .nest_service("/uploads", serve_uploads)
         .layer(DefaultBodyLimit::max(max_body))
         .layer(cors)
-        .layer(TraceLayer::new_for_http())
+        // `log_http_failures` is the status-aware 5xx logger. Disable the trace layer's
+        // duplicate failure event so expected startup readiness probes are not recorded
+        // as application errors before the job queue publishes its first heartbeat.
+        .layer(TraceLayer::new_for_http().on_failure(()))
         .with_state(state)
         .fallback_service(serve_dir)
         .layer(middleware::from_fn(log_http_failures))
@@ -1151,15 +1169,41 @@ pub async fn launch_server_with_ready_signal(
 #[cfg(test)]
 mod tests {
     use super::{
-        daily_backup_is_due, helcim_value_looks_placeholder, meilisearch_daily_reindex_is_due,
-        meilisearch_daily_reindex_retry_delay, static_cache_control_for_path,
+        daily_backup_is_due, helcim_value_looks_placeholder, is_startup_readiness_failure,
+        meilisearch_daily_reindex_is_due, meilisearch_daily_reindex_retry_delay,
+        static_cache_control_for_path,
     };
+    use axum::http::StatusCode;
 
     #[test]
     fn helcim_placeholder_detection_catches_dummy_values() {
         assert!(helcim_value_looks_placeholder(""));
         assert!(helcim_value_looks_placeholder("replace_me"));
         assert!(!helcim_value_looks_placeholder("real-token-value"));
+    }
+
+    #[test]
+    fn readiness_503_is_expected_only_during_startup() {
+        assert!(is_startup_readiness_failure(
+            "/api/ready",
+            StatusCode::SERVICE_UNAVAILABLE,
+            20
+        ));
+        assert!(!is_startup_readiness_failure(
+            "/api/ready",
+            StatusCode::SERVICE_UNAVAILABLE,
+            31
+        ));
+        assert!(!is_startup_readiness_failure(
+            "/api/health",
+            StatusCode::SERVICE_UNAVAILABLE,
+            20
+        ));
+        assert!(!is_startup_readiness_failure(
+            "/api/ready",
+            StatusCode::INTERNAL_SERVER_ERROR,
+            20
+        ));
     }
 
     #[test]
