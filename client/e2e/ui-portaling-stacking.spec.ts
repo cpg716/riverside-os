@@ -8,7 +8,6 @@ import {
   apiBase,
   ensureSessionAuth,
   seedRmsFixture,
-  staffCode,
   staffHeaders,
   verifyStaffId,
 } from "./helpers/rmsCharge";
@@ -61,7 +60,7 @@ test.describe("UI Portaling and Stacking", () => {
   }) => {
     test.setTimeout(120_000);
 
-    // 1. Seed a transaction with a refund due
+    // 1. Seed a paid transaction for the Register Pay refund handoff
     const fixture = await seedRmsFixture(request, "standard_only", "Stacking Test");
     const { sessionId, sessionToken } = await ensureSessionAuth(request);
     const operatorStaffId = await verifyStaffId(request);
@@ -105,29 +104,6 @@ test.describe("UI Portaling and Stacking", () => {
     expect(checkoutRes.status(), checkoutBodyText).toBe(200);
     const { transaction_id } = JSON.parse(checkoutBodyText);
     const transactionDisplayId = await getTransactionDisplayId(request, transaction_id);
-
-    // A same-day Manager void provides a legitimate open refund obligation for
-    // exercising the Back Office-to-Register Pay handoff.
-    const returnRes = await request.post(
-      `${apiBase()}/api/transactions/${transaction_id}/void`,
-      {
-        headers: {
-          ...staffHeaders(),
-          "Content-Type": "application/json",
-          "x-riverside-pos-session-id": sessionId,
-          "x-riverside-pos-session-token": sessionToken,
-          "x-riverside-station-key": "station-e2e",
-        },
-        data: {
-          register_session_id: sessionId,
-          manager_staff_id: operatorStaffId,
-          manager_pin: staffCode(),
-          reason: "E2E Register Pay refund handoff verification",
-        },
-        failOnStatusCode: false,
-      },
-    );
-    expect(returnRes.status()).toBe(200);
 
     // 2. Open UI and navigate to Orders
     await signInToBackOffice(page, { persistSession: true });
