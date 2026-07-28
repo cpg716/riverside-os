@@ -4450,7 +4450,7 @@ async fn create_pending_card_refund_attempt(
     .await?;
     if reserved_amount_cents > 0 {
         return Err(TransactionError::BadGateway(format!(
-            "Another Helcim refund of ${:.2} against this original card charge is unresolved or awaiting Riverside ledger attachment. No second refund was sent; reconcile it in Payments Health first.",
+            "Another Helcim refund of ${:.2} against this original card charge is unresolved or awaiting Riverside ledger attachment. No second refund was sent; open Restore in Pay and retry Record Sale to re-verify and attach it.",
             Decimal::new(reserved_amount_cents, 2)
         )));
     }
@@ -8118,7 +8118,7 @@ async fn process_refund(
             .is_some_and(DurableCardRefundAttempt::has_blocking_provider_identity_mismatch)
         {
             return Err(TransactionError::BadGateway(
-                "The approved Helcim refund result does not match the requested movement and cannot be attached. Reconcile it in Payments Health before another refund."
+                "The approved Helcim refund result does not match the requested movement and cannot be attached automatically. Open Restore in Pay; verify the exact Helcim result before using the Manager-authorized external-reference path."
                     .to_string(),
             ));
         }
@@ -8160,7 +8160,7 @@ async fn process_refund(
             {
                 if existing.has_blocking_provider_identity_mismatch() {
                     return Err(TransactionError::BadGateway(
-                        "The approved Helcim refund result does not match the requested movement and cannot be attached. Reconcile it in Payments Health before another refund."
+                        "The approved Helcim refund result does not match the requested movement and cannot be attached automatically. Open Restore in Pay; verify the exact Helcim result before using the Manager-authorized external-reference path."
                             .to_string(),
                     ));
                 } else if existing.is_approved() {
@@ -8176,13 +8176,13 @@ async fn process_refund(
                     provider_attempt_may_have_been_dispatched = true;
                     if existing.error_code.as_deref() != Some("outcome_unknown") {
                         return Err(TransactionError::BadGateway(
-                            "This Helcim refund is already in progress. No second provider request was sent; check its status in Payments Health."
+                            "This Helcim refund is already in progress. No second provider request was sent; open Restore in Pay and retry Record Sale to re-verify the same attempt."
                                 .to_string(),
                         ));
                     }
                     if !card_refund_attempt_within_idempotency_window(&existing, Utc::now()) {
                         return Err(TransactionError::BadGateway(
-                            "The Helcim refund outcome is unresolved and ROS's safe replay window has closed. No new refund was sent. Reconcile the provider result in Payments Health before continuing."
+                            "The Helcim refund outcome is unresolved and ROS's safe replay window has closed. No new refund was sent. Open Restore in Pay; verify Helcim before using the Manager-authorized external-reference path."
                                 .to_string(),
                         ));
                     }
@@ -8209,7 +8209,7 @@ async fn process_refund(
                     provider_attempt_may_have_been_dispatched = true;
                     if !card_refund_attempt_within_idempotency_window(&existing, Utc::now()) {
                         return Err(TransactionError::BadGateway(
-                            "The Helcim refund outcome is unresolved and ROS's safe replay window has closed. No new refund was sent. Reconcile the provider result in Payments Health before continuing."
+                            "The Helcim refund outcome is unresolved and ROS's safe replay window has closed. No new refund was sent. Open Restore in Pay; verify Helcim before using the Manager-authorized external-reference path."
                                 .to_string(),
                         ));
                     }
@@ -8237,7 +8237,7 @@ async fn process_refund(
                     {
                         if retry_existing.has_blocking_provider_identity_mismatch() {
                             return Err(TransactionError::BadGateway(
-                                "The approved Helcim refund result does not match the requested movement and cannot be attached. Reconcile it in Payments Health before another refund."
+                                "The approved Helcim refund result does not match the requested movement and cannot be attached automatically. Open Restore in Pay; verify the exact Helcim result before using the Manager-authorized external-reference path."
                                     .to_string(),
                             ));
                         } else if retry_existing.is_approved() {
@@ -8258,7 +8258,7 @@ async fn process_refund(
                             provider_attempt_may_have_been_dispatched = true;
                             if retry_existing.error_code.as_deref() != Some("outcome_unknown") {
                                 return Err(TransactionError::BadGateway(
-                                    "This Helcim refund retry is already in progress. No second provider request was sent; check its status in Payments Health."
+                                    "This Helcim refund retry is already in progress. No second provider request was sent; open Restore in Pay and retry Record Sale to re-verify the same attempt."
                                         .to_string(),
                                 ));
                             }
@@ -8271,7 +8271,7 @@ async fn process_refund(
                             )
                         } else {
                             return Err(TransactionError::BadGateway(
-                                "The Helcim refund retry is unresolved. No new refund was sent; review Payments Health before continuing."
+                                "The Helcim refund retry is unresolved. No new refund was sent; open Restore in Pay and re-verify it before continuing."
                                     .to_string(),
                             ));
                         }
@@ -8492,7 +8492,7 @@ async fn process_refund(
                 )
                 .await?;
                 return Err(TransactionError::BadGateway(
-                    "The Helcim refund remains unresolved, but ROS's safe replay window closed before dispatch. No new refund was sent; reconcile it in Payments Health."
+                    "The Helcim refund remains unresolved, but ROS's safe replay window closed before dispatch. No new refund was sent; open Restore in Pay and verify Helcim before using the Manager-authorized external-reference path."
                         .to_string(),
                 ));
             }
@@ -8621,7 +8621,7 @@ async fn process_refund(
                 )
                 .await?;
                 return Err(TransactionError::BadGateway(
-                    "The Helcim refund remains unresolved, but ROS's safe replay window closed before the Payment API dispatch. No new refund was sent; reconcile it in Payments Health."
+                    "The Helcim refund remains unresolved, but ROS's safe replay window closed before the Payment API dispatch. No new refund was sent; open Restore in Pay and verify Helcim before using the Manager-authorized external-reference path."
                         .to_string(),
                 ));
             }
@@ -8697,7 +8697,7 @@ async fn process_refund(
                             "request failed"
                         },
                         if error.outcome_unknown {
-                            ". Do not start another refund; retry the same refund promptly or reconcile it in Payments Health."
+                            ". Do not start another refund; open Restore in Pay and retry Record Sale with the same refund."
                         } else {
                             ""
                         }
@@ -8737,7 +8737,7 @@ async fn process_refund(
                     .execute(&state.db)
                     .await?;
                     return Err(TransactionError::BadGateway(format!(
-                        "{mismatch} The provider result was blocked from the Riverside refund ledger; reconcile it in Payments Health before another refund."
+                        "{mismatch} The provider result was blocked from the Riverside refund ledger. Open Restore in Pay; verify the exact Helcim result before using the Manager-authorized external-reference path."
                     )));
                 }
             }

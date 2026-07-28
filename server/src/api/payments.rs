@@ -870,6 +870,10 @@ pub struct HelcimPurchaseRequestBody {
     #[serde(default)]
     pub terminal_override_reason: Option<String>,
     #[serde(default)]
+    pub terminal_override_staff_id: Option<Uuid>,
+    #[serde(default)]
+    pub terminal_override_approval_reference: Option<Uuid>,
+    #[serde(default)]
     pub checkout_client_id: Option<Uuid>,
     /// Helcim-native customer code, when this ROS customer is already linked
     /// to a Helcim customer profile.
@@ -2394,6 +2398,53 @@ async fn resolve_helcim_terminal_for_register_with_selection(
         override_staff_id,
         override_reason: cleaned_reason,
     })
+}
+
+async fn approved_terminal_override_staff_id(
+    state: &AppState,
+    approval_reference: Option<Uuid>,
+    approving_staff_id: Option<Uuid>,
+    register_session_id: Uuid,
+    checkout_client_id: Uuid,
+    selected_terminal_key: Option<&str>,
+) -> Result<Option<Uuid>, PaymentError> {
+    let (Some(approval_reference), Some(approving_staff_id), Some(terminal_key)) = (
+        approval_reference,
+        approving_staff_id,
+        normalize_terminal_key(selected_terminal_key),
+    ) else {
+        return Ok(None);
+    };
+    let approved: bool = sqlx::query_scalar(
+        r#"
+        SELECT EXISTS(
+            SELECT 1
+            FROM staff_access_log approval
+            WHERE approval.id = $1
+              AND approval.staff_id = $2
+              AND approval.event_kind = 'helcim_terminal_override_authorization'
+              AND approval.created_at >= CURRENT_TIMESTAMP - INTERVAL '30 minutes'
+              AND approval.metadata->>'register_session_id' = $3::text
+              AND approval.metadata->>'checkout_client_id' = $4::text
+              AND approval.metadata->>'terminal_key' = $5
+        )
+        "#,
+    )
+    .bind(approval_reference)
+    .bind(approving_staff_id)
+    .bind(register_session_id)
+    .bind(checkout_client_id)
+    .bind(terminal_key)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|error| PaymentError::InvalidPayload(error.to_string()))?;
+    if !approved || !staff_can_override_terminal(state, Some(approving_staff_id)).await? {
+        return Err(PaymentError::Forbidden(
+            "Valid Manager Access with terminal override permission is required for this terminal."
+                .to_string(),
+        ));
+    }
+    Ok(Some(approving_staff_id))
 }
 
 fn clean_optional_secret(
@@ -9463,6 +9514,16 @@ async fn start_helcim_purchase(
     };
     let register_session_id = require_helcim_register_session(register_session_id)?;
     let config = helcim::HelcimConfig::from_env();
+    let approved_override_staff_id = approved_terminal_override_staff_id(
+        &state,
+        payload.terminal_override_approval_reference,
+        payload.terminal_override_staff_id,
+        register_session_id,
+        checkout_client_id,
+        payload.selected_terminal_key.as_deref(),
+    )
+    .await?;
+    let terminal_authorizing_staff_id = approved_override_staff_id.or(staff_id);
     let terminal_route = resolve_helcim_terminal_for_register_with_selection(
         &state,
         &state.db,
@@ -9470,7 +9531,7 @@ async fn start_helcim_purchase(
         Some(register_session_id),
         payload.selected_terminal_key.as_deref(),
         payload.terminal_override_reason.as_deref(),
-        staff_id,
+        terminal_authorizing_staff_id,
     )
     .await?;
     let terminal_id = terminal_route.terminal_id.clone();
@@ -13988,6 +14049,26 @@ mod tests {
         assert!(release.contains("WHEN $4 THEN 'expired'"));
         assert!(release.contains("provider_transaction_id IS NULL\n              OR $4"));
         assert!(release.contains("load_helcim_attempt(&state, attempt_id, session_id)"));
+    }
+
+    #[test]
+    fn register_terminal_override_requires_scoped_manager_access() {
+        let source = include_str!("payments.rs");
+        let approval = source
+            .split_once("async fn approved_terminal_override_staff_id(")
+            .expect("terminal override approval")
+            .1
+            .split_once("fn clean_optional_secret(")
+            .expect("end of terminal override approval")
+            .0;
+
+        assert!(approval.contains("helcim_terminal_override_authorization"));
+        assert!(approval.contains("approval.metadata->>'register_session_id'"));
+        assert!(approval.contains("approval.metadata->>'checkout_client_id'"));
+        assert!(approval.contains("approval.metadata->>'terminal_key'"));
+        assert!(approval.contains("staff_can_override_terminal"));
+        assert!(source.contains("terminal_override_approval_reference"));
+        assert!(source.contains("terminal_authorizing_staff_id"));
     }
 
     #[test]

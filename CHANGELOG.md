@@ -11,6 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Faster Fail-Closed Windows Releases**: Same-tag Windows release reruns now cancel the superseded workflow instead of waiting behind assets that cannot be published. Signed component compilation overlaps the pre-retag gate, while package publication still requires both that gate and exact-commit Playwright success. Independent Rust caches now retain Riverside workspace-crate outputs so restored caches can accelerate repeat builds instead of preserving dependencies only. The release-contract validator normalizes Windows CRLF checkouts before evaluating workflow structure.
 
 ### Fixed
+- **In-Register Helcim Restore and Atomic Refund Completion**: The Register
+  payment screen now provides a Restore workspace for the current sale that
+  can refresh terminal health, re-verify and attach the exact approved Helcim
+  sale or refund, reopen secure card entry, release evidence-free blockers,
+  select an available terminal, or safely retry Record Sale without charging
+  the customer twice. Non-default terminal use requires scoped, server-verified
+  Manager Access. Paid cancellations, returns, and refunds do not change the
+  original Transaction Record, inventory, customer balance, or receipt history
+  until provider approval and Record Sale complete atomically; cross-sale
+  provider evidence remains isolated.
+- **Register Idle Lock Screen Identity**: An idle Register now opens the
+  dedicated Register Locked Access PIN screen and rejoins the existing drawer
+  after authentication instead of presenting the Drawer Open screen.
 - **Cancelled and Fully Refunded Order Balance Integrity**: Cancelling a paid
   order now returns its exact negative merchandise to the Register for the
   linked Helcim refund, preserves the approved refund event for receipt

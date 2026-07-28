@@ -751,6 +751,12 @@ export default function NexoCheckoutDrawer({
   const [selectedTerminalKey, setSelectedTerminalKey] = useState<"terminal_1" | "terminal_2" | "">("");
   const [terminalPickerOpen, setTerminalPickerOpen] = useState(false);
   const [terminalOverrideConfirmed, setTerminalOverrideConfirmed] = useState(false);
+  const [terminalOverrideApprovalOpen, setTerminalOverrideApprovalOpen] = useState(false);
+  const [terminalOverrideApproval, setTerminalOverrideApproval] = useState<{
+    staffId: string;
+    approvalReference: string;
+    terminalKey: "terminal_1" | "terminal_2";
+  } | null>(null);
 
   useEffect(() => {
     const hasProviderPayment = applied.some(isApprovedProviderPayment);
@@ -1021,6 +1027,8 @@ export default function NexoCheckoutDrawer({
     setRestoreOpen(false);
     setPhysicalTerminalCancelAttemptId(null);
     setTerminalOverrideConfirmed(false);
+    setTerminalOverrideApproval(null);
+    setTerminalOverrideApprovalOpen(false);
     setIsTaxExempt(customerTaxExempt);
     setTaxExemptReason(
       customerTaxExempt
@@ -1082,6 +1090,11 @@ export default function NexoCheckoutDrawer({
   const selectedTerminalStatus = selectedTerminalKey
     ? terminalStatuses.find((terminal) => terminal.key === selectedTerminalKey)
     : null;
+  const availableRestoreTerminalKey =
+    registerTerminalRoute?.allowed_terminal_keys.find((key) => {
+      const status = terminalStatuses.find((terminal) => terminal.key === key);
+      return Boolean(status?.configured && status.in_use_by_register_lane == null);
+    }) ?? null;
   const currentCheckoutRoutingTerminal =
     terminalStatuses.find((terminal) =>
       helcimRoutingAttemptMatchesCheckout(
@@ -1379,6 +1392,7 @@ export default function NexoCheckoutDrawer({
       setRmsProgramPickerOpen(false);
       setSelectedTerminalKey("");
       setTerminalOverrideConfirmed(false);
+      setTerminalOverrideApproval(null);
     }
   }, [
     amountDueCents,
@@ -1445,6 +1459,7 @@ export default function NexoCheckoutDrawer({
   useEffect(() => {
     if (!isOpen) return;
     setTerminalOverrideConfirmed(false);
+    setTerminalOverrideApproval(null);
     if (!registerTerminalRoute) {
       setSelectedTerminalKey("");
       return;
@@ -3084,6 +3099,14 @@ export default function NexoCheckoutDrawer({
             terminal_override_reason: selectedTerminalNeedsOverride
               ? `Register #${registerLane ?? "unknown"} selected ${terminalLabel(selectedTerminalKey)}`
               : undefined,
+            terminal_override_staff_id:
+              selectedTerminalNeedsOverride
+                ? terminalOverrideApproval?.staffId
+                : undefined,
+            terminal_override_approval_reference:
+              selectedTerminalNeedsOverride
+                ? terminalOverrideApproval?.approvalReference
+                : undefined,
           }),
         });
         const body = (await res.json().catch(() => ({}))) as
@@ -3330,12 +3353,12 @@ export default function NexoCheckoutDrawer({
     setDonationNote("");
     setCheckNumber("");
     setRmsReferenceNumber("");
-  }, [giftCardCode, donationNote, checkNumber, remainingCents, cashRounding.rounded, tab, offlineCardApprovalCode, offlineCardLast4, offlineCardReason, providerSettings, providerSettingsLoading, helcimAttempt, helcimAttemptBelongsToCurrentCheckout, helcimOutcomeBlocksCheckout, registerLaneUnavailable, registerTerminalRoute, selectedTerminalKey, selectedTerminalConfigured, selectedTerminalInUseBy, selectedTerminalInUseByOtherRegister, selectedTerminalInUseByEarlierCheckoutOnCurrentRegister, selectedTerminalNeedsOverride, terminalOverrideConfirmed, registerLane, registerSessionId, registerSessionIdentity, refundOriginalTransactionId, deferCardRefund, baseUrl, backofficeHeaders, customerId, customerCode, checkoutClientId, checkoutIdentity, toast, applied, setApplied, addApprovedHelcimAttempt, beforeApplyTender, rmsSelectedAccount, rmsPrograms, rmsSelectedProgramCode, rmsReferenceNumber, rmsSummary, rmsResolve, rmsPaymentCollectionMode, rmsNoCreditApproval, chargeSavedHelcimCard, fetchGiftCardPreview, loadProviderSettings, startHostedManualCardPayment, storeCreditBalanceCents, storeCreditError, storeCreditLoading, staffAccount]);
+  }, [giftCardCode, donationNote, checkNumber, remainingCents, cashRounding.rounded, tab, offlineCardApprovalCode, offlineCardLast4, offlineCardReason, providerSettings, providerSettingsLoading, helcimAttempt, helcimAttemptBelongsToCurrentCheckout, helcimOutcomeBlocksCheckout, registerLaneUnavailable, registerTerminalRoute, selectedTerminalKey, selectedTerminalConfigured, selectedTerminalInUseBy, selectedTerminalInUseByOtherRegister, selectedTerminalInUseByEarlierCheckoutOnCurrentRegister, selectedTerminalNeedsOverride, terminalOverrideConfirmed, terminalOverrideApproval, registerLane, registerSessionId, registerSessionIdentity, refundOriginalTransactionId, deferCardRefund, baseUrl, backofficeHeaders, customerId, customerCode, checkoutClientId, checkoutIdentity, toast, applied, setApplied, addApprovedHelcimAttempt, beforeApplyTender, rmsSelectedAccount, rmsPrograms, rmsSelectedProgramCode, rmsReferenceNumber, rmsSummary, rmsResolve, rmsPaymentCollectionMode, rmsNoCreditApproval, chargeSavedHelcimCard, fetchGiftCardPreview, loadProviderSettings, startHostedManualCardPayment, storeCreditBalanceCents, storeCreditError, storeCreditLoading, staffAccount]);
 
   const removePaymentLine = async (line: AppliedPaymentLine) => {
     if (isApprovedProviderPayment(line)) {
       toast(
-        "Approved provider payments cannot be removed. Record the sale, or use Payments Health for an audited recovery or refund.",
+        "Approved provider payments cannot be removed. Record the sale, or open Restore for an audited recovery.",
         "error",
       );
       return;
@@ -3438,16 +3461,60 @@ export default function NexoCheckoutDrawer({
   const helcimAttentionBannerVisible =
     helcimAttemptOutcomeUnverified || pendingHelcimAttemptNeedsAttention;
   const terminalRecoveryState = (() => {
-    if (helcimAttempt && isHostedManualHelcimAttempt(helcimAttempt)) {
-      return null;
+    if (providerSettingsError || providerHealthHardFailed) {
+      return {
+        title: "Card service needs a fresh health check",
+        detail:
+          providerSettingsError ??
+          "The Main Hub could not confirm that Helcim terminal service is ready.",
+        action: "Refresh Health here. If no card request is unresolved, another tender remains available.",
+        escalation: "Restore keeps the current cart and payment ledger intact while service is checked.",
+        tone: "danger",
+      };
     }
     if (registerLaneUnavailable) {
       return {
         title: "Register is not ready for terminal payments",
         detail: "This checkout is not attached to an open register lane.",
-        action: "Reopen or rejoin the register before taking a terminal payment.",
+        action: "Close Pay and rejoin the Register. The current cart remains available.",
         escalation: "Requires manager help if the register cannot be reopened cleanly.",
         tone: "warning",
+      };
+    }
+    if (!registerTerminalRoute) {
+      return {
+        title: "Register terminal routing is missing",
+        detail: `Register #${registerLane} does not have a loaded Helcim terminal route.`,
+        action: "Refresh Health, choose a safely available terminal, or use another tender.",
+        escalation: "The sale remains in this drawer; no card request is discarded.",
+        tone: "warning",
+      };
+    }
+    if (helcimAttemptBelongsToCurrentCheckout && isHostedManualHelcimAttempt(helcimAttempt)) {
+      return {
+        title: "Card Not Present request needs completion",
+        detail:
+          helcimAttempt.status === "pending"
+            ? "The secure Helcim handoff for this sale has not produced a verified final result."
+            : helcimAttemptDetail(helcimAttempt),
+        action:
+          helcimAttempt.status === "pending"
+            ? "Open Secure Entry or Recover Payment. Do not collect another tender until the result is final."
+            : "Recover Payment so the verified result can attach to this sale.",
+        escalation: "Restore protects this sale identity and the provider attempt from duplicate charging.",
+        tone: "warning",
+      };
+    }
+    if (helcimAttemptOutcomeUnverified || pendingHelcimAttemptNeedsAttention) {
+      return {
+        title: "Current card outcome is not final",
+        detail:
+          helcimAttempt?.safe_message ??
+          helcimAttempt?.error_message ??
+          "ROS cannot yet prove whether Helcim approved, declined, or canceled this sale's card request.",
+        action: "Use Recover Payment. If the physical terminal confirms cancellation, record that confirmation here.",
+        escalation: "Another tender stays blocked until the exact provider outcome is protected.",
+        tone: "danger",
       };
     }
     if (selectedTerminalInUseByEarlierCheckoutOnCurrentRegister) {
@@ -3466,6 +3533,15 @@ export default function NexoCheckoutDrawer({
         action: "Choose an available terminal or use an approved non-card tender.",
         escalation: "Do not force-release another register's terminal under line pressure.",
         tone: "warning",
+      };
+    }
+    if (!selectedTerminalKey) {
+      return {
+        title: "Choose a terminal",
+        detail: `Register #${registerLane} has no terminal selected for this payment.`,
+        action: "Use an available terminal below or continue with another tender.",
+        escalation: "No provider request has been sent.",
+        tone: "info",
       };
     }
     if (
@@ -3632,6 +3708,7 @@ export default function NexoCheckoutDrawer({
                   onClick={() => {
                     setSelectedTerminalKey(key);
                     setTerminalOverrideConfirmed(false);
+                    setTerminalOverrideApproval(null);
                   }}
                   className={`min-h-12 rounded-xl border px-3 py-2 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
                     selectedTerminalKey === key
@@ -3653,16 +3730,15 @@ export default function NexoCheckoutDrawer({
             })}
           </div>
 
-          {selectedTerminalNeedsOverride && (
-            <label className="mt-3 flex items-center gap-2 rounded-lg bg-app-warning/10 px-3 py-2 text-[11px] font-bold text-app-warning">
-              <input
-                type="checkbox"
-                checked={terminalOverrideConfirmed}
-                onChange={(event) => setTerminalOverrideConfirmed(event.target.checked)}
-                className="h-4 w-4 accent-app-accent"
-              />
-              Confirm Manager Access for non-default terminal use.
-            </label>
+          {selectedTerminalNeedsOverride && !terminalOverrideConfirmed && (
+            <button
+              type="button"
+              onClick={() => setTerminalOverrideApprovalOpen(true)}
+              className="mt-3 min-h-10 w-full rounded-lg border border-app-warning/30 bg-app-warning/10 px-3 text-[11px] font-black text-app-warning"
+            >
+              Request Manager Access for{" "}
+              {selectedTerminalKey ? terminalLabel(selectedTerminalKey) : "selected terminal"}
+            </button>
           )}
 
           {helcimAttempt && (
@@ -3746,9 +3822,11 @@ export default function NexoCheckoutDrawer({
                 Payment Restore
               </p>
               <h3 className="mt-1 text-base font-black text-app-text">
-                {terminalRecoveryAttemptId
+                {terminalRecoveryState
                   ? "Resolve this Register blocker"
-                  : "No terminal blocker detected"}
+                  : canFinalize
+                    ? "Ready to complete this sale"
+                    : "No system blocker detected"}
               </h3>
             </div>
             <button
@@ -3806,10 +3884,11 @@ export default function NexoCheckoutDrawer({
                 : terminalRecoveryAttemptId
                   ? selectedTerminalEarlierCheckoutAttemptId
                     ? "Restore Terminal"
-                    : "Recover Payment"
+                    : "Re-verify & Attach"
                   : "Refresh Health"}
             </button>
             {terminalRecoveryAttemptId &&
+            !hostedManualActive &&
             !providerSettings?.helcim.simulator_enabled ? (
               <button
                 type="button"
@@ -3821,6 +3900,113 @@ export default function NexoCheckoutDrawer({
                 className="min-h-11 rounded-xl border border-app-warning/30 bg-app-warning/10 px-3 font-black uppercase tracking-widest text-app-warning disabled:opacity-50"
               >
                 I Canceled Terminal
+              </button>
+            ) : null}
+            {hostedManualActive && currentManualCardHandoffUrl ? (
+              <button
+                type="button"
+                onClick={() => {
+                  void openManualCardHandoffUrl(currentManualCardHandoffUrl).catch((error) => {
+                    toast(
+                      error instanceof Error
+                        ? error.message
+                        : "Could not open the secure Card Not Present handoff.",
+                      "error",
+                    );
+                  });
+                }}
+                className="min-h-11 rounded-xl border border-app-accent/30 bg-app-accent-soft px-3 font-black uppercase tracking-widest text-app-accent"
+              >
+                Open Secure Entry
+              </button>
+            ) : null}
+            {availableRestoreTerminalKey &&
+            availableRestoreTerminalKey !== selectedTerminalKey &&
+            !helcimOutcomeBlocksCheckout ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedTerminalKey(availableRestoreTerminalKey);
+                  setTerminalOverrideConfirmed(false);
+                  setTerminalOverrideApproval(null);
+                  toast(
+                    registerTerminalRoute?.default_terminal_key === availableRestoreTerminalKey
+                      ? `${terminalLabel(availableRestoreTerminalKey)} selected. Ready to continue this sale.`
+                      : `${terminalLabel(availableRestoreTerminalKey)} selected. Manager Access is required before sending payment.`,
+                    "info",
+                  );
+                }}
+                className="min-h-11 rounded-xl border border-app-border bg-app-bg px-3 font-black uppercase tracking-widest text-app-text"
+              >
+                Use {terminalLabel(availableRestoreTerminalKey)}
+              </button>
+            ) : null}
+            {selectedTerminalNeedsOverride && !terminalOverrideConfirmed ? (
+              <button
+                type="button"
+                onClick={() => setTerminalOverrideApprovalOpen(true)}
+                className="min-h-11 rounded-xl border border-app-warning/30 bg-app-warning/10 px-3 font-black uppercase tracking-widest text-app-warning"
+              >
+                Manager Access for Terminal
+              </button>
+            ) : null}
+            {!registerLaneUnavailable &&
+            !helcimOutcomeBlocksCheckout &&
+            (terminalRecoveryState || providerSettingsError || providerHealthHardFailed) ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setTab("cash");
+                  setKeypad(remainingCents !== 0 ? centsToFixed2(Math.abs(remainingCents)) : "");
+                  setRestoreOpen(false);
+                  toast("Card routing left unchanged. Ready to apply an approved alternate tender.", "info");
+                }}
+                className="min-h-11 rounded-xl border border-app-border bg-app-bg px-3 font-black uppercase tracking-widest text-app-text"
+              >
+                Use Another Tender
+              </button>
+            ) : null}
+            {registerLaneUnavailable ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setRestoreOpen(false);
+                  onClose();
+                }}
+                className="min-h-11 rounded-xl border border-app-warning/30 bg-app-warning/10 px-3 font-black uppercase tracking-widest text-app-warning"
+              >
+                Close Pay to Rejoin
+              </button>
+            ) : null}
+            {canFinalize ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setRestoreOpen(false);
+                  void handleFinalize();
+                }}
+                className="min-h-11 rounded-xl bg-app-accent px-3 font-black uppercase tracking-widest text-white"
+                data-testid="pos-payment-restore-record-sale"
+              >
+                Record Sale
+              </button>
+            ) : null}
+            {returnOnlyRefundMode && !helcimOutcomeBlocksCheckout ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setTab("offline_cc");
+                  setKeypad(remainingCents !== 0 ? centsToFixed2(Math.abs(remainingCents)) : "");
+                  setRestoreOpen(false);
+                  toast(
+                    "Enter the exact completed Helcim refund reference, card last 4, and reason. Manager Access is required before ROS records it.",
+                    "info",
+                  );
+                }}
+                className="min-h-11 rounded-xl border border-app-warning/30 bg-app-warning/10 px-3 font-black uppercase tracking-widest text-app-warning"
+                data-testid="pos-payment-restore-external-refund"
+              >
+                Enter Verified Refund
               </button>
             ) : null}
           </div>
@@ -5227,6 +5413,56 @@ export default function NexoCheckoutDrawer({
           </div>
         </div>
       </div>
+      <ManagerApprovalModal
+        isOpen={terminalOverrideApprovalOpen}
+        onClose={() => setTerminalOverrideApprovalOpen(false)}
+        title="Approve terminal override"
+        message={`Authorize ${selectedTerminalKey ? terminalLabel(selectedTerminalKey) : "the selected terminal"} for this Register sale. The approval is limited to this checkout and is recorded in the audit log.`}
+        onApprove={async (pin, managerId) => {
+          if (
+            !registerSessionIdentity ||
+            !checkoutIdentity ||
+            !selectedTerminalKey ||
+            !selectedTerminalNeedsOverride
+          ) {
+            toast("The Register sale or terminal selection changed. Choose the terminal again.", "error");
+            return false;
+          }
+          const approvalRes = await fetch(`${baseUrl}/api/staff/verify-pin`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...mergedPosStaffHeaders(backofficeHeaders),
+            },
+            body: JSON.stringify({
+              pin,
+              staff_id: managerId,
+              authorize_action: "helcim_terminal_override_authorization",
+              authorize_metadata: {
+                register_session_id: registerSessionIdentity,
+                checkout_client_id: checkoutIdentity,
+                terminal_key: selectedTerminalKey,
+              },
+            }),
+          });
+          const approvalPayload = (await approvalRes.json().catch(() => ({}))) as {
+            error?: string;
+            manager_approval_reference?: string;
+          };
+          if (!approvalRes.ok || !approvalPayload.manager_approval_reference) {
+            toast(approvalPayload.error ?? "Manager Access was not approved.", "error");
+            return false;
+          }
+          setTerminalOverrideApproval({
+            staffId: managerId,
+            approvalReference: approvalPayload.manager_approval_reference,
+            terminalKey: selectedTerminalKey,
+          });
+          setTerminalOverrideConfirmed(true);
+          toast(`Manager Access approved for ${terminalLabel(selectedTerminalKey)}.`, "success");
+          return true;
+        }}
+      />
       <ManagerApprovalModal
         isOpen={rmsNoCreditApprovalOpen}
         onClose={() => setRmsNoCreditApprovalOpen(false)}

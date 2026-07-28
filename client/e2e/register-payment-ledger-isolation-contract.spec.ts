@@ -125,6 +125,7 @@ test("an already-approved Helcim take-now sale can sync safely after a Hub outag
 test("a nonmatching terminal attempt is refreshed without entering the active sale", () => {
   const drawer = repoFile("client/src/components/pos/NexoCheckoutDrawer.tsx");
   const persistence = repoFile("client/src/hooks/useCartPersistence.ts");
+  const transactions = repoFile("server/src/api/transactions.rs");
 
   expect(drawer).toContain("selectedTerminalEarlierCheckoutAttemptId");
   expect(drawer).toContain("refreshEarlierCheckoutTerminalAttempt");
@@ -148,6 +149,28 @@ test("a nonmatching terminal attempt is refreshed without entering the active sa
   );
   expect(drawer).toContain(
     "setPhysicalTerminalCancelAttemptId(terminalRecoveryAttemptId)",
+  );
+  expect(drawer).toContain("Card service needs a fresh health check");
+  expect(drawer).toContain("Register terminal routing is missing");
+  expect(drawer).toContain("Card Not Present request needs completion");
+  expect(drawer).toContain("Re-verify & Attach");
+  expect(drawer).toContain(
+    "const shouldAttachApproved = options.attachApproved !== false",
+  );
+  expect(drawer).toContain("addApprovedHelcimAttempt(");
+  expect(transactions).toContain(
+    "retry to attach the approved refund and complete cancellation",
+  );
+  expect(transactions).toContain("approved_provider_payment_id");
+  expect(drawer).toContain("Use Another Tender");
+  expect(drawer).toContain("Close Pay to Rejoin");
+  expect(drawer).toContain('data-testid="pos-payment-restore-record-sale"');
+  expect(drawer).toContain('data-testid="pos-payment-restore-external-refund"');
+  expect(drawer).toContain("Enter Verified Refund");
+  expect(drawer).toContain("helcim_terminal_override_authorization");
+  expect(drawer).toContain("terminal_override_approval_reference");
+  expect(drawer).not.toContain(
+    'onChange={(event) => setTerminalOverrideConfirmed(event.target.checked)}',
   );
 
   const persistenceUpdates = persistence.slice(

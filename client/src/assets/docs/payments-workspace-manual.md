@@ -118,7 +118,7 @@ ROS refuses recovery when the target is missing, closed, belongs to no customer,
 - Processor update received, checkout attached, and provider reference saved are different states.
 - A normal decline or cancellation is not an approved payment.
 - Never retry blindly after a terminal approval that Riverside has not attached.
-- Approved provider payments cannot be removed, parked, or transferred to another customer. **Clear Sale**, another tender, and **Record Sale** remain unavailable while a card request is pending or unverified, or while an approval is still unattached. Continue only after ROS attaches the approval or recovers a definitive provider decline/cancel; live pending attempts cannot be released locally. Use Payments Health when the checkout cannot recover the result.
+- Approved provider payments cannot be removed, parked, or transferred to another customer. **Clear Sale**, another tender, and **Record Sale** remain unavailable while a card request is pending or unverified, or while an approval is still unattached. For the active Register sale, use **Restore** directly in Pay to recover the result, reopen secure entry, confirm physical cancellation, or attach the verified approval. Payments Health remains the historical review surface; staff do not leave the current sale to resolve its blocker.
 - Never use paid-sale recovery to force a near match. The exact retained-cart banner must be present.
 - Card refunds must originate from the original Transaction Record and remain part of the guided return or exchange settlement. Payments Operations shows the resulting provider and recovery evidence without creating a separate processor-only refund.
 - Do not resolve a reconciliation warning merely to make the dashboard green.
