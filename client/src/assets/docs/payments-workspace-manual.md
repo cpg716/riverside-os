@@ -113,6 +113,8 @@ Use this only when the customer has an open Transaction Record, Helcim approved 
 
 ROS refuses recovery when the target is missing, closed, belongs to no customer, has no order lines, has no balance, cannot accept the full approved amount, or the Helcim processor transaction is missing, mismatched, or already linked. The action uses the existing approval and never charges the card again.
 
+When provider evidence proves that no ROS ledger action remains—for example, an externally completed corrective refund—record **Reviewed: No ROS Action** with the exact provider reference and reason. This closes the active review card while preserving its recovery audit. **Reviewed**, **Add Note**, **Duplicate Suspected**, and **Refund Required** remain visible because they do not establish final disposition.
+
 ## What to watch for
 
 - Processor update received, checkout attached, and provider reference saved are different states.

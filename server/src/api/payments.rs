@@ -4654,6 +4654,13 @@ async fn get_helcim_events_health(
                         AND btx.provider_transaction_id = helcim_event_log.provider_transaction_id
                         AND btx.payment_transaction_id IS NOT NULL
                   )
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM helcim_terminal_recovery_actions hra
+                      WHERE hra.source_kind = 'helcim_event'
+                        AND hra.source_id = helcim_event_log.id
+                        AND hra.action = 'resolved_no_action'
+                  )
             )::bigint AS unmatched_event_count,
             MAX(received_at) AS last_event_at,
             (
@@ -4744,7 +4751,13 @@ async fn get_helcim_events_health(
                   OR pt.metadata->>'payment_provider_attempt_id' = ppa.id::text
                 )
           )
-          -- Audit/recovery notes do not establish ledger attachment and must not suppress review.
+          AND NOT EXISTS (
+              SELECT 1
+              FROM helcim_terminal_recovery_actions hra
+              WHERE hra.source_kind = 'payment_provider_attempt'
+                AND hra.source_id = ppa.id
+                AND hra.action = 'resolved_no_action'
+          )
         ORDER BY
             CASE
                 WHEN ppa.status = 'pending' THEN 0
@@ -4798,7 +4811,13 @@ async fn get_helcim_events_health(
                 AND btx.provider_transaction_id = helcim_event_log.provider_transaction_id
                 AND btx.payment_transaction_id IS NOT NULL
           )
-          -- Audit/recovery notes do not establish ledger attachment and must not suppress review.
+          AND NOT EXISTS (
+              SELECT 1
+              FROM helcim_terminal_recovery_actions hra
+              WHERE hra.source_kind = 'helcim_event'
+                AND hra.source_id = helcim_event_log.id
+                AND hra.action = 'resolved_no_action'
+          )
         ORDER BY received_at DESC
         LIMIT 25
         "#,
@@ -13099,7 +13118,7 @@ mod tests {
     }
 
     #[test]
-    fn terminal_review_keeps_unmatched_rows_visible_after_audit_actions() {
+    fn terminal_review_hides_only_explicit_no_action_resolutions() {
         let source = include_str!("payments.rs");
         let health_scope = source
             .split_once("async fn get_helcim_events_health(")
@@ -13109,10 +13128,8 @@ mod tests {
             .expect("end of Helcim health handler")
             .0;
 
-        assert!(
-            !health_scope.contains("FROM helcim_terminal_recovery_actions hra"),
-            "audit/recovery action rows must not hide unmatched attempts or events"
-        );
+        assert!(health_scope.contains("FROM helcim_terminal_recovery_actions hra"));
+        assert!(health_scope.contains("hra.action = 'resolved_no_action'"));
         assert!(
             health_scope.contains("load_helcim_terminal_recovery_actions"),
             "visible review rows must still include their audit/recovery history"
