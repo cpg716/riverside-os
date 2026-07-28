@@ -114,6 +114,18 @@ for (const viewport of MODAL_VIEWPORTS) {
 test("POS Custom button opens canonical custom-order families", async ({ page }) => {
   test.setTimeout(120_000);
   await page.setViewportSize({ width: 1024, height: 768 });
+  let genericSku100ScanCount = 0;
+  await page.route("**/api/inventory/scan/100", async (route) => {
+    genericSku100ScanCount += 1;
+    await route.fulfill({
+      status: 400,
+      contentType: "application/json",
+      body: JSON.stringify({
+        error:
+          "That identifier matches multiple active variations. Use the item picker and choose the intended variation.",
+      }),
+    });
+  });
 
   await openPosRegisterSurface(page);
   await attachNewCustomerToSale(page, {
@@ -137,4 +149,11 @@ test("POS Custom button opens canonical custom-order families", async ({ page })
   await customDialog.getByTestId("pos-custom-type-hsm_sport_coat").click();
   await expect(customDialog.getByText(/hsm form details/i)).toBeVisible();
   await expect(customDialog.getByText(/sport coat description/i)).toBeVisible();
+  await customDialog.getByTestId("pos-custom-type-hsm_suit").click();
+  await customDialog.getByPlaceholder("0.00").fill("799.00");
+  await customDialog.getByRole("button", { name: /add to cart/i }).click();
+
+  await expect(customDialog).toBeHidden();
+  await expect(page.getByText("HSM SUIT (Custom)", { exact: true }).first()).toBeVisible();
+  expect(genericSku100ScanCount).toBe(0);
 });

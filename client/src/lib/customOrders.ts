@@ -66,6 +66,7 @@ export interface CustomOrderDetails
 export const CUSTOM_ORDER_SUBTYPES = [
   {
     sku: "100",
+    variantId: "b7c0a015-0015-4015-8015-000000000015",
     itemType: "HSM Suit",
     buttonLabel: "Suit",
     mappingKey: "hsm_suit",
@@ -74,6 +75,7 @@ export const CUSTOM_ORDER_SUBTYPES = [
   },
   {
     sku: "105",
+    variantId: "b7c0a016-0016-4016-8016-000000000016",
     itemType: "HSM Sport Coat",
     buttonLabel: "Sport Coat",
     mappingKey: "hsm_sport_coat",
@@ -82,6 +84,7 @@ export const CUSTOM_ORDER_SUBTYPES = [
   },
   {
     sku: "110",
+    variantId: "b7c0a017-0017-4017-8017-000000000017",
     itemType: "HSM Slacks",
     buttonLabel: "Slacks",
     mappingKey: "hsm_slacks",
@@ -90,6 +93,7 @@ export const CUSTOM_ORDER_SUBTYPES = [
   },
   {
     sku: "200",
+    variantId: "b7c0a018-0018-4018-8018-000000000018",
     itemType: "Individualized Shirt",
     buttonLabel: "Shirt",
     mappingKey: "individualized_shirt",
@@ -121,6 +125,12 @@ export function customOrderItemTypeForSku(
   sku: string | null | undefined,
 ): string | null {
   return customOrderSubtypeForSku(sku)?.itemType ?? null;
+}
+
+export function customOrderVariantIdForSku(
+  sku: string | null | undefined,
+): string | null {
+  return customOrderSubtypeForSku(sku)?.variantId ?? null;
 }
 
 export function customOrderSubtypeForItemType(

@@ -53,6 +53,7 @@ Custom orders are used for made-to-measure garments that must stay separate from
 4. Track the order in **Orders** under the **Custom** filter.
 
 Important:
+- Start these bookings with the **Custom** cart action. Riverside loads the selected Custom garment directly even when the same number also exists in the Counterpoint catalog.
 - Sale price is entered at booking.
 - Vendor cost is not entered at booking.
 - Actual vendor cost is entered when the garment is received.

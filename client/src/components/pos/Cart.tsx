@@ -65,7 +65,11 @@ import {
   newCheckoutClientId,
   scanPayloadToResolvedItem,
 } from "../../lib/posUtils";
-import { customOrderItemTypeForSku, isCustomOrderSku } from "../../lib/customOrders";
+import {
+  customOrderItemTypeForSku,
+  customOrderVariantIdForSku,
+  isCustomOrderSku,
+} from "../../lib/customOrders";
 import CustomItemPromptModal from "./CustomItemPromptModal";
 import OrderLoadModal, { type CustomerOrder, type OrderItem, type PickupSelection } from "./OrderLoadModal";
 import OrderReviewModal from "./OrderReviewModal";
@@ -5876,14 +5880,23 @@ export default function Cart({
         onConfirm={async (data) => {
           let customItem = pendingCustomItem;
           if (!customItem || customItem.sku !== data.customSku) {
+            const customVariantId = customOrderVariantIdForSku(data.customSku);
+            if (!customVariantId) {
+              toast(`Custom SKU ${data.customSku} is not supported.`, "error");
+              return false;
+            }
             try {
               const res = await fetch(
-                `${baseUrl}/api/inventory/scan/${encodeURIComponent(data.customSku)}`,
+                `${baseUrl}/api/products/variants/${encodeURIComponent(customVariantId)}`,
                 { headers: apiAuth() },
               );
               if (!res.ok) {
+                const payload = (await res.json().catch(() => ({}))) as {
+                  error?: string;
+                };
                 toast(
-                  `${data.itemType} custom catalog item is not configured. Check Custom SKU ${data.customSku}.`,
+                  payload.error ??
+                    `${data.itemType} custom catalog item is unavailable. Check Custom SKU ${data.customSku}.`,
                   "error",
                 );
                 return false;
