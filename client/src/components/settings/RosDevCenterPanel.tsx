@@ -407,7 +407,7 @@ export default function RosDevCenterPanel() {
     async (actionKey: GuardedActionKey, payload: Record<string, unknown>) => {
       if (!canRunActions) return;
       if (!actionReason.trim()) {
-        toast("Action reason is required", "error");
+        toast("Action reason is required", "info");
         return;
       }
       if (!confirmPrimary || !confirmSecondary) {

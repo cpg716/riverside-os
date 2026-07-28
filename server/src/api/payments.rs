@@ -1917,7 +1917,15 @@ async fn reject_conflicting_helcim_attempt_before_dispatch(
           AND ppa.checkout_client_id = $1
           AND ($2::uuid IS NULL OR ppa.id <> $2)
           AND (
-              ppa.status IN ('pending', 'expired')
+              ppa.status = 'pending'
+              OR (
+                  ppa.status = 'expired'
+                  AND COALESCE(ppa.error_code, '') NOT IN (
+                      'physical_terminal_cancel_confirmed',
+                      'orphaned_pre_dispatch_reservation',
+                      'operator_recovered_ros_reservation'
+                  )
+              )
               OR (
                   ppa.status = 'failed'
                   AND ppa.error_code IN ('outcome_unknown', 'terminal_pending_timeout')
@@ -13100,6 +13108,23 @@ mod tests {
         assert!(recovery.contains("if matches.is_empty()"));
         assert!(recovery.contains("HelcimInvoiceRecovery::NoMatch"));
         assert!(recovery.contains("HelcimInvoiceRecovery::Unresolved"));
+    }
+
+    #[test]
+    fn resolved_expired_terminal_reservations_do_not_block_a_new_attempt() {
+        let source = include_str!("payments.rs");
+        let create_guard = source
+            .split_once("let unresolved: Option<(Uuid, String, i64, Option<String>)>")
+            .expect("new attempt unresolved-outcome guard")
+            .1
+            .split_once("let Some((attempt_id")
+            .expect("end of new attempt unresolved-outcome guard")
+            .0;
+
+        assert!(create_guard.contains("'physical_terminal_cancel_confirmed'"));
+        assert!(create_guard.contains("'orphaned_pre_dispatch_reservation'"));
+        assert!(create_guard.contains("'operator_recovered_ros_reservation'"));
+        assert!(create_guard.contains("COALESCE(ppa.error_code, '') NOT IN"));
     }
 
     #[test]

@@ -4158,10 +4158,17 @@ pub async fn execute_audit_probes(
 
     // Emit or refresh alert if any violations exist
     if total_violations > 0 {
+        let dedupe_key = "audit_probe:current".to_string();
+        let _ = resolve_rule_alerts(
+            pool,
+            "audit_probe_failure",
+            std::slice::from_ref(&dedupe_key),
+        )
+        .await?;
         let _ = upsert_open_alert(
             pool,
             "audit_probe_failure",
-            &format!("audit_probe:run:{run_id}"),
+            &dedupe_key,
             &format!("{probes_with_violations} production audit probe(s) found {total_violations} violation row(s)"),
             &format!("Run {run_id} detected violations across {probes_with_violations} probes. Review the Audit Probes tab in Dev Center for details."),
             json!({ "run_id": run_id, "total_violations": total_violations, "probes_with_violations": probes_with_violations }),
@@ -4324,6 +4331,22 @@ mod tests {
             updated_at: now,
         };
         assert_eq!(counterpoint_sync_health_item(&[row], now).status, "healthy");
+    }
+
+    #[test]
+    fn audit_probe_reruns_replace_the_current_alert_without_losing_run_history() {
+        let source = include_str!("ops_dev_center.rs");
+        let alert_flow = source
+            .split_once("// Emit or refresh alert if any violations exist")
+            .expect("audit probe alert flow")
+            .1
+            .split_once("let row: AuditProbeRunRow")
+            .expect("end of audit probe alert flow")
+            .0;
+
+        assert!(alert_flow.contains("audit_probe:current"));
+        assert!(alert_flow.contains("resolve_rule_alerts"));
+        assert!(!alert_flow.contains("audit_probe:run:{run_id}"));
     }
 
     #[test]

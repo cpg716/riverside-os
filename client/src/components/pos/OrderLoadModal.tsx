@@ -681,7 +681,7 @@ export default function OrderLoadModal({
     if (!selectedOrder || !onAddItemToOrder) return;
     const sku = addSku.trim();
     if (!sku) {
-      toast("Scan or enter a SKU before adding it to this order.", "error");
+      toast("Scan or enter a SKU before adding it to this order.", "info");
       return;
     }
     setOrderMutationBusy(true);

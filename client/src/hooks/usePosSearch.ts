@@ -220,7 +220,7 @@ export function usePosSearch({
               name,
             });
           } else if (exactSkuOnly && res.status === 404) {
-            toast(`SKU NOT FOUND: ${q}`, "error");
+            toast(`SKU NOT FOUND: ${q}`, "info");
           // A numeric or short barcode-like entry may match more than one scan
           // code. That is not a failed product search: let the parent catalog
           // search present the verified matches instead of discarding the whole
@@ -251,7 +251,7 @@ export function usePosSearch({
         console.error("POS SKU Scan Error", e);
         setSearchResults([]);
         setSearchStatus("error");
-        toast(`SKU NOT FOUND: ${q}`, "error");
+        toast(`SKU NOT FOUND: ${q}`, "info");
         return [];
       } finally {
         if (searchAbortRef.current === abortController) searchAbortRef.current = null;

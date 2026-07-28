@@ -2630,7 +2630,15 @@ where
         WHERE ppa.provider = 'helcim'
           AND ($2::uuid IS NOT NULL AND ppa.checkout_client_id = $2)
           AND (
-              ppa.status IN ('pending', 'expired')
+              ppa.status = 'pending'
+              OR (
+                  ppa.status = 'expired'
+                  AND COALESCE(ppa.error_code, '') NOT IN (
+                      'physical_terminal_cancel_confirmed',
+                      'orphaned_pre_dispatch_reservation',
+                      'operator_recovered_ros_reservation'
+                  )
+              )
               OR (ppa.status = 'failed' AND ppa.error_code = 'outcome_unknown')
               OR (
                   ppa.status IN ('approved', 'captured')
@@ -7164,6 +7172,9 @@ mod tests {
         assert!(guard.contains("pt.metadata->>'provider_attempt_id'"));
         assert!(guard.contains("NOT LIKE '%refund%'"));
         assert!(guard.contains("ppa.checkout_client_id IS NULL"));
+        assert!(guard.contains("'physical_terminal_cancel_confirmed'"));
+        assert!(guard.contains("'orphaned_pre_dispatch_reservation'"));
+        assert!(guard.contains("'operator_recovered_ros_reservation'"));
     }
 
     #[test]

@@ -298,6 +298,8 @@ Dev Center adds operational overlay only:
 - `/api/ops/bugs/overview` returns bug-centric triage data with incident linkage counts.
 - Newly opened ops alerts are also mirrored into `staff_error_event` with source `server_ops_alert`, so **Settings → Bug reports → Error events** can package the server-side issue for Codex repair work without requiring a staff member to manually file a report.
 - Core ops API failures are mirrored as `server_api_error` events when the database is still reachable; if the database itself is unavailable, the server can log the failure but cannot persist a bug-system row until database service is restored.
+- Routine staff guidance, such as a missing required action reason, an empty SKU field, or an exact SKU with no catalog match, remains visible in the UI but is not captured as a client error event.
+- Audit-probe reruns refresh one current alert and resolve superseded run alerts; historical run details remain available in the Audit Probes tab.
 
 This keeps Bug Manager source-of-truth intact while adding ops correlation context.
 

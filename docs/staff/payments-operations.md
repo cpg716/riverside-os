@@ -147,6 +147,8 @@ These actions do not change payment amounts, fees, net amounts, or processor tru
 
 Use **Transactions** to look up a specific card payment or processor event. The list mirrors the Helcim card activity view more closely than the payment-ledger detail view: it includes approved, declined, matched, and unmatched Helcim rows that ROS has received from webhook or batch sync evidence.
 
+If a payment is reconciled or replaced after the list loads, selecting its stale row closes the detail request and refreshes the list. This is a concurrent reconciliation update, not a missing-payment error; use the refreshed row and never recreate a payment from memory.
+
 Columns include:
 
 - **Date**, **Amount**, **Status**, and **Type** from the processor/payment record.

@@ -970,10 +970,20 @@ export default function PaymentsWorkspace({
         );
         setTransactionDetail(detail);
       } catch (err) {
-        toast(err instanceof Error ? err.message : "Payment could not load.", "error");
+        setSelectedPaymentId(null);
+        const message = err instanceof Error ? err.message : "Payment could not load.";
+        if (message === "Payment not found.") {
+          toast(
+            "This payment changed during reconciliation. The payment list has been refreshed.",
+            "info",
+          );
+          await refresh();
+        } else {
+          toast(message, "error");
+        }
       }
     },
-    [getJson, toast],
+    [getJson, refresh, toast],
   );
 
   const openIssue = useCallback(

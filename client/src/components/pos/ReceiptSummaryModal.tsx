@@ -480,6 +480,12 @@ export default function ReceiptSummaryModal({
           "Review request will only send after completed or picked-up sales.",
           "info",
         );
+      } else if (result.status === "not_configured") {
+        toast(
+          result.message ??
+            "Review requests are unavailable until Podium is configured.",
+          "info",
+        );
       }
     } catch {
       toast("Could not save review invite choice", "error");

@@ -325,14 +325,24 @@ pub async fn apply_post_sale_review_choice(
 
     tx.commit().await?;
 
-    let invite = podium::create_podium_review_invite(
+    let invite = match podium::create_podium_review_invite(
         pool,
         http,
         podium_cache,
         phone.as_deref(),
         email.as_deref(),
     )
-    .await?;
+    .await
+    {
+        Ok(invite) => invite,
+        Err(podium::PodiumError::NotConfigured) => {
+            return Ok(ReviewInviteChoiceResult::new(
+                "not_configured",
+                "Review requests are unavailable until Podium is configured.",
+            ));
+        }
+        Err(error) => return Err(error.into()),
+    };
     let final_provider_id = invite
         .provider_id
         .as_deref()
@@ -514,4 +524,22 @@ pub async fn list_review_invite_rows(
     .bind(lim)
     .fetch_all(pool)
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn unconfigured_podium_is_a_review_choice_outcome_not_a_failed_sale_action() {
+        let source = include_str!("podium_reviews.rs");
+        let invite_flow = source
+            .split_once("let invite = match podium::create_podium_review_invite(")
+            .expect("review invite provider call")
+            .1
+            .split_once("let final_provider_id")
+            .expect("end of provider result handling")
+            .0;
+
+        assert!(invite_flow.contains("Err(podium::PodiumError::NotConfigured)"));
+        assert!(invite_flow.contains("\"not_configured\""));
+    }
 }

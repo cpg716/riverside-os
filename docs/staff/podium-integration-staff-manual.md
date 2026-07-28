@@ -125,6 +125,7 @@ Details: [RECEIPT_BUILDER_AND_DELIVERY.md](../RECEIPT_BUILDER_AND_DELIVERY.md).
 1. On **Receipt summary**, use your store’s **review invite** control (send vs skip) exactly as trained.
 2. Riverside checks eligibility before sending: fulfilled/picked-up sale, non-internal lines complete, customer has phone/email, no invite in the last **180 days**, and the customer has **not** opted out of review requests on their profile.
 3. The register records your choice; **Operations → Reviews** can list what was sent or skipped.
+4. If Podium is not configured, Riverside reports that review requests are unavailable and leaves the sale eligible to be invited later. Closing the receipt remains safe and does not create an error report.
 
 ### Manager: check review invite history
 
