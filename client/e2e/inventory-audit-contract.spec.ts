@@ -764,27 +764,45 @@ test.describe("inventory audit contract", () => {
     expect(line?.transaction_line_id).toBeTruthy();
     expect(line?.is_fulfilled).toBe(true);
 
-    const returnRes = await request.post(`${apiBase()}/api/transactions/${checkout.transaction_id}/returns`, {
+    const tax = taxesFor(product);
+    const refundAmount = totalFor(product);
+    const returnRes = await request.post(
+      `${apiBase()}/api/transactions/${checkout.transaction_id}/refunds/process`,
+      {
       headers: {
         ...staffHeaders(),
         "Content-Type": "application/json",
-      "x-riverside-station-key": "station-e2e",
+        "x-riverside-pos-session-id": sessionId,
+        "x-riverside-pos-session-token": sessionToken,
+        "x-riverside-station-key": "station-e2e",
       },
       data: {
-        lines: [
+        session_id: sessionId,
+        payment_method: "cash",
+        amount: refundAmount,
+        tender_amount: refundAmount,
+        return_lines: [
           {
             transaction_line_id: line?.transaction_line_id,
             quantity: 1,
             reason: "inventory_audit_restock",
             restock: true,
+            refund_subtotal: product.unitPrice,
+            refund_state_tax: tax.stateTax,
+            refund_local_tax: tax.localTax,
+            refund_total: refundAmount,
           },
         ],
       },
       failOnStatusCode: false,
-    });
+      },
+    );
     const returnText = await returnRes.text();
     expect(returnRes.status(), returnText.slice(0, 1000)).toBe(200);
-    const detailAfterReturn = JSON.parse(returnText) as TransactionDetailResponse;
+    const detailAfterReturn = await fetchTransactionDetail(
+      request,
+      checkout.transaction_id,
+    );
     const returnedLine = detailAfterReturn.items.find((item) => item.sku === product.sku);
     expect(returnedLine?.quantity_returned).toBe(1);
     expect(detailAfterReturn.total_price).toBe("0");
@@ -803,8 +821,6 @@ test.describe("inventory audit contract", () => {
     expect(refundQueueRes.status()).toBe(200);
     const refunds = (await refundQueueRes.json()) as RefundQueueRow[];
     const refund = refunds.find((row) => row.transaction_id === checkout.transaction_id);
-    expect(refund?.is_open).toBe(true);
-    expect(refund?.amount_due).toBe(totalFor(product));
-    expect(refund?.amount_refunded).toBe("0");
+    expect(refund).toBeUndefined();
   });
 });

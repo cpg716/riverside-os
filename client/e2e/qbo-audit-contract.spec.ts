@@ -829,7 +829,43 @@ async function proposeJournal(
   return JSON.parse(bodyText) as QboStagingRow;
 }
 
-async function returnFirstQboLine(
+async function qboReturnContext(
+  request: APIRequestContext,
+  options: {
+    transactionId: string;
+    productSku: string;
+    restock?: boolean;
+  },
+): Promise<{
+  amount: string;
+  returnLines: Array<Record<string, unknown>>;
+}> {
+  const before = await fetchTransactionDetail(request, options.transactionId);
+  const line = before.items.find((item) => item.sku === options.productSku);
+  expect(line?.transaction_line_id).toBeTruthy();
+  const unitTax = calculateNysErieTaxStringsForUnit(
+    "clothing",
+    parseMoneyToCents("110.00"),
+  );
+  const amount = totalFor("110.00", unitTax.stateTax, unitTax.localTax);
+  return {
+    amount,
+    returnLines: [
+      {
+        transaction_line_id: line?.transaction_line_id,
+        quantity: 1,
+        reason: "qbo_audit_return",
+        restock: options.restock,
+        refund_subtotal: "110.00",
+        refund_state_tax: unitTax.stateTax,
+        refund_local_tax: unitTax.localTax,
+        refund_total: amount,
+      },
+    ],
+  };
+}
+
+async function processCashReturn(
   request: APIRequestContext,
   options: {
     transactionId: string;
@@ -839,12 +875,9 @@ async function returnFirstQboLine(
     restock?: boolean;
   },
 ): Promise<TransactionDetail> {
-  const before = await fetchTransactionDetail(request, options.transactionId);
-  const line = before.items.find((item) => item.sku === options.productSku);
-  expect(line?.transaction_line_id).toBeTruthy();
-
+  const context = await qboReturnContext(request, options);
   const res = await request.post(
-    `${apiBase()}/api/transactions/${options.transactionId}/returns?register_session_id=${encodeURIComponent(options.sessionId)}`,
+    `${apiBase()}/api/transactions/${options.transactionId}/refunds/process`,
     {
       headers: {
         ...staffHeaders(),
@@ -854,21 +887,18 @@ async function returnFirstQboLine(
       "x-riverside-station-key": "station-e2e",
       },
       data: {
-        lines: [
-          {
-            transaction_line_id: line?.transaction_line_id,
-            quantity: 1,
-            reason: "qbo_audit_return",
-            restock: options.restock,
-          },
-        ],
+        session_id: options.sessionId,
+        payment_method: "cash",
+        amount: context.amount,
+        tender_amount: context.amount,
+        return_lines: context.returnLines,
       },
       failOnStatusCode: false,
     },
   );
   const bodyText = await res.text();
   expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
-  return JSON.parse(bodyText) as TransactionDetail;
+  return fetchTransactionDetail(request, options.transactionId);
 }
 
 async function fetchRefundsDue(request: APIRequestContext): Promise<RefundQueueRow[]> {
@@ -912,6 +942,7 @@ async function processManualExternalCardRefund(
     externalRefundReference?: string;
     managerApprovalReference?: string;
     cardLast4?: string;
+    returnLines?: Array<Record<string, unknown>>;
   },
 ) {
   return request.post(
@@ -931,6 +962,7 @@ async function processManualExternalCardRefund(
         external_refund_reference: options.externalRefundReference,
         manager_approval_reference: options.managerApprovalReference,
         card_last4: options.cardLast4,
+        return_lines: options.returnLines ?? [],
       },
       failOnStatusCode: false,
     },
@@ -971,34 +1003,6 @@ async function authorizeManualExternalCardRefund(
     },
     failOnStatusCode: false,
   });
-}
-
-async function processCashRefund(
-  request: APIRequestContext,
-  options: {
-    transactionId: string;
-    sessionId: string;
-    amount: string;
-  },
-): Promise<void> {
-  const res = await request.post(
-    `${apiBase()}/api/transactions/${options.transactionId}/refunds/process`,
-    {
-      headers: {
-        ...staffHeaders(),
-        "Content-Type": "application/json",
-      "x-riverside-station-key": "station-e2e",
-      },
-      data: {
-        session_id: options.sessionId,
-        payment_method: "cash",
-        amount: options.amount,
-      },
-      failOnStatusCode: false,
-    },
-  );
-  const bodyText = await res.text();
-  expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
 }
 
 async function fetchTransactionAudit(
@@ -1062,7 +1066,7 @@ test.describe("QBO audit contract", () => {
     });
     await assignQboDate(request, refundCheckout.transaction_id, refundOriginalDate);
 
-    const returnedDetail = await returnFirstQboLine(request, {
+    const returnedDetail = await processCashReturn(request, {
       transactionId: refundCheckout.transaction_id,
       sessionId,
       sessionToken,
@@ -1073,19 +1077,12 @@ test.describe("QBO audit contract", () => {
     expect(returnedLine?.quantity_returned).toBe(1);
     expect(returnedDetail.total_price).toBe(returnedUnitTotal);
 
-    const refundBefore = (await fetchRefundsDue(request)).find(
-      (row) => row.transaction_id === refundCheckout.transaction_id,
-    );
-    expect(refundBefore?.is_open).toBe(true);
-    expect(refundBefore?.amount_due).toBe(returnedUnitTotal);
-    expect(moneyToCents(refundBefore?.amount_refunded)).toBe(0);
-
-    await processCashRefund(request, {
-      transactionId: refundCheckout.transaction_id,
-      sessionId,
-      amount: returnedUnitTotal,
-    });
     await assignQboReturnDate(request, refundCheckout.transaction_id, refundDate);
+    await assignQboRefundPaymentDate(
+      request,
+      refundCheckout.transaction_id,
+      refundDate,
+    );
 
     const refundArtifacts = await getTransactionArtifacts(
       request,
@@ -1136,16 +1133,11 @@ test.describe("QBO audit contract", () => {
       operatorStaffId,
       quantity: 2,
     });
-    await returnFirstQboLine(request, {
+    await processCashReturn(request, {
       transactionId: drilldownCheckout.transaction_id,
       sessionId,
       sessionToken,
       productSku: product.sku,
-    });
-    await processCashRefund(request, {
-      transactionId: drilldownCheckout.transaction_id,
-      sessionId,
-      amount: returnedUnitTotal,
     });
     await assignQboDate(request, drilldownCheckout.transaction_id, recognitionDate);
     await seedQboMappings(request, product.categoryId, recognitionDate);
@@ -1174,7 +1166,7 @@ test.describe("QBO audit contract", () => {
     expect(moneyToCents(revenueContributor?.amount)).toBe(parseMoneyToCents("110.00"));
   });
 
-  test("simultaneous cash refund requests do not over-refund an open queue row", async ({
+  test("simultaneous atomic cash return requests create one refund", async ({
     request,
   }) => {
     test.setTimeout(120_000);
@@ -1190,31 +1182,26 @@ test.describe("QBO audit contract", () => {
       sessionToken,
       operatorStaffId,
     });
-    await returnFirstQboLine(request, {
+    const returnContext = await qboReturnContext(request, {
       transactionId: checkout.transaction_id,
-      sessionId,
-      sessionToken,
       productSku: product.sku,
     });
-
-    const refundBefore = (await fetchRefundsDue(request)).find(
-      (row) => row.transaction_id === checkout.transaction_id,
-    );
-    expect(refundBefore?.is_open).toBe(true);
-    expect(refundBefore?.amount_due).toBe(returnedUnitTotal);
-    expect(moneyToCents(refundBefore?.amount_refunded)).toBe(0);
 
     const refundRequest = () =>
       request.post(`${apiBase()}/api/transactions/${checkout.transaction_id}/refunds/process`, {
         headers: {
           ...staffHeaders(),
           "Content-Type": "application/json",
-      "x-riverside-station-key": "station-e2e",
+          "x-riverside-pos-session-id": sessionId,
+          "x-riverside-pos-session-token": sessionToken,
+          "x-riverside-station-key": "station-e2e",
         },
         data: {
           session_id: sessionId,
           payment_method: "cash",
           amount: returnedUnitTotal,
+          tender_amount: returnedUnitTotal,
+          return_lines: returnContext.returnLines,
         },
         failOnStatusCode: false,
       });
@@ -1258,10 +1245,8 @@ test.describe("QBO audit contract", () => {
       sessionToken,
       operatorStaffId,
     });
-    await returnFirstQboLine(request, {
+    const returnContext = await qboReturnContext(request, {
       transactionId: checkout.transaction_id,
-      sessionId,
-      sessionToken,
       productSku: product.sku,
     });
 
@@ -1277,6 +1262,8 @@ test.describe("QBO audit contract", () => {
           session_id: sessionId,
           payment_method: "cash",
           amount: overCapacityAmount,
+          tender_amount: overCapacityAmount,
+          return_lines: returnContext.returnLines,
         },
         failOnStatusCode: false,
       },
@@ -1285,16 +1272,17 @@ test.describe("QBO audit contract", () => {
     expect(overCapacity.status(), overCapacityText.slice(0, 1000)).toBeGreaterThanOrEqual(400);
     expect(overCapacityText).toMatch(/amount|due|exceed|refund/i);
 
-    const refundAfterRejectedAttempt = (await fetchRefundsDue(request)).find(
-      (row) => row.transaction_id === checkout.transaction_id,
-    );
-    expect(refundAfterRejectedAttempt?.is_open).toBe(true);
-    expect(moneyToCents(refundAfterRejectedAttempt?.amount_refunded)).toBe(0);
+    expect(
+      (await fetchRefundsDue(request)).some(
+        (row) => row.transaction_id === checkout.transaction_id,
+      ),
+    ).toBe(false);
 
-    await processCashRefund(request, {
+    await processCashReturn(request, {
       transactionId: checkout.transaction_id,
       sessionId,
-      amount: returnedUnitTotal,
+      sessionToken,
+      productSku: product.sku,
     });
 
     const retryAfterClosed = await request.post(
@@ -1345,10 +1333,8 @@ test.describe("QBO audit contract", () => {
       sessionToken,
       operatorStaffId,
     });
-    await returnFirstQboLine(request, {
+    const returnContext = await qboReturnContext(request, {
       transactionId: checkout.transaction_id,
-      sessionId,
-      sessionToken,
       productSku: product.sku,
     });
 
@@ -1417,6 +1403,7 @@ test.describe("QBO audit contract", () => {
       externalRefundReference,
       managerApprovalReference: approvalBody.manager_approval_reference,
       cardLast4,
+      returnLines: returnContext.returnLines,
     });
     const adminAttemptText = await adminAttempt.text();
     expect(adminAttempt.status(), adminAttemptText.slice(0, 1000)).toBe(200);
@@ -1484,7 +1471,7 @@ test.describe("QBO audit contract", () => {
     });
     await assignQboDate(request, checkout.transaction_id, checkoutDate);
 
-    const returnedDetail = await returnFirstQboLine(request, {
+    const returnedDetail = await processCashReturn(request, {
       transactionId: checkout.transaction_id,
       sessionId,
       sessionToken,
@@ -1494,6 +1481,11 @@ test.describe("QBO audit contract", () => {
     const returnedLine = returnedDetail.items.find((item) => item.sku === product.sku);
     expect(returnedLine?.quantity_returned).toBe(1);
     await assignQboReturnDate(request, checkout.transaction_id, returnDate);
+    await assignQboRefundPaymentDate(
+      request,
+      checkout.transaction_id,
+      returnDate,
+    );
 
     await seedQboMappings(request, product.categoryId, returnDate);
     await seedQboInventoryCogsFallbackMappings(request);
@@ -1516,14 +1508,13 @@ test.describe("QBO audit contract", () => {
     expect(moneyToCents(cogsReversalLine?.credit)).toBe(parseMoneyToCents(product.unitCost));
   });
 
-  test("asynchronous returns and refunds balance independently via liability clearing", async ({
+  test("atomic returns and refunds avoid interim liability queue state", async ({
     request,
   }) => {
     test.setTimeout(120_000);
     const dateOffset = 60_000 + Math.floor(Math.random() * 20_000);
     const checkoutDate = futureUtcDate(dateOffset);
     const returnDate = futureUtcDate(dateOffset + 1);
-    const refundDate = futureUtcDate(dateOffset + 2);
     const { sessionId, sessionToken } = await ensureSessionAuth(request);
     const operatorStaffId = await verifyStaffId(request);
     const product = await createQboProduct(request, operatorStaffId);
@@ -1539,63 +1530,39 @@ test.describe("QBO audit contract", () => {
     });
     await assignQboDate(request, checkout.transaction_id, checkoutDate);
 
-    // 1. A return on Day 1 creates refund queue activity
-    await returnFirstQboLine(request, {
+    await processCashReturn(request, {
       transactionId: checkout.transaction_id,
       sessionId,
       sessionToken,
       productSku: product.sku,
     });
     await assignQboReturnDate(request, checkout.transaction_id, returnDate);
-    
-    const refundBefore = (await fetchRefundsDue(request)).find(
-      (row) => row.transaction_id === checkout.transaction_id,
+    await assignQboRefundPaymentDate(
+      request,
+      checkout.transaction_id,
+      returnDate,
     );
-    expect(refundBefore?.is_open).toBe(true);
-    expect(refundBefore?.amount_due).toBe(returnedUnitTotal);
-    expect(moneyToCents(refundBefore?.amount_refunded)).toBe(0);
+    expect(
+      (await fetchRefundsDue(request)).some(
+        (row) => row.transaction_id === checkout.transaction_id,
+      ),
+    ).toBe(false);
 
-    // 2. Day 1 QBO proposal is balanced & 3. Day 1 includes refund liability clearing evidence
     await seedQboMappings(request, product.categoryId, returnDate);
     const returnProposal = await proposeJournal(request, returnDate);
     expect(returnProposal.payload.totals?.balanced).toBe(true);
-    const liabilityCreatedIndex = returnProposal.payload.lines.findIndex(
+    expect(
+      returnProposal.payload.lines.some((line) =>
+        line.memo.startsWith("Refund liability queued"),
+      ),
+    ).toBe(false);
+    const refundTenderIndex = returnProposal.payload.lines.findIndex(
       (line) =>
-        line.memo === "Refund liability queued (from returns)" &&
-        line.qbo_account_id === "E2E_REFUND_LIABILITY_CLEARING",
-    );
-    expect(liabilityCreatedIndex).toBeGreaterThanOrEqual(0);
-    expect(moneyToCents(returnProposal.payload.lines[liabilityCreatedIndex]?.credit)).toBe(
-      parseMoneyToCents(returnedUnitTotal),
-    );
-
-    // 4. A refund payout on Day 2 closes/reduces the queue
-    await processCashRefund(request, {
-      transactionId: checkout.transaction_id,
-      sessionId,
-      amount: returnedUnitTotal,
-    });
-    // Only update the refund payment to refundDate! The original checkout payment stays on checkoutDate.
-    await assignQboRefundPaymentDate(request, checkout.transaction_id, refundDate);
-
-    // 5. Day 2 QBO proposal is balanced & 6. Day 2 includes tender outflow and refund liability relief evidence
-    await seedQboMappings(request, product.categoryId, refundDate);
-    const refundProposal = await proposeJournal(request, refundDate);
-    expect(refundProposal.payload.totals?.balanced).toBe(true);
-    const liabilityRelievedIndex = refundProposal.payload.lines.findIndex(
-      (line) =>
-        line.memo === "Refund liability relieved (payouts)" &&
-        line.qbo_account_id === "E2E_REFUND_LIABILITY_CLEARING",
-    );
-    expect(liabilityRelievedIndex).toBeGreaterThanOrEqual(0);
-    expect(moneyToCents(refundProposal.payload.lines[liabilityRelievedIndex]?.debit)).toBe(
-      parseMoneyToCents(returnedUnitTotal),
-    );
-    const refundTenderIndex = refundProposal.payload.lines.findIndex(
-      (line) => line.memo === "Tenders (refund/outflow) — cash" && line.qbo_account_id === "E2E_CASH",
+        line.memo === "Tenders (refund/outflow) — cash" &&
+        line.qbo_account_id === "E2E_CASH",
     );
     expect(refundTenderIndex).toBeGreaterThanOrEqual(0);
-    expect(moneyToCents(refundProposal.payload.lines[refundTenderIndex]?.credit)).toBe(
+    expect(moneyToCents(returnProposal.payload.lines[refundTenderIndex]?.credit)).toBe(
       parseMoneyToCents(returnedUnitTotal),
     );
   });

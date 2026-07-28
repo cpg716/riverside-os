@@ -1326,7 +1326,9 @@ test.describe("tax audit contract", () => {
     expect(text).toContain("Ship current sale requires the Register Shipping action");
   });
 
-  test("returns reverse the original line-level tax into the refund queue", async ({ request }) => {
+  test("atomic refunds reverse the original line-level tax without an open queue", async ({
+    request,
+  }) => {
     test.setTimeout(90_000);
     const { sessionId, sessionToken } = await ensureSessionAuth(request);
     const operatorStaffId = await verifyStaffId(request);
@@ -1365,8 +1367,9 @@ test.describe("tax audit contract", () => {
     const line = before.items.find((item) => item.sku === product.sku);
     expect(line?.transaction_line_id).toBeTruthy();
 
+    const refundAmount = totalFor("110.00", tax.stateTax, tax.localTax);
     const returnRes = await request.post(
-      `${apiBase()}/api/transactions/${checkout.transaction_id}/returns?register_session_id=${encodeURIComponent(sessionId)}`,
+      `${apiBase()}/api/transactions/${checkout.transaction_id}/refunds/process`,
       {
         headers: {
           ...staffHeaders(),
@@ -1376,11 +1379,19 @@ test.describe("tax audit contract", () => {
       "x-riverside-station-key": "station-e2e",
         },
         data: {
-          lines: [
+          session_id: sessionId,
+          payment_method: "cash",
+          amount: refundAmount,
+          tender_amount: refundAmount,
+          return_lines: [
             {
               transaction_line_id: line?.transaction_line_id,
               quantity: 1,
               reason: "tax_audit_return",
+              refund_subtotal: "110.00",
+              refund_state_tax: tax.stateTax,
+              refund_local_tax: tax.localTax,
+              refund_total: refundAmount,
             },
           ],
         },
@@ -1415,9 +1426,7 @@ test.describe("tax audit contract", () => {
     expect(refundQueueRes.status()).toBe(200);
     const refunds = (await refundQueueRes.json()) as RefundQueueRow[];
     const refund = refunds.find((row) => row.transaction_id === checkout.transaction_id);
-    expect(refund?.is_open).toBe(true);
-    expect(refund?.amount_due).toBe("119.63");
-    expect(refund?.amount_refunded).toBe("0");
+    expect(refund).toBeUndefined();
   });
 
   test("QBO proposed journal maps collected sales tax to the tax liability account", async ({

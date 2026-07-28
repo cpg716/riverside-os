@@ -660,39 +660,6 @@ async function fetchTransactionDetail(
   return JSON.parse(bodyText) as TransactionDetailResponse;
 }
 
-async function createReturnQueue(
-  request: Parameters<typeof test>[0]["request"],
-  transactionId: string,
-  transactionLineId: string,
-  sessionId: string,
-  sessionToken: string,
-): Promise<void> {
-  const res = await request.post(
-    `${apiBase()}/api/transactions/${transactionId}/returns?register_session_id=${encodeURIComponent(sessionId)}`,
-    {
-      headers: {
-        ...adminHeaders(),
-        "Content-Type": "application/json",
-        "x-riverside-pos-session-id": sessionId,
-        "x-riverside-pos-session-token": sessionToken,
-        "x-riverside-station-key": "station-e2e",
-      },
-      data: {
-        lines: [
-          {
-            transaction_line_id: transactionLineId,
-            quantity: 1,
-            reason: "refund",
-          },
-        ],
-      },
-      failOnStatusCode: false,
-    },
-  );
-  const bodyText = await res.text();
-  expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
-}
-
 async function closeRegisterGroupWithNote(
   request: Parameters<typeof test>[0]["request"],
   sessionId: string,
@@ -725,6 +692,8 @@ async function processCashRefund(
   transactionId: string,
   sessionId: string,
   amount: string,
+  transactionLineId?: string,
+  sessionToken?: string,
 ): Promise<{ status: number; bodyText: string }> {
   const res = await request.post(
     `${apiBase()}/api/transactions/${transactionId}/refunds/process`,
@@ -732,12 +701,32 @@ async function processCashRefund(
       headers: {
         ...adminHeaders(),
         "Content-Type": "application/json",
+        ...(sessionToken
+          ? {
+              "x-riverside-pos-session-id": sessionId,
+              "x-riverside-pos-session-token": sessionToken,
+            }
+          : {}),
         "x-riverside-station-key": "station-e2e",
       },
       data: {
         session_id: sessionId,
         payment_method: "cash",
         amount,
+        tender_amount: amount,
+        return_lines: transactionLineId
+          ? [
+              {
+                transaction_line_id: transactionLineId,
+                quantity: 1,
+                reason: "refund",
+                refund_subtotal: "100.00",
+                refund_state_tax: "4.00",
+                refund_local_tax: "4.75",
+                refund_total: amount,
+              },
+            ]
+          : [],
       },
       failOnStatusCode: false,
     },
@@ -1413,14 +1402,6 @@ test.describe("Register close / reconciliation", () => {
     );
     const line = detail.items[0];
     expect(line?.transaction_line_id).toBeTruthy();
-    await createReturnQueue(
-      request,
-      checkout.transaction_id,
-      line?.transaction_line_id ?? "",
-      opened.session_id,
-      sessionToken,
-    );
-
     const closePromise = closeRegisterGroupWithNote(
       request,
       opened.session_id,
@@ -1431,6 +1412,8 @@ test.describe("Register close / reconciliation", () => {
       checkout.transaction_id,
       opened.session_id,
       "108.75",
+      line?.transaction_line_id ?? "",
+      sessionToken,
     );
     const [closeResult, refundResult] = await Promise.all([
       closePromise,

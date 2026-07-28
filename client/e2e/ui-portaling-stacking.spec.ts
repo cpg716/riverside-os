@@ -8,6 +8,7 @@ import {
   apiBase,
   ensureSessionAuth,
   seedRmsFixture,
+  staffCode,
   staffHeaders,
   verifyStaffId,
 } from "./helpers/rmsCharge";
@@ -105,24 +106,27 @@ test.describe("UI Portaling and Stacking", () => {
     const { transaction_id } = JSON.parse(checkoutBodyText);
     const transactionDisplayId = await getTransactionDisplayId(request, transaction_id);
 
-    // Create a return to generate a refund due
-    const returnRes = await request.post(`${apiBase()}/api/transactions/${transaction_id}/returns`, {
+    // A same-day Manager void provides a legitimate open refund obligation for
+    // exercising the Back Office refund modal without bypassing Register Pay.
+    const returnRes = await request.post(
+      `${apiBase()}/api/transactions/${transaction_id}/void`,
+      {
       headers: {
         ...staffHeaders(),
         "Content-Type": "application/json",
-      "x-riverside-station-key": "station-e2e",
+        "x-riverside-pos-session-id": sessionId,
+        "x-riverside-pos-session-token": sessionToken,
+        "x-riverside-station-key": "station-e2e",
       },
       data: {
-        lines: [
-          {
-            transaction_line_id: (await request.get(`${apiBase()}/api/transactions/${transaction_id}`, { headers: staffHeaders() }).then(r => r.json())).items[0].transaction_line_id,
-            quantity: 1,
-            reason: "test stacking",
-          },
-        ],
+        register_session_id: sessionId,
+        manager_staff_id: operatorStaffId,
+        manager_pin: staffCode(),
+        reason: "E2E refund modal stacking verification",
       },
       failOnStatusCode: false,
-    });
+      },
+    );
     expect(returnRes.status()).toBe(200);
 
     // 2. Open UI and navigate to Orders
