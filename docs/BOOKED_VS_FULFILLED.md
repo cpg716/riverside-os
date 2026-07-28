@@ -29,6 +29,8 @@ Adding merchandise to an older open Transaction creates a line-booking event on 
 
 Report detail uses the signed event components rather than the Transaction's entire current item list. Staff can therefore distinguish an item addition from a negative price correction or removed item, while the total reflects only the net increase.
 
+Booked Sales is always the pre-tax value of that activity. Daily Sales and Z-Reports present **Subtotal**, **Tax**, and **Total With Tax** separately. Collected tax is never included in Sales, Net Sales, or average sale.
+
 ### Imported Counterpoint history
 
 For Counterpoint history, the source business date is the booked date. ROS copies that same timestamp to the imported Transaction Record, every imported transaction line, and the initial booking event. The later ROS import timestamp remains separate audit context and must never become Booked Sales activity. A history row with a missing or invalid source booking timestamp is held for import review instead of being stamped with the current time. If older imported lines or booking events were stamped with the import time, managers use the Counterpoint booking-date dry-run manifest and guarded repair; transaction totals and tender ledgers remain unchanged. A source rerun also suppresses artificial line-delete booking activity and retains the superseded initial event as excluded audit evidence.

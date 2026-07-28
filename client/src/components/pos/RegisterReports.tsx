@@ -480,6 +480,7 @@ interface GroupedDayActivity {
   activities: RegisterActivityItem[];
   total_sales: string;
   total_tax: string;
+  total_with_tax: string;
   count: number;
 }
 
@@ -610,6 +611,16 @@ function activitySubtotalBeforeTaxCents(
   const taxCents = parseMoneyToCents(row.tax_total ?? "0");
   const serviceCents = parseMoneyToCents(row.shipping_total ?? "0");
   return grossCents - taxCents - serviceCents;
+}
+
+function activityTotalWithTaxCents(
+  row: Parameters<typeof activitySubtotalBeforeTaxCents>[0],
+): number {
+  return (
+    activitySubtotalBeforeTaxCents(row) +
+    parseMoneyToCents(row.tax_total ?? "0") +
+    parseMoneyToCents(row.shipping_total ?? "0")
+  );
 }
 
 function moneyFromCents(cents: number): string {
@@ -1541,6 +1552,12 @@ export default function RegisterReports({
           0,
         ),
       ),
+      total_with_tax: centsToFixed2(
+        acts.reduce(
+          (sum, activity) => sum + activityTotalWithTaxCents(activity),
+          0,
+        ),
+      ),
       count: acts.length,
     }));
   }, [summary, summaryBooked, reportBasis]);
@@ -1756,8 +1773,10 @@ export default function RegisterReports({
               : "",
           Shipping: idx === 0 ? a.shipping_total || "0" : "",
           Alterations: idx === 0 ? a.alterations_total || "0" : "",
-          "Sales Total": idx === 0 ? a.sales_total || "0" : "",
+          Subtotal: idx === 0 ? a.sales_total || "0" : "",
           Tax: idx === 0 ? a.tax_total || "0" : "",
+          "Total With Tax":
+            idx === 0 ? centsToFixed2(activityTotalWithTaxCents(a)) : "",
           "Net Total": idx === 0 ? a.amount_label || "0" : "",
         }));
         return itemRows;
@@ -1788,6 +1807,10 @@ export default function RegisterReports({
       const totalTaxCents = exportSummary.activities.reduce(
         (sum, activity) =>
           sum + parseRegisterReportMoneyToCents(activity.tax_total),
+        0,
+      );
+      const totalWithTaxCents = exportSummary.activities.reduce(
+        (sum, activity) => sum + activityTotalWithTaxCents(activity),
         0,
       );
       const totalShippingCents = exportSummary.activities.reduce(
@@ -1833,8 +1856,9 @@ export default function RegisterReports({
         ),
         Shipping: centsToFixed2(totalShippingCents),
         Alterations: centsToFixed2(totalAlterationsCents),
-        "Sales Total": centsToFixed2(totalSalesCents),
+        Subtotal: centsToFixed2(totalSalesCents),
         Tax: centsToFixed2(totalTaxCents),
+        "Total With Tax": centsToFixed2(totalWithTaxCents),
         "Net Total": centsToFixed2(totalNetCents),
       };
 
@@ -1863,8 +1887,9 @@ export default function RegisterReports({
         "Total Tender Collected",
         "Shipping",
         "Alterations",
-        "Sales Total",
+        "Subtotal",
         "Tax",
+        "Total With Tax",
         "Net Total",
       ];
       const csv = [
@@ -2307,7 +2332,7 @@ export default function RegisterReports({
                       Booked Sales
                     </span>
                   </div>
-                  <div className="grid grid-cols-4 gap-2">
+                  <div className="grid grid-cols-5 gap-2">
                     <div className="ui-metric-cell ui-tint-success p-2">
                       <div className="text-xs font-bold text-app-success">
                         Sales
@@ -2318,7 +2343,7 @@ export default function RegisterReports({
                     </div>
                     <div className="ui-metric-cell ui-tint-success p-2">
                       <div className="text-xs font-bold text-app-success">
-                        Sales Total
+                        Subtotal
                       </div>
                       <p className="text-lg font-black text-app-text">
                         $
@@ -2337,6 +2362,23 @@ export default function RegisterReports({
                         $
                         {centsToFixed2(
                           parseMoneyToCents(summaryBooked.sales_tax_total),
+                        )}
+                      </p>
+                    </div>
+                    <div className="ui-metric-cell ui-tint-accent p-2">
+                      <div className="text-xs font-bold text-app-accent">
+                        Total With Tax
+                      </div>
+                      <p className="text-lg font-black text-app-text">
+                        $
+                        {centsToFixed2(
+                          parseMoneyToCents(
+                            summaryBooked.sales_subtotal_no_tax,
+                          ) +
+                            parseMoneyToCents(
+                              summaryBooked.sales_tax_total,
+                            ) +
+                            parseMoneyToCents(summaryBooked.shipping_total),
                         )}
                       </p>
                     </div>
@@ -2425,7 +2467,7 @@ export default function RegisterReports({
                     </div>
                     <div className="ui-metric-cell ui-tint-info p-2">
                       <div className="text-xs font-bold text-app-info">
-                        Revenue
+                        Subtotal
                       </div>
                       <p className="text-lg font-black text-app-text">
                         $
@@ -2443,12 +2485,17 @@ export default function RegisterReports({
                         )}
                       </p>
                     </div>
-                    <div className="ui-metric-cell ui-tint-success p-2">
-                      <div className="text-xs font-bold text-app-success">
-                        Net
+                    <div className="ui-metric-cell ui-tint-accent p-2">
+                      <div className="text-xs font-bold text-app-accent">
+                        Total With Tax
                       </div>
                       <p className="text-lg font-black text-app-text">
-                        ${centsToFixed2(parseMoneyToCents(summary.net_sales))}
+                        $
+                        {centsToFixed2(
+                          parseMoneyToCents(summary.sales_subtotal_no_tax) +
+                            parseMoneyToCents(summary.sales_tax_total) +
+                            parseMoneyToCents(summary.shipping_total),
+                        )}
                       </p>
                     </div>
                   </div>
@@ -2665,12 +2712,24 @@ export default function RegisterReports({
                             ({group.count} activity records)
                           </span>
                         </div>
-                        <div className="text-right">
+                        <div className="flex items-baseline gap-4 text-right">
                           <span className="text-xs font-black text-app-text-muted">
-                            Total:{" "}
+                            Subtotal{" "}
+                            <strong className="text-app-text">
+                              ${group.total_sales}
+                            </strong>
                           </span>
-                          <span className="text-sm font-black text-app-accent">
-                            ${group.total_sales}
+                          <span className="text-xs font-black text-app-text-muted">
+                            Tax{" "}
+                            <strong className="text-app-text">
+                              ${group.total_tax}
+                            </strong>
+                          </span>
+                          <span className="text-xs font-black text-app-text-muted">
+                            Total With Tax{" "}
+                            <strong className="text-sm text-app-accent">
+                              ${group.total_with_tax}
+                            </strong>
                           </span>
                         </div>
                       </div>
@@ -2966,7 +3025,9 @@ export default function RegisterReports({
                                             </td>
                                             <td className="py-2.5 text-center align-top font-black text-app-text tracking-tighter tabular-nums">
                                               ${it.price}
-                                              {it.booking_delta != null ? (
+                                              {it.booking_delta != null &&
+                                              it.booking_event_kind !==
+                                                "initial_booking" ? (
                                                 <div className="mt-1 text-[9px] font-black uppercase tracking-wider text-app-accent">
                                                   {it.booking_event_kind ===
                                                   "line_deleted"
@@ -3067,9 +3128,9 @@ export default function RegisterReports({
                             <div className="flex flex-col justify-between bg-app-surface-2/60 p-5 lg:w-1/4">
                               <div className="space-y-3">
                                 {row.kind !== "payment" ? (
-                                  <div className="flex flex-col items-end gap-0.5">
+                                  <div className="flex flex-col items-end gap-1">
                                     <span className="text-xs font-bold text-app-text-muted">
-                                      Subtotal Before Tax
+                                      Subtotal
                                     </span>
                                     <span className="text-base font-black text-app-text tabular-nums leading-none tracking-tighter">
                                       {moneyFromCents(
@@ -3077,9 +3138,10 @@ export default function RegisterReports({
                                       )}
                                     </span>
                                     {row.tax_total ? (
-                                      <span className="text-[11px] font-bold text-app-text-muted tabular-nums">
-                                        Tax {moneyFromValue(row.tax_total)}
-                                      </span>
+                                      <div className="flex items-baseline gap-2 text-[11px] font-bold text-app-text-muted tabular-nums">
+                                        <span>Tax</span>
+                                        <span>{moneyFromValue(row.tax_total)}</span>
+                                      </div>
                                     ) : null}
                                     {parseMoneyToCents(
                                       row.shipping_total ?? "0",
@@ -3103,11 +3165,11 @@ export default function RegisterReports({
                                 {row.kind !== "payment" ? (
                                   <div className="flex flex-col items-end gap-0.5 pt-2 border-t border-app-border/40">
                                     <span className="text-xs font-bold text-app-text-muted">
-                                      Sales Total (Booked)
+                                      Total With Tax
                                     </span>
                                     <span className="text-lg font-black text-app-text tabular-nums leading-none tracking-tighter">
-                                      {moneyFromValue(
-                                        row.sales_total || "0.00",
+                                      {moneyFromCents(
+                                        activityTotalWithTaxCents(row),
                                       )}
                                     </span>
                                   </div>

@@ -12436,6 +12436,17 @@ async fn add_transaction_line(
     .bind(body.salesperson_id)
     .fetch_one(&mut *tx)
     .await?;
+    sqlx::query(
+        r#"
+        UPDATE transaction_line_booking_events
+        SET event_kind = 'line_added'
+        WHERE transaction_line_id = $1
+          AND event_kind = 'initial_booking'
+        "#,
+    )
+    .bind(transaction_line_id)
+    .execute(&mut *tx)
+    .await?;
     let initial_status = match body.order_lifecycle_status {
         Some(DbOrderItemLifecycleStatus::NeedsMeasurements) => {
             DbOrderItemLifecycleStatus::NeedsMeasurements

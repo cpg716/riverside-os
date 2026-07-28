@@ -35,6 +35,10 @@ const registerDayServerSource = readFileSync(
   new URL("../../server/src/logic/register_day_activity.rs", import.meta.url),
   "utf8",
 );
+const transactionsServerSource = readFileSync(
+  new URL("../../server/src/api/transactions.rs", import.meta.url),
+  "utf8",
+);
 const sessionsServerSource = readFileSync(
   new URL("../../server/src/api/sessions.rs", import.meta.url),
   "utf8",
@@ -127,7 +131,7 @@ test.describe("Register report output integrity contracts", () => {
 
   test("service reporting includes alterations in subtotal without inflating sales metrics", () => {
     expect(registerDayServerSource).toContain(
-      '"(be.line_subtotal + be.line_tax)::numeric(14,2)"',
+      '"(be.line_subtotal + be.alterations_total)::numeric(14,2)"',
     );
     expect(registerDayServerSource).toContain(
       "WHERE ln.line_subtotal <> 0 OR ln.line_tax <> 0",
@@ -173,6 +177,27 @@ test.describe("Register report output integrity contracts", () => {
     expect(registerDayServerSource).toContain(
       "net_sales: money_label(reported_subtotal)",
     );
+    const salesTotalExpression = registerDayServerSource.slice(
+      registerDayServerSource.indexOf("let sales_total_expr"),
+      registerDayServerSource.indexOf("let activity_shipping_expr"),
+    );
+    expect(salesTotalExpression).toContain("* oi.unit_price");
+    expect(salesTotalExpression).not.toContain(
+      "oi.unit_price + oi.state_tax + oi.local_tax",
+    );
+    expect(registerReportsSource).toContain("Total With Tax");
+    expect(registerReportsSource).toContain(
+      "function activityTotalWithTaxCents",
+    );
+    expect(registerReportsSource).toContain(
+      'it.booking_event_kind !== "initial_booking"',
+    );
+    expect(registerDayServerSource).toContain("THEN 'line_added'");
+    expect(transactionsServerSource).toContain(
+      "SET event_kind = 'line_added'",
+    );
+    expect(reportPrintSource).toContain("Grand Total With Tax");
+    expect(reportPrintSource).toContain("periodTotalWithTaxCents");
     const subtotalHelper = registerReportsSource.slice(
       registerReportsSource.indexOf("function activitySubtotalBeforeTaxCents"),
       registerReportsSource.indexOf("function moneyFromCents"),

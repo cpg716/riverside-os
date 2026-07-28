@@ -98,11 +98,14 @@ fn refund_activity_totals(
         || replacement_tax != Decimal::ZERO;
     if refund_event_id.is_some() && has_event_components {
         (
-            (replacement_subtotal + replacement_tax - refund_subtotal - refund_tax).round_dp(2),
+            (replacement_subtotal - refund_subtotal).round_dp(2),
             (replacement_tax - refund_tax).round_dp(2),
         )
     } else {
-        (payment_amount.round_dp(2), (-refund_tax).round_dp(2))
+        (
+            (payment_amount + refund_tax).round_dp(2),
+            (-refund_tax).round_dp(2),
+        )
     }
 }
 
@@ -1699,17 +1702,17 @@ async fn fetch_register_day_summary_page_on_connection(
             .to_string(),
     };
     let sales_total_expr = match basis {
-        ReportBasis::Booked => "(be.line_subtotal + be.line_tax)::numeric(14,2)".to_string(),
+        ReportBasis::Booked => {
+            "(be.line_subtotal + be.alterations_total)::numeric(14,2)".to_string()
+        }
         ReportBasis::Completed => r#"COALESCE(SUM(
                 CASE
                     WHEN COALESCE(oi.is_internal, false)
                       OR p_line.pos_line_kind IN ('rms_charge_payment', 'pos_gift_card_load')
-                      OR p_line.pos_line_kind = 'alteration_service'
-                      OR oi.custom_item_type = 'alteration_service'
                       OR UPPER(TRIM(COALESCE(pv_line.sku, ''))) IN ('SHIPPING', 'ROS-SHIPPING-FEE')
                     THEN 0::numeric
                     ELSE GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0)::numeric
-                        * (oi.unit_price + oi.state_tax + oi.local_tax)
+                        * oi.unit_price
                 END
             ), 0)::numeric(14,2)"#
             .to_string(),
@@ -1776,7 +1779,16 @@ async fn fetch_register_day_summary_page_on_connection(
                     END,
                     'booking_delta', item_event.subtotal_delta::text,
                     'booking_tax_delta', item_event.tax_delta::text,
-                    'booking_event_kind', item_event.event_kind
+                    'booking_event_kind', CASE
+                        WHEN item_event.event_kind = 'initial_booking'
+                          AND (item_event.booked_at AT TIME ZONE reporting.effective_store_timezone())::date
+                              IS DISTINCT FROM COALESCE(
+                                  o.business_date,
+                                  (o.booked_at AT TIME ZONE reporting.effective_store_timezone())::date
+                              )
+                        THEN 'line_added'
+                        ELSE item_event.event_kind
+                    END
                 ) ORDER BY item_event.booked_at, item_event.created_at, item_event.id)
                 FROM transaction_line_booking_events item_event
                 LEFT JOIN transaction_lines oix
@@ -2112,7 +2124,7 @@ async fn fetch_register_day_summary_page_on_connection(
             NULL::numeric AS amount_paid_in_window,
             COALESCE(SUM(
                 GREATEST(tl.quantity - COALESCE(orl.returned, 0), 0)::numeric
-                * (tl.unit_price + tl.state_tax + tl.local_tax)
+                * tl.unit_price
             ), 0)::numeric(14,2) AS sales_total_booked,
             'pickup'::text AS fulfillment_type,
             o.balance_due,
@@ -3024,7 +3036,7 @@ mod tests {
             Decimal::ZERO,
         );
 
-        assert_eq!(sales_total, Decimal::new(-16455, 2));
+        assert_eq!(sales_total, Decimal::new(-15600, 2));
         assert_eq!(tax_total, Decimal::new(-855, 2));
     }
 
@@ -3038,7 +3050,7 @@ mod tests {
             Decimal::ZERO,
             Decimal::ZERO,
         );
-        assert_eq!(pure_sales_total, Decimal::new(-10875, 2));
+        assert_eq!(pure_sales_total, Decimal::new(-10000, 2));
         assert_eq!(pure_tax_total, Decimal::new(-875, 2));
 
         let (financial_sales_total, financial_tax_total) = refund_activity_totals(

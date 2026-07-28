@@ -1956,10 +1956,22 @@ export async function openProfessionalDailySalesPrint(opts: {
 
   const activityRows = Object.entries(groupedActivities)
     .map(([date, rows]) => {
-      const groupTotalCents = rows.reduce(
+      const groupSubtotalCents = rows.reduce(
         (sum, row) => sum + parseRegisterReportMoneyToCents(row.sales_total),
         0,
       );
+      const groupTaxCents = rows.reduce(
+        (sum, row) => sum + parseRegisterReportMoneyToCents(row.tax_total),
+        0,
+      );
+      const groupTotalWithTaxCents =
+        groupSubtotalCents +
+        groupTaxCents +
+        rows.reduce(
+          (sum, row) =>
+            sum + parseRegisterReportMoneyToCents(row.shipping_total),
+          0,
+        );
       const cards = rows
         .map((row) => {
           const tm = new Date(row.occurred_at).toLocaleString([], {
@@ -2018,6 +2030,13 @@ export async function openProfessionalDailySalesPrint(opts: {
               `,
             )
             .join("");
+          const subtotalCents = parseRegisterReportMoneyToCents(
+            row.sales_total ?? row.subtotal_before_tax ?? "0",
+          );
+          const totalWithTaxCents =
+            subtotalCents +
+            parseRegisterReportMoneyToCents(row.tax_total) +
+            parseRegisterReportMoneyToCents(row.shipping_total);
 
           return `
         <section class="activity-card">
@@ -2036,9 +2055,9 @@ export async function openProfessionalDailySalesPrint(opts: {
             }
           </div>
           <div class="activity-money">
-            <div class="money-label">${row.kind === "payment" ? "Payment Applied Today" : "Sales Total"}</div>
-            <div class="money-total">${row.kind === "payment" ? formatReportMoney(row.transaction_total ?? row.amount_label ?? "0") : row.sales_total ? `$${row.sales_total}` : row.amount_label || "—"}</div>
-            ${row.kind !== "payment" ? `<div class="money-sub">Subtotal Before Tax: ${row.subtotal_before_tax ? `$${row.subtotal_before_tax}` : "—"}</div>` : ""}
+            <div class="money-label">${row.kind === "payment" ? "Payment Applied Today" : "Total With Tax"}</div>
+            <div class="money-total">${row.kind === "payment" ? formatReportMoney(row.transaction_total ?? row.amount_label ?? "0") : formatReportMoney(totalWithTaxCents)}</div>
+            ${row.kind !== "payment" ? `<div class="money-sub">Subtotal: ${formatReportMoney(subtotalCents)}</div>` : ""}
             ${row.kind !== "payment" && row.tax_total ? `<div class="money-sub">Tax: ${formatReportMoney(row.tax_total)}</div>` : ""}
             ${row.kind !== "payment" && parseRegisterReportMoneyToCents(row.shipping_total) !== 0 ? `<div class="money-sub">Shipping: ${formatReportMoney(row.shipping_total ?? "0")}</div>` : ""}
             ${row.kind !== "payment" && parseRegisterReportMoneyToCents(row.alterations_total) !== 0 ? `<div class="money-sub">Alterations: ${formatReportMoney(row.alterations_total ?? "0")}</div>` : ""}
@@ -2060,7 +2079,7 @@ export async function openProfessionalDailySalesPrint(opts: {
               <span class="group-date">${date}</span>
               <span class="group-count">(${rows.length} transaction${rows.length === 1 ? "" : "s"})</span>
             </div>
-            <div class="group-total"><span>Total:</span> ${formatReportMoney(groupTotalCents)}</div>
+            <div class="group-total"><span>Subtotal:</span> ${formatReportMoney(groupSubtotalCents)} <span>Tax:</span> ${formatReportMoney(groupTaxCents)} <span>Total With Tax:</span> ${formatReportMoney(groupTotalWithTaxCents)}</div>
           </div>
           ${cards}
         </section>
@@ -2106,12 +2125,32 @@ export async function openProfessionalDailySalesPrint(opts: {
     .join("");
 
   // Calculate grand total across all groups
-  const grandTotalCents = Object.values(groupedActivities)
+  const grandSubtotalCents = Object.values(groupedActivities)
     .flat()
     .reduce(
       (sum, row) => sum + parseRegisterReportMoneyToCents(row.sales_total),
       0,
     );
+  const grandTaxCents = Object.values(groupedActivities)
+    .flat()
+    .reduce(
+      (sum, row) => sum + parseRegisterReportMoneyToCents(row.tax_total),
+      0,
+    );
+  const grandTotalWithTaxCents =
+    grandSubtotalCents +
+    grandTaxCents +
+    Object.values(groupedActivities)
+      .flat()
+      .reduce(
+        (sum, row) =>
+          sum + parseRegisterReportMoneyToCents(row.shipping_total),
+        0,
+      );
+  const periodTotalWithTaxCents =
+    parseMoneyToCents(summary.sales_subtotal_no_tax) +
+    parseMoneyToCents(summary.sales_tax_total) +
+    parseMoneyToCents(summary.shipping_total);
   const creditCardTotalCents = activities.reduce((sum, row) => {
     return (
       sum +
@@ -2195,9 +2234,10 @@ export async function openProfessionalDailySalesPrint(opts: {
     "",
     "PERIOD SUMMARY (ALL ACTIVITY)",
     `Transactions: ${summary.sales_count}`,
-    `Subtotal Before Tax: ${formatReportMoney(summary.sales_subtotal_no_tax)}`,
+    `Subtotal: ${formatReportMoney(summary.sales_subtotal_no_tax)}`,
     `Tax Collected: ${formatReportMoney(summary.sales_tax_total)}`,
     `Shipping Total: ${formatReportMoney(summary.shipping_total)}`,
+    `Total With Tax: ${formatReportMoney(periodTotalWithTaxCents)}`,
     `Alterations Total: ${formatReportMoney(summary.alterations_total)}`,
     `Gift Card Loads: ${moneyWithCount(parseMoneyToCents(summary.gift_card_load_total), summary.gift_card_load_count)}`,
     `Cash Collected: ${formatReportMoney(summary.cash_collected)}`,
@@ -2220,6 +2260,10 @@ export async function openProfessionalDailySalesPrint(opts: {
       : "TRANSACTION LIST",
     ...(activities.length > 0
       ? activities.flatMap((row) => {
+          const rowTotalWithTaxCents =
+            parseRegisterReportMoneyToCents(row.sales_total) +
+            parseRegisterReportMoneyToCents(row.tax_total) +
+            parseRegisterReportMoneyToCents(row.shipping_total);
           const customerInfo = [
             row.customer_name,
             row.customer_code ? `#${row.customer_code}` : null,
@@ -2264,8 +2308,8 @@ export async function openProfessionalDailySalesPrint(opts: {
               ? `Imported at: ${new Date(row.imported_at).toLocaleString()}`
               : "",
             ...paymentDetails,
-            row.kind !== "payment" && row.subtotal_before_tax
-              ? `Subtotal Before Tax: ${formatReportMoney(row.subtotal_before_tax)}`
+            row.kind !== "payment" && row.sales_total
+              ? `Subtotal: ${formatReportMoney(row.sales_total)}`
               : "",
             row.kind !== "payment" && row.tax_total
               ? `Tax: ${formatReportMoney(row.tax_total)}`
@@ -2274,6 +2318,9 @@ export async function openProfessionalDailySalesPrint(opts: {
             row.shipping_total &&
             parseRegisterReportMoneyToCents(row.shipping_total) !== 0
               ? `Shipping: ${formatReportMoney(row.shipping_total)}`
+              : "",
+            row.kind !== "payment"
+              ? `Total With Tax: ${formatReportMoney(rowTotalWithTaxCents)}`
               : "",
             row.kind !== "payment" &&
             row.alterations_total &&
@@ -2341,7 +2388,9 @@ export async function openProfessionalDailySalesPrint(opts: {
         })
       : ["No pickups recorded for this period."]),
     "",
-    `${detailFilter ? "Filtered Detail Total" : "Grand Total"}: ${formatReportMoney(grandTotalCents)}`,
+    `${detailFilter ? "Filtered Detail Subtotal" : "Grand Subtotal"}: ${formatReportMoney(grandSubtotalCents)}`,
+    `${detailFilter ? "Filtered Detail Tax" : "Grand Tax"}: ${formatReportMoney(grandTaxCents)}`,
+    `${detailFilter ? "Filtered Detail Total With Tax" : "Grand Total With Tax"}: ${formatReportMoney(grandTotalWithTaxCents)}`,
     `End of Summary Audit - Riverside Men's Shop - Generated: ${generatedAt}`,
   ];
 
@@ -2413,7 +2462,7 @@ export async function openProfessionalDailySalesPrint(opts: {
       <p class="stat-value">${summary.sales_count}</p>
     </div>
     <div class="stat-card">
-      <p class="stat-label">Subtotal Before Tax</p>
+      <p class="stat-label">Subtotal</p>
       <p class="stat-value">$${centsToFixed2(parseMoneyToCents(summary.sales_subtotal_no_tax))}</p>
     </div>
     <div class="stat-card">
@@ -2423,6 +2472,10 @@ export async function openProfessionalDailySalesPrint(opts: {
     <div class="stat-card">
       <p class="stat-label">Shipping Total</p>
       <p class="stat-value">$${centsToFixed2(parseMoneyToCents(summary.shipping_total))}</p>
+    </div>
+    <div class="stat-card">
+      <p class="stat-label">Total With Tax</p>
+      <p class="stat-value">${formatReportMoney(periodTotalWithTaxCents)}</p>
     </div>
     <div class="stat-card">
       <p class="stat-label">Alterations Total</p>
@@ -2492,7 +2545,9 @@ export async function openProfessionalDailySalesPrint(opts: {
     activityRows
       ? `
   <div style="margin-top: 30px; border-top: 2px solid #e2e8f0; padding-top: 20px; text-align: right;">
-    <p style="font-size: 14px; font-weight: 800; color: #0f172a; margin: 0;">${detailFilter ? "Filtered Detail Total" : "Grand Total"}: ${formatReportMoney(grandTotalCents)}</p>
+    <p style="font-size: 12px; font-weight: 700; color: #475569; margin: 0;">${detailFilter ? "Filtered Detail Subtotal" : "Grand Subtotal"}: ${formatReportMoney(grandSubtotalCents)}</p>
+    <p style="font-size: 12px; font-weight: 700; color: #475569; margin: 4px 0 0;">${detailFilter ? "Filtered Detail Tax" : "Grand Tax"}: ${formatReportMoney(grandTaxCents)}</p>
+    <p style="font-size: 14px; font-weight: 800; color: #0f172a; margin: 4px 0 0;">${detailFilter ? "Filtered Detail Total With Tax" : "Grand Total With Tax"}: ${formatReportMoney(grandTotalWithTaxCents)}</p>
   </div>
   `
       : ""

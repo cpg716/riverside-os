@@ -18,7 +18,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and net decreases remain audit-only. Order and customer timelines identify
   the affected item, SKU, before/after price, and signed value change, and
   Register price edits verify the persisted server value before reporting
-  success.
+  success. Initial booking lines no longer repeat their Sale price as a purple
+  Added amount; Added, Change, and Removed markers appear only for actual later
+  amendments.
+- **Sales and Tax Reporting Separation**: Daily Sales and Z-Reports now keep
+  Subtotal, Tax, and Total With Tax as separate figures at the summary,
+  day-group, transaction-card, print, and export levels. Sales, Booked Sales,
+  Net Sales, refunds, and pickup sales remain pre-tax; tax is included only in
+  the explicitly labeled Total With Tax or payment/transaction totals.
 - **Recovered Helcim Payment Business Dates**: Attaching an already-approved
   historical Helcim payment now preserves the processor approval date on the
   payment movement, preventing a later ROS recovery from adding the old tender
