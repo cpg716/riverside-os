@@ -85,6 +85,8 @@ export type { CheckoutPayload } from "./types";
 import {
   type ResolvedSkuItem,
   type CartLineItem,
+  CANCEL_TRANSACTION_REFUND_HANDOFF,
+  RETURN_TRANSACTION_REFUND_HANDOFF,
   type FulfillmentKind,
   type OrderLifecycleStatus,
   type PosStaffRow,
@@ -377,6 +379,7 @@ interface HandoffOrderDetail {
     product_name: string;
     variation_label?: string | null;
     quantity: number;
+    quantity_returned?: number;
     unit_price: string;
     unit_cost?: string;
     state_tax?: string;
@@ -1831,6 +1834,9 @@ export default function Cart({
         sourceLines[0]
           ?.original_helcim_transaction_id_for_refund ?? null,
       returnOnly: returnLines.length === lines.length && orderPaymentLines.length === 0,
+      cancelTransaction: returnLines.some(
+        (line) => line.return_tender_cancel_transaction === true,
+      ),
     };
   }, [lines, orderPaymentLines.length, pendingReturnLineDrafts]);
   const preflightCheckoutBeforeTender = useCallback(async () => {
@@ -2450,6 +2456,7 @@ export default function Cart({
       forRefund: boolean = false,
       pickupLineIds?: string[],
       returnLineId?: string | null,
+      cancelTransactionOnRefund: boolean = false,
     ) => {
       const res = await fetch(`${baseUrl}/api/transactions/${transactionId}`, {
         headers: apiAuth(),
@@ -2496,9 +2503,16 @@ export default function Cart({
         setEditingOrderPaymentAmount("");
         setPosShipping(null);
 
-        if (returnLineId) {
+        const cancellationRefund =
+          cancelTransactionOnRefund ||
+          returnLineId === CANCEL_TRANSACTION_REFUND_HANDOFF;
+        const selectedReturnLineId =
+          returnLineId === RETURN_TRANSACTION_REFUND_HANDOFF
+            ? null
+            : returnLineId;
+        if (selectedReturnLineId && !cancellationRefund) {
           setExchangeWizardInitialTransactionId(detail.transaction_id);
-          setExchangeWizardInitialReturnLineId(returnLineId);
+          setExchangeWizardInitialReturnLineId(selectedReturnLineId);
           setExchangeWizardOpen(true);
           toast("Return item loaded. Confirm the quantity and choose refund or exchange.", "success");
           return true;
@@ -2512,16 +2526,24 @@ export default function Cart({
 
         const receiptLabel = detail.transaction_display_id ?? detail.transaction_id.slice(0, 8).toUpperCase();
         const refundableItems = (detail.items ?? []).filter(
-          (item) => !item.is_internal && item.quantity > 0,
+          (item) =>
+            !item.is_internal &&
+            item.quantity - Math.max(0, item.quantity_returned ?? 0) > 0,
         );
         const sourceUnits = refundableItems.flatMap((item) =>
-          Array.from({ length: item.quantity }, () => ({
+          Array.from(
+            {
+              length:
+                item.quantity - Math.max(0, item.quantity_returned ?? 0),
+            },
+            () => ({
             item,
             grossCents:
               parseMoneyToCents(item.unit_price) +
               parseMoneyToCents(item.state_tax ?? "0") +
               parseMoneyToCents(item.local_tax ?? "0"),
-          })),
+            }),
+          ),
         );
         const sourceGrossCents = sourceUnits.reduce(
           (sum, unit) => sum + Math.max(0, unit.grossCents),
@@ -2627,6 +2649,7 @@ export default function Cart({
               return_tender_receipt_label: receiptLabel,
               return_tender_refund_cents: unitCreditCents,
               return_tender_transaction_line_id: item.transaction_line_id,
+              return_tender_cancel_transaction: cancellationRefund,
             };
           },
         );
@@ -4875,6 +4898,7 @@ export default function Cart({
                     card_last4: primaryTender.metadata?.card_last4,
                     external_refund_reference:
                       primaryTender.metadata?.external_refund_reference,
+                    cancel_transaction: pendingReturnTender.cancelTransaction,
                     return_lines: pendingReturnTender.returnLines.map((line) => ({
                       transaction_line_id: line.transaction_line_id,
                       quantity: line.quantity,
@@ -6059,7 +6083,14 @@ export default function Cart({
               }
             }}
             onCancelledToRefundCart={(order) =>
-              loadTransactionIntoRegister(order.id, false, true)
+              loadTransactionIntoRegister(
+                order.id,
+                false,
+                true,
+                undefined,
+                null,
+                true,
+              )
             }
           />
 

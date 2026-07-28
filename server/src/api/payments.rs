@@ -7,6 +7,7 @@ use crate::auth::permissions::{
     SETTINGS_ADMIN,
 };
 use crate::auth::pins::AuthenticatedStaff;
+use crate::auth::pos_session;
 use crate::logic::helcim;
 use crate::logic::integration_alerts;
 use crate::logic::integration_credentials;
@@ -1979,14 +1980,14 @@ async fn reject_conflicting_helcim_attempt_before_dispatch(
         .unwrap_or_default();
     if matches!(status.as_str(), "approved" | "captured") {
         return Err(PaymentError::Conflict(format!(
-            "An approved Helcim payment of ${:.2} is still waiting to be attached to this sale.{} Attempt {} must be attached, recovered, or refunded from Payments Health before another card payment can start.",
+            "An approved Helcim payment of ${:.2} is still waiting to be attached to this sale.{} Open Restore in Pay for attempt {}; do not start another card payment.",
             Decimal::new(amount_cents, 2),
             reference,
             attempt_id
         )));
     }
     Err(PaymentError::Conflict(format!(
-        "A Helcim payment of ${:.2} still has an unresolved provider outcome. Attempt {} must be recovered in Payments Health before another card payment can start.",
+        "A Helcim payment of ${:.2} still has an unresolved provider outcome. Open Restore in Pay for attempt {} before another card payment.",
         Decimal::new(amount_cents, 2),
         attempt_id
     )))
@@ -2009,7 +2010,7 @@ fn terminal_reservation_conflict_message(
             );
         }
         return format!(
-            "Terminal has an unresolved Helcim card request from an earlier checkout on {lane_label}. Review it in Payments Health before starting another card request."
+            "Terminal has an unresolved Helcim card request from an earlier checkout on {lane_label}. Open Restore in Pay before starting another card request."
         );
     }
 
@@ -11455,9 +11456,35 @@ async fn release_helcim_terminal_attempt(
     let auth = middleware::require_staff_or_pos_register_session(&state, &headers)
         .await
         .map_err(map_pay_session)?;
-    let session_id = match auth {
-        middleware::StaffOrPosSession::PosSession { session_id } => Some(session_id),
-        middleware::StaffOrPosSession::Staff(_) => None,
+    let auth_staff_id = match &auth {
+        middleware::StaffOrPosSession::Staff(staff) => Some(staff.id),
+        middleware::StaffOrPosSession::PosSession { .. } => None,
+    };
+    let session_id = if let Some((session_id, token, station_key)) =
+        pos_session::pos_session_headers(&headers)
+    {
+        if !pos_session::verify_pos_session_token(&state.db, session_id, &token, &station_key)
+            .await
+            .map_err(|error| PaymentError::InvalidPayload(error.to_string()))?
+        {
+            return Err(PaymentError::Unauthorized(
+                "invalid or expired register session token".to_string(),
+            ));
+        }
+        Some(session_id)
+    } else {
+        match auth {
+            middleware::StaffOrPosSession::PosSession { session_id } => Some(session_id),
+            middleware::StaffOrPosSession::Staff(staff) => {
+                if !staff_can_override_terminal(&state, Some(staff.id)).await? {
+                    return Err(PaymentError::Forbidden(
+                        "payments.terminal.override permission is required outside the owning Register."
+                            .to_string(),
+                    ));
+                }
+                None
+            }
+        }
     };
     let refreshed = load_helcim_attempt(&state, attempt_id, session_id).await?;
     if refreshed.status != "pending" {
@@ -11468,7 +11495,7 @@ async fn release_helcim_terminal_attempt(
         }
         if matches!(refreshed.status.as_str(), "approved" | "captured") {
             return Err(PaymentError::Conflict(
-                "Helcim reports that this card request was approved. Recover it in Payments Health; ROS did not release it or send another charge."
+                "Helcim reports that this card request was approved. Use Recover Payment in the Pay Restore panel; ROS did not release it or send another charge."
                     .to_string(),
             ));
         }
@@ -11484,6 +11511,27 @@ async fn release_helcim_terminal_attempt(
             ));
         }
     }
+    let recovery_actor_staff_id = if let Some(staff_id) = auth_staff_id {
+        staff_id
+    } else {
+        sqlx::query_scalar(
+            r#"
+            SELECT COALESCE(shift_primary_staff_id, opened_by)
+            FROM register_sessions
+            WHERE id = $1
+            "#,
+        )
+        .bind(session_id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|error| PaymentError::InvalidPayload(error.to_string()))?
+        .flatten()
+        .ok_or_else(|| {
+            PaymentError::InvalidPayload(
+                "The Register has no staff identity for this audited restore action.".to_string(),
+            )
+        })?
+    };
     if query.ros_error_recovery_requested {
         let evidence_free_local_reservation = !is_helcim_return_attempt(&attempt)
             && attempt.status == "pending"
@@ -11507,7 +11555,7 @@ async fn release_helcim_terminal_attempt(
                 if matches!(recovered.status.as_str(), "approved" | "captured") =>
             {
                 return Err(PaymentError::Conflict(
-                    "Helcim reports that this card request was approved. ROS kept the approval protected; recover it in Payments Health instead of charging the card again."
+                    "Helcim reports that this card request was approved. ROS kept the approval protected; use Recover Payment in the Pay Restore panel instead of charging the card again."
                         .to_string(),
                 ));
             }
@@ -11525,12 +11573,22 @@ async fn release_helcim_terminal_attempt(
             HelcimInvoiceRecovery::NoMatch => {}
         }
 
+        let mut tx = state
+            .db
+            .begin()
+            .await
+            .map_err(|error| PaymentError::InvalidPayload(error.to_string()))?;
         let result = sqlx::query(
             r#"
             UPDATE payment_provider_attempts
             SET status = 'expired',
                 error_code = 'operator_recovered_ros_reservation',
                 error_message = 'Staff recovered an evidence-free ROS terminal reservation from checkout after exact Helcim invoice reconciliation returned no match.',
+                raw_audit_reference = CONCAT_WS(
+                    ' ',
+                    NULLIF(BTRIM(raw_audit_reference), ''),
+                    'ros:payment-restore-evidence-free-reservation'
+                ),
                 completed_at = now()
             WHERE id = $1
               AND provider = 'helcim'
@@ -11545,15 +11603,34 @@ async fn release_helcim_terminal_attempt(
         )
         .bind(attempt_id)
         .bind(HELCIM_ROS_ERROR_RECOVERY_MIN_SECONDS)
-        .execute(&state.db)
+        .execute(&mut *tx)
         .await
         .map_err(|error| PaymentError::InvalidPayload(error.to_string()))?;
         if result.rows_affected() == 0 {
+            let _ = tx.rollback().await;
             return Err(PaymentError::Conflict(
                 "The terminal request changed while ROS was recovering it. Check status again before retrying the card."
                     .to_string(),
             ));
         }
+        crate::auth::pins::log_staff_access_once(
+            &mut *tx,
+            recovery_actor_staff_id,
+            "helcim_terminal_restore",
+            json!({
+                "action": "release_evidence_free_ros_reservation",
+                "payment_provider_attempt_id": attempt_id,
+                "attempt_register_session_id": attempt.register_session_id,
+                "attempt_checkout_client_id": attempt.checkout_client_id,
+                "acting_register_session_id": session_id,
+            }),
+            &format!("helcim-terminal-restore:{attempt_id}:evidence-free"),
+        )
+        .await
+        .map_err(|error| PaymentError::InvalidPayload(error.to_string()))?;
+        tx.commit()
+            .await
+            .map_err(|error| PaymentError::InvalidPayload(error.to_string()))?;
         return load_helcim_attempt(&state, attempt_id, session_id)
             .await
             .map(Json);
@@ -11583,7 +11660,7 @@ async fn release_helcim_terminal_attempt(
     if !simulator_enabled && !abandoned_initialization && !query.physical_terminal_cancel_confirmed
     {
         return Err(PaymentError::Conflict(
-            "A live Helcim attempt cannot be released from Riverside while its provider outcome is unresolved. Use Check status or Payments Health to recover a final provider result before using another tender."
+            "A live Helcim attempt cannot be released while its provider outcome is unresolved. Use Recover Payment in the Pay Restore panel, or confirm cancellation on the physical terminal, before using another tender."
                 .to_string(),
         ));
     }
@@ -11657,6 +11734,28 @@ async fn release_helcim_terminal_attempt(
                 .to_string(),
         ));
     }
+    let recovery_action = if query.physical_terminal_cancel_confirmed {
+        "confirm_physical_terminal_cancel"
+    } else if abandoned_initialization {
+        "release_abandoned_initialization"
+    } else {
+        "release_simulator_attempt"
+    };
+    crate::auth::pins::log_staff_access_once(
+        &mut *tx,
+        recovery_actor_staff_id,
+        "helcim_terminal_restore",
+        json!({
+            "action": recovery_action,
+            "payment_provider_attempt_id": attempt_id,
+            "attempt_register_session_id": attempt.register_session_id,
+            "attempt_checkout_client_id": attempt.checkout_client_id,
+            "acting_register_session_id": session_id,
+        }),
+        &format!("helcim-terminal-restore:{attempt_id}:{recovery_action}"),
+    )
+    .await
+    .map_err(|error| PaymentError::InvalidPayload(error.to_string()))?;
     tx.commit()
         .await
         .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
@@ -12608,7 +12707,7 @@ mod tests {
             requested_checkout,
         );
         assert!(earlier_checkout.contains("earlier checkout on Register #1"));
-        assert!(earlier_checkout.contains("Payments Health"));
+        assert!(earlier_checkout.contains("Restore in Pay"));
         assert!(!earlier_checkout.contains("in use by Register #1"));
 
         let current_checkout = terminal_reservation_conflict_message(
@@ -13880,6 +13979,11 @@ mod tests {
         assert!(release.contains("HELCIM_ROS_ERROR_RECOVERY_MIN_SECONDS"));
         assert!(release.contains("operator_recovered_ros_reservation"));
         assert!(release.contains("HelcimInvoiceRecovery::NoMatch"));
+        assert!(release.contains("pos_session::verify_pos_session_token"));
+        assert!(release.contains("helcim_terminal_restore"));
+        assert!(release.contains("payment_provider_attempt_id"));
+        assert!(release.contains("attempt_checkout_client_id"));
+        assert!(release.contains("acting_register_session_id"));
         assert!(release.contains("status = CASE"));
         assert!(release.contains("WHEN $4 THEN 'expired'"));
         assert!(release.contains("provider_transaction_id IS NULL\n              OR $4"));

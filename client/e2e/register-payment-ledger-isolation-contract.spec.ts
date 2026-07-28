@@ -134,6 +134,11 @@ test("a nonmatching terminal attempt is refreshed without entering the active sa
     "ROS terminal error cleared. Ready for the customer's payment.",
   );
   expect(drawer).toContain('"Recover terminal"');
+  expect(drawer).toContain('data-testid="pos-payment-restore-trigger"');
+  expect(drawer).toContain('data-testid="pos-payment-restore-menu"');
+  expect(drawer).toContain("Resolve this Register blocker");
+  expect(drawer).toContain("Restore Terminal");
+  expect(drawer).toContain("I Canceled Terminal");
   expect(drawer).toContain("importOnlyIfCurrentCheckout: true");
   expect(drawer).toContain(
     "void refreshEarlierCheckoutTerminalAttempt(selectedTerminalEarlierCheckoutAttemptId)",

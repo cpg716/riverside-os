@@ -38,6 +38,10 @@ import {
   isOrderStatus,
   normalizeOrderStatus,
 } from "../pos/orderLoadStatus";
+import {
+  CANCEL_TRANSACTION_REFUND_HANDOFF,
+  RETURN_TRANSACTION_REFUND_HANDOFF,
+} from "../pos/types";
 
 const WEDDINGS_ICON = getAppIcon("weddings");
 const ORDERS_ICON = getAppIcon("orders");
@@ -1515,6 +1519,19 @@ export default function OrdersWorkspace({
 
   const runCancelOrder = async () => {
     if (!detail || !canAttemptCancel) return;
+    if (!orderUnpaid) {
+      setCancelConfirmOpen(false);
+      openInRegisterAndClose(
+        detail.transaction_id,
+        false,
+        CANCEL_TRANSACTION_REFUND_HANDOFF,
+      );
+      toast(
+        "Cancellation moved to Pay. Nothing changes until Record Sale completes.",
+        "info",
+      );
+      return;
+    }
     const res = await fetch(
       `${baseUrl}/api/transactions/${detail.transaction_id}`,
       {
@@ -1696,28 +1713,19 @@ export default function OrdersWorkspace({
       toast("Enter return quantities first", "info");
       return;
     }
-    const res = await fetch(
-      `${baseUrl}/api/transactions/${detail.transaction_id}/returns`,
-      {
-        method: "POST",
-        headers: jsonHeaders(backofficeHeaders),
-        body: JSON.stringify({ lines }),
-      },
+    setReturnConfirmOpen(false);
+    openInRegisterAndClose(
+      detail.transaction_id,
+      false,
+      lines.length === 1
+        ? lines[0].order_item_id
+        : RETURN_TRANSACTION_REFUND_HANDOFF,
     );
-    if (!res.ok) {
-      await res.json().catch(() => ({}));
-      toast("Return failed. Check the quantities and try again.", "error");
-      return;
-    }
-    toast("Return saved.", "success");
+    toast(
+      "Return moved to Pay. Confirm the quantities there; nothing changes until Record Sale completes.",
+      "info",
+    );
     setReturnQtyDraft({});
-    await loadDetail(detail.transaction_id);
-    await loadTransactions();
-    setHydratedOrderLines((current) => {
-      const next = { ...current };
-      delete next[detail.transaction_id];
-      return next;
-    });
   };
 
   // linkExchange logic removed for build stabilization
@@ -2496,10 +2504,14 @@ export default function OrdersWorkspace({
         message={
           orderUnpaid
             ? "No payments are allocated to this transaction. Loyalty accrual will be reversed when applicable."
-            : "This will prepare any refundable payments for review. Loyalty accrual will be reversed when applicable."
+            : "This opens the cancellation refund in Pay. Nothing changes until Record Sale succeeds and the Sale Complete screen appears."
         }
         confirmLabel={
-          orderUnpaid && !canCancel ? "Void transaction" : "Cancel transaction"
+          orderUnpaid && !canCancel
+            ? "Void transaction"
+            : orderUnpaid
+              ? "Cancel transaction"
+              : "Continue in Pay"
         }
         variant="danger"
       />
@@ -2509,8 +2521,8 @@ export default function OrdersWorkspace({
         onClose={() => setReturnConfirmOpen(false)}
         onConfirm={() => void _applyReturns()}
         title="Return all items?"
-        message="This will mark all eligible items as returned and calculate the refund due. This action cannot be undone."
-        confirmLabel="Process returns"
+        message="This opens the return in Pay. Confirm the quantities and tender there; no item, inventory, balance, or refund changes until Record Sale succeeds."
+        confirmLabel="Continue in Pay"
         variant="danger"
       />
 
@@ -2649,11 +2661,16 @@ export default function OrdersWorkspace({
           onReturnLine: (orderId, lineId) =>
             openInRegisterAndClose(orderId, false, lineId),
           onProcessRefund: () => {
-            setRefundExternalReference("");
-            setRefundCardLast4("");
-            setRefundManagerReason("");
-            setRefundManagerAccessOpen(false);
-            setRefundModalOpen(true);
+            if (!detail) return;
+            openInRegisterAndClose(
+              detail.transaction_id,
+              false,
+              RETURN_TRANSACTION_REFUND_HANDOFF,
+            );
+            toast(
+              "Refund moved to Pay. Nothing changes until Record Sale completes.",
+              "info",
+            );
           },
           deleteLine: (it) => void deleteLine(it),
           addBySku,

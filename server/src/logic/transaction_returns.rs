@@ -74,8 +74,9 @@ pub async fn apply_transaction_returns_in_tx(
 }
 
 /// Records exact item lines for a refund that is already authorized by the
-/// transaction refund workflow. Cancelled transactions are accepted here
-/// because cancellation creates the refund obligation before Register tender.
+/// transaction refund workflow. Cancelled transactions remain accepted for
+/// legacy/recovery paths; new paid cancellations stage in the Register and
+/// commit status, returns, refund, and audit together at Record Sale.
 pub async fn apply_refund_return_lines_in_tx(
     tx: &mut Transaction<'_, Postgres>,
     transaction_id: Uuid,

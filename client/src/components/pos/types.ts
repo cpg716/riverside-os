@@ -55,6 +55,11 @@ export type OrderLifecycleStatus =
   | "ready_for_pickup"
   | "picked_up";
 
+export const CANCEL_TRANSACTION_REFUND_HANDOFF =
+  "__cancel_transaction_refund__";
+export const RETURN_TRANSACTION_REFUND_HANDOFF =
+  "__return_transaction_refund__";
+
 export interface CartLineItem extends ResolvedSkuItem {
   line_type?: "merchandise" | "alteration_service" | "alteration_fee";
   quantity: number;
@@ -80,6 +85,8 @@ export interface CartLineItem extends ResolvedSkuItem {
   return_tender_original_transaction_id?: string | null;
   return_tender_receipt_label?: string | null;
   return_tender_refund_cents?: number | null;
+  /** Paid-order cancellation remains staged until the refund Record Sale commits. */
+  return_tender_cancel_transaction?: boolean;
   /** Original line identity retained for the final audited return settlement. */
   return_tender_transaction_line_id?: string | null;
   /** Database ID of the original transaction line for pickup tracking. */

@@ -15,6 +15,7 @@ import {
   Layers,
   AlertTriangle,
   HandHeart,
+  RefreshCw,
 } from "lucide-react";
 import DetailDrawer from "../layout/DetailDrawer";
 import NumericPinKeypad from "../ui/NumericPinKeypad";
@@ -278,7 +279,7 @@ function isStaleHelcimSessionError(message: string): boolean {
 }
 
 const HELCIM_UNVERIFIED_OUTCOME_MESSAGE =
-  "Card outcome is unresolved. Review it in Payments Health before another card attempt.";
+  "Card outcome is unresolved. Open Restore in Pay before another card attempt.";
 const HELCIM_TERMINAL_ATTENTION_AFTER_MS = 2 * 60 * 1000;
 
 function isAmbiguousProviderStartStatus(status: number): boolean {
@@ -736,6 +737,7 @@ export default function NexoCheckoutDrawer({
   const [helcimAttemptLoading, setHelcimAttemptLoading] = useState(false);
   const [earlierTerminalAttemptRefreshing, setEarlierTerminalAttemptRefreshing] = useState(false);
   const [physicalTerminalCancelAttemptId, setPhysicalTerminalCancelAttemptId] = useState<string | null>(null);
+  const [restoreOpen, setRestoreOpen] = useState(false);
   const originalHelcimRefundReference = String(originalHelcimTransactionIdForRefund ?? "").trim();
   const hasOriginalHelcimRefundReference = originalHelcimRefundReference.length > 0;
   const [manualCardHandoffUrl, setManualCardHandoffUrl] = useState<string | null>(null);
@@ -1016,6 +1018,8 @@ export default function NexoCheckoutDrawer({
         : saleTerminalRoute?.default_terminal_key ?? "",
     );
     setTerminalPickerOpen(false);
+    setRestoreOpen(false);
+    setPhysicalTerminalCancelAttemptId(null);
     setTerminalOverrideConfirmed(false);
     setIsTaxExempt(customerTaxExempt);
     setTaxExemptReason(
@@ -3498,7 +3502,8 @@ export default function NexoCheckoutDrawer({
   const hostedManualActive =
     helcimAttemptBelongsToCurrentCheckout && isHostedManualHelcimAttempt(helcimAttempt);
   const terminalHeaderAction = (
-    <div className="relative">
+    <div className="relative flex items-center gap-2">
+      <div className="relative">
       <button
         type="button"
         onClick={() => {
@@ -3711,6 +3716,119 @@ export default function NexoCheckoutDrawer({
           )}
         </div>
       )}
+      </div>
+      <button
+        type="button"
+        onClick={() => {
+          setTerminalPickerOpen(false);
+          setRestoreOpen((open) => !open);
+        }}
+        className={[
+          "flex min-h-10 items-center gap-2 rounded-xl border px-3 text-[10px] font-black uppercase tracking-widest shadow-sm transition-colors",
+          terminalRecoveryAttemptId || providerHealthHardFailed || providerSettingsError
+            ? "border-app-warning/40 bg-app-warning/10 text-app-warning"
+            : "border-app-border bg-app-surface text-app-text hover:bg-app-bg",
+        ].join(" ")}
+        aria-expanded={restoreOpen}
+        data-testid="pos-payment-restore-trigger"
+      >
+        <RefreshCw size={14} aria-hidden="true" />
+        Restore
+      </button>
+      {restoreOpen ? (
+        <div
+          className="absolute right-0 top-12 z-[220] w-[min(28rem,calc(100vw-2rem))] rounded-2xl border border-app-border bg-app-surface p-4 text-xs shadow-2xl"
+          data-testid="pos-payment-restore-menu"
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                Payment Restore
+              </p>
+              <h3 className="mt-1 text-base font-black text-app-text">
+                {terminalRecoveryAttemptId
+                  ? "Resolve this Register blocker"
+                  : "No terminal blocker detected"}
+              </h3>
+            </div>
+            <button
+              type="button"
+              onClick={() => setRestoreOpen(false)}
+              className="rounded-lg border border-app-border px-2 py-1 font-black text-app-text-muted"
+            >
+              Close
+            </button>
+          </div>
+          <div className="mt-3 rounded-xl border border-app-border bg-app-bg px-3 py-3 text-app-text">
+            <p className="font-black">
+              {registerLane ? `Register #${registerLane}` : "Register unavailable"} · {terminalStatusText}
+            </p>
+            {terminalRecoveryAttemptId ? (
+              <p className="mt-1 break-all text-[11px] font-semibold text-app-text-muted">
+                Attempt {terminalRecoveryAttemptId}
+              </p>
+            ) : (
+              <p className="mt-1 text-[11px] font-semibold text-app-text-muted">
+                Refresh terminal status here whenever a prior request appears to affect the current sale.
+              </p>
+            )}
+          </div>
+          {terminalRecoveryState ? (
+            <div className="mt-3 rounded-xl border border-app-warning/30 bg-app-warning/10 px-3 py-3 text-app-warning">
+              <p className="font-black">{terminalRecoveryState.title}</p>
+              <p className="mt-1 font-semibold">{terminalRecoveryState.detail}</p>
+              <p className="mt-1 font-black">Next: {terminalRecoveryState.action}</p>
+            </div>
+          ) : null}
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => {
+                if (selectedTerminalEarlierCheckoutAttemptId) {
+                  void recoverRosTerminalError(selectedTerminalEarlierCheckoutAttemptId);
+                } else if (activeTerminalAttemptIdForRefresh) {
+                  void refreshHelcimAttempt(activeTerminalAttemptIdForRefresh);
+                } else {
+                  void loadProviderSettings();
+                }
+              }}
+              disabled={
+                providerSettingsLoading ||
+                helcimAttemptLoading ||
+                earlierTerminalAttemptRefreshing
+              }
+              className="min-h-11 rounded-xl border border-app-accent/30 bg-app-accent-soft px-3 font-black uppercase tracking-widest text-app-accent disabled:opacity-50"
+            >
+              {providerSettingsLoading ||
+              helcimAttemptLoading ||
+              earlierTerminalAttemptRefreshing
+                ? "Checking..."
+                : terminalRecoveryAttemptId
+                  ? selectedTerminalEarlierCheckoutAttemptId
+                    ? "Restore Terminal"
+                    : "Recover Payment"
+                  : "Refresh Health"}
+            </button>
+            {terminalRecoveryAttemptId &&
+            !providerSettings?.helcim.simulator_enabled ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setRestoreOpen(false);
+                  setPhysicalTerminalCancelAttemptId(terminalRecoveryAttemptId);
+                }}
+                disabled={helcimAttemptLoading || earlierTerminalAttemptRefreshing}
+                className="min-h-11 rounded-xl border border-app-warning/30 bg-app-warning/10 px-3 font-black uppercase tracking-widest text-app-warning disabled:opacity-50"
+              >
+                I Canceled Terminal
+              </button>
+            ) : null}
+          </div>
+          <p className="mt-3 text-[11px] font-semibold leading-relaxed text-app-text-muted">
+            ROS will never discard an approved or provider-evidenced payment. Restore either attaches the verified result or releases only an evidence-free ROS reservation; every action remains on the payment attempt audit.
+          </p>
+        </div>
+      ) : null}
     </div>
   );
 
@@ -3946,7 +4064,7 @@ export default function NexoCheckoutDrawer({
             </p>
             <p className="mt-1 text-xs font-semibold">
               {helcimAttemptOutcomeUnverified
-                ? "ROS cannot yet verify the result of this checkout's card request. Use Recover payment or Payments Health before collecting another tender."
+                ? "ROS cannot yet verify the result of this checkout's card request. Open Restore and use Recover Payment before collecting another tender."
                 : "This checkout's card request is taking longer than expected. Use Recover payment to refresh its status; do not run the card again while the result is pending."}
             </p>
           </div>

@@ -1947,62 +1947,47 @@ mod tests {
             HeaderValue::from_str(&cashier_code).expect("staff pin header"),
         );
 
-        let cancellation: PatchTransactionRequest =
-            serde_json::from_value(json!({ "status": "cancelled" }))
-                .expect("deserialize register cancellation request");
-        patch_transaction(
+        let paid_cancel = patch_transaction(
             State(state.clone()),
             Path(transaction_id),
             headers.clone(),
-            Json(cancellation),
+            Json(PatchTransactionRequest {
+                status: Some(DbOrderStatus::Cancelled),
+                forfeiture_reason: None,
+            }),
         )
         .await
-        .expect("cancel paid transaction");
+        .expect_err("paid cancellation must remain staged until refund Record Sale");
+        assert!(paid_cancel
+            .to_string()
+            .contains("Paid cancellation must be staged in Register Pay"));
+        let status_after_block: DbOrderStatus =
+            sqlx::query_scalar("SELECT status FROM transactions WHERE id = $1")
+                .bind(transaction_id)
+                .fetch_one(&pool)
+                .await
+                .expect("load status after blocked cancellation");
+        assert_eq!(status_after_block, DbOrderStatus::Open);
 
-        let repeated_cancellation: PatchTransactionRequest =
-            serde_json::from_value(json!({ "status": "Cancelled" }))
-                .expect("deserialize legacy cancellation request");
-        patch_transaction(
-            State(state.clone()),
-            Path(transaction_id),
-            headers.clone(),
-            Json(repeated_cancellation),
-        )
-        .await
-        .expect("repeated cancellation should be idempotent");
-
-        let Json(refunds_due) = list_refunds_due(State(state.clone()), headers.clone())
-            .await
-            .expect("load Register refund queue");
-        let queued_refund = refunds_due
-            .iter()
-            .find(|row| row.transaction_id == transaction_id)
-            .expect("cancelled transaction should be handed to Register refund queue");
-        assert_eq!(queued_refund.amount_due, Decimal::new(10000, 2));
-        assert_eq!(queued_refund.amount_refunded, Decimal::ZERO);
-        assert!(queued_refund.is_open);
-        let refund_queue_id = queued_refund.id;
-        let refund_queue_events: i64 = sqlx::query_scalar(
+        let refund_queue_id: Uuid = sqlx::query_scalar(
             r#"
-            SELECT COUNT(*)
-            FROM transaction_activity_log
-            WHERE transaction_id = $1
-              AND event_kind = 'refund_queued'
+            INSERT INTO transaction_refund_queue (
+                transaction_id, amount_due, amount_refunded, is_open, reason
+            )
+            VALUES ($1, 100.00, 0.00, TRUE, 'refund durability test')
+            RETURNING id
             "#,
         )
         .bind(transaction_id)
         .fetch_one(&pool)
         .await
-        .expect("count cancellation refund queue events");
-        assert_eq!(
-            refund_queue_events, 1,
-            "repeated cancellation must not duplicate refund obligations"
-        );
+        .expect("insert refund queue fixture");
 
         let make_request = || ProcessRefundRequest {
             session_id,
             payment_method: "card".to_string(),
             amount: Decimal::new(10000, 2),
+            cancel_transaction: true,
             refund_event_id: None,
             tender_amount: None,
             rounding_adjustment: None,
@@ -2078,6 +2063,13 @@ mod tests {
         .await
         .expect("count local rows after failure");
         assert_eq!(local_refund_rows_after_failure, 0);
+        let status_after_local_failure: DbOrderStatus =
+            sqlx::query_scalar("SELECT status FROM transactions WHERE id = $1")
+                .bind(transaction_id)
+                .fetch_one(&pool)
+                .await
+                .expect("load status after forced local failure");
+        assert_eq!(status_after_local_failure, DbOrderStatus::Open);
 
         let retry = process_refund(
             State(state.clone()),
@@ -2190,6 +2182,16 @@ mod tests {
         .await
         .expect("count refund activity");
         assert_eq!(activity_count, 1);
+        let cancelled_state: (DbOrderStatus, Decimal, Decimal) = sqlx::query_as(
+            "SELECT status, amount_paid, balance_due FROM transactions WHERE id = $1",
+        )
+        .bind(transaction_id)
+        .fetch_one(&pool)
+        .await
+        .expect("load atomically cancelled transaction");
+        assert_eq!(cancelled_state.0, DbOrderStatus::Cancelled);
+        assert_eq!(cancelled_state.1, Decimal::ZERO);
+        assert_eq!(cancelled_state.2, Decimal::ZERO);
 
         sqlx::query("DELETE FROM transaction_activity_log WHERE transaction_id = $1")
             .bind(transaction_id)
@@ -3420,6 +3422,10 @@ pub struct ProcessRefundRequest {
     pub session_id: Uuid,
     pub payment_method: String,
     pub amount: Decimal,
+    /// When true, a paid cancellation is committed atomically with this refund.
+    /// No transaction status or financial state changes during cart staging.
+    #[serde(default)]
+    pub cancel_transaction: bool,
     /// Server-issued return/exchange event reused only for a deferred provider
     /// refund. The server validates the event, amount, and replacement
     /// transaction before attaching the provider movement.
@@ -4946,6 +4952,12 @@ async fn patch_transaction(
                 middleware::require_staff_with_permission(&state, &headers, ORDERS_CANCEL)
                     .await
                     .map_err(map_perm_err)?;
+                if body.forfeiture_reason.is_none() {
+                    return Err(TransactionError::InvalidPayload(
+                        "Paid cancellation must be staged in Register Pay and committed with its refund at Record Sale; nothing was changed."
+                            .to_string(),
+                    ));
+                }
             } else {
                 let staff = middleware::require_authenticated_staff_headers(&state, &headers)
                     .await
@@ -7266,6 +7278,11 @@ async fn process_refund(
     let method_l = body.payment_method.trim().to_ascii_lowercase();
     let refund_method = RefundPaymentMethod::parse(&method_l)?;
     if body.refund_event_id.is_some() {
+        if body.cancel_transaction {
+            return Err(TransactionError::InvalidPayload(
+                "an exchange refund event cannot cancel the original transaction".to_string(),
+            ));
+        }
         if refund_method != RefundPaymentMethod::LinkedHelcimCard {
             return Err(TransactionError::InvalidPayload(
                 "a deferred exchange refund event can only be completed through the linked original-card workflow"
@@ -7467,6 +7484,14 @@ async fn process_refund(
     let mut capacity =
         validate_refund_capacity_in_tx(&mut tx, transaction_id, &refund, exact_refund_amount)
             .await?;
+    if body.cancel_transaction
+        && refund.amount_refunded + exact_refund_amount < capacity.corrected_amount_due
+    {
+        return Err(TransactionError::InvalidPayload(
+            "paid cancellation requires the full remaining refundable amount; nothing was changed"
+                .to_string(),
+        ));
+    }
     validate_original_tender_refund_capacity_in_tx(
         &mut tx,
         transaction_id,
@@ -7889,7 +7914,7 @@ async fn process_refund(
                 // If fully refunded, close the queue.
                 if (refund.amount_refunded + exact_refund_amount) >= capacity.corrected_amount_due {
                     sqlx::query(
-                        "UPDATE transaction_refund_queue SET is_open = FALSE WHERE id = $1",
+                        "UPDATE transaction_refund_queue SET is_open = FALSE, closed_at = CURRENT_TIMESTAMP WHERE id = $1",
                     )
                     .bind(refund.id)
                     .execute(&mut *tx)
@@ -7911,6 +7936,40 @@ async fn process_refund(
                 .bind(refund.id)
                 .execute(&mut *tx)
                 .await?;
+
+                if body.cancel_transaction {
+                    sqlx::query("UPDATE transactions SET status = 'cancelled' WHERE id = $1")
+                        .bind(transaction_id)
+                        .execute(&mut *tx)
+                        .await?;
+                    insert_transaction_activity_log_tx(
+                        &mut tx,
+                        transaction_id,
+                        refund.customer_id,
+                        "status_change",
+                        "Paid order cancelled with completed refund",
+                        json!({
+                            "status": "Cancelled",
+                            "refund_event_id": refund_event_id,
+                            "payment_transaction_id": pt_id,
+                            "actor_staff_id": staff.id,
+                        }),
+                    )
+                    .await?;
+                }
+                transaction_recalc::recalc_transaction_totals(&mut tx, transaction_id)
+                    .await
+                    .map_err(TransactionError::Database)?;
+                let new_paid: Decimal =
+                    sqlx::query_scalar("SELECT amount_paid FROM transactions WHERE id = $1")
+                        .bind(transaction_id)
+                        .fetch_one(&mut *tx)
+                        .await?;
+                if new_paid.is_zero() {
+                    loyalty_logic::reverse_order_accrual_in_tx(&mut tx, transaction_id)
+                        .await
+                        .map_err(TransactionError::Database)?;
+                }
 
                 insert_transaction_activity_log_tx(
                     &mut tx,
@@ -8345,6 +8404,22 @@ async fn process_refund(
                     return Err(error);
                 }
             };
+            if body.cancel_transaction
+                && refund.amount_refunded + exact_refund_amount < capacity.corrected_amount_due
+            {
+                record_card_refund_pre_dispatch_failure(
+                    &state.db,
+                    provider_attempt_id,
+                    provider_attempt_may_have_been_dispatched,
+                    "pre_provider_revalidation_failed",
+                    "Paid cancellation no longer matches the full refundable amount.".to_string(),
+                )
+                .await?;
+                return Err(TransactionError::InvalidPayload(
+                    "paid cancellation no longer matches the full refundable amount; no card refund was sent"
+                        .to_string(),
+                ));
+            }
 
             let refreshed_card_remaining: Option<i64> = sqlx::query_scalar(
                 r#"
@@ -8772,6 +8847,14 @@ async fn process_refund(
                 exact_refund_amount,
             )
             .await?;
+            if body.cancel_transaction
+                && refund.amount_refunded + exact_refund_amount < capacity.corrected_amount_due
+            {
+                return Err(TransactionError::InvalidPayload(
+                    "paid cancellation changed after Helcim approval; retry to attach the approved refund and complete cancellation"
+                        .to_string(),
+                ));
+            }
 
             let refreshed_card_remaining: Option<i64> = sqlx::query_scalar(
                 r#"
@@ -9019,6 +9102,27 @@ async fn process_refund(
 	    .bind(capacity.void_original_paid.is_some())
 	    .execute(&mut *tx)
 	    .await?;
+
+    if body.cancel_transaction {
+        sqlx::query("UPDATE transactions SET status = 'cancelled' WHERE id = $1")
+            .bind(transaction_id)
+            .execute(&mut *tx)
+            .await?;
+        insert_transaction_activity_log_tx(
+            &mut tx,
+            transaction_id,
+            refund.customer_id,
+            "status_change",
+            "Paid order cancelled with completed refund",
+            json!({
+                "status": "Cancelled",
+                "refund_event_id": refund_event_id,
+                "payment_transaction_id": payment_tx_id,
+                "actor_staff_id": staff.id,
+            }),
+        )
+        .await?;
+    }
 
     transaction_recalc::recalc_transaction_totals(&mut tx, transaction_id)
         .await
@@ -11970,6 +12074,19 @@ async fn post_transaction_returns(
     if body.lines.is_empty() {
         return Err(TransactionError::InvalidPayload(
             "at least one return line is required".to_string(),
+        ));
+    }
+
+    let amount_paid: Decimal =
+        sqlx::query_scalar("SELECT amount_paid FROM transactions WHERE id = $1")
+            .bind(transaction_id)
+            .fetch_optional(&state.db)
+            .await?
+            .ok_or(TransactionError::NotFound)?;
+    if amount_paid > Decimal::ZERO {
+        return Err(TransactionError::InvalidPayload(
+            "Paid returns must be staged in Register Pay and committed with their refund at Record Sale; nothing was changed."
+                .to_string(),
         ));
     }
 

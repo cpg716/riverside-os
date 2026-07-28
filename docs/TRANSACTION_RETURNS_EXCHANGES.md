@@ -14,7 +14,7 @@ For **staff keys and middleware**, see **`docs/STAFF_PERMISSIONS.md`**. For **sp
 | `orders.modify` | Edit transaction lines, pickup, returns, exchanges. |
 | `manager.approval` | Approve elevated Manager Access prompts with staff id + Access PIN; approvals are audited with approver, timestamp, reason, transaction/customer metadata when supplied. |
 | `orders.suit_component_swap` | `POST /api/transactions/{id}/items/{line}/suit-swap` — requires **`orders.modify`** as well; BO staff only (no register_session bypass). Seeded by **`scripts/seeds/seed_rbac.sql`**. |
-| `orders.cancel` | `PATCH` transaction to `cancelled` when **payment allocations** exist (queues refund). |
+| `orders.cancel` | Stage a paid cancellation in Register Pay; its cancellation and refund commit together at **Record Sale**. Direct `PATCH` cancellation is rejected while paid credit remains. |
 | `orders.void_sale` | `PATCH` to `cancelled` when the transaction has **no** payment allocations (void mistaken / unpaid cart). Either **`orders.cancel`** or **`orders.void_sale`** suffices when there are no allocations. Seeded by **`scripts/seeds/seed_rbac.sql`**. |
 | `orders.refund_process` | `GET /api/transactions/refunds/due`, `POST /api/transactions/{id}/refunds/process`. |
 | `orders.edit_attribution` | `PATCH .../attribution` (unchanged). |
@@ -50,12 +50,14 @@ When the client cannot send Back Office staff headers (e.g. receipt modal on the
 ## Money refunds (refund queue)
 
 1. **Queue sources**
-   - **`PATCH`** transaction to **`cancelled`** when `SUM(payment_allocations)` for the transaction is positive: creates or updates the single open **`transaction_refund_queue`** row for that transaction. Cancellation locks the Transaction Record first; if it is already `cancelled`, the request returns the existing detail without repeating loyalty reversal, cancellation audit events, deposit restoration, or refund-queue amount changes. This makes UI retries and concurrent cancellation requests idempotent.
-   - **Line returns** (`POST .../returns`): increases **`amount_due`** on the open queue row (or inserts one).
+   - **Paid cancellation:** the UI loads the exact remaining order quantities as negative lines but does not `PATCH` the Transaction Record. `POST .../refunds/process` sends `cancel_transaction: true`; only a full remaining refund is accepted. Returned quantities/inventory, negative payment and allocation, amount paid, zero cancelled balance, cancellation status, loyalty reversal, audit, and receipt event commit together after **Record Sale**. A provider failure or local ledger failure leaves the Transaction Record open and unchanged. Direct paid `PATCH` cancellation is rejected.
+   - **Unpaid cancellation:** `PATCH` may set the Transaction Record to `cancelled` immediately because no customer refund movement exists.
+   - **Legacy recovery:** already-cancelled records and pre-existing refund queue rows remain processable through the same event-scoped Register workflow.
+   - **Line returns:** paid return quantities are staged in Register Pay and committed with their refund through `POST .../refunds/process`. Direct `POST .../returns` writes are rejected while paid credit remains, so inventory, balances, and returned quantities cannot change before **Record Sale**. The direct endpoint remains available for unpaid records that do not require a customer refund.
 
 2. **Process cash-out**
    - **`POST /api/transactions/{transaction_id}/refunds/process`**  
-     Body: `session_id` (open register session), `payment_method`, `amount`, optional `gift_card_code` when refunding to a gift card.
+     Body: `session_id` (open register session), `payment_method`, `amount`, optional `gift_card_code` when refunding to a gift card, and server-validated `cancel_transaction: true` only for a full paid cancellation.
    - Requires **`orders.refund_process`** and an **open** register session matching `session_id`.
    - Records any staged return lines supplied by the register, negative **`payment_transactions`** + **`payment_allocations`**, updates queue and **`transactions.amount_paid`**, then runs **`transaction_recalc`** (totals respect returned qty). Internal tenders commit these writes in one database transaction. Linked Helcim refunds validate staged returns in a rollback-only transaction, create a durable per-original-charge refund reservation before releasing database locks for the provider call, and apply the return/inventory/ledger writes only after provider approval. The reservation blocks a concurrent refund from exceeding the original charge while the provider outcome is pending. A failed provider call cannot leave merchandise returned without the card refund.
    - **Loyalty:** full accrual clawback when **`amount_paid`** reaches zero after the refund (same transaction).

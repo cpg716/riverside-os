@@ -42,7 +42,12 @@ test("paid order cancellation hands the refund directly back to the Register", (
     "await onCancelledToRefundCart(cancelOrder)",
   );
   expect(orderLoadModal).toContain(
-    "Its negative items are in the cart; finish the refund",
+    "Cancellation refund staged. Nothing changes until Record Sale completes",
+  );
+  expect(orderLoadModal).toContain("Retry Refund Load");
+  expect(orderLoadModal).toContain("if (paidCents <= 0)");
+  expect(orderLoadModal).toContain(
+    "if (!orderMutationBusy && !cancelRefundLoadPending)",
   );
   expect(orderLoadModal).not.toContain(
     "Any refund due was queued for Register refund processing.",
@@ -51,10 +56,23 @@ test("paid order cancellation hands the refund directly back to the Register", (
     "onCancelledToRefundCart={(order) =>",
   );
   expect(cart).toContain(
-    "loadTransactionIntoRegister(order.id, false, true)",
+    "CANCEL_TRANSACTION_REFUND_HANDOFF",
+  );
+  expect(cart).toContain(
+    "return_tender_cancel_transaction: cancellationRefund",
   );
   expect(cart).toContain(
     "return_tender_original_transaction_id: detail.transaction_id",
+  );
+  expect(cart).toContain(
+    "item.quantity - Math.max(0, item.quantity_returned ?? 0)",
+  );
+  expect(cart).toContain(
+    "cancel_transaction: pendingReturnTender.cancelTransaction",
+  );
+  expect(transactionsApi).toContain("if body.cancel_transaction");
+  expect(transactionsApi).toContain(
+    '"Paid order cancelled with completed refund"',
   );
   expect(cart).toContain(
     "Select Original Card to complete the Helcim refund.",
@@ -77,6 +95,13 @@ test("paid order cancellation hands the refund directly back to the Register", (
   expect(transactionsApi).toContain(
     "cancelled_refund_receipt_rows(original_detail, refund_total, created_at)",
   );
+});
+
+test("direct paid returns cannot bypass Record Sale atomicity", () => {
+  expect(transactionsApi).toContain(
+    "Paid returns must be staged in Register Pay and committed with their refund at Record Sale; nothing was changed.",
+  );
+  expect(transactionsApi).toContain("if amount_paid > Decimal::ZERO");
 });
 
 test("deferred original-card refunds retain the server event and exact provider result", () => {
@@ -140,7 +165,10 @@ test("approval UI and Daily Sales reprints retain one refund event", () => {
   expect(receiptModal).toContain('data-testid="refund-pending-panel"');
   expect(receiptModal).toContain("pendingRefundAmountCents == null");
   expect(receiptModal).toContain(
-    "Receipt printing and delivery stay unavailable",
+    "refund queue. Receipt printing and delivery stay",
+  );
+  expect(receiptModal).toContain(
+    "unavailable until the provider refund is complete.",
   );
   expect(receiptModal).toContain("refundResult.refund_amount");
   expect(receiptModal).toContain("refundResult.provider_refund_id");

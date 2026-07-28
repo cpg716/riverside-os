@@ -181,6 +181,7 @@ export default function OrderLoadModal({
     blockedItems: OrderItem[];
   } | null>(null);
   const [cancelOrder, setCancelOrder] = useState<CustomerOrder | null>(null);
+  const [cancelRefundLoadPending, setCancelRefundLoadPending] = useState(false);
   const [pickupSelection, setPickupSelection] = useState<
     Record<string, boolean>
   >({});
@@ -811,54 +812,56 @@ export default function OrderLoadModal({
     if (!cancelOrder) return;
     setOrderMutationBusy(true);
     try {
-      const res = await fetch(`${baseUrl}/api/transactions/${cancelOrder.id}`, {
-        method: "PATCH",
-        headers: { ...apiAuth(), "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "cancelled" }),
-      });
-      if (!res.ok) {
-        const raw = await res.text();
-        const body = (() => {
-          try {
-            return JSON.parse(raw) as { error?: string };
-          } catch {
-            return {};
-          }
-        })();
-        toast((body.error ?? raw.trim()) || "Order could not be cancelled.", "error");
-        return;
-      }
       const paidCents = parseMoneyToCents(cancelOrder.amount_paid);
-      const refundLoaded =
-        paidCents <= 0 ||
-        (onCancelledToRefundCart
-          ? await onCancelledToRefundCart(cancelOrder)
-          : false);
-      if (paidCents > 0 && !refundLoaded) {
-        toast(
-          "Order cancelled, but the refund could not be loaded into this Register. Do not refund the card separately; reopen the Transaction Record and complete the outstanding refund in ROS.",
-          "error",
+      if (paidCents <= 0) {
+        const res = await fetch(`${baseUrl}/api/transactions/${cancelOrder.id}`, {
+          method: "PATCH",
+          headers: { ...apiAuth(), "Content-Type": "application/json" },
+          body: JSON.stringify({ status: "cancelled" }),
+        });
+        if (!res.ok) {
+          const raw = await res.text();
+          const body = (() => {
+            try {
+              return JSON.parse(raw) as { error?: string };
+            } catch {
+              return {};
+            }
+          })();
+          toast((body.error ?? raw.trim()) || "Order could not be cancelled.", "error");
+          return;
+        }
+        setOrders((prev) =>
+          prev.map((order) =>
+            order.id === cancelOrder.id
+              ? { ...order, status: "cancelled" }
+              : order,
+          ),
         );
-      } else if (paidCents > 0) {
+        toast("Unpaid order cancelled. No customer refund is due.", "success");
+      } else {
+        const refundLoaded = onCancelledToRefundCart
+          ? await onCancelledToRefundCart(cancelOrder)
+          : false;
+        if (!refundLoaded) {
+          setCancelRefundLoadPending(true);
+          toast(
+            "The cancellation was not recorded because its refund could not be staged. Keep this window open and use Retry Refund Load.",
+            "error",
+          );
+          return;
+        }
         toast(
-          "Order cancelled. Its negative items are in the cart; finish the refund before serving the next customer.",
+          "Cancellation refund staged. Nothing changes until Record Sale completes and the Sale Complete screen appears.",
           "success",
         );
         onClose();
-      } else {
-        toast("Unpaid order cancelled. No customer refund is due.", "success");
       }
+      setCancelRefundLoadPending(false);
       setCancelOrder(null);
       setSelectedOrderItems([]);
       setViewingItemsOrderId(null);
       setPickupSelection({});
-      setOrders((prev) =>
-        prev.map((order) =>
-          order.id === cancelOrder.id
-            ? { ...order, status: "cancelled" }
-            : order,
-        ),
-      );
     } finally {
       setOrderMutationBusy(false);
     }
@@ -1071,7 +1074,10 @@ export default function OrderLoadModal({
                         isOrderStatus(order.status, "cancelled") ||
                         isOrderStatus(order.status, "fulfilled")
                       }
-                      onClick={() => setCancelOrder(order)}
+                      onClick={() => {
+                        setCancelRefundLoadPending(false);
+                        setCancelOrder(order);
+                      }}
                       className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-app-danger/20 bg-app-danger/10 px-3 text-[10px] font-black uppercase tracking-widest text-app-danger disabled:opacity-50"
                     >
                       <Ban size={14} />
@@ -1604,12 +1610,24 @@ export default function OrderLoadModal({
       {cancelOrder && (
         <ConfirmationModal
           isOpen={true}
-          title="Cancel Order?"
-          message="This will cancel the Transaction Record. If money was paid, Riverside will load the order as negative items in this Register and open Pay so you can complete the refund to the original tender."
-          confirmLabel={orderMutationBusy ? "Cancelling..." : "Cancel Order"}
+          title={cancelRefundLoadPending ? "Refund Not Staged" : "Cancel Order?"}
+          message={
+            cancelRefundLoadPending
+              ? "Nothing was changed on the Transaction Record. Retry loading the cancellation refund into this Register."
+              : "If money was paid, Riverside will stage negative items in this Register. Status, inventory, balances, refund, and audit will change together only after Record Sale succeeds."
+          }
+          confirmLabel={
+            orderMutationBusy
+              ? cancelRefundLoadPending
+                ? "Loading..."
+                : "Cancelling..."
+              : cancelRefundLoadPending
+                ? "Retry Refund Load"
+                : "Cancel Order"
+          }
           onConfirm={() => void runCancelOrder()}
           onClose={() => {
-            if (!orderMutationBusy) setCancelOrder(null);
+            if (!orderMutationBusy && !cancelRefundLoadPending) setCancelOrder(null);
           }}
           variant="danger"
         />
