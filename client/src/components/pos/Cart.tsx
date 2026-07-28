@@ -2879,7 +2879,7 @@ export default function Cart({
     if (!initialTransactionId) {
       return;
     }
-    if (!saleHydrated) return;
+    if (!saleHydrated || !checkoutOperator) return;
     const initialTransactionApplyKey = [
       initialTransactionId,
       initialTransactionForPickup ? "pickup" : "open",
@@ -2907,7 +2907,7 @@ export default function Cart({
       }
       onInitialTransactionConsumed?.();
     })();
-  }, [initialTransactionId, initialTransactionForPickup, initialTransactionForRefund, initialTransactionReturnLineId, loadTransactionIntoRegister, onInitialTransactionConsumed, saleHydrated]);
+  }, [checkoutOperator, initialTransactionId, initialTransactionForPickup, initialTransactionForRefund, initialTransactionReturnLineId, loadTransactionIntoRegister, onInitialTransactionConsumed, saleHydrated]);
 
   useEffect(() => {
     if (!initialWeddingPosLink?.member?.customer_id) return;

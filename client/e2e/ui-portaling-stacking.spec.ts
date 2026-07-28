@@ -3,11 +3,7 @@ import {
   signInToBackOffice,
   openBackofficeSidebarTab,
 } from "./helpers/backofficeSignIn";
-import {
-  enterPosShell,
-  ensurePosRegisterSessionOpen,
-  ensurePosSaleCashierSignedIn,
-} from "./helpers/openPosRegister";
+import { enterPosShell, ensurePosSaleCashierSignedIn } from "./helpers/openPosRegister";
 import {
   apiBase,
   ensureSessionAuth,
@@ -135,10 +131,6 @@ test.describe("UI Portaling and Stacking", () => {
 
     // 2. Open UI and navigate to Orders
     await signInToBackOffice(page, { persistSession: true });
-    await enterPosShell(page);
-    await ensurePosRegisterSessionOpen(page);
-    await ensurePosSaleCashierSignedIn(page);
-    await page.getByRole("button", { name: /Back to Back Office/i }).click();
     await openBackofficeSidebarTab(page, "orders");
 
     // 3. Open Transaction Detail Drawer
@@ -153,6 +145,7 @@ test.describe("UI Portaling and Stacking", () => {
     const refundBtn = drawer.getByRole("button", { name: /Process Refund/i });
     await expect(refundBtn).toBeVisible();
     await refundBtn.click();
+    await ensurePosSaleCashierSignedIn(page);
 
     // 5. Verify the negative sale line and Payment screen are ready, while
     // final settlement still requires the cashier to complete Record Sale.
