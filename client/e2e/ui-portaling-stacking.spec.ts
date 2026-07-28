@@ -3,7 +3,11 @@ import {
   signInToBackOffice,
   openBackofficeSidebarTab,
 } from "./helpers/backofficeSignIn";
-import { enterPosShell, ensurePosSaleCashierSignedIn } from "./helpers/openPosRegister";
+import {
+  enterPosShell,
+  ensurePosRegisterSessionOpen,
+  ensurePosSaleCashierSignedIn,
+} from "./helpers/openPosRegister";
 import {
   apiBase,
   ensureSessionAuth,
@@ -132,6 +136,7 @@ test.describe("UI Portaling and Stacking", () => {
     // 2. Open UI and navigate to Orders
     await signInToBackOffice(page, { persistSession: true });
     await enterPosShell(page);
+    await ensurePosRegisterSessionOpen(page);
     await ensurePosSaleCashierSignedIn(page);
     await page.getByRole("button", { name: /Back to Back Office/i }).click();
     await openBackofficeSidebarTab(page, "orders");
