@@ -13,6 +13,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   RefreshCw,
+  Shield,
   Wifi,
   X,
 } from "lucide-react";
@@ -898,7 +899,7 @@ export default function RegisterOverlay({
     }
     if (
       busy ||
-      hasBlockingReadinessIssue ||
+      (!unlocking && hasBlockingReadinessIssue) ||
       !selectedStaffId
     ) {
       return;
@@ -914,6 +915,7 @@ export default function RegisterOverlay({
     hasBlockingReadinessIssue,
     registerLane,
     selectedStaffId,
+    unlocking,
   ]);
 
   const root = document.getElementById("drawer-root");
@@ -1127,6 +1129,112 @@ export default function RegisterOverlay({
               ) : null}
             </div>
           </div>
+        </div>
+      </div>,
+      root,
+    );
+  }
+
+  if (unlocking) {
+    return createPortal(
+      <div
+        className="fixed inset-0 z-[320] flex min-h-[100dvh] flex-col items-center justify-center bg-app-bg p-4 font-sans antialiased sm:p-6"
+        data-testid="pos-register-idle-lock-overlay"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+      >
+        <div
+          ref={dialogRef}
+          tabIndex={-1}
+          className="max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto rounded-[32px] border border-app-border/40 bg-app-surface shadow-2xl outline-none"
+        >
+          <div className="border-b border-app-border bg-app-surface-2 px-5 py-5 text-center sm:px-8 sm:py-6">
+            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-[color-mix(in_srgb,var(--app-accent)_16%,var(--app-surface))] text-[var(--app-accent)]">
+              <Shield className="h-6 w-6" aria-hidden />
+            </div>
+            <p className="text-[9px] font-black uppercase tracking-[0.2em] text-app-text-muted">
+              Riverside OS · POS
+            </p>
+            <h1
+              id={titleId}
+              className="mt-1 text-xl font-black tracking-tight text-app-text"
+            >
+              Register Locked
+            </h1>
+            <p className="mt-2 text-xs font-semibold leading-relaxed text-app-text-muted">
+              Select your name and enter your Access PIN to continue on Register #{registerLane}. The drawer remains open.
+            </p>
+          </div>
+
+          <form className="space-y-5 px-5 py-5 sm:space-y-6 sm:px-8 sm:py-8" onSubmit={onSubmit}>
+            {error ? (
+              <p className="rounded-2xl border border-app-danger/20 bg-app-danger/5 px-4 py-3 text-center text-xs font-bold text-app-danger">
+                {error}
+              </p>
+            ) : null}
+
+            <div className="space-y-3">
+              <p className="text-center text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                Select Your Name
+              </p>
+              <StaffMiniSelector
+                staff={roster.map((staff) => ({
+                  id: staff.id,
+                  full_name: staff.full_name,
+                }))}
+                selectedId={selectedStaffId}
+                onSelect={handleStaffChange}
+                placeholder="Select staff member..."
+                size="lg"
+                showAvatar
+                fullWidth
+                className="w-full"
+              />
+              {!selectedStaffId ? (
+                <p className="text-center text-[10px] font-bold text-amber-600">
+                  Please select a staff member first
+                </p>
+              ) : null}
+            </div>
+
+            <div className="space-y-1" data-pin-entry="true">
+              <p className="text-center text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                Access PIN
+              </p>
+              <PinDots length={credential.length} className="py-0.5" />
+              <NumericPinKeypad
+                value={credential}
+                onChange={(value) => {
+                  setCredential(value);
+                  setError(null);
+                }}
+                onEnter={() => void onSubmit()}
+                disabled={busy || !selectedStaffId}
+              />
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  setCredential("");
+                  setError(null);
+                }}
+                className="ui-btn-secondary h-14 flex-1 text-sm font-black"
+              >
+                Clear
+              </button>
+              <button
+                type="submit"
+                disabled={busy || !selectedStaffId || credential.length !== 4}
+                className="ui-btn-primary h-14 flex-[2] text-sm font-black disabled:opacity-50"
+              >
+                {busy ? "…" : "Continue"}
+              </button>
+            </div>
+          </form>
         </div>
       </div>,
       root,

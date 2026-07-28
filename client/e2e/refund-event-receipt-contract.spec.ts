@@ -200,14 +200,11 @@ test("idle security locks and rejoins the existing drawer without closing it", (
     "idleTimerRef.current = setTimeout(() => {\n        handleSessionClosed();",
   );
   expect(posShell).toContain('accessMode="unlock"');
-  expect(registerOverlay).toContain('"Unlock Register"');
-  expect(registerOverlay).toContain(
-    "This unlock only rejoins the existing Register",
-  );
+  expect(registerOverlay).toContain("Register Locked");
+  expect(registerOverlay).toContain('data-testid="pos-register-idle-lock-overlay"');
+  expect(registerOverlay).toContain("The drawer remains open.");
+  expect(registerOverlay).toContain("if (unlocking) {");
   expect(registerOverlay).toContain(
     "if (unlocking) {\n      if (await attachOpenLane(lane))",
-  );
-  expect(registerOverlay).toContain(
-    "Its opening float and close record remain unchanged.",
   );
 });

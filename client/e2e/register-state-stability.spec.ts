@@ -258,14 +258,13 @@ test.describe("register state stability", () => {
       "data-register-state",
       "locked",
     );
-    const unlockDialog = page.getByRole("dialog", { name: "Unlock Register" });
+    const unlockDialog = page.getByRole("dialog", { name: "Register Locked" });
     await expect(unlockDialog).toBeVisible();
-    await expect(page.getByText("Till Open")).toBeVisible();
     await expect(
-      unlockDialog.getByText(
-        /opening float and close record remain unchanged/i,
-      ),
+      unlockDialog.getByText(/the drawer remains open/i),
     ).toBeVisible();
+    await expect(unlockDialog.getByText("Till Open")).toHaveCount(0);
+    await expect(unlockDialog.getByLabel("Terminal #")).toHaveCount(0);
     await expect(unlockDialog.getByLabel("Opening Float")).toHaveCount(0);
 
     await unlockDialog.getByTestId("staff-selector-button").click();

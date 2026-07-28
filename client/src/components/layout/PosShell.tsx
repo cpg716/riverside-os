@@ -426,14 +426,6 @@ export default function PosShell({
                     onRegisterTransactionCommitted={onRegisterTransactionCommitted}
                     onExitPosMode={() => setActivePosTab("pos-dashboard")}
                   />
-                  {isRegisterLocked ? (
-                    <RegisterOverlay
-                      accessMode="unlock"
-                      lockedRegisterLane={registerLane}
-                      onSessionOpened={handleSessionOpenedWithAuth}
-                      onCancel={() => setActivePosTab("pos-dashboard")}
-                    />
-                  ) : null}
                 </>
               ) : null}
             </div>
@@ -652,6 +644,14 @@ export default function PosShell({
           )}
         </div>
       </div>
+
+      {isRegisterLocked && isRegisterOpen && sessionId ? (
+        <RegisterOverlay
+          accessMode="unlock"
+          lockedRegisterLane={registerLane}
+          onSessionOpened={handleSessionOpenedWithAuth}
+        />
+      ) : null}
 
       {shiftHandoffOpen && sessionId ? (
         <RegisterShiftHandoffModal isOpen={shiftHandoffOpen} onClose={() => setShiftHandoffOpen(false)} sessionId={sessionId} onHandoffComplete={refreshOpenSessionMeta} />
