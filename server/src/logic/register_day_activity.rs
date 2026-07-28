@@ -1096,10 +1096,7 @@ async fn fetch_register_day_summary_page_on_connection(
 
     let order_in_range = crate::logic::report_basis::order_date_filter_sql(basis);
     let order_session_filter = order_session_filter_sql(basis);
-    let summary_order_in_range = match basis {
-        ReportBasis::Booked => "o.status::text NOT IN ('cancelled')".to_string(),
-        ReportBasis::Completed => order_in_range.clone(),
-    };
+    let summary_order_in_range = order_in_range.clone();
     let summary_line_source = match basis {
         ReportBasis::Booked => r#"
             SELECT
@@ -1126,7 +1123,7 @@ async fn fetch_register_day_summary_page_on_connection(
             WHERE e.booked_at >= $1
               AND e.booked_at < $2
               AND e.is_internal = FALSE
-              AND COALESCE(e.metadata->>'reporting_excluded', '') <> 'counterpoint_financial_repair'
+              AND COALESCE(e.metadata->>'reporting_excluded', '') = ''
               AND e.line_kind IS DISTINCT FROM 'rms_charge_payment'
               AND e.line_kind IS DISTINCT FROM 'pos_gift_card_load'
             GROUP BY e.transaction_id
@@ -1641,7 +1638,7 @@ async fn fetch_register_day_summary_page_on_connection(
                   ON pv.id = NULLIF(e.metadata->>'variant_id', '')::uuid
                 WHERE e.booked_at >= $1 AND e.booked_at < $2
                   AND e.is_internal = FALSE
-                  AND COALESCE(e.metadata->>'reporting_excluded', '') <> 'counterpoint_financial_repair'
+                  AND COALESCE(e.metadata->>'reporting_excluded', '') = ''
                   AND e.line_kind IS DISTINCT FROM 'rms_charge_payment'
                   AND e.line_kind IS DISTINCT FROM 'pos_gift_card_load'
                 GROUP BY e.transaction_id
@@ -1650,10 +1647,7 @@ async fn fetch_register_day_summary_page_on_connection(
         .to_string(),
         ReportBasis::Completed => String::new(),
     };
-    let sales_order_in_range = match basis {
-        ReportBasis::Booked => "o.status::text NOT IN ('cancelled')".to_string(),
-        ReportBasis::Completed => order_in_range.clone(),
-    };
+    let sales_order_in_range = order_in_range.clone();
     let sale_ts = match basis {
         ReportBasis::Booked => "MAX(be.last_booked_at)".to_string(),
         ReportBasis::Completed => crate::logic::report_basis::ORDER_RECOGNITION_TS_SQL
