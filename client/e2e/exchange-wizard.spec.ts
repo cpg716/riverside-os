@@ -380,6 +380,45 @@ async function createReturnPolicyFixture(
   };
 }
 
+async function processCashReturn(
+  request: APIRequestContext,
+  transactionId: string,
+  lineId: string,
+  sessionId: string,
+  sessionToken: string,
+) {
+  return request.post(
+    `${apiBase()}/api/transactions/${transactionId}/refunds/process`,
+    {
+      headers: {
+        ...adminHeaders(),
+        "Content-Type": "application/json",
+        "x-riverside-pos-session-id": sessionId,
+        "x-riverside-pos-session-token": sessionToken,
+        "x-riverside-station-key": "station-e2e",
+      },
+      data: {
+        session_id: sessionId,
+        payment_method: "cash",
+        amount: "108.75",
+        tender_amount: "108.75",
+        return_lines: [
+          {
+            transaction_line_id: lineId,
+            quantity: 1,
+            reason: "exchange",
+            refund_subtotal: "100.00",
+            refund_state_tax: "4.00",
+            refund_local_tax: "4.75",
+            refund_total: "108.75",
+          },
+        ],
+      },
+      failOnStatusCode: false,
+    },
+  );
+}
+
 test.describe("POS exchange wizard", () => {
   test.describe.configure({ mode: "serial" });
 
@@ -629,27 +668,12 @@ test.describe("POS exchange wizard", () => {
     const line = before.items.find((item) => item.sku === sku);
     expect(line?.transaction_line_id).toBeTruthy();
 
-    const returnRes = await request.post(
-      `${apiBase()}/api/transactions/${checkout.transaction_id}/returns?register_session_id=${encodeURIComponent(sessionId)}`,
-      {
-        headers: {
-          ...adminHeaders(),
-          "Content-Type": "application/json",
-          "x-riverside-pos-session-id": sessionId,
-          "x-riverside-pos-session-token": sessionToken,
-          "x-riverside-station-key": "station-e2e",
-        },
-        data: {
-          lines: [
-            {
-              transaction_line_id: line?.transaction_line_id,
-              quantity: 1,
-              reason: "exchange",
-            },
-          ],
-        },
-        failOnStatusCode: false,
-      },
+    const returnRes = await processCashReturn(
+      request,
+      checkout.transaction_id,
+      line?.transaction_line_id ?? "",
+      sessionId,
+      sessionToken,
     );
     expect(returnRes.status()).toBe(200);
 
@@ -684,9 +708,7 @@ test.describe("POS exchange wizard", () => {
     const refund = refunds.find(
       (row) => row.transaction_id === checkout.transaction_id,
     );
-    expect(refund?.is_open).toBe(true);
-    expect(refund?.amount_due).toBe("108.75");
-    expect(refund?.amount_refunded).toBe("0");
+    expect(refund).toBeUndefined();
 
     // ZPL is no longer used; verification of financial totals is handled by the JSON detail check above.
   });
@@ -710,26 +732,12 @@ test.describe("POS exchange wizard", () => {
     );
     await assignTransactionAge(request, fixture.transactionId, 31);
 
-    const returnRes = await request.post(
-      `${apiBase()}/api/transactions/${fixture.transactionId}/returns?register_session_id=${encodeURIComponent(alternateSession.sessionId)}`,
-      {
-        headers: {
-          "Content-Type": "application/json",
-          "x-riverside-pos-session-id": alternateSession.sessionId,
-          "x-riverside-pos-session-token": alternateSession.sessionToken,
-          "x-riverside-station-key": "station-e2e",
-        },
-        data: {
-          lines: [
-            {
-              transaction_line_id: fixture.lineId,
-              quantity: 1,
-              reason: "exchange",
-            },
-          ],
-        },
-        failOnStatusCode: false,
-      },
+    const returnRes = await processCashReturn(
+      request,
+      fixture.transactionId,
+      fixture.lineId,
+      alternateSession.sessionId,
+      alternateSession.sessionToken,
     );
 
     const bodyText = await returnRes.text();
@@ -755,26 +763,12 @@ test.describe("POS exchange wizard", () => {
     );
     await assignTransactionAge(request, fixture.transactionId, 61);
 
-    const withoutOverride = await request.post(
-      `${apiBase()}/api/transactions/${fixture.transactionId}/returns?register_session_id=${encodeURIComponent(alternateSession.sessionId)}`,
-      {
-        headers: {
-          "Content-Type": "application/json",
-          "x-riverside-pos-session-id": alternateSession.sessionId,
-          "x-riverside-pos-session-token": alternateSession.sessionToken,
-          "x-riverside-station-key": "station-e2e",
-        },
-        data: {
-          lines: [
-            {
-              transaction_line_id: fixture.lineId,
-              quantity: 1,
-              reason: "exchange",
-            },
-          ],
-        },
-        failOnStatusCode: false,
-      },
+    const withoutOverride = await processCashReturn(
+      request,
+      fixture.transactionId,
+      fixture.lineId,
+      alternateSession.sessionId,
+      alternateSession.sessionToken,
     );
     const returnText = await withoutOverride.text();
     expect(withoutOverride.status(), returnText.slice(0, 500)).toBe(200);

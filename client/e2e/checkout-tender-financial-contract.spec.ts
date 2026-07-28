@@ -77,6 +77,23 @@ function futureUtcDate(offsetDays: number): string {
   return date.toISOString().slice(0, 10);
 }
 
+function storeLocalDate(): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+function addDays(ymd: string, days: number): string {
+  const [year, month, day] = ymd
+    .split("-")
+    .map((part) => Number.parseInt(part, 10));
+  const date = new Date(Date.UTC(year, month - 1, day + days, 12, 0, 0));
+  return date.toISOString().slice(0, 10);
+}
+
 let uniqueFutureDateCounter = 0;
 
 function isolatedFutureUtcDate(): string {
@@ -293,7 +310,7 @@ test.describe("checkout tender financial contract", () => {
     await assignQboDate(
       request,
       orderCheckout.transaction_id,
-      futureUtcDate(-1),
+      addDays(storeLocalDate(), -1),
     );
 
     const currentRes = await checkoutFixtureProduct(request, {
