@@ -570,6 +570,13 @@ pub async fn apply_counterpoint_incident_reconciliation(
     }
     let prepared = prepare_manifest(&mut tx, &manifest).await?;
 
+    // This workflow restores historical Counterpoint truth; it does not create
+    // new booked sales. Preserve the reconciliation audit rows below without
+    // letting line repairs manufacture current-time Daily Sales events.
+    sqlx::query("SET LOCAL riverside.suppress_booking_event = 'true'")
+        .execute(&mut *tx)
+        .await?;
+
     let mut line_rows_updated = 0usize;
     let mut derived_tax_rows_added = 0usize;
     let mut imported_payment_rows_removed = 0usize;

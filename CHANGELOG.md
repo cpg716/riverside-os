@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Faster Fail-Closed Windows Releases**: Same-tag Windows release reruns now cancel the superseded workflow instead of waiting behind assets that cannot be published. Signed component compilation overlaps the pre-retag gate, while package publication still requires both that gate and exact-commit Playwright success. Independent Rust caches now retain Riverside workspace-crate outputs so restored caches can accelerate repeat builds instead of preserving dependencies only. The release-contract validator normalizes Windows CRLF checkouts before evaluating workflow structure.
 
 ### Fixed
+- **Historical Counterpoint Repair Events Excluded From Daily Sales**:
+  Counterpoint incident reconciliation now suppresses booking-event triggers
+  while restoring historical line truth, so repair timestamps cannot make old
+  orders appear as newly booked sales. The seven repair-generated events from
+  the July 28 reconciliation were retained as audit evidence but excluded from
+  reporting; no transaction, payment, tax, inventory, or customer balance was
+  changed by the reporting correction.
 - **July 21 Counterpoint Incident Final Reconciliation**: Re-read all 567
   retained records against live ROS and Counterpoint source evidence, then
   reconciled the seven proven operational exceptions through one exact,
