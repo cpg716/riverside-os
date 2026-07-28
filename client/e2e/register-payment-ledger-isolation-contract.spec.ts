@@ -139,7 +139,14 @@ test("a nonmatching terminal attempt is refreshed without entering the active sa
   expect(drawer).toContain('data-testid="pos-payment-restore-menu"');
   expect(drawer).toContain("Resolve this Register blocker");
   expect(drawer).toContain("Restore Terminal");
-  expect(drawer).toContain("I Canceled Terminal");
+  expect(drawer).toContain("Reader stopped / no approval");
+  expect(drawer).toContain("No approval — unlock sale");
+  expect(drawer).toContain(
+    "Card Reader is ready to run again, and all allowed tenders are unlocked.",
+  );
+  expect(drawer).toContain('setTab(hostedManual ? "card_manual" : "card_terminal")');
+  expect(drawer).toContain("text-rose-800 dark:text-rose-200");
+  expect(drawer).toContain("text-sky-800");
   expect(drawer).toContain("importOnlyIfCurrentCheckout: true");
   expect(drawer).toContain(
     "void refreshEarlierCheckoutTerminalAttempt(selectedTerminalEarlierCheckoutAttemptId)",

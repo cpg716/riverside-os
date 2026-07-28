@@ -2372,7 +2372,10 @@ export default function NexoCheckoutDrawer({
       setPhysicalTerminalCancelAttemptId(null);
       setTerminalPickerOpen(false);
       await loadProviderSettings();
-      toast("Terminal released. Ready to start a fresh card payment.", "info");
+      toast(
+        "Terminal released. Card Reader is ready to run again, and all allowed tenders are unlocked.",
+        "info",
+      );
     } catch (error) {
       toast(
         error instanceof Error ? error.message : "Could not safely release the terminal.",
@@ -3899,7 +3902,7 @@ export default function NexoCheckoutDrawer({
                 disabled={helcimAttemptLoading || earlierTerminalAttemptRefreshing}
                 className="min-h-11 rounded-xl border border-app-warning/30 bg-app-warning/10 px-3 font-black uppercase tracking-widest text-app-warning disabled:opacity-50"
               >
-                I Canceled Terminal
+                Reader stopped / no approval
               </button>
             ) : null}
             {hostedManualActive && currentManualCardHandoffUrl ? (
@@ -4200,7 +4203,7 @@ export default function NexoCheckoutDrawer({
                       type="button"
                       disabled={helcimAttemptLoading}
                       onClick={handlePendingTerminalCancel}
-                      className="min-h-10 rounded-xl border border-rose-400/30 bg-rose-400/10 px-3 text-[10px] font-black uppercase tracking-widest text-rose-200 disabled:opacity-50"
+                      className="min-h-10 rounded-xl border border-rose-400/30 bg-rose-400/10 px-3 text-[10px] font-black uppercase tracking-widest text-rose-800 disabled:opacity-50 dark:text-rose-200"
                     >
                       Cancel simulated request
                     </button>
@@ -4212,7 +4215,7 @@ export default function NexoCheckoutDrawer({
                           switchToAlternateTender: true,
                         })
                       }
-                      className="min-h-10 rounded-xl border border-amber-300/30 bg-amber-300/10 px-3 text-[10px] font-black uppercase tracking-widest text-amber-100 disabled:opacity-50"
+                      className="min-h-10 rounded-xl border border-amber-300/30 bg-amber-300/10 px-3 text-[10px] font-black uppercase tracking-widest text-amber-800 disabled:opacity-50 dark:text-amber-100"
                     >
                       Release simulated request
                     </button>
@@ -4314,7 +4317,7 @@ export default function NexoCheckoutDrawer({
                     disabled={helcimAttemptLoading || earlierTerminalAttemptRefreshing}
                     className="min-h-10 rounded-xl border border-app-warning/30 bg-app-warning/10 px-3 text-[10px] font-black uppercase tracking-widest text-app-warning disabled:opacity-50"
                   >
-                    I canceled Terminal
+                    Reader stopped / no approval
                   </button>
                 ) : null}
                 {helcimAttempt?.status === "pending" &&
@@ -5177,10 +5180,10 @@ export default function NexoCheckoutDrawer({
                    )}
                    {!helcimAttempt && helcimUnverifiedNotice && (
                      <div className="rounded-xl border border-rose-400/30 bg-rose-400/10 p-3">
-                       <p className="text-[9px] font-black uppercase tracking-[0.18em] text-rose-200">
+                       <p className="text-[9px] font-black uppercase tracking-[0.18em] text-rose-800 dark:text-rose-200">
                          Card Needs Review
                        </p>
-                       <p className="mt-1 text-[11px] font-semibold leading-snug text-zinc-200">
+                       <p className="mt-1 text-[11px] font-semibold leading-snug text-app-text-muted">
                          {helcimUnverifiedNotice}
                        </p>
                      </div>
@@ -5233,7 +5236,8 @@ export default function NexoCheckoutDrawer({
                            <div
                              className={[
                                "mt-3 grid gap-2",
-                               (providerSettings?.helcim.simulator_enabled && helcimAttempt.status === "pending") ||
+                               (!isHostedManualHelcimAttempt(helcimAttempt) &&
+                                 helcimAttempt.status === "pending") ||
                                ["failed", "canceled"].includes(helcimAttempt.status)
                                  ? "grid-cols-2"
                                  : "grid-cols-1",
@@ -5247,12 +5251,26 @@ export default function NexoCheckoutDrawer({
                              >
                                {helcimAttemptLoading ? "Checking" : "Check status"}
                              </button>
+                             {helcimAttempt.status === "pending" &&
+                             !isHostedManualHelcimAttempt(helcimAttempt) &&
+                             !providerSettings?.helcim.simulator_enabled ? (
+                               <button
+                                 type="button"
+                                 disabled={helcimAttemptLoading}
+                                 onClick={() =>
+                                   setPhysicalTerminalCancelAttemptId(helcimAttempt.id)
+                                 }
+                                 className="min-h-9 rounded-lg border border-app-warning/30 bg-app-warning/10 px-2.5 text-[9px] font-black uppercase tracking-widest text-app-warning transition-colors hover:bg-app-warning/15 disabled:opacity-50"
+                               >
+                                 Reader stopped / no approval
+                               </button>
+                             ) : null}
                              {["failed", "canceled"].includes(helcimAttempt.status) && (
                                <button
                                  type="button"
                                  disabled={helcimAttemptLoading}
                                  onClick={retryFinalHelcimAttempt}
-                                 className="min-h-9 rounded-lg border border-sky-400/25 bg-sky-400/10 px-2.5 text-[9px] font-black uppercase tracking-widest text-sky-100 transition-colors hover:bg-sky-400/15 disabled:opacity-50"
+                                 className="min-h-9 rounded-lg border border-sky-400/25 bg-sky-400/10 px-2.5 text-[9px] font-black uppercase tracking-widest text-sky-800 transition-colors hover:bg-sky-400/15 disabled:opacity-50 dark:text-sky-100"
                                >
                                  {isHostedManualHelcimAttempt(helcimAttempt) ? "Retry CNP" : "Retry card"}
                                </button>
@@ -5264,7 +5282,7 @@ export default function NexoCheckoutDrawer({
                                  type="button"
                                  disabled={helcimAttemptLoading}
                                  onClick={handlePendingTerminalCancel}
-                                 className="min-h-9 rounded-lg border border-rose-400/25 bg-rose-400/10 px-2.5 text-[9px] font-black uppercase tracking-widest text-rose-200 transition-colors hover:bg-rose-400/15 disabled:opacity-50"
+                                 className="min-h-9 rounded-lg border border-rose-400/25 bg-rose-400/10 px-2.5 text-[9px] font-black uppercase tracking-widest text-rose-800 transition-colors hover:bg-rose-400/15 disabled:opacity-50 dark:text-rose-200"
                                >
                                  Sim cancel CNP
                                </button>
@@ -5279,7 +5297,7 @@ export default function NexoCheckoutDrawer({
                                      switchToAlternateTender: true,
                                    })
                                  }
-                                 className="min-h-9 rounded-lg border border-amber-400/25 bg-amber-400/10 px-2.5 text-[9px] font-black uppercase tracking-widest text-amber-100 transition-colors hover:bg-amber-400/15 disabled:opacity-50"
+                                 className="min-h-9 rounded-lg border border-amber-400/25 bg-amber-400/10 px-2.5 text-[9px] font-black uppercase tracking-widest text-amber-800 transition-colors hover:bg-amber-400/15 disabled:opacity-50 dark:text-amber-100"
                                >
                                  Release simulated request
                                </button>
@@ -5291,7 +5309,7 @@ export default function NexoCheckoutDrawer({
                                  type="button"
                                  disabled={helcimAttemptLoading}
                                  onClick={handlePendingTerminalCancel}
-                                 className="min-h-9 rounded-lg border border-rose-400/25 bg-rose-400/10 px-2.5 text-[9px] font-black uppercase tracking-widest text-rose-200 transition-colors hover:bg-rose-400/15 disabled:opacity-50"
+                                 className="min-h-9 rounded-lg border border-rose-400/25 bg-rose-400/10 px-2.5 text-[9px] font-black uppercase tracking-widest text-rose-800 transition-colors hover:bg-rose-400/15 disabled:opacity-50 dark:text-rose-200"
                                >
                                  Sim cancel
                                </button>
@@ -5604,9 +5622,9 @@ export default function NexoCheckoutDrawer({
         isOpen={physicalTerminalCancelAttemptId != null}
         onClose={() => setPhysicalTerminalCancelAttemptId(null)}
         onConfirm={() => void confirmPhysicalTerminalCancel()}
-        title="Confirm terminal cancellation"
-        message="Use this only after the old payment prompt has been canceled on the physical Helcim terminal and the terminal is idle. ROS will check Helcim once more, release the terminal for a fresh sale, and retain the old attempt for reconciliation."
-        confirmLabel="Terminal is canceled"
+        title="Confirm reader stopped with no approval"
+        message="Use this only after the physical Helcim request ended without approval because it was canceled, timed out, or the reader restarted, and the reader is now idle. ROS will check Helcim once more, release the blocked attempt, retain it for reconciliation, and unlock Card Reader plus every other allowed tender."
+        confirmLabel="No approval — unlock sale"
         cancelLabel="Go back"
         variant="danger"
         loading={helcimAttemptLoading}
