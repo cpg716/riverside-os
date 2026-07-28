@@ -1359,6 +1359,7 @@ test.describe("QBO audit contract", () => {
       sessionId,
       amount: returnedUnitTotal,
       managerStaffId: operatorStaffId,
+      returnLines: returnContext.returnLines,
     });
     const missingReasonText = await missingReasonAttempt.text();
     expect(missingReasonAttempt.status(), missingReasonText.slice(0, 1000)).toBe(400);
@@ -1370,6 +1371,7 @@ test.describe("QBO audit contract", () => {
       amount: returnedUnitTotal,
       managerStaffId: operatorStaffId,
       managerReason: "E2E missing external card reference",
+      returnLines: returnContext.returnLines,
     });
     const missingReferenceText = await missingReferenceAttempt.text();
     expect(missingReferenceAttempt.status(), missingReferenceText.slice(0, 1000)).toBe(400);

@@ -55,7 +55,7 @@ async function readNumericZIndex(target: Locator): Promise<number> {
 }
 
 test.describe("UI Portaling and Stacking", () => {
-  test("Refund modal appears on top of Transaction Detail drawer and is interactive", async ({
+  test("Process Refund hands the transaction to Register Pay", async ({
     page,
     request,
   }) => {
@@ -73,7 +73,7 @@ test.describe("UI Portaling and Stacking", () => {
         "Content-Type": "application/json",
         "x-riverside-pos-session-id": sessionId,
         "x-riverside-pos-session-token": sessionToken,
-      "x-riverside-station-key": "station-e2e",
+        "x-riverside-station-key": "station-e2e",
       },
       data: {
         session_id: sessionId,
@@ -107,24 +107,24 @@ test.describe("UI Portaling and Stacking", () => {
     const transactionDisplayId = await getTransactionDisplayId(request, transaction_id);
 
     // A same-day Manager void provides a legitimate open refund obligation for
-    // exercising the Back Office refund modal without bypassing Register Pay.
+    // exercising the Back Office-to-Register Pay handoff.
     const returnRes = await request.post(
       `${apiBase()}/api/transactions/${transaction_id}/void`,
       {
-      headers: {
-        ...staffHeaders(),
-        "Content-Type": "application/json",
-        "x-riverside-pos-session-id": sessionId,
-        "x-riverside-pos-session-token": sessionToken,
-        "x-riverside-station-key": "station-e2e",
-      },
-      data: {
-        register_session_id: sessionId,
-        manager_staff_id: operatorStaffId,
-        manager_pin: staffCode(),
-        reason: "E2E refund modal stacking verification",
-      },
-      failOnStatusCode: false,
+        headers: {
+          ...staffHeaders(),
+          "Content-Type": "application/json",
+          "x-riverside-pos-session-id": sessionId,
+          "x-riverside-pos-session-token": sessionToken,
+          "x-riverside-station-key": "station-e2e",
+        },
+        data: {
+          register_session_id: sessionId,
+          manager_staff_id: operatorStaffId,
+          manager_pin: staffCode(),
+          reason: "E2E Register Pay refund handoff verification",
+        },
+        failOnStatusCode: false,
       },
     );
     expect(returnRes.status()).toBe(200);
@@ -141,42 +141,18 @@ test.describe("UI Portaling and Stacking", () => {
     const drawer = page.getByRole("dialog", { name: /Order Detail|Transaction Record/ });
     await expect(drawer).toBeVisible({ timeout: 20_000 });
 
-    // 4. Trigger Refund Modal
+    // 4. Hand the refund to Register Pay
     const refundBtn = drawer.getByRole("button", { name: /Process Refund/i });
     await expect(refundBtn).toBeVisible();
     await refundBtn.click();
 
-    // 5. Verify Stacking
-    // The modal is portaled to #drawer-root. It should be visible and above the drawer.
-    const refundModal = page.getByRole("dialog", { name: /Process refund/i });
-    await expect(refundModal).toBeVisible({ timeout: 10_000 });
-    await expect(refundModal).toBeInViewport();
-
-    const refundBackdrop = page.locator(".ui-overlay-backdrop", { has: refundModal }).first();
-    await expect(refundBackdrop).toBeVisible();
-    const [drawerZ, refundZ] = await Promise.all([
-      readNumericZIndex(drawer),
-      readNumericZIndex(refundBackdrop),
-    ]);
-    expect(refundZ).toBeGreaterThan(drawerZ);
-
-    // Verify it's interactive (not blocked by drawer backdrop or layering)
-    const amountInput = refundModal.getByLabel(/Amount/i);
-    await expect(amountInput).toBeVisible();
-    await expect(amountInput).toBeInViewport();
-    await amountInput.fill("10.00");
-    await expect(amountInput).toHaveValue("10.00");
-    expect(await ownsPointerAtCenter(amountInput)).toBe(true);
-
-    // Background drawer controls should be visible but not pointer-targetable while modal is active.
-    const drawerClose = drawer.locator("header").getByRole("button", { name: /Close drawer/i });
-    await expect(drawerClose).toBeVisible();
-    expect(await ownsPointerAtCenter(drawerClose)).toBe(false);
-
-    // Close and verify drawer is still there
-    await refundModal.getByRole("button", { name: /Cancel/i }).click();
-    await expect(refundModal).toBeHidden();
-    await expect(drawer).toBeVisible();
+    // 5. Verify the negative sale line and Payment screen are ready, while
+    // final settlement still requires the cashier to complete Record Sale.
+    const checkoutDrawer = page.getByRole("dialog", { name: /checkout/i });
+    await expect(checkoutDrawer).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText(fixture.product.name, { exact: true })).toBeVisible();
+    await expect(checkoutDrawer).toContainText("Balance Due");
+    await expect(checkoutDrawer.getByTestId("pos-finalize-checkout")).toBeVisible();
   });
 
   test("Receipt action remains available in Transaction Detail drawer", async ({
