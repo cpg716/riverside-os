@@ -183,6 +183,21 @@ fn invalid(message: impl Into<String>) -> CounterpointSyncError {
     CounterpointSyncError::InvalidPayload(message.into())
 }
 
+fn metadata_has_explicit_refund_evidence(metadata: &JsonValue) -> bool {
+    matches!(
+        metadata.get("kind").and_then(JsonValue::as_str),
+        Some("order_refund" | "exchange_refund_remainder" | "legacy_migration_refund")
+    ) || metadata
+        .get("refund_event_id")
+        .and_then(JsonValue::as_str)
+        .is_some_and(|value| !value.trim().is_empty())
+}
+
+fn allocation_has_explicit_refund_evidence(allocation: &AllocationSnapshot) -> bool {
+    metadata_has_explicit_refund_evidence(&allocation.allocation_metadata)
+        || metadata_has_explicit_refund_evidence(&allocation.payment_metadata)
+}
+
 fn parse_manifest(manifest_json: &JsonValue) -> Result<ReviewedManifest, CounterpointSyncError> {
     let manifest =
         serde_json::from_value::<ReviewedManifest>(manifest_json.clone()).map_err(|error| {
@@ -431,6 +446,15 @@ async fn prepare_candidate(
         .any(|allocation| allocation.payment_status != "success")
     {
         return Err("reviewed restoration has a non-success payment allocation".to_string());
+    }
+    if allocations.iter().any(|allocation| {
+        allocation.amount_allocated < Decimal::ZERO
+            && !allocation_has_explicit_refund_evidence(allocation)
+    }) {
+        return Err(
+            "negative payment allocation lacks explicit refund evidence; Counterpoint transfer offsets cannot be restored as customer refunds"
+                .to_string(),
+        );
     }
     let positive_tender = allocations
         .iter()
@@ -1108,4 +1132,41 @@ pub async fn apply_counterpoint_historical_refund_repairs(
         payment_allocation_amounts_changed: false,
         inventory_changed: false,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::metadata_has_explicit_refund_evidence;
+    use serde_json::json;
+
+    #[test]
+    fn bare_negative_allocation_metadata_is_not_refund_evidence() {
+        assert!(!metadata_has_explicit_refund_evidence(&json!({
+            "counterpoint_doc_ref": "O-117764-01",
+            "counterpoint_pmt_typ": ""
+        })));
+    }
+
+    #[test]
+    fn recognized_refund_kind_is_explicit_refund_evidence() {
+        assert!(metadata_has_explicit_refund_evidence(&json!({
+            "kind": "order_refund"
+        })));
+        assert!(metadata_has_explicit_refund_evidence(&json!({
+            "kind": "exchange_refund_remainder"
+        })));
+        assert!(metadata_has_explicit_refund_evidence(&json!({
+            "kind": "legacy_migration_refund"
+        })));
+    }
+
+    #[test]
+    fn refund_event_link_is_explicit_refund_evidence() {
+        assert!(metadata_has_explicit_refund_evidence(&json!({
+            "refund_event_id": "0abf3c78-37dc-4d20-ac3e-69fc40978f3d"
+        })));
+        assert!(!metadata_has_explicit_refund_evidence(&json!({
+            "refund_event_id": " "
+        })));
+    }
 }

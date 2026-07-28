@@ -1,0 +1,294 @@
+{
+  "incident_key": "2026-07-21-counterpoint-false-fulfillment-final-reconciliation-v1",
+  "source_review_sha256": "1b1fea834635a52e8b7873e53ef5faefadd481fa6ac813c1b62a3dfbe18ccd71",
+  "candidates": [
+    {
+      "transaction_id": "47d3e54e-917c-45be-adc3-eb705315025b",
+      "display_id": "TXN-565939",
+      "source_doc_id": "101110731404",
+      "expected_total": "326.25",
+      "expected_amount_paid": "326.25",
+      "expected_balance": "0.00",
+      "expected_allocation_total": "326.25",
+      "corrected_total": "326.25",
+      "corrected_amount_paid": "326.25",
+      "corrected_balance": "0.00",
+      "source_fulfilled_at": "2026-07-23T17:19:48Z",
+      "line_repairs": [
+        {
+          "line_id": "0f007c9b-e0e3-4982-b048-951513f7e8ce",
+          "expected_quantity": 1,
+          "expected_unit_price": "300.00",
+          "expected_discount_amount": "75.00",
+          "expected_state_tax": "12.00",
+          "expected_local_tax": "14.25",
+          "expected_is_fulfilled": false,
+          "corrected_quantity": 1,
+          "corrected_unit_price": "300.00",
+          "corrected_discount_amount": "75.00",
+          "corrected_state_tax": "12.00",
+          "corrected_local_tax": "14.25",
+          "corrected_is_fulfilled": true
+        }
+      ],
+      "payment_removals": [],
+      "line_clones": []
+    },
+    {
+      "transaction_id": "8bce9b7e-1d88-4cbf-96cd-e595fa24e348",
+      "display_id": "TXN-566043",
+      "source_doc_id": "101122434099",
+      "expected_total": "337.22",
+      "expected_amount_paid": "337.22",
+      "expected_balance": "0.00",
+      "expected_allocation_total": "337.22",
+      "corrected_total": "337.22",
+      "corrected_amount_paid": "337.22",
+      "corrected_balance": "0.00",
+      "source_fulfilled_at": "2026-07-21T20:52:04.289884Z",
+      "line_repairs": [],
+      "payment_removals": [],
+      "line_clones": []
+    },
+    {
+      "transaction_id": "450e49cf-fa96-4dcb-b515-3d99b147a809",
+      "display_id": "TXN-566114",
+      "source_doc_id": "101127682314",
+      "expected_total": "340.00",
+      "expected_amount_paid": "282.75",
+      "expected_balance": "57.25",
+      "expected_allocation_total": "282.75",
+      "corrected_total": "349.79",
+      "corrected_amount_paid": "349.79",
+      "corrected_balance": "0.00",
+      "source_fulfilled_at": "2026-07-21T16:04:52Z",
+      "line_repairs": [
+        {
+          "line_id": "b36cf728-6340-4d70-9ce1-2e77660e063d",
+          "expected_quantity": 1,
+          "expected_unit_price": "80.00",
+          "expected_discount_amount": "0.00",
+          "expected_state_tax": "0.00",
+          "expected_local_tax": "0.00",
+          "expected_is_fulfilled": true,
+          "corrected_quantity": 1,
+          "corrected_unit_price": "64.00",
+          "corrected_discount_amount": "16.00",
+          "corrected_state_tax": "0.00",
+          "corrected_local_tax": "3.04",
+          "corrected_is_fulfilled": true
+        },
+        {
+          "line_id": "e7acf7f2-8ff4-411f-ab57-b3cb838ab9cf",
+          "expected_quantity": 1,
+          "expected_unit_price": "260.00",
+          "expected_discount_amount": "115.00",
+          "expected_state_tax": "0.00",
+          "expected_local_tax": "0.00",
+          "expected_is_fulfilled": true,
+          "corrected_quantity": 1,
+          "corrected_unit_price": "260.00",
+          "corrected_discount_amount": "115.00",
+          "corrected_state_tax": "10.40",
+          "corrected_local_tax": "12.35",
+          "corrected_is_fulfilled": true
+        }
+      ],
+      "payment_removals": [
+        {
+          "allocation_id": "be94ebeb-5e1e-4d98-9276-07b6ebd42162",
+          "payment_id": "040d0e61-eb3b-45ed-af8d-377b61f3eecb",
+          "expected_amount": "-67.04",
+          "reason": "counterpoint_release_transfer_offset"
+        }
+      ],
+      "line_clones": []
+    },
+    {
+      "transaction_id": "fe5a2f74-2b98-4521-8021-d127db34489f",
+      "display_id": "TXN-566139",
+      "source_doc_id": "101128672140",
+      "expected_total": "0.00",
+      "expected_amount_paid": "-83.61",
+      "expected_balance": "83.61",
+      "expected_allocation_total": "83.61",
+      "corrected_total": "282.75",
+      "corrected_amount_paid": "282.75",
+      "corrected_balance": "0.00",
+      "source_fulfilled_at": "2026-07-08T11:52:47Z",
+      "line_repairs": [
+        {
+          "line_id": "eb527f76-f300-4206-9f54-1bd4849bcbf5",
+          "expected_quantity": 0,
+          "expected_unit_price": "260.00",
+          "expected_discount_amount": "0.00",
+          "expected_state_tax": "0.00",
+          "expected_local_tax": "0.00",
+          "expected_is_fulfilled": false,
+          "corrected_quantity": 1,
+          "corrected_unit_price": "260.00",
+          "corrected_discount_amount": "115.00",
+          "corrected_state_tax": "10.40",
+          "corrected_local_tax": "12.35",
+          "corrected_is_fulfilled": true
+        }
+      ],
+      "payment_removals": [
+        {
+          "allocation_id": "cfc9afdb-889c-4c7f-9f87-4f16fd040ea3",
+          "payment_id": "6f15cb8a-406b-4499-8976-875327cf646b",
+          "expected_amount": "-282.75",
+          "reason": "counterpoint_release_transfer_offset"
+        },
+        {
+          "allocation_id": "f07890f6-fe67-437d-83b5-faecbc799fca",
+          "payment_id": "c98fc3a9-526b-4b81-819e-1ac30c802168",
+          "expected_amount": "83.61",
+          "reason": "counterpoint_tender_duplicated_by_verified_provider_payment"
+        }
+      ],
+      "line_clones": []
+    },
+    {
+      "transaction_id": "1cadecfc-cb07-4ce4-bce3-04ffa25ea5ce",
+      "display_id": "TXN-566219",
+      "source_doc_id": "101133731313",
+      "expected_total": "337.22",
+      "expected_amount_paid": "337.22",
+      "expected_balance": "0.00",
+      "expected_allocation_total": "337.22",
+      "corrected_total": "337.22",
+      "corrected_amount_paid": "337.22",
+      "corrected_balance": "0.00",
+      "source_fulfilled_at": "2026-07-22T21:20:17.612468Z",
+      "line_repairs": [],
+      "payment_removals": [],
+      "line_clones": []
+    },
+    {
+      "transaction_id": "88ef68ff-b394-47c9-9876-7f3156ecbbc7",
+      "display_id": "TXN-566276",
+      "source_doc_id": "101136423198",
+      "expected_total": "619.97",
+      "expected_amount_paid": "619.97",
+      "expected_balance": "0.00",
+      "expected_allocation_total": "619.97",
+      "corrected_total": "619.97",
+      "corrected_amount_paid": "619.97",
+      "corrected_balance": "0.00",
+      "source_fulfilled_at": "2026-07-22T21:06:30.703576Z",
+      "line_repairs": [],
+      "payment_removals": [],
+      "line_clones": []
+    },
+    {
+      "transaction_id": "c0bd82a4-f2b8-46ab-a40c-0e1fc640b563",
+      "display_id": "TXN-566432",
+      "source_doc_id": "101143682573",
+      "expected_total": "65.00",
+      "expected_amount_paid": "54.47",
+      "expected_balance": "10.53",
+      "expected_allocation_total": "54.47",
+      "corrected_total": "250.56",
+      "corrected_amount_paid": "250.56",
+      "corrected_balance": "0.00",
+      "source_fulfilled_at": "2026-07-15T13:03:58Z",
+      "line_repairs": [
+        {
+          "line_id": "394f1c73-b533-42e1-ab28-67c50a5896e9",
+          "expected_quantity": 0,
+          "expected_unit_price": "20.00",
+          "expected_discount_amount": "0.00",
+          "expected_state_tax": "0.00",
+          "expected_local_tax": "0.00",
+          "expected_is_fulfilled": true,
+          "corrected_quantity": 6,
+          "corrected_unit_price": "16.00",
+          "corrected_discount_amount": "4.00",
+          "corrected_state_tax": "0.00",
+          "corrected_local_tax": "0.76",
+          "corrected_is_fulfilled": true
+        },
+        {
+          "line_id": "83f62d35-468d-4898-bd04-d50db5079702",
+          "expected_quantity": 0,
+          "expected_unit_price": "20.00",
+          "expected_discount_amount": "0.00",
+          "expected_state_tax": "0.00",
+          "expected_local_tax": "0.00",
+          "expected_is_fulfilled": true,
+          "corrected_quantity": 3,
+          "corrected_unit_price": "16.00",
+          "corrected_discount_amount": "4.00",
+          "corrected_state_tax": "0.00",
+          "corrected_local_tax": "0.76",
+          "corrected_is_fulfilled": true
+        },
+        {
+          "line_id": "42e48690-ec52-4c08-afee-83a51301e349",
+          "expected_quantity": 0,
+          "expected_unit_price": "6.00",
+          "expected_discount_amount": "0.00",
+          "expected_state_tax": "0.00",
+          "expected_local_tax": "0.00",
+          "expected_is_fulfilled": true,
+          "corrected_quantity": 8,
+          "corrected_unit_price": "4.80",
+          "corrected_discount_amount": "1.20",
+          "corrected_state_tax": "0.00",
+          "corrected_local_tax": "0.23",
+          "corrected_is_fulfilled": true
+        },
+        {
+          "line_id": "6f07fd6f-e43c-4f85-aaeb-0d2243d34007",
+          "expected_quantity": 1,
+          "expected_unit_price": "0.00",
+          "expected_discount_amount": "0.00",
+          "expected_state_tax": "0.00",
+          "expected_local_tax": "0.00",
+          "expected_is_fulfilled": true,
+          "corrected_quantity": 1,
+          "corrected_unit_price": "0.00",
+          "corrected_discount_amount": "375.00",
+          "corrected_state_tax": "0.00",
+          "corrected_local_tax": "0.00",
+          "corrected_is_fulfilled": true
+        },
+        {
+          "line_id": "d96827e4-c0a3-460e-b3be-b165361774a6",
+          "expected_quantity": 1,
+          "expected_unit_price": "65.00",
+          "expected_discount_amount": "0.00",
+          "expected_state_tax": "0.00",
+          "expected_local_tax": "0.00",
+          "expected_is_fulfilled": true,
+          "corrected_quantity": 1,
+          "corrected_unit_price": "52.00",
+          "corrected_discount_amount": "13.00",
+          "corrected_state_tax": "0.00",
+          "corrected_local_tax": "2.47",
+          "corrected_is_fulfilled": true
+        }
+      ],
+      "payment_removals": [
+        {
+          "allocation_id": "b290f2fc-76ba-4e67-b8c7-2404e3e18c99",
+          "payment_id": "dcba89ad-32d2-4401-b300-789190bd158d",
+          "expected_amount": "-196.09",
+          "reason": "counterpoint_release_transfer_offset"
+        }
+      ],
+      "line_clones": [
+        {
+          "source_line_id": "42e48690-ec52-4c08-afee-83a51301e349",
+          "new_line_id": "fbc34e63-6dc2-5b71-9c4b-fd2746b86432",
+          "quantity": 1,
+          "unit_price": "4.80",
+          "discount_amount": "1.20",
+          "state_tax": "0.00",
+          "local_tax": "0.21"
+        }
+      ]
+    }
+  ]
+}

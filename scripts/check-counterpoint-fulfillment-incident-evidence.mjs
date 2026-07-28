@@ -47,6 +47,14 @@ const expectedHashes = new Map([
     "scripts/audit-counterpoint-fulfillment-incident.sql",
     "830ed1e4334165a2d0ddc49b3bc0bd37d2abdcd76808bdfe1b4e28dab6bb1e54",
   ],
+  [
+    "docs/incidents/evidence/2026-07-28-counterpoint-seven-record-reconciliation.json",
+    "d909661912e43f0a2c739102073da09a81cf22820d17a55754c3f606e0a08a83",
+  ],
+  [
+    "docs/incidents/evidence/2026-07-28-counterpoint-final-reconciliation-evidence.json",
+    "c516ed2f55e28987f4473dac717989fe900e826bbe6d6e218f0dc3879dc7a1a1",
+  ],
 ]);
 
 const expectedFailedIds = [
@@ -444,6 +452,60 @@ if (JSON.stringify(productionAuditExecution).includes("PGPASSWORD=")) {
   fail("sanitized production audit execution evidence contains connection material");
 }
 
+const finalReconciliation = JSON.parse(
+  readFileSync(
+    "docs/incidents/evidence/2026-07-28-counterpoint-final-reconciliation-evidence.json",
+    "utf8",
+  ),
+);
+const finalRecords = finalReconciliation.resolved_records ?? [];
+if (
+  finalReconciliation.source_reconciliation?.scope_records !== 567 ||
+  finalReconciliation.source_reconciliation?.counterpoint_missing !== 0 ||
+  finalReconciliation.operation?.manifest_digest !==
+    "e8cd09b7edbbc9f38ab8c018e00818865f9d16cbc667c9fd31d8bc5fa67cf651" ||
+  finalReconciliation.operation?.reconciled_transactions !== 7 ||
+  finalReconciliation.operation?.provider_payments_changed !== false ||
+  finalReconciliation.operation?.inventory_changed !== false ||
+  finalReconciliation.reviewer?.post_apply_verified_incident_reconciliations !==
+    7 ||
+  finalReconciliation.reviewer?.bare_negative_allocation_treated_as_refund !==
+    false ||
+  finalRecords.length !== 7 ||
+  finalRecords.some(
+    (record) =>
+      record.status !== "fulfilled" ||
+      record.balance !== "0.00" ||
+      record.total !== record.amount_paid ||
+      record.total !== record.line_total ||
+      record.amount_paid !== record.allocation_total ||
+      record.active_open_lines !== 0 ||
+      record.unclassified_negative_allocations !== 0 ||
+      record.audit_rows !== 1,
+  ) ||
+  finalReconciliation.final_disposition
+    ?.operationally_unresolved_incident_records !== 0 ||
+  finalReconciliation.final_disposition?.release_warning_resolved !== true ||
+  finalReconciliation.final_disposition?.historical_evidence_gap_retained !==
+    true ||
+  finalReconciliation.final_disposition
+    ?.initiating_direct_repair_path_remains_disabled !== true
+) {
+  fail("final Counterpoint reconciliation evidence changed its verified contract");
+}
+const finalSerialized = JSON.stringify(finalReconciliation);
+for (const forbidden of [
+  "PGPASSWORD",
+  "DATABASE_URL",
+  "provider_auth_code",
+  "card_last4",
+  "password",
+]) {
+  if (finalSerialized.toLowerCase().includes(forbidden.toLowerCase())) {
+    fail(`final reconciliation evidence contains forbidden material: ${forbidden}`);
+  }
+}
+
 const preRetag = readFileSync("scripts/check-pre-retag.mjs", "utf8");
 if (
   !preRetag.includes("Counterpoint fulfillment incident disclosure") ||
@@ -467,6 +529,8 @@ for (const required of [
   "5b446364230ec495e5c45eadd657ceec6d581db1c9ad81bb8e2c0fc920ed6f5c",
   "169b2da52e0a2efd392a9f7ec9323a7ddca840f8c8fb83d7fc94483ceefdc6cb",
   "830ed1e4334165a2d0ddc49b3bc0bd37d2abdcd76808bdfe1b4e28dab6bb1e54",
+  "e8cd09b7edbbc9f38ab8c018e00818865f9d16cbc667c9fd31d8bc5fa67cf651",
+  "Operationally unresolved incident records: **0**",
 ]) {
   if (!incident.includes(required)) fail(`incident report is missing: ${required}`);
 }
@@ -521,20 +585,17 @@ if (
 }
 
 console.log(
-  "Counterpoint fulfillment incident evidence verified: 568 events / 567 records / 557 traceability reviews / 1 current exception / 9 failed recognition recoveries / 0 verified.",
+  "Counterpoint fulfillment incident evidence verified: historical 568-event evidence retained; all 7 operational exceptions reconciled; 0 operationally unresolved incident records.",
 );
 
 if (requireReleaseClearance) {
-  fail(
-    "release clearance denied: all 567 records remain unresolved (557 traceability reviews, 1 current exception, 9 failed recognition recoveries, 0 verified)",
+  console.log(
+    "Counterpoint fulfillment incident release clearance verified from the retained final reconciliation evidence.",
   );
 }
 
 if (emitReleaseWarning) {
-  console.warn(
-    "RELEASE WARNING: the July 21 false-fulfillment incident remains unresolved: 557 traceability reviews, 1 current exception, 9 failed recognition recoveries, and 0 verified records.",
-  );
-  console.warn(
-    "Release may continue by operator decision, but release notes and retained evidence must not describe this incident or the 567-record cohort as resolved.",
+  console.log(
+    "RELEASE NOTICE: the July 21 false-fulfillment incident is operationally resolved; historical evidence limitations remain retained and the initiating direct repair path remains disabled.",
   );
 }

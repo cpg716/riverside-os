@@ -1,0 +1,158 @@
+{
+  "evidence_type": "counterpoint_false_fulfillment_final_reconciliation",
+  "incident_key": "2026-07-21-counterpoint-false-fulfillment-final-reconciliation-v1",
+  "applied_at": "2026-07-28T14:42:28.122691Z",
+  "actor": {
+    "staff_name": "Chris G",
+    "role": "admin",
+    "active": true
+  },
+  "backup_gate": {
+    "verified_at": "2026-07-28T06:00:36.191010Z",
+    "artifact": "backup_20260728_020000_aeb023ba8fad4c28ae96a8fc7f28ee39.dump",
+    "size_bytes": 439869810,
+    "verification_method": "pg_restore_catalog+sha256"
+  },
+  "source_reconciliation": {
+    "scope_records": 567,
+    "counterpoint_open_only": 508,
+    "counterpoint_completed_only": 44,
+    "counterpoint_partial_open_and_completed": 15,
+    "counterpoint_missing": 0,
+    "before_sha256": "1b1fea834635a52e8b7873e53ef5faefadd481fa6ac813c1b62a3dfbe18ccd71",
+    "after_sha256": "a37d71c8d3a01d967d2a0cea4984ff4acfb2151842eb3568c2efbf636a089dfd"
+  },
+  "reviewer": {
+    "source_manifest_digest": "c1ec7e24b2693e642595ef901b594d2ee6cdcde660e9978ab263467a49a51997",
+    "explicit_refund_evidence_required": true,
+    "initial_unclassified_negative_allocation_records": 81,
+    "post_apply_verified_incident_reconciliations": 7,
+    "post_apply_return_review_block_records": 537,
+    "bare_negative_allocation_treated_as_refund": false
+  },
+  "operation": {
+    "manifest_digest": "e8cd09b7edbbc9f38ab8c018e00818865f9d16cbc667c9fd31d8bc5fa67cf651",
+    "candidate_count": 7,
+    "reconciled_transactions": 7,
+    "line_rows_updated": 9,
+    "derived_tax_rows_added": 1,
+    "imported_payment_rows_removed": 4,
+    "provider_payments_changed": false,
+    "inventory_changed": false,
+    "atomic": true,
+    "operation_audit_rows": 1,
+    "transaction_activity_rows": 7
+  },
+  "resolved_records": [
+    {
+      "display_id": "TXN-565939",
+      "status": "fulfilled",
+      "total": "326.25",
+      "amount_paid": "326.25",
+      "balance": "0.00",
+      "line_total": "326.25",
+      "allocation_total": "326.25",
+      "active_open_lines": 0,
+      "unclassified_negative_allocations": 0,
+      "audit_rows": 1
+    },
+    {
+      "display_id": "TXN-566043",
+      "status": "fulfilled",
+      "total": "337.22",
+      "amount_paid": "337.22",
+      "balance": "0.00",
+      "line_total": "337.22",
+      "allocation_total": "337.22",
+      "active_open_lines": 0,
+      "unclassified_negative_allocations": 0,
+      "audit_rows": 1
+    },
+    {
+      "display_id": "TXN-566114",
+      "status": "fulfilled",
+      "total": "349.79",
+      "amount_paid": "349.79",
+      "balance": "0.00",
+      "line_total": "349.79",
+      "allocation_total": "349.79",
+      "active_open_lines": 0,
+      "unclassified_negative_allocations": 0,
+      "audit_rows": 1
+    },
+    {
+      "display_id": "TXN-566139",
+      "status": "fulfilled",
+      "total": "282.75",
+      "amount_paid": "282.75",
+      "balance": "0.00",
+      "line_total": "282.75",
+      "allocation_total": "282.75",
+      "active_open_lines": 0,
+      "unclassified_negative_allocations": 0,
+      "audit_rows": 1
+    },
+    {
+      "display_id": "TXN-566219",
+      "status": "fulfilled",
+      "total": "337.22",
+      "amount_paid": "337.22",
+      "balance": "0.00",
+      "line_total": "337.22",
+      "allocation_total": "337.22",
+      "active_open_lines": 0,
+      "unclassified_negative_allocations": 0,
+      "audit_rows": 1
+    },
+    {
+      "display_id": "TXN-566276",
+      "status": "fulfilled",
+      "total": "619.97",
+      "amount_paid": "619.97",
+      "balance": "0.00",
+      "line_total": "619.97",
+      "allocation_total": "619.97",
+      "active_open_lines": 0,
+      "unclassified_negative_allocations": 0,
+      "audit_rows": 1
+    },
+    {
+      "display_id": "TXN-566432",
+      "status": "fulfilled",
+      "total": "250.56",
+      "amount_paid": "250.56",
+      "balance": "0.00",
+      "line_total": "250.56",
+      "allocation_total": "250.56",
+      "active_open_lines": 0,
+      "unclassified_negative_allocations": 0,
+      "audit_rows": 1
+    }
+  ],
+  "current_source_differences": [
+    {
+      "display_id": "TXN-565980",
+      "classification": "legitimate_later_ros_pickup",
+      "fulfilled_at": "2026-07-23T15:42:15.240392Z"
+    },
+    {
+      "display_id": "TXN-566131",
+      "classification": "legitimate_later_ros_pickup",
+      "fulfilled_at": "2026-07-24T19:06:33.123561Z"
+    },
+    {
+      "display_id": "TXN-566228",
+      "classification": "legitimate_later_ros_pickup",
+      "fulfilled_at": "2026-07-28T14:35:43.924081Z",
+      "audit_summary": "Pickup completed in Register by ANTHONY POLICHETTI"
+    }
+  ],
+  "final_disposition": {
+    "operationally_unresolved_incident_records": 0,
+    "source_missing_records": 0,
+    "customer_balance_due_on_reconciled_records": "0.00",
+    "release_warning_resolved": true,
+    "historical_evidence_gap_retained": true,
+    "initiating_direct_repair_path_remains_disabled": true
+  }
+}

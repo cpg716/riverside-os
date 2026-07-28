@@ -7,6 +7,7 @@ pub mod checkout_validate;
 pub mod commission_events;
 pub mod commission_recalc;
 pub mod counterpoint_historical_refund_repair;
+pub mod counterpoint_incident_reconciliation;
 pub mod counterpoint_paid_price_repair;
 pub mod counterpoint_reconciliation;
 pub mod counterpoint_return_safety;

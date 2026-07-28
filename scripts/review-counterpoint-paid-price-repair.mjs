@@ -6,14 +6,20 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import net from "node:net";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-const repoRoot = path.resolve(new URL("..", import.meta.url).pathname);
+const repoRoot = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+);
 const bridgeRequire = createRequire(
   path.join(repoRoot, "counterpoint-bridge", "package.json"),
 );
 const sql = bridgeRequire("mssql");
 const outputPath = valueAfter("--output");
 const includeBlockedDetails = process.argv.includes("--include-blocked-details");
+const JULY_21_RECONCILIATION_DIGEST =
+  "e8cd09b7edbbc9f38ab8c018e00818865f9d16cbc667c9fd31d8bc5fa67cf651";
 
 function valueAfter(flag) {
   const index = process.argv.indexOf(flag);
@@ -877,6 +883,10 @@ function blockedDetails(transaction, source, candidate, mapped) {
       refunded_tender_total: transaction.refunded_tender_total,
       return_event_count: transaction.return_event_count,
       refund_allocation_count: transaction.refund_allocation_count,
+      unclassified_negative_allocation_count:
+        transaction.unclassified_negative_allocation_count,
+      unclassified_negative_allocation_total:
+        transaction.unclassified_negative_allocation_total,
       ros_lines: transaction.rows.map((line) => ({
         line_id: line.line_id,
         quantity: number(line.quantity),
@@ -924,6 +934,9 @@ function transactionSafetyBlockers(transaction, source, sourceKind) {
   if (number(transaction.refund_allocation_count) !== 0) {
     blockers.push("existing refund allocation");
   }
+  if (number(transaction.unclassified_negative_allocation_count) !== 0) {
+    blockers.push("negative payment allocation lacks explicit refund evidence");
+  }
   const allocatedTender = cents(transaction.allocated_tender_total) ?? 0;
   const storedPaid = cents(transaction.amount_paid) ?? 0;
   const sourceVerifiedLegacyPaid =
@@ -941,6 +954,25 @@ function transactionSafetyBlockers(transaction, source, sourceKind) {
   return blockers;
 }
 
+function verifiedIncidentReconciliation(transaction) {
+  const total = cents(transaction.total_price) ?? 0;
+  const paid = cents(transaction.amount_paid) ?? 0;
+  const allocated = cents(transaction.allocated_tender_total) ?? 0;
+  return (
+    number(transaction.incident_reconciliation_count) === 1 &&
+    transaction.incident_reconciliation_manifest_digest ===
+      JULY_21_RECONCILIATION_DIGEST &&
+    transaction.status === "fulfilled" &&
+    total === paid &&
+    paid === allocated &&
+    (cents(transaction.balance_due) ?? 0) === 0 &&
+    number(transaction.unclassified_negative_allocation_count) === 0 &&
+    transaction.rows.every(
+      (line) => number(line.quantity) <= 0 || line.is_fulfilled === true,
+    )
+  );
+}
+
 function buildHistoricalRefundCandidate(
   transaction,
   source,
@@ -951,6 +983,7 @@ function buildHistoricalRefundCandidate(
   if (
     sourceKind !== "closed_order_lifecycle" ||
     number(transaction.return_event_count) !== 0 ||
+    number(transaction.unclassified_negative_allocation_count) !== 0 ||
     (cents(transaction.shipping_amount_usd) ?? 0) !== 0 ||
     mapped.length !== transaction.rows.length
   ) {
@@ -1184,15 +1217,73 @@ async function main() {
       WHERE event_kind = 'counterpoint_historical_refund_restoration'
       GROUP BY transaction_id
     ),
+    incident_reconciliation AS (
+      SELECT transaction_id, COUNT(*)::bigint AS reconciliation_count
+      FROM transaction_activity_log
+      WHERE event_kind = 'counterpoint_incident_reconciliation'
+      GROUP BY transaction_id
+    ),
     allocation_rollup AS (
       SELECT
         pa.target_transaction_id AS transaction_id,
         COUNT(*) FILTER (
           WHERE pa.amount_allocated < 0
-             OR COALESCE(pa.metadata->>'kind', '') IN (
-               'order_refund', 'exchange_refund_remainder'
-             )
+            AND (
+              COALESCE(pa.metadata->>'kind', '') IN (
+                'order_refund',
+                'exchange_refund_remainder',
+                'legacy_migration_refund'
+              )
+              OR COALESCE(pt.metadata->>'kind', '') IN (
+                'order_refund',
+                'exchange_refund_remainder',
+                'legacy_migration_refund'
+              )
+              OR COALESCE(pa.metadata->>'refund_event_id', '') <> ''
+              OR COALESCE(pt.metadata->>'refund_event_id', '') <> ''
+            )
         )::bigint AS refund_allocation_count,
+        COUNT(*) FILTER (
+          WHERE pa.amount_allocated < 0
+            AND NOT (
+              COALESCE(pa.metadata->>'kind', '') IN (
+                'order_refund',
+                'exchange_refund_remainder',
+                'legacy_migration_refund'
+              )
+              OR COALESCE(pt.metadata->>'kind', '') IN (
+                'order_refund',
+                'exchange_refund_remainder',
+                'legacy_migration_refund'
+              )
+              OR COALESCE(pa.metadata->>'refund_event_id', '') <> ''
+              OR COALESCE(pt.metadata->>'refund_event_id', '') <> ''
+            )
+        )::bigint AS unclassified_negative_allocation_count,
+        ROUND(
+          COALESCE(SUM(
+            CASE
+              WHEN pa.amount_allocated < 0
+                AND NOT (
+                  COALESCE(pa.metadata->>'kind', '') IN (
+                    'order_refund',
+                    'exchange_refund_remainder',
+                    'legacy_migration_refund'
+                  )
+                  OR COALESCE(pt.metadata->>'kind', '') IN (
+                    'order_refund',
+                    'exchange_refund_remainder',
+                    'legacy_migration_refund'
+                  )
+                  OR COALESCE(pa.metadata->>'refund_event_id', '') <> ''
+                  OR COALESCE(pt.metadata->>'refund_event_id', '') <> ''
+                )
+              THEN -pa.amount_allocated
+              ELSE 0
+            END
+          ), 0),
+          2
+        )::numeric(14,2) AS unclassified_negative_allocation_total,
         ROUND(COALESCE(SUM(pa.amount_allocated), 0), 2)::numeric(14,2)
           AS allocated_tender_total,
         ROUND(
@@ -1200,10 +1291,31 @@ async function main() {
           2
         )::numeric(14,2) AS positive_tender_total,
         ROUND(
-          COALESCE(SUM(GREATEST(-pa.amount_allocated, 0)), 0),
+          COALESCE(SUM(
+            CASE
+              WHEN pa.amount_allocated < 0
+                AND (
+                  COALESCE(pa.metadata->>'kind', '') IN (
+                    'order_refund',
+                    'exchange_refund_remainder',
+                    'legacy_migration_refund'
+                  )
+                  OR COALESCE(pt.metadata->>'kind', '') IN (
+                    'order_refund',
+                    'exchange_refund_remainder',
+                    'legacy_migration_refund'
+                  )
+                  OR COALESCE(pa.metadata->>'refund_event_id', '') <> ''
+                  OR COALESCE(pt.metadata->>'refund_event_id', '') <> ''
+                )
+              THEN -pa.amount_allocated
+              ELSE 0
+            END
+          ), 0),
           2
         )::numeric(14,2) AS refunded_tender_total
       FROM payment_allocations pa
+      INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
       GROUP BY pa.target_transaction_id
     )
     SELECT
@@ -1221,7 +1333,17 @@ async function main() {
       (COALESCE(t.metadata, '{}'::jsonb)
         ? 'counterpoint_historical_refund_restoration')
         AS has_historical_restoration_marker,
+      COALESCE(ir.reconciliation_count, 0)::bigint
+        AS incident_reconciliation_count,
+      COALESCE(
+        t.metadata #>> '{counterpoint_incident_reconciliation,manifest_digest}',
+        ''
+      ) AS incident_reconciliation_manifest_digest,
       COALESCE(ar.refund_allocation_count, 0)::bigint AS refund_allocation_count,
+      COALESCE(ar.unclassified_negative_allocation_count, 0)::bigint
+        AS unclassified_negative_allocation_count,
+      COALESCE(ar.unclassified_negative_allocation_total, 0)::text
+        AS unclassified_negative_allocation_total,
       COALESCE(ar.allocated_tender_total, 0)::text AS allocated_tender_total,
       COALESCE(ar.positive_tender_total, 0)::text AS positive_tender_total,
       COALESCE(ar.refunded_tender_total, 0)::text AS refunded_tender_total,
@@ -1231,6 +1353,7 @@ async function main() {
       tl.discount_amount::text,
       tl.state_tax::text,
       tl.local_tax::text,
+      COALESCE(tl.is_fulfilled, FALSE) AS is_fulfilled,
       COALESCE(lrr.returned_quantity, 0)::bigint AS returned_quantity,
       COALESCE(lrr.returned_refund_subtotal, 0)::text
         AS returned_refund_subtotal,
@@ -1249,6 +1372,7 @@ async function main() {
     LEFT JOIN return_rollup rr ON rr.transaction_id = t.id
     LEFT JOIN line_return_rollup lrr ON lrr.transaction_line_id = tl.id
     LEFT JOIN historical_restoration hr ON hr.transaction_id = t.id
+    LEFT JOIN incident_reconciliation ir ON ir.transaction_id = t.id
     LEFT JOIN allocation_rollup ar ON ar.transaction_id = t.id
     WHERE COALESCE(t.is_counterpoint_import, FALSE)
       AND (t.counterpoint_ticket_ref IS NOT NULL OR t.counterpoint_doc_ref IS NOT NULL)
@@ -1320,7 +1444,22 @@ async function main() {
     const financialObservations = [];
     const lifecycleRepairCandidates = [];
     const verifiedHistoricalRestorations = [];
+    const verifiedIncidentReconciliations = [];
     for (const transaction of transactions) {
+      if (verifiedIncidentReconciliation(transaction)) {
+        verifiedIncidentReconciliations.push({
+          transaction_id: transaction.transaction_id,
+          display_id: transaction.display_id,
+          manifest_digest: transaction.incident_reconciliation_manifest_digest,
+          total: money(cents(transaction.total_price) ?? 0),
+          amount_paid: money(cents(transaction.amount_paid) ?? 0),
+          balance: money(cents(transaction.balance_due) ?? 0),
+          allocation_total: money(
+            cents(transaction.allocated_tender_total) ?? 0,
+          ),
+        });
+        continue;
+      }
       let sourceKind = "";
       let relevant = false;
       let source;
@@ -1461,6 +1600,9 @@ async function main() {
     verifiedHistoricalRestorations.sort((left, right) =>
       left.display_id.localeCompare(right.display_id),
     );
+    verifiedIncidentReconciliations.sort((left, right) =>
+      left.display_id.localeCompare(right.display_id),
+    );
     const manifestDigest = crypto
       .createHash("sha256")
       .update(JSON.stringify(candidates))
@@ -1498,6 +1640,8 @@ async function main() {
         ),
         verified_historical_restorations:
           verifiedHistoricalRestorations.length,
+        verified_incident_reconciliations:
+          verifiedIncidentReconciliations.length,
         return_review_block_transactions: returnReviewBlocks.length,
         candidates_by_source_kind: candidates.reduce((counts, candidate) => {
           counts[candidate.source_kind] =
@@ -1509,6 +1653,7 @@ async function main() {
       lifecycle_repair_manifest_digest: lifecycleManifestDigest,
       lifecycle_repair_candidates: lifecycleRepairCandidates,
       verified_historical_restorations: verifiedHistoricalRestorations,
+      verified_incident_reconciliations: verifiedIncidentReconciliations,
       return_review_block_manifest_digest: returnReviewBlockManifestDigest,
       return_review_blocks: returnReviewBlocks,
       blocked,

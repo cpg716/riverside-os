@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Faster Fail-Closed Windows Releases**: Same-tag Windows release reruns now cancel the superseded workflow instead of waiting behind assets that cannot be published. Signed component compilation overlaps the pre-retag gate, while package publication still requires both that gate and exact-commit Playwright success. Independent Rust caches now retain Riverside workspace-crate outputs so restored caches can accelerate repeat builds instead of preserving dependencies only. The release-contract validator normalizes Windows CRLF checkouts before evaluating workflow structure.
 
 ### Fixed
+- **July 21 Counterpoint Incident Final Reconciliation**: Re-read all 567
+  retained records against live ROS and Counterpoint source evidence, then
+  reconciled the seven proven operational exceptions through one exact,
+  serializable, audited manifest. The operation preserved every Helcim payment
+  and all inventory, removed only four proven Counterpoint import artifacts,
+  restored exact completed lines and recognition, and left all seven records
+  fulfilled with matching line/header/allocation totals and `$0.00` balance.
+  Refund review and apply now require explicit refund evidence; a bare negative
+  imported allocation is treated as an unresolved transfer offset, never as a
+  customer refund.
 - **In-Register Helcim Restore and Atomic Refund Completion**: The Register
   payment screen now provides a Restore workspace for the current sale that
   can refresh terminal health, re-verify and attach the exact approved Helcim

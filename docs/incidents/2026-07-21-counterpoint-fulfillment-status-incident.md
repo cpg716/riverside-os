@@ -2,7 +2,11 @@
 
 ## Evidence status
 
-This incident is **not fully reconstructable at the original 585-record scope**.
+The incident's operational exceptions were fully reconciled on July 28, 2026.
+Operationally unresolved incident records: **0**. The original incident remains
+**not fully reconstructable at the original 585-record scope**, and that
+historical evidence limitation is retained rather than rewritten.
+
 The exact command, code path, reported update count, recovery events, and known
 downstream effects are proven. The exact original 585 Transaction Record IDs
 are not: the repair script wrote its working manifest to a temporary CSV and
@@ -325,6 +329,67 @@ These recovery-specific files are a held design, not a production feature. They
 were removed from the executable migration list, API router, and client render
 path after adversarial validation found the universal-boundary failures below.
 Do not use direct SQL to work around the absence of a safe workflow.
+
+## Final operational reconciliation — July 28, 2026
+
+A fresh read-only comparison covered all 567 retained Transaction Records
+against the live ROS ledger and Counterpoint SQL source:
+
+| Counterpoint source state | Records |
+|---|---:|
+| Open only | 508 |
+| Completed only | 44 |
+| Partial open and completed | 15 |
+| Missing | 0 |
+
+The comparison proved that 558 records were already operationally consistent.
+Two records previously listed as differences had legitimate later ROS pickups.
+A third legitimate pickup was completed in Register while the final review was
+in progress. Those three records remain fulfilled because their canonical ROS
+pickup activity and line lifecycle evidence postdate the July 22 recovery.
+
+Seven records remained as actual July 21/22 recovery exceptions:
+`TXN-565939`, `TXN-566043`, `TXN-566114`, `TXN-566139`, `TXN-566219`,
+`TXN-566276`, and `TXN-566432`.
+
+Counterpoint payment and ticket evidence proved that four negative imported
+allocations in this exact set were not customer refunds. They were three
+Counterpoint deposit/release transfer artifacts plus one imported tender
+duplicated by an independently verified Helcim payment. A bare negative
+allocation is therefore no longer accepted as refund evidence by either the
+reviewer or the server apply boundary. Explicit refund metadata or a linked
+refund event is required.
+
+The final reconciliation used exact reviewed IDs and values, a serializable
+transaction, an advisory lock, a retained manifest digest, active Chris G
+staff attribution, before/after snapshots, per-Transaction activity, and an
+operation audit. The complete operation rolled back on any stale or
+non-matching row. It:
+
+- reconciled all seven Transaction Records;
+- updated nine existing line rows and added one audited derived line solely to
+  preserve Counterpoint's exact per-ticket tax rounding;
+- removed four exact non-provider Counterpoint import artifacts;
+- changed no Helcim/provider payment;
+- changed no inventory;
+- left every reconciled line total equal to its header total;
+- left every allocation total equal to amount paid;
+- left every reconciled balance at `$0.00`;
+- left zero active unfulfilled lines and one reconciliation audit row on each
+  record.
+
+The applied manifest digest is
+`e8cd09b7edbbc9f38ab8c018e00818865f9d16cbc667c9fd31d8bc5fa67cf651`.
+The fresh post-apply 567-record source comparison has SHA-256
+`a37d71c8d3a01d967d2a0cea4984ff4acfb2151842eb3568c2efbf636a089dfd`.
+Sanitized final evidence is retained in
+[2026-07-28-counterpoint-final-reconciliation-evidence.json](evidence/2026-07-28-counterpoint-final-reconciliation-evidence.json).
+
+The historical 557/1/9 classification above remains the July 23 forensic
+snapshot and must not be rewritten as if it had been a final operational
+state. The original 585-ID manifest gap, allocation-history limitation, and
+aggregate-QBO limitation remain disclosed. The initiating direct repair path
+remains disabled.
 
 The held database-guard design is **not approved for release as a universal
 fulfillment boundary**. Review proved that its statement/transaction guard can be bypassed

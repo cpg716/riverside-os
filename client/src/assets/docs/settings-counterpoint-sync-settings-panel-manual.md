@@ -103,6 +103,11 @@ through the reviewed support workflow. Records whose paid price, tax, quantity,
 payment, or historical-refund evidence is ambiguous remain unchanged and are
 placed on a return/refund safety hold.
 
+A negative imported Counterpoint allocation is not, by itself, proof that the
+customer received a refund. Riverside requires explicit refund evidence and
+leaves unclassified deposit/release transfer offsets on review. Staff must not
+remove the hold or create a return from the negative sign alone.
+
 The hold blocks return, refund, void, and exchange settlement before inventory,
 tender, or provider changes. Tell support the Transaction Record number shown
 in the message. Do not work around the hold by selecting another sale, changing
