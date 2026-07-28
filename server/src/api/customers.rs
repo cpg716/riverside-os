@@ -6868,6 +6868,8 @@ pub(crate) async fn build_customer_timeline(
             )
         )
           AND COALESCE(e.metadata->>'backfilled', 'false') <> 'true'
+          AND e.is_internal = FALSE
+          AND COALESCE(e.metadata->>'reporting_excluded', '') = ''
           AND (
               e.event_kind <> 'initial_booking'
               OR e.booked_at > o.booked_at + INTERVAL '1 minute'

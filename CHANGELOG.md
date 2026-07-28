@@ -37,6 +37,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the July 28 reconciliation were retained as audit evidence but excluded from
   reporting; no transaction, payment, tax, inventory, or customer balance was
   changed by the reporting correction.
+- **Donald Dussing Order Amendment Reporting Repair**: Restored the reviewed
+  July 28 `TXN-566034` / `B-1417953` staff amendment to Booked Daily Sales and
+  Z-Reports, while Customer Interaction Timeline now hides internal and
+  reporting-excluded Counterpoint repair bookkeeping.
 - **July 21 Counterpoint Incident Final Reconciliation**: Re-read all 567
   retained records against live ROS and Counterpoint source evidence, then
   reconciled the seven proven operational exceptions through one exact,
