@@ -567,11 +567,11 @@ test.describe("inventory audit contract", () => {
       ),
     ]);
 
-    expect(attempts.map((attempt) => attempt.status).sort()).toEqual([200, 400]);
-    const rejectedAttempt = attempts.find((attempt) => attempt.status === 400);
-    expect(rejectedAttempt?.bodyText).toContain(
-      "only open Transaction Records can be released",
+    expect(attempts.map((attempt) => attempt.status).sort()).toEqual([200, 200]);
+    const attemptBodies = attempts.map(
+      (attempt) => JSON.parse(attempt.bodyText) as { already_completed?: boolean },
     );
+    expect(attemptBodies.filter((body) => body.already_completed).length).toBe(1);
 
     const afterPickup = await getInventoryIntelligence(request, product.variantId);
     expect(afterPickup.stock_on_hand).toBe(0);
