@@ -104,8 +104,10 @@ import {
   type PosOrderOptions,
   type PendingAlterationIntake,
   type OrderPaymentCartLine,
+  type PickupReadyAlteration,
+  type PickupTransactionSelection,
   type CartTotals,
-  type ExchangeReturnHandoffLine
+  type ExchangeReturnHandoffLine,
 } from "./types";
 import { PosRegisterLiveClock } from "./cart/PosRegisterLiveClock";
 import { PosSearchResultList, type SearchResult } from "./cart/PosSearchResultList";
@@ -113,7 +115,7 @@ import { useCartPersistence } from "../../hooks/useCartPersistence";
 import { usePosSearch } from "../../hooks/usePosSearch";
 import { useCartActions } from "../../hooks/useCartActions";
 import { calculateNysErieTaxStringsForUnit } from "../../lib/tax";
-import { useCartCheckout, type PickupTransactionSelection } from "../../hooks/useCartCheckout";
+import { useCartCheckout } from "../../hooks/useCartCheckout";
 import { useParkedSales } from "../../hooks/useParkedSales";
 import { deleteParkedSaleOnServer } from "../../lib/posParkedSales";
 import StaffMiniSelector from "../ui/StaffMiniSelector";
@@ -366,16 +368,7 @@ interface HandoffOrderDetail {
     customer_code?: string | null;
     company_name?: string | null;
   } | null;
-  linked_alterations?: Array<{
-    id: string;
-    status: string;
-    item_description?: string | null;
-    work_requested: string;
-    source_sku?: string | null;
-    ticket_number?: string | null;
-    source_transaction_line_id?: string | null;
-    picked_up_at?: string | null;
-  }>;
+  linked_alterations?: PickupReadyAlteration[];
   items: Array<{
     transaction_line_id: string;
     product_id: string;
@@ -2139,6 +2132,10 @@ export default function Cart({
     checkoutOperator,
     pendingAlterationIntakes,
     orderPaymentLines,
+    pickupTransactionId,
+    pickupTransactions,
+    pickupPaidAmountCents,
+    pickupReadyAlterations,
     pendingReturnLineDrafts,
     retainCheckoutIdentity:
       checkoutDrawerOpen ||
@@ -2157,6 +2154,10 @@ export default function Cart({
     setAppliedPayments: setCheckoutAppliedPayments,
     setPendingAlterationIntakes,
     setOrderPaymentLines,
+    setPickupTransactionId,
+    setPickupTransactions,
+    setPickupPaidAmountCents,
+    setPickupReadyAlterations,
     setPendingReturnLineDrafts,
     clearCart: clearCartAndAlterations,
   });
@@ -6023,6 +6024,7 @@ export default function Cart({
             registerSessionId={sessionId}
             baseUrl={baseUrl}
             apiAuth={apiAuth}
+            stagedOrderPayments={orderPaymentLines}
             onMakePayment={addOrderPaymentLine}
             onAddItemToOrder={addItemToExistingOrder}
             onUpdateOrderItem={updateExistingOrderItem}
@@ -6110,7 +6112,22 @@ export default function Cart({
                 setManagerOverrideManagerStaffId("");
                 setManagerOverrideManagerPin("");
                 setLines(cartLines);
-                setOrderPaymentLines(paymentLines);
+                setOrderPaymentLines((currentPaymentLines) => {
+                  const explicitlyStagedTargets = new Set(
+                    currentPaymentLines.map(
+                      (line) => line.target_transaction_id,
+                    ),
+                  );
+                  return [
+                    ...currentPaymentLines,
+                    ...paymentLines.filter(
+                      (line) =>
+                        !explicitlyStagedTargets.has(
+                          line.target_transaction_id,
+                        ),
+                    ),
+                  ];
+                });
                 setCheckoutDrawerOpen(true);
                 toast(`Loaded ${cartLines.length} pickup item(s) from ${selectionsForCheckout.length} order(s).`, "success");
                 return true;

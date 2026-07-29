@@ -341,6 +341,8 @@ pub struct TransactionDetailResponse {
     pub amount_paid: Decimal,
     #[serde(default)]
     pub wedding_deposit_amount: Decimal,
+    #[serde(default)]
+    pub wedding_deposits: Vec<receipt_shared::ReceiptWeddingPartyDeposit>,
     pub balance_due: Decimal,
     pub is_counterpoint_import: bool,
     #[serde(default)]
@@ -764,6 +766,7 @@ impl TransactionDetailResponse {
             total_savings,
             amount_paid: receipt_amount_paid,
             wedding_deposit_amount: self.wedding_deposit_amount,
+            wedding_deposits: self.wedding_deposits.clone(),
             balance_due: receipt_balance_due,
             payment_methods_summary: if refund_receipt {
                 self.refund_payment_methods_summary.clone()
@@ -996,6 +999,7 @@ mod tests {
             total_price: Decimal::new(1000, 2),
             amount_paid: Decimal::new(1000, 2),
             wedding_deposit_amount: Decimal::ZERO,
+            wedding_deposits: Vec::new(),
             balance_due: Decimal::ZERO,
             is_counterpoint_import: false,
             counterpoint_return_review_blocked: false,
@@ -3009,6 +3013,7 @@ async fn build_refund_event_receipt_order(
             .unwrap_or(Decimal::ZERO),
         amount_paid: event_total,
         wedding_deposit_amount: Decimal::ZERO,
+        wedding_deposits: Vec::new(),
         balance_due: Decimal::ZERO,
         payment_methods_summary,
         payment_applications: Vec::new(),
@@ -3283,6 +3288,9 @@ pub struct PatchTransactionFinancialDateRequest {
 pub struct PickupTransactionRequest {
     #[serde(default)]
     pub delivered_item_ids: Vec<Uuid>,
+    /// Pickup may mutate fulfillment only from the Register cart completion flow.
+    #[serde(default)]
+    pub register_cart_completion: bool,
     #[serde(default)]
     pub actor: Option<String>,
     #[serde(default)]
@@ -5228,6 +5236,12 @@ async fn mark_transaction_pickup(
     Json(body): Json<PickupTransactionRequest>,
 ) -> Result<Json<serde_json::Value>, TransactionError> {
     validate_release_line_scope(&body.delivered_item_ids, "pickup")?;
+    if !body.register_cart_completion {
+        return Err(TransactionError::InvalidPayload(
+            "Pickup must be completed from the Register cart. Load the order into the cart and finish the full checkout flow through Sale Complete."
+                .to_string(),
+        ));
+    }
     let register_session_id = body.register_session_id.ok_or_else(|| {
         TransactionError::InvalidPayload(
             "Pickup completion must be run from an open Register session.".to_string(),
@@ -5251,6 +5265,34 @@ async fn mark_transaction_pickup(
             .fetch_optional(&mut *tx)
             .await?;
     let locked_status = locked_status.ok_or(TransactionError::NotFound)?;
+    if locked_status != DbOrderStatus::Cancelled && !body.delivered_item_ids.is_empty() {
+        let (matched_line_count, fulfilled_line_count): (i64, i64) = sqlx::query_as(
+            r#"
+            SELECT
+                COUNT(*)::bigint,
+                COUNT(*) FILTER (WHERE is_fulfilled)::bigint
+            FROM transaction_lines
+            WHERE transaction_id = $1
+              AND id = ANY($2)
+              AND COALESCE(is_internal, false) = FALSE
+            "#,
+        )
+        .bind(transaction_id)
+        .bind(&body.delivered_item_ids)
+        .fetch_one(&mut *tx)
+        .await?;
+        let requested_line_count = body.delivered_item_ids.len() as i64;
+        if matched_line_count == requested_line_count
+            && fulfilled_line_count == requested_line_count
+        {
+            return Ok(Json(json!({
+                "success": true,
+                "already_completed": true,
+                "transaction_id": transaction_id,
+                "warnings": ["These pickup items were already completed. No inventory, revenue, commission, or audit activity was recorded again."]
+            })));
+        }
+    }
     validate_release_transaction_status(locked_status, "Pickup")?;
 
     if let Some(checkout_transaction_id) = body.checkout_transaction_id {
@@ -5765,6 +5807,7 @@ async fn mark_transaction_pickup(
         json!({
             "delivered_item_count": claimed_fulfillment_line_ids.len(),
             "requested_delivered_item_count": body.delivered_item_ids.len(),
+            "register_cart_completion": body.register_cart_completion,
             "readiness_override": body.override_readiness,
             "override_reason": if body.override_readiness { Some(override_reason) } else { None::<&str> },
             "readiness_override_manager_staff_id": readiness_override_manager_staff_id,
@@ -11475,28 +11518,54 @@ pub(crate) async fn load_transaction_detail(
     )
     .collect::<Vec<_>>();
 
-    let wedding_deposit_amount: Decimal = sqlx::query_scalar(
+    let wedding_deposits = sqlx::query_as::<_, (String, Decimal)>(
         r#"
-        SELECT (
-            COALESCE((
-                SELECT SUM(l.amount)
-                FROM customer_open_deposit_ledger l
-                WHERE l.transaction_id = $1
-                  AND l.reason = 'party_split_deposit'
-            ), 0)
-            + COALESCE((
-                SELECT SUM(pa.amount_allocated)
-                FROM payment_allocations pa
-                INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
-                WHERE pt.metadata->>'checkout_transaction_id' = $1::text
-                  AND pa.metadata->>'kind' = 'wedding_group_disbursement'
-            ), 0)
-        )::numeric(14,2)
+        WITH deposit_rows AS (
+            SELECT
+                l.wedding_party_id,
+                l.amount
+            FROM customer_open_deposit_ledger l
+            WHERE l.transaction_id = $1
+              AND l.reason = 'party_split_deposit'
+
+            UNION ALL
+
+            SELECT
+                wm.wedding_party_id,
+                pa.amount_allocated
+            FROM payment_allocations pa
+            INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
+            INNER JOIN transactions target ON target.id = pa.target_transaction_id
+            INNER JOIN wedding_members wm ON wm.id = target.wedding_member_id
+            WHERE pt.metadata->>'checkout_transaction_id' = $1::text
+              AND pa.metadata->>'kind' = 'wedding_group_disbursement'
+        )
+        SELECT
+            COALESCE(
+                NULLIF(TRIM(wp.party_name), ''),
+                NULLIF(TRIM(wp.groom_name), ''),
+                'Wedding party'
+            ) AS party_name,
+            ROUND(SUM(deposit_rows.amount), 2)::numeric(14,2) AS amount
+        FROM deposit_rows
+        LEFT JOIN wedding_parties wp ON wp.id = deposit_rows.wedding_party_id
+        GROUP BY
+            deposit_rows.wedding_party_id,
+            wp.party_name,
+            wp.groom_name
+        ORDER BY party_name
         "#,
     )
     .bind(transaction_id)
-    .fetch_one(pool)
-    .await?;
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .map(|(party_name, amount)| receipt_shared::ReceiptWeddingPartyDeposit { party_name, amount })
+    .collect::<Vec<_>>();
+    let wedding_deposit_amount = wedding_deposits
+        .iter()
+        .fold(Decimal::ZERO, |sum, deposit| sum + deposit.amount)
+        .round_dp(2);
 
     let pickup_applications = sqlx::query_as::<
         _,
@@ -11782,6 +11851,7 @@ pub(crate) async fn load_transaction_detail(
         total_price: h.total_price,
         amount_paid: h.amount_paid,
         wedding_deposit_amount,
+        wedding_deposits,
         balance_due: h.balance_due,
         is_counterpoint_import: h.is_counterpoint_import,
         counterpoint_return_review_blocked: h.counterpoint_return_review_blocked,

@@ -1015,7 +1015,7 @@ export default function TransactionDetailDrawer({
   const [pickupTargetLineIds, setPickupTargetLineIds] = useState<
     string[] | null
   >(null);
-  const [pickupBusy, setPickupBusy] = useState(false);
+  const pickupBusy = false;
   const [pickupError, setPickupError] = useState<string | null>(null);
   const [customEditItem, setCustomEditItem] =
     useState<TransactionDrawerItem | null>(null);
@@ -1276,95 +1276,19 @@ export default function TransactionDetailDrawer({
     usesControlledData,
   ]);
 
-  const submitPickupRelease = useCallback(async () => {
-    if (!detail || !summary) return;
-    const dueCents = parseMoneyToCents(detail.balance_due);
-    if (dueCents > 0) {
-      setPickupError("Collect the Balance Due before pickup release.");
-      return;
-    }
-    const candidateLines = pickupTargetLineIds
-      ? pickupReleaseLines.open.filter((item) =>
-          item.transaction_line_id
-            ? pickupTargetLineIds.includes(item.transaction_line_id)
-            : false,
-        )
-      : pickupReleaseLines.open;
-    const targetLines = pickupOverride
-      ? candidateLines
-      : candidateLines.filter(
-          (item) => item.order_lifecycle_status === "ready_for_pickup",
-        );
-    const deliveredItemIds = targetLines
-      .map((item) => item.transaction_line_id)
-      .filter((id): id is string => Boolean(id));
-    if (deliveredItemIds.length === 0) {
-      setPickupError("No ready pickup items are selected for release.");
-      return;
-    }
-    const reason = pickupOverrideReason.trim();
-    if (pickupOverride && reason.length < 12) {
+  const continuePickupInRegister = useCallback(() => {
+    if (!detail || !orderActions?.onOpenInRegister) {
       setPickupError(
-        "Enter a clear readiness override reason before releasing blocked items.",
+        "Pickup must be opened in the Register cart and finished through Sale Complete.",
       );
       return;
     }
-    setPickupBusy(true);
-    setPickupError(null);
-    try {
-      const res = await fetch(
-        `${baseUrl}/api/transactions/${detail.transaction_id}/pickup`,
-        {
-          method: "POST",
-          headers: {
-            ...auth(),
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            delivered_item_ids: deliveredItemIds,
-            actor: recordTitle,
-            override_readiness: pickupOverride,
-            override_reason: pickupOverride ? reason : undefined,
-            register_session_id: detail.register_session_id ?? undefined,
-          }),
-        },
-      );
-      if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
-        setPickupError(body.error ?? "Pickup release could not be completed.");
-        return;
-      }
-      toast(
-        pickupOverride
-          ? "Pickup released with readiness override recorded."
-          : "Ready pickup items released.",
-        "success",
-      );
-      setShowPickupReleaseModal(false);
-      setPickupTargetLineIds(null);
-      setPickupOverride(false);
-      setPickupOverrideReason("");
-      await onLifecycleChanged?.();
-      if (!usesControlledData) {
-        await load();
-      }
-    } finally {
-      setPickupBusy(false);
-    }
-  }, [
-    auth,
-    detail,
-    load,
-    onLifecycleChanged,
-    pickupOverride,
-    pickupOverrideReason,
-    pickupReleaseLines.open,
-    pickupTargetLineIds,
-    recordTitle,
-    summary,
-    toast,
-    usesControlledData,
-  ]);
+    setShowPickupReleaseModal(false);
+    setPickupTargetLineIds(null);
+    setPickupOverride(false);
+    setPickupOverrideReason("");
+    orderActions.onOpenInRegister(detail.transaction_id, true);
+  }, [detail, orderActions]);
 
   useEffect(() => {
     if (!detail || !editingLineId) return;
@@ -1598,10 +1522,8 @@ export default function TransactionDetailDrawer({
   );
   const pickupCanSubmit =
     Boolean(detail) &&
-    pickupBalanceDueCents <= 0 &&
-    (pickupOverride
-      ? pickupModalOpenLines.length > 0
-      : pickupModalReadyLines.length > 0);
+    Boolean(orderActions?.onOpenInRegister) &&
+    pickupModalOpenLines.length > 0;
 
   return (
     <>
@@ -2732,15 +2654,15 @@ export default function TransactionDetailDrawer({
                 <div className="ui-modal-header flex items-center justify-between">
                   <div>
                     <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                      Pickup Release
+                      Finish Pickup in Register
                     </p>
                     <h3 className="mt-1 text-xl font-black text-app-text">
                       {detail.transaction_display_id ??
                         detail.transaction_id.slice(0, 8)}
                     </h3>
                     <p className="mt-1 text-xs font-semibold text-app-text-muted">
-                      Recognition, inventory, commission, and reporting move
-                      when pickup is released.
+                      Nothing is marked picked up here. The Register cart must
+                      finish through Sale Complete.
                     </p>
                   </div>
                   <button
@@ -2903,15 +2825,11 @@ export default function TransactionDetailDrawer({
                   </button>
                   <button
                     type="button"
-                    onClick={() => void submitPickupRelease()}
+                    onClick={continuePickupInRegister}
                     disabled={pickupBusy || !pickupCanSubmit}
                     className="flex-1 rounded-xl border-b-4 border-app-success bg-app-success px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-50"
                   >
-                    {pickupBusy
-                      ? "Releasing..."
-                      : pickupOverride
-                        ? "Release with Override"
-                        : "Release Ready Items"}
+                    Continue in Register
                   </button>
                 </div>
               </div>

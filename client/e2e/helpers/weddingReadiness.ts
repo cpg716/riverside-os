@@ -250,6 +250,7 @@ export async function pickupLine(
     data: {
       actor: "Phase 4 Readiness Certification",
       delivered_item_ids: [lineId],
+      register_cart_completion: true,
       register_session_id: sessionId,
     },
     failOnStatusCode: false,

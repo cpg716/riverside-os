@@ -11,7 +11,8 @@ import {
   type PosShippingSelection,
   type PosOrderOptions,
   type PendingAlterationIntake,
-  type OrderPaymentCartLine
+  type OrderPaymentCartLine,
+  type PickupTransactionSelection,
 } from "../components/pos/types";
 import { parseMoneyToCents, centsToFixed2 } from "../lib/money";
 import { isNonTaxableServiceLine } from "../lib/cartTax";
@@ -58,11 +59,6 @@ interface UseCartCheckoutProps {
   onSaleCompleted?: () => void;
   ensurePosTokenForSession: () => Promise<string | null>;
   requestPickupPaymentOverride?: (message: string) => Promise<NonNullable<PosOrderOptions["pickupPaymentOverride"]> | null>;
-}
-
-export interface PickupTransactionSelection {
-  transactionId: string;
-  lineIds: string[];
 }
 
 interface CheckoutExecutionOverrides {
@@ -407,6 +403,7 @@ export function useCartCheckout({
           headers: { ...apiAuth(), "Content-Type": "application/json" },
           body: JSON.stringify({
             delivered_item_ids: deliveredItemIds,
+            register_cart_completion: true,
             actor: op.fullName.trim() || cashierName?.trim() || "Register Pickup Flow",
             override_readiness: pickupOptions?.overrideReadiness ?? false,
             override_reason: pickupOptions?.overrideReadiness
@@ -954,26 +951,39 @@ export function useCartCheckout({
         const deliveredItemIds = checkoutLines.flatMap((line) =>
           line.transaction_line_id ? [line.transaction_line_id] : [],
         );
+        const recoveryPickupSelections = pickupTransactions.length > 0
+          ? pickupTransactions
+          : [{ transactionId: pickupTransactionId, lineIds: deliveredItemIds }];
+        const completedPickupTransactionIds = new Set<string>();
         try {
           const pickupResults = [];
-          const recoveryPickupSelections = pickupTransactions.length > 0
-            ? pickupTransactions
-            : [{ transactionId: pickupTransactionId, lineIds: deliveredItemIds }];
           for (const selection of recoveryPickupSelections) {
-            pickupResults.push(
-              await completePickupWithOptionalPaymentOverride(
-                selection.transactionId,
-                selection.lineIds,
-                options,
-                data.transaction_id,
-              ),
+            const result = await completePickupWithOptionalPaymentOverride(
+              selection.transactionId,
+              selection.lineIds,
+              options,
+              data.transaction_id,
             );
+            pickupResults.push({ selection, result });
+            if (result.ok) {
+              completedPickupTransactionIds.add(selection.transactionId);
+            }
           }
-          const pickupResult = pickupResults.find((result) => !result.ok) ?? {
+          const failedPickupAttempts = pickupResults.filter(
+            (attempt) => !attempt.result.ok,
+          );
+          const pickupResult = failedPickupAttempts[0]?.result ?? {
             ok: true as const,
             warnings: pickupResults
-              .filter((result): result is { ok: true; warnings: string[] } => result.ok)
-              .flatMap((result) => result.warnings),
+              .filter(
+                (
+                  attempt,
+                ): attempt is {
+                  selection: PickupTransactionSelection;
+                  result: { ok: true; warnings: string[] };
+                } => attempt.result.ok,
+              )
+              .flatMap((attempt) => attempt.result.warnings),
           };
           if (pickupResult.ok) {
             for (const warning of pickupResult.warnings) if (warning.trim()) toast(warning, "info");
@@ -1024,7 +1034,7 @@ export function useCartCheckout({
               recoveryKind: "pickup_after_payment",
               recoveryKey: pickupTransactionId,
               recoveryTransactionId: pickupTransactionId,
-              recoverySteps: recoveryPickupSelections.map((selection) => ({
+              recoverySteps: failedPickupAttempts.map(({ selection }) => ({
                 kind: "pickup_transaction" as const,
                 transaction_id: selection.transactionId,
                 transaction_line_ids: selection.lineIds,
@@ -1039,14 +1049,16 @@ export function useCartCheckout({
             recoveryKind: "pickup_after_payment",
             recoveryKey: pickupTransactionId,
             recoveryTransactionId: pickupTransactionId,
-            recoverySteps: (pickupTransactions.length > 0
-              ? pickupTransactions
-              : [{ transactionId: pickupTransactionId, lineIds: deliveredItemIds }]
-            ).map((selection) => ({
-              kind: "pickup_transaction" as const,
-              transaction_id: selection.transactionId,
-              transaction_line_ids: selection.lineIds,
-            })),
+            recoverySteps: recoveryPickupSelections
+              .filter(
+                (selection) =>
+                  !completedPickupTransactionIds.has(selection.transactionId),
+              )
+              .map((selection) => ({
+                kind: "pickup_transaction" as const,
+                transaction_id: selection.transactionId,
+                transaction_line_ids: selection.lineIds,
+              })),
             authHeaders: apiAuth(),
           });
           toast("Payment saved, but pickup is not complete. Review checkout recovery before closing.", "error");

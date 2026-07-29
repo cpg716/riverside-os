@@ -56,6 +56,7 @@ The Orders workspace is the main place to review Special, Custom, and Wedding or
 - Wedding order detail should show the linked party, member role, and event date so staff know to keep balances and pickup work in the wedding workflow.
 - A paid wedding balance does not automatically mean the order is ready. Confirm the linked member is actually ready for pickup before release.
 - The **Order Progress** panel in Order Detail is the quickest way to tell whether items still need details, are ready to order, have been ordered, were received, are ready for pickup, or were picked up.
+- Order Detail never completes pickup. Use **Open in Register**, load the pickup lines into the Register cart, and finish the full checkout flow. The order and its lines change to completed or **Picked Up** only after **Sale Complete** opens.
 - In the list view, read each column from left to right: Transaction, Customer, Order Items, Salesperson, Status, Amounts, and Balance. Use **Register** from the row when the work needs register review.
 - Imported active Counterpoint obligations are labeled **Counterpoint Open Document** rather than an abbreviated internal code.
 

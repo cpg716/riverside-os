@@ -758,6 +758,7 @@ async function markPickup(
     },
     data: {
       delivered_item_ids: deliveredItemIds,
+      register_cart_completion: true,
       actor: "QBO layaway audit",
       override_readiness: true,
       override_reason: "QBO audit fixture releases controlled layaway transaction.",

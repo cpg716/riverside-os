@@ -371,6 +371,7 @@ async function pickupTransaction(
     },
     data: {
       delivered_item_ids: deliveredItemIds,
+      register_cart_completion: true,
       actor: "E2E Inventory Audit",
       override_readiness: true,
       override_reason: "Inventory audit uses controlled fixture readiness.",
@@ -460,6 +461,7 @@ test.describe("inventory audit contract", () => {
       },
       data: {
         delivered_item_ids: [lineBeforePickup!.transaction_line_id],
+        register_cart_completion: true,
         actor: "E2E Inventory Audit",
         register_session_id: sessionId,
       },
@@ -479,6 +481,7 @@ test.describe("inventory audit contract", () => {
       },
       data: {
         delivered_item_ids: [lineBeforePickup!.transaction_line_id],
+        register_cart_completion: true,
         actor: "E2E Inventory Audit",
         override_readiness: true,
         override_reason: "Inventory audit confirms stock movement after explicit override.",

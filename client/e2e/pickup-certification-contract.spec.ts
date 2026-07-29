@@ -37,6 +37,7 @@ type TransactionAuditEvent = {
     delivered_item_count?: number;
     shipped_item_count?: number;
     readiness_override?: boolean;
+    register_cart_completion?: boolean;
     override_reason?: string | null;
     payment_override?: boolean;
     payment_override_detail?: {
@@ -217,6 +218,7 @@ async function pickup(
     data: {
       actor: "Pickup Certification",
       register_session_id: sessionId,
+      register_cart_completion: true,
       ...data,
     },
     failOnStatusCode: false,
@@ -361,10 +363,36 @@ test.describe("pickup launch certification contract", () => {
     expect(depositReadyLine, "deposit override fixture line missing").toBeTruthy();
     await markLineReady(request, depositReadyLine!.transaction_line_id);
 
+    const directOrderScreenAttempt = await pickup(
+      request,
+      depositCheckout.transaction_id,
+      sessionId,
+      sessionToken,
+      {
+        delivered_item_ids: [depositReadyLine!.transaction_line_id],
+        register_cart_completion: false,
+      },
+    );
+    expect(
+      directOrderScreenAttempt.status,
+      directOrderScreenAttempt.bodyText.slice(0, 1000),
+    ).toBe(400);
+    expect(directOrderScreenAttempt.bodyText).toContain(
+      "finish the full checkout flow through Sale Complete",
+    );
+
     const depositApproved = await pickup(request, depositCheckout.transaction_id, sessionId, sessionToken, {
       delivered_item_ids: [depositReadyLine!.transaction_line_id],
     });
     expect(depositApproved.status, depositApproved.bodyText.slice(0, 1000)).toBe(200);
+    const depositRetry = await pickup(request, depositCheckout.transaction_id, sessionId, sessionToken, {
+      delivered_item_ids: [depositReadyLine!.transaction_line_id],
+    });
+    expect(depositRetry.status, depositRetry.bodyText.slice(0, 1000)).toBe(200);
+    expect(JSON.parse(depositRetry.bodyText)).toMatchObject({
+      success: true,
+      already_completed: true,
+    });
 
     depositDetail = await fetchTransactionDetail(request, depositCheckout.transaction_id);
     expect(depositDetail.status.toLowerCase()).toBe("open");
@@ -377,6 +405,10 @@ test.describe("pickup launch certification contract", () => {
     );
     expect(depositPickupAudit, "pickup audit event missing").toBeTruthy();
     expect(depositPickupAudit?.metadata?.payment_override).toBe(false);
+    expect(depositPickupAudit?.metadata?.register_cart_completion).toBe(true);
+    expect(
+      depositAudit.filter((event) => event.event_kind === "pickup"),
+    ).toHaveLength(1);
 
     const readyProduct = await createSingleVariantProduct(request, uniqueSuffix("pickup-ready"), {
       stockOnHand: 1,

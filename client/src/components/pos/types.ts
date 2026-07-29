@@ -402,6 +402,22 @@ export interface PosShippingSelection {
   linked_order_ids?: string[];
 }
 
+export interface PickupTransactionSelection {
+  transactionId: string;
+  lineIds: string[];
+}
+
+export interface PickupReadyAlteration {
+  id: string;
+  status: string;
+  item_description?: string | null;
+  work_requested: string;
+  source_sku?: string | null;
+  ticket_number?: string | null;
+  source_transaction_line_id?: string | null;
+  picked_up_at?: string | null;
+}
+
 export interface CartTotals {
   subtotalCents: number;
   stateTaxCents: number;

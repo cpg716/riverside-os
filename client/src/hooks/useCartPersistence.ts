@@ -9,6 +9,8 @@ import {
   type OrderPaymentCartLine,
   type AppliedPaymentLine,
   type ExchangeReturnHandoffLine,
+  type PickupReadyAlteration,
+  type PickupTransactionSelection,
 } from "../components/pos/types";
 import { type PosShippingSelection } from "../components/pos/PosShippingModal";
 import { newCheckoutClientId } from "../lib/posUtils";
@@ -31,6 +33,10 @@ interface PersistedSale {
   checkoutOperator?: { staffId: string; fullName: string };
   pendingAlterationIntakes?: PendingAlterationIntake[];
   orderPaymentLines?: OrderPaymentCartLine[];
+  pickupTransactionId?: string | null;
+  pickupTransactions?: PickupTransactionSelection[];
+  pickupPaidAmountCents?: number;
+  pickupReadyAlterations?: PickupReadyAlteration[];
   pendingReturnLineDrafts?: Record<string, ExchangeReturnHandoffLine[]>;
 }
 
@@ -48,6 +54,10 @@ interface UseCartPersistenceProps {
   checkoutOperator: { staffId: string; fullName: string } | null;
   pendingAlterationIntakes?: PendingAlterationIntake[];
   orderPaymentLines?: OrderPaymentCartLine[];
+  pickupTransactionId?: string | null;
+  pickupTransactions?: PickupTransactionSelection[];
+  pickupPaidAmountCents?: number;
+  pickupReadyAlterations?: PickupReadyAlteration[];
   pendingReturnLineDrafts?: Record<string, ExchangeReturnHandoffLine[]>;
   retainCheckoutIdentity?: boolean;
   setLines: (lines: CartLineItem[]) => void;
@@ -62,6 +72,10 @@ interface UseCartPersistenceProps {
   setAppliedPayments: (payments: AppliedPaymentLine[]) => void;
   setPendingAlterationIntakes?: (intakes: PendingAlterationIntake[]) => void;
   setOrderPaymentLines?: (lines: OrderPaymentCartLine[]) => void;
+  setPickupTransactionId?: (transactionId: string | null) => void;
+  setPickupTransactions?: (transactions: PickupTransactionSelection[]) => void;
+  setPickupPaidAmountCents?: (amountCents: number) => void;
+  setPickupReadyAlterations?: (alterations: PickupReadyAlteration[]) => void;
   setPendingReturnLineDrafts?: (
     drafts: Record<string, ExchangeReturnHandoffLine[]>,
   ) => void;
@@ -100,6 +114,10 @@ export function useCartPersistence({
   checkoutOperator,
   pendingAlterationIntakes = [],
   orderPaymentLines = [],
+  pickupTransactionId = null,
+  pickupTransactions = [],
+  pickupPaidAmountCents = 0,
+  pickupReadyAlterations = [],
   pendingReturnLineDrafts = {},
   retainCheckoutIdentity = false,
   setLines,
@@ -114,6 +132,10 @@ export function useCartPersistence({
   setAppliedPayments,
   setPendingAlterationIntakes,
   setOrderPaymentLines,
+  setPickupTransactionId,
+  setPickupTransactions,
+  setPickupPaidAmountCents,
+  setPickupReadyAlterations,
   setPendingReturnLineDrafts,
   clearCart,
 }: UseCartPersistenceProps) {
@@ -155,6 +177,15 @@ export function useCartPersistence({
           const rawLines = (saved.lines || []) as CartLineItem[];
           const rawDisbursementMembers = saved.disbursementMembers || [];
           const rawOrderPaymentLines = saved.orderPaymentLines || [];
+          const rawPickupTransactions = (saved.pickupTransactions || []).filter(
+            (selection) =>
+              typeof selection.transactionId === "string" &&
+              selection.transactionId.trim().length > 0 &&
+              Array.isArray(selection.lineIds) &&
+              selection.lineIds.every(
+                (lineId) => typeof lineId === "string" && lineId.trim().length > 0,
+              ),
+          );
           const rawAlterationIntakes = saved.pendingAlterationIntakes || [];
           const rawReturnDrafts = saved.pendingReturnLineDrafts || {};
           if (
@@ -213,6 +244,19 @@ export function useCartPersistence({
             }
             setPendingAlterationIntakes?.(rawAlterationIntakes);
             setOrderPaymentLines?.(rawOrderPaymentLines);
+            setPickupTransactions?.(rawPickupTransactions);
+            setPickupTransactionId?.(
+              saved.pickupTransactionId?.trim() ||
+                rawPickupTransactions[0]?.transactionId ||
+                null,
+            );
+            setPickupPaidAmountCents?.(
+              Number.isSafeInteger(saved.pickupPaidAmountCents) &&
+                (saved.pickupPaidAmountCents ?? 0) >= 0
+                ? saved.pickupPaidAmountCents ?? 0
+                : 0,
+            );
+            setPickupReadyAlterations?.(saved.pickupReadyAlterations ?? []);
             setPendingReturnLineDrafts?.(rawReturnDrafts);
           }
         } else if (saved && saved.sessionId !== sessionId) {
@@ -244,6 +288,10 @@ export function useCartPersistence({
     setAppliedPayments,
     setPendingAlterationIntakes,
     setOrderPaymentLines,
+    setPickupTransactionId,
+    setPickupTransactions,
+    setPickupPaidAmountCents,
+    setPickupReadyAlterations,
     setPendingReturnLineDrafts,
   ]);
 
@@ -276,6 +324,15 @@ export function useCartPersistence({
       checkoutOperator: checkoutOperator || undefined,
       pendingAlterationIntakes: pendingAlterationIntakes.length > 0 ? pendingAlterationIntakes : undefined,
       orderPaymentLines: orderPaymentLines.length > 0 ? orderPaymentLines : undefined,
+      pickupTransactionId: pickupTransactionId || undefined,
+      pickupTransactions:
+        pickupTransactions.length > 0 ? pickupTransactions : undefined,
+      pickupPaidAmountCents:
+        pickupTransactionId && pickupPaidAmountCents > 0
+          ? pickupPaidAmountCents
+          : undefined,
+      pickupReadyAlterations:
+        pickupReadyAlterations.length > 0 ? pickupReadyAlterations : undefined,
       pendingReturnLineDrafts:
         Object.keys(pendingReturnLineDrafts).length > 0
           ? pendingReturnLineDrafts
@@ -301,6 +358,10 @@ export function useCartPersistence({
     checkoutOperator,
     pendingAlterationIntakes,
     orderPaymentLines,
+    pickupTransactionId,
+    pickupTransactions,
+    pickupPaidAmountCents,
+    pickupReadyAlterations,
     pendingReturnLineDrafts,
     retainCheckoutIdentity,
     queuePersistenceWrite,

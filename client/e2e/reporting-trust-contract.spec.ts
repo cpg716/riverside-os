@@ -537,6 +537,7 @@ async function markPickup(
     },
     data: {
       delivered_item_ids: deliveredItemIds,
+      register_cart_completion: true,
       actor: "Reporting trust contract",
       override_readiness: true,
       override_reason: "Reporting trust fixture controls pickup recognition timing.",

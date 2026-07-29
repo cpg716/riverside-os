@@ -26,6 +26,7 @@ type TransactionDetail = {
   balance_due: string;
   status: string;
   payment_applications: Array<{
+    target_transaction_id: string;
     target_display_id: string;
     amount: string;
     remaining_balance: string;
@@ -445,6 +446,118 @@ test.describe("checkout tender financial contract", () => {
         }),
       ]),
     );
+  });
+
+  test("one checkout applies payments to two existing orders without merging their balances", async ({
+    request,
+  }) => {
+    const { sessionId, sessionToken } = await ensureSessionAuth(request);
+    const operatorStaffId = await verifyStaffId(request);
+    const fixture = await seedRmsFixture(
+      request,
+      "single_valid",
+      "Tender Multi Order Allocation",
+    );
+
+    const firstOrderCheckout = await expectSuccessfulCheckout(
+      await checkoutFixtureProduct(request, {
+        fixture,
+        sessionId,
+        sessionToken,
+        operatorStaffId,
+        customerId: fixture.customer.id,
+        fulfillment: "special_order",
+        amountPaid: "50.00",
+        paymentSplits: [{ payment_method: "cash", amount: "50.00" }],
+      }),
+    );
+    const secondOrderCheckout = await expectSuccessfulCheckout(
+      await checkoutFixtureProduct(request, {
+        fixture,
+        sessionId,
+        sessionToken,
+        operatorStaffId,
+        customerId: fixture.customer.id,
+        fulfillment: "special_order",
+        amountPaid: "75.00",
+        paymentSplits: [{ payment_method: "cash", amount: "75.00" }],
+      }),
+    );
+    const firstOrderBefore = await fetchTransactionDetail(
+      request,
+      firstOrderCheckout.transaction_id,
+    );
+    const secondOrderBefore = await fetchTransactionDetail(
+      request,
+      secondOrderCheckout.transaction_id,
+    );
+    expect(firstOrderBefore.balance_due).toBe("194.69");
+    expect(secondOrderBefore.balance_due).toBe("169.69");
+
+    const paymentCheckout = await expectSuccessfulCheckout(
+      await checkoutFixtureProduct(request, {
+        fixture,
+        sessionId,
+        sessionToken,
+        operatorStaffId,
+        customerId: fixture.customer.id,
+        amountPaid: "609.07",
+        paymentSplits: [{ payment_method: "cash", amount: "609.07" }],
+        orderPayments: [
+          {
+            client_line_id: "first-existing-order",
+            target_transaction_id: firstOrderCheckout.transaction_id,
+            target_display_id: firstOrderBefore.transaction_display_id,
+            customer_id: fixture.customer.id,
+            amount: "194.69",
+            balance_before: "194.69",
+            projected_balance_after: "0.00",
+          },
+          {
+            client_line_id: "second-existing-order",
+            target_transaction_id: secondOrderCheckout.transaction_id,
+            target_display_id: secondOrderBefore.transaction_display_id,
+            customer_id: fixture.customer.id,
+            amount: "169.69",
+            balance_before: "169.69",
+            projected_balance_after: "0.00",
+          },
+        ],
+      }),
+    );
+
+    const paymentDetail = await fetchTransactionDetail(
+      request,
+      paymentCheckout.transaction_id,
+    );
+    const firstOrderAfter = await fetchTransactionDetail(
+      request,
+      firstOrderCheckout.transaction_id,
+    );
+    const secondOrderAfter = await fetchTransactionDetail(
+      request,
+      secondOrderCheckout.transaction_id,
+    );
+
+    expect(moneyToCents(firstOrderAfter.balance_due)).toBe(0);
+    expect(moneyToCents(secondOrderAfter.balance_due)).toBe(0);
+    expect(paymentDetail.payment_applications).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          target_transaction_id: firstOrderCheckout.transaction_id,
+          target_display_id: expect.stringMatching(/^ORD-\d+$/),
+          amount: "194.69",
+          remaining_balance: "0",
+        }),
+        expect.objectContaining({
+          target_transaction_id: secondOrderCheckout.transaction_id,
+          target_display_id: expect.stringMatching(/^ORD-\d+$/),
+          amount: "169.69",
+          remaining_balance: "0",
+        }),
+      ]),
+    );
+    expect(paymentDetail.payment_applications).toHaveLength(2);
   });
 
   test("rounded-up cash amount records balanced transaction artifacts and QBO rounding impact", async ({

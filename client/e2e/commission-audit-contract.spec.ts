@@ -466,6 +466,7 @@ test.describe("commission audit contract", () => {
       },
       data: {
         delivered_item_ids: [line!.transaction_line_id],
+        register_cart_completion: true,
         actor: "E2E Commission Timing",
         override_readiness: true,
         override_reason: "Commission audit fixture controls pickup timing explicitly.",

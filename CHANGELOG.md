@@ -11,6 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Faster Fail-Closed Windows Releases**: Same-tag Windows release reruns now cancel the superseded workflow instead of waiting behind assets that cannot be published. Signed component compilation overlaps the pre-retag gate, while package publication still requires both that gate and exact-commit Playwright success. Independent Rust caches now retain Riverside workspace-crate outputs so restored caches can accelerate repeat builds instead of preserving dependencies only. The release-contract validator normalizes Windows CRLF checkouts before evaluating workflow structure.
 
 ### Fixed
+- **Multi-Order Register Cart**: Customer Orders now keeps the workspace open
+  while staff stage payments and pickups across several open orders. Starting a
+  pickup preserves intentional partial payments already in the cart, and local
+  cart recovery retains every source Transaction Record, selected pickup line,
+  prior paid amount, and linked ready alteration so restored pickup work cannot
+  be mistaken for a new merchandise sale. Completed pickup steps are
+  idempotent, and recovery queues only the source orders that remain incomplete.
+- **Sale-Complete-Only Order Pickup**: Customer Orders and Order Detail can no
+  longer release pickup directly. They may only stage or hand off the order to
+  the Register cart, and the pickup API rejects requests that did not originate
+  from cart completion. Inventory, revenue, commission, pickup audit, line
+  status, and order completion move only through the flow that opens **Sale
+  Complete**.
 - **Existing-Order Amendment Reporting and Audit Detail**: Merchandise added
   to an older open Transaction is booked on the amendment date without moving
   the parent Transaction's original business date. Daily Sales and Z-Reports

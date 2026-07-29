@@ -52,7 +52,7 @@ Displays the customer's open order work with:
 Actions per order:
 - **View Lines** - View order line items
 - **Add Payment** - Attach a new payment to the linked Transaction Record
-- **Pick Up** - Opens line checkboxes; all open lines are selected by default, and staff can uncheck items that are not being released
+- **Pick Up** - Opens line checkboxes and stages the selected lines in the Register cart. This screen never marks a line picked up or completes an order.
 - **Ship** - For ship-method orders, opens the same line checkboxes and records shipped-line release instead of pickup release
 - **Cancel** - Cancels the original Transaction Record and queues paid deposits/payments for refund processing
 
@@ -79,6 +79,7 @@ The system supports **picking up or shipping individual items** from a multi-ite
 ```json
 {
   "register_session_id": "uuid",
+  "register_cart_completion": true,
   "delivered_item_ids": ["uuid1", "uuid2"]
 }
 ```
@@ -96,6 +97,7 @@ The system supports **picking up or shipping individual items** from a multi-ite
 
 - Empty array = fulfill ALL items
 - Non-empty array = fulfill only those specified
+- `register_cart_completion` must be `true`. The server rejects direct Order-screen pickup attempts; only the Register cart completion flow that opens **Sale Complete** may mutate pickup, inventory, recognition, commission, audit, or aggregate order status.
 - Payment enforcement is line-aware: payments normally cover the selected pickup value plus merchandise already released from the Transaction Record. Manager Access can explicitly override insufficient coverage with an audited reason. Remaining open merchandise does not need to retain a separate 50% deposit after a pickup, and starting a pickup does not automatically add a balance payment. Shipping retains its own release policy.
 - Shipping release writes `transaction_lines.shipped_at`, optional `shipment_id`, and a shipment event when linked to a shipment record.
 - Imported Counterpoint open-doc lines are treated as physically present and start at **Ready for Pickup**; staff still must collect any required payment before release.
@@ -177,7 +179,7 @@ When a customer makes a new purchase (takeaway) and picks up an existing order/l
 1. **Tender & Sales Split**: The POS cart allows cashiers to load the historical transaction for pickup/payment and add new takeaway items to the cart simultaneously.
 2. **API and DB Split**:
    - The new takeaway items and the balance payment amount (`order_payments` array) are sent to `POST /api/transactions/checkout` to create a **new Transaction Record** (which records today's sales revenue, collects today's sales tax, and attributes today's salesperson commission).
-   - Immediately following successful checkout, the client makes a separate `POST /api/transactions/{id}/pickup` call to update the logistical status of the original transaction's lines to "Picked Up," which triggers the deferred revenue recognition and commission rules of the original salesperson who booked the order.
+   - Immediately following successful checkout, the client makes a guarded `POST /api/transactions/{id}/pickup` call with `register_cart_completion = true` to update the original lines to **Picked Up**. Customer Orders and Order Detail cannot send an authorized completion request. The successful response opens **Sale Complete** and triggers deferred revenue recognition and commission for the original salesperson.
    - This ensures that a historical transaction's line-item logistics and a new transaction's financial payments are kept completely decoupled and traceably auditable.
 
 

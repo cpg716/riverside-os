@@ -32,6 +32,7 @@ import VariantSelectionModal, {
 } from "./VariantSelectionModal";
 import { isOrderStatus, REGISTER_ORDER_STATUS_SCOPE } from "./orderLoadStatus";
 import { printReceiptPayload } from "../../lib/receiptPrint";
+import type { OrderPaymentCartLine } from "./types";
 
 export interface CustomerOrder {
   id: string;
@@ -94,6 +95,7 @@ interface OrderLoadModalProps {
   baseUrl: string;
   apiAuth: () => Record<string, string>;
   onClose: () => void;
+  stagedOrderPayments?: OrderPaymentCartLine[];
   onMakePayment?: (order: CustomerOrder, amountCents: number) => void;
   onAddItemToOrder?: (order: CustomerOrder, sku: string) => Promise<boolean>;
   onUpdateOrderItem?: (
@@ -150,6 +152,7 @@ export default function OrderLoadModal({
   baseUrl,
   apiAuth,
   onClose,
+  stagedOrderPayments = [],
   onMakePayment,
   onAddItemToOrder,
   onUpdateOrderItem,
@@ -443,36 +446,32 @@ export default function OrderLoadModal({
     }
   };
 
-  const submitRelease = async (
+  const submitShipment = async (
     order: CustomerOrder,
     items: OrderItem[],
     overrideReadiness: boolean,
-    mode: ReleaseMode = orderReleaseMode(order),
     managerApproval?: { managerStaffId: string; managerPin: string },
   ): Promise<boolean> => {
     const ids = items
       .map((item) => item.transaction_line_id)
       .filter((id): id is string => Boolean(id));
     if (ids.length === 0) {
-      toast(`No open order lines are available to ${releaseLabel(mode).toLowerCase()}.`, "error");
+      toast("No open order lines are available to ship.", "error");
       return false;
     }
     setPickupBusy(true);
     try {
-      const endpoint = mode === "ship" ? "ship" : "pickup";
-      const itemKey =
-        mode === "ship" ? "shipped_item_ids" : "delivered_item_ids";
       const res = await fetch(
-        `${baseUrl}/api/transactions/${order.id}/${endpoint}`,
+        `${baseUrl}/api/transactions/${order.id}/ship`,
         {
           method: "POST",
           headers: { ...apiAuth(), "Content-Type": "application/json" },
           body: JSON.stringify({
-            [itemKey]: ids,
+            shipped_item_ids: ids,
             actor: "Register Customer Orders",
             override_readiness: overrideReadiness,
             override_reason: overrideReadiness
-              ? `Register ${mode} override: customer received item before ready status; staff confirmed release.`
+              ? "Register shipment override: staff confirmed shipment before ready status."
               : undefined,
             readiness_override_manager_staff_id:
               managerApproval?.managerStaffId,
@@ -485,15 +484,15 @@ export default function OrderLoadModal({
         const body = (await res.json().catch(() => ({}))) as { error?: string };
         toast(
           body.error ??
-            `${releaseLabel(mode)} could not be completed.`,
+            "Shipment could not be completed.",
           "error",
         );
         return false;
       }
       toast(
         overrideReadiness
-          ? `${releaseLabel(mode)} completed with override recorded.`
-          : `${releaseLabel(mode)} completed.`,
+          ? "Shipment completed with override recorded."
+          : "Shipment completed.",
         "success",
       );
       setPickupConfirm(null);
@@ -543,6 +542,17 @@ export default function OrderLoadModal({
         );
         return;
       }
+      if (mode === "pickup") {
+        if (!onPickupToCart) {
+          toast(
+            "Pickup must be loaded into the Register cart and finished through Sale Complete.",
+            "error",
+          );
+          return;
+        }
+        addToPickupBasket(order, openItems);
+        return;
+      }
       const blockedItems = openItems.filter(
         (item) => item.order_lifecycle_status !== "ready_for_pickup",
       );
@@ -550,11 +560,7 @@ export default function OrderLoadModal({
         setPickupConfirm({ mode, order, items: openItems, blockedItems });
         return;
       }
-      if (mode === "pickup" && onPickupToCart) {
-        addToPickupBasket(order, openItems);
-        return;
-      }
-      await submitRelease(order, openItems, false, mode);
+      await submitShipment(order, openItems, false);
     } catch (error) {
       toast(
         error instanceof Error
@@ -591,15 +597,21 @@ export default function OrderLoadModal({
       toast("Select at least one open order line for pickup.", "error");
       return;
     }
-    if (openItems.some((item) => item.order_lifecycle_status !== "ready_for_pickup")) {
-      toast("Only items marked Ready for Pickup can be added to a multi-order pickup. Use the manager override on a single order for unready items.", "error");
-      return;
-    }
+    const unreadyCount = openItems.filter(
+      (item) => item.order_lifecycle_status !== "ready_for_pickup",
+    ).length;
     setPickupBasket((previous) => [
       ...previous.filter((entry) => entry.order.id !== order.id),
       { order, items: openItems },
     ]);
-    toast(`${openItems.length} item(s) from ${order.display_id} added to pickup. Select another order or start pickup.`, "success");
+    toast(
+      `${openItems.length} item(s) from ${order.display_id} added to the Register cart.${
+        unreadyCount > 0
+          ? ` ${unreadyCount} item(s) will require Manager Access before completion.`
+          : ""
+      } Nothing is marked picked up until the cart reaches Sale Complete.`,
+      "success",
+    );
   };
 
   const startPickupBasket = async () => {
@@ -630,6 +642,17 @@ export default function OrderLoadModal({
       );
       return;
     }
+    if (mode === "pickup") {
+      if (!onPickupToCart) {
+        toast(
+          "Pickup must be loaded into the Register cart and finished through Sale Complete.",
+          "error",
+        );
+        return;
+      }
+      addToPickupBasket(selectedOrder, selected);
+      return;
+    }
     const blockedItems = selected.filter(
       (item) => item.order_lifecycle_status !== "ready_for_pickup",
     );
@@ -642,11 +665,7 @@ export default function OrderLoadModal({
       });
       return;
     }
-    if (mode === "pickup" && onPickupToCart) {
-      addToPickupBasket(selectedOrder, selected);
-      return;
-    }
-    await submitRelease(selectedOrder, selected, false, mode);
+    await submitShipment(selectedOrder, selected, false);
   };
 
   const openPaymentEntry = (order: CustomerOrder) => {
@@ -674,7 +693,6 @@ export default function OrderLoadModal({
     onMakePayment?.(paymentOrder, amountCents);
     setPaymentOrder(null);
     setPaymentAmount("");
-    onClose();
   };
 
   const addSkuToSelectedOrder = async () => {
@@ -905,6 +923,10 @@ export default function OrderLoadModal({
           <p className="mt-1 truncate text-lg font-black text-app-text">
             {customerName}
           </p>
+          <p className="mt-2 max-w-3xl text-xs font-semibold text-app-text-muted">
+            Build one cart across this customer's orders: add payments, select
+            pickup items, or combine both before continuing to the Register.
+          </p>
         </div>
 
         <div className="ui-modal-body flex-1 overflow-y-auto p-4 sm:p-6">
@@ -1038,7 +1060,7 @@ export default function OrderLoadModal({
                         className="ui-btn-primary flex min-h-11 items-center justify-center gap-2 px-3 text-[10px]"
                       >
                         <CreditCard size={14} />
-                        Payment Only
+                        Add Payment
                       </button>
                     ) : null}
                     <button
@@ -1089,28 +1111,57 @@ export default function OrderLoadModal({
             </div>
           )}
 
-          {pickupBasket.length > 0 && onPickupToCart ? (
+          {pickupBasket.length > 0 || stagedOrderPayments.length > 0 ? (
             <section className="mt-5 rounded-2xl border border-app-success/30 bg-app-success/5 p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <p className="text-[10px] font-black uppercase tracking-widest text-app-success">
-                    Pickup basket
+                    Order work in this cart
                   </p>
                   <p className="mt-1 text-sm font-semibold text-app-text">
-                    {pickupBasket.reduce((sum, entry) => sum + entry.items.length, 0)} item(s) from {pickupBasket.length} order(s)
+                    {stagedOrderPayments.length} payment
+                    {stagedOrderPayments.length === 1 ? "" : "s"} and{" "}
+                    {pickupBasket.reduce(
+                      (sum, entry) => sum + entry.items.length,
+                      0,
+                    )}{" "}
+                    pickup item
+                    {pickupBasket.reduce(
+                      (sum, entry) => sum + entry.items.length,
+                      0,
+                    ) === 1
+                      ? ""
+                      : "s"}{" "}
+                    staged
                   </p>
                 </div>
                 <button
                   type="button"
-                  onClick={() => void startPickupBasket()}
+                  onClick={() =>
+                    pickupBasket.length > 0
+                      ? void startPickupBasket()
+                      : onClose()
+                  }
                   disabled={pickupBusy}
                   className="flex min-h-10 items-center justify-center gap-2 rounded-xl border-b-4 border-app-success bg-app-success px-3 text-[10px] font-black uppercase tracking-widest text-white shadow-lg disabled:cursor-wait disabled:opacity-50"
                 >
                   <ShieldCheck size={14} />
-                  Start Pickup
+                  {pickupBasket.length > 0
+                    ? "Continue with Pickup"
+                    : "Continue to Cart"}
                 </button>
               </div>
               <div className="mt-3 flex flex-wrap gap-2">
+                {stagedOrderPayments.map((payment) => (
+                  <span
+                    key={payment.target_transaction_id}
+                    className="rounded-full border border-violet-500/30 bg-app-surface px-3 py-1 text-[10px] font-black uppercase tracking-widest text-violet-700"
+                  >
+                    {payment.target_display_id} ·{" "}
+                    {formatUsdFromCents(parseMoneyToCents(payment.amount))}{" "}
+                    payment
+                  </span>
+                ))}
                 {pickupBasket.map((entry) => (
                   <button
                     key={entry.order.id}
@@ -1124,7 +1175,8 @@ export default function OrderLoadModal({
                 ))}
               </div>
               <p className="mt-3 text-xs font-semibold text-app-text-muted">
-                Select another order below to add more items. Payment and pickup release remain tracked per order.
+                Add work from another order before continuing. Each payment
+                allocation and pickup release remains tied to its source order.
               </p>
             </section>
           ) : null}
@@ -1160,7 +1212,9 @@ export default function OrderLoadModal({
                   ) : (
                     <ShieldCheck size={14} />
                   )}
-                  {releaseLabel(orderReleaseMode(selectedOrder))} Selected
+                  {orderReleaseMode(selectedOrder) === "pickup"
+                    ? "Add Selected to Cart"
+                    : "Ship Selected"}
                 </button>
                 <button
                   type="button"
@@ -1270,7 +1324,9 @@ export default function OrderLoadModal({
                             ) : (
                               <ShieldCheck size={12} />
                             )}
-                            {releaseLabel(orderReleaseMode(selectedOrder))} Line
+                            {orderReleaseMode(selectedOrder) === "pickup"
+                              ? "Add Pickup Line"
+                              : "Ship Line"}
                           </button>
                         ) : null}
                         {onUpdateOrderItem && !isCompletedOrderItem(item) ? (
@@ -1594,11 +1650,10 @@ export default function OrderLoadModal({
           title={`Manager Access: ${releaseLabel(pickupConfirm.mode)} Override`}
           message={`${pickupConfirm.blockedItems.length} line(s) are not marked Ready for Pickup. Manager Access is required because this release moves ${pickupConfirm.mode}, inventory, and revenue recognition.`}
           onApprove={(pin, managerId) =>
-            submitRelease(
+            submitShipment(
               pickupConfirm.order,
               pickupConfirm.items,
               true,
-              pickupConfirm.mode,
               { managerStaffId: managerId, managerPin: pin },
             )
           }

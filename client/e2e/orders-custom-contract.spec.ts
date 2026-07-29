@@ -1146,6 +1146,7 @@ test.describe("Orders custom vs special contract", () => {
       },
       data: {
         delivered_item_ids: deliveredItemIds,
+        register_cart_completion: true,
         actor: "E2E Balance Due Guard",
         override_readiness: true,
         override_reason: "Balance guard should still block release.",
@@ -1198,6 +1199,7 @@ test.describe("Orders custom vs special contract", () => {
       },
       data: {
         delivered_item_ids: deliveredItemIds,
+        register_cart_completion: true,
         actor: "E2E Pickup Lifecycle",
         override_readiness: true,
         override_reason: "Lifecycle contract confirms item endpoint after explicit release.",
