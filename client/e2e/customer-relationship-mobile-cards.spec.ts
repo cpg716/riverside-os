@@ -512,13 +512,16 @@ test("Customer relationship drawer exposes profile defaults, history, and loyalt
   });
   expect(JSON.stringify(insightRequests[1])).not.toContain("html_body");
   expect(JSON.stringify(insightRequests[1])).not.toContain("Purchased 2 items");
-  await expect(dialog.getByLabel(/automatic discount/i)).toHaveValue("12.50");
+  const automaticDiscountInput = dialog.getByRole("spinbutton", {
+    name: /^automatic discount/i,
+  });
+  await expect(automaticDiscountInput).toHaveValue("12.50");
   await expect(dialog.getByLabel(/discount reason/i)).toHaveValue(
     "Long-term wedding party customer",
   );
   await expect(dialog.getByLabel(/^tax id$/i)).toHaveValue("NY-EXEMPT-123");
 
-  await dialog.getByLabel(/automatic discount/i).fill("15");
+  await automaticDiscountInput.fill("15");
   await dialog.getByLabel(/discount reason/i).fill("Community partner");
   await dialog.getByLabel(/^tax id$/i).fill("NY-EXEMPT-999");
   await dialog.getByRole("button", { name: /save profile/i }).click();
