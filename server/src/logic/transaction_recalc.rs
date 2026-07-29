@@ -20,6 +20,15 @@ fn recalculated_balance_due(
     }
 }
 
+fn open_refund_amount_due(amount_refunded: Decimal, balance_due: Decimal) -> Decimal {
+    amount_refunded
+        + if balance_due < Decimal::ZERO {
+            -balance_due
+        } else {
+            Decimal::ZERO
+        }
+}
+
 /// Recalculate per-unit tax for an amended open-order line from the price the
 /// customer is actually being charged. Client-supplied or previously stored tax
 /// must not survive a price change.
@@ -119,6 +128,36 @@ pub async fn recalc_transaction_totals(
 
     sqlx::query(
         r#"
+        UPDATE transaction_refund_queue
+        SET
+            amount_due = $2,
+            is_open = $3,
+            closed_at = CASE WHEN $3 THEN NULL ELSE CURRENT_TIMESTAMP END
+        WHERE transaction_id = $1
+          AND is_open = TRUE
+        "#,
+    )
+    .bind(transaction_id)
+    .bind(open_refund_amount_due(
+        sqlx::query_scalar::<_, Decimal>(
+            r#"
+            SELECT COALESCE(MAX(amount_refunded), 0)::numeric(14,2)
+            FROM transaction_refund_queue
+            WHERE transaction_id = $1
+              AND is_open = TRUE
+            "#,
+        )
+        .bind(transaction_id)
+        .fetch_one(&mut **tx)
+        .await?,
+        balance_due,
+    ))
+    .bind(balance_due < Decimal::ZERO)
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query(
+        r#"
         WITH line_state AS (
             SELECT
                 COUNT(oi.id) FILTER (
@@ -173,7 +212,7 @@ pub async fn recalc_transaction_totals(
 
 #[cfg(test)]
 mod tests {
-    use super::{amended_order_line_tax, recalculated_balance_due};
+    use super::{amended_order_line_tax, open_refund_amount_due, recalculated_balance_due};
     use crate::logic::tax::TaxCategory;
     use rust_decimal::Decimal;
     use rust_decimal_macros::dec;
@@ -195,6 +234,30 @@ mod tests {
         assert_eq!(
             recalculated_balance_due(true, dec!(316.00), Decimal::ZERO, Decimal::ZERO),
             Decimal::ZERO,
+        );
+    }
+
+    #[test]
+    fn replacement_items_reduce_or_consume_an_open_refund() {
+        assert_eq!(
+            open_refund_amount_due(Decimal::ZERO, dec!(-67.04)),
+            dec!(67.04)
+        );
+        assert_eq!(
+            open_refund_amount_due(Decimal::ZERO, Decimal::ZERO),
+            Decimal::ZERO
+        );
+        assert_eq!(
+            open_refund_amount_due(Decimal::ZERO, dec!(25.00)),
+            Decimal::ZERO
+        );
+    }
+
+    #[test]
+    fn partial_refunds_retain_only_the_unpaid_credit() {
+        assert_eq!(
+            open_refund_amount_due(dec!(20.00), dec!(-47.04)),
+            dec!(67.04)
         );
     }
 

@@ -327,12 +327,18 @@ function auditEventSummary(event: TransactionDrawerAudit): string {
     }
   }
 
-  if (event.event_kind === "item_deleted") {
+  if (
+    event.event_kind === "item_deleted" ||
+    event.event_kind === "item_removed_for_refund"
+  ) {
     const quantity =
       typeof metadata.quantity === "number" ? metadata.quantity : null;
-    return quantity === null
+    const removed = quantity === null
       ? `Removed ${itemLabel}.`
       : `Removed ${quantity}× ${itemLabel}.`;
+    return event.event_kind === "item_removed_for_refund"
+      ? `${removed} Refund credit preserved on this Transaction Record.`
+      : removed;
   }
 
   return event.summary;

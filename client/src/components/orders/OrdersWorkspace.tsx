@@ -1586,6 +1586,14 @@ export default function OrdersWorkspace({
       );
       return;
     }
+    if (parseMoneyToCents(detail.amount_paid) > 0) {
+      toast(
+        "Paid item removed and preserved for refund. Add any replacement to this Transaction Record first; ROS will refund or collect only the net difference.",
+        "success",
+      );
+    } else {
+      toast("Item removed", "success");
+    }
     await loadDetail(detail.transaction_id);
     await loadTransactions();
     setHydratedOrderLines((current) => {

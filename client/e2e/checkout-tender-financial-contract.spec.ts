@@ -25,6 +25,10 @@ type TransactionDetail = {
   amount_paid: string;
   balance_due: string;
   status: string;
+  items: Array<{
+    transaction_line_id: string;
+    quantity_returned: number;
+  }>;
   payment_applications: Array<{
     target_transaction_id: string;
     target_display_id: string;
@@ -264,6 +268,127 @@ function expectBalancedJournal(proposed: QboStagingRow): void {
 }
 
 test.describe("checkout tender financial contract", () => {
+  test("paid order item removal preserves refund evidence and replacement nets the credit", async ({
+    request,
+  }) => {
+    test.setTimeout(120_000);
+    const { sessionId, sessionToken } = await ensureSessionAuth(request);
+    const operatorStaffId = await verifyStaffId(request);
+    const fixture = await seedRmsFixture(
+      request,
+      "single_valid",
+      "Paid Order Replacement Credit",
+    );
+
+    const orderRes = await checkoutFixtureProduct(request, {
+      fixture,
+      sessionId,
+      sessionToken,
+      operatorStaffId,
+      customerId: fixture.customer.id,
+      fulfillment: "special_order",
+    });
+    const order = await expectSuccessfulCheckout(orderRes);
+    const before = await fetchTransactionDetail(request, order.transaction_id);
+    const originalLine = before.items[0];
+    expect(originalLine).toBeTruthy();
+
+    const removeRes = await request.delete(
+      `${apiBase()}/api/transactions/${order.transaction_id}/items/${originalLine.transaction_line_id}`,
+      {
+        headers: staffHeaders(),
+        failOnStatusCode: false,
+      },
+    );
+    const removeText = await removeRes.text();
+    expect(removeRes.status(), removeText.slice(0, 1000)).toBe(204);
+
+    const afterRemoval = await fetchTransactionDetail(request, order.transaction_id);
+    const preservedLine = afterRemoval.items.find(
+      (item) => item.transaction_line_id === originalLine.transaction_line_id,
+    );
+    expect(preservedLine?.quantity_returned).toBe(1);
+    expect(afterRemoval.balance_due).toBe(`-${E2E_FIXTURE_TOTAL}`);
+
+    const refundQueueAfterRemoval = await request.get(
+      `${apiBase()}/api/transactions/refunds/due`,
+      {
+        headers: staffHeaders(),
+        failOnStatusCode: false,
+      },
+    );
+    expect(refundQueueAfterRemoval.status()).toBe(200);
+    const removalRefunds = (await refundQueueAfterRemoval.json()) as Array<{
+      transaction_id: string;
+      amount_due: string;
+      amount_refunded: string;
+    }>;
+    const removalRefund = removalRefunds.find(
+      (entry) => entry.transaction_id === order.transaction_id,
+    );
+    expect(removalRefund?.amount_due).toBe(E2E_FIXTURE_TOTAL);
+    expect(Number(removalRefund?.amount_refunded)).toBe(0);
+
+    const replacementSubtotal = "200.00";
+    const replacementStateTax = "9.00";
+    const replacementLocalTax = "10.69";
+    const addReplacementRes = await request.post(
+      `${apiBase()}/api/transactions/${order.transaction_id}/items`,
+      {
+        headers: {
+          ...staffHeaders(),
+          "Content-Type": "application/json",
+        },
+        data: {
+          product_id: fixture.product.product_id,
+          variant_id: fixture.product.variant_id,
+          fulfillment: "special_order",
+          quantity: 1,
+          unit_price: replacementSubtotal,
+          unit_cost: fixture.product.unit_cost,
+          state_tax: replacementStateTax,
+          local_tax: replacementLocalTax,
+        },
+        failOnStatusCode: false,
+      },
+    );
+    const replacementText = await addReplacementRes.text();
+    expect(addReplacementRes.status(), replacementText.slice(0, 1000)).toBe(200);
+
+    const afterReplacement = await fetchTransactionDetail(request, order.transaction_id);
+    const expectedReplacementCredit = (
+      Number(afterReplacement.amount_paid) - Number(afterReplacement.total_price)
+    ).toFixed(2);
+    expect(Number(expectedReplacementCredit)).toBeGreaterThan(0);
+    expect(afterReplacement.balance_due).toBe(`-${expectedReplacementCredit}`);
+    expect(
+      afterReplacement.items.some(
+        (item) =>
+          item.transaction_line_id !== originalLine.transaction_line_id &&
+          item.quantity_returned === 0,
+      ),
+    ).toBeTruthy();
+
+    const refundQueueAfterReplacement = await request.get(
+      `${apiBase()}/api/transactions/refunds/due`,
+      {
+        headers: staffHeaders(),
+        failOnStatusCode: false,
+      },
+    );
+    expect(refundQueueAfterReplacement.status()).toBe(200);
+    const replacementRefunds = (await refundQueueAfterReplacement.json()) as Array<{
+      transaction_id: string;
+      amount_due: string;
+      amount_refunded: string;
+    }>;
+    const replacementRefund = replacementRefunds.find(
+      (entry) => entry.transaction_id === order.transaction_id,
+    );
+    expect(replacementRefund?.amount_due).toBe(expectedReplacementCredit);
+    expect(Number(replacementRefund?.amount_refunded)).toBe(0);
+  });
+
   test("check tender requires a check number before checkout can post", async ({ request }) => {
     const { sessionId, sessionToken } = await ensureSessionAuth(request);
     const operatorStaffId = await verifyStaffId(request);

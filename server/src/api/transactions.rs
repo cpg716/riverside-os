@@ -3960,26 +3960,44 @@ async fn unpaid_return_event_for_refund_in_tx(
 ) -> Result<Option<Uuid>, TransactionError> {
     sqlx::query_scalar(
         r#"
-        SELECT trl.refund_event_id
-        FROM transaction_return_lines trl
-        INNER JOIN transaction_lines tl ON tl.id = trl.transaction_line_id
-        WHERE trl.transaction_id = $1
-          AND trl.refund_event_id IS NOT NULL
-          AND NOT EXISTS (
-              SELECT 1
-              FROM payment_transactions pt
-              INNER JOIN payment_allocations pa ON pa.transaction_id = pt.id
-              WHERE pa.target_transaction_id = $1
-                AND pa.amount_allocated < 0
-                AND pt.status IN ('success', 'approved', 'captured')
-                AND pt.metadata->>'refund_event_id' = trl.refund_event_id::text
-          )
-        GROUP BY trl.refund_event_id
-        HAVING ROUND(SUM(COALESCE(
-            trl.refund_total,
-            (tl.unit_price + tl.state_tax + tl.local_tax) * trl.quantity_returned
-        )), 2) = $2
-        ORDER BY MIN(trl.created_at), trl.refund_event_id
+        WITH return_events AS (
+            SELECT
+                trl.refund_event_id,
+                MIN(trl.created_at) AS created_at,
+                SUM(COALESCE(
+                    trl.refund_total,
+                    (tl.unit_price + tl.state_tax + tl.local_tax) * trl.quantity_returned
+                ))::numeric(14,2) AS return_total
+            FROM transaction_return_lines trl
+            INNER JOIN transaction_lines tl ON tl.id = trl.transaction_line_id
+            WHERE trl.transaction_id = $1
+              AND trl.refund_event_id IS NOT NULL
+            GROUP BY trl.refund_event_id
+        ),
+        event_refunds AS (
+            SELECT
+                NULLIF(pt.metadata->>'refund_event_id', '')::uuid AS refund_event_id,
+                SUM(COALESCE(
+                    NULLIF(pt.metadata->>'exact_refund_amount', '')::numeric,
+                    ABS(pa.amount_allocated)
+                ))::numeric(14,2) AS refunded_total
+            FROM payment_transactions pt
+            INNER JOIN payment_allocations pa ON pa.transaction_id = pt.id
+            WHERE pa.target_transaction_id = $1
+              AND pa.amount_allocated < 0
+              AND pt.status IN ('success', 'approved', 'captured')
+              AND NULLIF(pt.metadata->>'refund_event_id', '') IS NOT NULL
+            GROUP BY NULLIF(pt.metadata->>'refund_event_id', '')::uuid
+        )
+        SELECT event.refund_event_id
+        FROM return_events event
+        LEFT JOIN event_refunds refunded
+            ON refunded.refund_event_id = event.refund_event_id
+        WHERE ROUND(
+            event.return_total - COALESCE(refunded.refunded_total, 0),
+            2
+        ) >= $2
+        ORDER BY event.created_at, event.refund_event_id
         LIMIT 1
         "#,
     )
@@ -13181,6 +13199,123 @@ async fn delete_transaction_line(
             "Only open, unfulfilled order lines with no vendor, purchase-order, or receiving activity can be deleted."
                 .to_string(),
         ));
+    }
+
+    let has_positive_payment: bool = sqlx::query_scalar(
+        r#"
+        SELECT EXISTS (
+            SELECT 1
+            FROM payment_allocations allocation
+            INNER JOIN payment_transactions payment
+                ON payment.id = allocation.transaction_id
+            WHERE allocation.target_transaction_id = $1
+              AND allocation.amount_allocated > 0
+              AND LOWER(payment.status) IN ('success', 'approved', 'captured')
+        )
+        "#,
+    )
+    .bind(transaction_id)
+    .fetch_one(&mut *tx)
+    .await?;
+
+    if has_positive_payment {
+        let refund_event_id: Uuid = sqlx::query_scalar(
+            r#"
+            SELECT return_line.refund_event_id
+            FROM transaction_return_lines return_line
+            INNER JOIN transaction_refund_queue refund
+                ON refund.transaction_id = return_line.transaction_id
+               AND refund.is_open = TRUE
+            WHERE return_line.transaction_id = $1
+              AND return_line.refund_event_id IS NOT NULL
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM payment_transactions refund_payment
+                  INNER JOIN payment_allocations refund_allocation
+                      ON refund_allocation.transaction_id = refund_payment.id
+                  WHERE refund_allocation.target_transaction_id = $1
+                    AND refund_allocation.amount_allocated < 0
+                    AND refund_payment.metadata->>'refund_event_id' =
+                        return_line.refund_event_id::text
+              )
+            ORDER BY return_line.created_at DESC, return_line.id DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(transaction_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .unwrap_or_else(Uuid::new_v4);
+
+        transaction_returns::apply_transaction_returns_in_tx(
+            &mut tx,
+            transaction_id,
+            Some(staff.id),
+            vec![transaction_returns::ReturnLineInput {
+                transaction_line_id,
+                quantity,
+                reason: Some("Paid order item removed".to_string()),
+                restock: Some(false),
+                refund_event_id,
+                register_session_id: None,
+                refund_subtotal: None,
+                refund_state_tax: None,
+                refund_local_tax: None,
+                refund_total: None,
+            }],
+        )
+        .await
+        .map_err(|error| match error {
+            transaction_returns::TransactionReturnError::Db(database) => {
+                TransactionError::Database(database)
+            }
+            transaction_returns::TransactionReturnError::BadRequest(message) => {
+                TransactionError::InvalidPayload(message)
+            }
+        })?;
+
+        let refund_due: Decimal = sqlx::query_scalar(
+            r#"
+            SELECT COALESCE(MAX(amount_due - amount_refunded), 0)::numeric(14,2)
+            FROM transaction_refund_queue
+            WHERE transaction_id = $1
+              AND is_open = TRUE
+            "#,
+        )
+        .bind(transaction_id)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        insert_transaction_activity_log_tx(
+            &mut tx,
+            transaction_id,
+            customer_id,
+            "item_removed_for_refund",
+            &format!(
+                "Removed {}× {} ({}) from paid order; refund due ${}",
+                quantity, product_name, sku, refund_due
+            ),
+            json!({
+                "transaction_line_id": transaction_line_id,
+                "product_id": product_id,
+                "variant_id": variant_id,
+                "product_name": product_name,
+                "sku": sku,
+                "quantity": quantity,
+                "unit_price": unit_price,
+                "state_tax": state_tax,
+                "local_tax": local_tax,
+                "fulfillment": fulfillment,
+                "order_lifecycle_status": lifecycle_status,
+                "refund_event_id": refund_event_id,
+                "refund_due": refund_due,
+                "replacement_items_reduce_refund_first": true,
+                "removed_by_staff_id": staff.id,
+            }),
+        )
+        .await?;
+        tx.commit().await?;
+        return Ok(StatusCode::NO_CONTENT);
     }
 
     sqlx::query("DELETE FROM transaction_lines WHERE id = $1 AND transaction_id = $2")

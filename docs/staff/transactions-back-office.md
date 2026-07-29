@@ -63,7 +63,7 @@
 
 ## Returns, refunds, exchanges
 
-- Removing an item from an existing Transaction Record is only for open, unpaid, unfulfilled order lines with no vendor, purchase-order, or receiving activity. A stale Ready for Pickup label does not block removal when those activity records are absent. Once payment, pickup, vendor processing, or completed-sale activity exists, use the trained void, return, refund, exchange, or cancellation workflow so audit and money history stay intact.
+- Removing an item from an existing Transaction Record is only for open, unfulfilled order lines with no vendor, purchase-order, receiving, pickup, or completed-sale activity. On an unpaid record, the line is deleted normally. On a paid record, ROS preserves the removed line as itemized refund evidence and recalculates the credit. Add a replacement to the same Transaction Record before settling: a lower price leaves the difference to refund, an equal price consumes the credit, and a higher price creates only the added balance due.
 - Use **return lines** / **exchange link** per training — do not bypass **refund queue** rules.
 - Cancelling a paid Transaction Record places the allocated payment amount in the Register refund queue once; a repeated cancellation request does not duplicate the refund obligation. For a linked Helcim card, ROS loads the original provider transaction ID from the payment allocation and supplies it to Helcim; staff never enter or replace that ID.
 - Refund to the actual tender: linked Helcim card, cash, check, gift card, Store Credit, Staff Account, or RMS Charge. Check requires the refund check number. RMS Charge requires the completed RMS/R2S reference plus Manager Access. Open Deposit is restored by cancellation/void, not selected as a refund tender.

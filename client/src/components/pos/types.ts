@@ -222,6 +222,8 @@ export interface ExchangeReturnHandoffLine {
   refund_state_tax_cents?: number;
   refund_local_tax_cents?: number;
   refund_total_cents?: number;
+  /** Exact return rows already exist on the source Transaction Record. */
+  already_recorded?: boolean;
   original_helcim_transaction_id_for_refund?: string | null;
 }
 

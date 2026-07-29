@@ -379,6 +379,10 @@ interface HandoffOrderDetail {
     variation_label?: string | null;
     quantity: number;
     quantity_returned?: number;
+    returned_subtotal?: string;
+    returned_state_tax?: string;
+    returned_local_tax?: string;
+    returned_total?: string;
     unit_price: string;
     unit_cost?: string;
     state_tax?: string;
@@ -1882,6 +1886,9 @@ export default function Cart({
       receiptLabel: returnLines[0].return_tender_receipt_label ?? originalTransactionId.slice(0, 8).toUpperCase(),
       refundAmountCents,
       returnLines: settledReturnLines,
+      returnLinesAlreadyRecorded:
+        settledReturnLines.length > 0 &&
+        settledReturnLines.every((line) => line.already_recorded === true),
       returnLineIntegrityOk:
         settledReturnLines.length > 0 &&
         returnLines.every((line) =>
@@ -2594,7 +2601,43 @@ export default function Cart({
           return true;
         }
 
-        const refundAmountCents = parseMoneyToCents(detail.amount_paid ?? "0");
+        let recordedRefundDueCents = 0;
+        const loadingExistingRefund =
+          !cancellationRefund &&
+          returnLineId === RETURN_TRANSACTION_REFUND_HANDOFF;
+        if (loadingExistingRefund) {
+          const refundQueueRes = await fetch(
+            `${baseUrl}/api/transactions/refunds/due`,
+            { headers: apiAuth() },
+          );
+          if (!refundQueueRes.ok) {
+            toast(
+              "Could not verify this Transaction Record's refund balance.",
+              "error",
+            );
+            return false;
+          }
+          const refundQueue = (await refundQueueRes.json()) as Array<{
+            transaction_id: string;
+            amount_due: string;
+            amount_refunded: string;
+          }>;
+          const openRefund = refundQueue.find(
+            (entry) => entry.transaction_id === detail.transaction_id,
+          );
+          if (openRefund) {
+            recordedRefundDueCents = Math.max(
+              0,
+              parseMoneyToCents(openRefund.amount_due) -
+                parseMoneyToCents(openRefund.amount_refunded),
+            );
+          }
+        }
+
+        const hasRecordedRefund = recordedRefundDueCents > 0;
+        const refundAmountCents = hasRecordedRefund
+          ? recordedRefundDueCents
+          : parseMoneyToCents(detail.amount_paid ?? "0");
         if (refundAmountCents <= 0) {
           toast("No refundable paid amount exists on this transaction.", "error");
           return false;
@@ -2604,20 +2647,30 @@ export default function Cart({
         const refundableItems = (detail.items ?? []).filter(
           (item) =>
             !item.is_internal &&
-            item.quantity - Math.max(0, item.quantity_returned ?? 0) > 0,
+            (hasRecordedRefund
+              ? Math.max(0, item.quantity_returned ?? 0)
+              : item.quantity - Math.max(0, item.quantity_returned ?? 0)) > 0,
         );
         const sourceUnits = refundableItems.flatMap((item) =>
           Array.from(
             {
-              length:
-                item.quantity - Math.max(0, item.quantity_returned ?? 0),
+              length: hasRecordedRefund
+                ? Math.max(0, item.quantity_returned ?? 0)
+                : item.quantity - Math.max(0, item.quantity_returned ?? 0),
             },
             () => ({
             item,
-            grossCents:
-              parseMoneyToCents(item.unit_price) +
-              parseMoneyToCents(item.state_tax ?? "0") +
-              parseMoneyToCents(item.local_tax ?? "0"),
+            grossCents: hasRecordedRefund
+              ? Math.max(
+                  0,
+                  Math.round(
+                    parseMoneyToCents(item.returned_total ?? "0") /
+                      Math.max(1, item.quantity_returned ?? 0),
+                  ),
+                )
+              : parseMoneyToCents(item.unit_price) +
+                parseMoneyToCents(item.state_tax ?? "0") +
+                parseMoneyToCents(item.local_tax ?? "0"),
             }),
           ),
         );
@@ -2701,6 +2754,7 @@ export default function Cart({
                 refund_state_tax_cents: stateTaxCents,
                 refund_local_tax_cents: localTaxCents,
                 refund_total_cents: unitCreditCents,
+                already_recorded: hasRecordedRefund,
                 original_helcim_transaction_id_for_refund:
                   detail.original_helcim_transaction_id_for_refund ?? null,
               });
@@ -4999,16 +5053,26 @@ export default function Cart({
                     external_refund_reference:
                       primaryTender.metadata?.external_refund_reference,
                     cancel_transaction: pendingReturnTender.cancelTransaction,
-                    return_lines: pendingReturnTender.returnLines.map((line) => ({
-                      transaction_line_id: line.transaction_line_id,
-                      quantity: line.quantity,
-                      reason: line.reason ?? "refund",
-                      restock: line.restock ?? undefined,
-                      refund_subtotal: centsToFixed2(line.refund_subtotal_cents ?? 0),
-                      refund_state_tax: centsToFixed2(line.refund_state_tax_cents ?? 0),
-                      refund_local_tax: centsToFixed2(line.refund_local_tax_cents ?? 0),
-                      refund_total: centsToFixed2(line.refund_total_cents ?? 0),
-                    })),
+                    return_lines: pendingReturnTender.returnLinesAlreadyRecorded
+                      ? []
+                      : pendingReturnTender.returnLines.map((line) => ({
+                          transaction_line_id: line.transaction_line_id,
+                          quantity: line.quantity,
+                          reason: line.reason ?? "refund",
+                          restock: line.restock ?? undefined,
+                          refund_subtotal: centsToFixed2(
+                            line.refund_subtotal_cents ?? 0,
+                          ),
+                          refund_state_tax: centsToFixed2(
+                            line.refund_state_tax_cents ?? 0,
+                          ),
+                          refund_local_tax: centsToFixed2(
+                            line.refund_local_tax_cents ?? 0,
+                          ),
+                          refund_total: centsToFixed2(
+                            line.refund_total_cents ?? 0,
+                          ),
+                        })),
                   }),
                 },
               );
