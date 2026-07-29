@@ -1935,7 +1935,9 @@ function buildSchemaGeneratedSql(entries, { invCost, customerPts, locId }) {
       ? ` AND UPPER(RTRIM(LTRIM(CONVERT(NVARCHAR(32), t.[${docTotType}])))) = 'O'`
       : "";
     const hasTot = Boolean(psDocTot && docTotJoinPredicate && psDocTot.has("TOT") && psDocTot.has("TOT_TND"));
+    const docTaxTotal = pickColumn(psDocTot, ["TAX_AMT", "TOT_TAX", "TOTAL_TAX", "SLS_TAX", "SLS_TAX_AMT"]);
     const total = pickColumn(psDocHdr, ["TOT", "TOT_EXTD_PRC"]);
+    const headerTaxTotal = pickColumn(psDocHdr, ["TAX_AMT", "TOT_TAX", "TOTAL_TAX", "SLS_TAX", "SLS_TAX_AMT"]);
     const paid = pickColumn(psDocHdr, ["TOT_TND", "AMT_PAID", "TOT"]);
     const docTyp = pickColumn(psDocHdr, ["DOC_TYP", "TKT_TYP"]);
     const docStatus = pickColumn(psDocHdr, ["DOC_STAT", "DOC_STATUS", "STA_COD", "STATUS", "STAT"]);
@@ -1965,8 +1967,8 @@ function buildSchemaGeneratedSql(entries, { invCost, customerPts, locId }) {
       ? ` INNER JOIN PS_DOC_HDR_TOT t ON ${docTotJoinPredicate}${docTotTypeFilter}`
       : "";
     sqlMap.open_docs = hasTot
-      ? `SELECT ${docRefSelect}, ${sqlText("h", psDocHdr, ["CUST_NO"], "cust_no")}, CONVERT(varchar, h.[${docDate}], 126) + 'Z' AS booked_at, ${sqlText("h", psDocHdr, ["USR_ID"], "usr_id")}, ${sqlText("h", psDocHdr, ["SLS_REP"], "sls_rep")}, ${sqlText("h", psDocHdr, ["DOC_TYP", "TKT_TYP"], "doc_typ")}, t.[TOT] AS total_price, t.[TOT_TND] AS amount_paid FROM ${psDocTable} h INNER JOIN PS_DOC_HDR_TOT t ON ${docTotJoinPredicate}${docTotTypeFilter} WHERE ${activeDocWhere}`
-      : `SELECT ${docRefSelect}, ${sqlText("h", psDocHdr, ["CUST_NO"], "cust_no")}, CONVERT(varchar, h.[${docDate}], 126) + 'Z' AS booked_at, ${sqlText("h", psDocHdr, ["USR_ID"], "usr_id")}, ${sqlText("h", psDocHdr, ["SLS_REP"], "sls_rep")}, ${sqlText("h", psDocHdr, ["DOC_TYP", "TKT_TYP"], "doc_typ")}, ${total ? `h.[${total}]` : "CAST(0 AS DECIMAL(18,2))"} AS total_price, ${paid ? `h.[${paid}]` : "CAST(0 AS DECIMAL(18,2))"} AS amount_paid FROM ${psDocTable} h WHERE ${activeDocWhere}`;
+      ? `SELECT ${docRefSelect}, ${sqlText("h", psDocHdr, ["CUST_NO"], "cust_no")}, CONVERT(varchar, h.[${docDate}], 126) + 'Z' AS booked_at, ${sqlText("h", psDocHdr, ["USR_ID"], "usr_id")}, ${sqlText("h", psDocHdr, ["SLS_REP"], "sls_rep")}, ${sqlText("h", psDocHdr, ["DOC_TYP", "TKT_TYP"], "doc_typ")}, t.[TOT] AS total_price, ${docTaxTotal ? `t.[${docTaxTotal}]` : "CAST(NULL AS DECIMAL(18,2))"} AS tax_total, t.[TOT_TND] AS amount_paid FROM ${psDocTable} h INNER JOIN PS_DOC_HDR_TOT t ON ${docTotJoinPredicate}${docTotTypeFilter} WHERE ${activeDocWhere}`
+      : `SELECT ${docRefSelect}, ${sqlText("h", psDocHdr, ["CUST_NO"], "cust_no")}, CONVERT(varchar, h.[${docDate}], 126) + 'Z' AS booked_at, ${sqlText("h", psDocHdr, ["USR_ID"], "usr_id")}, ${sqlText("h", psDocHdr, ["SLS_REP"], "sls_rep")}, ${sqlText("h", psDocHdr, ["DOC_TYP", "TKT_TYP"], "doc_typ")}, ${total ? `h.[${total}]` : "CAST(0 AS DECIMAL(18,2))"} AS total_price, ${headerTaxTotal ? `h.[${headerTaxTotal}]` : "CAST(NULL AS DECIMAL(18,2))"} AS tax_total, ${paid ? `h.[${paid}]` : "CAST(0 AS DECIMAL(18,2))"} AS amount_paid FROM ${psDocTable} h WHERE ${activeDocWhere}`;
     changes.push(`${psDocTable} open documents enabled; key=${docRefColumns.join("+")}`);
     const lineDoc = pickColumn(psDocLin, [docRef, "DOC_ID", "DOC_NO", "TKT_NO"]);
     const lineJoinPairs = ticketJoinPairs(psDocHdr, psDocLin, docRef, lineDoc);
@@ -4486,6 +4488,7 @@ function mapOpenDocRow(r) {
     cust_no: r.cust_no ? String(r.cust_no).trim() : undefined,
     booked_at: r.booked_at ?? r.doc_dat ?? r.bus_dat ?? undefined,
     total_price: String(r.total_price ?? r.tot ?? "0"),
+    tax_total: r.tax_total != null ? String(r.tax_total) : undefined,
     amount_paid: String(r.amount_paid ?? r.amt_paid ?? "0"),
     usr_id: r.usr_id ? String(r.usr_id).trim() : undefined,
     sls_rep: r.sls_rep ? String(r.sls_rep).trim() : undefined,

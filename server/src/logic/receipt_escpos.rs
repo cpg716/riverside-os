@@ -314,12 +314,6 @@ fn push_items(out: &mut Vec<u8>, d: &ReceiptOrder, gift: bool) {
                     );
                 }
             }
-            if let Some(label) = &it.discount_event_label {
-                let t = label.trim();
-                if !t.is_empty() {
-                    push_line(out, t);
-                }
-            }
         }
         if let Some(code) = it
             .gift_card_load_code
@@ -641,12 +635,6 @@ fn receiptline_item_lines(
                             each,
                             pct
                         ));
-                    }
-                }
-                if let Some(label) = &it.discount_event_label {
-                    let t = label.trim();
-                    if !t.is_empty() {
-                        out_lines.push(format!("{} |", receiptline_escape(t)));
                     }
                 }
             }
@@ -1144,6 +1132,20 @@ mod tests {
         assert!(lines.contains("Alteration: Hem Pants"));
         assert!(lines.contains("SHIPPING FEE"));
         assert!(!lines.contains("^^^Shipping"));
+    }
+
+    #[test]
+    fn customer_thermal_receipt_hides_internal_discount_provenance() {
+        let mut line = receipt_line("Discounted suit", "B-DISCOUNT", None);
+        line.unit_price = Decimal::new(30000, 2);
+        line.original_unit_price = Some(Decimal::new(37500, 2));
+        line.discount_event_label = Some("Counterpoint imported discount".to_string());
+        let order = receipt_order_with(vec![line]);
+
+        let receiptline = receiptline_item_lines(&order, &ReceiptConfig::default(), false, false);
+
+        assert!(receiptline.contains("Reg $375.00 Sale $300.00"));
+        assert!(!receiptline.contains("Counterpoint imported discount"));
     }
 
     #[test]

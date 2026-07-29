@@ -33,31 +33,17 @@ fn build_items_table(order: &ReceiptOrder) -> String {
             .as_deref()
             .map(|v| format!(" ({})", html_escape(v)))
             .unwrap_or_default();
-        let discount_label = it
-            .discount_event_label
-            .as_deref()
-            .map(str::trim)
-            .filter(|label| !label.is_empty());
-        let discount_row = discount_label
-            .map(|label| {
-                format!(
-                    "<tr><td colspan=\"3\" style=\"padding:0 0 5px 0;color:#7c3aed;font-size:11px;font-weight:800;\">{}</td></tr>",
-                    html_escape(label)
-                )
-            })
-            .unwrap_or_default();
         rows.push_str(&format!(
             "<tr>\
                <td style=\"overflow-wrap:break-word;word-break:break-word;min-width:0;width:58%\"><strong>{}</strong>{}<br><span style=\"font-size:11px;color:#666\">SKU {}</span></td>\
                <td style=\"text-align:center;padding-left:8px;width:14%\">{}</td>\
                <td style=\"text-align:right;padding-left:8px;width:28%\">{}</td>\
-             </tr>{}",
+             </tr>",
             html_escape(&it.product_name),
             var,
             html_escape(&it.sku),
             it.quantity,
-            it.unit_price,
-            discount_row
+            it.unit_price
         ));
     }
     format!(
@@ -573,6 +559,18 @@ mod tests {
         assert!(html.contains("<title>Receipt TXN-66736</title>"));
         assert!(html.contains("<div class=\"title\">Receipt</div>"));
         assert!(!html.contains("RETURN /"));
+    }
+
+    #[test]
+    fn customer_html_receipt_hides_internal_discount_provenance() {
+        let mut order = sample_receipt_order_for_preview();
+        order.items[0].original_unit_price = Some(Decimal::new(20000, 2));
+        order.items[0].discount_event_label = Some("Counterpoint imported discount".to_string());
+
+        let items = build_items_table(&order);
+
+        assert!(!items.contains("Counterpoint imported discount"));
+        assert!(items.contains("Wool suit jacket"));
     }
 
     #[test]

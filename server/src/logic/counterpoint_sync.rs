@@ -13826,6 +13826,8 @@ pub struct CounterpointOpenDocRow {
     #[serde(default)]
     pub booked_at: Option<String>,
     pub total_price: Decimal,
+    #[serde(default)]
+    pub tax_total: Option<Decimal>,
     pub amount_paid: Decimal,
     #[serde(default)]
     pub usr_id: Option<String>,
@@ -13933,20 +13935,19 @@ fn counterpoint_line_source_prices(
     let mut original_prices = Vec::with_capacity(lines.len());
 
     for line in lines {
-        let discount = line
+        let discount_original = line
             .discount_amount
-            .filter(|amount| *amount > Decimal::ZERO && line.unit_price > *amount);
+            .filter(|amount| *amount > Decimal::ZERO)
+            .map(|amount| rounded_counterpoint_money(line.unit_price + amount));
         let explicit_original = line
             .original_unit_price
             .filter(|price| *price > line.unit_price + Decimal::new(1, 2));
 
-        if let Some(discount) = discount {
-            unit_prices.push(rounded_counterpoint_money(line.unit_price - discount));
-            original_prices.push(Some(explicit_original.unwrap_or(line.unit_price)));
-        } else {
-            unit_prices.push(line.unit_price);
-            original_prices.push(explicit_original);
-        }
+        // The Bridge's unit_price is PS_*_LIN.EXT_PRC / quantity: the exact
+        // charged net price. Discount fields are provenance for the original
+        // price and must never be subtracted from that net price again.
+        unit_prices.push(line.unit_price);
+        original_prices.push(explicit_original.or(discount_original));
     }
 
     (unit_prices, original_prices)
@@ -14323,6 +14324,75 @@ fn counterpoint_import_line_financials(
     )
 }
 
+fn counterpoint_open_doc_exact_financials(
+    total_price: Decimal,
+    amount_paid: Decimal,
+    tax_total: Option<Decimal>,
+    lines: &[TicketLineRow],
+) -> Result<
+    (
+        Decimal,
+        Vec<Decimal>,
+        Vec<Option<Decimal>>,
+        Vec<(Decimal, Decimal)>,
+    ),
+    String,
+> {
+    let total_price = rounded_counterpoint_money(total_price);
+    let amount_paid = rounded_counterpoint_money(amount_paid);
+    if total_price < Decimal::ZERO || amount_paid < Decimal::ZERO {
+        return Err("negative header total or tender total".into());
+    }
+    if amount_paid > total_price + Decimal::new(1, 2) {
+        return Err(format!(
+            "tender total {amount_paid} exceeds document total {total_price}"
+        ));
+    }
+
+    let (unit_prices, original_unit_prices) = counterpoint_line_source_prices(lines);
+    let line_subtotal = rounded_counterpoint_money(
+        counterpoint_open_doc_line_subtotal_from_prices(lines, &unit_prices),
+    );
+
+    let line_taxes = if let Some(explicit_taxes) =
+        explicit_counterpoint_line_taxes(lines, &unit_prices)
+    {
+        explicit_taxes
+    } else {
+        let header_tax = tax_total
+            .map(rounded_counterpoint_money)
+            .filter(|tax| *tax >= Decimal::ZERO)
+            .unwrap_or_else(|| rounded_counterpoint_money(total_price - line_subtotal));
+        if header_tax < Decimal::ZERO
+            || (!header_tax.is_zero()
+                && !counterpoint_open_doc_plausible_tax(line_subtotal, header_tax))
+        {
+            return Err(format!(
+                "line net subtotal {line_subtotal} does not reconcile to document total {total_price}; exact Counterpoint net-price or tax evidence is required"
+            ));
+        }
+        allocate_counterpoint_open_doc_line_taxes(lines, &unit_prices, header_tax)
+    };
+
+    let line_tax_total = rounded_counterpoint_money(
+        lines
+            .iter()
+            .zip(line_taxes.iter())
+            .map(|(line, (state_tax, local_tax))| {
+                Decimal::from(line.quantity) * (*state_tax + *local_tax)
+            })
+            .sum(),
+    );
+    let reconstructed_total = rounded_counterpoint_money(line_subtotal + line_tax_total);
+    if (reconstructed_total - total_price).abs() > Decimal::new(1, 2) {
+        return Err(format!(
+            "line net subtotal plus tax is {reconstructed_total}, not the Counterpoint document total {total_price}"
+        ));
+    }
+
+    Ok((total_price, unit_prices, original_unit_prices, line_taxes))
+}
+
 fn counterpoint_ticket_financial_evidence(
     ticket: &CounterpointTicketRow,
     source_tender_total: Decimal,
@@ -14629,6 +14699,9 @@ fn merge_counterpoint_open_doc_rows(
             if row.amount_paid > existing.amount_paid {
                 existing.amount_paid = row.amount_paid;
             }
+            if existing.tax_total.is_none() {
+                existing.tax_total = row.tax_total;
+            }
             set_if_blank(&mut existing.cust_no, row.cust_no.take());
             set_if_blank(&mut existing.booked_at, row.booked_at.take());
             set_if_blank(&mut existing.usr_id, row.usr_id.take());
@@ -14825,18 +14898,58 @@ pub async fn execute_counterpoint_open_doc_batch(
 
         let normalized_amount_paid =
             sum_counterpoint_open_doc_tenders(&doc.payments).unwrap_or(doc.amount_paid);
+        let exact_financials = counterpoint_open_doc_exact_financials(
+            doc.total_price,
+            normalized_amount_paid,
+            doc.tax_total,
+            &doc.lines,
+        );
         let (
             effective_total_price,
             effective_line_prices,
             original_line_prices,
             inferred_line_taxes,
-        ) = counterpoint_import_line_financials(
-            doc.total_price,
-            normalized_amount_paid,
-            None,
-            &doc.lines,
-            false,
-        );
+        ) = match exact_financials {
+            Ok(financials) => financials,
+            Err(reason) => {
+                record_counterpoint_import_exception(
+                    pool,
+                    "open_docs",
+                    Some(doc_ref),
+                    "error",
+                    "open_doc_financial_evidence_mismatch",
+                    &format!(
+                        "Counterpoint open document {doc_ref} was not imported because its financial evidence does not reconcile: {reason}."
+                    ),
+                    Some(
+                        "Correct the Counterpoint line net prices, discounts, tax, and tender evidence, then rerun Open Orders. Riverside will not substitute retail prices or infer a customer balance.",
+                    ),
+                    false,
+                    None,
+                    None,
+                    serde_json::json!({
+                        "counterpoint_doc_ref": doc_ref,
+                        "source_total_price": doc.total_price,
+                        "source_tax_total": doc.tax_total,
+                        "source_amount_paid": normalized_amount_paid,
+                        "financial_write_blocked": true,
+                    }),
+                )
+                .await;
+                record_sync_issue(
+                    pool,
+                    "open_docs",
+                    Some(doc_ref),
+                    "error",
+                    &format!(
+                        "Open doc financial import blocked: {reason}; existing customer financials were not changed"
+                    ),
+                )
+                .await;
+                summary.skipped += 1;
+                continue;
+            }
+        };
         let balance = effective_total_price - normalized_amount_paid;
         let status = order_status_for_cp_open_doc(
             doc.cp_status.as_deref(),
@@ -14865,6 +14978,79 @@ pub async fn execute_counterpoint_open_doc_batch(
             )
             .await;
             summary.skipped += 1;
+            continue;
+        }
+
+        if let Some(transaction_id) = existing_doc_ids.get(doc_ref).copied() {
+            summary.transactions_skipped_existing += 1;
+            let current: Option<(Decimal, Decimal, Decimal)> = sqlx::query_as(
+                r#"
+                SELECT total_price, amount_paid, balance_due
+                FROM transactions
+                WHERE id = $1
+                  AND is_counterpoint_import
+                  AND counterpoint_doc_ref = $2
+                "#,
+            )
+            .bind(transaction_id)
+            .bind(doc_ref)
+            .fetch_optional(&mut *tx)
+            .await?;
+
+            if let Some((current_total, current_paid, current_balance)) = current {
+                let incoming_balance =
+                    rounded_counterpoint_money(effective_total_price - normalized_amount_paid);
+                let differs = (rounded_counterpoint_money(current_total) - effective_total_price)
+                    .abs()
+                    > Decimal::new(1, 2)
+                    || (rounded_counterpoint_money(current_paid) - normalized_amount_paid).abs()
+                        > Decimal::new(1, 2)
+                    || (rounded_counterpoint_money(current_balance) - incoming_balance).abs()
+                        > Decimal::new(1, 2);
+
+                if differs {
+                    record_counterpoint_import_exception(
+                        pool,
+                        "open_docs",
+                        Some(doc_ref),
+                        "warning",
+                        "existing_open_doc_financial_change_requires_review",
+                        &format!(
+                            "Counterpoint open document {doc_ref} now differs from the established Riverside customer financial record. The manual Open Orders rerun did not overwrite prices, payments, tax, or balance."
+                        ),
+                        Some(
+                            "Review the exact Counterpoint receipt and customer account. Apply any legitimate change through the audited transaction amendment workflow; do not replace the imported transaction.",
+                        ),
+                        false,
+                        None,
+                        None,
+                        serde_json::json!({
+                            "counterpoint_doc_ref": doc_ref,
+                            "transaction_id": transaction_id,
+                            "current": {
+                                "total_price": current_total,
+                                "amount_paid": current_paid,
+                                "balance_due": current_balance,
+                            },
+                            "incoming": {
+                                "total_price": effective_total_price,
+                                "amount_paid": normalized_amount_paid,
+                                "balance_due": incoming_balance,
+                            },
+                            "financial_write_blocked": true,
+                        }),
+                    )
+                    .await;
+                    record_sync_issue(
+                        pool,
+                        "open_docs",
+                        Some(doc_ref),
+                        "warning",
+                        "Existing open-order financials differ from Counterpoint; manual rerun was blocked from overwriting the customer record",
+                    )
+                    .await;
+                }
+            }
             continue;
         }
 
@@ -14972,65 +15158,7 @@ pub async fn execute_counterpoint_open_doc_batch(
             continue;
         }
 
-        let existing_transaction_id = existing_doc_ids.get(doc_ref).copied();
-        let transaction_id = if let Some(transaction_id) = existing_transaction_id {
-            summary.transactions_skipped_existing += 1;
-            sqlx::query(
-                r#"
-                UPDATE transactions
-                SET customer_id = COALESCE($2, customer_id),
-                    status = $3::order_status,
-                    booked_at = $4,
-                    business_date = ($4 AT TIME ZONE reporting.effective_store_timezone())::date,
-                    total_price = $5,
-                    amount_paid = $6,
-                    balance_due = $7,
-                    processed_by_staff_id = COALESCE($8, processed_by_staff_id),
-                    primary_salesperson_id = COALESCE($9, primary_salesperson_id)
-                WHERE id = $1
-                  AND is_counterpoint_import
-                  AND counterpoint_doc_ref = $10
-                "#,
-            )
-            .bind(transaction_id)
-            .bind(customer_id)
-            .bind(status)
-            .bind(booked_at)
-            .bind(effective_total_price)
-            .bind(normalized_amount_paid)
-            .bind(balance)
-            .bind(processed_by)
-            .bind(salesperson)
-            .bind(doc_ref)
-            .execute(&mut *tx)
-            .await?;
-
-            let payment_ids: Vec<Uuid> = sqlx::query_scalar(
-                r#"
-                SELECT pa.transaction_id
-                FROM payment_allocations pa
-                JOIN payment_transactions pt ON pt.id = pa.transaction_id
-                WHERE pa.target_transaction_id = $1
-                  AND pt.metadata->>'counterpoint_doc_ref' = $2
-                "#,
-            )
-            .bind(transaction_id)
-            .bind(doc_ref)
-            .fetch_all(&mut *tx)
-            .await?;
-            if !payment_ids.is_empty() {
-                sqlx::query("DELETE FROM payment_allocations WHERE transaction_id = ANY($1)")
-                    .bind(&payment_ids)
-                    .execute(&mut *tx)
-                    .await?;
-                sqlx::query("DELETE FROM payment_transactions WHERE id = ANY($1)")
-                    .bind(&payment_ids)
-                    .execute(&mut *tx)
-                    .await?;
-            }
-            replace_counterpoint_import_lines(&mut tx, transaction_id, "open_doc", doc_ref).await?;
-            transaction_id
-        } else {
+        let transaction_id = {
             let Some(transaction_id) = sqlx::query_scalar::<_, Uuid>(
                 r#"
                 INSERT INTO transactions (
@@ -19438,6 +19566,67 @@ mod tests {
     }
 
     #[test]
+    fn open_doc_exact_financials_rejects_retail_price_substitution() {
+        let lines = vec![TicketLineRow {
+            sku: Some("B-FINANCIAL-LOCK".into()),
+            counterpoint_item_key: Some("I-FINANCIAL-LOCK".into()),
+            lin_seq_no: Some(1),
+            quantity: 1,
+            unit_price: Decimal::new(37500, 2),
+            unit_cost: None,
+            state_tax: None,
+            local_tax: None,
+            tax_amount: None,
+            original_unit_price: None,
+            discount_amount: None,
+            description: Some("Counterpoint net-price evidence fixture".into()),
+            reason_code: None,
+        }];
+
+        let error = counterpoint_open_doc_exact_financials(
+            Decimal::new(32625, 2),
+            Decimal::new(16313, 2),
+            Some(Decimal::new(2625, 2)),
+            &lines,
+        )
+        .expect_err("retail line price must not be silently redistributed");
+
+        assert!(error.contains("line net subtotal"));
+    }
+
+    #[test]
+    fn open_doc_exact_financials_preserves_explicit_net_price_and_tax() {
+        let lines = vec![TicketLineRow {
+            sku: Some("B-FINANCIAL-EXACT".into()),
+            counterpoint_item_key: Some("I-FINANCIAL-EXACT".into()),
+            lin_seq_no: Some(1),
+            quantity: 1,
+            unit_price: Decimal::new(30000, 2),
+            unit_cost: None,
+            state_tax: None,
+            local_tax: None,
+            tax_amount: None,
+            original_unit_price: Some(Decimal::new(37500, 2)),
+            discount_amount: None,
+            description: Some("Counterpoint exact net-price fixture".into()),
+            reason_code: None,
+        }];
+
+        let (total, prices, original_prices, taxes) = counterpoint_open_doc_exact_financials(
+            Decimal::new(32625, 2),
+            Decimal::new(16313, 2),
+            Some(Decimal::new(2625, 2)),
+            &lines,
+        )
+        .expect("exact Counterpoint net-price evidence should reconcile");
+
+        assert_eq!(total, Decimal::new(32625, 2));
+        assert_eq!(prices, vec![Decimal::new(30000, 2)]);
+        assert_eq!(original_prices, vec![Some(Decimal::new(37500, 2))]);
+        assert_eq!(taxes, vec![(Decimal::new(1200, 2), Decimal::new(1425, 2))]);
+    }
+
+    #[test]
     fn historical_payment_only_ticket_does_not_reprice_merchandise_from_tender() {
         let lines = vec![TicketLineRow {
             sku: Some("B-1350103".into()),
@@ -19475,7 +19664,7 @@ mod tests {
             counterpoint_item_key: Some("I-102120|M20001-1|16.5|2/3".into()),
             lin_seq_no: Some(1),
             quantity: 1,
-            unit_price: Decimal::new(7500, 2),
+            unit_price: Decimal::new(6500, 2),
             unit_cost: Some(Decimal::new(2500, 2)),
             state_tax: None,
             local_tax: None,
@@ -21338,6 +21527,7 @@ mod tests {
                     cust_no: Some(missing_customer.clone()),
                     booked_at: Some(Utc::now().to_rfc3339()),
                     total_price: Decimal::new(4000, 2),
+                    tax_total: None,
                     amount_paid: Decimal::ZERO,
                     usr_id: None,
                     sls_rep: None,
@@ -21497,6 +21687,7 @@ mod tests {
                     cust_no: None,
                     booked_at: Some(Utc::now().to_rfc3339()),
                     total_price: Decimal::new(8000, 2),
+                    tax_total: None,
                     amount_paid: Decimal::ZERO,
                     usr_id: None,
                     sls_rep: None,
@@ -21720,7 +21911,8 @@ mod tests {
                         doc_ref: doc_ref.clone(),
                         cust_no: None,
                         booked_at: Some(booked_at.clone()),
-                        total_price: Decimal::new(4590, 2),
+                        total_price: Decimal::new(4350, 2),
+                        tax_total: Some(Decimal::new(350, 2)),
                         amount_paid: Decimal::new(2000, 2),
                         usr_id: None,
                         sls_rep: None,
@@ -21734,6 +21926,7 @@ mod tests {
                         cust_no: None,
                         booked_at: Some(booked_at.clone()),
                         total_price: Decimal::new(4000, 2),
+                        tax_total: Some(Decimal::new(350, 2)),
                         amount_paid: Decimal::ZERO,
                         usr_id: None,
                         sls_rep: None,
@@ -21747,6 +21940,7 @@ mod tests {
                         cust_no: None,
                         booked_at: Some(booked_at),
                         total_price: Decimal::ZERO,
+                        tax_total: Some(Decimal::new(350, 2)),
                         amount_paid: Decimal::ZERO,
                         usr_id: None,
                         sls_rep: None,
@@ -21770,13 +21964,28 @@ mod tests {
                     doc_ref: doc_ref.clone(),
                     cust_no: None,
                     booked_at: Some(rerun_booked_at.to_rfc3339()),
-                    total_price: Decimal::new(4590, 2),
+                    total_price: Decimal::new(5438, 2),
+                    tax_total: Some(Decimal::new(438, 2)),
                     amount_paid: Decimal::new(2000, 2),
                     usr_id: None,
                     sls_rep: None,
                     cp_status: None,
                     doc_typ: Some("O".into()),
-                    lines: vec![repeated_line()],
+                    lines: vec![TicketLineRow {
+                        sku: Some(sku.clone()),
+                        counterpoint_item_key: Some(cp_key.clone()),
+                        lin_seq_no: Some(1),
+                        quantity: 1,
+                        unit_price: Decimal::new(5000, 2),
+                        unit_cost: Some(Decimal::new(1000, 2)),
+                        state_tax: None,
+                        local_tax: None,
+                        tax_amount: None,
+                        original_unit_price: None,
+                        discount_amount: None,
+                        description: Some("Changed open doc line".into()),
+                        reason_code: None,
+                    }],
                     payments: vec![repeated_payment()],
                 }],
                 sync: None,
@@ -21847,6 +22056,20 @@ mod tests {
         .fetch_one(&pool)
         .await
         .expect("load reimport booking audit evidence");
+        let financial_lock_issue_count: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*)::bigint
+            FROM counterpoint_sync_issue
+            WHERE entity = 'open_docs'
+              AND external_key = $1
+              AND NOT resolved
+              AND message = 'Existing open-order financials differ from Counterpoint; manual rerun was blocked from overwriting the customer record'
+            "#,
+        )
+        .bind(&doc_ref)
+        .fetch_one(&pool)
+        .await
+        .expect("count financial lock issue");
 
         sqlx::query("DELETE FROM payment_allocations WHERE target_transaction_id = $1")
             .bind(transaction.0)
@@ -21868,6 +22091,20 @@ mod tests {
             .execute(&pool)
             .await
             .expect("cleanup payment transactions");
+        sqlx::query(
+            "DELETE FROM counterpoint_sync_issue WHERE entity = 'open_docs' AND external_key = $1",
+        )
+        .bind(&doc_ref)
+        .execute(&pool)
+        .await
+        .expect("cleanup financial lock issue");
+        sqlx::query(
+            "DELETE FROM counterpoint_import_exceptions WHERE entity_key = 'open_docs' AND source_key = $1",
+        )
+        .bind(&doc_ref)
+        .execute(&pool)
+        .await
+        .expect("cleanup financial lock exception");
         sqlx::query("DELETE FROM product_variants WHERE id = $1")
             .bind(variant_id)
             .execute(&pool)
@@ -21882,17 +22119,18 @@ mod tests {
         assert_eq!(summary.transactions_created, 1);
         assert_eq!(rerun_summary.transactions_created, 0);
         assert_eq!(rerun_summary.transactions_skipped_existing, 1);
-        assert_eq!(rerun_summary.line_items_created, 1);
-        assert_eq!(rerun_summary.payments_created, 1);
+        assert_eq!(rerun_summary.line_items_created, 0);
+        assert_eq!(rerun_summary.payments_created, 0);
         assert_eq!(summary.line_items_created, 1);
         assert_eq!(summary.payments_created, 1);
         assert_eq!(line_count, 1);
         assert_eq!(payment_summary.0, 1);
         assert_eq!(payment_summary.1, Decimal::new(2000, 2));
-        assert_eq!(transaction.1, Decimal::new(4590, 2));
+        assert_eq!(transaction.1, Decimal::new(4350, 2));
         assert_eq!(transaction.2, Decimal::new(2000, 2));
-        assert_eq!(transaction.3, Decimal::new(2590, 2));
-        assert_eq!(booking_event_evidence, (0, 1, 1, true));
+        assert_eq!(transaction.3, Decimal::new(2350, 2));
+        assert_eq!(booking_event_evidence, (0, 0, 1, false));
+        assert_eq!(financial_lock_issue_count, 1);
     }
 
     #[tokio::test]
@@ -21942,6 +22180,7 @@ mod tests {
                 cust_no: None,
                 booked_at: Some(Utc::now().to_rfc3339()),
                 total_price: Decimal::new(28275, 2),
+                tax_total: None,
                 amount_paid: Decimal::new(14000, 2),
                 usr_id: None,
                 sls_rep: None,
@@ -22055,8 +22294,8 @@ mod tests {
         assert_eq!(first.payments_created, 1);
         assert_eq!(second.transactions_created, 0);
         assert_eq!(second.transactions_skipped_existing, 1);
-        assert_eq!(second.line_items_created, 1);
-        assert_eq!(second.payments_created, 1);
+        assert_eq!(second.line_items_created, 0);
+        assert_eq!(second.payments_created, 0);
         assert_eq!(transaction.1, Decimal::new(28275, 2));
         assert_eq!(transaction.2, Decimal::new(14000, 2));
         assert_eq!(transaction.3, Decimal::new(14275, 2));
@@ -22120,6 +22359,7 @@ mod tests {
                     cust_no: None,
                     booked_at: Some(Utc::now().to_rfc3339()),
                     total_price: Decimal::new(28275, 2),
+                    tax_total: None,
                     amount_paid: Decimal::new(28275, 2),
                     usr_id: None,
                     sls_rep: None,
@@ -22186,7 +22426,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn counterpoint_open_doc_parent_duplicate_skips_when_ticket_exists() {
+    async fn counterpoint_open_doc_existing_paid_record_is_not_deleted_by_rerun() {
         let _guard = SNAPSHOT_RECONCILIATION_TEST_LOCK.lock().await;
         let pool = connect_test_db().await;
         let suffix = Uuid::new_v4().simple().to_string();
@@ -22374,6 +22614,7 @@ mod tests {
                     cust_no: Some(cust_no.clone()),
                     booked_at: Some(booked_at.to_rfc3339()),
                     total_price: Decimal::new(28275, 2),
+                    tax_total: None,
                     amount_paid: Decimal::new(28275, 2),
                     usr_id: None,
                     sls_rep: None,
@@ -22446,6 +22687,11 @@ mod tests {
             .execute(&pool)
             .await
             .expect("cleanup duplicate transactions");
+        sqlx::query("DELETE FROM payment_transactions WHERE id = $1")
+            .bind(duplicate_payment_id)
+            .execute(&pool)
+            .await
+            .expect("cleanup duplicate payment transaction");
         sqlx::query("DELETE FROM product_variants WHERE id = ANY($1)")
             .bind(&vec![parent_variant_id, matrix_variant_id])
             .execute(&pool)
@@ -22463,10 +22709,11 @@ mod tests {
             .expect("cleanup duplicate customer");
 
         assert_eq!(summary.transactions_created, 0);
+        assert_eq!(summary.transactions_skipped_existing, 1);
         assert_eq!(summary.line_items_created, 0);
-        assert_eq!(summary.skipped, 1);
-        assert_eq!(open_doc_transaction_count, 0);
-        assert_eq!(duplicate_payment_count, 0);
+        assert_eq!(summary.skipped, 0);
+        assert_eq!(open_doc_transaction_count, 1);
+        assert_eq!(duplicate_payment_count, 1);
         assert_eq!(issue_count, 0);
     }
 
@@ -22484,6 +22731,7 @@ mod tests {
                 cust_no: None,
                 booked_at: Some(Utc::now().to_rfc3339()),
                 total_price: Decimal::new(4000, 2),
+                tax_total: None,
                 amount_paid: Decimal::ZERO,
                 usr_id: None,
                 sls_rep: None,

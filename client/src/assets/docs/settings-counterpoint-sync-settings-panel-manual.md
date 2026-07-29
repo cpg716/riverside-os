@@ -89,6 +89,25 @@ The screen shows a short reviewed-manifest fingerprint. Date repair sends the co
 
 Counterpoint reruns also protect completed work. If an imported line already has a return/refund, fulfillment or purchase-order link/event, discount audit, suit-swap audit, or wedding cutover review, Riverside leaves the original line ID and all allocations/audit records intact and reports that the rerun needs Manager review.
 
+An existing imported Open Order is also a locked customer financial record, even
+while its fulfillment remains open. Running Open Orders again never replaces
+its line net prices, discounts, tax, payments, or balance. If current
+Counterpoint values differ, Riverside leaves the existing Transaction Record
+unchanged and opens a financial discrepancy for review. A legitimate correction
+must use the audited transaction amendment or support repair workflow.
+
+For a new Open Order, the Counterpoint net line prices, discounts, tax, tender
+total, and document total must reconcile exactly. Riverside blocks the import
+when only retail prices are available, a tender exceeds the supplied document
+total, or line-plus-tax evidence does not equal the document total. Staff must
+correct or complete the Counterpoint evidence; Riverside does not infer a
+customer price or balance.
+
+The Bridge sends each line's charged extended price after Counterpoint
+discounts. Riverside uses that value as the customer net price. Counterpoint
+discount fields are retained only to explain the regular-versus-sale price;
+they are never subtracted from the charged price a second time.
+
 ### Current imported paid-price recovery
 
 Counterpoint imports are complete. Current paid-price reconciliation is
@@ -183,7 +202,7 @@ Use **Reset Counterpoint import** from **Import & Proof** or **Support Diagnosti
 
 ## Updating after more Counterpoint work
 
-Before go-live, if staff keep working in Counterpoint after an import, use **Update Since Last Run** in the Bridge without resetting ROS. ROS uses Counterpoint document, customer, product, variant, gift card, and loyalty keys to update existing imported records and land new rows. Review **Current next step**, proof gaps, exceptions, open orders, deposits, and customer duplicates again before sign-off.
+Before go-live, if staff keep working in Counterpoint after an import, use **Update Since Last Run** in the Bridge without resetting ROS. ROS uses Counterpoint document, customer, product, variant, gift card, and loyalty keys to land new rows and refresh supported nonfinancial records. Existing imported Open Order financials stay locked; changed source money opens a review discrepancy instead of replacing the customer record. Review **Current next step**, proof gaps, exceptions, open orders, deposits, and customer duplicates again before sign-off.
 
 Use **Reset Counterpoint import** only when the previous import should be discarded and the store wants a clean baseline.
 
