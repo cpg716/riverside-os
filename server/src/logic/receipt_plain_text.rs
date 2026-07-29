@@ -126,9 +126,16 @@ pub fn format_pos_receipt_text_message(order: &ReceiptOrder, cfg: &ReceiptConfig
             lines.push(order.payment_methods_summary.trim().to_string());
         }
     }
-    if order.wedding_deposit_amount > Decimal::ZERO {
+    if !order.wedding_deposits.is_empty() {
+        for deposit in &order.wedding_deposits {
+            lines.push(format!(
+                "Wedding Party Deposit ({}): {}",
+                deposit.party_name, deposit.amount
+            ));
+        }
+    } else if order.wedding_deposit_amount > Decimal::ZERO {
         lines.push(format!(
-            "Wedding party deposits: {}",
+            "Wedding Party Deposit: {}",
             order.wedding_deposit_amount
         ));
     }
@@ -176,7 +183,7 @@ pub fn clamp_sms_text(s: &str, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::logic::receipt_shared::ReceiptKind;
+    use crate::logic::receipt_shared::{ReceiptKind, ReceiptWeddingPartyDeposit};
     use crate::logic::receipt_studio_html::sample_receipt_order_for_preview;
 
     #[test]
@@ -200,5 +207,19 @@ mod tests {
             let text = format_pos_receipt_text_message(&order, &ReceiptConfig::default());
             assert!(text.lines().any(|line| line == expected));
         }
+    }
+
+    #[test]
+    fn wedding_party_deposit_names_the_party_in_receipt_text() {
+        let mut order = sample_receipt_order_for_preview();
+        order.wedding_deposit_amount = Decimal::new(71038, 2);
+        order.wedding_deposits = vec![ReceiptWeddingPartyDeposit {
+            party_name: "Whitrock Wedding".to_string(),
+            amount: Decimal::new(71038, 2),
+        }];
+
+        let text = format_pos_receipt_text_message(&order, &ReceiptConfig::default());
+
+        assert!(text.contains("Wedding Party Deposit (Whitrock Wedding): 710.38"));
     }
 }

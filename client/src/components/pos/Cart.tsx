@@ -25,6 +25,7 @@ import {
   Printer,
   ChevronLeft,
   ChevronRight,
+  Heart,
 } from "lucide-react";
 import CustomerSelector, { type Customer } from "./CustomerSelector";
 import NexoCheckoutDrawer from "./NexoCheckoutDrawer";
@@ -613,6 +614,8 @@ export default function Cart({
   } | null>(null);
   const [weddingDrawerOpen, setWeddingDrawerOpen] = useState(false);
   const [weddingDrawerPreferGroupPay, setWeddingDrawerPreferGroupPay] = useState(false);
+  const [weddingDrawerInitialPartyId, setWeddingDrawerInitialPartyId] =
+    useState<string | null>(null);
   const [measDrawerOpen, setMeasDrawerOpen] = useState(false);
   const [orderLoadOpen, setOrderLoadOpen] = useState(false);
   const [orderReviewOpen, setOrderReviewOpen] = useState(false);
@@ -1201,6 +1204,50 @@ export default function Cart({
     },
     [selectedCustomer?.first_name, selectedCustomer?.last_name],
   );
+
+  const openWeddingDepositTool = useCallback(() => {
+    if (!ensureSaleCashier()) return;
+    if (isRmsPaymentCart) {
+      toast(
+        "Remove the RMS CHARGE PAYMENT line before adding wedding deposits.",
+        "error",
+      );
+      return;
+    }
+    if (!selectedCustomer) {
+      toast(
+        "Select the wedding member who is paying before adding a wedding deposit.",
+        "error",
+      );
+      return;
+    }
+    if (weddingPurchaseLoading) {
+      toast("Wedding membership is still loading. Try again in a moment.", "info");
+      return;
+    }
+    const memberships = weddingPurchaseContext?.memberships ?? [];
+    const membership =
+      memberships.find((candidate) => candidate.active) ?? memberships[0];
+    if (!membership) {
+      toast(
+        `${selectedCustomer.first_name} ${selectedCustomer.last_name} is not linked to an active wedding party.`,
+        "error",
+      );
+      return;
+    }
+    activateWeddingMembership(membership);
+    setWeddingDrawerInitialPartyId(membership.wedding_party_id);
+    setWeddingDrawerPreferGroupPay(true);
+    setWeddingDrawerOpen(true);
+  }, [
+    activateWeddingMembership,
+    ensureSaleCashier,
+    isRmsPaymentCart,
+    selectedCustomer,
+    toast,
+    weddingPurchaseContext?.memberships,
+    weddingPurchaseLoading,
+  ]);
 
   const addWeddingPurchaseItem = useCallback(
     (
@@ -3484,6 +3531,7 @@ export default function Cart({
               <button
                 type="button"
                 onClick={() => {
+                  setWeddingDrawerInitialPartyId(null);
                   setWeddingDrawerPreferGroupPay(false);
                   setWeddingDrawerOpen(true);
                 }}
@@ -3492,6 +3540,22 @@ export default function Cart({
                 <WEDDINGS_ICON size={20} />
                 <span className="text-[10px] font-black uppercase leading-[12px] tracking-widest">
                   {activeWeddingMember ? "Switch" : "Wedding"}
+                </span>
+              </button>
+              <button
+                type="button"
+                data-testid="pos-action-wedding-deposit"
+                onClick={openWeddingDepositTool}
+                title={
+                  selectedCustomer
+                    ? "Add deposits for members of this customer's wedding party"
+                    : "Select the paying wedding member first"
+                }
+                className="ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border border-app-info/60 bg-app-info/10 px-2 text-center text-app-info shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-info hover:text-white active:scale-95 dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px]"
+              >
+                <Heart size={20} aria-hidden />
+                <span className="text-[10px] font-black uppercase leading-[12px] tracking-widest">
+                  Wedding Deposit
                 </span>
               </button>
               <button
@@ -3951,22 +4015,28 @@ export default function Cart({
              <div className="space-y-3">
                 <div className="flex items-center gap-3 px-2">
                   <div className="h-px flex-1 bg-gradient-to-r from-app-info/30 to-transparent" />
-                  <span className="text-[10px] font-black uppercase tracking-[0.3em] text-app-info">Wedding Party Disbursements</span>
+                  <span className="text-[10px] font-black uppercase tracking-[0.3em] text-app-info">Wedding Party Deposits</span>
                   <div className="h-px flex-1 bg-gradient-to-l from-app-info/30 to-transparent" />
                 </div>
                 {disbursementMembers.map(m => (
-                  <div key={m.id} className="group relative flex items-center justify-between gap-4 rounded-3xl border border-app-info/16 bg-app-info/6 p-5 animate-in slide-in-from-left duration-300">
+                  <div
+                    key={m.id}
+                    data-testid="pos-wedding-deposit-line"
+                    className="group relative flex items-center justify-between gap-4 rounded-3xl border border-app-info/16 bg-app-info/6 p-5 animate-in slide-in-from-left duration-300"
+                  >
                      <div className="flex items-center gap-4">
                         <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-app-info text-white font-black italic shadow-lg shadow-app-info/20">
                            {m.first_name[0]}{m.last_name[0]}
                         </div>
                         <div>
                            <h4 className="text-sm font-black text-app-text leading-tight">{m.first_name} {m.last_name}</h4>
-                           <p className="text-[9px] font-black uppercase tracking-widest text-app-info">{m.role}</p>
+                           <p className="text-[9px] font-black uppercase tracking-widest text-app-info">
+                             {activeWeddingPartyName ? `${activeWeddingPartyName} · ` : ""}{m.role}
+                           </p>
                         </div>
                      </div>
                      <div className="text-right">
-                        <p className="mb-1 text-[9px] font-black uppercase tracking-widest text-app-text-muted/80">Applying Amount</p>
+                        <p className="mb-1 text-[9px] font-black uppercase tracking-widest text-app-text-muted/80">Deposit Amount</p>
                         <p className="text-xl font-black italic tracking-tighter text-app-info">
                           $
                           {centsToFixed2(weddingDisbursementAmountCents(m))}
@@ -3974,6 +4044,7 @@ export default function Cart({
                      </div>
                      <button
                        type="button"
+                       data-testid="pos-wedding-deposit-remove"
                        aria-label={`Remove ${m.first_name} ${m.last_name} from wedding party payment`}
                        onClick={() => setDisbursementMembers(prev => prev.filter(p => p.id !== m.id))}
                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-app-danger/30 bg-app-danger/10 text-app-danger shadow-sm transition-colors hover:bg-app-danger hover:text-white"
@@ -4368,7 +4439,7 @@ export default function Cart({
              data-testid="pos-pay-button"
              disabled={!hasCheckoutWork || checkoutBusy}
              onClick={async () => {
-               if (!hasCheckoutWork) return toast("Add at least one item, transaction payment, or wedding group payment before checking out.", "error");
+               if (!hasCheckoutWork) return toast("Add at least one item, transaction payment, or wedding deposit before checking out.", "error");
                if (!ensureSaleCashier()) return;
                if (pendingReturnTender && !pendingReturnTender.returnLineIntegrityOk) {
                  toast(
@@ -5010,8 +5081,7 @@ export default function Cart({
         takeawayDueCents={totals.takeawayDueCents}
         hasLaterItems={lines.some(l => l.fulfillment && l.fulfillment !== "takeaway")}
         onOpenSplitDeposit={() => {
-          setWeddingDrawerPreferGroupPay(true);
-          setWeddingDrawerOpen(true);
+          openWeddingDepositTool();
         }}
       />
 
@@ -5643,8 +5713,11 @@ export default function Cart({
         onClose={() => {
           setWeddingDrawerOpen(false);
           setWeddingDrawerPreferGroupPay(false);
+          setWeddingDrawerInitialPartyId(null);
         }}
         preferGroupPay={weddingDrawerPreferGroupPay}
+        initialPartyId={weddingDrawerInitialPartyId}
+        payerCustomerId={selectedCustomer?.id ?? null}
         onPreferGroupPayConsumed={() => setWeddingDrawerPreferGroupPay(false)}
         onOpenFullParty={onOpenWeddingParty}
         onLinkMember={async (m, partyName) => {
@@ -5722,9 +5795,16 @@ export default function Cart({
             );
             return;
           }
-          setDisbursementMembers(members);
+          setDisbursementMembers((current) => {
+            const nextByMember = new Map(
+              current.map((member) => [member.id, member]),
+            );
+            members.forEach((member) => nextByMember.set(member.id, member));
+            return Array.from(nextByMember.values());
+          });
           setActiveWeddingPartyName(partyName);
           setWeddingDrawerOpen(false);
+          setWeddingDrawerInitialPartyId(null);
           toast(`Added ${members.length} members for split deposit`, "success");
         }}
       />

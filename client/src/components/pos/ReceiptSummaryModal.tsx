@@ -110,6 +110,11 @@ type OrderDetail = {
   status?: string;
   total_price?: string;
   amount_paid?: string;
+  wedding_deposit_amount?: string;
+  wedding_deposits?: Array<{
+    party_name: string;
+    amount: string;
+  }>;
   balance_due?: string;
   payment_methods_summary?: string;
   refund_payment_methods_summary?: string;
@@ -1015,6 +1020,7 @@ export default function ReceiptSummaryModal({
         "…");
   const summaryPaid = transactionDetail?.amount_paid ?? "…";
   const summaryBalance = transactionDetail?.balance_due ?? "…";
+  const weddingDeposits = transactionDetail?.wedding_deposits ?? [];
   const refundProviderLabel =
     refundResult?.payment_provider?.trim() ||
     refundResult?.payment_method.replaceAll("_", " ").trim() ||
@@ -1417,26 +1423,45 @@ export default function ReceiptSummaryModal({
                     </div>
                   </div>
                   {!paymentOnlyCheckout && !refundCheckout ? (
-                    <div className="mt-2.5 grid grid-cols-2 gap-3 border-t border-app-border/50 pt-2.5">
-                      <div>
-                        <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                          {combinedOrderPaymentCheckout
-                            ? "Applied to new sale"
-                            : "Paid on transaction"}
-                        </p>
-                        <p className="mt-0.5 text-base font-black tabular-nums text-app-success sm:text-lg">
-                          {summaryPaid.startsWith("-")
-                            ? `-$${summaryPaid.slice(1)}`
-                            : `$${summaryPaid}`}
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                          Balance due
-                        </p>
-                        <p className="mt-0.5 text-base font-black tabular-nums text-app-warning sm:text-lg">
-                          ${summaryBalance}
-                        </p>
+                    <div className="mt-2.5 border-t border-app-border/50 pt-2.5">
+                      {weddingDeposits.length > 0 ? (
+                        <div className="mb-2.5 space-y-1.5 border-b border-app-border/50 pb-2.5">
+                          {weddingDeposits.map((deposit) => (
+                            <div
+                              key={`${deposit.party_name}:${deposit.amount}`}
+                              className="flex items-end justify-between gap-3"
+                            >
+                              <p className="min-w-0 text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                                Wedding Party Deposit ({deposit.party_name})
+                              </p>
+                              <p className="shrink-0 text-base font-black tabular-nums text-app-accent sm:text-lg">
+                                ${deposit.amount}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                            {combinedOrderPaymentCheckout
+                              ? "Applied to new sale"
+                              : "Paid on transaction"}
+                          </p>
+                          <p className="mt-0.5 text-base font-black tabular-nums text-app-success sm:text-lg">
+                            {summaryPaid.startsWith("-")
+                              ? `-$${summaryPaid.slice(1)}`
+                              : `$${summaryPaid}`}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                            Balance due
+                          </p>
+                          <p className="mt-0.5 text-base font-black tabular-nums text-app-warning sm:text-lg">
+                            ${summaryBalance}
+                          </p>
+                        </div>
                       </div>
                     </div>
                   ) : null}

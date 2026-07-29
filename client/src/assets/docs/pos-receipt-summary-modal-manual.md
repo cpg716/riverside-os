@@ -23,6 +23,8 @@ status: approved
 
 The receipt preview shows the customer receipt after checkout or when reopening a historical Transaction Receipt. It should match the Receipt Builder style closely enough that staff can trust what will print, email, or text.
 
+When a completed sale includes wedding split deposits for other party members, Sale Complete and the receipt show **Wedding Party Deposit (party name)** with the amount. This stays separate from the merchandise total and explains the full tender collected.
+
 ## How to use it
 
 1. Review the outcome label, transaction total or amount collected, tender, balance, customer, and Transaction number on the completion screen.

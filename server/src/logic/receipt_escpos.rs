@@ -131,6 +131,17 @@ fn receipt_template_with_slots(template: &str, show_logo: bool, show_barcode: bo
             }
         }
     }
+    if !next.contains("{{WEDDING_DEPOSIT_LINES}}") {
+        if next.contains("{{STATUS_LINE}}") {
+            next = next.replacen(
+                "{{STATUS_LINE}}",
+                "{{WEDDING_DEPOSIT_LINES}}\n{{STATUS_LINE}}",
+                1,
+            );
+        } else {
+            next = format!("{next}\n{{{{WEDDING_DEPOSIT_LINES}}}}");
+        }
+    }
     next
 }
 
@@ -383,10 +394,20 @@ fn push_totals(out: &mut Vec<u8>, d: &ReceiptOrder) {
             push_line(out, d.payment_methods_summary.trim());
         }
     }
-    if d.wedding_deposit_amount > Decimal::ZERO {
+    if !d.wedding_deposits.is_empty() {
+        for deposit in &d.wedding_deposits {
+            push_line(
+                out,
+                &right_pair(
+                    &format!("Wedding Party Deposit ({})", deposit.party_name),
+                    &money(deposit.amount),
+                ),
+            );
+        }
+    } else if d.wedding_deposit_amount > Decimal::ZERO {
         push_line(
             out,
-            &right_pair("Wedding party deposits", &money(d.wedding_deposit_amount)),
+            &right_pair("Wedding Party Deposit", &money(d.wedding_deposit_amount)),
         );
     }
     if !d.payment_applications.is_empty() {
@@ -782,6 +803,33 @@ fn receiptline_tender_lines(d: &ReceiptOrder, gift: bool) -> String {
     lines.join("\n")
 }
 
+fn receiptline_wedding_deposit_lines(d: &ReceiptOrder, gift: bool) -> String {
+    if gift {
+        return String::new();
+    }
+    if !d.wedding_deposits.is_empty() {
+        return d
+            .wedding_deposits
+            .iter()
+            .map(|deposit| {
+                format!(
+                    "Wedding Party Deposit ({}) | {}",
+                    receiptline_escape(&deposit.party_name),
+                    money(deposit.amount)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+    }
+    if d.wedding_deposit_amount > Decimal::ZERO {
+        return format!(
+            "Wedding Party Deposit | {}",
+            money(d.wedding_deposit_amount)
+        );
+    }
+    String::new()
+}
+
 fn receiptline_gift_card_balance_line(d: &ReceiptOrder, gift: bool) -> String {
     if gift {
         return String::new();
@@ -810,11 +858,11 @@ fn receipt_status_label(d: &ReceiptOrder) -> &'static str {
 }
 
 fn default_receiptline_template() -> &'static str {
-    "{{LOGO_IMAGE}}\n{{HEADER_LINES}}\n{{RECEIPT_TITLE}}\n{{RECEIPT_ID}}\n{{RECEIPT_DATE}}\n{{CUSTOMER_LINE}}\n{{SALESPERSON_LINE}}\n{{CASHIER_LINE}}\n---\n{{ITEM_LINES}}\n{{LOYALTY_EARNED}}\n{{LOYALTY_BALANCE}}\n{{PAYMENT_BLOCK}}\n{{SUBTOTAL_LINE}}\n{{TAX_LINE}}\n{{TOTAL_SAVINGS_LINE}}\n{{TOTAL_LINE}}\n{{PAID_LINE}}\n{{BALANCE_LINE}}\n{{TENDER_LINE}}\n{{GIFT_CARD_BALANCE}}\n{{STATUS_LINE}}\n{{TAX_EXEMPT_LINE}}\n---\n{{BARCODE_IMAGE}}\n{{FOOTER_LINES}}\n{{CUT}}"
+    "{{LOGO_IMAGE}}\n{{HEADER_LINES}}\n{{RECEIPT_TITLE}}\n{{RECEIPT_ID}}\n{{RECEIPT_DATE}}\n{{CUSTOMER_LINE}}\n{{SALESPERSON_LINE}}\n{{CASHIER_LINE}}\n---\n{{ITEM_LINES}}\n{{LOYALTY_EARNED}}\n{{LOYALTY_BALANCE}}\n{{PAYMENT_BLOCK}}\n{{SUBTOTAL_LINE}}\n{{TAX_LINE}}\n{{TOTAL_SAVINGS_LINE}}\n{{TOTAL_LINE}}\n{{PAID_LINE}}\n{{BALANCE_LINE}}\n{{TENDER_LINE}}\n{{GIFT_CARD_BALANCE}}\n{{WEDDING_DEPOSIT_LINES}}\n{{STATUS_LINE}}\n{{TAX_EXEMPT_LINE}}\n---\n{{BARCODE_IMAGE}}\n{{FOOTER_LINES}}\n{{CUT}}"
 }
 
 fn default_receiptline_pickup_template() -> &'static str {
-    "{{LOGO_IMAGE}}\n{{HEADER_LINES}}\n{{RECEIPT_TITLE}}\n{{RECEIPT_ID}}\n{{CUSTOMER_LINE}}\n{{SALESPERSON_LINE}}\n{{CASHIER_LINE}}\n---\n{{ITEM_LINES}}\n---\n{{PAYMENT_HISTORY_BLOCK}}\n{{SUBTOTAL_LINE}}\n{{TAX_LINE}}\n{{TOTAL_SAVINGS_LINE}}\n{{TOTAL_LINE}}\n{{PAID_LINE}}\n{{BALANCE_LINE}}\n{{GIFT_CARD_BALANCE}}\n{{STATUS_LINE}}\n---\n{{BARCODE_IMAGE}}\n{{FOOTER_LINES}}\n{{CUT}}"
+    "{{LOGO_IMAGE}}\n{{HEADER_LINES}}\n{{RECEIPT_TITLE}}\n{{RECEIPT_ID}}\n{{CUSTOMER_LINE}}\n{{SALESPERSON_LINE}}\n{{CASHIER_LINE}}\n---\n{{ITEM_LINES}}\n---\n{{PAYMENT_HISTORY_BLOCK}}\n{{SUBTOTAL_LINE}}\n{{TAX_LINE}}\n{{TOTAL_SAVINGS_LINE}}\n{{TOTAL_LINE}}\n{{PAID_LINE}}\n{{BALANCE_LINE}}\n{{GIFT_CARD_BALANCE}}\n{{WEDDING_DEPOSIT_LINES}}\n{{STATUS_LINE}}\n---\n{{BARCODE_IMAGE}}\n{{FOOTER_LINES}}\n{{CUT}}"
 }
 
 fn receiptline_payment_history_block(d: &ReceiptOrder) -> String {
@@ -905,6 +953,7 @@ pub fn build_receiptline_markdown(
         String::new()
     };
     let tender_line = receiptline_tender_lines(d, gift);
+    let wedding_deposit_lines = receiptline_wedding_deposit_lines(d, gift);
     let gift_card_balance_line = receiptline_gift_card_balance_line(d, gift);
     let status_line = if gift {
         String::new()
@@ -1014,6 +1063,7 @@ pub fn build_receiptline_markdown(
         .replace("{{BALANCE_LINE}}", &balance_line)
         .replace("{{TENDER_LINE}}", &tender_line)
         .replace("{{GIFT_CARD_BALANCE}}", &gift_card_balance_line)
+        .replace("{{WEDDING_DEPOSIT_LINES}}", &wedding_deposit_lines)
         .replace("{{STATUS_LINE}}", &status_line)
         .replace("{{TAX_EXEMPT_LINE}}", &tax_exempt_line)
         .replace("{{LOYALTY_EARNED}}", &loyalty_earned_line)
@@ -1058,7 +1108,9 @@ pub fn build_receipt_escpos(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::logic::receipt_shared::{ReceiptKind, ReceiptLine, ReceiptOrder, ReceiptPayment};
+    use crate::logic::receipt_shared::{
+        ReceiptKind, ReceiptLine, ReceiptOrder, ReceiptPayment, ReceiptWeddingPartyDeposit,
+    };
     use crate::models::DbOrderStatus;
     use chrono::Utc;
     use serde_json::json;
@@ -1078,6 +1130,7 @@ mod tests {
             total_savings: Decimal::ZERO,
             amount_paid: Decimal::ZERO,
             wedding_deposit_amount: Decimal::ZERO,
+            wedding_deposits: Vec::new(),
             balance_due: Decimal::ZERO,
             payment_methods_summary: "Cash".to_string(),
             payment_applications: Vec::new(),
@@ -1146,6 +1199,29 @@ mod tests {
 
         assert!(receiptline.contains("Reg $375.00 Sale $300.00"));
         assert!(!receiptline.contains("Counterpoint imported discount"));
+    }
+
+    #[test]
+    fn wedding_party_deposit_names_the_party_in_thermal_formats() {
+        let mut order = receipt_order_with(Vec::new());
+        order.wedding_deposit_amount = Decimal::new(71038, 2);
+        order.wedding_deposits = vec![ReceiptWeddingPartyDeposit {
+            party_name: "Whitrock Wedding".to_string(),
+            amount: Decimal::new(71038, 2),
+        }];
+
+        let receiptline = build_receiptline_markdown(
+            &order,
+            &ReceiptConfig::default(),
+            &HashMap::new(),
+            &LoyaltyReceiptData::default(),
+        );
+        let escpos = build_receipt_escpos(&order, &ReceiptConfig::default(), HashMap::new());
+        let escpos_text = String::from_utf8_lossy(&escpos);
+
+        assert!(receiptline.contains("Wedding Party Deposit (Whitrock Wedding) | $710.38"));
+        assert!(escpos_text.contains("Wedding Party Deposit (Whitrock Wedding)"));
+        assert!(escpos_text.contains("$710.38"));
     }
 
     #[test]

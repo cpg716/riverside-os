@@ -3104,7 +3104,7 @@ async fn execute_checkout_internal(
         && !has_shipping_charge
     {
         return Err(CheckoutError::InvalidPayload(
-            "Cart cannot be empty (must have items, wedding payouts, order payments, or shipping)"
+            "Cart cannot be empty (must have items, wedding deposits, order payments, or shipping)"
                 .to_string(),
         ));
     }

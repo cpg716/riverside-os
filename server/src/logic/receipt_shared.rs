@@ -112,6 +112,12 @@ pub struct ReceiptPaymentApplication {
     pub remaining_balance: Decimal,
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ReceiptWeddingPartyDeposit {
+    pub party_name: String,
+    pub amount: Decimal,
+}
+
 #[derive(Debug, Clone)]
 pub struct ReceiptPayment {
     pub date: DateTime<Utc>,
@@ -138,6 +144,8 @@ pub struct ReceiptOrder {
     pub amount_paid: Decimal,
     /// Amount collected for wedding-party split deposits alongside this sale.
     pub wedding_deposit_amount: Decimal,
+    /// Wedding-party split deposits grouped by the party they benefit.
+    pub wedding_deposits: Vec<ReceiptWeddingPartyDeposit>,
     pub balance_due: Decimal,
     pub payment_methods_summary: String,
     pub payment_applications: Vec<ReceiptPaymentApplication>,

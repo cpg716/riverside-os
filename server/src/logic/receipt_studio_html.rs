@@ -99,13 +99,27 @@ fn build_payment_applications(order: &ReceiptOrder) -> String {
 }
 
 fn build_wedding_deposit_summary(order: &ReceiptOrder) -> String {
-    if order.wedding_deposit_amount <= Decimal::ZERO {
-        return String::new();
+    if !order.wedding_deposits.is_empty() {
+        return order
+            .wedding_deposits
+            .iter()
+            .map(|deposit| {
+                format!(
+                    "<div><span>Wedding Party Deposit ({})</span><strong>{}</strong></div>",
+                    html_escape(&deposit.party_name),
+                    deposit.amount.round_dp(2)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("");
     }
-    format!(
-        "<br><span>Wedding party deposits</span> <span>{}</span>",
-        order.wedding_deposit_amount.round_dp(2)
-    )
+    if order.wedding_deposit_amount > Decimal::ZERO {
+        return format!(
+            "<div><span>Wedding Party Deposit</span><strong>{}</strong></div>",
+            order.wedding_deposit_amount.round_dp(2)
+        );
+    }
+    String::new()
 }
 
 fn customer_identity_html(order: &ReceiptOrder) -> String {
@@ -494,6 +508,7 @@ pub fn sample_receipt_order_for_preview() -> ReceiptOrder {
         total_savings: Decimal::ZERO,
         amount_paid: Decimal::new(19950, 2),
         wedding_deposit_amount: Decimal::ZERO,
+        wedding_deposits: Vec::new(),
         balance_due: Decimal::ZERO,
         payment_methods_summary: "VISA ••••4242".to_string(),
         payment_applications: Vec::new(),
@@ -550,6 +565,7 @@ pub fn sample_receipt_order_for_preview() -> ReceiptOrder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::logic::receipt_shared::ReceiptWeddingPartyDeposit;
 
     #[test]
     fn standard_html_receipt_title_is_unchanged() {
@@ -571,6 +587,21 @@ mod tests {
 
         assert!(!items.contains("Counterpoint imported discount"));
         assert!(items.contains("Wool suit jacket"));
+    }
+
+    #[test]
+    fn wedding_party_deposit_names_the_party_in_html_receipts() {
+        let mut order = sample_receipt_order_for_preview();
+        order.wedding_deposit_amount = Decimal::new(71038, 2);
+        order.wedding_deposits = vec![ReceiptWeddingPartyDeposit {
+            party_name: "Whitrock & Family".to_string(),
+            amount: Decimal::new(71038, 2),
+        }];
+
+        let html = render_standard_receipt_html(&order, &ReceiptConfig::default(), false);
+
+        assert!(html.contains("Wedding Party Deposit (Whitrock &amp; Family)"));
+        assert!(html.contains("<strong>710.38</strong>"));
     }
 
     #[test]

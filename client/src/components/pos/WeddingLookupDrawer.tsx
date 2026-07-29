@@ -57,9 +57,53 @@ interface WeddingLookupDrawerProps {
   onGroupPay?: (members: WeddingMember[], partyName: string) => void;
   /** When set, choosing a party opens Group Pay mode for split deposits / payouts. */
   preferGroupPay?: boolean;
+  /** Opens this party directly instead of requiring staff to search for it. */
+  initialPartyId?: string | null;
+  /** Customer collecting the split deposit; they cannot also be a beneficiary. */
+  payerCustomerId?: string | null;
   onPreferGroupPayConsumed?: () => void;
   onOpenFullParty?: (partyId: string) => void;
+}
 
+function parseWeddingParty(item: unknown): WeddingParty | null {
+  const { party, members } = splitWeddingPartyWithMembers(item);
+  if (!party?.id) return null;
+  const groom = String(party.groom_name ?? "");
+  const trackingLabel =
+    typeof party.party_tracking_label === "string" &&
+    party.party_tracking_label.trim()
+      ? party.party_tracking_label.trim()
+      : typeof party.wedding_number === "string" && party.wedding_number.trim()
+        ? party.wedding_number.trim()
+        : "";
+  return {
+    id: String(party.id),
+    party_name: trackingLabel || String(party.party_name ?? `${groom} Wedding`),
+    groom_name: groom,
+    bride_name: party.bride_name != null ? String(party.bride_name) : undefined,
+    event_date: String(party.event_date ?? ""),
+    members: (members as Array<Record<string, unknown>>).map((member) => ({
+      id: String(member.id),
+      first_name: String(member.first_name ?? ""),
+      last_name: String(member.last_name ?? ""),
+      role: String(member.role ?? ""),
+      status: String(member.status ?? ""),
+      measured: Boolean(member.measured),
+      suit_ordered: Boolean(member.suit_ordered),
+      customer_id: String(member.customer_id ?? ""),
+      customer_email:
+        typeof member.customer_email === "string"
+          ? member.customer_email
+          : undefined,
+      customer_phone:
+        typeof member.customer_phone === "string"
+          ? member.customer_phone
+          : undefined,
+      suit_variant_id:
+        member.suit_variant_id != null ? String(member.suit_variant_id) : null,
+      is_free_suit_promo: Boolean(member.is_free_suit_promo),
+    })),
+  };
 }
 
 export default function WeddingLookupDrawer({
@@ -68,6 +112,8 @@ export default function WeddingLookupDrawer({
   onLinkMember,
   onGroupPay,
   preferGroupPay = false,
+  initialPartyId = null,
+  payerCustomerId = null,
   onPreferGroupPayConsumed,
   onOpenFullParty,
 }: WeddingLookupDrawerProps) {
@@ -114,41 +160,10 @@ export default function WeddingLookupDrawer({
       });
       if (!res.ok) throw new Error(`Wedding search failed with status ${res.status}`);
       const data = await res.json();
-      const rows = Array.isArray(data.data) ? data.data : [];
+      const rows: unknown[] = Array.isArray(data.data) ? data.data : [];
       const mapped = rows
-          .map((item: unknown) => {
-            const { party, members } = splitWeddingPartyWithMembers(item);
-            if (!party?.id) return null;
-            const groom = String(party.groom_name ?? "");
-            const trackingLabel =
-              typeof party.party_tracking_label === "string" && party.party_tracking_label.trim()
-                ? party.party_tracking_label.trim()
-                : typeof party.wedding_number === "string" && party.wedding_number.trim()
-                  ? party.wedding_number.trim()
-                  : "";
-            return {
-              id: String(party.id),
-              party_name: trackingLabel || String(party.party_name ?? `${groom} Wedding`),
-              groom_name: groom,
-              bride_name: party.bride_name != null ? String(party.bride_name) : undefined,
-              event_date: String(party.event_date ?? ""),
-              members: (members as Array<Record<string, unknown>>).map((m) => ({
-                id: String(m.id),
-                first_name: m.first_name ?? "",
-                last_name: m.last_name ?? "",
-                role: m.role ?? "",
-                status: m.status ?? "",
-                measured: Boolean(m.measured),
-                suit_ordered: Boolean(m.suit_ordered),
-                customer_id: String(m.customer_id ?? ""),
-                customer_email: m.customer_email,
-                customer_phone: m.customer_phone,
-                suit_variant_id: m.suit_variant_id != null ? String(m.suit_variant_id) : null,
-                is_free_suit_promo: Boolean(m.is_free_suit_promo),
-              })),
-            };
-          })
-          .filter(Boolean) as WeddingParty[];
+        .map((item: unknown) => parseWeddingParty(item))
+        .filter((party): party is WeddingParty => party != null);
       if (requestId !== partyRequestRef.current) return;
       setParties(mapped);
     } catch (err) {
@@ -161,6 +176,47 @@ export default function WeddingLookupDrawer({
       if (partyAbortRef.current === controller) partyAbortRef.current = null;
     }
   }, [baseUrl, posHeaders]);
+
+  const fetchPartyById = useCallback(
+    async (partyId: string) => {
+      const requestId = ++partyRequestRef.current;
+      partyAbortRef.current?.abort();
+      const controller = new AbortController();
+      partyAbortRef.current = controller;
+      setLoading(true);
+      setSearchError(null);
+      try {
+        const res = await fetch(
+          `${baseUrl}/api/weddings/parties/${encodeURIComponent(partyId)}`,
+          {
+            headers: posHeaders(),
+            signal: controller.signal,
+          },
+        );
+        if (!res.ok)
+          throw new Error(
+            `Wedding party load failed with status ${res.status}`,
+          );
+        const party = parseWeddingParty(await res.json());
+        if (!party) throw new Error("Wedding party response was incomplete");
+        if (requestId !== partyRequestRef.current) return;
+        setSelectedParty(party);
+        setGroupPayMode(true);
+        onPreferGroupPayConsumed?.();
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        if (requestId !== partyRequestRef.current) return;
+        console.error("Failed to load selected customer's wedding party", err);
+        setSearchError(
+          "This customer's wedding party could not be loaded. Try again.",
+        );
+      } finally {
+        if (requestId === partyRequestRef.current) setLoading(false);
+        if (partyAbortRef.current === controller) partyAbortRef.current = null;
+      }
+    },
+    [baseUrl, onPreferGroupPayConsumed, posHeaders],
+  );
 
   const fetchFinancials = useCallback(async (partyId: string) => {
     const requestId = ++financialRequestRef.current;
@@ -232,6 +288,11 @@ export default function WeddingLookupDrawer({
       setGroupPayAmounts({});
     }
   }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || !preferGroupPay || !initialPartyId) return;
+    void fetchPartyById(initialPartyId);
+  }, [fetchPartyById, initialPartyId, isOpen, preferGroupPay]);
 
   useEffect(() => () => {
     partyRequestRef.current += 1;
@@ -453,16 +514,24 @@ export default function WeddingLookupDrawer({
                 const fin = financials[member.id];
                 const balance = fin?.balance_due ?? "0.00";
                 const isSelected = selectedMemberIds.has(member.id);
+                const isPayer =
+                  groupPayMode &&
+                  Boolean(payerCustomerId) &&
+                  member.customer_id === payerCustomerId;
                 const selectedAmount = groupPayAmounts[member.id] ?? "";
 
                 return (
                   <div 
                     key={member.id}
-                    onClick={() => groupPayMode && toggleMember(member.id)}
-                    className={`flex flex-col p-4 rounded-[2rem] border transition-all cursor-pointer ${
-                      isSelected && groupPayMode
+                    onClick={() =>
+                      groupPayMode && !isPayer && toggleMember(member.id)
+                    }
+                    className={`flex flex-col p-4 rounded-[2rem] border transition-all ${
+                      isPayer
+                        ? "cursor-not-allowed border-app-border bg-app-surface-3 opacity-75"
+                        : isSelected && groupPayMode
                         ? "border-app-success/20 bg-app-success/8 shadow-md"
-                        : "border-app-border bg-app-surface-2"
+                        : "cursor-pointer border-app-border bg-app-surface-2"
                     }`}
                   >
                     <div className="flex items-center justify-between mb-4">
@@ -474,7 +543,10 @@ export default function WeddingLookupDrawer({
                         </div>
                         <div>
                           <h4 className="text-sm font-black text-app-text leading-tight">{member.first_name} {member.last_name}</h4>
-                          <p className="text-[10px] font-bold text-app-text-muted uppercase tracking-widest">{member.role}</p>
+                          <p className="text-[10px] font-bold text-app-text-muted uppercase tracking-widest">
+                            {member.role}
+                            {isPayer ? " · Payer" : ""}
+                          </p>
                         </div>
                       </div>
                       {!groupPayMode ? (

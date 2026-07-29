@@ -294,7 +294,7 @@ export function useCartCheckout({
       return null;
     }
     if (checkoutLines.length === 0 && disbursementMembers.length === 0 && orderPaymentLines.length === 0 && !posShipping) {
-      toast("Add at least one item, order payment, or shipping charge before checking out.", "error");
+      toast("Add at least one item, wedding deposit, order payment, or shipping charge before checking out.", "error");
       return null;
     }
     if (!navigator.onLine && posShipping) {

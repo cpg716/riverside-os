@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Faster Fail-Closed Windows Releases**: Same-tag Windows release reruns now cancel the superseded workflow instead of waiting behind assets that cannot be published. Signed component compilation overlaps the pre-retag gate, while package publication still requires both that gate and exact-commit Playwright success. Independent Rust caches now retain Riverside workspace-crate outputs so restored caches can accelerate repeat builds instead of preserving dependencies only. The release-contract validator normalizes Windows CRLF checkouts before evaluating workflow structure.
 
 ### Fixed
+- **Wedding Deposit Cart and Receipt Truth**: Added a dedicated **Wedding
+  Deposit** Cart toolbar action that opens the selected payer's wedding party,
+  excludes the payer from beneficiaries, keeps each deposit removable, and
+  supports deposit-only checkout through the normal Payment screen. Sale
+  Complete and printed, HTML, and text receipts now identify each amount as
+  **Wedding Party Deposit (party name)** and keep it separate from merchandise
+  payment and balance figures.
 - **Multi-Order Register Cart**: Customer Orders now keeps the workspace open
   while staff stage payments and pickups across several open orders. Starting a
   pickup preserves intentional partial payments already in the cart, and local

@@ -115,6 +115,7 @@ Riverside keeps the oldest account by customer-code generation: numeric,
 - If readiness, Orders, Customer history, and Register disagree, stop and escalate before promising completion.
 - Wedding search and party lists distinguish an empty result from an unavailable refresh. The live-update connection indicator describes socket connectivity; the separate data-check time confirms when the party list actually refreshed.
 - Register Group Pay does not show a member as paid while balance context is unavailable. Retry balances before entering split deposits.
+- At the Register, select the paying wedding member and choose **Wedding Deposit** from the Cart toolbar. Riverside opens that member's party automatically; deposits added for other members appear as removable Cart rows and can proceed to Payment without merchandise.
 
 ## What happens next
 
