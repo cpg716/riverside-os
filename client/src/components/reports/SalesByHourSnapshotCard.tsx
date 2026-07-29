@@ -140,7 +140,7 @@ export default function SalesByHourSnapshotCard({
   return (
     <DashboardGridCard
       title="Sales by Hour"
-      subtitle="Today by sale time, with prior-year comparison when available"
+      subtitle="Sales, including alterations, by original transaction time. Shipping is separate."
       icon={BarChart3}
       className={className}
       actionLabel={onOpenReport ? "Open report" : undefined}

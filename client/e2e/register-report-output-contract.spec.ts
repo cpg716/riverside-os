@@ -27,12 +27,35 @@ const registerDashboardSource = readFileSync(
   new URL("../src/components/pos/RegisterDashboard.tsx", import.meta.url),
   "utf8",
 );
+const operationsHomeSource = readFileSync(
+  new URL("../src/components/operations/OperationalHome.tsx", import.meta.url),
+  "utf8",
+);
+const salesByHourCardSource = readFileSync(
+  new URL(
+    "../src/components/reports/SalesByHourSnapshotCard.tsx",
+    import.meta.url,
+  ),
+  "utf8",
+);
 const insightsServerSource = readFileSync(
   new URL("../../server/src/api/insights.rs", import.meta.url),
   "utf8",
 );
 const registerDayServerSource = readFileSync(
   new URL("../../server/src/logic/register_day_activity.rs", import.meta.url),
+  "utf8",
+);
+const dailyFinancialReportSource = readFileSync(
+  new URL("../../server/src/logic/daily_report.rs", import.meta.url),
+  "utf8",
+);
+const salesCommissionSource = readFileSync(
+  new URL("../../server/src/logic/sales_commission.rs", import.meta.url),
+  "utf8",
+);
+const commissionEventsSource = readFileSync(
+  new URL("../../server/src/logic/commission_events.rs", import.meta.url),
   "utf8",
 );
 const transactionsServerSource = readFileSync(
@@ -49,10 +72,6 @@ const receiptSummarySource = readFileSync(
 );
 const customerSelectorSource = readFileSync(
   new URL("../src/components/pos/CustomerSelector.tsx", import.meta.url),
-  "utf8",
-);
-const transactionsServerSource = readFileSync(
-  new URL("../../server/src/api/transactions.rs", import.meta.url),
   "utf8",
 );
 
@@ -129,9 +148,9 @@ test.describe("Register report output integrity contracts", () => {
     expect(registerReportsSource).not.toContain("summary.amount_label");
   });
 
-  test("service reporting includes alterations in subtotal without inflating sales metrics", () => {
+  test("alterations count as sales while shipping stays outside sales and commissions", () => {
     expect(registerDayServerSource).toContain(
-      '"(be.line_subtotal + be.alterations_total)::numeric(14,2)"',
+      'ReportBasis::Booked => "be.line_subtotal".to_string()',
     );
     expect(registerDayServerSource).toContain(
       "WHERE ln.line_subtotal <> 0 OR ln.line_tax <> 0",
@@ -147,15 +166,12 @@ test.describe("Register report output integrity contracts", () => {
     expect(registerDayServerSource).toContain(
       'line_kind: Some("shipping_service".to_string())',
     );
-    expect(insightsServerSource).toContain(
-      "(p.pos_line_kind IS DISTINCT FROM 'alteration_service')",
+    const salesPivotExclusions = insightsServerSource.slice(
+      insightsServerSource.indexOf("const SALES_PIVOT_EXCLUDED_LINE_KINDS_SQL"),
+      insightsServerSource.indexOf("pub struct SalesPivotRow"),
     );
-    expect(insightsServerSource).toContain(
-      "(oi.custom_item_type IS DISTINCT FROM 'alteration_service')",
-    );
-    expect(insightsServerSource).toContain(
-      "(oi.custom_item_type IS DISTINCT FROM 'alteration_fee')",
-    );
+    expect(salesPivotExclusions).not.toContain("alteration_service");
+    expect(salesPivotExclusions).not.toContain("alteration_fee");
     expect(insightsServerSource).toContain(
       "NOT IN ('SHIPPING', 'ROS-SHIPPING-FEE')",
     );
@@ -169,7 +185,20 @@ test.describe("Register report output integrity contracts", () => {
       "let alterations_net_total = alterations_total.0 - alteration_return_adjustments.0;",
     );
     expect(registerDayServerSource).toContain(
-      "let reported_subtotal = subtotal + alterations_net_total;",
+      "let reported_subtotal = subtotal;",
+    );
+    expect(registerDayServerSource).toContain(
+      "e.line_kind IN ('alteration_service', 'alteration_fee')",
+    );
+    expect(registerDayServerSource).toContain(
+      "COALESCE(e.metadata->>'reporting_excluded', '') = ''",
+    );
+    expect(registerDayServerSource).toContain("COALESCE(o.business_date,");
+    expect(registerDayServerSource).toContain(
+      "AND e.line_kind = 'pos_gift_card_load'",
+    );
+    expect(registerDayServerSource).toContain(
+      "let gift_card_load_total = gift_card_totals.1 - gift_card_return_adjustments.0;",
     );
     expect(registerDayServerSource).toContain(
       "sales_subtotal_no_tax: money_label(reported_subtotal)",
@@ -189,13 +218,11 @@ test.describe("Register report output integrity contracts", () => {
     expect(registerReportsSource).toContain(
       "function activityTotalWithTaxCents",
     );
-    expect(registerReportsSource).toContain(
-      'it.booking_event_kind !== "initial_booking"',
+    expect(registerReportsSource).toMatch(
+      /it\.booking_event_kind\s*!==\s*"initial_booking"/,
     );
     expect(registerDayServerSource).toContain("THEN 'line_added'");
-    expect(transactionsServerSource).toContain(
-      "SET event_kind = 'line_added'",
-    );
+    expect(transactionsServerSource).toContain("SET event_kind = 'line_added'");
     expect(reportPrintSource).toContain("Grand Total With Tax");
     expect(reportPrintSource).toContain("periodTotalWithTaxCents");
     const subtotalHelper = registerReportsSource.slice(
@@ -214,6 +241,45 @@ test.describe("Register report output integrity contracts", () => {
     );
     expect(reportPrintSource).toContain("Shipping:");
     expect(reportPrintSource).toContain("Alterations:");
+    expect(dailyFinancialReportSource).not.toContain(
+      "(p.pos_line_kind IS DISTINCT FROM 'alteration_service')",
+    );
+    expect(dailyFinancialReportSource).toContain(
+      "UPPER(TRIM(COALESCE(pv.sku, ''))) NOT IN ('SHIPPING', 'ROS-SHIPPING-FEE')",
+    );
+    expect(salesCommissionSource).toContain(
+      'matches!(sku.as_str(), "SHIPPING" | "ROS-SHIPPING-FEE")',
+    );
+    expect(commissionEventsSource).toContain(
+      "NOT IN ('SHIPPING', 'ROS-SHIPPING-FEE')",
+    );
+  });
+
+  test("Back Office and POS dashboard sales cards use canonical Daily Sales", () => {
+    expect(registerDashboardSource).toContain(
+      "/api/insights/register-day-activity?",
+    );
+    expect(registerDashboardSource).toContain('preset: "today"');
+    expect(registerDashboardSource).toContain('basis: "booked"');
+    expect(registerDashboardSource).toContain("payload.net_sales");
+    expect(registerDashboardSource).toContain("payload.sales_count");
+    expect(operationsHomeSource).toContain("money(todaySummary.net_sales)");
+    expect(salesByHourCardSource).toContain('title="Sales by Hour"');
+    expect(registerDashboardSource).not.toContain(
+      "/api/insights/sales-by-day?",
+    );
+  });
+
+  test("financial reports label booked, recognized, and tender bases distinctly", () => {
+    expect(dailyFinancialReportSource).toContain("Recognized Net Sales");
+    expect(dailyFinancialReportSource).toContain(
+      "fulfillment / recognition date",
+    );
+    expect(dailyFinancialReportSource).toContain(
+      "actual payment processing date",
+    );
+    expect(salesByHourCardSource).toContain('title="Sales by Hour"');
+    expect(salesByHourCardSource).toContain("including alterations");
   });
 
   test("combined checkout payments stay on one sale activity", () => {

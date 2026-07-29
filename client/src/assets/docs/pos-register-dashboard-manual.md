@@ -24,6 +24,12 @@ This is the default home screen many Windows register stations land on after the
 
 Use the dashboard between customers, not during an in-progress checkout. If the next customer starts while a prior receipt, payment, or parked sale is unresolved, finish that recovery first. The dashboard is safe for orientation, but financial truth lives in the cart, receipt summary, register reports, and close workflow.
 
+The **Today's Sales** card uses the same booked Daily Sales subtotal and sale count as Back Office and Register Reports. Shipping remains separate, while alteration charges follow the Daily Sales subtotal rules. Open Daily Sales for the itemized activity and tender reconciliation behind the card.
+
+**Sales by Hour** uses original transaction times and includes alteration charges. Shipping is reported separately and does not increase sales totals, sales counts, averages, or commissions.
+
+When comparing another financial report, first confirm its displayed basis. **Booked Daily Sales**, **recognized revenue**, **payment-day tender**, **deposits**, and **drawer cash** are different ledgers. Figures with the same label and basis must match; figures from different ledgers must remain separately labeled.
+
 
 ## Tips
 
@@ -47,7 +53,7 @@ When the next customer is ready, switch to Register and confirm the product sear
 
 ## Manager review
 
-Manager review is needed when dashboard context conflicts with the cart, register reports, or close-register evidence. The dashboard is for orientation; it should never override payment confirmation, receipt summary, Z-report totals, or transaction history.
+Manager review is needed when payment confirmation, receipt summary, Daily Sales, or close-register evidence conflicts. The POS and Back Office **Today's Sales** cards should match the booked Daily Sales subtotal for the same store day.
 
 
 ## Related workflows

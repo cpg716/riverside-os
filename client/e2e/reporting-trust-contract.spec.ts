@@ -717,9 +717,12 @@ test.describe("Reporting trust contracts", () => {
       (row) => row.transaction_id === checkout.transaction_id,
     );
     expect(activity).toBeTruthy();
-    expect(parseMoneyToCents(activity?.sales_total)).toBe(
-      parseMoneyToCents(artifacts.total_price),
-    );
+    expect(parseMoneyToCents(activity?.sales_total)).toBe(10000);
+    expect(parseMoneyToCents(activity?.tax_total)).toBe(875);
+    expect(
+      parseMoneyToCents(activity?.sales_total) +
+        parseMoneyToCents(activity?.tax_total),
+    ).toBe(parseMoneyToCents(artifacts.total_price));
     expect(activity?.payment_summary?.toLowerCase()).toContain("cash");
     expect(activity?.payments).toEqual([
       {
@@ -761,7 +764,8 @@ test.describe("Reporting trust contracts", () => {
     expect(activity).toBeTruthy();
     expect(activity?.is_takeaway).toBe(true);
     expect(activity?.items?.every((item) => item.fulfillment === "takeaway")).toBe(true);
-    expect(parseMoneyToCents(activity?.sales_total)).toBe(10875);
+    expect(parseMoneyToCents(activity?.sales_total)).toBe(10000);
+    expect(parseMoneyToCents(activity?.tax_total)).toBe(875);
   });
 
   test("daily sales activity reports tax using effective item quantity", async ({
@@ -791,8 +795,12 @@ test.describe("Reporting trust contracts", () => {
       (row) => row.transaction_id === checkout.transaction_id,
     );
     expect(activity).toBeTruthy();
-    expect(parseMoneyToCents(activity?.sales_total)).toBe(21750);
+    expect(parseMoneyToCents(activity?.sales_total)).toBe(20000);
     expect(parseMoneyToCents(activity?.tax_total)).toBe(1750);
+    expect(
+      parseMoneyToCents(activity?.sales_total) +
+        parseMoneyToCents(activity?.tax_total),
+    ).toBe(21750);
   });
 
   test("margin pivot uses effective quantity after partial return", async ({

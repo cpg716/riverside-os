@@ -45,6 +45,7 @@ The screen supports all-staff reporting, individual staff drilldown, and printab
 ## What To Watch For
 
 - The commission report is earned-only. Booked-but-unfulfilled pipeline is intentionally excluded from the report totals.
+- Alteration charges are commissionable sales. Shipping charges never increase commissionable sales or earned commission.
 - **Earned commission** is the payroll-facing total for the selected recognition window.
 - **By rate** is the earned amount from the staff member's base commission rate.
 - **SPIFF / Combo $** is fixed SPIFF and combo incentive money earned during the period.

@@ -101,20 +101,30 @@ pub async fn commission_breakdown_for_line_at(
         return Ok(CommissionBreakdown::zero());
     }
 
-    let product_info: Option<(Option<Uuid>, Option<String>)> =
-        sqlx::query_as("SELECT category_id, pos_line_kind FROM products WHERE id = $1")
-            .bind(input.product_id)
-            .fetch_optional(&mut *conn)
-            .await?;
+    let product_info: Option<(Option<Uuid>, Option<String>, Option<String>)> = sqlx::query_as(
+        r#"
+            SELECT p.category_id, p.pos_line_kind, pv.sku
+            FROM products p
+            LEFT JOIN product_variants pv ON pv.id = $2 AND pv.product_id = p.id
+            WHERE p.id = $1
+            "#,
+    )
+    .bind(input.product_id)
+    .bind(input.variant_id)
+    .fetch_optional(&mut *conn)
+    .await?;
 
-    let (category_id, pos_line_kind) = match product_info {
-        Some((cat_id, line_kind)) => (cat_id, line_kind),
-        None => (None, None),
+    let (category_id, pos_line_kind, sku) = match product_info {
+        Some((cat_id, line_kind, sku)) => (cat_id, line_kind, sku),
+        None => (None, None, None),
     };
 
     if matches!(
         pos_line_kind.as_deref(),
         Some("pos_gift_card_load") | Some("rms_charge_payment")
+    ) || matches!(
+        sku.as_deref().map(str::trim).map(str::to_ascii_uppercase),
+        Some(sku) if matches!(sku.as_str(), "SHIPPING" | "ROS-SHIPPING-FEE")
     ) {
         return Ok(CommissionBreakdown::zero());
     }

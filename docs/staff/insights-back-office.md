@@ -76,8 +76,9 @@ Use **Reports** for those until the matching Metabase views are added. Merchant 
 2. Set **From** / **To** (or use **Last 14 days**, **Prior 14 days**, or **Prior month payroll**), then **Refresh**.
 3. Optional: pick a **Staff** member to run a staff-level report.
 4. Review the earned-only payroll columns: **Rate**, **Rate since**, **Sales**, **By rate**, **SPIFF $**, and final **Earned commission**. Riverside uses **fulfillment / pickup / shipping recognition**, not booking, for earned commission timing.
-5. Use **Print report** when the owner/accounting team needs the payroll review copy.
-6. Use the bottom **Total commissions paid for period** row as the payroll-facing period total.
+5. Alteration charges count as commissionable sales. Shipping charges are excluded from both sales and commissions.
+6. Use **Print report** when the owner/accounting team needs the payroll review copy.
+7. Use the bottom **Total commissions paid for period** row as the payroll-facing period total.
 
 ### Effective-dated commission changes
 

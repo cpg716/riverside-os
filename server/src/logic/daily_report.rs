@@ -184,6 +184,7 @@ pub async fn generate_report(
             FROM transaction_lines oi
             INNER JOIN transactions o ON o.id = oi.transaction_id
             INNER JOIN products p ON p.id = oi.product_id
+            LEFT JOIN product_variants pv ON pv.id = oi.variant_id
             LEFT JOIN (
                 SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
                 FROM transaction_return_lines GROUP BY transaction_line_id
@@ -195,7 +196,7 @@ pub async fn generate_report(
               AND (p.pos_line_kind IS DISTINCT FROM 'rms_charge_payment')
               AND (p.pos_line_kind IS DISTINCT FROM 'pos_gift_card_load')
 AND (p.pos_line_kind IS DISTINCT FROM 'staff_account_payment')
-AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
+              AND UPPER(TRIM(COALESCE(pv.sku, ''))) NOT IN ('SHIPPING', 'ROS-SHIPPING-FEE')
         )
         SELECT
             COALESCE(SUM(
@@ -242,6 +243,7 @@ AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
         FROM transaction_lines oi
         INNER JOIN transactions o ON o.id = oi.transaction_id
         INNER JOIN products p ON p.id = oi.product_id
+        LEFT JOIN product_variants pv ON pv.id = oi.variant_id
         LEFT JOIN (
             SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
             FROM transaction_return_lines GROUP BY transaction_line_id
@@ -253,7 +255,7 @@ AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
           AND (p.pos_line_kind IS DISTINCT FROM 'rms_charge_payment')
           AND (p.pos_line_kind IS DISTINCT FROM 'pos_gift_card_load')
 AND (p.pos_line_kind IS DISTINCT FROM 'staff_account_payment')
-AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
+          AND UPPER(TRIM(COALESCE(pv.sku, ''))) NOT IN ('SHIPPING', 'ROS-SHIPPING-FEE')
         "#
     ))
     .bind(activity_date)
@@ -406,7 +408,10 @@ AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
         WHERE o.status::text NOT IN ('cancelled')
           AND {line_recognition_ts} IS NOT NULL
           AND ({line_recognition_ts} AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
-          AND p.pos_line_kind = 'alteration_service'
+          AND (
+              p.pos_line_kind IN ('alteration_service', 'alteration_fee')
+              OR oi.custom_item_type IN ('alteration_service', 'alteration_fee')
+          )
           AND oi.unit_price > 0
         "#
     ))
@@ -458,6 +463,7 @@ AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
         FROM transaction_lines oi
         INNER JOIN transactions o ON o.id = oi.transaction_id
         INNER JOIN products p ON p.id = oi.product_id
+        LEFT JOIN product_variants pv ON pv.id = oi.variant_id
         LEFT JOIN categories c ON c.id = p.category_id
         LEFT JOIN (
             SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
@@ -470,7 +476,7 @@ AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
           AND (p.pos_line_kind IS DISTINCT FROM 'rms_charge_payment')
           AND (p.pos_line_kind IS DISTINCT FROM 'pos_gift_card_load')
 AND (p.pos_line_kind IS DISTINCT FROM 'staff_account_payment')
-AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
+          AND UPPER(TRIM(COALESCE(pv.sku, ''))) NOT IN ('SHIPPING', 'ROS-SHIPPING-FEE')
         GROUP BY c.name
         ORDER BY net_sales DESC NULLS LAST
         "#
@@ -665,35 +671,38 @@ pub fn render_html(report: &DailyReport, store_name: &str) -> String {
 
 <!-- Key Metrics -->
 <div style="background:#ffffff;padding:28px 32px;border-left:1px solid #e5e7eb;border-right:1px solid #e5e7eb">
+    <div style="margin-bottom:20px;border:1px solid #bfdbfe;background:#eff6ff;border-radius:10px;padding:12px 14px;color:#1e3a8a;font-size:12px;line-height:1.5">
+        Revenue, transaction, item, discount, and tax figures use <strong>fulfillment / recognition date</strong>. Payment Methods and Total Tendered use the actual payment processing date. These sections reconcile different ledgers and are not expected to equal each other.
+    </div>
     <div style="display:flex;flex-wrap:wrap;gap:16px;margin-bottom:24px">
         <div style="flex:1;min-width:140px;background:#f0fdf4;border-radius:12px;padding:16px;text-align:center">
-            <p style="margin:0;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#16a34a">Net Sales</p>
+            <p style="margin:0;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#16a34a">Recognized Net Sales</p>
             <p style="margin:4px 0 0;font-size:24px;font-weight:800;color:#15803d;font-family:monospace">{net_sales}</p>
         </div>
         <div style="flex:1;min-width:140px;background:#eff6ff;border-radius:12px;padding:16px;text-align:center">
-            <p style="margin:0;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#2563eb">Transactions</p>
+            <p style="margin:0;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#2563eb">Recognized Transactions</p>
             <p style="margin:4px 0 0;font-size:24px;font-weight:800;color:#1d4ed8">{tx_count}</p>
         </div>
         <div style="flex:1;min-width:140px;background:#faf5ff;border-radius:12px;padding:16px;text-align:center">
-            <p style="margin:0;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#7c3aed">Avg Transaction</p>
+            <p style="margin:0;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#7c3aed">Avg Recognized Transaction</p>
             <p style="margin:4px 0 0;font-size:24px;font-weight:800;color:#6d28d9;font-family:monospace">{avg_tx}</p>
         </div>
     </div>
 
     <!-- Sales Detail -->
     <div style="margin-bottom:24px">
-        <h3 style="font-size:14px;font-weight:700;color:#111827;margin:0 0 12px;text-transform:uppercase;letter-spacing:0.05em">Sales Summary</h3>
+        <h3 style="font-size:14px;font-weight:700;color:#111827;margin:0 0 12px;text-transform:uppercase;letter-spacing:0.05em">Recognized Sales Summary</h3>
         <table style="width:100%;border-collapse:collapse">
-            <tr><td style="padding:6px 0;font-size:13px;color:#6b7280">Gross Sales</td><td style="padding:6px 0;text-align:right;font-size:13px;font-family:monospace;font-weight:700">{gross_sales}</td></tr>
+            <tr><td style="padding:6px 0;font-size:13px;color:#6b7280">Recognized Gross Sales</td><td style="padding:6px 0;text-align:right;font-size:13px;font-family:monospace;font-weight:700">{gross_sales}</td></tr>
             <tr><td style="padding:6px 0;font-size:13px;color:#6b7280">Discounts</td><td style="padding:6px 0;text-align:right;font-size:13px;font-family:monospace;color:#dc2626">-{discount}</td></tr>
-            <tr style="border-top:2px solid #111827"><td style="padding:8px 0;font-size:14px;font-weight:800;color:#111827">Net Sales</td><td style="padding:8px 0;text-align:right;font-size:14px;font-family:monospace;font-weight:800;color:#15803d">{net_sales}</td></tr>
+            <tr style="border-top:2px solid #111827"><td style="padding:8px 0;font-size:14px;font-weight:800;color:#111827">Recognized Net Sales</td><td style="padding:8px 0;text-align:right;font-size:14px;font-family:monospace;font-weight:800;color:#15803d">{net_sales}</td></tr>
             <tr><td style="padding:6px 0;font-size:13px;color:#6b7280">Items Sold</td><td style="padding:6px 0;text-align:right;font-size:13px;font-weight:700">{items_sold}</td></tr>
         </table>
     </div>
 
     <!-- Tax -->
     <div style="margin-bottom:24px">
-        <h3 style="font-size:14px;font-weight:700;color:#111827;margin:0 0 12px;text-transform:uppercase;letter-spacing:0.05em">Tax Collected</h3>
+        <h3 style="font-size:14px;font-weight:700;color:#111827;margin:0 0 12px;text-transform:uppercase;letter-spacing:0.05em">Recognized Tax</h3>
         <table style="width:100%;border-collapse:collapse">
             <tr><td style="padding:6px 0;font-size:13px;color:#6b7280">State Tax</td><td style="padding:6px 0;text-align:right;font-size:13px;font-family:monospace">{tax_state}</td></tr>
             <tr><td style="padding:6px 0;font-size:13px;color:#6b7280">Local Tax</td><td style="padding:6px 0;text-align:right;font-size:13px;font-family:monospace">{tax_local}</td></tr>
@@ -706,7 +715,7 @@ pub fn render_html(report: &DailyReport, store_name: &str) -> String {
 
     <!-- Tenders -->
     <div style="margin-bottom:24px">
-        <h3 style="font-size:14px;font-weight:700;color:#111827;margin:0 0 12px;text-transform:uppercase;letter-spacing:0.05em">Payment Methods</h3>
+        <h3 style="font-size:14px;font-weight:700;color:#111827;margin:0 0 12px;text-transform:uppercase;letter-spacing:0.05em">Payment Methods — Processing Date</h3>
         <table style="width:100%;border-collapse:collapse">
             <thead><tr style="background:#f9fafb">
                 <th style="padding:8px 16px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:#6b7280;font-weight:700">Method</th>

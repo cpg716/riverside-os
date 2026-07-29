@@ -66,6 +66,7 @@ pub async fn upsert_fulfilled_transaction_events(
             FROM transaction_lines oi
             INNER JOIN transactions o ON o.id = oi.transaction_id
             LEFT JOIN products p ON p.id = oi.product_id
+            LEFT JOIN product_variants pv ON pv.id = oi.variant_id
             LEFT JOIN staff st ON st.id = oi.salesperson_id
             WHERE oi.transaction_id = $1
               AND o.status::text <> 'cancelled'
@@ -73,6 +74,7 @@ pub async fn upsert_fulfilled_transaction_events(
               AND COALESCE(({rec}), oi.fulfilled_at, o.fulfilled_at, o.booked_at) IS NOT NULL
               AND oi.salesperson_id IS NOT NULL
               AND oi.calculated_commission <> 0
+              AND UPPER(TRIM(COALESCE(pv.sku, ''))) NOT IN ('SHIPPING', 'ROS-SHIPPING-FEE')
               {filter_sql}
         ),
         prepared AS (
@@ -180,6 +182,7 @@ pub async fn upsert_fulfilled_transaction_events_pool(
             FROM transaction_lines oi
             INNER JOIN transactions o ON o.id = oi.transaction_id
             LEFT JOIN products p ON p.id = oi.product_id
+            LEFT JOIN product_variants pv ON pv.id = oi.variant_id
             LEFT JOIN staff st ON st.id = oi.salesperson_id
             WHERE oi.transaction_id = $1
               AND o.status::text <> 'cancelled'
@@ -187,6 +190,7 @@ pub async fn upsert_fulfilled_transaction_events_pool(
               AND COALESCE(({rec}), oi.fulfilled_at, o.fulfilled_at, o.booked_at) IS NOT NULL
               AND oi.salesperson_id IS NOT NULL
               AND oi.calculated_commission <> 0
+              AND UPPER(TRIM(COALESCE(pv.sku, ''))) NOT IN ('SHIPPING', 'ROS-SHIPPING-FEE')
               {filter_sql}
         ),
         prepared AS (

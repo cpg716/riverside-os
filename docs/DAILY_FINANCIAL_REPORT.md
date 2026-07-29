@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Daily Financial Report is an automated system that generates, stores, and emails a comprehensive financial summary at the end of each business day. It covers sales, tenders, tax, returns, deposits, gift cards, alterations, inventory receiving, supplier inbound freight, category margins, and QBO journal status.
+The Daily Financial Report is an automated system that generates, stores, and emails a comprehensive financial summary at the end of each business day. It covers sales, tenders, tax, returns, deposits, gift cards, alterations, inventory receiving, supplier inbound freight, category margins, and QBO journal status. Alteration charges are included in recognized sales and are also disclosed separately. Shipping is disclosed separately and is excluded from sales totals and commissions.
 
 Reports are generated after the register Z-close and can be viewed, resent, or test-sent from the Settings panel.
 
@@ -24,16 +24,18 @@ Reports are generated after the register Z-close and can be viewed, resent, or t
 Each daily report includes:
 
 ### Key Metrics
-- **Net Sales** — gross sales minus discounts
-- **Transaction Count** — unique fulfilled transactions
-- **Average Transaction** — net sales ÷ transaction count
+- **Recognized Net Sales** — fulfilled/recognized gross sales minus discounts
+- **Recognized Transaction Count** — unique fulfilled transactions
+- **Average Recognized Transaction** — recognized net sales ÷ recognized transaction count
+
+Revenue, item, discount, and tax sections use the fulfillment/recognition date. Payment Methods and Total Tendered use the payment processing date. They are separate ledgers and are not expected to equal each other. Booked Daily Sales, recognized revenue, deposits, and processed tender must never be substituted for one another.
 
 ### Sales Summary
 - Gross sales, discounts, net sales, items sold. Discounts include POS price
   overrides, customer profile discounts, employee prices, and explicit discount
   amounts while keeping net sales on the final line price.
 
-### Tax Collected
+### Recognized Tax
 - State tax, local tax, total tax
 
 ### Returns
@@ -52,7 +54,7 @@ Each daily report includes:
 - Deposits received today, deposits released on fulfillment (shown only when > 0)
 
 ### Alterations
-- Alteration service income (shown only when > 0)
+- Alteration service income, included in recognized sales and separately disclosed (shown only when > 0)
 
 ### Inventory Receiving
 - Units received, merchandise cost, and supplier inbound freight cost (shown only when > 0). Supplier freight is not added into item cost.
@@ -99,7 +101,7 @@ From the Settings panel, staff can send a **test report** at any time:
 ## Report History
 
 The Settings panel shows all generated reports with:
-- Date, net sales, transaction count
+- Date, recognized net sales, recognized transaction count
 - Sent status (✓ sent, ✗ error, ⏳ not sent)
 - Test badge for test sends
 - **View** — opens an in-app HTML preview modal

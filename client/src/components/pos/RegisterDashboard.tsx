@@ -33,6 +33,7 @@ import {
   hasStaffOrPosAuthHeaders,
   mergedPosStaffHeaders,
 } from "../../lib/posRegisterAuth";
+import { formatUsdFromCents, parseMoneyToCents } from "../../lib/money";
 import CompassMemberDetailDrawer from "../operations/CompassMemberDetailDrawer";
 import SalesByHourSnapshotCard from "../reports/SalesByHourSnapshotCard";
 import TaskChecklistDrawer from "../tasks/TaskChecklistDrawer";
@@ -143,44 +144,36 @@ export default function RegisterDashboard({
   const [compass, setCompass] = useState<MorningCompassBundle | null>(null);
   const [compassDrawerRow, setCompassDrawerRow] = useState<CompassActionRow | null>(null);
   const [forecast, setForecast] = useState<WeatherForecastPayload | null>(null);
-  const [todayBookedSales, setTodayBookedSales] = useState<{ total: number; count: number } | null>(null);
+  const [todayBookedSales, setTodayBookedSales] = useState<{ total: string; count: number } | null>(null);
 
-  // Fetch today's booked sales total from the sales-by-day endpoint
+  // Keep this card on the same canonical booked Daily Sales calculation used
+  // by Back Office, Register Reports, and register close.
   const loadTodaySales = useCallback(async () => {
     if (!permissionsLoaded) return;
     if (!hasDashboardAuth()) return;
+    setTodayBookedSales(null);
     try {
-      const today = localYmd();
+      const params = new URLSearchParams({
+        preset: "today",
+        basis: "booked",
+      });
       const res = await fetch(
-        `${baseUrl}/api/insights/sales-by-day?from=${encodeURIComponent(today)}&to=${encodeURIComponent(today)}`,
+        `${baseUrl}/api/insights/register-day-activity?${params}`,
         { headers: apiAuth() },
       );
-      if (!res.ok) return;
-      const payload = (await res.json()) as Array<{ business_date: string; day_sales_total: string; day_transaction_count: string }>;
-      const todayRows = Array.isArray(payload) ? payload.filter((r) => r.business_date === today) : [];
-      if (todayRows.length > 0) {
-        const first = todayRows[0];
-        setTodayBookedSales({
-          total: Number.parseFloat(first.day_sales_total ?? "0") || 0,
-          count: Number(first.day_transaction_count ?? 0),
-        });
-      } else {
-        setTodayBookedSales({ total: 0, count: 0 });
-      }
-    } catch { /* ignore */ }
+      if (!res.ok) throw new Error("today-sales");
+      const payload = (await res.json()) as {
+        net_sales?: string;
+        sales_count?: number;
+      };
+      setTodayBookedSales({
+        total: payload.net_sales ?? "0",
+        count: Number(payload.sales_count ?? 0),
+      });
+    } catch {
+      setTodayBookedSales(null);
+    }
   }, [apiAuth, hasDashboardAuth, permissionsLoaded]);
-
-  function localYmd(date = new Date()): string {
-    return [
-      date.getFullYear(),
-      `${date.getMonth() + 1}`.padStart(2, "0"),
-      `${date.getDate()}`.padStart(2, "0"),
-    ].join("-");
-  }
-
-  function currency(amount: number): string {
-    return amount.toLocaleString(undefined, { style: "currency", currency: "USD" });
-  }
 
   const loadTasks = useCallback(async () => {
     if (!permissionsLoaded || !hasPermission("tasks.complete")) return;
@@ -344,7 +337,7 @@ export default function RegisterDashboard({
           {/* Today's Sales — replaces the old Register card */}
           <DashboardStatsCard
             title="Today's Sales"
-            value={todayBookedSales == null ? "..." : currency(todayBookedSales.total)}
+            value={todayBookedSales == null ? "Not loaded" : formatUsdFromCents(parseMoneyToCents(todayBookedSales.total))}
             icon={DollarSign}
             color="green"
             trend={{

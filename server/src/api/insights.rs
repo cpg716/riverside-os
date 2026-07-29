@@ -346,9 +346,6 @@ const SALES_PIVOT_EXCLUDED_LINE_KINDS_SQL: &str = r#"
         AND COALESCE(oi.is_internal, false) = FALSE
         AND (p.pos_line_kind IS DISTINCT FROM 'rms_charge_payment')
         AND (p.pos_line_kind IS DISTINCT FROM 'pos_gift_card_load')
-        AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
-        AND (oi.custom_item_type IS DISTINCT FROM 'alteration_service')
-        AND (oi.custom_item_type IS DISTINCT FROM 'alteration_fee')
         AND UPPER(TRIM(COALESCE(pv.sku, ''))) NOT IN ('SHIPPING', 'ROS-SHIPPING-FEE')
 "#;
 
@@ -671,8 +668,10 @@ async fn commission_ledger(
             0::bigint AS earned_sale_count
           FROM transaction_lines oi
           INNER JOIN transactions o ON o.id = oi.transaction_id
+          LEFT JOIN product_variants pv ON pv.id = oi.variant_id
           LEFT JOIN staff st ON st.id = oi.salesperson_id
           WHERE o.status::text NOT IN ('cancelled')
+            AND UPPER(TRIM(COALESCE(pv.sku, ''))) NOT IN ('SHIPPING', 'ROS-SHIPPING-FEE')
           GROUP BY st.id, COALESCE(st.full_name, 'Unassigned')
         ),
         earned AS (
@@ -689,8 +688,14 @@ async fn commission_ledger(
                 AND ce.event_type IN ('sale_commission', 'spiff', 'combo_incentive')
             )::bigint AS earned_sale_count
           FROM commission_events ce
+          LEFT JOIN transaction_lines oi ON oi.id = ce.transaction_line_id
+          LEFT JOIN product_variants pv ON pv.id = oi.variant_id
           LEFT JOIN staff st ON st.id = ce.staff_id
           WHERE ce.event_at >= $1 AND ce.event_at < $2
+            AND (
+              ce.transaction_line_id IS NULL
+              OR UPPER(TRIM(COALESCE(pv.sku, ''))) NOT IN ('SHIPPING', 'ROS-SHIPPING-FEE')
+            )
           GROUP BY st.id, COALESCE(st.full_name, 'Unassigned')
         ),
         fulfilled_line_fallback AS (
@@ -728,11 +733,13 @@ async fn commission_ledger(
             COUNT(DISTINCT o.id)::bigint AS earned_sale_count
           FROM transaction_lines oi
           INNER JOIN transactions o ON o.id = oi.transaction_id
+          LEFT JOIN product_variants pv ON pv.id = oi.variant_id
           LEFT JOIN staff st ON st.id = oi.salesperson_id
           WHERE o.status::text NOT IN ('cancelled')
             AND oi.is_fulfilled = TRUE
             AND oi.salesperson_id IS NOT NULL
             AND oi.calculated_commission <> 0
+            AND UPPER(TRIM(COALESCE(pv.sku, ''))) NOT IN ('SHIPPING', 'ROS-SHIPPING-FEE')
             AND COALESCE(({rec}), oi.fulfilled_at, o.fulfilled_at, o.booked_at) >= $1
             AND COALESCE(({rec}), oi.fulfilled_at, o.fulfilled_at, o.booked_at) < $2
             AND NOT EXISTS (
@@ -860,9 +867,14 @@ async fn commission_lines(
           LEFT JOIN transaction_lines oi ON oi.id = ce.transaction_line_id
           LEFT JOIN transactions o ON o.id = ce.transaction_id
           LEFT JOIN products p ON p.id = oi.product_id
+          LEFT JOIN product_variants pv ON pv.id = oi.variant_id
           WHERE ($1 IS NULL OR ce.staff_id = $1)
             AND ce.event_at >= $2
             AND ce.event_at < $3
+            AND (
+              ce.transaction_line_id IS NULL
+              OR UPPER(TRIM(COALESCE(pv.sku, ''))) NOT IN ('SHIPPING', 'ROS-SHIPPING-FEE')
+            )
         ),
         fulfilled_line_fallback AS (
           SELECT
@@ -883,11 +895,13 @@ async fn commission_lines(
           FROM transaction_lines oi
           INNER JOIN transactions o ON o.id = oi.transaction_id
           LEFT JOIN products p ON p.id = oi.product_id
+          LEFT JOIN product_variants pv ON pv.id = oi.variant_id
           WHERE o.status::text NOT IN ('cancelled')
             AND oi.is_fulfilled = TRUE
             AND oi.salesperson_id IS NOT NULL
             AND ($1 IS NULL OR oi.salesperson_id = $1)
             AND oi.calculated_commission <> 0
+            AND UPPER(TRIM(COALESCE(pv.sku, ''))) NOT IN ('SHIPPING', 'ROS-SHIPPING-FEE')
             AND COALESCE(({rec}), oi.fulfilled_at, o.fulfilled_at, o.booked_at) >= $2
             AND COALESCE(({rec}), oi.fulfilled_at, o.fulfilled_at, o.booked_at) < $3
             AND NOT EXISTS (
@@ -916,6 +930,7 @@ async fn commission_lines(
           FROM transaction_lines oi
           INNER JOIN transactions o ON o.id = oi.transaction_id
           INNER JOIN products p ON p.id = oi.product_id
+          LEFT JOIN product_variants pv ON pv.id = oi.variant_id
           WHERE o.status::text NOT IN ('cancelled')
             AND oi.is_fulfilled = FALSE
             AND (
@@ -923,6 +938,7 @@ async fn commission_lines(
             OR ($1 IS NULL AND oi.salesperson_id IS NULL)
             )
             AND oi.calculated_commission <> 0
+            AND UPPER(TRIM(COALESCE(pv.sku, ''))) NOT IN ('SHIPPING', 'ROS-SHIPPING-FEE')
             AND o.booked_at >= $2
             AND o.booked_at < $3
         )

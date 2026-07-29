@@ -1118,16 +1118,14 @@ async fn fetch_register_day_summary_page_on_connection(
                 e.transaction_id,
                 SUM(
                     CASE
-                        WHEN e.line_kind = 'alteration_service'
-                          OR UPPER(TRIM(COALESCE(pv.sku, ''))) IN ('SHIPPING', 'ROS-SHIPPING-FEE')
+                        WHEN UPPER(TRIM(COALESCE(pv.sku, ''))) IN ('SHIPPING', 'ROS-SHIPPING-FEE')
                         THEN 0::numeric
                         ELSE e.subtotal_delta
                     END
                 )::numeric(14,2) AS line_subtotal,
                 SUM(
                     CASE
-                        WHEN e.line_kind = 'alteration_service'
-                          OR UPPER(TRIM(COALESCE(pv.sku, ''))) IN ('SHIPPING', 'ROS-SHIPPING-FEE')
+                        WHEN UPPER(TRIM(COALESCE(pv.sku, ''))) IN ('SHIPPING', 'ROS-SHIPPING-FEE')
                         THEN 0::numeric
                         ELSE e.tax_delta
                     END
@@ -1150,18 +1148,14 @@ async fn fetch_register_day_summary_page_on_connection(
                 oi.transaction_id,
                 SUM(
                     CASE
-                        WHEN p.pos_line_kind = 'alteration_service'
-                          OR oi.custom_item_type = 'alteration_service'
-                          OR UPPER(TRIM(COALESCE(pv.sku, ''))) IN ('SHIPPING', 'ROS-SHIPPING-FEE')
+                        WHEN UPPER(TRIM(COALESCE(pv.sku, ''))) IN ('SHIPPING', 'ROS-SHIPPING-FEE')
                         THEN 0::numeric
                         ELSE oi.quantity::numeric * oi.unit_price
                     END
                 )::numeric(14,2) AS line_subtotal,
                 SUM(
                     CASE
-                        WHEN p.pos_line_kind = 'alteration_service'
-                          OR oi.custom_item_type = 'alteration_service'
-                          OR UPPER(TRIM(COALESCE(pv.sku, ''))) IN ('SHIPPING', 'ROS-SHIPPING-FEE')
+                        WHEN UPPER(TRIM(COALESCE(pv.sku, ''))) IN ('SHIPPING', 'ROS-SHIPPING-FEE')
                         THEN 0::numeric
                         ELSE oi.quantity::numeric * (oi.state_tax + oi.local_tax)
                     END
@@ -1224,8 +1218,6 @@ async fn fetch_register_day_summary_page_on_connection(
           AND COALESCE(tl.is_internal, false) = false
           AND (p.pos_line_kind IS DISTINCT FROM 'rms_charge_payment')
           AND (p.pos_line_kind IS DISTINCT FROM 'pos_gift_card_load')
-          AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
-          AND (tl.custom_item_type IS DISTINCT FROM 'alteration_service')
           AND UPPER(TRIM(COALESCE(pv.sku, ''))) NOT IN ('SHIPPING', 'ROS-SHIPPING-FEE')
         "#,
     )
@@ -1239,32 +1231,85 @@ async fn fetch_register_day_summary_page_on_connection(
     let tax_total = row.2.unwrap_or(Decimal::ZERO) - return_adjustments.1;
     let online_order_count = row.3;
 
-    let shipping_sql = format!(
-        r#"
-        SELECT COALESCE(SUM(
-            COALESCE(o.shipping_amount_usd, 0)
-            + COALESCE((
-                SELECT SUM(
-                    GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0)::numeric
-                    * oi.unit_price
-                )
-                FROM transaction_lines oi
-                INNER JOIN product_variants pv ON pv.id = oi.variant_id
-                LEFT JOIN (
-                    SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
-                    FROM transaction_return_lines
-                    GROUP BY transaction_line_id
-                ) orl ON orl.transaction_line_id = oi.id
-                WHERE oi.transaction_id = o.id
-                  AND COALESCE(oi.is_internal, false) = FALSE
+    let shipping_sql = match basis {
+        ReportBasis::Booked => format!(
+            r#"
+            WITH header_shipping AS (
+                SELECT COALESCE(SUM(o.shipping_amount_usd), 0)::numeric(14,2) AS total
+                FROM transactions o
+                WHERE o.status::text NOT IN ('cancelled')
+                  AND COALESCE(
+                        o.business_date,
+                        (o.booked_at AT TIME ZONE reporting.effective_store_timezone())::date
+                      ) >= ($1 AT TIME ZONE reporting.effective_store_timezone())::date
+                  AND COALESCE(
+                        o.business_date,
+                        (o.booked_at AT TIME ZONE reporting.effective_store_timezone())::date
+                      ) < ($2 AT TIME ZONE reporting.effective_store_timezone())::date
+                {order_session_filter}
+            ),
+            line_shipping AS (
+                SELECT COALESCE(SUM(e.subtotal_delta), 0)::numeric(14,2) AS total
+                FROM transaction_line_booking_events e
+                INNER JOIN transactions o ON o.id = e.transaction_id
+                LEFT JOIN product_variants pv
+                  ON pv.id = NULLIF(e.metadata->>'variant_id', '')::uuid
+                WHERE e.booked_at >= $1
+                  AND e.booked_at < $2
+                  AND e.is_internal = FALSE
+                  AND COALESCE(e.metadata->>'reporting_excluded', '') = ''
+                  AND UPPER(TRIM(COALESCE(pv.sku, ''))) IN ('SHIPPING', 'ROS-SHIPPING-FEE')
+                {order_session_filter}
+            ),
+            returned_shipping AS (
+                SELECT COALESCE(SUM(COALESCE(
+                    trl.refund_subtotal,
+                    tl.unit_price * trl.quantity_returned
+                )), 0)::numeric(14,2) AS total
+                FROM transaction_return_lines trl
+                INNER JOIN transaction_lines tl ON tl.id = trl.transaction_line_id
+                INNER JOIN product_variants pv ON pv.id = tl.variant_id
+                WHERE trl.created_at >= $1
+                  AND trl.created_at < $2
+                  AND ($3::uuid IS NULL OR trl.register_session_id = $3)
+                  AND COALESCE(tl.is_internal, false) = FALSE
                   AND UPPER(TRIM(pv.sku)) IN ('SHIPPING', 'ROS-SHIPPING-FEE')
-            ), 0)
-        ), 0)::numeric(14,2)
-        FROM transactions o
-        WHERE {order_in_range}
-        {order_session_filter}
-        "#,
-    );
+            )
+            SELECT (
+                header_shipping.total
+                + line_shipping.total
+                - returned_shipping.total
+            )::numeric(14,2)
+            FROM header_shipping, line_shipping, returned_shipping
+            "#,
+        ),
+        ReportBasis::Completed => format!(
+            r#"
+            SELECT COALESCE(SUM(
+                COALESCE(o.shipping_amount_usd, 0)
+                + COALESCE((
+                    SELECT SUM(
+                        GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0)::numeric
+                        * oi.unit_price
+                    )
+                    FROM transaction_lines oi
+                    INNER JOIN product_variants pv ON pv.id = oi.variant_id
+                    LEFT JOIN (
+                        SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
+                        FROM transaction_return_lines
+                        GROUP BY transaction_line_id
+                    ) orl ON orl.transaction_line_id = oi.id
+                    WHERE oi.transaction_id = o.id
+                      AND COALESCE(oi.is_internal, false) = FALSE
+                      AND UPPER(TRIM(pv.sku)) IN ('SHIPPING', 'ROS-SHIPPING-FEE')
+                ), 0)
+            ), 0)::numeric(14,2)
+            FROM transactions o
+            WHERE {order_in_range}
+            {order_session_filter}
+            "#,
+        ),
+    };
     let shipping_total: (Decimal,) = sqlx::query_as(&shipping_sql)
         .bind(start_utc)
         .bind(end_utc)
@@ -1272,23 +1317,38 @@ async fn fetch_register_day_summary_page_on_connection(
         .fetch_one(&mut *connection)
         .await?;
 
-    let alterations_sql = format!(
-        r#"
-        SELECT COALESCE(SUM(
-            GREATEST(oi.quantity, 0)::numeric * oi.unit_price
-        ), 0)::numeric(14,2)
-        FROM transactions o
-        INNER JOIN transaction_lines oi ON oi.transaction_id = o.id
-        LEFT JOIN products p ON p.id = oi.product_id
-        WHERE {order_in_range}
-          AND COALESCE(oi.is_internal, false) = FALSE
-          AND (
-              p.pos_line_kind = 'alteration_service'
-              OR oi.custom_item_type IN ('alteration_service', 'alteration_fee')
-          )
-        {order_session_filter}
-        "#,
-    );
+    let alterations_sql = match basis {
+        ReportBasis::Booked => format!(
+            r#"
+            SELECT COALESCE(SUM(e.subtotal_delta), 0)::numeric(14,2)
+            FROM transaction_line_booking_events e
+            INNER JOIN transactions o ON o.id = e.transaction_id
+            WHERE e.booked_at >= $1
+              AND e.booked_at < $2
+              AND e.is_internal = FALSE
+              AND COALESCE(e.metadata->>'reporting_excluded', '') = ''
+              AND e.line_kind IN ('alteration_service', 'alteration_fee')
+            {order_session_filter}
+            "#,
+        ),
+        ReportBasis::Completed => format!(
+            r#"
+            SELECT COALESCE(SUM(
+                GREATEST(oi.quantity, 0)::numeric * oi.unit_price
+            ), 0)::numeric(14,2)
+            FROM transactions o
+            INNER JOIN transaction_lines oi ON oi.transaction_id = o.id
+            LEFT JOIN products p ON p.id = oi.product_id
+            WHERE {order_in_range}
+              AND COALESCE(oi.is_internal, false) = FALSE
+              AND (
+                  p.pos_line_kind IN ('alteration_service', 'alteration_fee')
+                  OR oi.custom_item_type IN ('alteration_service', 'alteration_fee')
+              )
+            {order_session_filter}
+            "#,
+        ),
+    };
     let alterations_total: (Decimal,) = sqlx::query_as(&alterations_sql)
         .bind(start_utc)
         .bind(end_utc)
@@ -1309,7 +1369,7 @@ async fn fetch_register_day_summary_page_on_connection(
           AND ($3::uuid IS NULL OR trl.register_session_id = $3)
           AND COALESCE(tl.is_internal, false) = FALSE
           AND (
-              p.pos_line_kind = 'alteration_service'
+              p.pos_line_kind IN ('alteration_service', 'alteration_fee')
               OR tl.custom_item_type IN ('alteration_service', 'alteration_fee')
           )
         "#,
@@ -1320,20 +1380,23 @@ async fn fetch_register_day_summary_page_on_connection(
     .fetch_one(&mut *connection)
     .await?;
     let alterations_net_total = alterations_total.0 - alteration_return_adjustments.0;
-    let reported_subtotal = subtotal + alterations_net_total;
+    let reported_subtotal = subtotal;
 
     let gift_card_sql = format!(
         r#"
         SELECT
-            COUNT(*)::bigint,
-            COALESCE(SUM(GREATEST(oi.quantity, 0)::numeric * oi.unit_price), 0)::numeric(14,2)
-        FROM transactions o
-        INNER JOIN transaction_lines oi ON oi.transaction_id = o.id
-        LEFT JOIN products p ON p.id = oi.product_id
-        WHERE {order_in_range}
-          AND p.pos_line_kind = 'pos_gift_card_load'
-        {order_session_filter}
+            COUNT(DISTINCT e.transaction_line_id)::bigint,
+            COALESCE(SUM(e.subtotal_delta), 0)::numeric(14,2)
+        FROM transaction_line_booking_events e
+        INNER JOIN transactions o ON o.id = e.transaction_id
+        WHERE e.booked_at >= $1
+          AND e.booked_at < $2
+          AND e.is_internal = FALSE
+          AND COALESCE(e.metadata->>'reporting_excluded', '') = ''
+          AND e.line_kind = 'pos_gift_card_load'
+        {booked_session_filter}
         "#,
+        booked_session_filter = ORDER_BOOKED_SESSION_FILTER,
     );
     let gift_card_totals: (i64, Decimal) = sqlx::query_as(&gift_card_sql)
         .bind(start_utc)
@@ -1341,6 +1404,29 @@ async fn fetch_register_day_summary_page_on_connection(
         .bind(register_session_id)
         .fetch_one(&mut *connection)
         .await?;
+
+    let gift_card_return_adjustments: (Decimal,) = sqlx::query_as(
+        r#"
+        SELECT COALESCE(SUM(COALESCE(
+            trl.refund_subtotal,
+            tl.unit_price * trl.quantity_returned
+        )), 0)::numeric(14,2)
+        FROM transaction_return_lines trl
+        INNER JOIN transaction_lines tl ON tl.id = trl.transaction_line_id
+        LEFT JOIN products p ON p.id = tl.product_id
+        WHERE trl.created_at >= $1
+          AND trl.created_at < $2
+          AND ($3::uuid IS NULL OR trl.register_session_id = $3)
+          AND COALESCE(tl.is_internal, false) = FALSE
+          AND p.pos_line_kind = 'pos_gift_card_load'
+        "#,
+    )
+    .bind(start_utc)
+    .bind(end_utc)
+    .bind(register_session_id)
+    .fetch_one(&mut *connection)
+    .await?;
+    let gift_card_load_total = gift_card_totals.1 - gift_card_return_adjustments.0;
 
     // Booked mode: pickups completed in range (fulfillment date). Completed mode: same as sale_count (orders completed in range).
     let pickup_count = if matches!(basis, ReportBasis::Booked) {
@@ -1622,22 +1708,20 @@ async fn fetch_register_day_summary_page_on_connection(
                     MAX(e.booked_at) AS last_booked_at,
                     SUM(
                         CASE
-                            WHEN e.line_kind = 'alteration_service'
-                              OR UPPER(TRIM(COALESCE(pv.sku, ''))) IN ('SHIPPING', 'ROS-SHIPPING-FEE')
+                            WHEN UPPER(TRIM(COALESCE(pv.sku, ''))) IN ('SHIPPING', 'ROS-SHIPPING-FEE')
                             THEN 0::numeric
                             ELSE e.subtotal_delta
                         END
                     )::numeric(14,2) AS line_subtotal,
                     SUM(
                         CASE
-                            WHEN e.line_kind = 'alteration_service'
-                              OR UPPER(TRIM(COALESCE(pv.sku, ''))) IN ('SHIPPING', 'ROS-SHIPPING-FEE')
+                            WHEN UPPER(TRIM(COALESCE(pv.sku, ''))) IN ('SHIPPING', 'ROS-SHIPPING-FEE')
                             THEN 0::numeric
                             ELSE e.tax_delta
                         END
                     )::numeric(14,2) AS line_tax,
                     SUM(
-                        CASE WHEN e.line_kind = 'alteration_service'
+                        CASE WHEN e.line_kind IN ('alteration_service', 'alteration_fee')
                             THEN e.subtotal_delta
                             ELSE 0::numeric
                         END
@@ -1691,8 +1775,6 @@ async fn fetch_register_day_summary_page_on_connection(
                 CASE
                     WHEN COALESCE(oi.is_internal, false)
                       OR p_line.pos_line_kind IN ('rms_charge_payment', 'pos_gift_card_load')
-                      OR p_line.pos_line_kind = 'alteration_service'
-                      OR oi.custom_item_type = 'alteration_service'
                       OR UPPER(TRIM(COALESCE(pv_line.sku, ''))) IN ('SHIPPING', 'ROS-SHIPPING-FEE')
                     THEN 0::numeric
                     ELSE GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0)::numeric
@@ -1702,9 +1784,7 @@ async fn fetch_register_day_summary_page_on_connection(
             .to_string(),
     };
     let sales_total_expr = match basis {
-        ReportBasis::Booked => {
-            "(be.line_subtotal + be.alterations_total)::numeric(14,2)".to_string()
-        }
+        ReportBasis::Booked => "be.line_subtotal".to_string(),
         ReportBasis::Completed => r#"COALESCE(SUM(
                 CASE
                     WHEN COALESCE(oi.is_internal, false)
@@ -1719,7 +1799,21 @@ async fn fetch_register_day_summary_page_on_connection(
     };
     let activity_shipping_expr = match basis {
         ReportBasis::Booked => {
-            "(be.shipping_line_total + COALESCE(o.shipping_amount_usd, 0))::numeric(14,2)"
+            r#"(
+                be.shipping_line_total
+                + CASE
+                    WHEN COALESCE(
+                        o.business_date,
+                        (o.booked_at AT TIME ZONE reporting.effective_store_timezone())::date
+                    ) >= ($1 AT TIME ZONE reporting.effective_store_timezone())::date
+                     AND COALESCE(
+                        o.business_date,
+                        (o.booked_at AT TIME ZONE reporting.effective_store_timezone())::date
+                    ) < ($2 AT TIME ZONE reporting.effective_store_timezone())::date
+                    THEN COALESCE(o.shipping_amount_usd, 0)
+                    ELSE 0::numeric
+                  END
+            )::numeric(14,2)"#
                 .to_string()
         }
         ReportBasis::Completed => r#"(
@@ -1738,8 +1832,8 @@ async fn fetch_register_day_summary_page_on_connection(
         ReportBasis::Booked => "be.alterations_total".to_string(),
         ReportBasis::Completed => r#"COALESCE(SUM(
             CASE
-                WHEN p_line.pos_line_kind = 'alteration_service'
-                  OR oi.custom_item_type = 'alteration_service'
+                WHEN p_line.pos_line_kind IN ('alteration_service', 'alteration_fee')
+                  OR oi.custom_item_type IN ('alteration_service', 'alteration_fee')
                 THEN GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0)::numeric * oi.unit_price
                 ELSE 0::numeric
             END
@@ -1970,8 +2064,8 @@ async fn fetch_register_day_summary_page_on_connection(
                 INNER JOIN products p_alt ON p_alt.id = tl_alt.product_id
                 WHERE tl_alt.transaction_id = o.id
                   AND (
-                    p_alt.pos_line_kind = 'alteration_service'
-                    OR tl_alt.custom_item_type = 'alteration_service'
+                    p_alt.pos_line_kind IN ('alteration_service', 'alteration_fee')
+                    OR tl_alt.custom_item_type IN ('alteration_service', 'alteration_fee')
                   )
             ) AS has_alteration_service_line,
             EXISTS (
@@ -2101,8 +2195,8 @@ async fn fetch_register_day_summary_page_on_connection(
             COALESCE(o.shipping_amount_usd, 0)::numeric(14,2) AS shipping_total,
             COALESCE(SUM(
                 CASE
-                    WHEN p_line.pos_line_kind = 'alteration_service'
-                      OR tl.custom_item_type = 'alteration_service'
+                    WHEN p_line.pos_line_kind IN ('alteration_service', 'alteration_fee')
+                      OR tl.custom_item_type IN ('alteration_service', 'alteration_fee')
                     THEN GREATEST(tl.quantity - COALESCE(orl.returned, 0), 0)::numeric * tl.unit_price
                     ELSE 0::numeric
                 END
@@ -2130,8 +2224,8 @@ async fn fetch_register_day_summary_page_on_connection(
             o.balance_due,
             false AS has_rms_charge_payment_line,
             COALESCE(BOOL_OR(
-                p_line.pos_line_kind = 'alteration_service'
-                OR tl.custom_item_type = 'alteration_service'
+                p_line.pos_line_kind IN ('alteration_service', 'alteration_fee')
+                OR tl.custom_item_type IN ('alteration_service', 'alteration_fee')
             ), false) AS has_alteration_service_line,
             COALESCE(o.shipping_amount_usd, 0) <> 0 AS has_shipping_service_line,
             (
@@ -2895,7 +2989,7 @@ async fn fetch_register_day_summary_page_on_connection(
         shipping_total: money_label(shipping_total.0),
         alterations_total: money_label(alterations_net_total),
         gift_card_load_count: gift_card_totals.0,
-        gift_card_load_total: money_label(gift_card_totals.1),
+        gift_card_load_total: money_label(gift_card_load_total),
         cash_collected: money_label(cash_collected),
         deposits_collected: money_label(deposits_collected),
         weather_days,

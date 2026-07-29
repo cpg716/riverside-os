@@ -619,7 +619,7 @@ const DailyFinancialReportPanel: React.FC<DailyFinancialReportPanelProps> = ({
                       <div className="text-xs text-app-text-muted flex items-center gap-3 mt-0.5">
                         {r.net_sales != null && (
                           <span>
-                            Net Sales:{" "}
+                            Recognized Net Sales:{" "}
                             <span className="font-semibold text-emerald-600 dark:text-emerald-400">
                               $
                               {Number(r.net_sales).toLocaleString(undefined, {
@@ -629,7 +629,7 @@ const DailyFinancialReportPanel: React.FC<DailyFinancialReportPanelProps> = ({
                           </span>
                         )}
                         {r.transaction_count != null && (
-                          <span>{r.transaction_count} transactions</span>
+                          <span>{r.transaction_count} recognized transactions</span>
                         )}
                         {r.sent_to && r.sent_to.length > 0 && (
                           <span className="truncate max-w-[200px]">
