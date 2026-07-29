@@ -2144,6 +2144,42 @@ async fn expire_closed_session_helcim_terminal_attempts_before_dispatch(
     Ok(())
 }
 
+async fn isolate_prior_checkout_helcim_terminal_attempts_before_dispatch(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    terminal_id: &str,
+    requested_register_session_id: Uuid,
+    requested_checkout_client_id: Uuid,
+) -> Result<(), PaymentError> {
+    sqlx::query(
+        r#"
+        UPDATE payment_provider_attempts ppa
+        SET status = 'expired',
+            error_code = COALESCE(
+                NULLIF(BTRIM(ppa.error_code), ''),
+                'prior_checkout_pending_isolated'
+            ),
+            error_message = CONCAT_WS(
+                ' ',
+                NULLIF(BTRIM(ppa.error_message), ''),
+                'ROS removed this earlier checkout from terminal routing before a new checkout on the same Register. Existing provider evidence remains retained for Payments Health reconciliation.'
+            ),
+            completed_at = COALESCE(ppa.completed_at, now())
+        WHERE ppa.provider = 'helcim'
+          AND ppa.status = 'pending'
+          AND COALESCE(ppa.terminal_id, ppa.device_id) = $1
+          AND ppa.register_session_id = $2
+          AND ppa.checkout_client_id IS DISTINCT FROM $3
+        "#,
+    )
+    .bind(terminal_id)
+    .bind(requested_register_session_id)
+    .bind(requested_checkout_client_id)
+    .execute(&mut **tx)
+    .await
+    .map_err(|error| PaymentError::InvalidPayload(error.to_string()))?;
+    Ok(())
+}
+
 fn is_provider_idempotency_violation(error: &sqlx::Error) -> bool {
     error
         .as_database_error()
@@ -9701,6 +9737,13 @@ async fn start_helcim_purchase(
         .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
     lock_register_session_open_for_payment(&mut tx, Some(register_session_id)).await?;
     expire_closed_session_helcim_terminal_attempts_before_dispatch(&mut tx, &terminal_id).await?;
+    isolate_prior_checkout_helcim_terminal_attempts_before_dispatch(
+        &mut tx,
+        &terminal_id,
+        register_session_id,
+        checkout_client_id,
+    )
+    .await?;
     reject_conflicting_helcim_attempt_before_dispatch(&mut tx, checkout_client_id, None).await?;
     reject_unresolved_helcim_terminal_before_dispatch(
         &mut tx,
@@ -11695,16 +11738,15 @@ async fn release_helcim_terminal_attempt(
         })?
     };
     if query.ros_error_recovery_requested {
-        let evidence_free_local_reservation = !is_helcim_return_attempt(&attempt)
+        let invoice_recoverable_terminal_reservation = !is_helcim_return_attempt(&attempt)
             && attempt.status == "pending"
             && (attempt.terminal_id.is_some() || attempt.device_id.is_some())
             && attempt.provider_payment_id.is_none()
             && attempt.provider_transaction_id.is_none()
-            && attempt.raw_audit_reference.is_none()
             && attempt.error_code.is_none()
             && attempt.created_at
                 < Utc::now() - ChronoDuration::seconds(HELCIM_ROS_ERROR_RECOVERY_MIN_SECONDS);
-        if !evidence_free_local_reservation {
+        if !invoice_recoverable_terminal_reservation {
             return Err(PaymentError::Conflict(
                 "ROS cannot clear this request as a local error because Helcim evidence exists or the request is still inside the active dispatch window. Use Recover payment; a real provider request or approval remains protected."
                     .to_string(),
@@ -11745,11 +11787,11 @@ async fn release_helcim_terminal_attempt(
             UPDATE payment_provider_attempts
             SET status = 'expired',
                 error_code = 'operator_recovered_ros_reservation',
-                error_message = 'Staff recovered an evidence-free ROS terminal reservation from checkout after exact Helcim invoice reconciliation returned no match.',
+                error_message = 'Staff recovered a stale ROS terminal reservation after exact Helcim invoice reconciliation returned no matching provider transaction.',
                 raw_audit_reference = CONCAT_WS(
                     ' ',
                     NULLIF(BTRIM(raw_audit_reference), ''),
-                    'ros:payment-restore-evidence-free-reservation'
+                    'ros:payment-restore-provider-no-match'
                 ),
                 completed_at = now()
             WHERE id = $1
@@ -11758,7 +11800,6 @@ async fn release_helcim_terminal_attempt(
               AND terminal_id IS NOT NULL
               AND provider_payment_id IS NULL
               AND provider_transaction_id IS NULL
-              AND raw_audit_reference IS NULL
               AND error_code IS NULL
               AND created_at < now() - ($2::bigint * interval '1 second')
             "#,
@@ -11780,7 +11821,7 @@ async fn release_helcim_terminal_attempt(
             recovery_actor_staff_id,
             "helcim_terminal_restore",
             json!({
-                "action": "release_evidence_free_ros_reservation",
+                "action": "release_provider_no_match_reservation",
                 "payment_provider_attempt_id": attempt_id,
                 "attempt_register_session_id": attempt.register_session_id,
                 "attempt_checkout_client_id": attempt.checkout_client_id,
@@ -13018,7 +13059,7 @@ mod tests {
             .split_once("async fn expire_closed_session_helcim_terminal_attempts_before_dispatch(")
             .expect("closed-session terminal cleanup")
             .1
-            .split_once("fn is_provider_idempotency_violation(")
+            .split_once("async fn isolate_prior_checkout_helcim_terminal_attempts_before_dispatch(")
             .expect("end of closed-session terminal cleanup")
             .0;
         assert!(stale_session_cleanup.contains("SET status = 'expired'"));
@@ -13029,6 +13070,19 @@ mod tests {
         assert!(stale_session_cleanup.contains("AND NOT EXISTS"));
         assert!(stale_session_cleanup.contains("rs.is_open = true"));
         assert!(stale_session_cleanup.contains("rs.lifecycle_status = 'open'"));
+
+        let prior_checkout_cleanup = source
+            .split_once("async fn isolate_prior_checkout_helcim_terminal_attempts_before_dispatch(")
+            .expect("prior-checkout terminal cleanup")
+            .1
+            .split_once("fn is_provider_idempotency_violation(")
+            .expect("end of prior-checkout terminal cleanup")
+            .0;
+        assert!(prior_checkout_cleanup.contains("SET status = 'expired'"));
+        assert!(prior_checkout_cleanup.contains("'prior_checkout_pending_isolated'"));
+        assert!(prior_checkout_cleanup.contains("ppa.register_session_id = $2"));
+        assert!(prior_checkout_cleanup.contains("ppa.checkout_client_id IS DISTINCT FROM $3"));
+        assert!(prior_checkout_cleanup.contains("Existing provider evidence remains retained"));
 
         let purchase_dispatch = source
             .split_once("async fn start_helcim_purchase(")
@@ -13046,6 +13100,9 @@ mod tests {
         let cleanup_call = purchase_dispatch
             .find("expire_closed_session_helcim_terminal_attempts_before_dispatch(")
             .expect("closed-session cleanup before terminal purchase");
+        let prior_checkout_cleanup_call = purchase_dispatch
+            .find("isolate_prior_checkout_helcim_terminal_attempts_before_dispatch(")
+            .expect("prior-checkout cleanup before terminal purchase");
         let open_session_guard = purchase_dispatch
             .find("reject_unresolved_helcim_terminal_before_dispatch(")
             .expect("open-session terminal guard");
@@ -13054,7 +13111,8 @@ mod tests {
             .expect("terminal attempt insert");
         assert!(provider_refresh < transaction_begin);
         assert!(transaction_begin < cleanup_call);
-        assert!(cleanup_call < open_session_guard);
+        assert!(cleanup_call < prior_checkout_cleanup_call);
+        assert!(prior_checkout_cleanup_call < open_session_guard);
         assert!(open_session_guard < insert);
     }
 
@@ -14181,6 +14239,17 @@ mod tests {
         assert!(release.contains("WHEN $4 THEN 'expired'"));
         assert!(release.contains("provider_transaction_id IS NULL\n              OR $4"));
         assert!(release.contains("load_helcim_attempt(&state, attempt_id, session_id)"));
+
+        let ros_error_recovery = release
+            .split_once("if query.ros_error_recovery_requested")
+            .expect("ROS error recovery branch")
+            .1
+            .split_once("let simulator_enabled")
+            .expect("end of ROS error recovery branch")
+            .0;
+        assert!(ros_error_recovery.contains("HelcimInvoiceRecovery::NoMatch"));
+        assert!(ros_error_recovery.contains("release_provider_no_match_reservation"));
+        assert!(!ros_error_recovery.contains("AND raw_audit_reference IS NULL"));
     }
 
     #[test]
