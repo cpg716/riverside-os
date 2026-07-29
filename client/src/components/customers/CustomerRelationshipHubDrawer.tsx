@@ -610,6 +610,7 @@ type CustomerProfileDraft = {
   transactional_email_opt_in: boolean;
   review_requests_opt_out: boolean;
   profile_discount_percent: string;
+  profile_discount_reason: string;
   tax_exempt: boolean;
   tax_exempt_id: string;
 };
@@ -640,6 +641,7 @@ function customerProfileDraftFromRow(row: CustomerProfile): CustomerProfileDraft
     transactional_email_opt_in: row.transactional_email_opt_in ?? false,
     review_requests_opt_out: row.review_requests_opt_out ?? false,
     profile_discount_percent: String(row.profile_discount_percent ?? "0"),
+    profile_discount_reason: row.profile_discount_reason ?? "",
     tax_exempt: row.tax_exempt ?? false,
     tax_exempt_id: row.tax_exempt_id ?? "",
   };
@@ -721,6 +723,12 @@ function buildCustomerProfilePatch(
     "profile_discount_percent",
     percentToFixed(draft.profile_discount_percent),
     percentToFixed(baseline.profile_discount_percent),
+  );
+  addChangedProfileField(
+    body,
+    "profile_discount_reason",
+    blankToNull(draft.profile_discount_reason),
+    blankToNull(baseline.profile_discount_reason),
   );
 
   addChangedProfileField(body, "tax_exempt", draft.tax_exempt, baseline.tax_exempt);
@@ -838,6 +846,7 @@ export function CustomerRelationshipHubDrawer({
     transactional_email_opt_in: false,
     review_requests_opt_out: false,
     profile_discount_percent: "0",
+    profile_discount_reason: "",
     tax_exempt: false,
     tax_exempt_id: "",
   });
@@ -1980,6 +1989,10 @@ export function CustomerRelationshipHubDrawer({
       toast("Profile discount must be between 0 and 100 percent", "error");
       return;
     }
+    if (profileDiscount > 0 && !profileDraft.profile_discount_reason.trim()) {
+      toast("Enter a reason for this ongoing customer discount", "error");
+      return;
+    }
     if (profileDraft.tax_exempt && !profileDraft.tax_exempt_id.trim()) {
       toast("Enter the tax ID before marking this customer tax exempt", "error");
       return;
@@ -2027,6 +2040,7 @@ export function CustomerRelationshipHubDrawer({
         transactional_email_opt_in: boolean | null;
         review_requests_opt_out: boolean;
         profile_discount_percent?: string | number | null;
+        profile_discount_reason?: string | null;
         tax_exempt?: boolean | null;
         tax_exempt_id?: string | null;
       };
@@ -4882,6 +4896,29 @@ export function CustomerRelationshipHubDrawer({
                         />
                         <span className="mt-1 block text-[10px] normal-case tracking-normal text-app-text-muted">
                           Applies to regular-priced merchandise only.
+                        </span>
+                      </label>
+                      <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                        Discount reason
+                        <textarea
+                          rows={2}
+                          maxLength={500}
+                          readOnly={!canHubEdit}
+                          required={
+                            Number.parseFloat(profileDraft.profile_discount_percent || "0") > 0
+                          }
+                          value={profileDraft.profile_discount_reason}
+                          onChange={(e) =>
+                            setProfileDraft((d) => ({
+                              ...d,
+                              profile_discount_reason: e.target.value,
+                            }))
+                          }
+                          placeholder="Why this customer receives an ongoing discount"
+                          className="ui-input mt-1 w-full resize-y p-2.5 text-sm font-semibold text-app-text read-only:opacity-80"
+                        />
+                        <span className="mt-1 block text-[10px] normal-case tracking-normal text-app-text-muted">
+                          Required whenever the automatic discount is above 0%.
                         </span>
                       </label>
                       <label

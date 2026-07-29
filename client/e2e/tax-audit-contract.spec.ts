@@ -268,6 +268,8 @@ async function createCustomerWithProfileDiscount(
     },
     data: {
       profile_discount_percent: percent,
+      profile_discount_reason:
+        Number.parseFloat(percent) > 0 ? "Automated tax audit contract" : null,
     },
     failOnStatusCode: false,
   });

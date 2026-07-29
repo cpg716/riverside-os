@@ -950,6 +950,7 @@ pub struct UpdateCustomerRequest {
     pub review_requests_opt_out: Option<bool>,
     pub is_vip: Option<bool>,
     pub profile_discount_percent: Option<Decimal>,
+    pub profile_discount_reason: Option<String>,
     pub tax_exempt: Option<bool>,
     pub tax_exempt_id: Option<String>,
 }
@@ -982,6 +983,7 @@ pub struct CustomerProfileRow {
     pub review_requests_opt_out: bool,
     pub is_vip: bool,
     pub profile_discount_percent: Decimal,
+    pub profile_discount_reason: Option<String>,
     pub employee_discount_eligible: bool,
     pub tax_exempt: bool,
     pub tax_exempt_id: Option<String>,
@@ -1030,7 +1032,7 @@ async fn load_customer_profile_row(
             c.custom_field_1, c.custom_field_2, c.custom_field_3, c.custom_field_4,
             c.marketing_email_opt_in, c.marketing_sms_opt_in, c.transactional_sms_opt_in,
             c.transactional_email_opt_in, c.podium_conversation_url, {review_opt_out_expr},
-            c.is_vip, c.profile_discount_percent,
+            c.is_vip, c.profile_discount_percent, c.profile_discount_reason,
             EXISTS (
                 SELECT 1
                 FROM staff s
@@ -5309,13 +5311,15 @@ async fn update_customer(
     Json(body): Json<UpdateCustomerRequest>,
 ) -> Result<Json<CustomerProfileRow>, CustomerError> {
     require_customer_perm_or_pos(&state, &headers, CUSTOMERS_HUB_EDIT).await?;
-    let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM customers WHERE id = $1)")
-        .bind(customer_id)
-        .fetch_one(&state.db)
-        .await?;
-    if !exists {
+    let current_discount: Option<(Decimal, Option<String>)> = sqlx::query_as(
+        "SELECT profile_discount_percent, profile_discount_reason FROM customers WHERE id = $1",
+    )
+    .bind(customer_id)
+    .fetch_optional(&state.db)
+    .await?;
+    let Some((current_discount_percent, current_discount_reason)) = current_discount else {
         return Err(CustomerError::NotFound);
-    }
+    };
 
     if let Some(pct) = body.profile_discount_percent {
         if pct < Decimal::ZERO || pct > Decimal::from(100) {
@@ -5323,6 +5327,39 @@ async fn update_customer(
                 "Profile discount must be between 0 and 100 percent".to_string(),
             ));
         }
+    }
+    let normalized_discount_reason = body.profile_discount_reason.as_ref().map(|reason| {
+        let reason = reason.trim();
+        if reason.is_empty() {
+            None
+        } else {
+            Some(reason.to_string())
+        }
+    });
+    if normalized_discount_reason
+        .as_ref()
+        .and_then(|reason| reason.as_ref())
+        .is_some_and(|reason| reason.chars().count() > 500)
+    {
+        return Err(CustomerError::BadRequest(
+            "Profile discount reason must be 500 characters or fewer".to_string(),
+        ));
+    }
+    let next_discount_percent = body
+        .profile_discount_percent
+        .unwrap_or(current_discount_percent)
+        .round_dp(2);
+    let next_discount_reason = if next_discount_percent == Decimal::ZERO {
+        None
+    } else {
+        normalized_discount_reason
+            .clone()
+            .unwrap_or(current_discount_reason)
+    };
+    if next_discount_percent > Decimal::ZERO && next_discount_reason.is_none() {
+        return Err(CustomerError::BadRequest(
+            "Profile discounts require a reason".to_string(),
+        ));
     }
     if body.tax_exempt == Some(true) {
         let has_tax_id = body
@@ -5527,6 +5564,12 @@ async fn update_customer(
     if let Some(v) = body.profile_discount_percent {
         sep.push("profile_discount_percent = ")
             .push_bind_unseparated(v.round_dp(2));
+        n += 1;
+    }
+    if normalized_discount_reason.is_some() || body.profile_discount_percent == Some(Decimal::ZERO)
+    {
+        sep.push("profile_discount_reason = ")
+            .push_bind_unseparated(next_discount_reason);
         n += 1;
     }
     if let Some(v) = body.tax_exempt {

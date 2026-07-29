@@ -26,6 +26,7 @@ const CUSTOMER_ROW = {
   email: "riley@example.com",
   phone: "555-111-2222",
   profile_discount_percent: "12.50",
+  profile_discount_reason: "Long-term wedding party customer",
   tax_exempt: true,
   tax_exempt_id: "NY-EXEMPT-123",
   is_vip: false,
@@ -61,6 +62,7 @@ const CUSTOMER_HUB_RESPONSE = {
   email: CUSTOMER_ROW.email,
   phone: CUSTOMER_ROW.phone,
   profile_discount_percent: CUSTOMER_ROW.profile_discount_percent,
+  profile_discount_reason: CUSTOMER_ROW.profile_discount_reason,
   tax_exempt: CUSTOMER_ROW.tax_exempt,
   tax_exempt_id: CUSTOMER_ROW.tax_exempt_id,
   address_line1: null,
@@ -511,14 +513,19 @@ test("Customer relationship drawer exposes profile defaults, history, and loyalt
   expect(JSON.stringify(insightRequests[1])).not.toContain("html_body");
   expect(JSON.stringify(insightRequests[1])).not.toContain("Purchased 2 items");
   await expect(dialog.getByLabel(/automatic discount/i)).toHaveValue("12.50");
+  await expect(dialog.getByLabel(/discount reason/i)).toHaveValue(
+    "Long-term wedding party customer",
+  );
   await expect(dialog.getByLabel(/^tax id$/i)).toHaveValue("NY-EXEMPT-123");
 
   await dialog.getByLabel(/automatic discount/i).fill("15");
+  await dialog.getByLabel(/discount reason/i).fill("Community partner");
   await dialog.getByLabel(/^tax id$/i).fill("NY-EXEMPT-999");
   await dialog.getByRole("button", { name: /save profile/i }).click();
 
   await expect.poll(() => profilePatch?.profile_discount_percent).toBe("15.00");
   expect(profilePatch).toMatchObject({
+    profile_discount_reason: "Community partner",
     tax_exempt_id: "NY-EXEMPT-999",
   });
   expect(profilePatch?.tax_exempt).toBeUndefined();

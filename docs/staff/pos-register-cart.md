@@ -88,7 +88,7 @@ When adding or completing a customer profile at the register, the **Address** fi
 
 **Employee pricing:** If the attached customer is your **linked employee CRM profile** (set by an admin on **Staff → Team**), new lines default to **employee price** when the catalog provides it (checkout still validates prices against allowed tiers). Employee-purchase transactions carry zero commission for sales staff.
 
-**Customer Profile discounts:** Customers can have a pre-set discount percentage on their profile (configured in their Customer Profile under Back Office). When a customer with a profile discount is attached to the sale, the discount is automatically applied to all eligible merchandise items in the cart (excluding alterations, gift card loads, and RMS payments). The discounted price is shown in the cart, and the line item is labeled with "Customer profile discount" for auditing.
+**Customer Profile discounts:** Customers can have a pre-set discount percentage on their profile (configured in their Customer Profile under Back Office). Staff must record a reason when setting an ongoing profile discount so the customer record explains why it was granted. When a customer with a profile discount is attached to the sale, the discount is automatically applied to all eligible merchandise items in the cart (excluding alterations, gift card loads, and RMS payments). The discounted price is shown in the cart, and the line item is labeled with "Customer profile discount" for auditing.
 
 ## Wedding customers at the register
 

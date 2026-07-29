@@ -22,7 +22,7 @@ Many browse/search/create paths use **`require_customer_access`** (signed-in sta
 | Key | Routes (representative) |
 |-----|---------------------------|
 | **`customers.hub_view`** | `GET /api/customers/{id}/hub`, `GET …/profile`, `GET …/weddings`, `GET /api/customers/{id}` (profile row), `GET …/store-credit` (summary), `GET …/open-deposit` (party-deposit balance + ledger preview), `GET /api/customers/{id}/podium/messages`, `GET /api/customers/podium/messaging-inbox`, `GET /api/customers/podium/messaging-health`, `GET /api/customers/podium/messaging-unmatched` |
-| **`customers.hub_edit`** | `PATCH /api/customers/{id}` (includes **`marketing_*_opt_in`**, **`transactional_sms_opt_in`** for operational pickup/alteration texts — migration **71**), `POST /api/customers/{id}/podium/messages`, `POST /api/customers/podium/direct-sms`, `POST /api/customers/podium/messaging-sync` |
+| **`customers.hub_edit`** | `PATCH /api/customers/{id}` (includes **`marketing_*_opt_in`**, **`transactional_sms_opt_in`** for operational pickup/alteration texts — migration **71**; persistent profile discounts require **`profile_discount_reason`** — migration **171**), `POST /api/customers/{id}/podium/messages`, `POST /api/customers/podium/direct-sms`, `POST /api/customers/podium/messaging-sync` |
 | **`customers.timeline`** | `GET …/timeline` (includes **shipping** activity from **`shipment_event`** for this customer), `POST …/notes` |
 | **`customers.measurements`** | `GET …/measurements`, `PATCH …/measurements` |
 | **`orders.view`** | `GET …/transaction-history` (hub **Transactions** tab - includes joint partner history if linked) |
