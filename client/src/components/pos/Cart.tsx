@@ -80,6 +80,7 @@ import ManagerApprovalModal from "./ManagerApprovalModal";
 import PromptModal from "../ui/PromptModal";
 import PosSuitSwapWizard from "./PosSuitSwapWizard";
 import { hasApprovedProviderPayment } from "./paymentLineGuards";
+import { hasCheckoutSalespersonAttribution } from "./cartSalespersonPreflight";
 import {
   CHECKOUT_RECOVERY_RESOLVED_EVENT,
   type CheckoutRecoveryResolvedDetail,
@@ -1914,7 +1915,31 @@ export default function Cart({
       ),
     };
   }, [lines, orderPaymentLines.length, pendingReturnLineDrafts]);
+  const hasSalespersonAttribution = useCallback(
+    (candidateLines: readonly CartLineItem[] = lines) =>
+      hasCheckoutSalespersonAttribution({
+        lines: candidateLines,
+        primarySalespersonId,
+        isEmployeeSale,
+        rmsPaymentSku: rmsPaymentMeta?.sku,
+        staffAccountPaymentSku: staffAccountPaymentMeta?.sku,
+      }),
+    [
+      isEmployeeSale,
+      lines,
+      primarySalespersonId,
+      rmsPaymentMeta?.sku,
+      staffAccountPaymentMeta?.sku,
+    ],
+  );
   const preflightCheckoutBeforeTender = useCallback(async () => {
+    if (!hasSalespersonAttribution()) {
+      toast(
+        "Select a salesperson for every new sale line before applying payment.",
+        "error",
+      );
+      return false;
+    }
     if (pendingReturnTender && !pendingReturnTender.returnLineIntegrityOk) {
       toast(
         "Refund blocked before tender: the selected item details are incomplete. Close Pay and reload the return from the Transaction Record.",
@@ -1923,21 +1948,18 @@ export default function Cart({
       return false;
     }
     return preflightOrderPaymentsBeforeTender();
-  }, [pendingReturnTender, preflightOrderPaymentsBeforeTender, toast]);
+  }, [
+    hasSalespersonAttribution,
+    pendingReturnTender,
+    preflightOrderPaymentsBeforeTender,
+    toast,
+  ]);
   useEffect(() => {
     if (!pendingReturnTender || orderPaymentLines.length === 0) return;
     setOrderPaymentLines([]);
     setEditingOrderPaymentLine(null);
     setEditingOrderPaymentAmount("");
   }, [orderPaymentLines.length, pendingReturnTender]);
-  const hasSalespersonAttribution = useCallback(() => {
-    if (isEmployeeSale) return true;
-    return (
-      primarySalespersonId.trim() !== "" ||
-      lines.some((l) => (l.salesperson_id?.trim() ?? "") !== "")
-    );
-  }, [isEmployeeSale, lines, primarySalespersonId]);
-
   const belowCostManualDiscountLines = useMemo(() => {
     const automaticReasons = new Set([
       "customer profile discount",
@@ -6247,6 +6269,13 @@ export default function Cart({
                     balance_before: detail.balance_due ?? "0.00",
                     projected_balance_after: "0.00",
                   }));
+                if (!hasSalespersonAttribution(cartLines)) {
+                  toast(
+                    "Select a salesperson for every new sale line before opening Payment.",
+                    "error",
+                  );
+                  return false;
+                }
                 setPickupTransactionId(selectionsForCheckout[0]?.transactionId ?? null);
                 setPickupTransactions(selectionsForCheckout);
                 setPickupPaidAmountCents(loaded.reduce((sum, { detail }) => sum + parseMoneyToCents(detail.amount_paid ?? "0"), 0));

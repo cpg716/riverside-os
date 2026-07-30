@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
+import { hasCheckoutSalespersonAttribution } from "../src/components/pos/cartSalespersonPreflight";
 
 function repoFile(relativePath: string): string {
   return readFileSync(
@@ -46,6 +47,51 @@ test("starting pickup preserves intentionally staged payments on every order", (
   expect(cart).toContain("const explicitlyStagedTargets = new Set");
   expect(cart).toContain("...currentPaymentLines");
   expect(cart).toContain("!explicitlyStagedTargets.has(");
+  expect(cart).toContain("hasSalespersonAttribution(cartLines)");
+  expect(cart).toContain(
+    "Select a salesperson for every new sale line before applying payment.",
+  );
+});
+
+test("pickup attribution cannot cover a new fee line before payment", () => {
+  const pickupLine = {
+    sku: "B-1350131",
+    transaction_line_id: "existing-pickup-line",
+    salesperson_id: "robyn",
+  };
+  const alterationFee = {
+    sku: "ROS-ALTERATION-SERVICE",
+    salesperson_id: null,
+  };
+
+  expect(
+    hasCheckoutSalespersonAttribution({
+      lines: [pickupLine, alterationFee],
+      primarySalespersonId: "",
+      isEmployeeSale: false,
+    }),
+  ).toBe(false);
+  expect(
+    hasCheckoutSalespersonAttribution({
+      lines: [pickupLine, alterationFee],
+      primarySalespersonId: "robyn",
+      isEmployeeSale: false,
+    }),
+  ).toBe(true);
+  expect(
+    hasCheckoutSalespersonAttribution({
+      lines: [pickupLine, { ...alterationFee, salesperson_id: "robyn" }],
+      primarySalespersonId: "",
+      isEmployeeSale: false,
+    }),
+  ).toBe(true);
+  expect(
+    hasCheckoutSalespersonAttribution({
+      lines: [pickupLine],
+      primarySalespersonId: "",
+      isEmployeeSale: false,
+    }),
+  ).toBe(true);
 });
 
 test("a restored cart retains every source order and selected pickup line", () => {

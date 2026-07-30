@@ -280,6 +280,7 @@ fn push_items(out: &mut Vec<u8>, d: &ReceiptOrder, gift: bool) {
         if it.adjustment.is_some()
             || is_rms_charge_payment_line(it)
             || is_alteration_service_line(it)
+            || is_linked_pickup_line(it)
         {
             let label = receipt_item_section_label(d, it);
             set_bold(out, true);
@@ -342,6 +343,8 @@ fn push_items(out: &mut Vec<u8>, d: &ReceiptOrder, gift: bool) {
             "Payment on RMS Charge"
         } else if is_alteration_service_line(it) {
             "Alteration service"
+        } else if is_linked_pickup_line(it) {
+            "Picked up"
         } else {
             match it.fulfillment {
                 DbFulfillmentType::Takeaway => "Taken home today",
@@ -705,6 +708,10 @@ fn is_simple_fee_line(it: &crate::logic::receipt_shared::ReceiptLine) -> bool {
     is_shipping_fee_line(it) || is_alteration_fee_line(it)
 }
 
+fn is_linked_pickup_line(it: &crate::logic::receipt_shared::ReceiptLine) -> bool {
+    it.custom_item_type.as_deref() == Some("linked_pickup")
+}
+
 fn simple_fee_label(it: &crate::logic::receipt_shared::ReceiptLine) -> &'static str {
     if is_shipping_fee_line(it) {
         "SHIPPING FEE"
@@ -730,6 +737,9 @@ fn receipt_item_section_label(
     }
     if is_shipping_fee_line(it) {
         return "Shipping";
+    }
+    if is_linked_pickup_line(it) {
+        return "PICKED UP";
     }
     if it.is_fulfilled {
         match d.fulfillment_method {
@@ -1330,6 +1340,36 @@ mod tests {
 
         assert!(markdown.contains("ALTERATION FEE"));
         assert!(markdown.contains("SHIPPING FEE"));
+    }
+
+    #[test]
+    fn linked_order_pickups_never_print_as_taken_today() {
+        let linked_pickup = receipt_line("Gruppo Bravo Suit", "B-1350131", Some("linked_pickup"));
+        let alteration_fee = receipt_line(
+            "ALTERATION FEE",
+            "ROS-ALTERATION-FEE",
+            Some("alteration_fee"),
+        );
+        let order = receipt_order_with(vec![alteration_fee, linked_pickup]);
+
+        let markdown = build_receiptline_markdown(
+            &order,
+            &ReceiptConfig::default(),
+            &HashMap::new(),
+            &LoyaltyReceiptData::default(),
+        );
+        let escpos = String::from_utf8_lossy(&build_receipt_escpos(
+            &order,
+            &ReceiptConfig::default(),
+            HashMap::new(),
+        ))
+        .into_owned();
+
+        for output in [markdown, escpos] {
+            assert!(output.contains("PICKED UP") || output.contains("Picked up"));
+            assert!(!output.contains("Taken Today"));
+            assert!(!output.contains("Taken home today"));
+        }
     }
 
     #[test]

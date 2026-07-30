@@ -307,6 +307,49 @@ fn matching_checkout_payload_fingerprints(
     (request_fingerprints == stored_fingerprints).then_some(request_fingerprints)
 }
 
+fn automatic_checkout_fingerprint_match(
+    recovery_checkout: &CheckoutRequest,
+    committed_primary_salesperson_id: Option<Uuid>,
+    stored_request_fingerprint: Option<&str>,
+    stored_payment_fingerprint: Option<&str>,
+) -> Result<Option<&'static str>, String> {
+    let Some(stored_request_fingerprint) = stored_request_fingerprint else {
+        return Ok(None);
+    };
+    let Some(stored_payment_fingerprint) = stored_payment_fingerprint else {
+        return Ok(None);
+    };
+    let (request_fingerprint, payment_fingerprint) =
+        checkout_request_fingerprints(recovery_checkout).map_err(|error| error.to_string())?;
+    if payment_fingerprint != stored_payment_fingerprint {
+        return Ok(None);
+    }
+    if request_fingerprint == stored_request_fingerprint {
+        return Ok(Some("exact_checkout_payload"));
+    }
+
+    let Some(committed_primary_salesperson_id) = committed_primary_salesperson_id else {
+        return Ok(None);
+    };
+    if recovery_checkout.primary_salesperson_id.is_some() {
+        return Ok(None);
+    }
+    let mut corrected_value =
+        serde_json::to_value(recovery_checkout).map_err(|error| error.to_string())?;
+    corrected_value["primary_salesperson_id"] = json!(committed_primary_salesperson_id);
+    let corrected_checkout: CheckoutRequest =
+        serde_json::from_value(corrected_value).map_err(|error| error.to_string())?;
+    let (corrected_request_fingerprint, corrected_payment_fingerprint) =
+        checkout_request_fingerprints(&corrected_checkout).map_err(|error| error.to_string())?;
+    if corrected_request_fingerprint == stored_request_fingerprint
+        && corrected_payment_fingerprint == stored_payment_fingerprint
+    {
+        return Ok(Some("salesperson_attribution_completed"));
+    }
+
+    Ok(None)
+}
+
 fn contains_sensitive_pin_key(value: &Value) -> bool {
     match value {
         Value::Object(object) => object.iter().any(|(key, nested)| {
@@ -324,8 +367,10 @@ fn contains_sensitive_pin_key(value: &Value) -> bool {
 #[cfg(test)]
 mod sensitive_recovery_payload_tests {
     use super::{
-        checkout_payload, contains_sensitive_pin_key, matching_checkout_payload_fingerprints,
+        automatic_checkout_fingerprint_match, checkout_payload, contains_sensitive_pin_key,
+        matching_checkout_payload_fingerprints,
     };
+    use crate::logic::transaction_checkout::checkout_request_fingerprints;
     use serde_json::json;
     use uuid::Uuid;
 
@@ -411,6 +456,61 @@ mod sensitive_recovery_payload_tests {
             checkout_client_id,
         )
         .is_none());
+    }
+
+    #[test]
+    fn automatic_resolution_accepts_only_completed_primary_salesperson_attribution() {
+        let register_session_id = Uuid::new_v4();
+        let checkout_client_id = Uuid::new_v4();
+        let salesperson_id = Uuid::new_v4();
+        let recovery_payload = json!({
+            "payload": {
+                "session_id": register_session_id,
+                "operator_staff_id": Uuid::new_v4(),
+                "primary_salesperson_id": null,
+                "payment_method": "card",
+                "total_price": "20.00",
+                "amount_paid": "20.00",
+                "items": [],
+                "checkout_client_id": checkout_client_id,
+            }
+        });
+        let recovery_checkout =
+            checkout_payload(&recovery_payload).expect("valid checkout recovery payload");
+        let mut committed_value =
+            serde_json::to_value(&recovery_checkout).expect("serialize checkout");
+        committed_value["primary_salesperson_id"] = json!(salesperson_id);
+        let committed_checkout =
+            serde_json::from_value(committed_value).expect("committed checkout payload");
+        let (stored_request_fingerprint, stored_payment_fingerprint) =
+            checkout_request_fingerprints(&committed_checkout).expect("fingerprint checkout");
+
+        assert_eq!(
+            automatic_checkout_fingerprint_match(
+                &recovery_checkout,
+                Some(salesperson_id),
+                Some(&stored_request_fingerprint),
+                Some(&stored_payment_fingerprint),
+            )
+            .expect("match checkout"),
+            Some("salesperson_attribution_completed"),
+        );
+
+        let mut changed_value =
+            serde_json::to_value(&recovery_checkout).expect("serialize changed checkout");
+        changed_value["tax_exempt_reason"] = json!("Resale");
+        let changed_checkout =
+            serde_json::from_value(changed_value).expect("changed checkout payload");
+        assert_eq!(
+            automatic_checkout_fingerprint_match(
+                &changed_checkout,
+                Some(salesperson_id),
+                Some(&stored_request_fingerprint),
+                Some(&stored_payment_fingerprint),
+            )
+            .expect("reject changed checkout"),
+            None,
+        );
     }
 }
 
@@ -3092,13 +3192,11 @@ async fn resolve_recovery_job(
                     .to_string(),
             ));
         }
-        let (request_fingerprint, payment_fingerprint) =
-            checkout_request_fingerprints(&checkout_payload)
-                .map_err(|error| RecoveryError::BadRequest(error.to_string()))?;
-        let committed_checkout: Option<(Uuid, Uuid, Option<String>, Option<String>)> =
+        let committed_checkout: Option<(Uuid, Uuid, Option<Uuid>, Option<String>, Option<String>)> =
             sqlx::query_as(
                 r#"
-            SELECT t.id, t.operator_id, t.checkout_request_fingerprint,
+            SELECT t.id, t.operator_id, t.primary_salesperson_id,
+                   t.checkout_request_fingerprint,
                    t.checkout_payment_fingerprint
             FROM transactions t
             WHERE t.checkout_client_id = $1
@@ -3115,6 +3213,7 @@ async fn resolve_recovery_job(
         let Some((
             committed_transaction_id,
             operator_staff_id,
+            committed_primary_salesperson_id,
             stored_request_fingerprint,
             stored_payment_fingerprint,
         )) = committed_checkout
@@ -3124,24 +3223,37 @@ async fn resolve_recovery_job(
                     .to_string(),
             ));
         };
-        if stored_request_fingerprint.as_deref() != Some(request_fingerprint.as_str())
-            || stored_payment_fingerprint.as_deref() != Some(payment_fingerprint.as_str())
-        {
+        let fingerprint_match = automatic_checkout_fingerprint_match(
+            &checkout_payload,
+            committed_primary_salesperson_id,
+            stored_request_fingerprint.as_deref(),
+            stored_payment_fingerprint.as_deref(),
+        )
+        .map_err(RecoveryError::BadRequest)?;
+        let Some(fingerprint_match) = fingerprint_match else {
             return Err(RecoveryError::Forbidden(
                 "checkout recovery payload does not match the exact committed Transaction Record; keep it blocked for audited Manager review"
                     .to_string(),
             ));
-        }
+        };
 
         let audit_idempotency_key = format!(
             "register-checkout-auto-resolution:{client_job_key}:{committed_transaction_id}"
         );
+        let audit_identity_metadata = json!({
+            "client_job_key": &client_job_key,
+            "register_session_id": recovery_session_id,
+            "transaction_id": committed_transaction_id,
+            "checkout_client_id": recovery_checkout_client_id,
+            "resolution_path": "automatic_register_checkout_sync",
+        });
         let audit_metadata = json!({
             "client_job_key": &client_job_key,
             "register_session_id": recovery_session_id,
             "transaction_id": committed_transaction_id,
             "checkout_client_id": recovery_checkout_client_id,
             "resolution_path": "automatic_register_checkout_sync",
+            "fingerprint_match": fingerprint_match,
         });
 
         match current_status.as_str() {
@@ -3206,7 +3318,7 @@ async fn resolve_recovery_job(
         )
         .bind(&audit_idempotency_key)
         .bind(operator_staff_id)
-        .bind(&audit_metadata)
+        .bind(&audit_identity_metadata)
         .fetch_one(&mut *tx)
         .await?;
         if !exact_audit_exists {

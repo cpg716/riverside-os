@@ -94,6 +94,7 @@ type CheckoutMirrorVersion = {
 };
 
 const recoveryMirrorInFlight = new Map<string, CheckoutMirrorVersion>();
+const automaticResolutionAttempted = new Set<string>();
 const checkoutReplayInFlight = new Map<string, Promise<void>>();
 const checkoutQueueVersions = new Map<string, number>();
 
@@ -256,6 +257,23 @@ export async function syncCheckoutRecoveryWithServer(
   let changed = false;
   for (const { item, job } of mirrorResults) {
     if (!job) continue;
+    if (
+      job.kind === "checkout_unconfirmed" &&
+      (job.status === "pending" || job.status === "blocked") &&
+      !automaticResolutionAttempted.has(job.client_job_key)
+    ) {
+      automaticResolutionAttempted.add(job.client_job_key);
+      if (
+        await completeQueuedCheckoutAuditSync(
+          item,
+          "Exact committed checkout verified",
+        )
+      ) {
+        await removeQueuedCheckout(item.id);
+        changed = true;
+        continue;
+      }
+    }
     const resolvedEvidence = resolvedCheckoutRecoveryEvidence(item, job);
     if (resolvedEvidence) {
       await clearLocallyRecoveredCheckout(

@@ -618,6 +618,69 @@ test.describe("offline checkout recovery contract", () => {
     });
   });
 
+  test("a blocked checkout gets one audited automatic resolution attempt", async ({
+    page,
+  }) => {
+    await page.goto("/e2e-harness.html");
+    await clearCheckoutQueue(page);
+    await setRecoveryPosAuth(page);
+    const checkoutClientId = crypto.randomUUID();
+    const recoveryKey = crypto.randomUUID();
+    const item: QueueItem = {
+      id: `recovery:online_unconfirmed:${recoveryKey}`,
+      timestamp: Date.now(),
+      status: "blocked",
+      recoveryKind: "online_unconfirmed",
+      recoveryKey,
+      lastErrorMessage: "Primary salesperson was missing",
+      payload: {
+        checkout_client_id: checkoutClientId,
+        session_id: "11111111-1111-4111-8111-111111111111",
+        operator_staff_id: crypto.randomUUID(),
+        primary_salesperson_id: null,
+        payment_method: "card_terminal",
+        total_price: "20.00",
+        amount_paid: "20.00",
+        items: [],
+      },
+    };
+    await putCheckoutQueueItem(page, item);
+    let patchCount = 0;
+    await page.route("**/api/recovery/**", async (route) => {
+      if (route.request().method() === "PATCH") {
+        patchCount += 1;
+        await route.fulfill({ status: 204, body: "" });
+        return;
+      }
+      await route.fallback();
+    });
+    await page.route("**/api/recovery", async (route) => {
+      if (route.request().method() === "GET") {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: "[]",
+        });
+        return;
+      }
+      const body = route.request().postDataJSON() as RecoveryPostBody;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(mirroredRecoveryJob(body, "blocked")),
+      });
+    });
+    await loadOfflineRecoveryHarness(page);
+    await page.evaluate(async () => {
+      const queue = window.__RIVERSIDE_E2E_QUEUE_HARNESS__;
+      if (!queue) throw new Error("E2E queue harness is unavailable");
+      await queue.syncCheckoutRecoveryWithServer();
+      await queue.syncCheckoutRecoveryWithServer();
+    });
+    await expect.poll(() => getCheckoutQueueItem(page, item.id)).toBeNull();
+    expect(patchCount).toBe(1);
+  });
+
   test("exact Staff proof clears a resolved prior-session local mirror", async ({
     page,
   }) => {

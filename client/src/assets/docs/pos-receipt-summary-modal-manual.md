@@ -51,7 +51,7 @@ The review request option appears only on eligible just-completed sale screens w
 
 The preview is intentionally narrow and receipt-like. It uses the same receipt content that the customer should receive by print, text, or email.
 
-Receipt line items keep the product name as the primary line, show quantity only when more than one unit is sold, and place SKU with the price on the item detail line. Pickup receipts still use the normal **RECEIPT** heading; picked-up merchandise appears in the body under **PICKED UP** with the original order date on those lines. Items still remaining on the transaction are not printed on the pickup receipt.
+Receipt line items keep the product name as the primary line, show quantity only when more than one unit is sold, and place SKU with the price on the item detail line. Pickup receipts still use the normal **RECEIPT** heading; merchandise picked up from any existing Order always appears in the body under **PICKED UP**, including when the same checkout also adds a fee or new merchandise. **Taken Today** is reserved for merchandise first sold and taken home in the current checkout. Items still remaining on the transaction are not printed on the pickup receipt.
 
 A completed takeaway sale remains a sale receipt with its purchased merchandise, totals, tax, savings, and tender. Riverside uses the pickup/payment-history layout only when the register completed an explicit pickup or payment-on-order workflow; a generic **Fulfilled** status does not turn an ordinary takeaway receipt into a payment receipt.
 

@@ -893,6 +893,76 @@ test("Register recovery remains session-scoped, identity-exact, verifiable, and 
     });
   }
 
+  const salespersonClientId = crypto.randomUUID();
+  const salespersonCompletedPayload = checkoutPayload(
+    firstFixture,
+    sessionId,
+    managerStaffId,
+    salespersonClientId,
+  );
+  salespersonCompletedPayload.items = salespersonCompletedPayload.items.map(
+    (item) => ({ ...item, salesperson_id: null }),
+  );
+  const salespersonTransactionId = await recordCheckout(
+    request,
+    salespersonCompletedPayload,
+    sessionToken,
+  );
+  const salespersonRecoveryKey = `e2e-salesperson-resolution-${crypto.randomUUID()}`;
+  await upsertRecovery(request, sessionId, sessionToken, {
+    client_job_key: salespersonRecoveryKey,
+    kind: "checkout_unconfirmed",
+    status: "blocked",
+    register_session_id: sessionId,
+    checkout_client_id: salespersonClientId,
+    label: "E2E missing salesperson before successful retry",
+    payload: {
+      payload: {
+        ...salespersonCompletedPayload,
+        primary_salesperson_id: null,
+      },
+    },
+  });
+  const salespersonResolution = await request.patch(
+    `${apiBase()}/api/recovery/${encodeURIComponent(salespersonRecoveryKey)}`,
+    {
+      headers: {
+        ...posHeaders(sessionId, sessionToken),
+        "Content-Type": "application/json",
+      },
+      data: {
+        status: "resolved",
+        resolution_note: "Exact committed checkout verified",
+      },
+      failOnStatusCode: false,
+    },
+  );
+  expect(
+    salespersonResolution.status(),
+    await salespersonResolution.text(),
+  ).toBe(204);
+  expect(
+    selectJson<{
+      status: string;
+      transaction_id: string;
+      fingerprint_match: string;
+    }>(`
+      SELECT json_build_object(
+        'status', job.status,
+        'transaction_id', job.transaction_id,
+        'fingerprint_match', log.metadata->>'fingerprint_match'
+      )::text
+      FROM operational_recovery_job job
+      JOIN staff_access_log log
+        ON log.idempotency_key = ${sqlLiteral(`register-checkout-auto-resolution:${salespersonRecoveryKey}:${salespersonTransactionId}`)}
+      WHERE job.client_job_key = ${sqlLiteral(salespersonRecoveryKey)};
+    `),
+  ).toEqual({
+    status: "resolved",
+    transaction_id: salespersonTransactionId,
+    fingerprint_match: "salesperson_attribution_completed",
+  });
+
   const payloadMismatchKey = `e2e-payload-mismatch-${crypto.randomUUID()}`;
   await upsertRecovery(request, sessionId, sessionToken, {
     client_job_key: payloadMismatchKey,
