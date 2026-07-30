@@ -149,6 +149,10 @@ pub struct ReceiptOrder {
     pub balance_due: Decimal,
     pub payment_methods_summary: String,
     pub payment_applications: Vec<ReceiptPaymentApplication>,
+    /// Amount already paid on linked Transaction Records before this pickup checkout.
+    pub pickup_prior_paid: Option<Decimal>,
+    /// Balance remaining across linked Transaction Records after this pickup checkout.
+    pub pickup_balance_remaining: Option<Decimal>,
     pub customer: Option<ReceiptCustomerLine>,
     pub items: Vec<ReceiptLine>,
     pub is_tax_exempt: bool,
@@ -166,8 +170,14 @@ impl ReceiptOrder {
         !self.payment_applications.is_empty()
     }
 
+    pub fn is_pickup_event(&self) -> bool {
+        self.pickup_prior_paid.is_some() || self.pickup_balance_remaining.is_some()
+    }
+
     pub fn total_label(&self) -> &'static str {
-        if self.has_order_payments() {
+        if self.is_pickup_event() {
+            "Current checkout total"
+        } else if self.has_order_payments() {
             "Total charged today"
         } else {
             "Total"
@@ -175,11 +185,17 @@ impl ReceiptOrder {
     }
 
     pub fn paid_label(&self) -> &'static str {
-        if self.has_order_payments() {
+        if self.is_pickup_event() {
+            "Collected now"
+        } else if self.has_order_payments() {
             "Paid today"
         } else {
             "Paid"
         }
+    }
+
+    pub fn show_paid_line(&self) -> bool {
+        !self.is_pickup_event()
     }
 
     pub fn order_payment_heading(&self) -> &'static str {
@@ -233,6 +249,7 @@ pub fn tender_display_label(method: &str) -> String {
         "giftcard" => "Gift Card".to_string(),
         "sc" | "storecredit" => "SC".to_string(),
         "exchangecredit" => "Exchange Credit".to_string(),
+        "counterpointunmapped" => "Tender details unavailable".to_string(),
         _ => method.trim().to_string(),
     }
 }
@@ -280,5 +297,9 @@ mod tests {
         assert_eq!(tender_display_label("exchange_credit"), "Exchange Credit");
         assert_eq!(tender_display_label("on_account_rms"), "Standard RMS");
         assert_eq!(tender_display_label("on_account_rms90"), "RMS 90");
+        assert_eq!(
+            tender_display_label("counterpoint_unmapped"),
+            "Tender details unavailable"
+        );
     }
 }

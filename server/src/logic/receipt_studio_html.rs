@@ -98,6 +98,27 @@ fn build_payment_applications(order: &ReceiptOrder) -> String {
     )
 }
 
+fn build_pickup_payment_summary(order: &ReceiptOrder) -> String {
+    match order.pickup_prior_paid {
+        Some(prior_paid) => {
+            format!("<div><span>Previously paid</span><strong>{prior_paid}</strong></div>")
+        }
+        None => String::new(),
+    }
+}
+
+fn build_paid_summary(order: &ReceiptOrder) -> String {
+    if order.show_paid_line() {
+        format!(
+            "<div><span>{}</span><strong>{}</strong></div>",
+            order.paid_label(),
+            order.amount_paid
+        )
+    } else {
+        String::new()
+    }
+}
+
 fn build_wedding_deposit_summary(order: &ReceiptOrder) -> String {
     if !order.wedding_deposits.is_empty() {
         return order
@@ -200,16 +221,17 @@ pub fn render_standard_receipt_html(
         format!(
             r#"<div class="totals">
   <div><span>{}</span><strong>{}</strong></div>
-  <div><span>{}</span><strong>{}</strong></div>
-  <div><span>Balance</span><strong>{}</strong></div>
+  {}
+  {}
+  <div><span>Balance remaining</span><strong>{}</strong></div>
   <div><span>Tender</span><strong>{}</strong></div>
   {}
   {}
 </div>"#,
             order.total_label(),
             order.total_price,
-            order.paid_label(),
-            order.amount_paid,
+            build_paid_summary(order),
+            build_pickup_payment_summary(order),
             order.balance_due,
             html_escape(&order.payment_methods_summary),
             build_wedding_deposit_summary(order),
@@ -438,8 +460,9 @@ pub fn merge_receipt_studio_html(
             lines.join("<br>")
         };
         let payment_summary = format!(
-            "{}{}{}",
+            "{}{}{}{}",
             tender_summary,
+            build_pickup_payment_summary(order),
             build_wedding_deposit_summary(order),
             build_payment_applications(order)
         );
@@ -512,6 +535,8 @@ pub fn sample_receipt_order_for_preview() -> ReceiptOrder {
         balance_due: Decimal::ZERO,
         payment_methods_summary: "VISA ••••4242".to_string(),
         payment_applications: Vec::new(),
+        pickup_prior_paid: None,
+        pickup_balance_remaining: None,
         customer: Some(crate::logic::receipt_shared::ReceiptCustomerLine {
             display_name: "Alex Rivera".to_string(),
             phone: Some("716-555-0199".to_string()),

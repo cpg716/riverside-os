@@ -24,6 +24,14 @@ payment, and a new shipping fee: Sale Complete and customer receipts stay on
 the current checkout Transaction Record, display the picked-up lines as linked
 fulfillment context, and total today's payment allocation plus today's fee.
 
+Sale Complete and receipts separate the current checkout from lifetime
+Transaction history. A previously paid pickup reports zero collected now,
+the amount paid before this checkout, and the post-pickup remaining balance.
+Historical tender aliases do not imply that a new tender occurred. Customer
+surfaces canonicalize equivalent tender codes and never expose
+`counterpoint_unmapped`; unresolved Counterpoint tender mappings remain an
+integration-review issue rather than a customer-facing payment method.
+
 A physical tender is rendered and reconciled once per `payment_transactions` row. `payment_allocations` explain where that money went; they do not duplicate cash tendered, change, processor evidence, or check details and do not create merchandise sales.
 
 ## The Decoupling

@@ -1,7 +1,14 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -17,7 +24,9 @@ function read(path) {
 }
 
 function sha256(path) {
-  return createHash("sha256").update(read(path).replace(/\r\n/g, "\n")).digest("hex");
+  return createHash("sha256")
+    .update(read(path).replace(/\r\n/g, "\n"))
+    .digest("hex");
 }
 
 function assertIncludes(path, text, reason) {
@@ -68,9 +77,13 @@ function parsePowerShell(path, source) {
 }
 
 function renderMainHubUpdateRunner(source) {
-  const match = source.match(/let runner_content = format!\(\s*r#"\n?([\s\S]*?)\n\s*"#,/);
+  const match = source.match(
+    /let runner_content = format!\(\s*r#"\n?([\s\S]*?)\n\s*"#,/,
+  );
   if (!match) {
-    fail("client/src-tauri/src/server_updater.rs: unable to locate generated update-runner.ps1 template");
+    fail(
+      "client/src-tauri/src/server_updater.rs: unable to locate generated update-runner.ps1 template",
+    );
     return "";
   }
 
@@ -80,7 +93,8 @@ function renderMainHubUpdateRunner(source) {
     script_dir:
       "C:\\Users\\Admin\\AppData\\Local\\Temp\\riverside-update-0.90.0\\deployment\\windows",
     install_root: "C:\\ProgramData\\riverside-os",
-    config_path: "C:\\ProgramData\\riverside-os\\riverside-deployment.config.json",
+    config_path:
+      "C:\\ProgramData\\riverside-os\\riverside-deployment.config.json",
     config_file: "riverside-deployment.config.json",
     task_name: "Riverside OS Server",
     server_port: "3000",
@@ -97,7 +111,9 @@ function renderMainHubUpdateRunner(source) {
 function assertAsciiOnly(path, source, message) {
   const offender = [...source].find((char) => char.charCodeAt(0) > 0x7f);
   if (offender) {
-    fail(`${path}: ${message} (found non-ASCII character ${JSON.stringify(offender)})`);
+    fail(
+      `${path}: ${message} (found non-ASCII character ${JSON.stringify(offender)})`,
+    );
   }
 }
 
@@ -113,9 +129,7 @@ assertIncludes(
   "the isolated E2E server must not start the shared daily reindex worker",
 );
 const playwrightWorkflow = read(".github/workflows/playwright-e2e.yml");
-if (
-  playwrightWorkflow.split('E2E_ALLOW_REGISTER_RESET: "1"').length - 1 < 2
-) {
+if (playwrightWorkflow.split('E2E_ALLOW_REGISTER_RESET: "1"').length - 1 < 2) {
   fail(
     ".github/workflows/playwright-e2e.yml: every isolated Playwright lane must explicitly authorize register cleanup",
   );
@@ -145,7 +159,7 @@ for (const copy of [
   "build-register-updater:\n    needs: [validate-scripts]",
   "cache-workspace-crates: true",
   "build-register-updater, pre-retag-gate, require-playwright-green",
-  "build-server-binary, build-deployment-manager, build-server-manager, build-counterpoint-bridge-gui, pre-retag-gate, require-playwright-green",
+  "build-server-binary,\n        build-deployment-manager,\n        build-server-manager,\n        build-counterpoint-bridge-gui,\n        pre-retag-gate,\n        require-playwright-green",
 ]) {
   assertIncludes(
     ".github/workflows/windows-deployment-package.yml",
@@ -153,7 +167,9 @@ for (const copy of [
     "Windows release builds must cancel superseded same-tag runs, restore workspace outputs, overlap compilation with pre-retag checks, and keep publication gated",
   );
 }
-const windowsReleaseWorkflow = read(".github/workflows/windows-deployment-package.yml");
+const windowsReleaseWorkflow = read(
+  ".github/workflows/windows-deployment-package.yml",
+);
 for (const job of [
   "build-register-updater",
   "build-server-binary",
@@ -168,7 +184,9 @@ for (const job of [
   const nextJob = remainingWorkflow.search(/\n  [a-zA-Z0-9_-]+:\n/);
   const jobBlock =
     nextJob >= 0 ? remainingWorkflow.slice(0, nextJob) : remainingWorkflow;
-  const startsAfterScriptValidation = jobBlock.includes("    needs: [validate-scripts]");
+  const startsAfterScriptValidation = jobBlock.includes(
+    "    needs: [validate-scripts]",
+  );
   if (!startsAfterScriptValidation) {
     fail(
       `.github/workflows/windows-deployment-package.yml: ${job} must compile after script validation while the pre-retag publication gate runs concurrently`,
@@ -193,7 +211,11 @@ for (const copy of [
   "await saveMainHubConfig('main-hub')",
   "disabled={role === 'main-hub'}",
 ]) {
-  assertIncludes(managerApp, copy, "install execution step must be role-specific and visible");
+  assertIncludes(
+    managerApp,
+    copy,
+    "install execution step must be role-specific and visible",
+  );
 }
 for (const lanUpdateScript of [
   "deployment/windows/Apply-RiversideLanFleetUpdate.ps1",
@@ -235,7 +257,11 @@ for (const copy of [
   "if installed_config.exists()",
   'script_name != "Install-RosieAiStack.ps1"',
 ]) {
-  assertIncludes(managerRunner, copy, "deployment runner must emit immediate launch logs");
+  assertIncludes(
+    managerRunner,
+    copy,
+    "deployment runner must emit immediate launch logs",
+  );
 }
 for (const copy of [
   "typeof newConfig.server.strictProduction !== 'boolean'",
@@ -250,7 +276,8 @@ for (const copy of [
   );
 }
 
-const fallbackDeploymentManager = "deployment/windows/Start-RiversideDeployment.ps1";
+const fallbackDeploymentManager =
+  "deployment/windows/Start-RiversideDeployment.ps1";
 for (const copy of [
   "function Resolve-DeploymentConfigPath",
   "function Get-ConfiguredInstallRoot",
@@ -266,7 +293,7 @@ for (const copy of [
 }
 assertNotIncludes(
   fallbackDeploymentManager,
-  '$config.server.strictProduction = $false',
+  "$config.server.strictProduction = $false",
   "deployment manager must not disable safeguards from stale package-side Helcim fields",
 );
 
@@ -292,7 +319,8 @@ assertIncludes(
   "install-register.ps1 must preserve the Riverside LP 2844 EPL tag-printer default",
 );
 
-const deploymentConfigExample = "deployment/windows/riverside-deployment.config.example.json";
+const deploymentConfigExample =
+  "deployment/windows/riverside-deployment.config.example.json";
 assertIncludes(
   deploymentConfigExample,
   '"language": "epl"',
@@ -304,8 +332,10 @@ assertNotIncludes(
   "new Main Hub installs must generate a private Meilisearch key",
 );
 
-const counterpointTender092 = "migrations/092_counterpoint_live_tender_aliases.sql";
-const counterpointSquare093 = "migrations/093_counterpoint_square_tender_alias.sql";
+const counterpointTender092 =
+  "migrations/092_counterpoint_live_tender_aliases.sql";
+const counterpointSquare093 =
+  "migrations/093_counterpoint_square_tender_alias.sql";
 const expectedCounterpointTender092Sha =
   "def5b71eb0e7bcbb8bcf80341afc29dc0bfcbb6b46563a14b7e79ecc1eb968b4";
 assertIncludes(
@@ -369,7 +399,8 @@ assertIncludes(
   "Square tender alias must live in a new migration after 092",
 );
 
-const deploymentPackageBuilder = "deployment/windows/build-deployment-package.ps1";
+const deploymentPackageBuilder =
+  "deployment/windows/build-deployment-package.ps1";
 assertIncludes(
   deploymentPackageBuilder,
   "counterpoint-bridge-gui",
@@ -391,7 +422,9 @@ const meilisearchVersionMatch = read(deploymentPackageBuilder).match(
   /\$meiliVersion = "([^"]+)"/,
 );
 if (!meilisearchVersionMatch) {
-  fail(`${deploymentPackageBuilder}: unable to resolve the pinned Meilisearch version`);
+  fail(
+    `${deploymentPackageBuilder}: unable to resolve the pinned Meilisearch version`,
+  );
 } else {
   const meilisearchVersion = meilisearchVersionMatch[1];
   assertIncludes(
@@ -515,6 +548,17 @@ assertNotIncludes(
   'shared-key: "windows-release"',
   "parallel Windows release jobs must not race to save one shared Rust cache",
 );
+for (const copy of [
+  "Keep Rust cache key pinned to Riverside toolchain",
+  "rustup default 1.91",
+  'rustup toolchain uninstall stable || echo "Unpinned stable toolchain already absent"',
+]) {
+  assertIncludes(
+    ".github/workflows/windows-deployment-package.yml",
+    copy,
+    "Windows release caches must ignore the GitHub runner's unpinned stable Rust toolchain",
+  );
+}
 for (const path of [
   ".github/workflows/windows-deployment-package.yml",
   ".github/workflows/macos-ros-dev-center-release.yml",
@@ -567,28 +611,28 @@ for (const copy of [
   );
 }
 for (const copy of [
-  '$env:PGPASSWORD = $DbConfig.adminPassword',
-  '-U $backupUser -d $DbConfig.databaseName',
+  "$env:PGPASSWORD = $DbConfig.adminPassword",
+  "-U $backupUser -d $DbConfig.databaseName",
   '[System.Uri]::EscapeDataString("$($db.appPassword)")',
-  'New-PreMigrationBackup $preflightPsql $db $backupDir',
-  '$pgRestore --list $backupPath',
-  'Pre-migration backup archive verification failed',
+  "New-PreMigrationBackup $preflightPsql $db $backupDir",
+  "$pgRestore --list $backupPath",
+  "Pre-migration backup archive verification failed",
   "Could not write deployment status '$Status'",
-  'The running Riverside server has not been stopped or replaced.',
-  'Previous Riverside OS Server task restarted after the failed update.',
-  'Set-ServerDatabaseUrl $restoredEnvPath $databaseUrl',
-  'Restored server DATABASE_URL synchronized with the PostgreSQL app role.',
+  "The running Riverside server has not been stopped or replaced.",
+  "Previous Riverside OS Server task restarted after the failed update.",
+  "Set-ServerDatabaseUrl $restoredEnvPath $databaseUrl",
+  "Restored server DATABASE_URL synchronized with the PostgreSQL app role.",
   'Set-SafeProperty $serverEnvironment "RIVERSIDE_BACKUP_DIR" $backupDir',
-  'Write-DeploymentConfigJson $installRootConfigPath $config',
+  "Write-DeploymentConfigJson $installRootConfigPath $config",
   'Set-DeploymentConfigDatabaseAppPassword $installRootConfigPath "$($db.appPassword)"',
-  'Restored deployment config synchronized with the PostgreSQL app role.',
-  'Retained the failed initial install config because PostgreSQL app credentials were already applied.',
+  "Restored deployment config synchronized with the PostgreSQL app role.",
+  "Retained the failed initial install config because PostgreSQL app credentials were already applied.",
   "Restored the previous installed deployment config after the failed update.",
   "Removed the incomplete installed deployment config after the failed initial install.",
-  '[switch]$PreserveExistingRosie',
-  'Get-PreservedRosieEnvironment $envPath',
-  'Resolve-InstalledRosieModelPath $installRoot $ScriptRoot $preservedRosieEnvironment',
-  'ROSIE scheduled task preserved without restart or re-registration.',
+  "[switch]$PreserveExistingRosie",
+  "Get-PreservedRosieEnvironment $envPath",
+  "Resolve-InstalledRosieModelPath $installRoot $ScriptRoot $preservedRosieEnvironment",
+  "ROSIE scheduled task preserved without restart or re-registration.",
 ]) {
   assertIncludes(
     mainHubInstaller,
@@ -611,7 +655,7 @@ for (const copy of [
   "Installed API build matches the exact package SHA.",
   "does not match the expected package SHA",
   "Installed API version matches the expected package version.",
-  "Get-DotEnvValue $serverEnvPath \"RIVERSIDE_CREDENTIALS_KEY\"",
+  'Get-DotEnvValue $serverEnvPath "RIVERSIDE_CREDENTIALS_KEY"',
   "API readiness is",
   "The production sync bridge cannot authenticate.",
   "Audit Verification Failed",
@@ -634,9 +678,18 @@ for (const copy of [
   );
 }
 for (const [path, marker] of [
-  ["deployment/windows/Start-RiversideDeployment.ps1", 'if ($Action -eq "Update") { @("-PreserveExistingRosie") }'],
-  ["deployment/windows/Build-And-Apply-MainHubFastUpdate.ps1", '"-PreserveExistingRosie"'],
-  ["deployment/windows/Apply-RiversideLanFleetUpdate.ps1", '"-PreserveExistingRosie"'],
+  [
+    "deployment/windows/Start-RiversideDeployment.ps1",
+    'if ($Action -eq "Update") { @("-PreserveExistingRosie") }',
+  ],
+  [
+    "deployment/windows/Build-And-Apply-MainHubFastUpdate.ps1",
+    '"-PreserveExistingRosie"',
+  ],
+  [
+    "deployment/windows/Apply-RiversideLanFleetUpdate.ps1",
+    '"-PreserveExistingRosie"',
+  ],
   ["scripts/push-main-hub.ps1", '"-PreserveExistingRosie"'],
 ]) {
   assertIncludes(
@@ -651,7 +704,7 @@ for (const passwordSafeScript of [
 ]) {
   assertNotIncludes(
     passwordSafeScript,
-    ':$($db.appPassword)@',
+    ":$($db.appPassword)@",
     "PowerShell PostgreSQL clients must pass special-character passwords through PGPASSWORD instead of embedding them in a URI",
   );
 }
@@ -665,12 +718,16 @@ const destructiveStopIndex = mainHubInstallerSource.indexOf(
   "Stop-RiversideServer",
   preflightBackupIndex,
 );
-if (!(preflightBackupIndex >= 0 && destructiveStopIndex > preflightBackupIndex)) {
+if (!(
+  preflightBackupIndex >= 0 && destructiveStopIndex > preflightBackupIndex
+)) {
   fail(
     `${mainHubInstaller}: pre-update backup must complete before the first destructive server stop`,
   );
 }
-if (!(preflightBackupIndex >= 0 && persistedConfigIndex > preflightBackupIndex)) {
+if (!(
+  preflightBackupIndex >= 0 && persistedConfigIndex > preflightBackupIndex
+)) {
   fail(
     `${mainHubInstaller}: resolved installed-config changes must not persist before the required pre-update backup`,
   );
@@ -690,7 +747,8 @@ for (const copy of [
   );
 }
 
-const standaloneMigrationRunner = "deployment/windows/apply-riverside-migrations.ps1";
+const standaloneMigrationRunner =
+  "deployment/windows/apply-riverside-migrations.ps1";
 for (const copy of [
   "function Repair-PublicSerialSequences",
   "pg_get_serial_sequence",
@@ -721,7 +779,8 @@ for (const migrationRunner of [
     );
   }
 }
-const sourceLockedRepair172 = "migrations/172_reassign_txn_624853_to_glenn_jones.sql";
+const sourceLockedRepair172 =
+  "migrations/172_reassign_txn_624853_to_glenn_jones.sql";
 const sourceLockedRepair172Sha =
   "ac91ab897c2466bb2ed6bd7cde70d6598fdb0a91a015436603164b06b6dedf94";
 if (sha256(sourceLockedRepair172) !== sourceLockedRepair172Sha) {
@@ -732,7 +791,8 @@ if (sha256(sourceLockedRepair172) !== sourceLockedRepair172Sha) {
 
 const mainHubUpdater = "client/src-tauri/src/server_updater.rs";
 const mainHubUpdaterSource = read(mainHubUpdater);
-const renderedMainHubUpdateRunner = renderMainHubUpdateRunner(mainHubUpdaterSource);
+const renderedMainHubUpdateRunner =
+  renderMainHubUpdateRunner(mainHubUpdaterSource);
 assertNotIncludes(
   mainHubUpdater,
   "$($i * 2)s",
@@ -813,7 +873,9 @@ const runnerInstallIndex = renderedMainHubUpdateRunner.indexOf(
 const runnerFirstServerKillIndex = renderedMainHubUpdateRunner.indexOf(
   "Get-Process -Name 'riverside-server'",
 );
-if (!(runnerInstallIndex >= 0 && runnerFirstServerKillIndex > runnerInstallIndex)) {
+if (!(
+  runnerInstallIndex >= 0 && runnerFirstServerKillIndex > runnerInstallIndex
+)) {
   fail(
     `${mainHubUpdater}: generated update runner must not kill riverside-server before install-server.ps1 completes backup preflight`,
   );
@@ -852,7 +914,9 @@ assertIncludes(
   "production database reset wrapper must reset to migrations plus required seed data",
 );
 
-for (const path of collectFiles("deployment/windows", (name) => name.endsWith(".ps1"))) {
+for (const path of collectFiles("deployment/windows", (name) =>
+  name.endsWith(".ps1"),
+)) {
   parsePowerShell(path, read(path));
 }
 
@@ -865,6 +929,8 @@ if (failures.length > 0) {
 }
 
 console.log("Deployment release gate passed.");
-if (!existsSync(join(repoRoot, "deployment/windows/build-deployment-package.ps1"))) {
+if (
+  !existsSync(join(repoRoot, "deployment/windows/build-deployment-package.ps1"))
+) {
   console.warn("Warning: deployment package builder was not found.");
 }

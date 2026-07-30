@@ -385,9 +385,14 @@ fn push_totals(out: &mut Vec<u8>, d: &ReceiptOrder) {
     set_bold(out, true);
     push_line(out, &right_pair(d.total_label(), &money(d.total_price)));
     set_bold(out, false);
-    push_line(out, &right_pair(d.paid_label(), &money(d.amount_paid)));
-    if d.balance_due > Decimal::ZERO {
-        push_line(out, &right_pair("Balance", &money(d.balance_due)));
+    if d.show_paid_line() {
+        push_line(out, &right_pair(d.paid_label(), &money(d.amount_paid)));
+    }
+    if let Some(prior_paid) = d.pickup_prior_paid {
+        push_line(out, &right_pair("Previously paid", &money(prior_paid)));
+    }
+    if d.balance_due > Decimal::ZERO || d.is_pickup_event() {
+        push_line(out, &right_pair("Balance remaining", &money(d.balance_due)));
     }
     if d.payments.is_empty() {
         push_line(out, &format!("Tender: {}", d.payment_methods_summary));
@@ -781,10 +786,19 @@ fn receipt_item_section_label(
 }
 
 fn receiptline_payment_lines(d: &ReceiptOrder) -> String {
-    if d.payment_applications.is_empty() {
+    if d.payment_applications.is_empty() && !d.is_pickup_event() {
         return String::new();
     }
-    let mut lines = vec![format!("^^^{}", d.order_payment_heading())];
+    let mut lines = Vec::new();
+    if d.is_pickup_event() {
+        lines.push("^^^Pickup payment status".to_string());
+        if let Some(prior_paid) = d.pickup_prior_paid {
+            lines.push(format!("Previously paid | {}", money(prior_paid)));
+        }
+    }
+    if !d.payment_applications.is_empty() {
+        lines.push(format!("^^^{}", d.order_payment_heading()));
+    }
     for app in &d.payment_applications {
         lines.push(format!(
             "Order {} | {}",
@@ -974,8 +988,8 @@ pub fn build_receiptline_markdown(
     } else {
         format!("---\n{payment_lines}")
     };
-    let balance_line = if !gift && d.balance_due > Decimal::ZERO {
-        format!("Balance | {}", money(d.balance_due))
+    let balance_line = if !gift && (d.balance_due > Decimal::ZERO || d.is_pickup_event()) {
+        format!("Balance remaining | {}", money(d.balance_due))
     } else {
         String::new()
     };
@@ -1025,7 +1039,7 @@ pub fn build_receiptline_markdown(
     } else {
         String::new()
     };
-    let paid_line = if gift {
+    let paid_line = if gift || !d.show_paid_line() {
         String::new()
     } else {
         format!("{} | {}", d.paid_label(), money(d.amount_paid))
@@ -1161,6 +1175,8 @@ mod tests {
             balance_due: Decimal::ZERO,
             payment_methods_summary: "Cash".to_string(),
             payment_applications: Vec::new(),
+            pickup_prior_paid: None,
+            pickup_balance_remaining: None,
             customer: None,
             items,
             is_tax_exempt: false,

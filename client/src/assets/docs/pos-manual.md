@@ -211,6 +211,13 @@ event. They list the picked-up merchandise, the order payment, the shipping
 fee, and the complete amount collected today instead of reprinting the
 historical order total and payment history.
 
+For a pickup that was paid before today, Sale Complete states **Collected at
+this pickup: $0.00**, the amount **Previously paid**, and the **Balance
+remaining**. The tender area says that no tender was collected at pickup;
+historical card methods are not presented as though they were used again.
+Tender names are customer-facing labels such as **Card**, **Cash**, and
+**Check**, never internal database or Counterpoint mapping codes.
+
 ![Sale complete receipt actions](../images/help/pos/receipt-summary.png)
 
 Select **View Receipt** to inspect the same formatted receipt layout used for customer delivery and the report-printer view.

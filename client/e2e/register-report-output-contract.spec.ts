@@ -353,6 +353,19 @@ test.describe("Register report output integrity contracts", () => {
     );
   });
 
+  test("Sale Complete separates the current checkout from prior pickup payment history", () => {
+    expect(receiptSummarySource).toContain("currentTenderTotalCents");
+    expect(receiptSummarySource).toContain("pickupPriorPaidCents");
+    expect(receiptSummarySource).toContain("pickupBalanceRemainingCents");
+    expect(receiptSummarySource).toContain("Collected at this pickup");
+    expect(receiptSummarySource).toContain(
+      "Previously paid before this checkout",
+    );
+    expect(receiptSummarySource).toContain(
+      "No tender collected at this pickup",
+    );
+  });
+
   test("interactive reports render one basis and one audited page at a time", () => {
     const summaryLoader = registerReportsSource.slice(
       registerReportsSource.indexOf("const loadSummaries"),

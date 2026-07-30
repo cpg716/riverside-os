@@ -333,7 +333,33 @@ pub fn payment_method_summary(
         return label;
     }
 
-    trimmed_method.to_string()
+    let canonical = crate::logic::receipt_shared::tender_display_label(trimmed_method);
+    match canonical.as_str() {
+        "CC" => "Card".to_string(),
+        "SC" => "Store Credit".to_string(),
+        _ if trimmed_method.eq_ignore_ascii_case("counterpoint_unmapped") => {
+            "Tender details unavailable".to_string()
+        }
+        _ if canonical != trimmed_method => canonical,
+        _ => trimmed_method
+            .split(|ch: char| !ch.is_ascii_alphanumeric())
+            .filter(|part| !part.is_empty())
+            .map(|part| {
+                let mut chars = part.chars();
+                match chars.next() {
+                    Some(first) => {
+                        format!(
+                            "{}{}",
+                            first.to_ascii_uppercase(),
+                            chars.as_str().to_ascii_lowercase()
+                        )
+                    }
+                    None => String::new(),
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" "),
+    }
 }
 
 pub fn transaction_compact_ref(transaction_id: Uuid) -> String {
@@ -787,6 +813,20 @@ mod tests {
             })),
         );
         assert_eq!(summary, "Cash | RMS Ref: REF-22");
+    }
+
+    #[test]
+    fn payment_summary_collapses_legacy_card_aliases_to_card() {
+        assert_eq!(payment_method_summary("CARD", None, None), "Card");
+        assert_eq!(payment_method_summary("CREDIT_CARD", None, None), "Card");
+    }
+
+    #[test]
+    fn payment_summary_never_exposes_counterpoint_sentinel_as_a_tender() {
+        assert_eq!(
+            payment_method_summary("counterpoint_unmapped", None, None),
+            "Tender details unavailable"
+        );
     }
 
     #[test]

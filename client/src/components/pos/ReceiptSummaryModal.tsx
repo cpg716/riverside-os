@@ -128,11 +128,17 @@ type OrderDetail = {
   pickup_applications?: Array<{
     target_transaction_id: string;
     target_display_id: string;
+    amount_paid: string;
+    remaining_balance: string;
     items: Array<{
       product_name: string;
       sku: string;
       quantity: number;
     }>;
+  }>;
+  payments?: Array<{
+    method: string;
+    amount: string;
   }>;
   customer?: OrderCustomer | null;
   items?: OrderLineRow[];
@@ -892,12 +898,14 @@ export default function ReceiptSummaryModal({
     serverOrderPayments.length > 0
       ? serverOrderPayments.map((payment) => ({
           key: `${payment.target_transaction_id}:${payment.target_display_id}`,
+          targetTransactionId: payment.target_transaction_id,
           targetDisplayId: payment.target_display_id,
           amount: payment.amount,
           remainingBalance: payment.remaining_balance,
         }))
       : orderPaymentLines.map((line) => ({
           key: line.cart_row_id,
+          targetTransactionId: line.target_transaction_id,
           targetDisplayId: line.target_display_id,
           amount: line.amount,
           remainingBalance: line.projected_balance_after,
@@ -907,6 +915,10 @@ export default function ReceiptSummaryModal({
     0,
   );
   const pickupApplications = transactionDetail?.pickup_applications ?? [];
+  const currentTenderTotalCents = (transactionDetail?.payments ?? []).reduce(
+    (sum, payment) => sum + Math.max(0, parseMoneyToCents(payment.amount)),
+    0,
+  );
   const transactionTotalCents = parseMoneyToCents(
     transactionDetail?.total_price ?? "0",
   );
@@ -925,7 +937,8 @@ export default function ReceiptSummaryModal({
   const pickupCheckout =
     !refundCheckout &&
     !exchangeCheckout &&
-    receiptTransactionLineIds.length > 0;
+    transactionTotalCents === 0 &&
+    (receiptTransactionLineIds.length > 0 || pickupApplications.length > 0);
   const paymentOnlyCheckout =
     !refundCheckout &&
     !exchangeCheckout &&
@@ -952,9 +965,27 @@ export default function ReceiptSummaryModal({
   const currentCheckoutAmountCents = refundCheckout
     ? -(exactRefundAmountCents ?? 0)
     : pickupCheckout || paymentOnlyCheckout
-      ? orderPaymentTotalCents
+      ? currentTenderTotalCents || orderPaymentTotalCents
       : parseMoneyToCents(transactionDetail?.amount_paid ?? "0") +
         orderPaymentTotalCents;
+  const pickupPriorPaidCents = pickupApplications.reduce((sum, pickup) => {
+    const collectedNow = displayedOrderPayments
+      .filter(
+        (payment) =>
+          payment.targetTransactionId === pickup.target_transaction_id,
+      )
+      .reduce(
+        (paymentSum, payment) => paymentSum + parseMoneyToCents(payment.amount),
+        0,
+      );
+    return (
+      sum + Math.max(0, parseMoneyToCents(pickup.amount_paid) - collectedNow)
+    );
+  }, 0);
+  const pickupBalanceRemainingCents = pickupApplications.reduce(
+    (sum, pickup) => sum + parseMoneyToCents(pickup.remaining_balance),
+    0,
+  );
   const activityLabel = refundCheckout
     ? "Return and refund recorded"
     : exchangeCheckout
@@ -1006,9 +1037,13 @@ export default function ReceiptSummaryModal({
     ? "Total refunded"
     : exchangeCheckout
       ? "Replacement total"
-      : pickupCheckout || paymentOnlyCheckout || combinedOrderPaymentCheckout
-        ? "Collected now"
-        : "Sale total";
+      : pickupCheckout
+        ? "Collected at this pickup"
+        : paymentOnlyCheckout
+          ? "Collected with this payment"
+          : combinedOrderPaymentCheckout
+            ? "Collected this checkout"
+            : "Sale total";
   const summaryTotal = refundCheckout
     ? exactRefundAmountCents == null
       ? "…"
@@ -1018,8 +1053,23 @@ export default function ReceiptSummaryModal({
       : (transactionDetail?.total_price ??
         transactionDetail?.amount_paid ??
         "…");
-  const summaryPaid = transactionDetail?.amount_paid ?? "…";
-  const summaryBalance = transactionDetail?.balance_due ?? "…";
+  const summaryPaid =
+    pickupApplications.length > 0
+      ? centsToFixed2(pickupPriorPaidCents)
+      : (transactionDetail?.amount_paid ?? "…");
+  const summaryBalance =
+    pickupApplications.length > 0
+      ? centsToFixed2(pickupBalanceRemainingCents)
+      : (transactionDetail?.balance_due ?? "…");
+  const tenderLabel = historicalPresentation
+    ? "Tender(s) on transaction"
+    : "Tender this checkout";
+  const tenderSummary =
+    !historicalPresentation && currentCheckoutAmountCents === 0
+      ? pickupCheckout
+        ? "No tender collected at this pickup"
+        : "No tender collected"
+      : (transactionDetail?.payment_methods_summary ?? "…");
   const weddingDeposits = transactionDetail?.wedding_deposits ?? [];
   const refundProviderLabel =
     refundResult?.payment_provider?.trim() ||
@@ -1406,11 +1456,7 @@ export default function ReceiptSummaryModal({
                     </div>
                     <div className="min-w-0 max-w-[52%] text-right">
                       <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted sm:text-[10px]">
-                        {refundCheckout
-                          ? "Refund method"
-                          : pickupCheckout
-                            ? "Tender(s) on transaction"
-                            : "Tender"}
+                        {refundCheckout ? "Refund method" : tenderLabel}
                       </p>
                       <p className="line-clamp-2 text-[11px] font-black uppercase tracking-tight text-app-text sm:text-sm">
                         {refundCheckout
@@ -1418,7 +1464,7 @@ export default function ReceiptSummaryModal({
                             ? `${refundProviderLabel}${refundCardLabel ? ` · ${refundCardLabel}` : ""}`
                             : (transactionDetail?.refund_payment_methods_summary ??
                               "…")
-                          : (transactionDetail?.payment_methods_summary ?? "…")}
+                          : tenderSummary}
                       </p>
                     </div>
                   </div>
@@ -1444,9 +1490,11 @@ export default function ReceiptSummaryModal({
                       <div className="grid grid-cols-2 gap-3">
                         <div>
                           <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                            {combinedOrderPaymentCheckout
-                              ? "Applied to new sale"
-                              : "Paid on transaction"}
+                            {pickupApplications.length > 0
+                              ? "Previously paid before this checkout"
+                              : combinedOrderPaymentCheckout
+                                ? "Applied to new sale"
+                                : "Paid on transaction"}
                           </p>
                           <p className="mt-0.5 text-base font-black tabular-nums text-app-success sm:text-lg">
                             {summaryPaid.startsWith("-")
@@ -1580,7 +1628,9 @@ export default function ReceiptSummaryModal({
                             Picked up from {pickup.target_display_id}
                           </span>
                           <span className="shrink-0 tabular-nums">
-                            {itemCount} {itemCount === 1 ? "item" : "items"}
+                            {itemCount} {itemCount === 1 ? "item" : "items"} · $
+                            {pickup.amount_paid} paid · $
+                            {pickup.remaining_balance} due
                           </span>
                         </div>
                       );

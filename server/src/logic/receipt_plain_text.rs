@@ -99,9 +99,14 @@ pub fn format_pos_receipt_text_message(order: &ReceiptOrder, cfg: &ReceiptConfig
 
     lines.push(String::from("---"));
     lines.push(format!("{}: {}", order.total_label(), order.total_price));
-    lines.push(format!("{}: {}", order.paid_label(), order.amount_paid));
-    if order.balance_due > Decimal::ZERO {
-        lines.push(format!("Balance: {}", order.balance_due));
+    if order.show_paid_line() {
+        lines.push(format!("{}: {}", order.paid_label(), order.amount_paid));
+    }
+    if let Some(prior_paid) = order.pickup_prior_paid {
+        lines.push(format!("Previously paid: {prior_paid}"));
+    }
+    if order.balance_due > Decimal::ZERO || order.is_pickup_event() {
+        lines.push(format!("Balance remaining: {}", order.balance_due));
     }
     if order.payments.is_empty() {
         lines.push(format!("Tender: {}", order.payment_methods_summary.trim()));

@@ -493,6 +493,8 @@ pub struct TransactionPickupApplicationItem {
 pub struct TransactionPickupApplication {
     pub target_transaction_id: Uuid,
     pub target_display_id: String,
+    pub amount_paid: Decimal,
+    pub remaining_balance: Decimal,
     pub items: Vec<TransactionPickupApplicationItem>,
 }
 
@@ -723,6 +725,33 @@ impl TransactionDetailResponse {
             .iter()
             .fold(Decimal::ZERO, |sum, app| sum + app.amount)
             .round_dp(2);
+        let pickup_prior_paid = if self.pickup_applications.is_empty() {
+            None
+        } else {
+            Some(
+                self.pickup_applications
+                    .iter()
+                    .fold(Decimal::ZERO, |sum, pickup| {
+                        let collected_now = self
+                            .payment_applications
+                            .iter()
+                            .filter(|app| app.target_transaction_id == pickup.target_transaction_id)
+                            .fold(Decimal::ZERO, |payment_sum, app| payment_sum + app.amount);
+                        sum + (pickup.amount_paid - collected_now).max(Decimal::ZERO)
+                    })
+                    .round_dp(2),
+            )
+        };
+        let pickup_balance_remaining = if self.pickup_applications.is_empty() {
+            None
+        } else {
+            Some(
+                self.pickup_applications
+                    .iter()
+                    .fold(Decimal::ZERO, |sum, pickup| sum + pickup.remaining_balance)
+                    .round_dp(2),
+            )
+        };
         let merchandise_total = if payment_only {
             Decimal::ZERO
         } else if refund_receipt {
@@ -747,7 +776,9 @@ impl TransactionDetailResponse {
             } else {
                 (self.amount_paid + self.wedding_deposit_amount).round_dp(2)
             };
-        let receipt_balance_due = if payment_only {
+        let receipt_balance_due = if let Some(pickup_balance) = pickup_balance_remaining {
+            (self.balance_due + pickup_balance).round_dp(2)
+        } else if payment_only {
             Decimal::ZERO
         } else if refund_receipt {
             Decimal::ZERO
@@ -772,6 +803,8 @@ impl TransactionDetailResponse {
             balance_due: receipt_balance_due,
             payment_methods_summary: if refund_receipt {
                 self.refund_payment_methods_summary.clone()
+            } else if !self.pickup_applications.is_empty() && self.payments.is_empty() {
+                "No tender collected at pickup".to_string()
             } else {
                 self.payment_methods_summary.clone()
             },
@@ -784,6 +817,8 @@ impl TransactionDetailResponse {
                     remaining_balance: app.remaining_balance,
                 })
                 .collect(),
+            pickup_prior_paid,
+            pickup_balance_remaining,
             is_tax_exempt: self.is_tax_exempt,
             tax_exempt_reason: self.tax_exempt_reason.clone(),
             cashier_name: crate::logic::receipt_privacy::mask_name_for_receipt(
@@ -1411,6 +1446,8 @@ mod tests {
         detail.pickup_applications = vec![TransactionPickupApplication {
             target_transaction_id: Uuid::new_v4(),
             target_display_id: "TXN-OLD".to_string(),
+            amount_paid: Decimal::new(26000, 2),
+            remaining_balance: Decimal::ZERO,
             items: vec![TransactionPickupApplicationItem {
                 product_name: "Picked-up Suit".to_string(),
                 sku: "PICKUP-SKU".to_string(),
@@ -1436,19 +1473,22 @@ mod tests {
     #[test]
     fn pickup_balance_payment_with_shipping_receipt_reports_today_complete_charge() {
         let mut detail = sample_transaction_detail(Vec::new());
+        let target_transaction_id = Uuid::new_v4();
         detail.total_price = Decimal::new(1500, 2);
         detail.amount_paid = Decimal::new(1500, 2);
         detail.balance_due = Decimal::ZERO;
         detail.shipping_amount_usd = Some(Decimal::new(1500, 2));
         detail.payment_applications = vec![TransactionPaymentApplication {
-            target_transaction_id: Uuid::new_v4(),
+            target_transaction_id,
             target_display_id: "TXN-566100".to_string(),
             amount: Decimal::new(13000, 2),
             remaining_balance: Decimal::ZERO,
         }];
         detail.pickup_applications = vec![TransactionPickupApplication {
-            target_transaction_id: Uuid::new_v4(),
+            target_transaction_id,
             target_display_id: "TXN-566100".to_string(),
+            amount_paid: Decimal::new(13000, 2),
+            remaining_balance: Decimal::ZERO,
             items: vec![TransactionPickupApplicationItem {
                 product_name: "Picked-up Suit".to_string(),
                 sku: "PICKUP-SKU".to_string(),
@@ -1498,8 +1538,64 @@ mod tests {
             assert!(output.contains("Picked-up Suit"));
             assert!(output.contains("SHIPPING FEE"));
             assert!(output.contains("Payment on Order"));
-            assert!(output.contains("Total charged today"));
+            assert!(output.contains("Current checkout total"));
+            assert!(output.contains("Previously paid"));
+            assert!(output.contains("Balance remaining"));
             assert!(output.contains("145.00"));
+        }
+    }
+
+    #[test]
+    fn paid_pickup_receipt_distinguishes_prior_payment_from_current_tender() {
+        let mut detail = sample_transaction_detail(Vec::new());
+        detail.total_price = Decimal::ZERO;
+        detail.amount_paid = Decimal::ZERO;
+        detail.balance_due = Decimal::ZERO;
+        detail.payment_methods_summary = "Card, Credit Card".to_string();
+        detail.payments = Vec::new();
+        detail.pickup_applications = vec![TransactionPickupApplication {
+            target_transaction_id: Uuid::new_v4(),
+            target_display_id: "TXN-566321".to_string(),
+            amount_paid: Decimal::new(28275, 2),
+            remaining_balance: Decimal::ZERO,
+            items: vec![TransactionPickupApplicationItem {
+                product_name: "Picked-up Order Item".to_string(),
+                sku: "PICKUP-SKU".to_string(),
+                quantity: 1,
+                unit_price: Decimal::new(28275, 2),
+                variation_label: None,
+            }],
+        }];
+
+        let receipt = detail.build_receipt_data(None).expect("receipt builds");
+
+        assert_eq!(receipt.total_price, Decimal::ZERO);
+        assert_eq!(receipt.amount_paid, Decimal::ZERO);
+        assert_eq!(receipt.pickup_prior_paid, Some(Decimal::new(28275, 2)));
+        assert_eq!(receipt.pickup_balance_remaining, Some(Decimal::ZERO));
+        assert_eq!(
+            receipt.payment_methods_summary,
+            "No tender collected at pickup"
+        );
+
+        let cfg = crate::api::settings::ReceiptConfig::default();
+        let rendered = [
+            crate::logic::receipt_escpos::build_receiptline_markdown(
+                &receipt,
+                &cfg,
+                &std::collections::HashMap::new(),
+                &crate::logic::receipt_escpos::LoyaltyReceiptData::default(),
+            ),
+            crate::logic::receipt_studio_html::render_standard_receipt_html(&receipt, &cfg, false),
+            crate::logic::receipt_plain_text::format_pos_receipt_text_message(&receipt, &cfg),
+        ];
+        for output in rendered {
+            assert!(output.contains("Current checkout total"));
+            assert!(!output.contains("Collected now"));
+            assert!(output.contains("Previously paid"));
+            assert!(output.contains("282.75"));
+            assert!(output.contains("Balance remaining"));
+            assert!(output.contains("No tender collected at pickup"));
         }
     }
 
@@ -3089,6 +3185,8 @@ async fn build_refund_event_receipt_order(
         balance_due: Decimal::ZERO,
         payment_methods_summary,
         payment_applications: Vec::new(),
+        pickup_prior_paid: None,
+        pickup_balance_remaining: None,
         customer: original_detail.customer.as_ref().map(|customer| {
             let full = format!(
                 "{} {}",
@@ -11662,6 +11760,8 @@ pub(crate) async fn load_transaction_detail(
         (
             Uuid,
             String,
+            Decimal,
+            Decimal,
             sqlx::types::Json<Vec<TransactionPickupApplicationItem>>,
         ),
     >(
@@ -11674,6 +11774,8 @@ pub(crate) async fn load_transaction_detail(
                 target.counterpoint_ticket_ref,
                 target.id::text
             ) AS target_display_id,
+            ROUND(COALESCE(target.amount_paid, 0), 2)::numeric(14,2) AS amount_paid,
+            ROUND(COALESCE(target.balance_due, 0), 2)::numeric(14,2) AS remaining_balance,
             jsonb_agg(jsonb_build_object(
                 'product_name', COALESCE(NULLIF(TRIM(p.name), ''), pv.sku, 'Item'),
                 'sku', COALESCE(pv.sku, 'Unknown SKU'),
@@ -11691,7 +11793,13 @@ pub(crate) async fn load_transaction_detail(
         LEFT JOIN product_variants pv ON pv.id = tl.variant_id
         WHERE activity.event_kind = 'pickup'
           AND activity.metadata->>'checkout_transaction_id' = $1::text
-        GROUP BY target.id, target.display_id, target.counterpoint_doc_ref, target.counterpoint_ticket_ref
+        GROUP BY
+            target.id,
+            target.display_id,
+            target.counterpoint_doc_ref,
+            target.counterpoint_ticket_ref,
+            target.amount_paid,
+            target.balance_due
         ORDER BY target.display_id NULLS LAST, target.id
         "#,
     )
@@ -11699,11 +11807,17 @@ pub(crate) async fn load_transaction_detail(
     .fetch_all(pool)
     .await?
     .into_iter()
-    .map(|(target_transaction_id, target_display_id, items)| TransactionPickupApplication {
-        target_transaction_id,
-        target_display_id,
-        items: items.0,
-    })
+    .map(
+        |(target_transaction_id, target_display_id, amount_paid, remaining_balance, items)| {
+            TransactionPickupApplication {
+                target_transaction_id,
+                target_display_id,
+                amount_paid,
+                remaining_balance,
+                items: items.0,
+            }
+        },
+    )
     .collect::<Vec<_>>();
 
     let mut items: Vec<TransactionDetailItem> = items

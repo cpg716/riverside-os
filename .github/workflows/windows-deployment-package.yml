@@ -7,8 +7,8 @@ concurrency:
 on:
   push:
     tags:
-      - 'v[0-9]+.[0-9]+.[0-9]+'
-      - 'v[0-9]+.[0-9]+.[0-9]+-*'
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-*"
   workflow_dispatch:
     inputs:
       package_scope:
@@ -109,6 +109,11 @@ jobs:
           toolchain: "1.91"
           components: rustfmt
 
+      - name: Keep Rust cache key pinned to Riverside toolchain
+        run: |
+          rustup default 1.91
+          rustup toolchain uninstall stable || echo "Unpinned stable toolchain already absent"
+
       - name: Set up compiler cache
         id: sccache
         continue-on-error: true
@@ -169,6 +174,11 @@ jobs:
         with:
           toolchain: "1.91"
           components: clippy, rustfmt
+
+      - name: Keep Rust cache key pinned to Riverside toolchain
+        run: |
+          rustup default 1.91
+          rustup toolchain uninstall stable || echo "Unpinned stable toolchain already absent"
 
       - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
         with:
@@ -447,6 +457,11 @@ jobs:
           toolchain: "1.91"
           components: clippy, rustfmt
 
+      - name: Keep Rust cache key pinned to Riverside toolchain
+        run: |
+          rustup default 1.91
+          rustup toolchain uninstall stable || echo "Unpinned stable toolchain already absent"
+
       - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
         with:
           cache-workspace-crates: true
@@ -500,6 +515,11 @@ jobs:
         with:
           toolchain: "1.91"
           components: clippy, rustfmt
+
+      - name: Keep Rust cache key pinned to Riverside toolchain
+        run: |
+          rustup default 1.91
+          rustup toolchain uninstall stable || echo "Unpinned stable toolchain already absent"
 
       - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
         with:
@@ -644,6 +664,11 @@ jobs:
         with:
           toolchain: "1.91"
           components: clippy, rustfmt
+
+      - name: Keep Rust cache key pinned to Riverside toolchain
+        run: |
+          rustup default 1.91
+          rustup toolchain uninstall stable || echo "Unpinned stable toolchain already absent"
 
       - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
         with:
@@ -797,6 +822,11 @@ jobs:
           toolchain: "1.91"
           components: clippy, rustfmt
 
+      - name: Keep Rust cache key pinned to Riverside toolchain
+        run: |
+          rustup default 1.91
+          rustup toolchain uninstall stable || echo "Unpinned stable toolchain already absent"
+
       - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
         with:
           cache-workspace-crates: true
@@ -948,7 +978,13 @@ jobs:
       contents: write
     timeout-minutes: 30
     if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.package_scope == 'main-hub-update' && inputs.publish_release }}
-    needs: [build-register-updater, build-server-binary, pre-retag-gate, require-playwright-green]
+    needs:
+      [
+        build-register-updater,
+        build-server-binary,
+        pre-retag-gate,
+        require-playwright-green,
+      ]
     runs-on: windows-latest
     concurrency:
       group: ${{ format('riverside-release-publish-{0}', inputs.release_tag || github.ref_name) }}
@@ -1095,7 +1131,16 @@ jobs:
       contents: write
     timeout-minutes: 120
     if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.package_scope == 'full-deployment' }}
-    needs: [build-register-updater, build-server-binary, build-deployment-manager, build-server-manager, build-counterpoint-bridge-gui, pre-retag-gate, require-playwright-green]
+    needs:
+      [
+        build-register-updater,
+        build-server-binary,
+        build-deployment-manager,
+        build-server-manager,
+        build-counterpoint-bridge-gui,
+        pre-retag-gate,
+        require-playwright-green,
+      ]
     runs-on: windows-latest
     concurrency:
       group: ${{ (github.event_name != 'workflow_dispatch' || inputs.publish_release) && format('riverside-release-publish-{0}', inputs.release_tag || github.ref_name) || format('riverside-windows-benchmark-{0}', github.run_id) }}
@@ -1243,7 +1288,7 @@ jobs:
               throw "Failed to create GitHub release $tag"
             }
           }
-          
+
           # Delete duplicate or retired assets that clobber cannot replace because
           # their names differ from the current build artifacts.
           $release = gh release view $tag --json assets | ConvertFrom-Json
