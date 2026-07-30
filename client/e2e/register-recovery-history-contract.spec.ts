@@ -88,7 +88,7 @@ test.describe("Register recovery history UI contracts", () => {
       closeRegisterSource.indexOf("const replayableRecoveryJobs"),
     );
     expect(finalClose).toContain("refreshUnresolvedCloseIssuesBeforeClose");
-    expect(finalClose).toContain("result.unresolved_close_issues ?? null");
+    expect(finalClose).not.toContain("result.unresolved_close_issues");
     expect(finalClose).toContain('"closed"');
     expect(finalClose).not.toContain(
       "result.unresolved_close_issues ?? preCloseUnresolvedIssues",
