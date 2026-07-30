@@ -110,7 +110,7 @@ test.describe("Register recovery history UI contracts", () => {
     expect(sessionsSource).toContain(
       "'register_close_with_unresolved_issues'",
     );
-    expect(closeRegisterSource).toContain("unresolvedCloseIssues");
+    expect(closeRegisterSource).toContain("currentUnresolvedCloseIssues");
     expect(closeRegisterSource).toContain("Waiting on terminal outcome");
     expect(closeRegisterSource).toContain("Approved not attached");
     expect(closeRegisterSource).toContain(
