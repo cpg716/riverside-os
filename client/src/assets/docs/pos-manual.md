@@ -205,6 +205,12 @@ Inventory and bookkeeping follow server rules for takeaway, order, and wedding l
 
 The **Sale Complete** screen is the receipt handoff point after checkout. Use it to print the customer receipt, view the formatted receipt, send by text or email when a customer is attached, or print a gift receipt when needed.
 
+When an open Transaction Record is picked up while collecting its balance and
+adding a shipping fee, Sale Complete and every receipt use today's checkout
+event. They list the picked-up merchandise, the order payment, the shipping
+fee, and the complete amount collected today instead of reprinting the
+historical order total and payment history.
+
 ![Sale complete receipt actions](../images/help/pos/receipt-summary.png)
 
 Select **View Receipt** to inspect the same formatted receipt layout used for customer delivery and the report-printer view.

@@ -118,6 +118,8 @@ test("a restored cart retains every source order and selected pickup line", () =
   expect(checkout).toContain("failedPickupAttempts.map");
   expect(checkout).toContain("completedPickupTransactionIds");
   expect(checkout).toContain("register_cart_completion: true");
+  expect(checkout).toContain("const receiptTransactionId = data.transaction_id");
+  expect(checkout).not.toContain("receiptTransactionId = pickupTransactionId");
   expect(transactions).toContain("if !body.register_cart_completion");
   expect(transactions).toContain(
     "finish the full checkout flow through Sale Complete",

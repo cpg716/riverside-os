@@ -890,7 +890,7 @@ export function useCartCheckout({
 
       const data = await res.json() as { transaction_id: string; warnings?: string[] };
       void clearBlockedCheckoutRecovery({ checkoutClientId });
-      let receiptTransactionId = data.transaction_id;
+      const receiptTransactionId = data.transaction_id;
       if (execution?.showSuccessToast !== false) {
         toast("Checkout complete", "success");
       }
@@ -946,7 +946,7 @@ export function useCartCheckout({
         }
       }
       // Call pickup API after successful checkout when in pickup mode
-      let receiptTransactionLineIds: string[] = [];
+      const receiptTransactionLineIds: string[] = [];
       if (pickupTransactionId) {
         const deliveredItemIds = checkoutLines.flatMap((line) =>
           line.transaction_line_id ? [line.transaction_line_id] : [],
@@ -1024,10 +1024,6 @@ export function useCartCheckout({
                 authHeaders: apiAuth(),
               });
               toast("Pickup saved, but alteration pickup recovery needs review before closing.", "error");
-            }
-            if (payloadSaleLines.length === 0) {
-              receiptTransactionId = pickupTransactionId;
-              receiptTransactionLineIds = deliveredItemIds;
             }
           } else {
             await recordBlockedCheckoutRecovery(payload, pickupResult.status, pickupResult.message, {

@@ -19,6 +19,11 @@ To ensure clarity for staff, the Riverside OS interface uses standard industry t
 
 Every payment checkout keeps its own customer-facing Transaction receipt identity, even when some or all of the money is allocated to an older Transaction Record or Fulfillment Order. The payment receipt shows what happened today and names each public target Order/Transaction; it must not rebuild the target's lifetime merchandise receipt. Daily Sales and Z-Reports use the same event identity and allocation detail. Opening **Receipt** uses the payment-event Transaction Record, while **Detail** opens the target financial Transaction Record.
 
+The same rule applies when checkout combines an order pickup, a balance
+payment, and a new shipping fee: Sale Complete and customer receipts stay on
+the current checkout Transaction Record, display the picked-up lines as linked
+fulfillment context, and total today's payment allocation plus today's fee.
+
 A physical tender is rendered and reconciled once per `payment_transactions` row. `payment_allocations` explain where that money went; they do not duplicate cash tendered, change, processor evidence, or check details and do not create merchandise sales.
 
 ## The Decoupling

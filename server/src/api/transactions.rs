@@ -557,7 +557,13 @@ impl TransactionDetailResponse {
                 self.payment_applications.is_empty() || !is_order_payment_receipt_item(item)
             })
             .collect::<Vec<_>>();
-        let payment_only = customer_items.is_empty() && !self.payment_applications.is_empty();
+        let shipping_amount = self
+            .shipping_amount_usd
+            .unwrap_or(Decimal::ZERO)
+            .round_dp(2);
+        let payment_only = customer_items.is_empty()
+            && !self.payment_applications.is_empty()
+            && shipping_amount <= Decimal::ZERO;
         let refund_receipt = !customer_items.is_empty()
             && self.refund_total > Decimal::ZERO
             && customer_items.iter().all(|item| item.quantity_returned > 0)
@@ -649,10 +655,6 @@ impl TransactionDetailResponse {
                 });
             }
         }
-        let shipping_amount = self
-            .shipping_amount_usd
-            .unwrap_or(Decimal::ZERO)
-            .round_dp(2);
         if !payment_only
             && !refund_receipt
             && shipping_amount > Decimal::ZERO
@@ -1429,6 +1431,76 @@ mod tests {
         assert!(!receipt.items[1].contributes_to_totals);
         assert_eq!(receipt.subtotal_price, Decimal::new(25000, 2));
         assert_eq!(receipt.total_price, Decimal::new(1000, 2));
+    }
+
+    #[test]
+    fn pickup_balance_payment_with_shipping_receipt_reports_today_complete_charge() {
+        let mut detail = sample_transaction_detail(Vec::new());
+        detail.total_price = Decimal::new(1500, 2);
+        detail.amount_paid = Decimal::new(1500, 2);
+        detail.balance_due = Decimal::ZERO;
+        detail.shipping_amount_usd = Some(Decimal::new(1500, 2));
+        detail.payment_applications = vec![TransactionPaymentApplication {
+            target_transaction_id: Uuid::new_v4(),
+            target_display_id: "TXN-566100".to_string(),
+            amount: Decimal::new(13000, 2),
+            remaining_balance: Decimal::ZERO,
+        }];
+        detail.pickup_applications = vec![TransactionPickupApplication {
+            target_transaction_id: Uuid::new_v4(),
+            target_display_id: "TXN-566100".to_string(),
+            items: vec![TransactionPickupApplicationItem {
+                product_name: "Picked-up Suit".to_string(),
+                sku: "PICKUP-SKU".to_string(),
+                quantity: 1,
+                unit_price: Decimal::new(26000, 2),
+                variation_label: Some("40R".to_string()),
+            }],
+        }];
+        detail.payments = vec![TransactionDetailedPayment {
+            date: Utc::now(),
+            method: "CC".to_string(),
+            amount: Decimal::new(14500, 2),
+            cash_tendered: None,
+            change_due: None,
+            gift_card_balance_after: None,
+        }];
+
+        let receipt = detail.build_receipt_data(None).expect("receipt builds");
+
+        assert_eq!(receipt.items.len(), 2);
+        assert!(receipt
+            .items
+            .iter()
+            .any(|item| item.custom_item_type.as_deref() == Some("linked_pickup")));
+        assert!(receipt
+            .items
+            .iter()
+            .any(|item| item.custom_item_type.as_deref() == Some("shipping_fee")));
+        assert_eq!(receipt.subtotal_price, Decimal::new(1500, 2));
+        assert_eq!(receipt.total_price, Decimal::new(14500, 2));
+        assert_eq!(receipt.amount_paid, Decimal::new(14500, 2));
+
+        let cfg = crate::api::settings::ReceiptConfig::default();
+        let mut pickup_params = std::collections::HashMap::new();
+        pickup_params.insert("pickup".to_string(), "true".to_string());
+        let rendered = [
+            crate::logic::receipt_escpos::build_receiptline_markdown(
+                &receipt,
+                &cfg,
+                &pickup_params,
+                &crate::logic::receipt_escpos::LoyaltyReceiptData::default(),
+            ),
+            crate::logic::receipt_studio_html::render_standard_receipt_html(&receipt, &cfg, false),
+            crate::logic::receipt_plain_text::format_pos_receipt_text_message(&receipt, &cfg),
+        ];
+        for output in rendered {
+            assert!(output.contains("Picked-up Suit"));
+            assert!(output.contains("SHIPPING FEE"));
+            assert!(output.contains("Payment on Order"));
+            assert!(output.contains("Total charged today"));
+            assert!(output.contains("145.00"));
+        }
     }
 
     #[test]

@@ -142,6 +142,23 @@ fn receipt_template_with_slots(template: &str, show_logo: bool, show_barcode: bo
             next = format!("{next}\n{{{{WEDDING_DEPOSIT_LINES}}}}");
         }
     }
+    if !next.contains("{{PAYMENT_BLOCK}}") {
+        if next.contains("{{PAYMENT_HISTORY_BLOCK}}") {
+            next = next.replacen(
+                "{{PAYMENT_HISTORY_BLOCK}}",
+                "{{PAYMENT_BLOCK}}\n{{PAYMENT_HISTORY_BLOCK}}",
+                1,
+            );
+        } else if next.contains("{{SUBTOTAL_LINE}}") {
+            next = next.replacen(
+                "{{SUBTOTAL_LINE}}",
+                "{{PAYMENT_BLOCK}}\n{{SUBTOTAL_LINE}}",
+                1,
+            );
+        } else {
+            next = format!("{next}\n{{{{PAYMENT_BLOCK}}}}");
+        }
+    }
     next
 }
 
@@ -872,7 +889,7 @@ fn default_receiptline_template() -> &'static str {
 }
 
 fn default_receiptline_pickup_template() -> &'static str {
-    "{{LOGO_IMAGE}}\n{{HEADER_LINES}}\n{{RECEIPT_TITLE}}\n{{RECEIPT_ID}}\n{{CUSTOMER_LINE}}\n{{SALESPERSON_LINE}}\n{{CASHIER_LINE}}\n---\n{{ITEM_LINES}}\n---\n{{PAYMENT_HISTORY_BLOCK}}\n{{SUBTOTAL_LINE}}\n{{TAX_LINE}}\n{{TOTAL_SAVINGS_LINE}}\n{{TOTAL_LINE}}\n{{PAID_LINE}}\n{{BALANCE_LINE}}\n{{GIFT_CARD_BALANCE}}\n{{WEDDING_DEPOSIT_LINES}}\n{{STATUS_LINE}}\n---\n{{BARCODE_IMAGE}}\n{{FOOTER_LINES}}\n{{CUT}}"
+    "{{LOGO_IMAGE}}\n{{HEADER_LINES}}\n{{RECEIPT_TITLE}}\n{{RECEIPT_ID}}\n{{CUSTOMER_LINE}}\n{{SALESPERSON_LINE}}\n{{CASHIER_LINE}}\n---\n{{ITEM_LINES}}\n{{PAYMENT_BLOCK}}\n---\n{{PAYMENT_HISTORY_BLOCK}}\n{{SUBTOTAL_LINE}}\n{{TAX_LINE}}\n{{TOTAL_SAVINGS_LINE}}\n{{TOTAL_LINE}}\n{{PAID_LINE}}\n{{BALANCE_LINE}}\n{{GIFT_CARD_BALANCE}}\n{{WEDDING_DEPOSIT_LINES}}\n{{STATUS_LINE}}\n---\n{{BARCODE_IMAGE}}\n{{FOOTER_LINES}}\n{{CUT}}"
 }
 
 fn receiptline_payment_history_block(d: &ReceiptOrder) -> String {
