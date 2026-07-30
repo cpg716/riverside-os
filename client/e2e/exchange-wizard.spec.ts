@@ -598,6 +598,10 @@ test.describe("POS exchange wizard", () => {
     await expect(
       page.getByRole("button", { name: /\$-108\.75\s+pay/i }),
     ).toBeVisible();
+    await expect(page.getByTestId("pos-primary-salesperson")).toHaveAttribute(
+      "data-salesperson-id",
+      operatorStaffId,
+    );
   });
 
   test("returned quantity stays in sync across totals, refund queue, and receipt output", async ({

@@ -22,6 +22,7 @@ interface TransactionItemRow {
   unit_cost: string;
   state_tax: string;
   local_tax: string;
+  salesperson_id?: string | null;
   tax_category?: string | null;
   fulfillment: FulfillmentKind;
   is_fulfilled?: boolean;
@@ -32,6 +33,7 @@ interface TransactionItemRow {
 interface TransactionDetailLite {
   transaction_id: string;
   transaction_display_id?: string;
+  primary_salesperson_id?: string | null;
   booked_at: string;
   status: string;
   total_price: string;
@@ -140,6 +142,17 @@ function paidReturnCreditCents(detail: TransactionDetailLite, selectedReturnCent
   return Math.min(selectedReturnCents, Math.max(0, paidCents));
 }
 
+function originalSalespersonId(detail: TransactionDetailLite): string | null {
+  const primary = detail.primary_salesperson_id?.trim();
+  if (primary) return primary;
+  const lineSalespeople = new Set(
+    detail.items
+      .map((item) => item.salesperson_id?.trim())
+      .filter((id): id is string => Boolean(id)),
+  );
+  return lineSalespeople.size === 1 ? [...lineSalespeople][0] ?? null : null;
+}
+
 function returnedLineSummaries(detail: TransactionDetailLite): ReturnedLineSummary[] {
   return detail.items
     .filter((item) => (item.quantity_returned ?? 0) > 0)
@@ -183,6 +196,7 @@ export default function PosExchangeWizard({
   apiAuth: () => Record<string, string>;
   onContinueToReplacement: (args: {
     originalTransactionId: string;
+    originalSalespersonId?: string | null;
     customer: Customer | null;
     receiptLabel?: string;
     returnedLines?: ReturnedLineSummary[];
@@ -396,6 +410,7 @@ export default function PosExchangeWizard({
       if (refundCents > 0) {
         onContinueToReplacement({
           originalTransactionId: detail.transaction_id,
+          originalSalespersonId: originalSalespersonId(detail),
           customer: applyCustomer(),
           receiptLabel,
           returnedLines: refundLines,
@@ -439,6 +454,7 @@ export default function PosExchangeWizard({
     if (!detail) return;
     onContinueToReplacement({
       originalTransactionId: detail.transaction_id,
+      originalSalespersonId: originalSalespersonId(detail),
       customer: applyCustomer(),
       receiptLabel,
       returnedLines,
@@ -860,6 +876,7 @@ export default function PosExchangeWizard({
                     }
                     onContinueToReplacement({
                       originalTransactionId: detail.transaction_id,
+                      originalSalespersonId: originalSalespersonId(detail),
                       customer: applyCustomer(),
                       receiptLabel,
                       returnedLines,

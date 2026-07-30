@@ -343,6 +343,7 @@ function weddingDisbursementAmountCents(member: WeddingMember): number {
 
 interface ExchangeReturnHandoff {
   originalTransactionId: string;
+  originalSalespersonId?: string | null;
   customer: Customer | null;
   receiptLabel?: string;
   returnedLines?: ExchangeReturnHandoffLine[];
@@ -961,6 +962,7 @@ export default function Cart({
   const handleExchangeReturnHandoff = useCallback((args: ExchangeReturnHandoff) => {
     if (!canSelectCustomerForSale(args.customer?.id ?? null)) return;
     clearStalePickupContextForCustomerChange(args.customer?.id ?? null);
+    setPrimarySalespersonId(args.originalSalespersonId?.trim() ?? "");
     onExchangeContinue({
       originalTransactionId: args.originalTransactionId,
       customer: args.customer,
@@ -1071,6 +1073,7 @@ export default function Cart({
     setSelectedLineKey,
     setCheckoutAppliedPayments,
     setCheckoutDepositLedger,
+    setPrimarySalespersonId,
     setPosShipping,
     setCheckoutDrawerOpen,
     toast,
@@ -3469,7 +3472,11 @@ export default function Cart({
               </div>
               {!isGiftCardOnlyCart ? (
                 isEmployeeSale ? (
-                  <div className="flex min-w-[18rem] flex-1 items-center justify-center gap-2">
+                  <div
+                    className="flex min-w-[18rem] flex-1 items-center justify-center gap-2"
+                    data-testid="pos-primary-salesperson"
+                    data-salesperson-id={primarySalespersonId}
+                  >
                     <span className="shrink-0 text-[9px] font-black uppercase tracking-[0.2em] text-app-text-muted">
                       Salesperson:
                     </span>
@@ -3478,7 +3485,11 @@ export default function Cart({
                     </span>
                   </div>
                 ) : (
-                  <div className="flex min-w-[18rem] flex-1 items-center justify-center gap-2">
+                  <div
+                    className="flex min-w-[18rem] flex-1 items-center justify-center gap-2"
+                    data-testid="pos-primary-salesperson"
+                    data-salesperson-id={primarySalespersonId}
+                  >
                     <span className="shrink-0 text-[9px] font-black uppercase tracking-[0.2em] text-app-text-muted">
                       Salesperson:
                     </span>

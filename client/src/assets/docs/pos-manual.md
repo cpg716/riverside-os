@@ -158,6 +158,12 @@ For a mixed exchange, Riverside combines today's negative return lines with toda
 
 The replacement checkout and its exchange-settlement recovery marker save together. If the return settlement is interrupted, Riverside restores the checkout identity, tender ledger, and staged return lines so staff can finish the original exchange. The recovery marker remains visible through Z-close until the original Transaction Record, replacement Transaction Record, returned quantities, inventory movement, and refund tender are linked and settled.
 
+When you load a return or exchange, Riverside automatically selects the
+salesperson from the original Transaction Record. Replacement items inherit
+that salesperson so commission stays with the original sale; use the audited
+Transaction attribution correction only when a manager confirms the original
+assignment itself was wrong.
+
 Check refunds require the refund check number. **Manual CC Refund** is available when the real card refund was already completed on a prior processor or another external card system; enter the external approval/reference, card last four, and reason, then complete Manager Access approval. This records the real negative card tender without pretending it was processed by Helcim. Staff Account refunds reduce the linked Staff Account receivable. RMS Charge refunds must be completed in RMS/R2S first, then recorded with the external reference, reason, and Manager Access approval. Open Deposit amounts are restored through cancellation or void and are not issued as a generic refund tender.
 
 If the original Transaction Record still has a balance due, the returned item may reduce that balance without creating cash back for the customer. Continue the exchange, add the replacement item, and finish checkout so Riverside records the return and links the replacement sale.

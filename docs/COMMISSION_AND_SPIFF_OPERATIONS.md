@@ -92,6 +92,13 @@ Example:
 
 Returns create immutable negative commission adjustment events in the return period.
 
+When an exchange starts from an original Transaction Record, Riverside
+automatically carries that record's original salesperson into the replacement
+Transaction Record. Replacement lines inherit that salesperson unless a
+manager later records an explicit audited attribution correction. The server
+derives this default from the original Transaction Record rather than trusting
+the current cashier or a stale Register selection.
+
 ## Manual Adjustments
 
 Manual add/subtract entries are required for store-approved commission corrections.

@@ -427,15 +427,11 @@ fn validate_exchange_checkout_intent(
     let object = intent.as_object().ok_or_else(|| {
         CheckoutError::InvalidPayload("exchange settlement intent must be an object".to_string())
     })?;
-    let original_transaction_id = object
-        .get("original_transaction_id")
-        .and_then(Value::as_str)
-        .and_then(|value| Uuid::parse_str(value.trim()).ok())
-        .ok_or_else(|| {
-            CheckoutError::InvalidPayload(
-                "exchange settlement intent requires original_transaction_id".to_string(),
-            )
-        })?;
+    let original_transaction_id = exchange_original_transaction_id(payload)?.ok_or_else(|| {
+        CheckoutError::InvalidPayload(
+            "exchange settlement intent requires original_transaction_id".to_string(),
+        )
+    })?;
     let exchange_credit_amount: Decimal = serde_json::from_value(
         object
             .get("exchange_credit_amount")
@@ -484,6 +480,78 @@ fn validate_exchange_checkout_intent(
         original_transaction_id,
         exchange_credit_amount.round_dp(2),
     )))
+}
+
+fn exchange_original_transaction_id(
+    payload: &CheckoutRequest,
+) -> Result<Option<Uuid>, CheckoutError> {
+    let Some(intent) = payload.exchange_settlement.as_ref() else {
+        return Ok(None);
+    };
+    let object = intent.as_object().ok_or_else(|| {
+        CheckoutError::InvalidPayload("exchange settlement intent must be an object".to_string())
+    })?;
+    object
+        .get("original_transaction_id")
+        .and_then(Value::as_str)
+        .and_then(|value| Uuid::parse_str(value.trim()).ok())
+        .map(Some)
+        .ok_or_else(|| {
+            CheckoutError::InvalidPayload(
+                "exchange settlement intent requires original_transaction_id".to_string(),
+            )
+        })
+}
+
+async fn inherit_original_exchange_salesperson(
+    pool: &PgPool,
+    payload: &mut CheckoutRequest,
+) -> Result<(), CheckoutError> {
+    let Some(original_transaction_id) = exchange_original_transaction_id(payload)? else {
+        return Ok(());
+    };
+
+    let original_primary_salesperson: Option<Option<Uuid>> =
+        sqlx::query_scalar("SELECT primary_salesperson_id FROM transactions WHERE id = $1")
+            .bind(original_transaction_id)
+            .fetch_optional(pool)
+            .await?;
+    let Some(original_primary_salesperson) = original_primary_salesperson else {
+        return Err(CheckoutError::InvalidPayload(
+            "exchange original transaction was not found".to_string(),
+        ));
+    };
+    let original_line_salesperson: Option<Uuid> = if original_primary_salesperson.is_none() {
+        sqlx::query_scalar(
+            r#"
+            SELECT CASE
+                WHEN COUNT(DISTINCT salesperson_id) = 1
+                THEN MIN(salesperson_id::text)::uuid
+                ELSE NULL
+            END
+            FROM transaction_lines
+            WHERE transaction_id = $1
+              AND salesperson_id IS NOT NULL
+              AND COALESCE(is_internal, FALSE) = FALSE
+            "#,
+        )
+        .bind(original_transaction_id)
+        .fetch_one(pool)
+        .await?
+    } else {
+        None
+    };
+    let original_salesperson = original_primary_salesperson
+        .or(original_line_salesperson)
+        .ok_or_else(|| {
+            CheckoutError::InvalidPayload(
+                "exchange original transaction has no single salesperson attribution; correct the original transaction before continuing"
+                    .to_string(),
+            )
+        })?;
+
+    payload.primary_salesperson_id = Some(original_salesperson);
+    Ok(())
 }
 
 #[derive(Debug, Serialize)]
@@ -3119,6 +3187,7 @@ async fn execute_checkout_internal(
                 .to_string(),
         ));
     }
+    inherit_original_exchange_salesperson(pool, &mut payload).await?;
 
     let customer_id_orig = payload.customer_id;
     if let Some(cid) = payload.customer_id {

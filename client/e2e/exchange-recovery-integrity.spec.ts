@@ -65,7 +65,7 @@ function centsToMoney(value: number): string {
 type CheckoutPayload = {
   session_id: string;
   operator_staff_id: string;
-  primary_salesperson_id: string;
+  primary_salesperson_id: string | null;
   customer_id: string;
   payment_method: string;
   total_price: string;
@@ -287,25 +287,52 @@ test("historical exchange recovery posts exact ledgers to the current Register a
       final_cash_due: cashRefund,
     },
   };
+  const replacementPayload = checkoutPayload(
+    fixture,
+    origin.sessionId,
+    managerStaffId,
+    replacementClientId,
+    [
+      {
+        payment_method: "exchange_credit",
+        amount: exchangeCredit,
+        metadata: { original_transaction_id: originalTransactionId },
+      },
+      { payment_method: "cash", amount: cashRefund },
+    ],
+    settlementRequest,
+  );
+  replacementPayload.primary_salesperson_id = null;
+  replacementPayload.items = replacementPayload.items.map((item) => ({
+    ...item,
+    salesperson_id: null,
+  }));
   const replacementTransactionId = await recordCheckout(
     request,
-    checkoutPayload(
-      fixture,
-      origin.sessionId,
-      managerStaffId,
-      replacementClientId,
-      [
-        {
-          payment_method: "exchange_credit",
-          amount: exchangeCredit,
-          metadata: { original_transaction_id: originalTransactionId },
-        },
-        { payment_method: "cash", amount: cashRefund },
-      ],
-      settlementRequest,
-    ),
+    replacementPayload,
     origin.sessionToken,
   );
+
+  const replacementAttribution = selectJson<{
+    primary_salesperson_id: string | null;
+    line_salesperson_id: string | null;
+  }>(`
+    SELECT json_build_object(
+      'primary_salesperson_id', t.primary_salesperson_id,
+      'line_salesperson_id', (
+        SELECT tl.salesperson_id
+        FROM transaction_lines tl
+        WHERE tl.transaction_id = t.id
+          AND COALESCE(tl.is_internal, FALSE) = FALSE
+        ORDER BY tl.id
+        LIMIT 1
+      )
+    )
+    FROM transactions t
+    WHERE t.id = ${sqlLiteral(replacementTransactionId)}::uuid;
+  `);
+  expect(replacementAttribution.primary_salesperson_id).toBe(managerStaffId);
+  expect(replacementAttribution.line_salesperson_id).toBe(managerStaffId);
 
   expect(
     runSql(

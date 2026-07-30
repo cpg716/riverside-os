@@ -407,7 +407,118 @@ async function addManualAdjustment(
   });
 }
 
+async function processCashReturn(
+  request: APIRequestContext,
+  options: {
+    transactionId: string;
+    transactionLineId: string;
+    sessionId: string;
+    sessionToken: string;
+    unitPrice: string;
+  },
+) {
+  const taxes = calculateNysErieTaxStringsForUnit(
+    "other",
+    parseMoneyToCents(options.unitPrice),
+  );
+  const refundTotal = totalFor(options.unitPrice);
+  return request.post(
+    `${apiBase()}/api/transactions/${options.transactionId}/refunds/process`,
+    {
+      headers: {
+        ...staffHeaders(),
+        "Content-Type": "application/json",
+        "x-riverside-pos-session-id": options.sessionId,
+        "x-riverside-pos-session-token": options.sessionToken,
+        "x-riverside-station-key": "station-e2e",
+      },
+      data: {
+        session_id: options.sessionId,
+        payment_method: "cash",
+        amount: refundTotal,
+        tender_amount: refundTotal,
+        return_lines: [
+          {
+            transaction_line_id: options.transactionLineId,
+            quantity: 1,
+            reason: "E2E commission return attribution",
+            refund_subtotal: options.unitPrice,
+            refund_state_tax: taxes.stateTax,
+            refund_local_tax: taxes.localTax,
+            refund_total: refundTotal,
+          },
+        ],
+      },
+      failOnStatusCode: false,
+    },
+  );
+}
+
 test.describe("commission audit contract", () => {
+  test("returns reverse commission against the original line salesperson", async ({
+    request,
+  }) => {
+    test.setTimeout(90_000);
+    const { sessionId, sessionToken } = await ensureSessionAuth(request);
+    const operatorStaffId = await verifyStaffId(request);
+    const salespersonId = await createCommissionStaff(
+      request,
+      "Return Attribution",
+      "0.1000",
+    );
+    const product = await createCommissionProduct(request, operatorStaffId, {
+      label: "return-attribution",
+      unitPrice: "100.00",
+    });
+
+    const checkoutRes = await checkoutProducts(request, {
+      sessionId,
+      sessionToken,
+      operatorStaffId,
+      salespersonId,
+      products: [product],
+      fulfillment: "takeaway",
+    });
+    expect(checkoutRes.status()).toBe(200);
+    const checkout = (await checkoutRes.json()) as CheckoutResponse;
+    const detail = await fetchTransactionDetail(
+      request,
+      checkout.transaction_id,
+    );
+    const line = detail.items.find((item) => item.sku === product.sku);
+    expect(line?.transaction_line_id).toBeTruthy();
+
+    const returnRes = await processCashReturn(request, {
+      transactionId: checkout.transaction_id,
+      transactionLineId: line!.transaction_line_id,
+      sessionId,
+      sessionToken,
+      unitPrice: product.unitPrice,
+    });
+    const returnText = await returnRes.text();
+    expect(returnRes.status(), returnText.slice(0, 1_000)).toBe(200);
+
+    const commissionLines = await fetchCommissionLines(request, salespersonId);
+    const saleEvent = commissionLines.find(
+      (row) =>
+        row.transaction_id === checkout.transaction_id &&
+        row.transaction_line_id === line!.transaction_line_id &&
+        (row.event_type === "sale_commission" ||
+          row.event_type === "fulfilled_pending_event"),
+    );
+    const returnEvent = commissionLines.find(
+      (row) =>
+        row.transaction_id === checkout.transaction_id &&
+        row.transaction_line_id === line!.transaction_line_id &&
+        row.event_type === "return_adjustment",
+    );
+    expectMoney(saleEvent?.calculated_commission, "10.00");
+    expectMoney(returnEvent?.calculated_commission, "-10.00");
+
+    const ledger = await fetchCommissionLedgerRow(request, salespersonId);
+    expectMoney(ledger?.realized_pending_payout ?? "0.00", "0.00");
+  });
+
   test("fulfillment timing uses recognition date and staff rate snapshots report immutably", async ({
     request,
   }) => {
