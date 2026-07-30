@@ -81,9 +81,19 @@ const isBeforeBatchCloseout = () => {
 };
 
 type PresetId =
-  "today" | "yesterday" | "this_week" | "this_month" | "this_year" | "custom";
+  | "today"
+  | "yesterday"
+  | "this_week"
+  | "this_month"
+  | "this_year"
+  | "custom";
 type ZPresetId =
-  "recent" | "today" | "yesterday" | "this_week" | "this_month" | "custom";
+  | "recent"
+  | "today"
+  | "yesterday"
+  | "this_week"
+  | "this_month"
+  | "custom";
 
 interface ActivityItemDetail {
   name: string;
@@ -902,8 +912,6 @@ async function openZReportFromSession(
     closingNotes: snapshot?.closing_notes ?? session.closing_notes ?? null,
     closingComments:
       snapshot?.closing_comments ?? session.closing_comments ?? null,
-    unresolvedCloseIssues: snapshot?.unresolved_close_issues ?? null,
-    unresolvedIssuesContext: "closed",
     tenders: snapshot?.tenders ?? [],
     overrideSummary: snapshot?.override_summary ?? [],
     tendersByLane: snapshot?.tenders_by_lane ?? [],
@@ -1980,8 +1988,9 @@ export default function RegisterReports({
 
         if (payload.pop_cash_drawer) {
           try {
-            const { printReceiptBase64 } =
-              await import("../../lib/receiptPrint");
+            const { printReceiptBase64 } = await import(
+              "../../lib/receiptPrint"
+            );
             await printReceiptBase64("G3AAMvo=");
           } catch (e) {
             console.error("Cash drawer pop failed during void", e);
@@ -2375,9 +2384,7 @@ export default function RegisterReports({
                           parseMoneyToCents(
                             summaryBooked.sales_subtotal_no_tax,
                           ) +
-                            parseMoneyToCents(
-                              summaryBooked.sales_tax_total,
-                            ) +
+                            parseMoneyToCents(summaryBooked.sales_tax_total) +
                             parseMoneyToCents(summaryBooked.shipping_total),
                         )}
                       </p>
@@ -3140,7 +3147,9 @@ export default function RegisterReports({
                                     {row.tax_total ? (
                                       <div className="flex items-baseline gap-2 text-[11px] font-bold text-app-text-muted tabular-nums">
                                         <span>Tax</span>
-                                        <span>{moneyFromValue(row.tax_total)}</span>
+                                        <span>
+                                          {moneyFromValue(row.tax_total)}
+                                        </span>
                                       </div>
                                     ) : null}
                                     {parseMoneyToCents(

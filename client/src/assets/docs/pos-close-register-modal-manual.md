@@ -24,12 +24,15 @@ The **Close Register** workspace is the final step of a shift. It reconciles exp
 Use this workflow to close the live till group, reconcile tender totals, and produce the final Z-audit output for the shift.
 
 ## Till Group Closing
-Riverside OS uses a **lane-aggregated model**. Opening **Register #1 (Main)** automatically opens satellite lanes (iPad and Back Office). 
+
+Riverside OS uses a **lane-aggregated model**. Opening **Register #1 (Main)** automatically opens satellite lanes (iPad and Back Office).
+
 - To close the entire group, you **MUST** use the **Close Register** action on **Register #1**.
 - Opening Register #1 fixes the store-local **business date** for that entire open period. Closing Register #1 reconciles all satellite lanes and produces one Z-Report for that open period.
 - If yesterday's Register was left open, close it the following morning before opening a new period. Its Z-Report remains dated yesterday. Afterward, opening Register #1 creates today's period, and today's Z-Report contains today's register activity.
 
 ## The Reconciliation Flow
+
 1. **Cash**: Count bills and coins by denomination, or enter one drawer total.
 2. **Checks**: Confirm every check number and amount.
 3. **Z-Report**: Review totals, confirm the Daily Cash Deposit date and amount, add required notes, then tap **Close & Print Z-Report**.
@@ -40,7 +43,7 @@ The Z-Report page shows the exact **business date** assigned when Register #1 op
 
 Cash refunds processed before close are recorded as negative cash activity and reduce **Cash Sales (Gross)**, **Expected Cash**, and the amount available for deposit. If the physical count differs after a refund, the Z-Report must show the resulting over/short instead of remaining balanced.
 
-If a card terminal outcome needs review, use **Review** in the closing workflow or **POS → Payments** to record the outcome when possible. An unresolved card issue remains visible and is captured under **Unresolved Issues at Close**; it does not block the authorized close action.
+If a card terminal outcome needs review, use **Review** in the closing workflow or **POS → Payments** to record the outcome when possible. An unresolved card issue remains visible in the operational recovery and Payments Health workspaces and is retained with the close audit record; it does not block the authorized close action or print on the financial Z-Report.
 
 If **Checkout recovery** appears, Riverside OS has durable work that needs review: an offline sale waiting to sync, an online checkout whose server result was not confirmed, a paid pickup follow-up, an exchange replacement waiting for its return settlement, or a receipt retry. Register #1 asks every linked workstation to acknowledge its local checkout queue after reconciliation begins. The close panel reports local, Main Hub, and linked-workstation evidence separately; it never treats a missing acknowledgement as an empty queue or hides it, but that warning does not prevent an authorized close.
 
@@ -52,7 +55,7 @@ For a paid order follow-up, complete every named shipping, pickup, or alteration
 
 Use **Complete Exchange Settlement** for a saved exchange replacement whose original return settlement did not finish. This requires Manager Access, a reason of at least 12 characters, and the currently authenticated Register session. Riverside locks the exact Main Hub recovery record, derives all amounts and return details from its saved server snapshot, verifies the replacement checkout identity and the original exchange-credit tender against the origin Register session, then records any new relief or refund movement in the current Register session. It refreshes the reconciliation totals after completion. If a linked provider card refund was intentionally deferred, the close panel keeps its exact remaining amount visible and directs staff to finish it from the original Transaction Record; it does not claim that provider refund completed. A legacy or altered record without complete server provenance remains visible and is rejected instead of moving money.
 
-If recovery work remains after staff review, use **Close & Print Z-Report**, then approve **Close Register With Unresolved Issues** with Manager Access. This approval only authorizes the close: it never replays a checkout, creates a sale, attaches a payment, or dismisses an issue. Riverside captures the exact issues visible immediately before close under **Unresolved Issues at Close** and uses the same Main Hub-frozen tender reconciliation for the immediate and archived Z-Report.
+If recovery work remains after staff review, use **Close & Print Z-Report**, then approve **Close Register With Unresolved Issues** with Manager Access. This approval only authorizes the close: it never replays a checkout, creates a sale, attaches a payment, or dismisses an issue. Riverside retains the exact issues visible immediately before close in the close audit record and operational recovery workspaces without printing them on the financial Z-Report. The immediate and archived Z-Reports use the same Main Hub-frozen tender reconciliation.
 
 Every completed Z-Report includes the **Quick Look** totals. Before committing the close, the Main Hub builds and verifies the complete booked-day summary inside one read-only database snapshot and includes those totals in the immutable close response. If the complete totals cannot be finalized, Riverside leaves the Register open and shows an error instead of printing or archiving a partial Z-Report. A recovered sale posted later remains tied to the original Register session and is recorded as post-close recovery when applicable.
 
@@ -65,24 +68,26 @@ The Z-Report step includes a ROSIE explainer for visible close facts: expected c
 ROSIE does not close the register, change tender totals, change counted cash, approve payment outcomes, or remove required notes. Treat the explainer as a plain-English review aid before the normal close controls.
 
 ## Professional Z-Report
-Upon closing, a professional, full-page **Z-Audit Report** is generated. 
+
+Upon closing, a professional, full-page **Z-Audit Report** is generated.
+
 - **Audit Grade**: Produces high-fidelity Letter/A4 documents for accounting review.
 - **Reporting Station**: The header confirms the assigned printer name for accountability.
 - **Open-period audit dates**: The header separates the business date from the open timestamp, close timestamp, and current print date/time.
 - **Per-Transaction Subtotal Before Tax**: The audit list separates sales subtotal before tax from payment totals. Alteration charges count in sales and are also shown in their separate daily total. Shipping is shown separately and does not increase sales or commissions. Gift-card loads are separate liability activity and are not included in sales.
 - **Line Discounts**: Each transaction line shows the final line price plus the regular price and discount percent applied.
-- **Daily Cash Deposit**: Captures the bank deposit date and cash deposit amount for deposit verification and accounting review.
-- **Unresolved Issues at Close**: Freezes the exact card, recovery, and linked-workstation warnings that existed immediately before close. Recovery entries include their close-time kind, status, label, identifiers, timestamps, attempt count, and last error when available. Before close, the preview is explicitly labeled as current preview evidence; only the completed close labels the evidence **at close**. Later repair does not rewrite the archived report.
+- **Deposit totals**: Captures the bank deposit date, Cash Deposit, Checks for Deposit, and their combined Total Deposit for accounting review.
+- **Operational follow-up**: Card, recovery, and linked-workstation warnings remain visible in the close workflow, Payments Health, and the audited close record. They are not printed on the financial Z-Report.
 - **QBO Preview**: Shows the journal-entry breakdown staged for QuickBooks review.
 - **Inventory Activity**: Lists non-sale inventory moves for the day, including Receiving, RTV, Damaged, Physical Count, and Adjustments.
 - **Routing**: In the desktop app, the Z-Report prints through the configured Reports printer instead of the receipt printer or an external browser tab. ROS waits for that print dispatch before leaving close and shows a message if the Reports printer path fails. The report header shows the saved Reports printer name for accountability.
 
 ## Recovery and escalation
 
-The final pending business-day close is final for the till group. Review cash, card, gift card, pickup completion, checkout recovery, and RMS/R2S evidence before closing. Repair issues when practical; otherwise assign an owner and use the dedicated Manager Access close approval. The Z-Report must list every unresolved issue that existed immediately before close, and the issue must remain available for later audited recovery. Required cash, check, deposit-date, and over-$5 discrepancy-note inputs still must be completed.
-
+The final pending business-day close is final for the till group. Review cash, card, gift card, pickup completion, checkout recovery, and RMS/R2S evidence before closing. Repair issues when practical; otherwise assign an owner and use the dedicated Manager Access close approval. Every unresolved issue that existed immediately before close remains available in the operational recovery workspace and retained close audit record, but is not printed on the financial Z-Report. Required cash, check, deposit-date, and over-$5 discrepancy-note inputs still must be completed.
 
 ## Tips
+
 - **No mid-shift "X"**: Mid-shift counts should use the live Dashboard. The Z-close is a permanent shift-ending action.
 - **Hardware Decoupling**: Ensure your **Report Printer** is correctly assigned in **Settings -> Printers & Scanners** to avoid routing Z-reports to the thermal receipt printer.
 

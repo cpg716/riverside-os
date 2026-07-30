@@ -39,10 +39,7 @@ import type { FulfillmentKind } from "../pos/types";
 import VariantSearchInput from "../ui/VariantSearchInput";
 import RosieInsightSummary from "../help/RosieInsightSummary";
 import TransactionAttributionModal from "../pos/TransactionAttributionModal";
-import {
-  isOrderStatus,
-  normalizeOrderStatus,
-} from "../pos/orderLoadStatus";
+import { isOrderStatus, normalizeOrderStatus } from "../pos/orderLoadStatus";
 
 function fmtMoney(v: string | number): string {
   return formatUsdFromCents(parseMoneyToCents(v));
@@ -162,7 +159,11 @@ export interface TransactionDrawerAudit {
 }
 
 export interface TransactionDrawerOrderActions {
-  onOpenInRegister?: (orderId: string, forPickup?: boolean, returnLineId?: string) => void;
+  onOpenInRegister?: (
+    orderId: string,
+    forPickup?: boolean,
+    returnLineId?: string,
+  ) => void;
   onAttachToWedding?: () => void;
   onCancel?: () => void;
   onReturnAll?: () => void;
@@ -333,9 +334,10 @@ function auditEventSummary(event: TransactionDrawerAudit): string {
   ) {
     const quantity =
       typeof metadata.quantity === "number" ? metadata.quantity : null;
-    const removed = quantity === null
-      ? `Removed ${itemLabel}.`
-      : `Removed ${quantity}× ${itemLabel}.`;
+    const removed =
+      quantity === null
+        ? `Removed ${itemLabel}.`
+        : `Removed ${quantity}× ${itemLabel}.`;
     return event.event_kind === "item_removed_for_refund"
       ? `${removed} Refund credit preserved on this Transaction Record.`
       : removed;
@@ -459,6 +461,14 @@ function lifecycleStatusTone(
   return "warning";
 }
 
+function remainingItemQuantity(item: TransactionDrawerItem): number {
+  return Math.max(0, item.quantity - Math.max(0, item.quantity_returned ?? 0));
+}
+
+function isFullyReturned(item: TransactionDrawerItem): boolean {
+  return (item.quantity_returned ?? 0) > 0 && remainingItemQuantity(item) === 0;
+}
+
 function orderLifecycleCounts(detail: TransactionDrawerDetail) {
   const counts = ORDER_LIFECYCLE_STEPS.reduce(
     (acc, step) => ({ ...acc, [step.key]: 0 }),
@@ -466,7 +476,12 @@ function orderLifecycleCounts(detail: TransactionDrawerDetail) {
   );
 
   detail.items
-    .filter((item) => !item.is_internal && item.fulfillment !== "takeaway")
+    .filter(
+      (item) =>
+        !item.is_internal &&
+        item.fulfillment !== "takeaway" &&
+        !isFullyReturned(item),
+    )
     .forEach((item) => {
       const stepKey = item.is_fulfilled
         ? "picked_up"
@@ -483,12 +498,14 @@ function orderLifecycleCounts(detail: TransactionDrawerDetail) {
     needsReadyCheck: detail.items.filter(
       (item) =>
         !item.is_internal &&
+        !isFullyReturned(item) &&
         !item.is_fulfilled &&
         item.order_lifecycle_status === "received",
     ).length,
     readyNow: detail.items.filter(
       (item) =>
         !item.is_internal &&
+        !isFullyReturned(item) &&
         !item.is_fulfilled &&
         item.order_lifecycle_status === "ready_for_pickup",
     ).length,
@@ -499,6 +516,9 @@ function lineNextAction(
   item: TransactionDrawerItem,
   detail: TransactionDrawerDetail,
 ): string {
+  if (isFullyReturned(item)) {
+    return "Return is complete.";
+  }
   if (item.is_fulfilled || item.order_lifecycle_status === "picked_up") {
     return detail.fulfillment_method === "ship"
       ? "Completed for shipping."
@@ -535,6 +555,9 @@ function lineNextAction(
 }
 
 function lineNotificationState(item: TransactionDrawerItem): string {
+  if (isFullyReturned(item)) {
+    return "Returned.";
+  }
   if (item.is_fulfilled || item.order_lifecycle_status === "picked_up") {
     return "Completed.";
   }
@@ -614,7 +637,9 @@ function deriveLifecycleOverview(
 }
 
 function fulfillmentSummary(detail: TransactionDrawerDetail) {
-  const customerVisibleItems = detail.items.filter((item) => !item.is_internal);
+  const customerVisibleItems = detail.items.filter(
+    (item) => !item.is_internal && !isFullyReturned(item),
+  );
   const fulfilledItems = customerVisibleItems.filter(
     (item) => item.is_fulfilled,
   );
@@ -1137,7 +1162,10 @@ export default function TransactionDetailDrawer({
     const openLines =
       detail?.items.filter(
         (item) =>
-          !item.is_internal && !item.is_fulfilled && item.transaction_line_id,
+          !item.is_internal &&
+          !isFullyReturned(item) &&
+          !item.is_fulfilled &&
+          item.transaction_line_id,
       ) ?? [];
     return {
       open: openLines,
@@ -2124,7 +2152,10 @@ export default function TransactionDetailDrawer({
                         ? "These items still need shipping work."
                         : "These items still need details, ordering, receiving, or pickup work.",
                     items: detail.items.filter(
-                      (item) => !item.is_internal && !item.is_fulfilled,
+                      (item) =>
+                        !item.is_internal &&
+                        !isFullyReturned(item) &&
+                        !item.is_fulfilled,
                     ),
                   },
                   {
@@ -2135,7 +2166,19 @@ export default function TransactionDetailDrawer({
                         ? "These items are already completed for shipping."
                         : "These items are already picked up.",
                     items: detail.items.filter(
-                      (item) => !item.is_internal && item.is_fulfilled,
+                      (item) =>
+                        !item.is_internal &&
+                        !isFullyReturned(item) &&
+                        item.is_fulfilled,
+                    ),
+                  },
+                  {
+                    key: "returned",
+                    title: "Returned Items",
+                    description:
+                      "These items were returned and no longer require pickup or shipping work.",
+                    items: detail.items.filter(
+                      (item) => !item.is_internal && isFullyReturned(item),
                     ),
                   },
                 ]
@@ -2153,7 +2196,7 @@ export default function TransactionDetailDrawer({
                         </div>
                         <span
                           className={`rounded-full border px-2 py-1 text-[9px] font-black uppercase tracking-widest ${badgeClassName(
-                            group.key === "fulfilled" ? "success" : "warning",
+                            group.key === "open" ? "warning" : "success",
                           )}`}
                         >
                           {countLabel(group.items.length, "item")}
@@ -2163,43 +2206,48 @@ export default function TransactionDetailDrawer({
                         const itemId =
                           item.order_item_id ?? item.transaction_line_id;
                         const returnedQty = item.quantity_returned ?? 0;
-                        const lifecycleLabel =
-                          lifecycleStatusLabel(
-                            item.order_lifecycle_status,
-                            item.alteration_status,
-                          ) ??
-                          (item.fulfillment !== "takeaway"
-                            ? "Details needed"
-                            : null);
-                        const lifecycleTone = lifecycleStatusTone(
-                          item.order_lifecycle_status,
-                          item.alteration_status,
-                          item.is_fulfilled,
-                        );
+                        const fullyReturned = isFullyReturned(item);
+                        const lifecycleLabel = fullyReturned
+                          ? "Returned"
+                          : (lifecycleStatusLabel(
+                              item.order_lifecycle_status,
+                              item.alteration_status,
+                            ) ??
+                            (item.fulfillment !== "takeaway"
+                              ? "Details needed"
+                              : null));
+                        const lifecycleTone = fullyReturned
+                          ? "success"
+                          : lifecycleStatusTone(
+                              item.order_lifecycle_status,
+                              item.alteration_status,
+                              item.is_fulfilled,
+                            );
                         const nextAction = lineNextAction(item, detail);
                         const notificationState = lineNotificationState(item);
                         const canEditCustomOrderDetails = Boolean(
                           item.custom_item_type &&
-                            customOrderSubtypeForSku(item.sku),
+                          customOrderSubtypeForSku(item.sku),
                         );
                         const canMarkReady = Boolean(
                           item.order_lifecycle_status === "received" &&
-                            item.transaction_line_id &&
-                            !item.is_fulfilled,
+                          item.transaction_line_id &&
+                          !item.is_fulfilled &&
+                          !fullyReturned,
                         );
-                        const returnableQty = Math.max(0, item.quantity - returnedQty);
+                        const returnableQty = remainingItemQuantity(item);
                         const canReturnLine = Boolean(
                           orderActions?.canModify &&
-                            !isOrderStatus(detail.status, "cancelled") &&
-                            orderActions.onReturnLine &&
-                            item.transaction_line_id &&
-                            returnableQty > 0,
+                          !isOrderStatus(detail.status, "cancelled") &&
+                          orderActions.onReturnLine &&
+                          item.transaction_line_id &&
+                          returnableQty > 0,
                         );
                         return (
                           <div
                             key={itemId ?? `${item.sku}-${item.product_name}`}
                             className={`rounded-xl border p-4 ${
-                              item.is_fulfilled
+                              item.is_fulfilled || fullyReturned
                                 ? "border-emerald-500/15 bg-emerald-500/5"
                                 : "border-app-border bg-app-surface"
                             }`}
@@ -2212,10 +2260,16 @@ export default function TransactionDetailDrawer({
                                   </p>
                                   <span
                                     className={`rounded-full border px-2 py-1 text-[9px] font-black uppercase tracking-widest ${badgeClassName(
-                                      item.is_fulfilled ? "success" : "warning",
+                                      item.is_fulfilled || fullyReturned
+                                        ? "success"
+                                        : "warning",
                                     )}`}
                                   >
-                                    {item.is_fulfilled ? "Fulfilled" : "Open"}
+                                    {fullyReturned
+                                      ? "Returned"
+                                      : item.is_fulfilled
+                                        ? "Fulfilled"
+                                        : "Open"}
                                   </span>
                                   <span
                                     className={`rounded-full border px-2 py-1 text-[9px] font-black uppercase tracking-widest ${badgeClassName(
@@ -2314,6 +2368,7 @@ export default function TransactionDetailDrawer({
                                 {orderActions?.canModify &&
                                 !isOrderStatus(detail.status, "cancelled") &&
                                 !item.is_fulfilled &&
+                                !fullyReturned &&
                                 orderActions.updateLine &&
                                 item.transaction_line_id ? (
                                   <div className="flex items-center gap-1">
@@ -2335,6 +2390,7 @@ export default function TransactionDetailDrawer({
                                 ) : null}
                                 {orderActions?.canModify &&
                                 !isOrderStatus(detail.status, "cancelled") &&
+                                !fullyReturned &&
                                 orderActions.deleteLine &&
                                 itemId ? (
                                   <button
@@ -3012,7 +3068,10 @@ export default function TransactionDetailDrawer({
                         value={managerStaffId}
                         onChange={(event) => {
                           setManagerStaffId(event.target.value);
-                          localStorage.setItem("ros_last_staff_id", event.target.value);
+                          localStorage.setItem(
+                            "ros_last_staff_id",
+                            event.target.value,
+                          );
                         }}
                         disabled={readyBusy}
                         className="mt-1 h-10 w-full rounded-lg border border-app-border bg-app-surface px-3 text-sm font-semibold outline-none"
@@ -3039,7 +3098,8 @@ export default function TransactionDetailDrawer({
                     </label>
                     <p className="sm:col-span-2 text-xs font-semibold text-app-text-muted">
                       Use Manager Access only when your current Staff Access
-                      cannot perform lifecycle repair or when bypassing ready checks.
+                      cannot perform lifecycle repair or when bypassing ready
+                      checks.
                     </p>
                   </div>
                   {readyError ? (
@@ -3080,7 +3140,9 @@ export default function TransactionDetailDrawer({
           baseUrl={baseUrl}
           getAuthHeaders={auth}
           refundEventId={detail?.receipt_refund_event_id ?? null}
-          receiptEventTransactionId={detail?.receipt_event_transaction_id ?? null}
+          receiptEventTransactionId={
+            detail?.receipt_event_transaction_id ?? null
+          }
           exchangeReturnTransactionId={
             detail?.receipt_refund_event_id
               ? (detail.receipt_event_transaction_id ?? orderId)

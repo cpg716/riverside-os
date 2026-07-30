@@ -48,7 +48,7 @@ Read this **before** a storm or ISP outage. Know what you **can** promise custom
 | Symptom | What to try first | If that fails |
 |--------|-------------------|---------------|
 | Sales stuck “pending sync” | Wait; move device to stronger Wi‑Fi | Manager — do not double-charge |
-| Checkout recovery needs review | Stop duplicate attempts and call a manager | Manager reviews/retries/exports; if it remains open, close normally and verify it appears under **Unresolved Issues at Close** |
+| Checkout recovery needs review | Stop duplicate attempts and call a manager | Manager reviews/retries/exports; if it remains open, close normally and verify it remains visible in the operational recovery workspace |
 | Duplicate charge fear | Compare **receipt #** on paper vs screen | Orders lead |
 | “Online only” error on BO | Expected | Wait for network |
 | Tailscale down | Check phone **cellular** | See [`REMOTE_ACCESS_GUIDE.md`](../REMOTE_ACCESS_GUIDE.md) |

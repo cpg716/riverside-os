@@ -10,9 +10,7 @@ function repoFile(relativePath: string): string {
 }
 
 const cart = repoFile("client/src/components/pos/Cart.tsx");
-const orderLoadModal = repoFile(
-  "client/src/components/pos/OrderLoadModal.tsx",
-);
+const orderLoadModal = repoFile("client/src/components/pos/OrderLoadModal.tsx");
 const checkoutDrawer = repoFile(
   "client/src/components/pos/NexoCheckoutDrawer.tsx",
 );
@@ -52,12 +50,8 @@ test("paid order cancellation hands the refund directly back to the Register", (
   expect(orderLoadModal).not.toContain(
     "Any refund due was queued for Register refund processing.",
   );
-  expect(cart).toContain(
-    "onCancelledToRefundCart={(order) =>",
-  );
-  expect(cart).toContain(
-    "CANCEL_TRANSACTION_REFUND_HANDOFF",
-  );
+  expect(cart).toContain("onCancelledToRefundCart={(order) =>");
+  expect(cart).toContain("CANCEL_TRANSACTION_REFUND_HANDOFF");
   expect(cart).toContain(
     "return_tender_cancel_transaction: cancellationRefund",
   );
@@ -74,10 +68,10 @@ test("paid order cancellation hands the refund directly back to the Register", (
   expect(transactionsApi).toContain(
     '"Paid order cancelled with completed refund"',
   );
+  expect(cart).toContain("Select Original Card to complete the Helcim refund.");
   expect(cart).toContain(
-    "Select Original Card to complete the Helcim refund.",
+    "[detail.transaction_id]: Array.from(settledReturnLinesById.values())",
   );
-  expect(cart).toContain("[detail.transaction_id]: Array.from(settledReturnLinesById.values())");
   expect(cart).toContain("returnLineIntegrityOk:");
   expect(cart).toContain(
     "Refund blocked before tender: the selected item details are incomplete.",
@@ -95,6 +89,15 @@ test("paid order cancellation hands the refund directly back to the Register", (
   expect(transactionsApi).toContain(
     "cancelled_refund_receipt_rows(original_detail, refund_total, created_at)",
   );
+});
+
+test("fully returned order lines do not remain open for pickup", () => {
+  expect(transactionDetailDrawer).toContain("!isFullyReturned(item) &&");
+  expect(transactionDetailDrawer).toContain('title: "Returned Items"');
+  expect(transactionDetailDrawer).toContain(
+    "These items were returned and no longer require pickup or shipping work.",
+  );
+  expect(transactionDetailDrawer).toContain('return "Return is complete.";');
 });
 
 test("direct paid returns cannot bypass Record Sale atomicity", () => {
@@ -117,16 +120,16 @@ test("deferred original-card refunds retain the server event and exact provider 
     "The refund was recorded, but its provider confirmation could not be loaded.",
   );
 
-  expect(checkoutDrawer).toContain(
-    'label: "HELCIM REFUND — PENDING APPROVAL"',
-  );
+  expect(checkoutDrawer).toContain('label: "HELCIM REFUND — PENDING APPROVAL"');
   expect(checkoutDrawer).toContain(
     "? `Refund $${centsToFixed2(Math.abs(p.amountCents))}`",
   );
 });
 
 test("receipt generation is event-scoped while detail stays on the replacement transaction", () => {
-  const queryStart = receiptModal.indexOf("const buildReceiptQuery = useCallback");
+  const queryStart = receiptModal.indexOf(
+    "const buildReceiptQuery = useCallback",
+  );
   const queryEnd = receiptModal.indexOf(
     "const shouldKickCashDrawer",
     queryStart,
@@ -172,20 +175,20 @@ test("approval UI and Daily Sales reprints retain one refund event", () => {
   );
   expect(receiptModal).toContain("refundResult.refund_amount");
   expect(receiptModal).toContain("refundResult.provider_refund_id");
-  expect(receiptModal).toContain("refundResult.original_provider_transaction_id");
+  expect(receiptModal).toContain(
+    "refundResult.original_provider_transaction_id",
+  );
   expect(receiptModal).toContain("refundResult.card_last4");
 
   expect(registerReports).toContain("refund_event_id?: string | null");
-  expect(registerReports).toContain("replacement_transaction_id?: string | null");
+  expect(registerReports).toContain(
+    "replacement_transaction_id?: string | null",
+  );
   expect(registerReports).toContain(
     "normalizeActivityId(row.replacement_transaction_id)",
   );
-  expect(registerReports).toContain(
-    "setReceiptRefundEventId(",
-  );
-  expect(registerReports).toContain(
-    "normalizeActivityId(row.transaction_id)",
-  );
+  expect(registerReports).toContain("setReceiptRefundEventId(");
+  expect(registerReports).toContain("normalizeActivityId(row.transaction_id)");
   expect(registerReports).toContain(
     "receiptEventTransactionId={receiptEventTransactionId}",
   );
@@ -198,8 +201,9 @@ test("transaction history reprints settled exchanges through the event receipt",
   expect(transactionDetailDrawer).toContain(
     "refundEventId={detail?.receipt_refund_event_id ?? null}",
   );
+  expect(transactionDetailDrawer).toContain("receiptEventTransactionId={");
   expect(transactionDetailDrawer).toContain(
-    "receiptEventTransactionId={detail?.receipt_event_transaction_id ?? null}",
+    "detail?.receipt_event_transaction_id ?? null",
   );
   expect(transactionDetailDrawer).toContain(
     'if (detail.exchange_group_id) return "Exchange"',
@@ -229,7 +233,9 @@ test("idle security locks and rejoins the existing drawer without closing it", (
   );
   expect(posShell).toContain('accessMode="unlock"');
   expect(registerOverlay).toContain("Register Locked");
-  expect(registerOverlay).toContain('data-testid="pos-register-idle-lock-overlay"');
+  expect(registerOverlay).toContain(
+    'data-testid="pos-register-idle-lock-overlay"',
+  );
   expect(registerOverlay).toContain("The drawer remains open.");
   expect(registerOverlay).toContain("if (unlocking) {");
   expect(registerOverlay).toContain(

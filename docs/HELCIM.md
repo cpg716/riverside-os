@@ -175,7 +175,7 @@ Configure Helcim webhooks only when ROS has a public HTTPS API URL that Helcim c
 4. Enable the Helcim events ROS handles: `cardTransaction` and `terminalCancel`.
 5. Copy the Helcim webhook verifier/signing token into Settings -> Helcim -> Optional webhook signing secret.
 6. Confirm the public route reaches ROS from **Settings -> Remote Access -> Run Live Callback Check**. Cloudflare `502`, `1033`, `403`, or HTML challenge responses mean Helcim cannot deliver to ROS.
-7. Send a test or live terminal event and verify it in Payments -> Health under Payment Updates and Helcim Terminal Review. If a terminal outcome needs review at Z-close, staff can record the outcome in the POS close flow; this creates a recovery audit row without recording a payment, refund, or ledger mutation. An unresolved outcome remains visible and fixable, does not block ordinary authorized close, and appears under **Unresolved Issues at Close** in the immediate and archived Z-Report.
+7. Send a test or live terminal event and verify it in Payments -> Health under Payment Updates and Helcim Terminal Review. If a terminal outcome needs review at Z-close, staff can record the outcome in the POS close flow; this creates a recovery audit row without recording a payment, refund, or ledger mutation. An unresolved outcome remains visible and fixable, does not block ordinary authorized close, and remains in Payments Health and the audited close record without printing on the financial Z-Report.
 
 Do not use `localhost`, `127.0.0.1`, a register workstation URL, or any non-HTTPS URL as the Helcim delivery URL.
 

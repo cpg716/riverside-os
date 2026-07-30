@@ -91,7 +91,7 @@ Before pilot, rehearse these scenarios with the real terminal path the store wil
 | Terminal pending longer than expected | Keep the checkout open and use **Recover payment**. Do not clear locally, retry the card, or use another tender until the server confirms a definitive provider result. | |
 | Terminal approved but ROS not finalized | Manager checks Helcim, repairs the payment link or records a close review note, and does not retry blindly. | |
 | Terminal cancel | Attempt is canceled or marked unresolved with manager review before close. | |
-| Offline queue exists before close | Review or assign the recovery; authorized ordinary Z-close remains available and records the exact issue under **Unresolved Issues at Close** without resolving it. | |
+| Offline queue exists before close | Review or assign the recovery; authorized ordinary Z-close remains available and retains the exact issue in the close audit record and operational recovery workspace without resolving it or printing it on the financial Z-Report. | |
 | Linked card refund | Refund records only after provider approval and appears in end-of-day review. | |
 | Register close after payment recovery | Z-report can be completed; any approved Helcim payment missing from ROS is listed for review instead of blocking close. | |
 

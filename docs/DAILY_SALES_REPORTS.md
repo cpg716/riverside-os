@@ -128,7 +128,8 @@ Register session closure history.
 - Open/Close times
 - Total sales
 - Expected cash
-- Daily Cash Deposit date and amount
+- Daily Cash Deposit date and cash amount
+- Checks for Deposit and combined Total Deposit
 
 **Controls:**
 - Period presets: Recent, Today, Yesterday, This week, This month, Custom

@@ -22,7 +22,7 @@ Continue as Green when:
 
 - Register close reconciles.
 - Refunds and exchanges are explainable and reviewed.
-- Any unresolved payment state has an owner and appears under **Unresolved Issues at Close** without preventing ordinary authorized close.
+- Any unresolved payment state has an owner and remains visible in Payments Health or the operational recovery workspace without preventing ordinary authorized close.
 - QBO/RMS issues are assigned and not blocking reconciliation.
 - Staff can complete core workflows without repeated coaching.
 - Customer waits are normal for retail service.
@@ -56,7 +56,7 @@ Limit or pause a workflow when:
 - A staff member cannot recover interrupted work.
 - Customer/member identity or garment pickup status is uncertain.
 - Refund or payment confidence depends on memory instead of record evidence.
-- A register-close warning cannot be explained, assigned, or found in the archived **Unresolved Issues at Close** evidence.
+- A register-close warning cannot be explained, assigned, or found in Payments Health, the operational recovery workspace, or the retained close audit record.
 - Inventory or receiving result is unclear after posting.
 
 Required action:

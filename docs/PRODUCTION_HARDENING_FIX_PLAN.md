@@ -9,7 +9,7 @@ This plan resolves the audit findings in `docs/reviews/PRODUCTION_HARDENING_AUDI
    - Change `offlineQueue` so 4xx replay responses mark items as `blocked` instead of deleting them.
    - Show blocked queue details in the top bar/register surface with response status and operator action.
    - Keep pending or blocked checkout queue items visible with their repair actions while ordinary authorized register close remains available. Closing must not resolve them.
-   - Freeze the exact pre-close issues under **Unresolved Issues at Close** in both immediate and archived Z-Reports; later recovery must not rewrite that snapshot.
+   - Freeze the exact pre-close issues in the audited close record while keeping them off immediate and archived financial Z-Reports; later recovery must not rewrite that snapshot.
    - Verification: the earlier blocking contract and its 2026-04-25 result are superseded. `client/e2e/offline-recovery-contract.spec.ts`, `register-audit-contract.spec.ts`, and report-output coverage must prove queue retention, nonblocking close, true required-input gates, and immutable at-close evidence.
 
 2. **QBO balanced-journal enforcement**

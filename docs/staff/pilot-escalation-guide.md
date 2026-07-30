@@ -20,7 +20,7 @@ Manager:
 1. Check whether payment was attempted.
 2. Review recovery/payment status.
 3. Decide whether to resume, retry, park, or document.
-4. Review or assign the recovery. Ordinary authorized close remains available and must record the unresolved issue on the Z-Report.
+4. Review or assign the recovery. Ordinary authorized close remains available and retains the unresolved issue in its operational workspace and close audit record without printing it on the financial Z-Report.
 
 ---
 
@@ -120,7 +120,7 @@ Manager:
 
 1. Identify an owner.
 2. Resolve if possible.
-3. If unresolved, document the reason and next review time, then verify the exact warning appears under **Unresolved Issues at Close**. Closing does not resolve it.
+3. If unresolved, document the reason and next review time, then verify the exact warning remains visible in Payments Health or the operational recovery workspace and is retained with the close audit record. Closing does not resolve it.
 
 ---
 

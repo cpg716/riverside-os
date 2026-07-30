@@ -15,6 +15,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Faster Fail-Closed Windows Releases**: Same-tag Windows release reruns now cancel the superseded workflow instead of waiting behind assets that cannot be published. Signed component compilation overlaps the pre-retag gate, while package publication still requires both that gate and exact-commit Playwright success. Independent Rust caches now retain Riverside workspace-crate outputs so restored caches can accelerate repeat builds instead of preserving dependencies only. The release-contract validator normalizes Windows CRLF checkouts before evaluating workflow structure.
 
 ### Fixed
+- **Z-Report Check and Deposit Reconciliation**: Register close now reviews
+  each check from its authoritative payment tender instead of a partial
+  Transaction allocation. Z-Reports include checks in every per-register
+  breakdown and show Cash Deposit, Checks for Deposit, and their combined
+  Total Deposit. Operational recovery warnings remain available in their
+  audited workflows but no longer fill the financial Z-Report.
+- **Nathan Webster Manual Card Refund Reconciliation**: Reconstructed the
+  removed shirt on `TXN-566201` as a non-restocking itemized return and recorded
+  the externally completed `$67.04` manual card credit through guarded
+  migration 173. The picked-up suit remains unchanged and the Transaction
+  Record now reconciles to a `$0.00` balance. Fully returned merchandise is
+  presented under **Returned Items** instead of remaining open for pickup.
 - **Glenn Jones WALK-IN Sale Attribution**: Reassigned the reviewed completed
   `TXN-624853` WALK-IN sale and its sole successful card payment to Glenn Jones
   (`GLENN-D8P9`) without changing merchandise, tax, inventory, fulfillment,

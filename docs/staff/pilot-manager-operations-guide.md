@@ -50,7 +50,7 @@ If close shows a warning:
 3. Resolve recovery warnings before final close whenever practical.
 4. If unresolved at close, document why, who owns it, and next review time.
 
-Use the ordinary authorized close after required inputs are complete. Never dismiss or hide a warning to make the day look clean; verify it appears under **Unresolved Issues at Close**, where later repair cannot rewrite the archived evidence.
+Use the ordinary authorized close after required inputs are complete. Never dismiss or hide a warning to make the day look clean; verify it remains visible in the operational recovery or Payments Health workspace and is retained with the close audit record. Operational warnings do not print on the financial Z-Report.
 
 ---
 
@@ -88,7 +88,7 @@ When recovery is pending or blocked:
 4. Resolve before register close when possible.
 5. If it cannot be resolved, document owner and next action.
 
-Never recreate an unknown completed sale. Assign it for recovery and verify it appears under **Unresolved Issues at Close**; ordinary authorized close remains available and does not resolve the sale.
+Never recreate an unknown completed sale. Assign it for recovery and verify it remains visible in the operational recovery or Payments Health workspace; ordinary authorized close remains available and does not resolve the sale.
 
 ---
 

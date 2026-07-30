@@ -88,39 +88,6 @@ export interface ZReportInventoryActivityRow {
   staff_name?: string | null;
 }
 
-export interface ZReportHelcimCloseIssue {
-  id: string;
-  register_session_id: string;
-  register_lane: number;
-  status: string;
-  amount_cents: number;
-  selected_terminal_key?: string | null;
-  review_reason: string;
-  created_at: string;
-}
-
-export interface ZReportRecoveryJobEvidence {
-  client_job_key: string;
-  kind: string;
-  status: string;
-  register_session_id: string | null;
-  transaction_id: string | null;
-  checkout_client_id: string | null;
-  station_key: string | null;
-  label: string | null;
-  last_error: string | null;
-  attempt_count: number;
-  first_seen_at: string | null;
-  last_seen_at: string | null;
-}
-
-export interface ZReportUnresolvedCloseIssues {
-  recovery_job_keys: string[];
-  recovery_jobs?: ZReportRecoveryJobEvidence[];
-  station_warnings: string[];
-  helcim_attempts: ZReportHelcimCloseIssue[];
-}
-
 type ZReportAuditItem = {
   name: string;
   sku: string;
@@ -147,12 +114,6 @@ function formatReportMoney(value: string | number): string {
     typeof value === "number" ? value : parseRegisterReportMoneyToCents(value);
   const sign = cents < 0 ? "-" : "";
   return `${sign}$${centsToFixed2(Math.abs(cents))}`;
-}
-
-function formatReportTimestamp(value: string | null | undefined): string {
-  if (!value) return "Not recorded";
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
 }
 
 function isCreditCardTender(method: string): boolean {
@@ -790,10 +751,6 @@ export async function openProfessionalZReportPrint(opts: {
   qboJournal?: ZReportQboJournal | null;
   qboJournalError?: string | null;
   inventoryActivity?: ZReportInventoryActivityRow[];
-  /** Unresolved payment/recovery evidence for the selected preview or closed snapshot. */
-  unresolvedCloseIssues?: ZReportUnresolvedCloseIssues | null;
-  /** Distinguishes live pre-close review from an immutable closed Z snapshot. */
-  unresolvedIssuesContext: "preview" | "closed";
   /** Optional payment lines for audit trail. */
   transactions?: ZReportPrintTransaction[];
   pickupsToday: {
@@ -1026,30 +983,15 @@ export async function openProfessionalZReportPrint(opts: {
     opts.tendersByLane && opts.tendersByLane.length > 0
       ? opts.tendersByLane
           .map((lane) => {
-            const cashTotal = lane.tenders
-              .filter(
-                (tender) =>
-                  normalizedTenderKey(tender.payment_method) === "cash",
-              )
-              .reduce(
-                (sum, tender) => sum + parseMoneyToCents(tender.total_amount),
-                0,
-              );
-            const cashCount = lane.tenders
-              .filter(
-                (tender) =>
-                  normalizedTenderKey(tender.payment_method) === "cash",
-              )
-              .reduce((sum, tender) => sum + tender.tx_count, 0);
-            const ccTotal = creditCardTenderTotalCents(lane.tenders);
-            const ccCount = creditCardTenderCount(lane.tenders);
+            const laneSummary = summarizeTenderFamilies(lane.tenders);
             return `
               <div class="lane-block">
                 <p class="subhead">Register #${lane.register_lane}</p>
                 <table>
                   <tbody>
-                    <tr><td>Cash Total</td><td class="center">${cashCount}</td><td class="money">${formatReportMoney(cashTotal)}</td></tr>
-                    <tr><td>CC Total</td><td class="center">${ccCount}</td><td class="money">${formatReportMoney(ccTotal)}</td></tr>
+                    <tr><td>Cash Total</td><td class="center">${laneSummary.cash.txCount}</td><td class="money">${formatReportMoney(laneSummary.cash.amountCents)}</td></tr>
+                    <tr><td>CC Total</td><td class="center">${laneSummary.card.txCount}</td><td class="money">${formatReportMoney(laneSummary.card.amountCents)}</td></tr>
+                    <tr><td>Checks Total</td><td class="center">${laneSummary.checks.txCount}</td><td class="money">${formatReportMoney(laneSummary.checks.amountCents)}</td></tr>
                   </tbody>
                 </table>
               </div>
@@ -1219,70 +1161,6 @@ export async function openProfessionalZReportPrint(opts: {
         .join("")
     : "";
 
-  const unresolvedCloseIssues = opts.unresolvedCloseIssues;
-  const unresolvedRecoveryKeys = unresolvedCloseIssues?.recovery_job_keys ?? [];
-  const unresolvedRecoveryJobs = unresolvedCloseIssues?.recovery_jobs ?? [];
-  const detailedRecoveryKeys = new Set(
-    unresolvedRecoveryJobs.map((job) => job.client_job_key),
-  );
-  const legacyRecoveryKeys = unresolvedRecoveryKeys.filter(
-    (key) => !detailedRecoveryKeys.has(key),
-  );
-  const unresolvedStationWarnings =
-    unresolvedCloseIssues?.station_warnings ?? [];
-  const unresolvedHelcimAttempts = unresolvedCloseIssues?.helcim_attempts ?? [];
-  const hasUnresolvedCloseIssues =
-    unresolvedRecoveryKeys.length > 0 ||
-    unresolvedRecoveryJobs.length > 0 ||
-    unresolvedStationWarnings.length > 0 ||
-    unresolvedHelcimAttempts.length > 0;
-  const issuesAreClosedSnapshot = opts.unresolvedIssuesContext === "closed";
-  const unresolvedIssueHeading = issuesAreClosedSnapshot
-    ? "Unresolved Issues at Close"
-    : "Unresolved Issues Currently Visible (Preview)";
-  const unresolvedIssueTextHeading = issuesAreClosedSnapshot
-    ? "UNRESOLVED ISSUES AT CLOSE"
-    : "UNRESOLVED ISSUES CURRENTLY VISIBLE (PREVIEW)";
-  const unresolvedIssueStatement = issuesAreClosedSnapshot
-    ? "These items were still unresolved when the register closed. Closing did not resolve or dismiss them."
-    : "These items are unresolved in this pre-close preview. If they remain unresolved, the Main Hub will freeze their close-time evidence in the final Z-Report. Previewing does not resolve or dismiss them.";
-  const unresolvedCloseIssueRows = [
-    ...unresolvedRecoveryJobs.map((job) => {
-      const identities = [
-        job.transaction_id ? `Transaction ${job.transaction_id}` : null,
-        job.checkout_client_id ? `Checkout ${job.checkout_client_id}` : null,
-        job.register_session_id ? `Session ${job.register_session_id}` : null,
-        job.station_key ? `Workstation ${job.station_key}` : null,
-      ]
-        .filter(Boolean)
-        .join(" · ");
-      const error = job.last_error?.trim()
-        ? ` · Last error: ${escapeReportHtml(job.last_error.trim())}`
-        : "";
-      return `<li><strong>Recovery:</strong> ${escapeReportHtml(job.label?.trim() || "Recovery record")} · ${escapeReportHtml(reportLabel(job.kind))} · ${escapeReportHtml(reportLabel(job.status))} · Key <span class="mono">${escapeReportHtml(job.client_job_key)}</span> · First seen ${escapeReportHtml(formatReportTimestamp(job.first_seen_at))} · Last seen ${escapeReportHtml(formatReportTimestamp(job.last_seen_at))} · Attempts ${job.attempt_count}${identities ? ` · ${escapeReportHtml(identities)}` : ""}${error}</li>`;
-    }),
-    ...legacyRecoveryKeys.map(
-      (key) =>
-        `<li><strong>Recovery record:</strong> <span class="mono">${escapeReportHtml(key)}</span></li>`,
-    ),
-    ...unresolvedStationWarnings.map(
-      (warning) =>
-        `<li><strong>Workstation warning:</strong> ${escapeReportHtml(warning)}</li>`,
-    ),
-    ...unresolvedHelcimAttempts.map((attempt) => {
-      const terminal = attempt.selected_terminal_key?.trim()
-        ? ` · Terminal ${escapeReportHtml(attempt.selected_terminal_key.trim())}`
-        : "";
-      return `<li><strong>Card review:</strong> Register #${attempt.register_lane} · ${formatReportMoney(
-        attempt.amount_cents,
-      )} · ${escapeReportHtml(reportLabel(attempt.status))} · ${escapeReportHtml(
-        reportLabel(attempt.review_reason),
-      )}${terminal} · ${escapeReportHtml(formatReportTimestamp(attempt.created_at))} · Session <span class="mono">${escapeReportHtml(
-        attempt.register_session_id,
-      )}</span> · Attempt <span class="mono">${escapeReportHtml(attempt.id)}</span></li>`;
-    }),
-  ].join("");
-
   const dc = opts.discrepancyCents;
   const statusLabel =
     dc == null
@@ -1303,6 +1181,11 @@ export async function openProfessionalZReportPrint(opts: {
     (opts.actualCents == null
       ? null
       : Math.max(0, opts.actualCents - opts.openingCents));
+  const checksForDepositCents = tenderFamilySummary.checks.amountCents;
+  const totalDepositCents =
+    cashDepositAmountCents == null
+      ? null
+      : cashDepositAmountCents + checksForDepositCents;
   const generatedAt = new Date().toLocaleString();
   const subtotalBeforeTaxCents = auditSubtotalBeforeTaxCents(transactions);
   const zReportTextLines = [
@@ -1352,27 +1235,12 @@ export async function openProfessionalZReportPrint(opts: {
       ? [
           "BREAKDOWN BY REGISTER",
           ...opts.tendersByLane.flatMap((lane) => {
-            const cashTotal = lane.tenders
-              .filter(
-                (tender) =>
-                  normalizedTenderKey(tender.payment_method) === "cash",
-              )
-              .reduce(
-                (sum, tender) => sum + parseMoneyToCents(tender.total_amount),
-                0,
-              );
-            const cashCount = lane.tenders
-              .filter(
-                (tender) =>
-                  normalizedTenderKey(tender.payment_method) === "cash",
-              )
-              .reduce((sum, tender) => sum + tender.tx_count, 0);
-            const ccTotal = creditCardTenderTotalCents(lane.tenders);
-            const ccCount = creditCardTenderCount(lane.tenders);
+            const laneSummary = summarizeTenderFamilies(lane.tenders);
             return [
               `Register #${lane.register_lane}`,
-              `  Cash Total | Transactions: ${cashCount} | Total: ${formatReportMoney(cashTotal)}`,
-              `  CC Total | Transactions: ${ccCount} | Total: ${formatReportMoney(ccTotal)}`,
+              `  Cash Total | Transactions: ${laneSummary.cash.txCount} | Total: ${formatReportMoney(laneSummary.cash.amountCents)}`,
+              `  CC Total | Transactions: ${laneSummary.card.txCount} | Total: ${formatReportMoney(laneSummary.card.amountCents)}`,
+              `  Checks Total | Transactions: ${laneSummary.checks.txCount} | Total: ${formatReportMoney(laneSummary.checks.amountCents)}`,
             ];
           }),
           "",
@@ -1388,44 +1256,12 @@ export async function openProfessionalZReportPrint(opts: {
     `Expected Cash: ${formatReportMoney(opts.expectedCents)}`,
     `Actual Counted: ${opts.actualCents == null ? "Not captured separately" : formatReportMoney(opts.actualCents)}`,
     `Daily Cash Deposit: ${cashDepositAmountCents == null ? "Not captured separately" : formatReportMoney(cashDepositAmountCents)}`,
+    `Checks for Deposit: ${formatReportMoney(checksForDepositCents)}`,
+    `Total Deposit: ${totalDepositCents == null ? "Not captured separately" : formatReportMoney(totalDepositCents)}`,
     `Deposit Date: ${cashDepositDate}`,
     `Status: ${statusLabel}`,
     `Over/Short: ${dc == null ? "Not available" : formatReportMoney(dc)}`,
     "",
-    ...(hasUnresolvedCloseIssues
-      ? [
-          unresolvedIssueTextHeading,
-          unresolvedIssueStatement,
-          ...unresolvedRecoveryJobs.map((job) => {
-            const identities = [
-              job.transaction_id ? `Transaction ${job.transaction_id}` : null,
-              job.checkout_client_id
-                ? `Checkout ${job.checkout_client_id}`
-                : null,
-              job.register_session_id
-                ? `Session ${job.register_session_id}`
-                : null,
-              job.station_key ? `Workstation ${job.station_key}` : null,
-            ]
-              .filter(Boolean)
-              .join(" | ");
-            return `Recovery: ${textValue(job.label?.trim() || "Recovery record")} | Kind: ${reportLabel(job.kind)} | Status: ${reportLabel(job.status)} | Key: ${job.client_job_key} | First seen: ${formatReportTimestamp(job.first_seen_at)} | Last seen: ${formatReportTimestamp(job.last_seen_at)} | Attempts: ${job.attempt_count}${identities ? ` | ${identities}` : ""}${job.last_error?.trim() ? ` | Last error: ${textValue(job.last_error.trim())}` : ""}`;
-          }),
-          ...legacyRecoveryKeys.map((key) => `Recovery record: ${key}`),
-          ...unresolvedStationWarnings.map(
-            (warning) => `Workstation warning: ${warning}`,
-          ),
-          ...unresolvedHelcimAttempts.map(
-            (attempt) =>
-              `Card review: Register #${attempt.register_lane} | ${formatReportMoney(attempt.amount_cents)} | ${reportLabel(
-                attempt.status,
-              )} | ${reportLabel(attempt.review_reason)} | ${formatReportTimestamp(attempt.created_at)} | Session ${
-                attempt.register_session_id
-              } | Attempt ${attempt.id}`,
-          ),
-          "",
-        ]
-      : []),
     ...(opts.overrideSummary.length > 0
       ? [
           "PRICE OVERRIDE AUDIT",
@@ -1674,6 +1510,14 @@ export async function openProfessionalZReportPrint(opts: {
             <span class="mono" style="font-weight: 800; font-size: 12px;">${cashDepositAmountCents == null ? "Not captured separately" : formatReportMoney(cashDepositAmountCents)}</span>
           </div>
           <div style="display: flex; justify-content: space-between; margin-top: 3px;">
+            <span class="muted">Checks for Deposit</span>
+            <span class="mono" style="font-weight: 700;">${formatReportMoney(checksForDepositCents)}</span>
+          </div>
+          <div style="display: flex; justify-content: space-between; margin-top: 3px; padding-top: 3px; border-top: 1px solid #e2e8f0;">
+            <span style="font-weight: 800; text-transform: uppercase;">Total Deposit</span>
+            <span class="mono" style="font-weight: 800; font-size: 12px;">${totalDepositCents == null ? "Not captured separately" : formatReportMoney(totalDepositCents)}</span>
+          </div>
+          <div style="display: flex; justify-content: space-between; margin-top: 3px;">
             <span class="muted">Deposit Date</span>
             <span class="mono" style="font-weight: 700;">${escapeReportHtml(cashDepositDate)}</span>
           </div>
@@ -1688,18 +1532,6 @@ export async function openProfessionalZReportPrint(opts: {
       </div>
     </div>
   </div>
-
-  ${
-    hasUnresolvedCloseIssues
-      ? `
-    <div style="margin-top:14px;border:1.5px solid #f59e0b;background:#fffbeb;border-radius:10px;padding:10px 12px;break-inside:avoid;">
-      <h2 style="border-color:#f59e0b;color:#92400e;margin-top:0;">${escapeReportHtml(unresolvedIssueHeading)}</h2>
-      <p style="color:#78350f;font-weight:700;margin:0 0 7px;">${escapeReportHtml(unresolvedIssueStatement)}</p>
-      <ul style="color:#78350f;margin:0;padding-left:18px;">${unresolvedCloseIssueRows}</ul>
-    </div>
-  `
-      : ""
-  }
 
   ${
     overrideRows
@@ -2143,8 +1975,7 @@ export async function openProfessionalDailySalesPrint(opts: {
     Object.values(groupedActivities)
       .flat()
       .reduce(
-        (sum, row) =>
-          sum + parseRegisterReportMoneyToCents(row.shipping_total),
+        (sum, row) => sum + parseRegisterReportMoneyToCents(row.shipping_total),
         0,
       );
   const periodTotalWithTaxCents =

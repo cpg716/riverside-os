@@ -85,7 +85,7 @@ v0.95.0 preserves the v0.85.x GO LIVE readiness baseline, incorporates the exten
 - [ ] Close exact-cash Z report.
 - [ ] Close cash-discrepancy Z report and verify notes + notification.
 - [ ] Confirm pending or blocked checkout recovery remains visible with its repair actions while ordinary authorized close stays available.
-- [ ] Confirm the immediate and archived Z-Report preserve the exact pre-close recovery warnings under **Unresolved Issues at Close** without resolving them.
+- [ ] Confirm pre-close recovery warnings remain in Payments Health and the audited close record without being resolved or printed on the financial Z-Report.
 - [ ] Confirm cash count, check review, Daily Cash Deposit date, and an over-$5 discrepancy note remain required close inputs.
 
 ## Inventory Drill

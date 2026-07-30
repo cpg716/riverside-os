@@ -119,7 +119,7 @@ The **Record Sale** button stays unavailable until the payment rules are satisfi
 
 If Helcim has already approved a **simple take-now** sale and the Main Hub connection drops before ROS confirms **Record Sale**, select **Record Sale** once. ROS saves the exact checkout and approval on this Register, prints a **PAYMENT APPROVED - PENDING SYNC** receipt, and automatically submits that same checkout when the Main Hub reconnects. Do not run the card again. Shipping, pickups, orders, exchanges, alterations, and wedding disbursements remain open for live recovery because they need additional Main Hub actions.
 
-If payment saves but pickup or alteration pickup follow-up does not complete, Riverside OS creates checkout recovery for manager review. Resolve it when practical. If it remains open, the ordinary authorized register close stays available, the recovery remains fixable afterward, and the Z-Report records it under **Unresolved Issues at Close**.
+If payment saves but pickup or alteration pickup follow-up does not complete, Riverside OS creates checkout recovery for manager review. Resolve it when practical. If it remains open, the ordinary authorized register close stays available and the recovery remains visible and fixable afterward in the operational recovery workspace; it is not printed on the financial Z-Report.
 
 For an exchange, Riverside commits the replacement Transaction Record and a durable exchange-settlement recovery record together. The recovery record remains a Z-close warning until the original return, inventory reversal, refund remainder, and exchange link all settle. If the screen is interrupted after the replacement saves, restore the sale and finish the existing exchange; do not ring a second replacement.
 

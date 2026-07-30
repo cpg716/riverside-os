@@ -558,27 +558,25 @@ test.describe("Register report output integrity contracts", () => {
     );
   });
 
-  test("immediate and archived Z-reports print immutable unresolved close issues", () => {
-    expect(reportPrintSource).toContain("UNRESOLVED ISSUES AT CLOSE");
-    expect(reportPrintSource).toContain("Unresolved Issues at Close");
-    expect(reportPrintSource).toContain(
+  test("Z-reports keep operational issues out of financial output and show complete deposits", () => {
+    expect(reportPrintSource).not.toContain("UNRESOLVED ISSUES AT CLOSE");
+    expect(reportPrintSource).not.toContain("Unresolved Issues at Close");
+    expect(reportPrintSource).not.toContain(
       "UNRESOLVED ISSUES CURRENTLY VISIBLE (PREVIEW)",
     );
+    expect(reportPrintSource).toContain("Checks for Deposit");
+    expect(reportPrintSource).toContain("Total Deposit");
     expect(reportPrintSource).toContain(
-      "These items are unresolved in this pre-close preview.",
+      '<tr><td>Checks Total</td><td class="center">',
     );
-    expect(reportPrintSource).toContain(
-      "Closing did not resolve or dismiss them.",
+    expect(closeRegisterSource).toContain("recon?.check_payments");
+    expect(closeRegisterSource).toContain("cashDepositCents + checkTotalCents");
+    expect(sessionsServerSource).toContain(
+      "pub check_payments: Vec<CheckPaymentLine>",
     );
-    expect(reportPrintSource).toContain("unresolvedRecoveryKeys");
-    expect(reportPrintSource).toContain("unresolvedRecoveryJobs");
-    expect(reportPrintSource).toContain("unresolvedStationWarnings");
-    expect(reportPrintSource).toContain("unresolvedHelcimAttempts");
-    expect(registerReportsSource).toContain(
-      "unresolvedCloseIssues: snapshot?.unresolved_close_issues ?? null",
-    );
-    expect(registerReportsSource).toContain(
-      'unresolvedIssuesContext: "closed"',
+    expect(sessionsServerSource).toContain("pt.id AS payment_transaction_id");
+    expect(sessionsServerSource).toContain(
+      "LOWER(TRIM(pt.payment_method)) IN ('check', 'cheque')",
     );
     expect(closeRegisterSource).toContain(
       "const closedReconciliation = result.reconciliation",
@@ -590,9 +588,6 @@ test.describe("Register report output integrity contracts", () => {
       /openCurrentZReportPrint\(\s+closedReconciliation/,
     );
     expect(closeRegisterSource).toContain("closedSnapshot?.day_summary ??");
-    expect(closeRegisterSource).toContain(
-      "closedSnapshot?.unresolved_close_issues ?? null",
-    );
     expect(closeRegisterSource).toContain("salesCount: daySummary.sales_count");
     expect(registerReportsSource).toContain("daySummary: RegisterDaySummary");
     expect(reportPrintSource).toContain("<h2>Quick Look</h2>");
@@ -611,6 +606,10 @@ test.describe("Register report output integrity contracts", () => {
         sessionsServerSource.indexOf("async fn close_session(") + 1,
       ),
     );
+    expect(closeHandler).toContain(
+      '"unresolved_close_issues": unresolved_close_issues.as_ref()',
+    );
+    expect(closeHandler).toContain("'register_close_with_unresolved_issues'");
     const groupLock = closeHandler.indexOf("FOR UPDATE");
     const recoveryLock = closeHandler.indexOf("OPEN_RECOVERY_JOBS_SQL");
     const helcimLock = closeHandler.indexOf("UNRESOLVED_HELCIM_ATTEMPTS_SQL");

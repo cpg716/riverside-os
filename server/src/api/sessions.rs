@@ -397,6 +397,8 @@ pub struct ReconciliationResponse {
     pub tenders: Vec<TenderTotal>,
     /// Per-lane tender breakdown (Z: each open lane; X: one row).
     pub tenders_by_lane: Vec<TendersByLane>,
+    /// Authoritative individual check tenders for close review.
+    pub check_payments: Vec<CheckPaymentLine>,
     pub cash_adjustments: Vec<CashAdjustmentLine>,
     pub manual_drawer_opens: Vec<ManualDrawerOpenLine>,
     pub override_summary: Vec<OverrideSummaryRow>,
@@ -404,6 +406,16 @@ pub struct ReconciliationResponse {
     pub inventory_activity: Vec<InventoryActivityLine>,
     pub unresolved_helcim_attempts: Vec<HelcimCloseReviewAttempt>,
     pub unresolved_close_issues: Option<UnresolvedCloseIssues>,
+}
+
+#[derive(Debug, Serialize, FromRow, Clone)]
+pub struct CheckPaymentLine {
+    pub payment_transaction_id: Uuid,
+    pub register_session_id: Uuid,
+    pub register_lane: i16,
+    pub created_at: DateTime<Utc>,
+    pub amount: Decimal,
+    pub check_number: Option<String>,
 }
 
 #[derive(Debug, Serialize, FromRow, Clone)]
@@ -1813,6 +1825,35 @@ async fn build_reconciliation(
 
     let tenders_by_lane = tenders_by_lane_from_agg(lane_tender_rows);
 
+    let check_payments: Vec<CheckPaymentLine> = sqlx::query_as(
+        r#"
+        SELECT
+            pt.id AS payment_transaction_id,
+            pt.session_id AS register_session_id,
+            rs.register_lane,
+            pt.created_at,
+            pt.amount,
+            pt.check_number
+        FROM payment_transactions pt
+        INNER JOIN register_sessions rs ON rs.id = pt.session_id
+        WHERE pt.session_id = ANY($1)
+          AND LOWER(TRIM(pt.payment_method)) IN ('check', 'cheque')
+          AND (
+                $3::boolean
+                OR COALESCE(
+                    pt.effective_date,
+                    (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date
+                  ) = $2
+              )
+        ORDER BY pt.created_at, pt.id
+        "#,
+    )
+    .bind(&payment_session_ids)
+    .bind(qbo_activity_date)
+    .bind(open_period_scope)
+    .fetch_all(db)
+    .await?;
+
     let total_cash_sales: Decimal = sqlx::query_scalar(
         r#"
         SELECT COALESCE(SUM(amount), 0)
@@ -2271,6 +2312,7 @@ async fn build_reconciliation(
         physical_expected_cash,
         tenders,
         tenders_by_lane,
+        check_payments,
         cash_adjustments,
         manual_drawer_opens,
         override_summary,

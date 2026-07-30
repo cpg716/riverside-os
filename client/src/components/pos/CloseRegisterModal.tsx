@@ -85,6 +85,7 @@ interface Reconciliation {
   physical_expected_cash?: string;
   tenders: TenderTotal[];
   tenders_by_lane?: TendersByLaneRow[];
+  check_payments?: CheckPaymentLine[];
   cash_adjustments?: CashAdjustmentLine[];
   manual_drawer_opens?: ManualDrawerOpenLine[];
   override_summary?: OverrideSummary[];
@@ -92,6 +93,15 @@ interface Reconciliation {
   inventory_activity?: InventoryActivityLine[];
   unresolved_helcim_attempts?: HelcimCloseReviewAttempt[];
   unresolved_close_issues?: UnresolvedCloseIssues | null;
+}
+
+interface CheckPaymentLine {
+  payment_transaction_id: string;
+  register_session_id: string;
+  register_lane: number;
+  created_at: string;
+  amount: string;
+  check_number?: string | null;
 }
 
 interface CloseSessionResult {
@@ -289,7 +299,12 @@ interface CloseRegisterModalProps {
 type DenomKey = "c100" | "c50" | "c20" | "c10" | "c5" | "c1";
 
 type CoinDenomKey =
-  "coin100" | "coin50" | "coin25" | "coin10" | "coin5" | "coin1";
+  | "coin100"
+  | "coin50"
+  | "coin25"
+  | "coin10"
+  | "coin5"
+  | "coin1";
 
 type EntryTarget =
   | { mode: "count"; group: "bill"; key: DenomKey }
@@ -399,11 +414,17 @@ function normalizeCountInput(value: string): string {
   return digits.replace(/^0+(?=\d)/, "");
 }
 
-function paymentLineId(line: TransactionLine): string {
+function paymentLineId(line: {
+  payment_transaction_id?: string;
+  transaction_id?: string;
+  created_at: string;
+  payment_method?: string;
+  amount: string;
+}): string {
   return (
     line.payment_transaction_id ??
     line.transaction_id ??
-    `${line.created_at}-${line.payment_method}-${line.amount}`
+    `${line.created_at}-${line.payment_method ?? "check"}-${line.amount}`
   );
 }
 
@@ -976,12 +997,19 @@ export default function CloseRegisterModal({
     return `Helcim payment review: ${parts.join(", ")}. Follow up from Payments Health; these items do not block Z-close.`;
   }, [unresolvedHelcimAttempts]);
 
-  const checkPayments = useMemo(
+  const checkPayments = useMemo(() => {
+    if (recon?.check_payments) return recon.check_payments;
+    return (recon?.transactions ?? []).filter(
+      (line) => line.payment_method.trim().toLowerCase() === "check",
+    );
+  }, [recon?.check_payments, recon?.transactions]);
+  const checkTotalCents = useMemo(
     () =>
-      (recon?.transactions ?? []).filter(
-        (line) => line.payment_method.trim().toLowerCase() === "check",
+      checkPayments.reduce(
+        (sum, payment) => sum + parseMoneyToCents(payment.amount),
+        0,
       ),
-    [recon?.transactions],
+    [checkPayments],
   );
 
   useEffect(() => {
@@ -1181,12 +1209,11 @@ export default function CloseRegisterModal({
     async (
       currentRecon: Reconciliation | null = recon,
       action: ReportPrintAction = "print",
-      unresolvedCloseIssues: UnresolvedCloseIssues | null = currentUnresolvedCloseIssues,
-      unresolvedIssuesContext: "preview" | "closed" = "preview",
+      outputContext: "preview" | "closed" = "preview",
       closedSnapshot: CloseZReportSnapshot | null = null,
     ) => {
       if (!currentRecon) return false;
-      const isClosedOutput = unresolvedIssuesContext === "closed";
+      const isClosedOutput = outputContext === "closed";
       if (isClosedOutput && !closedSnapshot) return false;
       const currentExpectedCents = parseMoneyToCents(
         String(closedSnapshot?.expected_cash ?? currentRecon.expected_cash),
@@ -1236,9 +1263,6 @@ export default function CloseRegisterModal({
         closedSnapshot?.discrepancy == null
           ? null
           : parseMoneyToCents(String(closedSnapshot.discrepancy));
-      const closeIssuesForPrint = isClosedOutput
-        ? (closedSnapshot?.unresolved_close_issues ?? null)
-        : unresolvedCloseIssues;
       const opened = await openProfessionalZReportPrint({
         title: "Z-Report",
         sessionId: currentRecon.session_id,
@@ -1319,8 +1343,6 @@ export default function CloseRegisterModal({
           null,
         qboJournal: currentRecon.qbo_journal ?? null,
         qboJournalError: currentRecon.qbo_journal_error ?? null,
-        unresolvedCloseIssues: closeIssuesForPrint,
-        unresolvedIssuesContext,
         inventoryActivity: currentRecon.inventory_activity ?? [],
         transactions: currentRecon.transactions.map((t) => ({
           created_at: t.created_at,
@@ -1350,7 +1372,6 @@ export default function CloseRegisterModal({
       cashDepositDate,
       cashierName,
       closingComments,
-      currentUnresolvedCloseIssues,
       fetchBookedDaySummaryForZ,
       recon,
       registerOrdinal,
@@ -1427,7 +1448,6 @@ export default function CloseRegisterModal({
           ? await openCurrentZReportPrint(
               closedReconciliation,
               "print",
-              result.unresolved_close_issues ?? null,
               "closed",
               closedSnapshot,
             )
@@ -1838,21 +1858,21 @@ export default function CloseRegisterModal({
     const title = isCloseWithIssues
       ? "Close Register With Unresolved Issues"
       : isExternalReconciliation
-      ? "Confirm Existing Paid Transaction"
-      : isExchangeSettlement
-        ? "Complete Exchange Settlement"
-        : isFollowUpVerification
-          ? "Verify Completed Follow-up"
-          : "Recover Checkout Sales";
+        ? "Confirm Existing Paid Transaction"
+        : isExchangeSettlement
+          ? "Complete Exchange Settlement"
+          : isFollowUpVerification
+            ? "Verify Completed Follow-up"
+            : "Recover Checkout Sales";
     const message = isCloseWithIssues
       ? "Authorize this Z-close while preserving every unresolved checkout, workstation, and Helcim review item for follow-up. This approval closes and prints the Register only; it does not replay a checkout, create a sale, attach a payment, or dismiss an issue."
       : isExternalReconciliation
-      ? "Authorize resolution only after the named Transaction Record, checkout identity, customer, amount, Register session, currency, and final Helcim provider transaction all match the immutable recovery evidence. Riverside does not create, move, retry, or refund a payment in this step."
-      : isExchangeSettlement
-        ? "Authorize completion from the locked Main Hub exchange record. Riverside verifies the original exchange-credit tender against its origin Register session and records any new relief or refund movement in this current Register session. No financial amount comes from this approval screen."
-        : isFollowUpVerification
-          ? "Confirm the named Orders/Alterations work was already completed. Riverside checks recorded database evidence before resolving the recovery record; this approval does not perform or assume the work."
-          : "Authorize exact replay of the saved checkout identity and payment snapshot. Duplicate or changed payloads are rejected, and prior-group results remain tied to the original Register session.";
+        ? "Authorize resolution only after the named Transaction Record, checkout identity, customer, amount, Register session, currency, and final Helcim provider transaction all match the immutable recovery evidence. Riverside does not create, move, retry, or refund a payment in this step."
+        : isExchangeSettlement
+          ? "Authorize completion from the locked Main Hub exchange record. Riverside verifies the original exchange-credit tender against its origin Register session and records any new relief or refund movement in this current Register session. No financial amount comes from this approval screen."
+          : isFollowUpVerification
+            ? "Confirm the named Orders/Alterations work was already completed. Riverside checks recorded database evidence before resolving the recovery record; this approval does not perform or assume the work."
+            : "Authorize exact replay of the saved checkout identity and payment snapshot. Duplicate or changed payloads are rejected, and prior-group results remain tied to the original Register session.";
     return (
       <ManagerApprovalModal
         isOpen={recoveryManagerMode != null}
@@ -2226,9 +2246,9 @@ export default function CloseRegisterModal({
           </>
         ) : (
           <p className="mt-3 rounded-xl border border-app-warning/25 bg-app-surface/70 p-2 font-semibold">
-            Closing with these items requires Manager Access. The close
-            approval below preserves them for follow-up and never runs a
-            checkout recovery action.
+            Closing with these items requires Manager Access. The close approval
+            below preserves them for follow-up and never runs a checkout
+            recovery action.
           </p>
         )}
       </div>
@@ -2939,6 +2959,7 @@ export default function CloseRegisterModal({
   const cashSalesCents =
     expectedCents - openingCents - netAdjCents - roundingCents;
   const cashDepositCents = parseMoneyToCents(cashDepositAmount);
+  const totalDepositCents = cashDepositCents + checkTotalCents;
   const needsNote = Math.abs(discrepancyCents) > MANDATORY_NOTE_OVER_USD * 100;
   const hasUnresolvedCloseIssues = currentUnresolvedCloseIssues != null;
   const closeBlockers = [
@@ -2964,6 +2985,11 @@ export default function CloseRegisterModal({
         id: "cash-deposit",
         label: "Daily cash deposit",
         value: `${cashDepositDate || "No date"} · $${centsToFixed2(cashDepositCents)}`,
+      },
+      {
+        id: "total-deposit",
+        label: "Total deposit",
+        value: `$${centsToFixed2(totalDepositCents)} including checks`,
       },
       {
         id: "cash-discrepancy",
@@ -3167,13 +3193,7 @@ export default function CloseRegisterModal({
                     Check total
                   </p>
                   <p className="mt-1 font-mono text-2xl font-black text-app-text">
-                    $
-                    {centsToFixed2(
-                      checkPayments.reduce(
-                        (sum, line) => sum + parseMoneyToCents(line.amount),
-                        0,
-                      ),
-                    )}
+                    ${centsToFixed2(checkTotalCents)}
                   </p>
                 </div>
                 <p className="text-xs font-semibold text-app-text-muted">
@@ -3407,6 +3427,18 @@ export default function CloseRegisterModal({
                   ${centsToFixed2(cashDepositCents)}
                 </span>
               </div>
+              <div className="flex justify-between text-app-text-muted font-medium">
+                <span>Checks for Deposit:</span>
+                <span className="font-mono">
+                  ${centsToFixed2(checkTotalCents)}
+                </span>
+              </div>
+              <div className="flex justify-between border-t border-app-border pt-2 text-app-text font-black">
+                <span>Total Deposit:</span>
+                <span className="font-mono">
+                  ${centsToFixed2(totalDepositCents)}
+                </span>
+              </div>
             </div>
             <div className="mt-4 rounded-2xl border border-app-border bg-app-surface/70 p-3">
               <div className="grid gap-3 sm:grid-cols-[1fr_1fr]">
@@ -3420,7 +3452,7 @@ export default function CloseRegisterModal({
                   />
                 </label>
                 <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                  Deposit Amount
+                  Cash Deposit Amount
                   <input
                     value={cashDepositAmount}
                     onChange={(event) => {
