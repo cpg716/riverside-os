@@ -703,6 +703,33 @@ for (const copy of [
   );
 }
 
+for (const migrationRunner of [
+  "server/src/db_migrations.rs",
+  "scripts/apply-migrations-psql.sh",
+  "scripts/apply-migrations-docker.sh",
+  standaloneMigrationRunner,
+]) {
+  for (const repairIdentity of [
+    "172_reassign_txn_624853_to_glenn_jones.sql",
+    "ac91ab897c2466bb2ed6bd7cde70d6598fdb0a91a015436603164b06b6dedf94",
+    "e9fbb62d-02e6-4256-9b3c-e6faced388a8",
+  ]) {
+    assertIncludes(
+      migrationRunner,
+      repairIdentity,
+      "migration 172 may be skipped only for its exact immutable file and absent source transaction",
+    );
+  }
+}
+const sourceLockedRepair172 = "migrations/172_reassign_txn_624853_to_glenn_jones.sql";
+const sourceLockedRepair172Sha =
+  "ac91ab897c2466bb2ed6bd7cde70d6598fdb0a91a015436603164b06b6dedf94";
+if (sha256(sourceLockedRepair172) !== sourceLockedRepair172Sha) {
+  fail(
+    `${sourceLockedRepair172}: immutable reviewed repair checksum must remain ${sourceLockedRepair172Sha}`,
+  );
+}
+
 const mainHubUpdater = "client/src-tauri/src/server_updater.rs";
 const mainHubUpdaterSource = read(mainHubUpdater);
 const renderedMainHubUpdateRunner = renderMainHubUpdateRunner(mainHubUpdaterSource);

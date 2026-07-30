@@ -19,7 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `TXN-624853` WALK-IN sale and its sole successful card payment to Glenn Jones
   (`GLENN-D8P9`) without changing merchandise, tax, inventory, fulfillment,
   tender, or balance. The exact repair is checksum-tracked and retained in both
-  Transaction activity and the customer timeline.
+  Transaction activity and the customer timeline. Fresh databases now record
+  this immutable source-locked repair as not applicable when its exact source
+  Transaction is absent, while any present-but-changed source evidence still
+  fails closed.
 - **Paid Order Item Removal Credits**: Removing a paid, unfulfilled order item
   now preserves the item as refund evidence instead of deleting it. Replacement
   items added to the same Transaction Record consume that credit first, leaving

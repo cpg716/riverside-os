@@ -89,6 +89,25 @@ function Get-FileSha256([string]$Path) {
   return $hash.Hash.ToLower()
 }
 
+function Test-SourceLockedRepair([string]$FileName, [string]$FileSha256) {
+  if ($FileName -ne "172_reassign_txn_624853_to_glenn_jones.sql") {
+    return $false
+  }
+
+  return @(
+    "ac91ab897c2466bb2ed6bd7cde70d6598fdb0a91a015436603164b06b6dedf94",
+    "6df69fb81a161753715ad710e38b2ff4cdf871574c8fa026ed9393c2f89b5434",
+    "4218c3eaf983876b53a65760942112b22e020445fd8d4f199dc6f83bd8593744",
+    "88e6a096956e145afd88f47cb3feb061c5a265f6f1c6872773e37ef3dd33da5c"
+  ) -contains $FileSha256
+}
+
+function Test-SourceLockedRepairApplicable([string]$PsqlPath, [string]$DatabaseUrl) {
+  $transactionId = "e9fbb62d-02e6-4256-9b3c-e6faced388a8"
+  $exists = Invoke-PsqlText $PsqlPath $DatabaseUrl "SELECT EXISTS(SELECT 1 FROM public.transactions WHERE id = '$transactionId'::uuid);"
+  return $exists -eq "t"
+}
+
 function Get-Sha256ForBytes([byte[]]$Bytes) {
   $sha = [System.Security.Cryptography.SHA256]::Create()
   try {
@@ -222,6 +241,13 @@ function Apply-Migrations([string]$PsqlPath, [string]$DatabaseUrl, [string]$Dir)
         }
         continue
       }
+    }
+
+    if ((Test-SourceLockedRepair $file.Name $currentSha) -and
+        -not (Test-SourceLockedRepairApplicable $PsqlPath $DatabaseUrl)) {
+      Write-Host "Skip migration $($file.Name) (source-locked repair not applicable)"
+      Add-MigrationLedgerEntry $PsqlPath $DatabaseUrl $file.Name $currentSha
+      continue
     }
 
     Write-Host "Apply migration $($file.Name)"

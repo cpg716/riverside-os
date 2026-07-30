@@ -4,6 +4,15 @@ use std::collections::{HashMap, HashSet};
 
 use crate::embedded_migrations;
 
+const SOURCE_LOCKED_REPAIR_172: &str = "172_reassign_txn_624853_to_glenn_jones.sql";
+const SOURCE_LOCKED_REPAIR_172_TRANSACTION_ID: &str = "e9fbb62d-02e6-4256-9b3c-e6faced388a8";
+const SOURCE_LOCKED_REPAIR_172_SHAS: &[&str] = &[
+    "ac91ab897c2466bb2ed6bd7cde70d6598fdb0a91a015436603164b06b6dedf94",
+    "6df69fb81a161753715ad710e38b2ff4cdf871574c8fa026ed9393c2f89b5434",
+    "4218c3eaf983876b53a65760942112b22e020445fd8d4f199dc6f83bd8593744",
+    "88e6a096956e145afd88f47cb3feb061c5a265f6f1c6872773e37ef3dd33da5c",
+];
+
 fn env_truthy(key: &str) -> bool {
     matches!(
         std::env::var(key)
@@ -47,6 +56,49 @@ fn migration_sha256_variants(sql_content: &str) -> Vec<String> {
         }
     }
     variants
+}
+
+fn is_source_locked_repair(file_name: &str, current_sha: &str) -> bool {
+    file_name == SOURCE_LOCKED_REPAIR_172 && SOURCE_LOCKED_REPAIR_172_SHAS.contains(&current_sha)
+}
+
+async fn source_locked_repair_is_applicable(
+    pool: &PgPool,
+    file_name: &str,
+    current_sha: &str,
+) -> Result<Option<bool>, anyhow::Error> {
+    if !is_source_locked_repair(file_name, current_sha) {
+        return Ok(None);
+    }
+
+    let source_exists = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS (SELECT 1 FROM public.transactions WHERE id = $1::uuid)",
+    )
+    .bind(SOURCE_LOCKED_REPAIR_172_TRANSACTION_ID)
+    .fetch_one(pool)
+    .await?;
+
+    Ok(Some(source_exists))
+}
+
+async fn record_migration_ledger_entry(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    file_name: &str,
+    current_sha: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "
+        INSERT INTO ros_schema_migrations (version, file_sha256)
+        VALUES ($1, $2)
+        ON CONFLICT (version) DO NOTHING;
+        ",
+    )
+    .bind(file_name)
+    .bind(current_sha)
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(())
 }
 
 async fn repair_public_serial_sequences(pool: &PgPool) -> Result<(), anyhow::Error> {
@@ -217,6 +269,18 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), anyhow::Error> {
             continue;
         }
 
+        let current_sha = migration_sha256(sql_content);
+        if source_locked_repair_is_applicable(pool, file_name, &current_sha).await? == Some(false) {
+            let mut tx = pool.begin().await?;
+            record_migration_ledger_entry(&mut tx, file_name, &current_sha).await?;
+            tx.commit().await?;
+            tracing::info!(
+                migration = file_name,
+                "Unified Engine: Source-locked repair is not applicable; checksum recorded without executing repair"
+            );
+            continue;
+        }
+
         tracing::info!("Unified Engine: Applying migration: {}...", file_name);
         if let Err(error) = repair_public_serial_sequences(pool).await {
             return Err(anyhow::anyhow!(
@@ -253,19 +317,7 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), anyhow::Error> {
             }
         }
 
-        // Calculate current file SHA256 to register in the ledger
-        let current_sha = migration_sha256(sql_content);
-
-        let insert_ledger_sql = "
-            INSERT INTO ros_schema_migrations (version, file_sha256)
-            VALUES ($1, $2)
-            ON CONFLICT (version) DO NOTHING;
-        ";
-        sqlx::query(insert_ledger_sql)
-            .bind(file_name)
-            .bind(&current_sha)
-            .execute(&mut *tx)
-            .await?;
+        record_migration_ledger_entry(&mut tx, file_name, &current_sha).await?;
 
         tx.commit().await?;
         tracing::info!(
@@ -440,8 +492,8 @@ fn is_ignored_pg_dump_statement(statement: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        is_ignored_pg_dump_statement, migration_sha256, migration_sha256_variants,
-        split_postgres_statements,
+        is_ignored_pg_dump_statement, is_source_locked_repair, migration_sha256,
+        migration_sha256_variants, split_postgres_statements, SOURCE_LOCKED_REPAIR_172,
     };
 
     #[test]
@@ -530,5 +582,21 @@ mod tests {
         assert!(variants.contains(&migration_sha256(&format!("{lf}\n"))));
         assert!(variants.contains(&migration_sha256(&format!("{crlf}\r\n"))));
         assert!(!variants.contains(&migration_sha256("SELECT 3;\n")));
+    }
+
+    #[test]
+    fn source_locked_repair_requires_exact_file_and_reviewed_checksum() {
+        assert!(is_source_locked_repair(
+            SOURCE_LOCKED_REPAIR_172,
+            "ac91ab897c2466bb2ed6bd7cde70d6598fdb0a91a015436603164b06b6dedf94"
+        ));
+        assert!(!is_source_locked_repair(
+            SOURCE_LOCKED_REPAIR_172,
+            "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        ));
+        assert!(!is_source_locked_repair(
+            "173_other_repair.sql",
+            "ac91ab897c2466bb2ed6bd7cde70d6598fdb0a91a015436603164b06b6dedf94"
+        ));
     }
 }
