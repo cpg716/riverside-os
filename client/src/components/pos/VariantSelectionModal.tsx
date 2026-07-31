@@ -4,6 +4,7 @@ import {
   Package,
   CircleDollarSign,
   ShoppingCart,
+  RefreshCw,
   Plus
 } from "lucide-react";
 import DetailDrawer from "../layout/DetailDrawer";
@@ -30,6 +31,8 @@ export interface VariantSelectionModalProps {
   onSelect: (variant: VariantOption, priceOverride?: string) => void;
   actionLabel?: string;
   allowPriceOverride?: boolean;
+  initialVariantId?: string;
+  preservedUnitPrice?: string;
 }
 
 function parseVariantAttributes(label: string): string[] {
@@ -63,15 +66,37 @@ export default function VariantSelectionModal({
   onSelect,
   actionLabel = "Add to Sale",
   allowPriceOverride = true,
+  initialVariantId,
+  preservedUnitPrice,
 }: VariantSelectionModalProps) {
   const [selections, setSelections] = useState<string[]>([]);
   const [priceOverride, setPriceOverride] = useState("");
 
+  const initialVariant = useMemo(
+    () => product?.variants.find((variant) => variant.variant_id === initialVariantId) ?? null,
+    [initialVariantId, product],
+  );
+  const initialSelections = useMemo(() => {
+    if (!product || !initialVariant) return [];
+    const currentAttributes = parseVariantAttributes(initialVariant.variation_label);
+    const allAttributes = product.variants.map((variant) =>
+      parseVariantAttributes(variant.variation_label),
+    );
+    const firstDifference = currentAttributes.findIndex((attribute, index) =>
+      allAttributes.some((attributes) => attributes[index] !== attribute),
+    );
+    const commonLength = firstDifference === -1 ? currentAttributes.length : firstDifference;
+    return currentAttributes.slice(
+      0,
+      Math.min(commonLength, Math.max(0, currentAttributes.length - 1)),
+    );
+  }, [initialVariant, product]);
+
   useEffect(() => {
     if (!product?.product_id) return;
-    setSelections([]);
+    setSelections(initialSelections);
     setPriceOverride("");
-  }, [product?.product_id]);
+  }, [initialSelections, product?.product_id]);
 
   const attributeSteps = useMemo(() => {
     if (!product) return [];
@@ -113,6 +138,12 @@ export default function VariantSelectionModal({
   }, [product, matchingVariants, currentStepIndex, isSelectionComplete]);
 
   const finalVariant = isSelectionComplete && matchingVariants.length >= 1 ? matchingVariants[0] : null;
+  const isCurrentVariant = Boolean(initialVariantId && finalVariant?.variant_id === initialVariantId);
+  const canSubmit = Boolean(isSelectionComplete && finalVariant && !isCurrentVariant);
+  const currentVariantAttributes = useMemo(
+    () => initialVariant ? parseVariantAttributes(initialVariant.variation_label) : [],
+    [initialVariant],
+  );
 
   const handleNumpadKey = (key: string) => {
     if (key === "CLR") {
@@ -148,7 +179,7 @@ export default function VariantSelectionModal({
       isOpen={!!product}
       onClose={onClose}
       title={product.name}
-      subtitle={isSelectionComplete ? <span className="text-app-text font-black uppercase tracking-widest text-[10px]">Finalize Pricing</span> : `Step ${currentStepIndex + 1}: ${attributeSteps[currentStepIndex]}`}
+      subtitle={isSelectionComplete ? <span className="text-app-text font-black uppercase tracking-widest text-[10px]">Confirm Selection</span> : `Step ${currentStepIndex + 1}: ${attributeSteps[currentStepIndex]}`}
       titleClassName="text-app-text font-black tracking-tighter italic uppercase truncate pr-8"
       noPadding
       panelMaxClassName="max-w-xl"
@@ -172,23 +203,37 @@ export default function VariantSelectionModal({
 
           <button
             type="button"
-            disabled={!isSelectionComplete || !finalVariant}
+            disabled={!canSubmit}
             onClick={() => finalVariant && onSelect(finalVariant, priceOverride || undefined)}
             className={`group relative flex h-16 flex-1 items-center justify-center overflow-hidden rounded-xl border transition-all active:scale-[0.98] ${
-              isSelectionComplete && finalVariant
+              canSubmit
                ? "border-emerald-600 bg-emerald-600 text-white shadow-lg shadow-emerald-500/20 hover:bg-emerald-500"
                : "cursor-not-allowed border-app-border bg-app-surface-2 text-app-text-muted opacity-50"
             }`}
           >
              <div className="flex items-center gap-3">
-                <ShoppingCart size={24} />
-                <span className="text-xl font-black uppercase italic tracking-widest">{actionLabel}</span>
+                {initialVariantId ? <RefreshCw size={24} /> : <ShoppingCart size={24} />}
+                <span className="text-xl font-black uppercase italic tracking-widest">
+                  {isCurrentVariant ? "Current Item Selected" : actionLabel}
+                </span>
              </div>
           </button>
         </div>
       }
     >
       <div className="flex h-full flex-col bg-app-surface px-5 py-4">
+        {initialVariant ? (
+          <div className="mb-4 rounded-2xl border border-app-accent/25 bg-app-accent/5 p-4">
+            <p className="text-[10px] font-black uppercase tracking-widest text-app-accent">
+              Current order selection
+            </p>
+            <p className="mt-1 font-black text-app-text">{initialVariant.variation_label}</p>
+            <p className="mt-1 text-xs font-semibold text-app-text-muted">
+              SKU {initialVariant.sku}
+              {preservedUnitPrice ? ` · Customer price stays ${preservedUnitPrice}` : ""}
+            </p>
+          </div>
+        ) : null}
         {/* Identity & Progress Header */}
         <div className="mb-3 flex min-h-7 flex-col justify-center gap-2">
            {selections.length > 0 && (
@@ -222,6 +267,11 @@ export default function VariantSelectionModal({
                     <span className="text-lg font-black uppercase leading-tight tracking-tight text-app-text sm:text-xl">
                       {choice}
                     </span>
+                    {initialVariant && currentVariantAttributes[currentStepIndex] === choice ? (
+                      <span className="mt-1 text-[9px] font-black uppercase tracking-widest text-app-accent">
+                        Current
+                      </span>
+                    ) : null}
                     <div className="absolute bottom-2 right-2 text-app-text-muted opacity-45 transition-opacity group-hover:text-app-accent group-hover:opacity-100">
                        <Plus size={16} />
                     </div>

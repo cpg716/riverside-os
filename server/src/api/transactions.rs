@@ -12813,6 +12813,7 @@ async fn update_transaction_line(
         bool,
         DbFulfillmentType,
         String,
+        Option<String>,
         i32,
         Decimal,
         Decimal,
@@ -12828,6 +12829,7 @@ async fn update_transaction_line(
                 oi.is_fulfilled,
                 oi.fulfillment,
                 pv.sku,
+                NULLIF(TRIM(pv.variation_label), ''),
                 oi.quantity,
                 oi.unit_price,
                 COALESCE(oi.state_tax, 0)::numeric,
@@ -12853,6 +12855,7 @@ async fn update_transaction_line(
         is_fulfilled,
         current_fulfillment,
         current_sku,
+        current_variation_label,
         current_quantity,
         current_unit_price,
         current_state_tax,
@@ -13032,11 +13035,21 @@ async fn update_transaction_line(
     transaction_recalc::recalc_transaction_totals(&mut tx, transaction_id)
         .await
         .map_err(TransactionError::Database)?;
-    let updated_line: (String, String, Uuid, i32, Decimal, Decimal, Decimal) = sqlx::query_as(
+    let updated_line: (
+        String,
+        String,
+        Option<String>,
+        Uuid,
+        i32,
+        Decimal,
+        Decimal,
+        Decimal,
+    ) = sqlx::query_as(
         r#"
             SELECT
                 p.name,
                 pv.sku,
+                NULLIF(TRIM(pv.variation_label), ''),
                 tl.variant_id,
                 tl.quantity,
                 tl.unit_price,
@@ -13084,12 +13097,22 @@ async fn update_transaction_line(
     let summary = if changed_fields.contains(&"unit_price") {
         format!(
             "{} ({}): price changed from ${} to ${}",
-            updated_line.0, updated_line.1, current_unit_price, updated_line.4
+            updated_line.0, updated_line.1, current_unit_price, updated_line.5
         )
     } else if changed_fields.contains(&"quantity") {
         format!(
             "{} ({}): quantity changed from {} to {}",
-            updated_line.0, updated_line.1, current_quantity, updated_line.3
+            updated_line.0, updated_line.1, current_quantity, updated_line.4
+        )
+    } else if changed_fields.contains(&"variant") {
+        format!(
+            "{}: item selection changed from {} ({}) to {} ({}); customer price retained at ${}",
+            updated_line.0,
+            current_sku,
+            current_variation_label.as_deref().unwrap_or("Standard"),
+            updated_line.1,
+            updated_line.2.as_deref().unwrap_or("Standard"),
+            updated_line.5,
         )
     } else {
         format!("{} ({}) details updated", updated_line.0, updated_line.1)
@@ -13115,6 +13138,7 @@ async fn update_transaction_line(
             "before": {
                 "variant_id": current_variant_id,
                 "sku": current_sku,
+                "variation_label": current_variation_label,
                 "quantity": current_quantity,
                 "unit_price": current_unit_price,
                 "state_tax": current_state_tax,
@@ -13123,11 +13147,13 @@ async fn update_transaction_line(
                 "order_lifecycle_status": current_lifecycle_status.as_str(),
             },
             "after": {
-                "variant_id": updated_line.2,
-                "quantity": updated_line.3,
-                "unit_price": updated_line.4,
-                "state_tax": updated_line.5,
-                "local_tax": updated_line.6,
+                "variant_id": updated_line.3,
+                "sku": updated_line.1,
+                "variation_label": updated_line.2,
+                "quantity": updated_line.4,
+                "unit_price": updated_line.5,
+                "state_tax": updated_line.6,
+                "local_tax": updated_line.7,
                 "fulfillment": normalized_fulfillment.unwrap_or(current_fulfillment),
                 "order_lifecycle_status": body
                     .order_lifecycle_status

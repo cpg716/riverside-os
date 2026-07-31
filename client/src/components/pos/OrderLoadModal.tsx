@@ -14,6 +14,8 @@ import {
   Ban,
   Truck,
   Scissors,
+  CheckCircle2,
+  RefreshCw,
 } from "lucide-react";
 import { useToast } from "../ui/ToastProviderLogic";
 import ConfirmationModal from "../ui/ConfirmationModal";
@@ -175,6 +177,12 @@ export default function OrderLoadModal({
   const [variantPicker, setVariantPicker] = useState<{
     item: OrderItem;
     product: ProductWithVariants;
+  } | null>(null);
+  const [variantUpdateConfirmation, setVariantUpdateConfirmation] = useState<{
+    transactionLineId: string;
+    before: string;
+    after: string;
+    retainedPrice: string;
   } | null>(null);
   const [pickupBusy, setPickupBusy] = useState(false);
   const [pickupConfirm, setPickupConfirm] = useState<{
@@ -791,26 +799,34 @@ export default function OrderLoadModal({
     if (!selectedOrder || !onUpdateOrderItem || isCompletedOrderItem(item)) return;
     setOrderMutationBusy(true);
     try {
-      const params = new URLSearchParams({
-        product_id: item.product_id,
-        limit: "500",
-        include_hidden: "true",
-      });
-      const res = await fetch(`${baseUrl}/api/products/control-board?${params.toString()}`, {
-        headers: apiAuth(),
-      });
+      const res = await fetch(
+        `${baseUrl}/api/products/pos-variants/${encodeURIComponent(item.product_id)}`,
+        { headers: apiAuth() },
+      );
       if (!res.ok) throw new Error("Could not load the available sizes and variations.");
-      const body = (await res.json()) as { rows?: VariantSearchResult[] };
-      const variants: VariantOption[] = (body.rows ?? [])
-        .filter((variant) => variant.product_id === item.product_id)
+      const body = (await res.json()) as Array<Record<string, unknown>>;
+      const variants: VariantOption[] = body
         .map((variant) => ({
-          variant_id: variant.variant_id,
-          sku: variant.sku,
-          variation_label: variant.variation_label ?? variant.sku,
-          stock_on_hand: 0,
+          variant_id: String(variant.variant_id ?? ""),
+          sku: String(variant.sku ?? ""),
+          variation_label:
+            typeof variant.variation_label === "string" && variant.variation_label.trim()
+              ? variant.variation_label
+              : "Standard",
+          stock_on_hand: Number(variant.stock_on_hand ?? 0),
           retail_price: String(variant.retail_price ?? item.unit_price),
-        }));
+        }))
+        .filter((variant) => variant.variant_id && variant.sku);
       if (variants.length === 0) throw new Error("No selectable sizes or variations were found for this item.");
+      if (!variants.some((variant) => variant.variant_id === item.variant_id)) {
+        variants.unshift({
+          variant_id: item.variant_id,
+          sku: item.sku,
+          variation_label: item.variation_label ?? "Standard",
+          stock_on_hand: 0,
+          retail_price: item.unit_price,
+        });
+      }
       setVariantPicker({
         item,
         product: {
@@ -1267,15 +1283,9 @@ export default function OrderLoadModal({
                             }
                             className="mt-1 h-5 w-5 rounded border-app-border text-app-success focus:ring-app-success/30 disabled:opacity-40"
                           />
-                          <button
-                            type="button"
-                            disabled={isCompletedOrderItem(item) || orderMutationBusy}
-                            onClick={() => void openVariantPicker(item)}
-                            className="text-left font-medium text-app-text underline decoration-app-accent/40 underline-offset-4 hover:text-app-accent disabled:no-underline"
-                            title={isCompletedOrderItem(item) ? undefined : "Choose a size or variation"}
-                          >
+                          <span className="text-left font-medium text-app-text">
                             {item.product_name}
-                          </button>
+                          </span>
                         </div>
                         <span className="text-app-text-muted">
                           {lineDrafts[item.transaction_line_id]?.sku ??
@@ -1308,6 +1318,23 @@ export default function OrderLoadModal({
                             linked member.
                           </span>
                         )}
+                        {variantUpdateConfirmation?.transactionLineId === item.transaction_line_id ? (
+                          <div
+                            aria-live="polite"
+                            className="mt-3 rounded-xl border border-app-success/30 bg-app-success/10 p-3 text-app-success"
+                          >
+                            <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest">
+                              <CheckCircle2 size={14} />
+                              Item selection updated
+                            </div>
+                            <p className="mt-1 text-xs font-semibold">
+                              {variantUpdateConfirmation.before} → {variantUpdateConfirmation.after}
+                            </p>
+                            <p className="mt-1 text-[11px] font-bold">
+                              Customer price retained at {variantUpdateConfirmation.retainedPrice}.
+                            </p>
+                          </div>
+                        ) : null}
                       </div>
                       <div className="flex flex-col items-end">
                         {selectedOrder && !isCompletedOrderItem(item) ? (
@@ -1331,6 +1358,26 @@ export default function OrderLoadModal({
                         ) : null}
                         {onUpdateOrderItem && !isCompletedOrderItem(item) ? (
                           <div className="grid w-full gap-2 sm:w-[24rem] sm:grid-cols-[4rem_minmax(0,1fr)]">
+                            <div className="col-span-2 rounded-xl border border-app-accent/25 bg-app-accent/5 p-3 text-left">
+                              <p className="text-[9px] font-black uppercase tracking-widest text-app-accent">
+                                Current item selection
+                              </p>
+                              <p className="mt-1 font-black text-app-text">
+                                {item.variation_label ?? "Standard"}
+                              </p>
+                              <p className="text-[10px] font-semibold text-app-text-muted">
+                                SKU {item.sku} · Customer price {formatCurrency(item.unit_price)}
+                              </p>
+                              <button
+                                type="button"
+                                disabled={orderMutationBusy}
+                                onClick={() => void openVariantPicker(item)}
+                                className="mt-3 flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border border-app-accent bg-app-surface px-3 text-[10px] font-black uppercase tracking-widest text-app-accent transition-colors hover:bg-app-accent/10 disabled:opacity-50"
+                              >
+                                <RefreshCw size={13} />
+                                Update Item
+                              </button>
+                            </div>
                             <input
                               aria-label={`Quantity for ${item.sku}`}
                               value={
@@ -1403,40 +1450,6 @@ export default function OrderLoadModal({
                               inputMode="decimal"
                               className="rounded-lg border border-app-border bg-app-surface px-2 py-1 text-right font-black text-app-text"
                             />
-                            <div className="col-span-2">
-                              <VariantSearchInput
-                                placeholder="Search this item for the correct size or variation"
-                                onSelect={(variant) => {
-                                  if (variant.product_id !== item.product_id) {
-                                    toast(
-                                      "Use Delete and Add when changing to a different item.",
-                                      "error",
-                                    );
-                                    return;
-                                  }
-                                  setLineDrafts((prev) => ({
-                                    ...prev,
-                                    [item.transaction_line_id]: {
-                                      quantity:
-                                        prev[item.transaction_line_id]
-                                          ?.quantity ?? String(item.quantity),
-                                      unit_price:
-                                        prev[item.transaction_line_id]
-                                          ?.unit_price ?? item.unit_price,
-                                      variant_id: variant.variant_id,
-                                      sku: variant.sku,
-                                      variation_label:
-                                        variant.variation_label ?? null,
-                                      order_lifecycle_status:
-                                        prev[item.transaction_line_id]
-                                          ?.order_lifecycle_status ??
-                                        item.order_lifecycle_status ??
-                                        "ntbo",
-                                    },
-                                  }));
-                                }}
-                              />
-                            </div>
                             <select
                               aria-label={`Lifecycle for ${item.sku}`}
                               value={
@@ -1626,6 +1639,10 @@ export default function OrderLoadModal({
         product={variantPicker?.product ?? null}
         actionLabel="Update Item"
         allowPriceOverride={false}
+        initialVariantId={variantPicker?.item.variant_id}
+        preservedUnitPrice={
+          variantPicker ? formatCurrency(variantPicker.item.unit_price) : undefined
+        }
         onClose={() => setVariantPicker(null)}
         onSelect={(variant) => {
           const selection = variantPicker;
@@ -1637,7 +1654,15 @@ export default function OrderLoadModal({
                 variant_id: variant.variant_id,
               });
               if (ok && selectedOrder.id) await loadOrderItems(selectedOrder.id);
-              if (ok) setVariantPicker(null);
+              if (ok) {
+                setVariantUpdateConfirmation({
+                  transactionLineId: selection.item.transaction_line_id,
+                  before: `${selection.item.sku} · ${selection.item.variation_label ?? "Standard"}`,
+                  after: `${variant.sku} · ${variant.variation_label}`,
+                  retainedPrice: formatCurrency(selection.item.unit_price),
+                });
+                setVariantPicker(null);
+              }
             } finally {
               setOrderMutationBusy(false);
             }

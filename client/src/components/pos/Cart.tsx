@@ -1652,11 +1652,24 @@ export default function Cart({
           return false;
         }
         const updated = (await res.json()) as {
-          items?: Array<{ transaction_line_id?: string; unit_price?: string }>;
+          items?: Array<{
+            transaction_line_id?: string;
+            variant_id?: string;
+            sku?: string;
+            variation_label?: string | null;
+            unit_price?: string;
+          }>;
         };
         const savedLine = updated.items?.find(
           (candidate) => candidate.transaction_line_id === item.transaction_line_id,
         );
+        if (!savedLine) {
+          toast(
+            "The Main Hub response did not confirm the updated Transaction Record line. Reopen the order before making another change.",
+            "error",
+          );
+          return false;
+        }
         if (
           patch.unit_price !== undefined &&
           parseMoneyToCents(savedLine?.unit_price) !== parseMoneyToCents(patch.unit_price)
@@ -1667,11 +1680,34 @@ export default function Cart({
           );
           return false;
         }
+        if (
+          patch.variant_id !== undefined &&
+          savedLine.variant_id !== patch.variant_id
+        ) {
+          toast(
+            "The Main Hub response did not confirm the selected item variation. Reopen the order before making another change.",
+            "error",
+          );
+          return false;
+        }
+        if (
+          patch.variant_id !== undefined &&
+          patch.unit_price === undefined &&
+          parseMoneyToCents(savedLine.unit_price) !== parseMoneyToCents(item.unit_price)
+        ) {
+          toast(
+            "The item variation changed, but the original customer price was not retained. Stop and review the Transaction Record before taking payment.",
+            "error",
+          );
+          return false;
+        }
         toast(
           patch.unit_price !== undefined
             ? `Transaction Record line saved at ${formatUsdFromCents(
                 parseMoneyToCents(patch.unit_price),
               )}. Booked totals were refreshed.`
+            : patch.variant_id !== undefined
+              ? `Item updated from ${item.sku} · ${item.variation_label ?? "Standard"} to ${savedLine.sku ?? "selected SKU"} · ${savedLine.variation_label ?? "Standard"}. Customer price retained at ${formatUsdFromCents(parseMoneyToCents(item.unit_price))}.`
             : "Transaction Record line updated. Booked totals were refreshed for that record.",
           "success",
         );
