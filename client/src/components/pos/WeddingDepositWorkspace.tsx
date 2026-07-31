@@ -74,7 +74,7 @@ type OpenTransactionTarget = {
   balance_due: string;
 };
 
-type Step = "party" | "members" | "review" | "history";
+type Step = "start" | "party" | "members" | "review" | "history";
 type PostPaymentAction = "build_orders" | "deposit_only";
 
 const ROLE_OPTIONS = [
@@ -157,11 +157,11 @@ export default function WeddingDepositWorkspace({
     () => ({ "Content-Type": "application/json", ...mergedPosStaffHeaders(backofficeHeaders) }),
     [backofficeHeaders],
   );
-  const [step, setStep] = useState<Step>(initialView === "orders" ? "history" : initialPartyId ? "members" : "party");
+  const [step, setStep] = useState<Step>(initialView === "orders" ? "history" : "start");
   const [party, setParty] = useState<DepositParty | null>(null);
   const [partySearch, setPartySearch] = useState("");
   const [partyResults, setPartyResults] = useState<DepositParty[]>([]);
-  const [partyBusy, setPartyBusy] = useState(false);
+  const [partyBusy, setPartyBusy] = useState(Boolean(initialPartyId));
   const [newPartyOpen, setNewPartyOpen] = useState(false);
   const [newPartyName, setNewPartyName] = useState("");
   const [newPartyDate, setNewPartyDate] = useState("");
@@ -192,25 +192,40 @@ export default function WeddingDepositWorkspace({
     () => party?.members.filter((member) => selectedMemberIds.has(member.id)) ?? [],
     [party?.members, selectedMemberIds],
   );
-  const totalCents = useMemo(
-    () => selectedMembers.reduce((total, member) => total + parseMoneyToCents(amounts[member.id] ?? "0"), 0),
+  const fundedMembers = useMemo(
+    () =>
+      selectedMembers.filter(
+        (member) => parseMoneyToCents(amounts[member.id] ?? "0") > 0,
+      ),
     [amounts, selectedMembers],
   );
-  const validAmounts =
-    selectedMembers.length > 0 &&
-    selectedMembers.every((member) => {
+  const selectedWithoutAmount = useMemo(
+    () =>
+      selectedMembers.filter(
+        (member) => parseMoneyToCents(amounts[member.id] ?? "0") <= 0,
+      ),
+    [amounts, selectedMembers],
+  );
+  const totalCents = useMemo(
+    () => fundedMembers.reduce((total, member) => total + parseMoneyToCents(amounts[member.id] ?? "0"), 0),
+    [amounts, fundedMembers],
+  );
+  const invalidDestinationMembers = useMemo(
+    () => fundedMembers.filter((member) => {
       const amountCents = parseMoneyToCents(amounts[member.id] ?? "0");
-      if (amountCents <= 0) return false;
       const destination = destinations[member.id] ?? "held_for_future_order";
-      if (destination === "held_for_future_order") return true;
+      if (destination === "held_for_future_order") return false;
       const target = (openTargets[member.id] ?? []).find(
         (candidate) => candidate.transaction_id === destination,
       );
-      return Boolean(target) && amountCents <= parseMoneyToCents(target!.balance_due);
-    });
+      return !target || amountCents > parseMoneyToCents(target.balance_due);
+    }),
+    [amounts, destinations, fundedMembers, openTargets],
+  );
+  const validAmounts = fundedMembers.length > 0 && invalidDestinationMembers.length === 0;
 
   const loadParty = useCallback(
-    async (partyId: string) => {
+    async (partyId: string, nextStep: Step | null = "members") => {
       setPartyBusy(true);
       setError(null);
       try {
@@ -244,7 +259,7 @@ export default function WeddingDepositWorkspace({
           ),
         );
         setParty(parsed);
-        setStep("members");
+        if (nextStep) setStep(nextStep);
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : "Wedding party could not be loaded.");
       } finally {
@@ -274,7 +289,7 @@ export default function WeddingDepositWorkspace({
     if (!isOpen) return;
     setError(null);
     void loadWorkflows();
-    if (initialPartyId) void loadParty(initialPartyId);
+    if (initialPartyId) void loadParty(initialPartyId, null);
   }, [initialPartyId, isOpen, loadParty, loadWorkflows]);
 
   useEffect(() => {
@@ -463,10 +478,16 @@ export default function WeddingDepositWorkspace({
     });
   };
 
+  const beginWorkflow = (action: PostPaymentAction) => {
+    setPostPaymentAction(action);
+    setError(null);
+    setStep(party ? "members" : "party");
+  };
+
   const addDeposits = () => {
     if (!party || !payerMember || !validAmounts) return;
     onAddDeposits(
-      selectedMembers.map((member) => ({
+      fundedMembers.map((member) => ({
         ...member,
         split_deposit_amount: centsToFixed2(parseMoneyToCents(amounts[member.id] ?? "0")),
         deposit_destination_kind:
@@ -512,14 +533,21 @@ export default function WeddingDepositWorkspace({
 
         <div className="grid min-h-0 flex-1 md:grid-cols-[220px_minmax(0,1fr)_260px]">
           <aside className="border-b border-app-border bg-app-surface-2 p-3 md:border-b-0 md:border-r md:p-5">
-            <ol className="grid grid-cols-3 gap-2 md:grid-cols-1">
+            <ol className="grid grid-cols-4 gap-2 md:grid-cols-1">
               {[
-                ["party", "1", "Wedding Party"],
-                ["members", "2", "Members & Amounts"],
-                ["review", "3", "Review Before Payment"],
+                ["start", "1", "Choose Workflow"],
+                ["party", "2", "Wedding Party"],
+                ["members", "3", "Members & Amounts"],
+                ["review", "4", "Review Before Payment"],
               ].map(([value, number, label]) => {
                 const active = step === value;
-                const complete = value === "party" ? Boolean(party) : value === "members" ? validAmounts && Boolean(payerMember) : false;
+                const complete = value === "start"
+                  ? step !== "start" && step !== "history"
+                  : value === "party"
+                    ? Boolean(party)
+                    : value === "members"
+                      ? validAmounts && Boolean(payerMember)
+                      : false;
                 return (
                   <li key={value} className={`rounded-2xl border p-2.5 ${active ? "border-app-accent bg-app-accent/10" : "border-app-border bg-app-surface"}`}>
                     <div className="flex items-center gap-2">
@@ -539,6 +567,57 @@ export default function WeddingDepositWorkspace({
 
           <main className="min-h-0 overflow-y-auto p-4 sm:p-6">
             {error ? <div className="mb-4 rounded-2xl border border-app-danger/30 bg-app-danger/10 p-3 text-sm font-bold text-app-danger">{error}</div> : null}
+
+            {step === "start" ? (
+              <div className="space-y-5">
+                <div>
+                  <h3 className="text-xl font-black text-app-text">What are you doing today?</h3>
+                  <p className="text-sm text-app-text-muted">
+                    Choose the workflow first. You can change this choice before adding anything to the Cart.
+                  </p>
+                </div>
+                {partyBusy ? (
+                  <div className="rounded-2xl border border-app-info/30 bg-app-info/8 p-4 text-sm font-bold text-app-info">
+                    Loading the linked wedding party…
+                  </div>
+                ) : null}
+                <div className="grid gap-4 lg:grid-cols-2">
+                  <button
+                    type="button"
+                    disabled={partyBusy}
+                    onClick={() => beginWorkflow("deposit_only")}
+                    className="group rounded-3xl border-2 border-app-info/40 bg-app-info/8 p-6 text-left transition hover:border-app-info hover:bg-app-info/12 disabled:opacity-50"
+                  >
+                    <ReceiptText className="mb-4 text-app-info" size={32} />
+                    <span className="block text-xl font-black text-app-text">Deposit Only</span>
+                    <span className="mt-2 block text-sm text-app-text-muted">
+                      Collect deposits for party members, print the payer receipt, and finish. Build member orders later from Orders &amp; Receipts.
+                    </span>
+                    <span className="mt-5 inline-flex items-center gap-1 text-xs font-black text-app-info">
+                      Start Deposit <ChevronRight size={15} />
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={partyBusy}
+                    onClick={() => beginWorkflow("build_orders")}
+                    className="group rounded-3xl border-2 border-app-accent/40 bg-app-accent/8 p-6 text-left transition hover:border-app-accent hover:bg-app-accent/12 disabled:opacity-50"
+                  >
+                    <ShoppingCart className="mb-4 text-app-accent" size={32} />
+                    <span className="block text-xl font-black text-app-text">Collect &amp; Build Orders</span>
+                    <span className="mt-2 block text-sm text-app-text-muted">
+                      Collect the payer deposit first, print its truthful receipt, then continue member by member to select items and complete each Wedding Order.
+                    </span>
+                    <span className="mt-5 inline-flex items-center gap-1 text-xs font-black text-app-accent">
+                      Start Collect and Build Orders <ChevronRight size={15} />
+                    </span>
+                  </button>
+                </div>
+                <div className="rounded-2xl border border-app-border bg-app-surface-2 p-4 text-sm text-app-text-muted">
+                  Both paths use one payer payment and the same audited member allocations. No deposit or member order posts until its successful Pay → Complete Sale / Record Sale checkout.
+                </div>
+              </div>
+            ) : null}
 
             {step === "party" ? (
               <div className="space-y-5">
@@ -609,7 +688,15 @@ export default function WeddingDepositWorkspace({
                   <div className="rounded-2xl border border-app-success/30 bg-app-success/8 p-3 text-sm font-bold text-app-success">Payer verified: {payerName} · {payerMember.role}</div>
                 )}
 
-                <div className="rounded-2xl border border-app-info/30 bg-app-info/8 p-3 text-sm text-app-text"><strong>This step assigns deposit amounts.</strong> Item selection follows the successful payer payment. On Review, choose <strong>Collect and Build Orders</strong> to continue directly into each member&apos;s Wedding Order.</div>
+                <div className="rounded-2xl border border-app-info/30 bg-app-info/8 p-3 text-sm text-app-text">
+                  <strong>{postPaymentAction === "build_orders" ? "Collect & Build Orders selected." : "Deposit Only selected."}</strong>{" "}
+                  {postPaymentAction === "build_orders"
+                    ? "After the payer payment succeeds, continue directly into each funded member's item selection."
+                    : "After the payer payment and receipt succeed, this workflow finishes; member orders can be built later."}
+                  <button type="button" onClick={() => setStep("start")} className="ml-2 font-black text-app-accent underline">
+                    Change workflow
+                  </button>
+                </div>
 
                 {memberEditorOpen ? (
                   <div className="rounded-3xl border border-app-border bg-app-surface-2 p-4">
@@ -647,6 +734,16 @@ export default function WeddingDepositWorkspace({
                   {party.members.map((member) => {
                     const isPayer = member.customer_id === payer.id;
                     const selected = selectedMemberIds.has(member.id);
+                    const amountCents = parseMoneyToCents(amounts[member.id] ?? "0");
+                    const destination = destinations[member.id] ?? "held_for_future_order";
+                    const target = (openTargets[member.id] ?? []).find(
+                      (candidate) => candidate.transaction_id === destination,
+                    );
+                    const destinationAmountInvalid =
+                      selected &&
+                      amountCents > 0 &&
+                      destination !== "held_for_future_order" &&
+                      (!target || amountCents > parseMoneyToCents(target.balance_due));
                     return (
                       <div key={member.id} className={`rounded-2xl border p-4 ${isPayer ? "border-app-border bg-app-surface-3" : selected ? "border-app-accent bg-app-accent/8" : "border-app-border bg-app-surface-2"}`}>
                         <div className="flex items-center justify-between gap-3">
@@ -658,6 +755,18 @@ export default function WeddingDepositWorkspace({
                             <label className="flex items-center gap-1 text-sm font-black text-app-text">$<input value={amounts[member.id] ?? ""} onChange={(event) => { const value = normalizedAmount(event.target.value); if (value != null) setAmounts((current) => ({ ...current, [member.id]: value })); }} className="ui-input w-28 text-right text-lg font-black" inputMode="decimal" placeholder="0.00" /></label>
                           ) : null}
                         </div>
+                        {selected && amountCents <= 0 ? (
+                          <p className="mt-2 rounded-xl bg-app-warning/10 px-3 py-2 text-xs font-bold text-app-warning">
+                            Enter an amount to fund this member. A $0 selection is excluded and will not block the other funded members.
+                          </p>
+                        ) : null}
+                        {destinationAmountInvalid ? (
+                          <p className="mt-2 rounded-xl bg-app-danger/10 px-3 py-2 text-xs font-bold text-app-danger">
+                            {target
+                              ? `This amount exceeds the $${target.balance_due} balance on ${target.display_id}. Lower the amount or hold it for a future order.`
+                              : "Choose a current open Transaction Record or hold this deposit for a future order."}
+                          </p>
+                        ) : null}
                         {selected ? (
                           <label className="mt-3 block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                             Deposit destination
@@ -694,7 +803,7 @@ export default function WeddingDepositWorkspace({
                 <div className="rounded-3xl border border-app-border bg-app-surface-2 p-4">
                   <div className="mb-4 flex items-start justify-between"><div><p className="font-black text-app-text">{payerName}</p><p className="text-xs text-app-text-muted">Paying deposits for {party.party_name}</p></div><p className="text-2xl font-black text-app-accent">${centsToFixed2(totalCents)}</p></div>
                   <div className="space-y-2 border-t border-app-border pt-3">
-                    {selectedMembers.map((member) => {
+                    {fundedMembers.map((member) => {
                       const destination = destinations[member.id] ?? "held_for_future_order";
                       const target = (openTargets[member.id] ?? []).find(
                         (candidate) => candidate.transaction_id === destination,
@@ -704,17 +813,20 @@ export default function WeddingDepositWorkspace({
                   </div>
                 </div>
                 <div className="rounded-2xl border border-app-info/30 bg-app-info/8 p-4 text-sm text-app-text">Payment will be collected once from {payerName}. Each member amount remains separate and will not be shown as the payer’s merchandise.</div>
-                <fieldset className="space-y-2">
-                  <legend className="text-sm font-black text-app-text">After the payer receipt</legend>
-                  <button type="button" onClick={() => setPostPaymentAction("build_orders")} className={`flex w-full items-start gap-3 rounded-2xl border p-4 text-left ${postPaymentAction === "build_orders" ? "border-app-accent bg-app-accent/10" : "border-app-border bg-app-surface"}`}>
-                    <ShoppingCart className="mt-0.5 shrink-0 text-app-accent" size={20} />
-                    <span><span className="block font-black text-app-text">Collect and Build Orders</span><span className="mt-1 block text-xs text-app-text-muted">Take this one payer payment, print its receipt, then continue directly to each funded member to select items and create that member&apos;s Wedding Order.</span></span>
-                  </button>
-                  <button type="button" onClick={() => setPostPaymentAction("deposit_only")} className={`flex w-full items-start gap-3 rounded-2xl border p-4 text-left ${postPaymentAction === "deposit_only" ? "border-app-info bg-app-info/10" : "border-app-border bg-app-surface"}`}>
-                    <ReceiptText className="mt-0.5 shrink-0 text-app-info" size={20} />
-                    <span><span className="block font-black text-app-text">Collect Deposits Only</span><span className="mt-1 block text-xs text-app-text-muted">Finish after the payer receipt. Return through Wedding Deposit → Orders &amp; Receipts when the party is ready to select merchandise.</span></span>
-                  </button>
-                </fieldset>
+                <div className={`rounded-2xl border p-4 ${postPaymentAction === "build_orders" ? "border-app-accent bg-app-accent/10" : "border-app-info bg-app-info/10"}`}>
+                  <div className="flex items-start gap-3">
+                    {postPaymentAction === "build_orders" ? <ShoppingCart className="mt-0.5 shrink-0 text-app-accent" size={20} /> : <ReceiptText className="mt-0.5 shrink-0 text-app-info" size={20} />}
+                    <div className="min-w-0 flex-1">
+                      <p className="font-black text-app-text">{postPaymentAction === "build_orders" ? "Collect & Build Orders" : "Deposit Only"}</p>
+                      <p className="mt-1 text-xs text-app-text-muted">
+                        {postPaymentAction === "build_orders"
+                          ? "After the payer receipt, continue directly to each funded member to select items and create that member's Wedding Order."
+                          : "Finish after the payer receipt. Return through Wedding Deposit → Orders & Receipts when the party is ready for merchandise."}
+                      </p>
+                    </div>
+                    <button type="button" onClick={() => setStep("start")} className="shrink-0 text-xs font-black text-app-accent underline">Change</button>
+                  </div>
+                </div>
               </div>
             ) : null}
 
@@ -765,11 +877,19 @@ export default function WeddingDepositWorkspace({
           <aside className="border-t border-app-border bg-app-surface-2 p-4 md:border-l md:border-t-0">
             <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Deposit Summary</p>
             <p className="mt-2 text-3xl font-black text-app-text">${centsToFixed2(totalCents)}</p>
-            <p className="text-xs text-app-text-muted">{selectedMembers.length} beneficiaries selected</p>
-            <dl className="mt-5 space-y-3 text-xs"><div><dt className="font-black text-app-text-muted">Payer</dt><dd className="font-bold text-app-text">{payerName}</dd></div><div><dt className="font-black text-app-text-muted">Wedding Party</dt><dd className="font-bold text-app-text">{party?.party_name ?? "Not selected"}</dd></div><div><dt className="font-black text-app-text-muted">Status</dt><dd className="font-bold text-app-text">{!party ? "Choose party" : !payerMember ? "Add payer to party" : !validAmounts ? "Enter member amounts" : step === "review" ? "Ready to add to Cart" : "Ready to review"}</dd></div></dl>
-            {step === "members" ? <button type="button" disabled={!payerMember || !validAmounts} onClick={() => setStep("review")} className="ui-btn-primary mt-6 w-full">Review ${centsToFixed2(totalCents)} Deposit</button> : null}
+            <p className="text-xs text-app-text-muted">
+              {fundedMembers.length} funded {fundedMembers.length === 1 ? "member" : "members"}
+              {selectedWithoutAmount.length > 0 ? ` · ${selectedWithoutAmount.length} selected without an amount (excluded)` : ""}
+            </p>
+            <dl className="mt-5 space-y-3 text-xs">
+              <div><dt className="font-black text-app-text-muted">Workflow</dt><dd className="font-bold text-app-text">{step === "start" ? "Choose Deposit Only or Collect & Build Orders" : postPaymentAction === "build_orders" ? "Collect & Build Orders" : "Deposit Only"}</dd></div>
+              <div><dt className="font-black text-app-text-muted">Payer</dt><dd className="font-bold text-app-text">{payerName}</dd></div>
+              <div><dt className="font-black text-app-text-muted">Wedding Party</dt><dd className="font-bold text-app-text">{party?.party_name ?? "Not selected"}</dd></div>
+              <div><dt className="font-black text-app-text-muted">Status</dt><dd className="font-bold text-app-text">{step === "start" ? "Choose workflow" : !party ? "Choose party" : !payerMember ? "Add payer to party" : fundedMembers.length === 0 ? "Enter at least one member amount" : invalidDestinationMembers.length > 0 ? "Resolve the highlighted destination amount" : step === "review" ? "Ready to add to Cart" : selectedWithoutAmount.length > 0 ? `${selectedWithoutAmount.length} zero-dollar selection excluded · ready to review` : "Ready to review"}</dd></div>
+            </dl>
+            {step === "members" ? <button type="button" disabled={!payerMember || !validAmounts} onClick={() => setStep("review")} className="ui-btn-primary mt-6 w-full">Review ${centsToFixed2(totalCents)} for {fundedMembers.length} {fundedMembers.length === 1 ? "Member" : "Members"}</button> : null}
             {step === "review" ? <button type="button" onClick={addDeposits} className="ui-btn-primary mt-6 w-full">Add Deposits to Cart</button> : null}
-            {step === "history" ? <button type="button" onClick={() => setStep(party ? "members" : "party")} className="ui-btn-secondary mt-6 w-full">Start New Deposit</button> : null}
+            {step === "history" ? <button type="button" onClick={() => setStep("start")} className="ui-btn-secondary mt-6 w-full">Start New Deposit or Collect &amp; Build</button> : null}
           </aside>
         </div>
       </section>

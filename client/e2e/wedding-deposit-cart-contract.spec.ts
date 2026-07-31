@@ -79,6 +79,8 @@ test("wedding deposits are a removable deposit-only Cart workflow", () => {
 
 test("wedding deposit posting is prevention-first, source-tracked, and receipt truthful", () => {
   expect(weddingDepositWorkspaceSource).toContain("Wedding Party");
+  expect(weddingDepositWorkspaceSource).toContain("Choose Workflow");
+  expect(weddingDepositWorkspaceSource).toContain("What are you doing today?");
   expect(weddingDepositWorkspaceSource).toContain("Members & Amounts");
   expect(weddingDepositWorkspaceSource).toContain("Review Before Payment");
   expect(weddingDepositWorkspaceSource).toContain("Start a New Wedding Party");
@@ -86,8 +88,14 @@ test("wedding deposit posting is prevention-first, source-tracked, and receipt t
   expect(weddingDepositWorkspaceSource).toContain("Create New Customer");
   expect(weddingDepositWorkspaceSource).toContain("Deposit destination");
   expect(weddingDepositWorkspaceSource).toContain("Hold for this member's future order");
-  expect(weddingDepositWorkspaceSource).toContain("Collect and Build Orders");
-  expect(weddingDepositWorkspaceSource).toContain("Collect Deposits Only");
+  expect(weddingDepositWorkspaceSource).toContain("Deposit Only");
+  expect(weddingDepositWorkspaceSource).toContain("Collect &amp; Build Orders");
+  expect(weddingDepositWorkspaceSource).toContain(
+    "selected without an amount (excluded)",
+  );
+  expect(weddingDepositWorkspaceSource).toContain(
+    "fundedMembers.map((member)",
+  );
   expect(weddingDepositWorkspaceSource).toContain("Wedding Orders &amp; Receipts");
   expect(weddingDepositWorkspaceSource).toContain("How item selection works");
   expect(weddingDepositWorkspaceSource).toContain(
