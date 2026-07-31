@@ -59,7 +59,7 @@ Use this panel when setting up Helcim, rotating credentials, adding or replacing
 - Webhook receipt does not by itself create a ROS payment ledger row, finish checkout, or prove that ROS recorded the payment.
 - Card Not Present and public web checkout use HelcimPay.js. Add the public HTTPS ROS/PWA checkout origin to the Helcim API Access Configuration before live keyed entry. The desktop app's local `tauri.localhost` origin is not valid for HelcimPay.js, so Register Card Not Present embeds a one-time public HTTPS handoff inside the checkout drawer and then records only approved attempts back to the sale. Canceled or declined attempts return to the payment ledger for retry or cancel. Helcim controls the hosted card-entry fields, including billing ZIP/street address prompts used for card verification.
 - POS terminal requests also send a ROS invoice reference to Helcim. If a terminal approves but the live drawer response is delayed, the checkout drawer status check can recover the provider transaction by that invoice reference and exact amount.
-- Card Not Present does not send a synthetic invoice number to Helcim. If Helcim approves while the handoff or Main Hub connection is interrupted, keep the checkout open and use Recover payment; ROS will show Add Payment to Sale only after a validated result or one unique provider match is found.
+- Card Not Present does not send a synthetic invoice number to Helcim. If Helcim approves while the handoff or Main Hub connection is interrupted, keep the checkout open and use Recover payment; ROS will show Add Payment to Sale only after a validated result or one unique provider match is found. An abandoned or unresolved handoff remains in Payments Health but does not reserve the Register against another payment.
 - If a Helcim terminal prints a card receipt, fix the terminal/dashboard receipt setting before live processing continues; do not treat the terminal printout as the ROS receipt.
 - If Payments Health shows **Provider event not attached to ROS checkout**, treat it as provider evidence requiring review only when the ROS payment is missing a Helcim provider reference.
 - If the signing secret is missing or wrong, ROS rejects the delivery before it appears in Payments Health. Ask an admin to check server logs and the Settings secret.
@@ -67,7 +67,7 @@ Use this panel when setting up Helcim, rotating credentials, adding or replacing
 
 ## What happens next
 
-After setup, POS terminal attempts can still be approved, declined, canceled, expired, or left unresolved by provider timing. Staff should follow the checkout drawer status and Payments Health review guidance before retrying unresolved terminal attempts.
+After setup, POS terminal attempts can still be approved, declined, canceled, expired, or left unresolved by provider timing. Staff should follow Payments Health review guidance so real approvals are attached to the correct sale. Earlier non-final attempts are audit evidence only and do not reserve a Register or terminal.
 
 ## Related workflows
 

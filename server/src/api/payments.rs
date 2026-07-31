@@ -1934,23 +1934,8 @@ async fn reject_conflicting_helcim_attempt_before_dispatch(
         WHERE ppa.provider = 'helcim'
           AND ppa.checkout_client_id = $1
           AND ($2::uuid IS NULL OR ppa.id <> $2)
-          AND (
-              ppa.status = 'pending'
-              OR (
-                  ppa.status = 'expired'
-                  AND COALESCE(ppa.error_code, '') NOT IN (
-                      'physical_terminal_cancel_confirmed',
-                      'orphaned_pre_dispatch_reservation',
-                      'operator_recovered_ros_reservation'
-                  )
-              )
-              OR (
-                  ppa.status = 'failed'
-                  AND ppa.error_code IN ('outcome_unknown', 'terminal_pending_timeout')
-              )
-              OR (
-                  ppa.status IN ('approved', 'captured')
-                  AND NOT EXISTS (
+          AND ppa.status IN ('approved', 'captured')
+          AND NOT EXISTS (
                       SELECT 1
                       FROM payment_transactions pt
                       WHERE COALESCE(pt.payment_provider, '') = 'helcim'
@@ -1990,8 +1975,6 @@ async fn reject_conflicting_helcim_attempt_before_dispatch(
                             )
                         )
                   )
-              )
-          )
         ORDER BY ppa.created_at DESC
         LIMIT 1
         "#,
@@ -2002,24 +1985,17 @@ async fn reject_conflicting_helcim_attempt_before_dispatch(
     .await
     .map_err(|error| PaymentError::InvalidPayload(error.to_string()))?;
 
-    let Some((attempt_id, status, amount_cents, provider_reference)) = unresolved else {
+    let Some((attempt_id, _status, amount_cents, provider_reference)) = unresolved else {
         return Ok(());
     };
     let reference = provider_reference
         .filter(|value| !value.trim().is_empty())
         .map(|value| format!(" Provider reference: {value}."))
         .unwrap_or_default();
-    if matches!(status.as_str(), "approved" | "captured") {
-        return Err(PaymentError::Conflict(format!(
-            "An approved Helcim payment of ${:.2} is still waiting to be attached to this sale.{} Open Restore in Pay for attempt {}; do not start another card payment.",
-            Decimal::new(amount_cents, 2),
-            reference,
-            attempt_id
-        )));
-    }
     Err(PaymentError::Conflict(format!(
-        "A Helcim payment of ${:.2} still has an unresolved provider outcome. Open Restore in Pay for attempt {} before another card payment.",
+        "An approved Helcim payment of ${:.2} is still waiting to be attached to this sale.{} Open Restore in Pay for attempt {}; no new charge was sent.",
         Decimal::new(amount_cents, 2),
+        reference,
         attempt_id
     )))
 }
@@ -2162,11 +2138,9 @@ async fn expire_closed_session_helcim_terminal_attempts_before_dispatch(
     Ok(())
 }
 
-async fn isolate_prior_checkout_helcim_terminal_attempts_before_dispatch(
+async fn release_existing_helcim_terminal_routing_reservations_before_dispatch(
     tx: &mut sqlx::Transaction<'_, Postgres>,
     terminal_id: &str,
-    requested_register_session_id: Uuid,
-    requested_checkout_client_id: Uuid,
 ) -> Result<(), PaymentError> {
     sqlx::query(
         r#"
@@ -2174,24 +2148,20 @@ async fn isolate_prior_checkout_helcim_terminal_attempts_before_dispatch(
         SET status = 'expired',
             error_code = COALESCE(
                 NULLIF(BTRIM(ppa.error_code), ''),
-                'prior_checkout_pending_isolated'
+                'terminal_routing_reservation_released'
             ),
             error_message = CONCAT_WS(
                 ' ',
                 NULLIF(BTRIM(ppa.error_message), ''),
-                'ROS removed this earlier checkout from terminal routing before a new checkout on the same Register. Existing provider evidence remains retained for Payments Health reconciliation.'
+                'ROS released this earlier attempt from terminal routing before a new payment. Existing provider evidence remains retained for Payments Health reconciliation.'
             ),
             completed_at = COALESCE(ppa.completed_at, now())
         WHERE ppa.provider = 'helcim'
           AND ppa.status = 'pending'
           AND COALESCE(ppa.terminal_id, ppa.device_id) = $1
-          AND ppa.register_session_id = $2
-          AND ppa.checkout_client_id IS DISTINCT FROM $3
         "#,
     )
     .bind(terminal_id)
-    .bind(requested_register_session_id)
-    .bind(requested_checkout_client_id)
     .execute(&mut **tx)
     .await
     .map_err(|error| PaymentError::InvalidPayload(error.to_string()))?;
@@ -9774,8 +9744,6 @@ async fn start_helcim_purchase(
         }
     };
 
-    refresh_pending_helcim_terminal_attempt_before_dispatch(&state, &terminal_id).await?;
-
     let attempt_id = Uuid::new_v4();
     let idempotency_key = format!("helcim-{attempt_id}");
 
@@ -9786,21 +9754,9 @@ async fn start_helcim_purchase(
         .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
     lock_register_session_open_for_payment(&mut tx, Some(register_session_id)).await?;
     expire_closed_session_helcim_terminal_attempts_before_dispatch(&mut tx, &terminal_id).await?;
-    isolate_prior_checkout_helcim_terminal_attempts_before_dispatch(
-        &mut tx,
-        &terminal_id,
-        register_session_id,
-        checkout_client_id,
-    )
-    .await?;
+    release_existing_helcim_terminal_routing_reservations_before_dispatch(&mut tx, &terminal_id)
+        .await?;
     reject_conflicting_helcim_attempt_before_dispatch(&mut tx, checkout_client_id, None).await?;
-    reject_unresolved_helcim_terminal_before_dispatch(
-        &mut tx,
-        &terminal_id,
-        register_session_id,
-        checkout_client_id,
-    )
-    .await?;
     let insert_result = sqlx::query(
         r#"
         INSERT INTO payment_provider_attempts (
@@ -13156,85 +13112,24 @@ mod tests {
     }
 
     #[test]
-    fn terminal_reservations_require_pending_attempts_on_open_sessions() {
+    fn prior_terminal_attempts_are_audit_evidence_not_routing_reservations() {
         let source = include_str!("payments.rs");
-        let reservation_guard = source
-            .split_once("async fn reject_unresolved_helcim_terminal_before_dispatch(")
-            .expect("terminal reservation guard")
+        let release = source
+            .split_once(
+                "async fn release_existing_helcim_terminal_routing_reservations_before_dispatch(",
+            )
+            .expect("terminal routing release")
             .1
             .split_once("fn is_provider_idempotency_violation(")
-            .expect("end of terminal reservation guard")
+            .expect("end of terminal routing release")
             .0;
-        let routing_status = source
-            .split_once("async fn helcim_terminal_routing_status(")
-            .expect("terminal routing status")
-            .1
-            .split_once("fn mask_terminal_suffix(")
-            .expect("end of terminal routing status")
-            .0;
-        let in_use_message = source
-            .split_once("async fn terminal_in_use_message(")
-            .expect("terminal in-use message")
-            .1
-            .split_once("async fn reject_unlinked_helcim_return(")
-            .expect("end of terminal in-use message")
-            .0;
-
-        for query_scope in [reservation_guard, routing_status, in_use_message] {
-            assert!(query_scope.contains("INNER JOIN register_sessions rs"));
-            assert!(query_scope.contains("rs.is_open = true"));
-            assert!(query_scope.contains("rs.lifecycle_status = 'open'"));
-            assert!(query_scope.contains("ppa.status = 'pending'"));
-            assert!(!query_scope.contains("terminal_pending_timeout"));
-            assert!(!query_scope.contains("ppa.status IN ('failed', 'expired')"));
-        }
-        assert!(routing_status.contains("ppa.register_session_id"));
-        assert!(routing_status.contains("ppa.checkout_client_id"));
-        assert!(routing_status.contains("register_session_id: active"));
-        assert!(routing_status.contains("checkout_client_id: active"));
-
-        let pending_refresh = source
-            .split_once("async fn refresh_pending_helcim_terminal_attempt_before_dispatch(")
-            .expect("pending terminal provider refresh")
-            .1
-            .split_once("async fn expire_closed_session_helcim_terminal_attempts_before_dispatch(")
-            .expect("end of pending terminal provider refresh")
-            .0;
-        assert!(pending_refresh.contains("INNER JOIN register_sessions rs"));
-        assert!(pending_refresh.contains("rs.is_open = true"));
-        assert!(pending_refresh.contains("rs.lifecycle_status = 'open'"));
-        assert!(pending_refresh.contains("ppa.status = 'pending'"));
-        assert!(pending_refresh.contains("load_helcim_attempt(state, attempt_id, None).await?"));
-        assert!(!pending_refresh.contains("SET status ="));
-
-        let stale_session_cleanup = source
-            .split_once("async fn expire_closed_session_helcim_terminal_attempts_before_dispatch(")
-            .expect("closed-session terminal cleanup")
-            .1
-            .split_once("async fn isolate_prior_checkout_helcim_terminal_attempts_before_dispatch(")
-            .expect("end of closed-session terminal cleanup")
-            .0;
-        assert!(stale_session_cleanup.contains("SET status = 'expired'"));
-        assert!(stale_session_cleanup.contains("NULLIF(BTRIM(ppa.error_code), '')"));
-        assert!(stale_session_cleanup.contains("'closed_session_pending_isolated'"));
-        assert!(stale_session_cleanup.contains("CONCAT_WS("));
-        assert!(stale_session_cleanup.contains("NULLIF(BTRIM(ppa.error_message), '')"));
-        assert!(stale_session_cleanup.contains("AND NOT EXISTS"));
-        assert!(stale_session_cleanup.contains("rs.is_open = true"));
-        assert!(stale_session_cleanup.contains("rs.lifecycle_status = 'open'"));
-
-        let prior_checkout_cleanup = source
-            .split_once("async fn isolate_prior_checkout_helcim_terminal_attempts_before_dispatch(")
-            .expect("prior-checkout terminal cleanup")
-            .1
-            .split_once("fn is_provider_idempotency_violation(")
-            .expect("end of prior-checkout terminal cleanup")
-            .0;
-        assert!(prior_checkout_cleanup.contains("SET status = 'expired'"));
-        assert!(prior_checkout_cleanup.contains("'prior_checkout_pending_isolated'"));
-        assert!(prior_checkout_cleanup.contains("ppa.register_session_id = $2"));
-        assert!(prior_checkout_cleanup.contains("ppa.checkout_client_id IS DISTINCT FROM $3"));
-        assert!(prior_checkout_cleanup.contains("Existing provider evidence remains retained"));
+        assert!(release.contains("SET status = 'expired'"));
+        assert!(release.contains("'terminal_routing_reservation_released'"));
+        assert!(release.contains("ppa.status = 'pending'"));
+        assert!(release.contains("COALESCE(ppa.terminal_id, ppa.device_id) = $1"));
+        assert!(release.contains("Existing provider evidence remains retained"));
+        assert!(!release.contains("ppa.register_session_id ="));
+        assert!(!release.contains("ppa.checkout_client_id"));
 
         let purchase_dispatch = source
             .split_once("async fn start_helcim_purchase(")
@@ -13243,29 +13138,21 @@ mod tests {
             .split_once("#[allow(dead_code)]")
             .expect("end of terminal purchase")
             .0;
-        let provider_refresh = purchase_dispatch
-            .find("refresh_pending_helcim_terminal_attempt_before_dispatch(")
-            .expect("provider reconciliation before terminal purchase");
         let transaction_begin = purchase_dispatch
             .find("let mut tx = state")
             .expect("terminal dispatch transaction");
-        let cleanup_call = purchase_dispatch
-            .find("expire_closed_session_helcim_terminal_attempts_before_dispatch(")
-            .expect("closed-session cleanup before terminal purchase");
-        let prior_checkout_cleanup_call = purchase_dispatch
-            .find("isolate_prior_checkout_helcim_terminal_attempts_before_dispatch(")
-            .expect("prior-checkout cleanup before terminal purchase");
-        let open_session_guard = purchase_dispatch
-            .find("reject_unresolved_helcim_terminal_before_dispatch(")
-            .expect("open-session terminal guard");
+        let release_call = purchase_dispatch
+            .find("release_existing_helcim_terminal_routing_reservations_before_dispatch(")
+            .expect("terminal routing release before purchase");
         let insert = purchase_dispatch
             .find("INSERT INTO payment_provider_attempts")
             .expect("terminal attempt insert");
-        assert!(provider_refresh < transaction_begin);
-        assert!(transaction_begin < cleanup_call);
-        assert!(cleanup_call < prior_checkout_cleanup_call);
-        assert!(prior_checkout_cleanup_call < open_session_guard);
-        assert!(open_session_guard < insert);
+        assert!(transaction_begin < release_call);
+        assert!(release_call < insert);
+        assert!(
+            !purchase_dispatch.contains("refresh_pending_helcim_terminal_attempt_before_dispatch(")
+        );
+        assert!(!purchase_dispatch.contains("reject_unresolved_helcim_terminal_before_dispatch("));
     }
 
     #[test]
@@ -13321,7 +13208,7 @@ mod tests {
     }
 
     #[test]
-    fn resolved_expired_terminal_reservations_do_not_block_a_new_attempt() {
+    fn only_unattached_approved_money_blocks_an_exact_checkout_recharge() {
         let source = include_str!("payments.rs");
         let create_guard = source
             .split_once("let unresolved: Option<(Uuid, String, i64, Option<String>)>")
@@ -13331,10 +13218,10 @@ mod tests {
             .expect("end of new attempt unresolved-outcome guard")
             .0;
 
-        assert!(create_guard.contains("'physical_terminal_cancel_confirmed'"));
-        assert!(create_guard.contains("'orphaned_pre_dispatch_reservation'"));
-        assert!(create_guard.contains("'operator_recovered_ros_reservation'"));
-        assert!(create_guard.contains("COALESCE(ppa.error_code, '') NOT IN"));
+        assert!(create_guard.contains("ppa.status IN ('approved', 'captured')"));
+        assert!(!create_guard.contains("ppa.status = 'pending'"));
+        assert!(!create_guard.contains("ppa.status = 'expired'"));
+        assert!(!create_guard.contains("ppa.status = 'failed'"));
     }
 
     #[test]
