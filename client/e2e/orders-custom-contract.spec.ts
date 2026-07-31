@@ -513,6 +513,33 @@ async function attachOrderToWedding(
   return (await res.json()) as { id: string };
 }
 
+async function linkCustomerToWeddingParty(
+  request: Parameters<typeof test>[0]["request"],
+  weddingPartyId: string,
+  customerId: string,
+  role: string,
+) {
+  const res = await request.post(
+    `${apiBase()}/api/weddings/parties/${weddingPartyId}/members`,
+    {
+      headers: {
+        ...staffHeaders(),
+        "Content-Type": "application/json",
+        "x-riverside-station-key": "station-e2e",
+      },
+      data: {
+        customer_id: customerId,
+        role,
+        actor_name: "E2E Wedding Contract",
+      },
+      failOnStatusCode: false,
+    },
+  );
+  const bodyText = await res.text();
+  expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
+  return JSON.parse(bodyText) as { id: string };
+}
+
 async function checkoutWeddingGroupPay(
   request: Parameters<typeof test>[0]["request"],
   options: {
@@ -520,7 +547,9 @@ async function checkoutWeddingGroupPay(
     sessionToken: string;
     operatorStaffId: string;
     payerCustomerId: string;
+    payerWeddingMemberId: string;
     weddingMemberId: string;
+    targetTransactionId: string;
     amount: string;
   },
 ) {
@@ -537,7 +566,7 @@ async function checkoutWeddingGroupPay(
       operator_staff_id: options.operatorStaffId,
       primary_salesperson_id: options.operatorStaffId,
       customer_id: options.payerCustomerId,
-      wedding_member_id: null,
+      wedding_member_id: options.payerWeddingMemberId,
       payment_method: "cash",
       total_price: "0.00",
       amount_paid: options.amount,
@@ -553,6 +582,8 @@ async function checkoutWeddingGroupPay(
         {
           wedding_member_id: options.weddingMemberId,
           amount: options.amount,
+          destination_kind: "existing_transaction",
+          target_transaction_id: options.targetTransactionId,
         },
       ],
     },
@@ -997,13 +1028,23 @@ test.describe("Orders custom vs special contract", () => {
     );
     const beforeDetail = await fetchTransactionDetail(request, orderBody.transaction_id);
     const beforeBalanceCents = parseMoneyToCents(beforeDetail.balance_due ?? "0.00");
+    const partyId = beforeDetail.wedding_summary?.wedding_party_id;
+    expect(partyId).toBeTruthy();
+    const payerMember = await linkCustomerToWeddingParty(
+      request,
+      partyId!,
+      payerFixture.customer.id,
+      "Payer",
+    );
 
     const groupPayCheckout = await checkoutWeddingGroupPay(request, {
       sessionId,
       sessionToken,
       operatorStaffId,
       payerCustomerId: payerFixture.customer.id,
+      payerWeddingMemberId: payerMember.id,
       weddingMemberId: attachedMember.id,
+      targetTransactionId: orderBody.transaction_id,
       amount: "50.00",
     });
     expect(groupPayCheckout.status()).toBe(200);
@@ -1015,8 +1056,6 @@ test.describe("Orders custom vs special contract", () => {
       beforeBalanceCents - 5000,
     );
 
-    const partyId = afterDetail.wedding_summary?.wedding_party_id;
-    expect(partyId).toBeTruthy();
     const financialContext = await fetchWeddingFinancialContext(request, partyId!);
     const groupPayLine = financialContext.lines.find(
       (line) =>
