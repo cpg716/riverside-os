@@ -1183,10 +1183,7 @@ fn helcim_rate_state() -> &'static Mutex<HelcimRateState> {
 fn helcim_request_is_payment_critical(context: &str) -> bool {
     matches!(
         context,
-        "Helcim terminal purchase"
-            | "Helcim terminal purchase preflight"
-            | "Helcim terminal refund"
-            | "Helcim payment request"
+        "Helcim terminal purchase" | "Helcim terminal refund" | "Helcim payment request"
     )
 }
 
@@ -1537,73 +1534,6 @@ pub async fn ping_device(
         .json::<Value>()
         .await
         .or_else(|_| Ok(serde_json::json!({ "status": "accepted" })))
-}
-
-/// Verifies that Helcim is actively listening for this device immediately
-/// before ROS reserves it for a purchase. Unlike the diagnostic ping above,
-/// this check is intentionally single-shot: retrying would add checkout delay
-/// and could conceal the reader's actual dispatch-time state.
-pub async fn preflight_terminal_purchase(
-    http: &reqwest::Client,
-    config: &HelcimConfig,
-    code: &str,
-) -> Result<(), HelcimTerminalRequestError> {
-    let code = normalize_device_code(code).map_err(|message| HelcimTerminalRequestError {
-        status: None,
-        message,
-        raw_text: None,
-        outcome_unknown: false,
-    })?;
-    let token = config
-        .api_token()
-        .ok_or_else(|| HelcimTerminalRequestError {
-            status: None,
-            message: "Helcim API token is not saved in Backoffice Settings.".to_string(),
-            raw_text: None,
-            outcome_unknown: false,
-        })?;
-    let url = format!("{}/devices/{code}/ping", config.api_base_url());
-    let _permit = acquire_helcim_request_permit("Helcim terminal purchase preflight")
-        .await
-        .map_err(|message| HelcimTerminalRequestError {
-            status: None,
-            message,
-            raw_text: None,
-            outcome_unknown: false,
-        })?;
-    let response = http
-        .get(&url)
-        .header(reqwest::header::ACCEPT, "application/json")
-        .header("api-token", token)
-        .send()
-        .await
-        .map_err(|error| HelcimTerminalRequestError {
-            status: None,
-            message: format!(
-                "ROS could not verify that Helcim terminal {code} is listening: {error}. No payment was sent."
-            ),
-            raw_text: None,
-            outcome_unknown: false,
-        })?;
-
-    let status = response.status();
-    let quota = observe_helcim_quota_headers(response.headers(), status).await;
-    if status != reqwest::StatusCode::ACCEPTED {
-        let raw_text = response.text().await.unwrap_or_default();
-        return Err(HelcimTerminalRequestError {
-            status: Some(status),
-            message: response_error_message_sync(
-                "Helcim terminal purchase preflight",
-                status,
-                &raw_text,
-                &quota,
-            ),
-            raw_text: Some(raw_text),
-            outcome_unknown: false,
-        });
-    }
-
-    Ok(())
 }
 
 pub async fn list_card_batches(
@@ -2947,9 +2877,6 @@ mod tests {
         assert!(helcim_request_is_payment_critical(
             "Helcim terminal purchase"
         ));
-        assert!(helcim_request_is_payment_critical(
-            "Helcim terminal purchase preflight"
-        ));
         assert!(helcim_request_is_payment_critical("Helcim terminal refund"));
         assert!(helcim_request_is_payment_critical("Helcim payment request"));
         assert!(!helcim_request_is_payment_critical("Helcim GET request"));
@@ -3096,58 +3023,6 @@ mod tests {
         let requests = mock.received_requests().await.expect("received requests");
         assert_eq!(requests.len(), 1);
         assert!(requests[0].headers.get("idempotency-key").is_none());
-    }
-
-    #[tokio::test]
-    async fn terminal_purchase_preflight_accepts_a_listening_device() {
-        let mock = MockServer::start().await;
-        Mock::given(method("GET"))
-            .and(path("/devices/AB12/ping"))
-            .respond_with(ResponseTemplate::new(202))
-            .expect(1)
-            .mount(&mock)
-            .await;
-        let config = HelcimConfig {
-            api_token: Some("test-token".to_string()),
-            terminal_1_device_code: Some("AB12".to_string()),
-            terminal_2_device_code: None,
-            api_base_url: mock.uri(),
-        };
-
-        preflight_terminal_purchase(&reqwest::Client::new(), &config, "AB12")
-            .await
-            .expect("202 ping proves that Helcim is listening");
-    }
-
-    #[tokio::test]
-    async fn terminal_purchase_preflight_rejects_not_listening_without_retry() {
-        let mock = MockServer::start().await;
-        Mock::given(method("GET"))
-            .and(path("/devices/AB12/ping"))
-            .respond_with(
-                ResponseTemplate::new(409)
-                    .set_body_string(r#"{"errors":["device with code AB12 not listening"]}"#),
-            )
-            .expect(1)
-            .mount(&mock)
-            .await;
-        let config = HelcimConfig {
-            api_token: Some("test-token".to_string()),
-            terminal_1_device_code: Some("AB12".to_string()),
-            terminal_2_device_code: None,
-            api_base_url: mock.uri(),
-        };
-
-        let error = preflight_terminal_purchase(&reqwest::Client::new(), &config, "AB12")
-            .await
-            .expect_err("a non-listening reader must fail before purchase dispatch");
-
-        assert_eq!(error.status, Some(reqwest::StatusCode::CONFLICT));
-        assert!(!error.outcome_unknown);
-        assert!(error
-            .raw_text
-            .as_deref()
-            .is_some_and(|body| body.contains("not listening")));
     }
 
     #[tokio::test]

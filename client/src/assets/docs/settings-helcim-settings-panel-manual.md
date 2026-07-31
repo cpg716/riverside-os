@@ -48,7 +48,7 @@ Use this panel when setting up Helcim, rotating credentials, adding or replacing
 5. If public webhooks are enabled, paste the public HTTPS delivery URL into Helcim with this path: `/api/webhooks/card-events`. Helcim requires HTTPS and does not allow the word Helcim in the URL.
 6. Enable only the Helcim events ROS handles: `cardTransaction` and `terminalCancel`.
 7. Save the Helcim webhook signing secret in the Optional webhook signing secret field.
-8. Use Check Connection after saving credentials.
+8. Use Check Connection after saving credentials. This is a manual setup diagnostic and may display a connection message on the reader; Riverside does not run it automatically before a live payment.
 9. Verify payment updates in Payments > Health, Payment Updates, and Helcim Terminal Review.
 
 ## What to watch for

@@ -245,35 +245,6 @@ fn helcim_terminal_purchase_error(
     }
 }
 
-fn helcim_terminal_preflight_error(error: helcim::HelcimTerminalRequestError) -> PaymentError {
-    let no_payment_suffix = " ROS did not send a payment request.";
-    let mapped = if let Some(status) = error.status {
-        let raw_text = error.raw_text.unwrap_or(error.message);
-        let is_html =
-            raw_text.trim().starts_with("<!DOCTYPE html>") || raw_text.trim().starts_with("<html");
-        helcim_terminal_purchase_error(status, &raw_text, is_html)
-    } else {
-        PaymentError::ProviderError(staff_safe_provider_error(&error.message))
-    };
-
-    match mapped {
-        PaymentError::Conflict(message) => {
-            PaymentError::Conflict(format!("{message}{no_payment_suffix}"))
-        }
-        PaymentError::InvalidPayload(message) => {
-            PaymentError::InvalidPayload(format!("{message}{no_payment_suffix}"))
-        }
-        PaymentError::ProviderError(message) => {
-            // The purchase endpoint has not been called yet, so this failure
-            // is definitive even when the ping itself received a 5xx or lost
-            // its connection. Return a non-ambiguous checkout error so the
-            // client does not create an unresolved-payment lock.
-            PaymentError::InvalidPayload(format!("{message}{no_payment_suffix}"))
-        }
-        other => other,
-    }
-}
-
 fn helcim_terminal_not_listening_message(raw_text: &str) -> Option<String> {
     for provider_message in helcim_provider_error_messages(raw_text) {
         let lower = provider_message.to_ascii_lowercase();
@@ -9803,12 +9774,6 @@ async fn start_helcim_purchase(
         }
     };
 
-    if !config.simulator_enabled() {
-        helcim::preflight_terminal_purchase(&state.http_client, &config, &terminal_id)
-            .await
-            .map_err(helcim_terminal_preflight_error)?;
-    }
-
     refresh_pending_helcim_terminal_attempt_before_dispatch(&state, &terminal_id).await?;
 
     let attempt_id = Uuid::new_v4();
@@ -13121,6 +13086,22 @@ mod tests {
     }
 
     #[test]
+    fn terminal_purchase_dispatch_does_not_ping_the_reader_first() {
+        let source = include_str!("payments.rs");
+        let purchase = source
+            .split_once("async fn start_helcim_purchase(")
+            .expect("terminal purchase endpoint")
+            .1
+            .split_once("async fn start_helcim_terminal_refund(")
+            .expect("end of terminal purchase endpoint")
+            .0;
+
+        assert!(!purchase.contains("preflight_terminal_purchase"));
+        assert!(!purchase.contains("/ping"));
+        assert!(purchase.contains("helcim::start_terminal_purchase("));
+    }
+
+    #[test]
     fn pre_dispatch_attachment_proof_accepts_final_webhook_statuses_and_scopes_returns() {
         let source = include_str!("payments.rs");
         let guard = source
@@ -14701,37 +14682,6 @@ mod tests {
         assert!(message.contains("open or restart the Helcim app"));
         assert!(message.contains("update the Helcim terminal code in Settings"));
         assert!(!message.contains("active payment"));
-    }
-
-    #[test]
-    fn helcim_preflight_409_makes_no_payment_dispatch_explicit() {
-        let error = helcim_terminal_preflight_error(helcim::HelcimTerminalRequestError {
-            status: Some(reqwest::StatusCode::CONFLICT),
-            message: "device not listening".to_string(),
-            raw_text: Some(r#"{"errors":["device with code JFHP not listening"]}"#.to_string()),
-            outcome_unknown: false,
-        });
-
-        let PaymentError::Conflict(message) = error else {
-            panic!("expected conflict");
-        };
-        assert!(message.contains("Helcim terminal JFHP is not listening"));
-        assert!(message.contains("ROS did not send a payment request"));
-    }
-
-    #[test]
-    fn helcim_preflight_provider_failure_is_not_an_unknown_payment_outcome() {
-        let error = helcim_terminal_preflight_error(helcim::HelcimTerminalRequestError {
-            status: Some(reqwest::StatusCode::BAD_GATEWAY),
-            message: "ping unavailable".to_string(),
-            raw_text: Some("provider unavailable".to_string()),
-            outcome_unknown: false,
-        });
-
-        let PaymentError::InvalidPayload(message) = error else {
-            panic!("preflight failure must be definitive because no purchase was sent");
-        };
-        assert!(message.contains("ROS did not send a payment request"));
     }
 
     #[test]
