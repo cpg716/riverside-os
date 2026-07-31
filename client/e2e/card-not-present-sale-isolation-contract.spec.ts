@@ -426,18 +426,26 @@ test("only an exact register-session and checkout Helcim attempt can import or l
   const purchaseStart = paymentsApi.indexOf("async fn start_helcim_purchase(");
   const purchaseEnd = paymentsApi.indexOf("#[allow(dead_code)]", purchaseStart);
   const purchase = paymentsApi.slice(purchaseStart, purchaseEnd);
+  const openSessionGuard = purchase.indexOf(
+    "lock_register_session_open_for_payment(",
+  );
   const staleCleanupCall = purchase.indexOf(
     "expire_closed_session_helcim_terminal_attempts_before_dispatch(",
   );
-  const openSessionGuard = purchase.indexOf(
-    "reject_unresolved_helcim_terminal_before_dispatch(",
+  const routingRelease = purchase.indexOf(
+    "release_existing_helcim_terminal_routing_reservations_before_dispatch(",
+  );
+  const checkoutConflictGuard = purchase.indexOf(
+    "reject_conflicting_helcim_attempt_before_dispatch(",
   );
   const attemptInsert = purchase.indexOf(
     "INSERT INTO payment_provider_attempts",
   );
-  expect(staleCleanupCall).toBeGreaterThan(-1);
-  expect(openSessionGuard).toBeGreaterThan(staleCleanupCall);
-  expect(attemptInsert).toBeGreaterThan(openSessionGuard);
+  expect(openSessionGuard).toBeGreaterThan(-1);
+  expect(staleCleanupCall).toBeGreaterThan(openSessionGuard);
+  expect(routingRelease).toBeGreaterThan(staleCleanupCall);
+  expect(checkoutConflictGuard).toBeGreaterThan(routingRelease);
+  expect(attemptInsert).toBeGreaterThan(checkoutConflictGuard);
 });
 
 test("saved-card checkout keeps provider tokens out of client source and DOM state", () => {
