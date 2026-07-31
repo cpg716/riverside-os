@@ -32,6 +32,7 @@ import {
   scrubSensitivePinKeys,
   sensitivePinKeysWereRemoved,
 } from "./sensitiveData";
+import { dispatchAppToast } from "../components/ui/ToastProviderLogic";
 
 // Define the shape of our queued objects for resilience
 export interface QueuedCheckout {
@@ -589,6 +590,8 @@ export async function blockQueuedCheckout(
   status: number,
   message: string,
 ): Promise<void> {
+  const normalizedMessage =
+    message.trim() || "Checkout synchronization failed and was sent to Error Events.";
   await updateQueuedCheckout({
     ...item,
     status: "blocked",
@@ -596,8 +599,9 @@ export async function blockQueuedCheckout(
     lastAttemptAt: Date.now(),
     blockedAt: Date.now(),
     lastErrorStatus: status,
-    lastErrorMessage: message.trim().slice(0, 1000),
+    lastErrorMessage: normalizedMessage.slice(0, 1000),
   });
+  dispatchAppToast(`Checkout synchronization failed: ${normalizedMessage}`, "error");
 }
 
 export async function getCheckoutQueueSummary(): Promise<CheckoutQueueSummary> {

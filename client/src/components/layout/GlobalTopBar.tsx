@@ -122,7 +122,7 @@ export default function GlobalTopBar({
     () => mergedPosStaffHeaders(backofficeHeaders),
     [backofficeHeaders],
   );
-  const { isOnline, queueCount, pendingCount, blockedCount } = useOfflineSync(baseUrl, apiAuth);
+  const { isOnline, pendingCount } = useOfflineSync(baseUrl, apiAuth);
   const isPosVariant = searchVariant === "pos";
   const showBackofficePosShortcut = !isPosVariant && !onShellReturn;
   const profileDisplayName =
@@ -381,31 +381,20 @@ export default function GlobalTopBar({
               <span className="hidden sm:inline lg:hidden">Offline</span>
             </div>
           )}
-          {queueCount > 0 && (
+          {pendingCount > 0 && (
             <div
-              className={cn(
-                "inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-widest",
-                blockedCount > 0
-                  ? "border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-200"
-                  : "border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-200",
-              )}
-              title={
-                blockedCount > 0
-                  ? `${blockedCount} checkout recovery item${blockedCount === 1 ? "" : "s"} need manager review. ${pendingCount} still pending sync.`
-                  : `${pendingCount} completed POS checkout${pendingCount === 1 ? "" : "s"} waiting to sync when connectivity returns.`
-              }
+              className="inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-widest text-amber-800 dark:text-amber-200"
+              title={`${pendingCount} completed POS checkout${pendingCount === 1 ? "" : "s"} waiting to sync when connectivity returns.`}
             >
-              <div className={cn("h-2 w-2 rounded-full animate-pulse", blockedCount > 0 ? "bg-rose-500" : "bg-amber-500")} />
+              <div className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
               <span className="sm:hidden">
-                {blockedCount > 0 ? `${blockedCount} blocked` : `${pendingCount} sync${pendingCount === 1 ? "" : "s"}`}
+                {pendingCount} sync{pendingCount === 1 ? "" : "s"}
               </span>
               <span className="hidden lg:inline">
-                {blockedCount > 0
-                  ? `${blockedCount} checkout recovery`
-                  : `${pendingCount} pending sync${pendingCount === 1 ? "" : "s"}`}
+                {pendingCount} pending sync{pendingCount === 1 ? "" : "s"}
               </span>
               <span className="hidden sm:inline lg:hidden">
-                {blockedCount > 0 ? `${blockedCount} blocked` : `${pendingCount} pending`}
+                {pendingCount} pending
               </span>
             </div>
           )}

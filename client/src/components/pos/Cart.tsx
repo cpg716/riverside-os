@@ -650,8 +650,7 @@ export default function Cart({
   const [exchangeWizardInitialTransactionId, setExchangeWizardInitialTransactionId] = useState<string | null>(null);
 
   // --- Offline queue & print retry badges ---
-  const [offlineQueueCount, setOfflineQueueCount] = useState(0);
-  const [offlineBlockedCount, setOfflineBlockedCount] = useState(0);
+  const [offlinePendingCount, setOfflinePendingCount] = useState(0);
   const [failedPrintCount, setFailedPrintCount] = useState(0);
 
   useEffect(() => {
@@ -659,8 +658,7 @@ export default function Cart({
       try {
         const { getCheckoutQueueSummary } = await import("../../lib/offlineQueue");
         const summary = await getCheckoutQueueSummary();
-        setOfflineQueueCount(summary.totalCount);
-        setOfflineBlockedCount(summary.blockedCount);
+        setOfflinePendingCount(summary.pendingCount);
       } catch { /* ignore */ }
       try {
         const { getFailedPrintJobs } = await import("../../lib/printRetryQueue");
@@ -3395,7 +3393,7 @@ export default function Cart({
               </div>
             )}
 
-          {(activeWeddingMember || parkedRows.length > 0 || pendingAlterationIntakes.length > 0 || pickupReadyAlterations.length > 0 || offlineQueueCount > 0 || failedPrintCount > 0) ? (
+          {(activeWeddingMember || parkedRows.length > 0 || pendingAlterationIntakes.length > 0 || pickupReadyAlterations.length > 0 || offlinePendingCount > 0 || failedPrintCount > 0) ? (
             <div className="flex flex-wrap items-center gap-2 rounded-xl border border-app-border/70 bg-app-surface px-2.5 py-1.5 text-[10px] font-bold text-app-text-muted">
               {activeWeddingMember ? (
                 <span className="inline-flex items-center gap-1 rounded-lg border border-app-accent/25 bg-app-accent/10 px-2 py-1 font-black uppercase tracking-widest text-app-accent">
@@ -3425,12 +3423,10 @@ export default function Cart({
                   {pickupReadyAlterations.length} alteration pickup{pickupReadyAlterations.length === 1 ? "" : "s"} included
                 </span>
               ) : null}
-              {offlineQueueCount > 0 ? (
-                <span className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 font-black uppercase tracking-widest ${offlineBlockedCount > 0 ? "border-app-danger/25 bg-app-danger/10 text-app-danger" : "border-app-warning/25 bg-app-warning/10 text-app-warning"}`}>
+              {offlinePendingCount > 0 ? (
+                <span className="inline-flex items-center gap-1 rounded-lg border border-app-warning/25 bg-app-warning/10 px-2 py-1 font-black uppercase tracking-widest text-app-warning">
                   <AlertTriangle size={12} aria-hidden />
-                  {offlineBlockedCount > 0
-                    ? `${offlineBlockedCount} checkout recovery item${offlineBlockedCount === 1 ? "" : "s"}`
-                    : `${offlineQueueCount} syncing`}
+                  {offlinePendingCount} syncing
                 </span>
               ) : null}
               {failedPrintCount > 0 ? (

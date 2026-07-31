@@ -129,3 +129,15 @@ test("a restored cart retains every source order and selected pickup line", () =
     "No inventory, revenue, commission, or audit activity was recorded again.",
   );
 });
+
+test("checkout recovery reports an error without persistent blocking badges", () => {
+  const cart = repoFile("client/src/components/pos/Cart.tsx");
+  const topBar = repoFile("client/src/components/layout/GlobalTopBar.tsx");
+  const offlineQueue = repoFile("client/src/lib/offlineQueue.ts");
+
+  expect(cart).not.toContain("checkout recovery item");
+  expect(topBar).not.toContain("checkout recovery item");
+  expect(offlineQueue).toContain(
+    'dispatchAppToast(`Checkout synchronization failed: ${normalizedMessage}`, "error")',
+  );
+});
