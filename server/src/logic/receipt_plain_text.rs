@@ -133,15 +133,31 @@ pub fn format_pos_receipt_text_message(order: &ReceiptOrder, cfg: &ReceiptConfig
     }
     if !order.wedding_deposits.is_empty() {
         for deposit in &order.wedding_deposits {
+            let beneficiary = deposit
+                .beneficiary_name
+                .as_deref()
+                .map(|name| format!(" for {name}"))
+                .unwrap_or_default();
+            let destination = deposit
+                .destination_label
+                .as_deref()
+                .map(|label| format!(" — {label}"))
+                .unwrap_or_default();
             lines.push(format!(
-                "Wedding Party Deposit ({}): {}",
-                deposit.party_name, deposit.amount
+                "Wedding Party Deposit{} ({}): {}{}",
+                beneficiary, deposit.party_name, deposit.amount, destination
             ));
         }
     } else if order.wedding_deposit_amount > Decimal::ZERO {
         lines.push(format!(
             "Wedding Party Deposit: {}",
             order.wedding_deposit_amount
+        ));
+    }
+    for source in &order.applied_wedding_deposits {
+        lines.push(format!(
+            "Wedding Deposit Applied (paid by {}, {}): {}",
+            source.payer_name, source.party_name, source.amount
         ));
     }
     if !order.payment_applications.is_empty() {
@@ -220,11 +236,15 @@ mod tests {
         order.wedding_deposit_amount = Decimal::new(71038, 2);
         order.wedding_deposits = vec![ReceiptWeddingPartyDeposit {
             party_name: "Whitrock Wedding".to_string(),
+            beneficiary_name: Some("James Brown".to_string()),
+            destination_label: Some("Held for future order".to_string()),
             amount: Decimal::new(71038, 2),
         }];
 
         let text = format_pos_receipt_text_message(&order, &ReceiptConfig::default());
 
-        assert!(text.contains("Wedding Party Deposit (Whitrock Wedding): 710.38"));
+        assert!(text.contains(
+            "Wedding Party Deposit for James Brown (Whitrock Wedding): 710.38 — Held for future order"
+        ));
     }
 }

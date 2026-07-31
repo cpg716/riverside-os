@@ -25,6 +25,7 @@ interface HelcimPayMessage {
 }
 
 interface ApprovedHelcimAttempt {
+  status?: string;
   amount_cents?: number;
   provider_transaction_id?: string | null;
   provider_auth_code?: string | null;
@@ -286,6 +287,85 @@ export default function HelcimManualCardHandoff() {
     [attemptId, baseUrl, checkoutToken, saleContext],
   );
 
+  const finalizeKnownOutcome = useCallback(
+    async (outcome: "aborted" | "hidden") => {
+      setState("loading");
+      setShowDomainDiagnostic(false);
+      setMessage(
+        outcome === "aborted"
+          ? "Card declined. Updating ROS so the register can retry..."
+          : "Card entry closed. Updating ROS so the register can continue...",
+      );
+      try {
+        let body: ApprovedHelcimAttempt & { error?: string } = {};
+        for (let index = 0; index < HELCIM_CONFIRM_RETRY_DELAYS_MS.length; index += 1) {
+          const delayMs = HELCIM_CONFIRM_RETRY_DELAYS_MS[index];
+          if (delayMs > 0) {
+            await new Promise((resolve) => window.setTimeout(resolve, delayMs));
+          }
+          try {
+            const res = await fetch(
+              `${baseUrl}/api/payments/providers/helcim/helcim-pay/public-outcome`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  attempt_id: attemptId,
+                  checkout_token: checkoutToken,
+                  outcome,
+                }),
+              },
+            );
+            body = (await res.json().catch(() => ({}))) as typeof body;
+            if (!res.ok) {
+              throw new HelcimConfirmationError(
+                body.error ?? "ROS could not record the final Helcim card-entry status.",
+                HELCIM_CONFIRM_RETRYABLE_STATUSES.has(res.status),
+              );
+            }
+            break;
+          } catch (error) {
+            const retryable =
+              !(error instanceof HelcimConfirmationError) || error.retryable;
+            const hasAnotherAttempt = index + 1 < HELCIM_CONFIRM_RETRY_DELAYS_MS.length;
+            if (!retryable || !hasAnotherAttempt) throw error;
+          }
+        }
+
+        if (body.status === "approved" || body.status === "captured") {
+          setState("approved");
+          setMessage("Helcim approved this payment. ROS kept the approval protected.");
+          postHandoffOutcome(attemptId, "approved", saleContext);
+          return;
+        }
+        const expectedStatus = outcome === "aborted" ? "failed" : "canceled";
+        if (body.status !== expectedStatus) {
+          throw new Error("ROS did not confirm the expected final card-entry status.");
+        }
+        setState(outcome === "aborted" ? "error" : "canceled");
+        setMessage(
+          outcome === "aborted"
+            ? "Card declined. Return to the register and retry when ready."
+            : "Card entry canceled. Return to the register or retry.",
+        );
+        postHandoffOutcome(
+          attemptId,
+          outcome === "aborted" ? "failed" : "canceled",
+          saleContext,
+        );
+      } catch (error) {
+        setState("error");
+        setMessage(
+          `ROS could not confirm the final card-entry status. Use Recover payment before retrying. ${
+            error instanceof Error ? error.message : ""
+          }`.trim(),
+        );
+        postHandoffOutcome(attemptId, "unverified", saleContext);
+      }
+    },
+    [attemptId, baseUrl, checkoutToken, saleContext],
+  );
+
   useEffect(() => {
     if (
       !attemptId ||
@@ -329,18 +409,12 @@ export default function HelcimManualCardHandoff() {
       }
       if (data.eventStatus === "ABORTED") {
         iframeLaunchedRef.current = false;
-        setState("error");
-        setShowDomainDiagnostic(false);
-        setMessage("Card declined. Return to the register and retry when ready.");
-        postHandoffOutcome(attemptId, "failed", saleContext);
+        void finalizeKnownOutcome("aborted");
         return;
       }
       if (data.eventStatus === "HIDE") {
         iframeLaunchedRef.current = false;
-        setState("canceled");
-        setShowDomainDiagnostic(false);
-        setMessage("Card entry canceled. Return to the register or retry.");
-        postHandoffOutcome(attemptId, "canceled", saleContext);
+        void finalizeKnownOutcome("hidden");
         return;
       }
       if (data.eventStatus !== "SUCCESS") {
@@ -383,7 +457,14 @@ export default function HelcimManualCardHandoff() {
         diagnosticTimerRef.current = null;
       }
     };
-  }, [attemptId, checkoutToken, confirmApprovedPayment, eventName, saleContext]);
+  }, [
+    attemptId,
+    checkoutToken,
+    confirmApprovedPayment,
+    eventName,
+    finalizeKnownOutcome,
+    saleContext,
+  ]);
 
   const openHelcimEntry = useCallback(() => {
     if (state === "approved" || iframeLaunchedRef.current) return;

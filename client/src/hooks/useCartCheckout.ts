@@ -756,6 +756,8 @@ export function useCartCheckout({
         wedding_disbursements: disbursementMembers.length > 0 ? disbursementMembers.map(m => ({
           wedding_member_id: m.id,
           amount: centsToFixed2(weddingDisbursementAmountCents(m)),
+          destination_kind: m.deposit_destination_kind,
+          target_transaction_id: m.deposit_target_transaction_id ?? undefined,
         })) : undefined,
         ...(posShipping ? { shipping_rate_quote_id: posShipping.rate_quote_id } : {}),
         ...(posShipping?.linked_order_ids?.length

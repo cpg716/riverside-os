@@ -23,7 +23,7 @@ status: approved
 
 The receipt preview shows the customer receipt after checkout or when reopening a historical Transaction Receipt. It should match the Receipt Builder style closely enough that staff can trust what will print, email, or text.
 
-When a completed sale includes wedding split deposits for other party members, Sale Complete and the receipt show **Wedding Party Deposit (party name)** with the amount. This stays separate from the merchandise total and explains the full tender collected.
+When a completed sale includes wedding deposits for other party members, Sale Complete and the payer receipt list every beneficiary, party, amount, and destination. The receipt says whether money was held for that member's future order or applied to an exact Transaction Record. These amounts stay separate from the payer's merchandise total while still explaining the full tender collected. When the held deposit later funds the member's order, that member receipt identifies the original payer and wedding party.
 
 ## How to use it
 
@@ -41,6 +41,7 @@ When a receipt is opened from Daily Sales, Transaction History, or Staff Profile
 - **Text receipt** and **Email receipt** send the customer copy when the sale has the needed customer contact information.
 - **Gift receipt** prints a gift copy without exposing normal payment detail.
 - **Reports printer** opens the formatted receipt copy for the workstation report-printer path; it does not replace the Epson receipt-station print route.
+- **Wedding Deposit → Previous Deposits** can reopen both the original payer receipt and each posted member receipt. These are historical reprints and do not reopen the cash drawer.
 - **Review Request** lets the cashier send or skip the Podium review request for eligible completed or picked-up sales.
 
 ## Review requests

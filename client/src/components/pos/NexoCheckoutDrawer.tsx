@@ -280,7 +280,7 @@ function isStaleHelcimSessionError(message: string): boolean {
 
 const HELCIM_UNVERIFIED_OUTCOME_MESSAGE =
   "Card outcome is unresolved. Open Restore in Pay before another card attempt.";
-const HELCIM_TERMINAL_ATTENTION_AFTER_MS = 2 * 60 * 1000;
+const HELCIM_TERMINAL_ATTENTION_AFTER_MS = 15 * 1000;
 
 function isAmbiguousProviderStartStatus(status: number): boolean {
   // A timeout or server/gateway failure can hide whether the request reached
@@ -359,7 +359,7 @@ function helcimAttemptDetail(attempt: HelcimAttempt): string {
     }
     return isHostedManualHelcimAttempt(attempt)
       ? "Complete the secure Helcim Card Not Present form."
-      : "Waiting for card info.";
+      : "Helcim accepted the request. Confirm this sale appears on the reader; ROS is waiting for its final outcome.";
   }
 
   if (attempt.status === "approved" || attempt.status === "captured") {
@@ -622,6 +622,7 @@ export interface NexoCheckoutDrawerProps {
   customerTaxExempt?: boolean;
   customerTaxExemptId?: string | null;
   originalHelcimTransactionIdForRefund?: string | number | null;
+  refundRecipientName?: string | null;
   refundTransactionId?: string | null;
   returnOnlyRefundMode?: boolean;
   deferCardRefund?: boolean;
@@ -659,6 +660,7 @@ export interface NexoCheckoutDrawerProps {
   heldOpenDeposit?: HeldOpenDeposit | null;
   currentSaleAmountCents?: number;
   openDepositExternalAllocations?: boolean;
+  weddingDepositBeneficiaryCount?: number;
 }
 
 export default function NexoCheckoutDrawer({
@@ -675,6 +677,7 @@ export default function NexoCheckoutDrawer({
   customerTaxExempt = false,
   customerTaxExemptId = null,
   originalHelcimTransactionIdForRefund = null,
+  refundRecipientName = null,
   refundTransactionId = null,
   returnOnlyRefundMode = false,
   deferCardRefund = false,
@@ -703,6 +706,7 @@ export default function NexoCheckoutDrawer({
   heldOpenDeposit = null,
   currentSaleAmountCents = amountDueCents,
   openDepositExternalAllocations = false,
+  weddingDepositBeneficiaryCount = 0,
 }: NexoCheckoutDrawerProps) {
   const baseUrl = getBaseUrl();
   const { backofficeHeaders } = useBackofficeAuth();
@@ -1177,7 +1181,7 @@ export default function NexoCheckoutDrawer({
                       ? "Active here"
                     : selectedTerminalNeedsOverride && !terminalOverrideConfirmed
                         ? "Confirm terminal"
-                        : "Ready";
+                        : "Configured";
   const tenderTabIds = useMemo(() => {
     const all = Object.keys(TAB_META) as NexoTenderTab[];
     const isRefundCheckout = amountDueCents < 0;
@@ -1190,6 +1194,9 @@ export default function NexoCheckoutDrawer({
       if (!hasOriginalHelcimRefundReference || !deferCardRefund) {
         base = base.filter((id) => id !== "card_credit");
       }
+      if (refundRecipientName && hasOriginalHelcimRefundReference) {
+        base = base.filter((id) => id === "card_credit" || id === "offline_cc");
+      }
     } else {
       base = base.filter((id) => id !== "card_credit");
     }
@@ -1201,7 +1208,7 @@ export default function NexoCheckoutDrawer({
       base = base.filter((id) => !id.startsWith("card_"));
     }
     return base;
-  }, [allowStoreCredit, amountDueCents, rmsPaymentCollectionMode, providerHealthHardFailed, hasOriginalHelcimRefundReference, deferCardRefund, staffAccount]);
+  }, [allowStoreCredit, amountDueCents, rmsPaymentCollectionMode, providerHealthHardFailed, hasOriginalHelcimRefundReference, deferCardRefund, refundRecipientName, staffAccount]);
 
   const paidSoFarCents = useMemo(() => applied.reduce((s, p) => s + p.amountCents, 0), [applied]);
   const depositDisplayCents = useMemo(() => Math.max(0, parseMoneyToCents(appliedDepositAmount.trim())), [appliedDepositAmount]);
@@ -1290,6 +1297,15 @@ export default function NexoCheckoutDrawer({
           tender_family: "open_deposit",
           held_for_customer_id: heldOpenDeposit.customerId,
           source: "wedding_party_split",
+          ...(heldOpenDeposit.workflowId
+            ? { wedding_deposit_workflow_id: heldOpenDeposit.workflowId }
+            : {}),
+          ...(heldOpenDeposit.sourceCreditLedgerId
+            ? {
+                wedding_deposit_source_credit_ledger_id:
+                  heldOpenDeposit.sourceCreditLedgerId,
+              }
+            : {}),
         },
       },
     ]);
@@ -2084,7 +2100,10 @@ export default function NexoCheckoutDrawer({
           );
         }
         setTerminalPickerOpen(false);
-        toast("ROS terminal error cleared. Ready for the customer's payment.", "info");
+        toast(
+          "ROS cleared its old terminal reservation. Confirm the reader is on its ready screen, then retry the customer's payment.",
+          "info",
+        );
       } catch (error) {
         toast(
           error instanceof Error
@@ -2158,23 +2177,15 @@ export default function NexoCheckoutDrawer({
           data.type === "helcim-card-not-present-outcome" &&
           (data.outcome === "canceled" || data.outcome === "failed")
         ) {
-          try {
-            const res = await fetch(
-              `${baseUrl}/api/payments/providers/helcim/attempts/${attemptId}/release`,
-              {
-                method: "POST",
-                headers: mergedPosStaffHeaders(backofficeHeaders),
-              },
-            );
-            if (!res.ok) throw new Error("Could not cancel Card Not Present.");
-            const attempt = (await res.json()) as HelcimAttempt;
-            applyHelcimAttemptUpdate(attempt, { quietFinal: data.outcome === "failed" });
+          const finalized = await refreshHelcimAttempt(attemptId, {
+            quietStaleSession: true,
+            quietPending: true,
+          });
+          if (finalized && ["failed", "canceled"].includes(finalized.status)) {
             if (data.outcome === "failed") {
               toast("Card declined. The payment ledger is ready to retry.", "error");
             }
             return;
-          } catch {
-            // Fall through to status refresh; Helcim may have already finalized the attempt.
           }
         }
         const attachApproved =
@@ -2187,9 +2198,6 @@ export default function NexoCheckoutDrawer({
     window.addEventListener("message", handleHostedCardMessage);
     return () => window.removeEventListener("message", handleHostedCardMessage);
   }, [
-    applyHelcimAttemptUpdate,
-    backofficeHeaders,
-    baseUrl,
     helcimAttempt?.id,
     isOpen,
     manualCardHandoffUrl,
@@ -2325,7 +2333,7 @@ export default function NexoCheckoutDrawer({
           ? "Card request released in ROS. Ready to use another tender."
           : isHostedManualHelcimAttempt(attempt)
             ? "Card Not Present canceled. Ready to retry."
-            : "Terminal cleared. Ready to retry card.",
+            : "ROS released the old terminal request. Confirm the reader is on its ready screen, then retry card.",
         "info",
       );
     },
@@ -2376,7 +2384,7 @@ export default function NexoCheckoutDrawer({
       setTerminalPickerOpen(false);
       await loadProviderSettings();
       toast(
-        "Terminal released. Card Reader is ready to run again, and all allowed tenders are unlocked.",
+        "ROS released the old request and unlocked other tenders. Confirm the reader is on its ready screen before retrying Card Reader.",
         "info",
       );
     } catch (error) {
@@ -3151,7 +3159,10 @@ export default function NexoCheckoutDrawer({
         setHelcimAttempt(attempt);
         setHelcimUnverifiedNotice(null);
         setKeypad("");
-        toast("Sent to terminal. Waiting for the card outcome.", "info");
+        toast(
+          "Helcim accepted the request. Confirm the amount appears on the reader; ROS is waiting for the final card outcome.",
+          "info",
+        );
       } catch (error) {
         const ambiguousStart = startAmbiguous || isAmbiguousProviderStartException(error);
         if (ambiguousStart) {
@@ -3937,7 +3948,7 @@ export default function NexoCheckoutDrawer({
                   setTerminalOverrideApproval(null);
                   toast(
                     registerTerminalRoute?.default_terminal_key === availableRestoreTerminalKey
-                      ? `${terminalLabel(availableRestoreTerminalKey)} selected. Ready to continue this sale.`
+                      ? `${terminalLabel(availableRestoreTerminalKey)} selected. ROS will check that it is listening when you send the payment.`
                       : `${terminalLabel(availableRestoreTerminalKey)} selected. Manager Access is required before sending payment.`,
                     "info",
                   );
@@ -4562,6 +4573,13 @@ export default function NexoCheckoutDrawer({
                         ROS stages this refund for server settlement through the original
                         Transaction Record and preserves the return audit trail.
                       </p>
+                      {refundRecipientName ? (
+                        <p className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] font-black text-amber-900 dark:text-amber-100">
+                          Refund recipient: {refundRecipientName}, the original wedding deposit
+                          payer. This member&apos;s Transaction is the refund context; the money does
+                          not go to the member.
+                        </p>
+                      ) : null}
                     </div>
                   )}
 
@@ -5224,6 +5242,11 @@ export default function NexoCheckoutDrawer({
                              <p className="mt-1 text-[11px] font-semibold leading-snug text-app-text-muted">
                                {helcimAttemptDetail(helcimAttempt)}
                              </p>
+                             {helcimAttempt.status === "failed" && weddingDepositBeneficiaryCount > 0 ? (
+                               <p className="mt-2 rounded-lg border border-rose-400/25 bg-app-surface px-2 py-1.5 text-[10px] font-black leading-snug text-app-text">
+                                 No wedding deposits were posted. The {weddingDepositBeneficiaryCount} reviewed member allocation{weddingDepositBeneficiaryCount === 1 ? " remains" : "s remain"} staged for Retry card or another tender.
+                               </p>
+                             ) : null}
                              <p className="mt-1 text-[10px] font-semibold leading-snug text-app-text-muted">
                                ${centsToFixed2(helcimAttempt.amount_cents)} · {helcimAttemptTerminalName(helcimAttempt)}
                                {pendingHelcimAttemptNeedsAttention ? ` · ${helcimAttemptAgeLabel(helcimAttempt)}` : ""}

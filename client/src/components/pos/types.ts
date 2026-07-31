@@ -225,6 +225,7 @@ export interface ExchangeReturnHandoffLine {
   /** Exact return rows already exist on the source Transaction Record. */
   already_recorded?: boolean;
   original_helcim_transaction_id_for_refund?: string | null;
+  original_wedding_deposit_payer_name?: string | null;
 }
 
 export type AppliedPayment = AppliedPaymentLine;

@@ -12,35 +12,47 @@ function repoFile(relativePath: string): string {
 const drawer = repoFile("client/src/components/pos/NexoCheckoutDrawer.tsx");
 const cart = repoFile("client/src/components/pos/Cart.tsx");
 const refundModal = repoFile("client/src/components/pos/PosRefundModal.tsx");
-const handoff = repoFile("client/src/components/pos/HelcimManualCardHandoff.tsx");
-const paymentsWorkspace = repoFile("client/src/components/payments/PaymentsWorkspace.tsx");
+const handoff = repoFile(
+  "client/src/components/pos/HelcimManualCardHandoff.tsx",
+);
+const paymentsWorkspace = repoFile(
+  "client/src/components/payments/PaymentsWorkspace.tsx",
+);
 const paymentsApi = repoFile("server/src/api/payments.rs");
 const transactionsApi = repoFile("server/src/api/transactions.rs");
 const checkoutLogic = repoFile("server/src/logic/transaction_checkout.rs");
 const paymentSummaryLogic = repoFile("server/src/logic/pos_rms_charge.rs");
 
 test("checkout and customer changes clear sale-scoped tender state only", () => {
-  const resetStart = drawer.indexOf("// Tender UI is scoped to one exact sale/customer.");
+  const resetStart = drawer.indexOf(
+    "// Tender UI is scoped to one exact sale/customer.",
+  );
   const resetEnd = drawer.indexOf("const registerLane =", resetStart);
   const resetBoundary = drawer.slice(resetStart, resetEnd);
 
   expect(resetStart).toBeGreaterThan(-1);
-  expect(resetBoundary).toContain("activeHostedManualCardContextRef.current = null");
-  expect(resetBoundary).toContain("setDonationNote(\"\")");
+  expect(resetBoundary).toContain(
+    "activeHostedManualCardContextRef.current = null",
+  );
+  expect(resetBoundary).toContain('setDonationNote("")');
   expect(resetBoundary).toContain("setManualRefundApprovalOpen(false)");
   expect(resetBoundary).toContain("setPendingManualRefundCents(null)");
   expect(resetBoundary).toContain("setHelcimCards([])");
-  expect(resetBoundary).toContain("setHelcimCustomerId(\"\")");
-  expect(resetBoundary).toContain("setSelectedHelcimCardId(\"\")");
+  expect(resetBoundary).toContain('setHelcimCustomerId("")');
+  expect(resetBoundary).toContain('setSelectedHelcimCardId("")');
   expect(resetBoundary).toContain("setTerminalPickerOpen(false)");
   expect(resetBoundary).toContain("saleTerminalRoute?.default_terminal_key");
   expect(resetBoundary).toContain("setRmsResolve(null)");
   expect(resetBoundary).toContain("setStaffAccount(null)");
-  expect(drawer).toContain("latestSaleIdentityRef.current.customerId !== requestedCustomerIdentity");
+  expect(drawer).toContain(
+    "latestSaleIdentityRef.current.customerId !== requestedCustomerIdentity",
+  );
   expect(drawer).toContain("requestStillMatchesCustomer()");
   expect(resetBoundary).not.toContain("/release");
   expect(resetBoundary).not.toContain("/refund");
-  expect(resetBoundary).toContain("Provider attempts remain server-side for Payments Health review");
+  expect(resetBoundary).toContain(
+    "Provider attempts remain server-side for Payments Health review",
+  );
   expect(drawer).toContain("helcimAttemptLoading ||");
 });
 
@@ -49,27 +61,57 @@ test("CNP approval and handoff messages require the exact request, attempt, sale
   expect(drawer).toContain("context.attemptId === attempt.id");
   expect(drawer).toContain("context.checkoutClientId === checkoutClientId");
   expect(drawer).toContain("context.customerId === customerId");
-  expect(drawer).toContain("activeHostedManualCardContextRef.current?.requestId !== requestContext.requestId");
+  expect(drawer).toContain(
+    "activeHostedManualCardContextRef.current?.requestId !== requestContext.requestId",
+  );
   expect(drawer).toContain("!helcimAttemptMatchesCheckout(");
   expect(drawer).toContain("requestContext.checkoutClientId,");
   expect(drawer).toContain("data.cnp_request_id !== activeContext.requestId");
   expect(drawer).toContain("data.attempt_id !== attemptId");
   expect(drawer).toContain("key={currentManualCardHandoffUrl}");
 
-  expect(handoff).toContain("cnp_request_id: params.get(\"ros_cnp_request_id\")");
+  expect(handoff).toContain('cnp_request_id: params.get("ros_cnp_request_id")');
   expect(handoff).not.toContain("ros_customer_id");
   expect(handoff).not.toContain("ros_checkout_client_id");
-  expect(handoff).toContain("postHandoffOutcome(attemptId, \"approved\", saleContext)");
+  expect(handoff).toContain(
+    'postHandoffOutcome(attemptId, "approved", saleContext)',
+  );
   expect(handoff).toContain("HELCIM_CONFIRM_RETRY_DELAYS_MS");
   expect(handoff).toContain("HELCIM_CONFIRM_RETRYABLE_STATUSES");
   expect(handoff).toContain("Do not run the card again or close this page.");
-  expect(drawer).toContain("\"Waiting for CNP Confirmation\"");
-  expect(drawer).not.toContain("\"Waiting for Keyed Card\"");
+  expect(drawer).toContain('"Waiting for CNP Confirmation"');
+  expect(drawer).not.toContain('"Waiting for Keyed Card"');
   expect(paymentsWorkspace).toContain("Recover CNP Approval");
   expect(paymentsWorkspace).toContain(
     "/api/payments/providers/helcim/terminal/recover-paid-order-payment-from-event",
   );
   expect(paymentsWorkspace).toContain("helcim_event_id: source.record.id");
+});
+
+test("known CNP decline and close outcomes finalize the exact attempt before retry", () => {
+  expect(handoff).toContain("/helcim-pay/public-outcome");
+  expect(handoff).toContain('void finalizeKnownOutcome("aborted")');
+  expect(handoff).toContain('void finalizeKnownOutcome("hidden")');
+  expect(handoff).toContain(
+    'postHandoffOutcome(attemptId, "unverified", saleContext)',
+  );
+
+  const outcomeStart = paymentsApi.indexOf(
+    "async fn finalize_helcim_pay_public_outcome(",
+  );
+  const outcomeEnd = paymentsApi.indexOf(
+    "async fn confirm_helcim_pay_attempt(",
+    outcomeStart,
+  );
+  const outcomeFlow = paymentsApi.slice(outcomeStart, outcomeEnd);
+  expect(outcomeStart).toBeGreaterThan(-1);
+  expect(outcomeFlow).toContain("AND provider_payment_id = $2");
+  expect(outcomeFlow).toContain("AND status = 'pending'");
+  expect(outcomeFlow).toContain("AND raw_audit_reference = 'helcim-pay-js'");
+  expect(outcomeFlow).toContain("AND provider_transaction_id IS NULL");
+  expect(outcomeFlow).toContain("helcim-pay-js:client-aborted");
+  expect(outcomeFlow).toContain("helcim-pay-js:client-hidden");
+  expect(outcomeFlow).not.toContain("provider_client_secret = NULL");
 });
 
 test("CNP and Manual Card retain distinct ledger and reporting identities", () => {
@@ -121,31 +163,64 @@ test("CNP and Manual Card retain distinct ledger and reporting identities", () =
   );
 });
 
+test("terminal purchase checks listening before creating its durable attempt", () => {
+  const start = paymentsApi.indexOf("async fn start_helcim_purchase(");
+  const end = paymentsApi.indexOf(
+    "async fn start_helcim_terminal_refund(",
+    start,
+  );
+  const purchaseFlow = paymentsApi.slice(start, end);
+  const preflight = purchaseFlow.indexOf("preflight_terminal_purchase(");
+  const insert = purchaseFlow.indexOf("INSERT INTO payment_provider_attempts");
+
+  expect(start).toBeGreaterThan(-1);
+  expect(preflight).toBeGreaterThan(-1);
+  expect(insert).toBeGreaterThan(preflight);
+  expect(drawer).toContain(
+    "Helcim accepted the request. Confirm the amount appears on the reader",
+  );
+  expect(drawer).toContain(
+    "Confirm the reader is on its ready screen before retrying Card Reader",
+  );
+  expect(drawer).not.toContain(
+    "Terminal released. Card Reader is ready to run again",
+  );
+});
+
 test("an exact approved or pending CNP is handled before a new initialize call", () => {
   const tenderStart = drawer.indexOf(
     'if (["card_terminal", "card_manual", "card_saved", "card_credit"].includes(tab))',
   );
   const tenderEnd = drawer.indexOf("const meta = TAB_META[tab]", tenderStart);
   const tenderFlow = drawer.slice(tenderStart, tenderEnd);
-  const approvalRecovery = tenderFlow.indexOf("const restored = addApprovedHelcimAttempt(");
+  const approvalRecovery = tenderFlow.indexOf(
+    "const restored = addApprovedHelcimAttempt(",
+  );
   const manualBranch = tenderFlow.indexOf('if (tab === "card_manual")');
-  const initialize = tenderFlow.indexOf("await startHostedManualCardPayment(amtCents)");
+  const initialize = tenderFlow.indexOf(
+    "await startHostedManualCardPayment(amtCents)",
+  );
 
   expect(approvalRecovery).toBeGreaterThan(-1);
   expect(manualBranch).toBeGreaterThan(approvalRecovery);
   expect(initialize).toBeGreaterThan(manualBranch);
-  expect(tenderFlow.indexOf('if (helcimAttempt?.status === "pending")')).toBeLessThan(
-    tenderFlow.indexOf('if (tab === "card_saved")'),
-  );
+  expect(
+    tenderFlow.indexOf('if (helcimAttempt?.status === "pending")'),
+  ).toBeLessThan(tenderFlow.indexOf('if (tab === "card_saved")'));
   expect(tenderFlow).toContain("pendingAttemptIsDemonstrablyStale");
-  expect(tenderFlow).toContain("Recover or cancel that attempt before starting another card payment.");
+  expect(tenderFlow).toContain(
+    "Recover or cancel that attempt before starting another card payment.",
+  );
   expect(tenderFlow).toContain("It remains visible in Payments Health.");
   expect(tenderFlow).toContain("helcimAttemptBelongsToCurrentCheckout");
 });
 
 test("only an exact register-session and checkout Helcim attempt can import or lock tenders", () => {
   const matcherStart = drawer.indexOf("function helcimAttemptMatchesCheckout(");
-  const matcherEnd = drawer.indexOf("interface HelcimPayInitializeResponse", matcherStart);
+  const matcherEnd = drawer.indexOf(
+    "interface HelcimPayInitializeResponse",
+    matcherStart,
+  );
   const matcher = drawer.slice(matcherStart, matcherEnd);
   expect(matcherStart).toBeGreaterThan(-1);
   expect(matcher).toContain("currentRegisterSessionId");
@@ -204,7 +279,9 @@ test("only an exact register-session and checkout Helcim attempt can import or l
   expect(outcomeGuard).toContain(
     'helcimAttemptBelongsToCurrentCheckout && helcimAttempt?.status === "expired"',
   );
-  expect(outcomeGuard).toContain("helcimRoutingAttemptBelongsToCurrentCheckout ||");
+  expect(outcomeGuard).toContain(
+    "helcimRoutingAttemptBelongsToCurrentCheckout ||",
+  );
 
   const applyStart = drawer.indexOf(
     "const applyHelcimAttemptUpdate = useCallback",
@@ -212,7 +289,9 @@ test("only an exact register-session and checkout Helcim attempt can import or l
   const applyEnd = drawer.indexOf("const loadHelcimCards", applyStart);
   const applyFlow = drawer.slice(applyStart, applyEnd);
   expect(applyStart).toBeGreaterThan(-1);
-  expect(applyFlow.indexOf("!helcimAttemptMatchesCheckout(")).toBeGreaterThan(-1);
+  expect(applyFlow.indexOf("!helcimAttemptMatchesCheckout(")).toBeGreaterThan(
+    -1,
+  );
   expect(applyFlow.indexOf("setHelcimAttempt(attempt)")).toBeGreaterThan(
     applyFlow.indexOf("!helcimAttemptMatchesCheckout("),
   );
@@ -230,14 +309,10 @@ test("only an exact register-session and checkout Helcim attempt can import or l
   expect(refreshFlow).toContain(
     "if (blockWhileLoading) setHelcimAttemptLoading(true)",
   );
-  expect(refreshFlow).toContain(
-    "options.importOnlyIfCurrentCheckout &&",
-  );
+  expect(refreshFlow).toContain("options.importOnlyIfCurrentCheckout &&");
   expect(refreshFlow).toContain("!helcimAttemptMatchesCheckout(");
   expect(refreshFlow).toContain("return null;");
-  expect(refreshFlow).toContain(
-    "if (!options.importOnlyIfCurrentCheckout) {",
-  );
+  expect(refreshFlow).toContain("if (!options.importOnlyIfCurrentCheckout) {");
 
   const routeLookupStart = drawer.indexOf(
     "if (!isOpen || !currentCheckoutRoutingAttemptId)",
@@ -253,36 +328,43 @@ test("only an exact register-session and checkout Helcim attempt can import or l
   );
   expect(routeLookup).toContain("quietPending: true");
   expect(routeLookup).toContain("importOnlyIfCurrentCheckout: true");
-  expect(routeLookup).toContain("attempt.status !== \"pending\"");
+  expect(routeLookup).toContain('attempt.status !== "pending"');
   expect(routeLookup).toContain("void loadProviderSettings()");
   expect(routeLookup).not.toContain("selectedTerminalInUseByCurrentRegister");
   expect(routeLookup).not.toContain("selectedTerminalActiveAttemptId");
   expect(routeLookup).not.toContain("setHelcimAttemptLoading(true)");
 
-  expect(drawer).toContain(
-    ": currentCheckoutRoutingAttemptId;",
-  );
+  expect(drawer).toContain(": currentCheckoutRoutingAttemptId;");
   expect(drawer).toContain("const canFinalize =");
   expect(drawer).toContain("!helcimOutcomeBlocksCheckout &&");
   expect(drawer).toContain("!rmsNoCreditTenderNeedsApproval;");
   expect(drawer).toContain("if (helcimOutcomeBlocksCheckout) {");
   expect(drawer).toContain("disabled={helcimOutcomeBlocksCheckout}");
-  expect(drawer).toContain(
-    "const helcimAttentionBannerVisible =",
-  );
+  expect(drawer).toContain("const helcimAttentionBannerVisible =");
   expect(drawer).toContain(
     "helcimAttemptOutcomeUnverified || pendingHelcimAttemptNeedsAttention",
   );
   expect(drawer).toContain("{helcimAttentionBannerVisible ? (");
   expect(drawer).not.toContain("Helcim outcome required");
 
-  const releaseStart = drawer.indexOf("const releasePendingTerminalAttempt = useCallback");
-  const releaseEnd = drawer.indexOf("const handlePendingTerminalCancel", releaseStart);
+  const releaseStart = drawer.indexOf(
+    "const releasePendingTerminalAttempt = useCallback",
+  );
+  const releaseEnd = drawer.indexOf(
+    "const handlePendingTerminalCancel",
+    releaseStart,
+  );
   const releaseFlow = drawer.slice(releaseStart, releaseEnd);
   expect(releaseStart).toBeGreaterThan(-1);
-  expect(releaseFlow).toContain("const attempt = await releaseHelcimAttempt(attemptId)");
-  expect(releaseFlow).toContain("resetHelcimAttemptAfterRelease(attempt, options)");
-  expect(releaseFlow).toContain("ROS could not confirm that Helcim released this card request.");
+  expect(releaseFlow).toContain(
+    "const attempt = await releaseHelcimAttempt(attemptId)",
+  );
+  expect(releaseFlow).toContain(
+    "resetHelcimAttemptAfterRelease(attempt, options)",
+  );
+  expect(releaseFlow).toContain(
+    "ROS could not confirm that Helcim released this card request.",
+  );
   expect(drawer).toContain("providerSettings?.helcim.simulator_enabled &&");
   expect(drawer).toContain("Release simulated request");
   expect(drawer).not.toContain("Release & use another tender");
@@ -332,7 +414,9 @@ test("only an exact register-session and checkout Helcim attempt can import or l
   const openSessionGuard = purchase.indexOf(
     "reject_unresolved_helcim_terminal_before_dispatch(",
   );
-  const attemptInsert = purchase.indexOf("INSERT INTO payment_provider_attempts");
+  const attemptInsert = purchase.indexOf(
+    "INSERT INTO payment_provider_attempts",
+  );
   expect(staleCleanupCall).toBeGreaterThan(-1);
   expect(openSessionGuard).toBeGreaterThan(staleCleanupCall);
   expect(attemptInsert).toBeGreaterThan(openSessionGuard);
@@ -343,7 +427,9 @@ test("saved-card checkout keeps provider tokens out of client source and DOM sta
   expect(drawer).toContain("helcim_card_id: providerCardId");
   expect(drawer).toContain("customer_id: customerId");
   expect(drawer).toContain("customer_code: code || undefined");
-  expect(drawer).toContain("if (!customerId || !code || !providerCustomerId || !providerCardId)");
+  expect(drawer).toContain(
+    "if (!customerId || !code || !providerCustomerId || !providerCardId)",
+  );
   expect(drawer).toContain("value={selectedHelcimCardId}");
   expect(drawer).not.toContain("cardToken");
   expect(drawer).not.toContain("card_token");
@@ -351,11 +437,13 @@ test("saved-card checkout keeps provider tokens out of client source and DOM sta
 
 test("card refunds remain in the canonical Transaction Record settlement path", () => {
   expect(drawer).toContain('refund_processing: "server_settlement"');
-  expect(drawer).toContain("Start card refunds from the original Transaction Record");
+  expect(drawer).toContain(
+    "Start card refunds from the original Transaction Record",
+  );
   expect(drawer).not.toContain("/terminal/refund");
   expect(drawer).not.toContain("/card/refund");
 
   expect(paymentsWorkspace).not.toContain("StandaloneRefundPanel");
-  expect(paymentsWorkspace).not.toContain('/card/refund');
+  expect(paymentsWorkspace).not.toContain("/card/refund");
   expect(paymentsWorkspace).not.toContain('SectionButton id="refunds"');
 });

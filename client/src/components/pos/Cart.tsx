@@ -1,11 +1,5 @@
 import { getBaseUrl } from "../../lib/apiConfig";
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useScanner } from "../../hooks/useScanner";
 import {
@@ -37,7 +31,9 @@ import PosCustomerMeasurementsDrawer from "./PosCustomerMeasurementsDrawer";
 import ReceiptSummaryModal, {
   type RefundProcessResult,
 } from "./ReceiptSummaryModal";
-import VariantSelectionModal, { type ProductWithVariants } from "./VariantSelectionModal";
+import VariantSelectionModal, {
+  type ProductWithVariants,
+} from "./VariantSelectionModal";
 import { useToast } from "../ui/ToastProviderLogic";
 import ConfirmationModal from "../ui/ConfirmationModal";
 import {
@@ -57,6 +53,7 @@ import PosSaleCashierSignInOverlay from "./PosSaleCashierSignInOverlay";
 import { CustomerRelationshipHubDrawer } from "../customers/CustomerRelationshipHubDrawer";
 import PosExchangeWizard from "./PosExchangeWizard";
 import WeddingLookupDrawer, { type WeddingMember } from "./WeddingLookupDrawer";
+import WeddingDepositWorkspace from "./WeddingDepositWorkspace";
 import PosShippingModal, {
   type PosShippingSelection,
 } from "./PosShippingModal";
@@ -73,7 +70,11 @@ import {
   isCustomOrderSku,
 } from "../../lib/customOrders";
 import CustomItemPromptModal from "./CustomItemPromptModal";
-import OrderLoadModal, { type CustomerOrder, type OrderItem, type PickupSelection } from "./OrderLoadModal";
+import OrderLoadModal, {
+  type CustomerOrder,
+  type OrderItem,
+  type PickupSelection,
+} from "./OrderLoadModal";
 import OrderReviewModal from "./OrderReviewModal";
 import PosAlterationIntakeModal from "./PosAlterationIntakeModal";
 import ManagerApprovalModal from "./ManagerApprovalModal";
@@ -112,7 +113,10 @@ import {
   type ExchangeReturnHandoffLine,
 } from "./types";
 import { PosRegisterLiveClock } from "./cart/PosRegisterLiveClock";
-import { PosSearchResultList, type SearchResult } from "./cart/PosSearchResultList";
+import {
+  PosSearchResultList,
+  type SearchResult,
+} from "./cart/PosSearchResultList";
 import { useCartPersistence } from "../../hooks/useCartPersistence";
 import { usePosSearch } from "../../hooks/usePosSearch";
 import { useCartActions } from "../../hooks/useCartActions";
@@ -219,19 +223,31 @@ function parseRefundEventId(value: unknown): string | null {
 }
 
 function allocateCentsByWeight(
-  components: Array<{ key: "subtotal" | "stateTax" | "localTax"; cents: number }>,
+  components: Array<{
+    key: "subtotal" | "stateTax" | "localTax";
+    cents: number;
+  }>,
   capCents: number,
 ): Record<"subtotal" | "stateTax" | "localTax", number> {
-  const totalCents = components.reduce((sum, component) => sum + Math.max(0, component.cents), 0);
+  const totalCents = components.reduce(
+    (sum, component) => sum + Math.max(0, component.cents),
+    0,
+  );
   const cap = Math.max(0, Math.min(capCents, totalCents));
   if (cap <= 0 || totalCents <= 0) {
     return { subtotal: 0, stateTax: 0, localTax: 0 };
   }
   if (cap === totalCents) {
     return {
-      subtotal: components.find((component) => component.key === "subtotal")?.cents ?? 0,
-      stateTax: components.find((component) => component.key === "stateTax")?.cents ?? 0,
-      localTax: components.find((component) => component.key === "localTax")?.cents ?? 0,
+      subtotal:
+        components.find((component) => component.key === "subtotal")?.cents ??
+        0,
+      stateTax:
+        components.find((component) => component.key === "stateTax")?.cents ??
+        0,
+      localTax:
+        components.find((component) => component.key === "localTax")?.cents ??
+        0,
     };
   }
 
@@ -243,7 +259,8 @@ function allocateCentsByWeight(
       remainder: raw - Math.floor(raw),
     };
   });
-  let remaining = cap - weighted.reduce((sum, component) => sum + component.floor, 0);
+  let remaining =
+    cap - weighted.reduce((sum, component) => sum + component.floor, 0);
   weighted
     .sort((a, b) => b.remainder - a.remainder)
     .forEach((component) => {
@@ -257,24 +274,35 @@ function allocateCentsByWeight(
       ...acc,
       [component.key]: component.floor,
     }),
-    { subtotal: 0, stateTax: 0, localTax: 0 } as Record<"subtotal" | "stateTax" | "localTax", number>,
+    { subtotal: 0, stateTax: 0, localTax: 0 } as Record<
+      "subtotal" | "stateTax" | "localTax",
+      number
+    >,
   );
 }
 
 function exchangeReturnCreditComponents(
   returnedLines: ExchangeReturnHandoffLine[],
   creditCapCents: number,
-): { subtotalCents: number; stateTaxCents: number; localTaxCents: number; totalCents: number } {
+): {
+  subtotalCents: number;
+  stateTaxCents: number;
+  localTaxCents: number;
+  totalCents: number;
+} {
   const subtotalCents = returnedLines.reduce(
-    (sum, line) => sum + Math.max(0, line.unit_price_cents) * Math.max(0, line.quantity),
+    (sum, line) =>
+      sum + Math.max(0, line.unit_price_cents) * Math.max(0, line.quantity),
     0,
   );
   const stateTaxCents = returnedLines.reduce(
-    (sum, line) => sum + Math.max(0, line.state_tax_cents ?? 0) * Math.max(0, line.quantity),
+    (sum, line) =>
+      sum + Math.max(0, line.state_tax_cents ?? 0) * Math.max(0, line.quantity),
     0,
   );
   const localTaxCents = returnedLines.reduce(
-    (sum, line) => sum + Math.max(0, line.local_tax_cents ?? 0) * Math.max(0, line.quantity),
+    (sum, line) =>
+      sum + Math.max(0, line.local_tax_cents ?? 0) * Math.max(0, line.quantity),
     0,
   );
   const allocated = allocateCentsByWeight(
@@ -299,8 +327,12 @@ function calculateStandaloneLineTotals(lines: CartLineItem[]): CartTotals {
       const quantity = line.quantity;
       const priceCents = parseMoneyToCents(line.standard_retail_price);
       const forceNonTaxable = isNonTaxableServiceLine(line);
-      const stateTaxCents = forceNonTaxable ? 0 : parseMoneyToCents(line.state_tax);
-      const localTaxCents = forceNonTaxable ? 0 : parseMoneyToCents(line.local_tax);
+      const stateTaxCents = forceNonTaxable
+        ? 0
+        : parseMoneyToCents(line.state_tax);
+      const localTaxCents = forceNonTaxable
+        ? 0
+        : parseMoneyToCents(line.local_tax);
       acc.subtotalCents += priceCents * quantity;
       acc.stateTaxCents += stateTaxCents * quantity;
       acc.localTaxCents += localTaxCents * quantity;
@@ -308,7 +340,8 @@ function calculateStandaloneLineTotals(lines: CartLineItem[]): CartTotals {
         acc.totalPieces += quantity;
       }
       if (line.fulfillment === "takeaway") {
-        acc.takeawayDueCents += (priceCents + stateTaxCents + localTaxCents) * quantity;
+        acc.takeawayDueCents +=
+          (priceCents + stateTaxCents + localTaxCents) * quantity;
       }
       return acc;
     },
@@ -338,7 +371,9 @@ function calculateStandaloneLineTotals(lines: CartLineItem[]): CartTotals {
 }
 
 function weddingDisbursementAmountCents(member: WeddingMember): number {
-  return parseMoneyToCents(member.split_deposit_amount ?? member.balance_due ?? "0");
+  return parseMoneyToCents(
+    member.split_deposit_amount ?? member.balance_due ?? "0",
+  );
 }
 
 interface ExchangeReturnHandoff {
@@ -350,6 +385,7 @@ interface ExchangeReturnHandoff {
   refundAmountCents?: number;
   action?: "refund" | "exchange";
   originalHelcimTransactionIdForRefund?: string | null;
+  originalWeddingDepositPayerName?: string | null;
 }
 
 interface HandoffOrderDetail {
@@ -362,6 +398,11 @@ interface HandoffOrderDetail {
   amount_paid?: string;
   balance_due?: string;
   original_helcim_transaction_id_for_refund?: string | null;
+  wedding_refund_recipient?: {
+    id: string;
+    first_name: string;
+    last_name: string;
+  } | null;
   customer: {
     id: string;
     first_name: string;
@@ -468,7 +509,6 @@ interface CartProps {
   onOpenWeddingParty?: (partyId: string) => void;
 }
 
-
 // Helpers relocated to posUtils.ts or hooks
 
 // --- Component ---
@@ -500,12 +540,8 @@ export default function Cart({
       ? receiptTimezoneProp.trim()
       : "America/New_York";
   const { toast } = useToast();
-  const {
-    backofficeHeaders,
-    staffRole,
-    staffPin,
-    staffCode,
-  } = useBackofficeAuth();
+  const { backofficeHeaders, staffRole, staffPin, staffCode } =
+    useBackofficeAuth();
 
   const hasAccess = staffRole === "admin";
   const apiAuth = useCallback(
@@ -515,27 +551,40 @@ export default function Cart({
   const baseUrl = getBaseUrl();
 
   // --- External States (managed by hooks) ---
-  const [rmsPaymentMeta, setRmsPaymentMeta] = useState<RmsPaymentLineMeta | null>(null);
-  const [staffAccountPaymentMeta, setStaffAccountPaymentMeta] = useState<StaffAccountPaymentLineMeta | null>(null);
-  const [giftCardLoadMeta, setGiftCardLoadMeta] = useState<GiftCardLoadLineMeta | null>(null);
+  const [rmsPaymentMeta, setRmsPaymentMeta] =
+    useState<RmsPaymentLineMeta | null>(null);
+  const [staffAccountPaymentMeta, setStaffAccountPaymentMeta] =
+    useState<StaffAccountPaymentLineMeta | null>(null);
+  const [giftCardLoadMeta, setGiftCardLoadMeta] =
+    useState<GiftCardLoadLineMeta | null>(null);
   const [primarySalespersonId, setPrimarySalespersonId] = useState("");
-  const [checkoutOperator, setCheckoutOperator] = useState<CheckoutOperatorContext | null>(null);
-  const [posShipping, setPosShipping] = useState<PosShippingSelection | null>(null);
-  const [checkoutAppliedPayments, setCheckoutAppliedPayments] = useState<AppliedPaymentLine[]>([]);
-  const [providerCheckoutIdentityHeld, setProviderCheckoutIdentityHeld] = useState(false);
+  const [checkoutOperator, setCheckoutOperator] =
+    useState<CheckoutOperatorContext | null>(null);
+  const [posShipping, setPosShipping] = useState<PosShippingSelection | null>(
+    null,
+  );
+  const [checkoutAppliedPayments, setCheckoutAppliedPayments] = useState<
+    AppliedPaymentLine[]
+  >([]);
+  const [providerCheckoutIdentityHeld, setProviderCheckoutIdentityHeld] =
+    useState(false);
   const [checkoutDepositLedger, setCheckoutDepositLedger] = useState("");
   const approvedProviderPaymentInCheckout = useMemo(
     () => hasApprovedProviderPayment(checkoutAppliedPayments),
     [checkoutAppliedPayments],
   );
-  const [saleDateTimeLocal, setSaleDateTimeLocal] = useState<string | null>(null);
+  const [saleDateTimeLocal, setSaleDateTimeLocal] = useState<string | null>(
+    null,
+  );
   const [backdateApproval, setBackdateApproval] = useState<{
     approvedByStaffId: string;
     reason: string;
   } | null>(null);
   const [backdatePrompt, setBackdatePrompt] = useState<string | null>(null);
   const [pickupConfirmed, setPickupConfirmed] = useState(false);
-  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(
+    null,
+  );
   const latestSaleCustomerIdRef = useRef<string | null>(null);
   const latestProviderSaleLockRef = useRef({ approved: false, held: false });
   latestSaleCustomerIdRef.current = selectedCustomer?.id ?? null;
@@ -563,29 +612,55 @@ export default function Cart({
     },
     [toast],
   );
-  const [activeWeddingMember, setActiveWeddingMember] = useState<WeddingMember | null>(null);
-  const [activeWeddingPartyName, setActiveWeddingPartyName] = useState<string | null>(null);
-  const [disbursementMembers, setDisbursementMembers] = useState<WeddingMember[]>([]);
-  const [weddingPurchaseContext, setWeddingPurchaseContext] = useState<WeddingPurchaseContext | null>(null);
+  const [activeWeddingMember, setActiveWeddingMember] =
+    useState<WeddingMember | null>(null);
+  const [activeWeddingPartyName, setActiveWeddingPartyName] = useState<
+    string | null
+  >(null);
+  const [disbursementMembers, setDisbursementMembers] = useState<
+    WeddingMember[]
+  >([]);
+  const [weddingDepositOrderSource, setWeddingDepositOrderSource] = useState<{
+    workflowId: string;
+    sourceCreditLedgerId: string;
+    customerId: string;
+    remainingCents: number;
+  } | null>(null);
+  const [weddingPurchaseContext, setWeddingPurchaseContext] =
+    useState<WeddingPurchaseContext | null>(null);
   const [weddingPurchaseLoading, setWeddingPurchaseLoading] = useState(false);
 
   const [roleMaxDiscountPct, setRoleMaxDiscountPct] = useState(30);
   const [salePinCredential, setSalePinCredential] = useState("");
   const [salePinError, setSalePinError] = useState<string | null>(null);
-  const [lastTransactionId, setLastTransactionId] = useState<string | null>(null);
-  const [lastReceiptExchangeReturnTransactionId, setLastReceiptExchangeReturnTransactionId] =
+  const [lastTransactionId, setLastTransactionId] = useState<string | null>(
+    null,
+  );
+  const [workflowReceiptTransactionId, setWorkflowReceiptTransactionId] =
     useState<string | null>(null);
-  const [lastRefundEventId, setLastRefundEventId] = useState<string | null>(null);
+  const [
+    lastReceiptExchangeReturnTransactionId,
+    setLastReceiptExchangeReturnTransactionId,
+  ] = useState<string | null>(null);
+  const [lastRefundEventId, setLastRefundEventId] = useState<string | null>(
+    null,
+  );
   const [lastRefundResult, setLastRefundResult] =
     useState<RefundProcessResult | null>(null);
   const [lastReceiptEventTransactionId, setLastReceiptEventTransactionId] =
     useState<string | null>(null);
   const [lastPendingRefundAmountCents, setLastPendingRefundAmountCents] =
     useState<number | null>(null);
-  const [pickupTransactionId, setPickupTransactionId] = useState<string | null>(null);
-  const [pickupTransactions, setPickupTransactions] = useState<PickupTransactionSelection[]>([]);
+  const [pickupTransactionId, setPickupTransactionId] = useState<string | null>(
+    null,
+  );
+  const [pickupTransactions, setPickupTransactions] = useState<
+    PickupTransactionSelection[]
+  >([]);
   const [pickupPaidAmountCents, setPickupPaidAmountCents] = useState<number>(0);
-  const [pickupReadyAlterations, setPickupReadyAlterations] = useState<NonNullable<HandoffOrderDetail["linked_alterations"]>>([]);
+  const [pickupReadyAlterations, setPickupReadyAlterations] = useState<
+    NonNullable<HandoffOrderDetail["linked_alterations"]>
+  >([]);
   const clearStalePickupContextForCustomerChange = useCallback(
     (nextCustomerId: string | null) => {
       if (latestSaleCustomerIdRef.current === nextCustomerId) return;
@@ -619,35 +694,58 @@ export default function Cart({
     reason: string;
   } | null>(null);
   const [weddingDrawerOpen, setWeddingDrawerOpen] = useState(false);
-  const [weddingDrawerPreferGroupPay, setWeddingDrawerPreferGroupPay] = useState(false);
+  const [weddingDrawerPreferGroupPay, setWeddingDrawerPreferGroupPay] =
+    useState(false);
   const [weddingDrawerInitialPartyId, setWeddingDrawerInitialPartyId] =
     useState<string | null>(null);
   const [measDrawerOpen, setMeasDrawerOpen] = useState(false);
   const [orderLoadOpen, setOrderLoadOpen] = useState(false);
   const [orderReviewOpen, setOrderReviewOpen] = useState(false);
   const [alterationIntakeOpen, setAlterationIntakeOpen] = useState(false);
-  const [alterationIntakeMode, setAlterationIntakeMode] = useState<"quick" | "full">("full");
-  const [editingAlterationIntake, setEditingAlterationIntake] = useState<PendingAlterationIntake | null>(null);
+  const [alterationIntakeMode, setAlterationIntakeMode] = useState<
+    "quick" | "full"
+  >("full");
+  const [editingAlterationIntake, setEditingAlterationIntake] =
+    useState<PendingAlterationIntake | null>(null);
   const [sourceRemovalPrompt, setSourceRemovalPrompt] = useState<{
     line: CartLineItem;
     intakes: PendingAlterationIntake[];
   } | null>(null);
-  const [pendingAlterationIntakes, setPendingAlterationIntakes] = useState<PendingAlterationIntake[]>([]);
-  const [orderPaymentLines, setOrderPaymentLines] = useState<OrderPaymentCartLine[]>([]);
-  const [editingOrderPaymentLine, setEditingOrderPaymentLine] = useState<OrderPaymentCartLine | null>(null);
-  const [editingOrderPaymentAmount, setEditingOrderPaymentAmount] = useState("");
-  const [lastReceiptOrderPaymentLines, setLastReceiptOrderPaymentLines] = useState<OrderPaymentCartLine[]>([]);
+  const [pendingAlterationIntakes, setPendingAlterationIntakes] = useState<
+    PendingAlterationIntake[]
+  >([]);
+  const [orderPaymentLines, setOrderPaymentLines] = useState<
+    OrderPaymentCartLine[]
+  >([]);
+  const [editingOrderPaymentLine, setEditingOrderPaymentLine] =
+    useState<OrderPaymentCartLine | null>(null);
+  const [editingOrderPaymentAmount, setEditingOrderPaymentAmount] =
+    useState("");
+  const [lastReceiptOrderPaymentLines, setLastReceiptOrderPaymentLines] =
+    useState<OrderPaymentCartLine[]>([]);
   const [customerProfileHubOpen, setCustomerProfileHubOpen] = useState(false);
-  const [checkoutOrderOptions, setCheckoutOrderOptions] = useState<PosOrderOptions | null>(null);
+  const [checkoutOrderOptions, setCheckoutOrderOptions] =
+    useState<PosOrderOptions | null>(null);
   const [cashAdjustOpen, setCashAdjustOpen] = useState(false);
-  const [heldOpenDeposit, setHeldOpenDeposit] = useState<HeldOpenDeposit | null>(null);
-  const [openDepositNotice, setOpenDepositNotice] = useState<HeldOpenDeposit | null>(null);
-  const [intelligenceVariantId, setIntelligenceVariantId] = useState<string | null>(null);
-  const [intelligenceLine, setIntelligenceLine] = useState<CartLineItem | null>(null);
+  const [heldOpenDeposit, setHeldOpenDeposit] =
+    useState<HeldOpenDeposit | null>(null);
+  const [openDepositNotice, setOpenDepositNotice] =
+    useState<HeldOpenDeposit | null>(null);
+  const [intelligenceVariantId, setIntelligenceVariantId] = useState<
+    string | null
+  >(null);
+  const [intelligenceLine, setIntelligenceLine] = useState<CartLineItem | null>(
+    null,
+  );
   const [showPrintRetryPanel, setShowPrintRetryPanel] = useState(false);
-  const [activeDiscountEvents, setActiveDiscountEvents] = useState<ActiveDiscountEvent[]>([]);
+  const [activeDiscountEvents, setActiveDiscountEvents] = useState<
+    ActiveDiscountEvent[]
+  >([]);
   const [selectedDiscountEventId, setSelectedDiscountEventId] = useState("");
-  const [exchangeWizardInitialTransactionId, setExchangeWizardInitialTransactionId] = useState<string | null>(null);
+  const [
+    exchangeWizardInitialTransactionId,
+    setExchangeWizardInitialTransactionId,
+  ] = useState<string | null>(null);
 
   // --- Offline queue & print retry badges ---
   const [offlinePendingCount, setOfflinePendingCount] = useState(0);
@@ -656,15 +754,21 @@ export default function Cart({
   useEffect(() => {
     const poll = async () => {
       try {
-        const { getCheckoutQueueSummary } = await import("../../lib/offlineQueue");
+        const { getCheckoutQueueSummary } =
+          await import("../../lib/offlineQueue");
         const summary = await getCheckoutQueueSummary();
         setOfflinePendingCount(summary.pendingCount);
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
       try {
-        const { getFailedPrintJobs } = await import("../../lib/printRetryQueue");
+        const { getFailedPrintJobs } =
+          await import("../../lib/printRetryQueue");
         const jobs = await getFailedPrintJobs();
         setFailedPrintCount(jobs.length);
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     };
     void poll();
     const interval = setInterval(poll, 10000);
@@ -679,14 +783,19 @@ export default function Cart({
   }, []);
 
   useEffect(() => {
-    fetch(`${baseUrl}/api/discount-events/active`, { headers: apiAuth() as Record<string, string> })
+    fetch(`${baseUrl}/api/discount-events/active`, {
+      headers: apiAuth() as Record<string, string>,
+    })
       .then(async (r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json();
       })
       .then((data) => setActiveDiscountEvents(Array.isArray(data) ? data : []))
       .catch(() => {
-        toast("Discount events unavailable. Verify network or contact manager.", "error");
+        toast(
+          "Discount events unavailable. Verify network or contact manager.",
+          "error",
+        );
       });
   }, [baseUrl, apiAuth, toast]);
 
@@ -709,13 +818,16 @@ export default function Cart({
 
   // --- Cart Actions Hook ---
   const [customPromptOpen, setCustomPromptOpen] = useState(false);
-  const [pendingCustomItem, setPendingCustomItem] = useState<ResolvedSkuItem | null>(null);
+  const [pendingCustomItem, setPendingCustomItem] =
+    useState<ResolvedSkuItem | null>(null);
   const [giftCardLoadOpen, setGiftCardLoadOpen] = useState(false);
   const [rmsPaymentOpen, setRmsPaymentOpen] = useState(false);
   const [staffAccountPaymentOpen, setStaffAccountPaymentOpen] = useState(false);
   const [parkSalePromptOpen, setParkSalePromptOpen] = useState(false);
   const [parkSaleDraftLabel, setParkSaleDraftLabel] = useState("");
-  const [feePromptKind, setFeePromptKind] = useState<"shipping" | "alteration" | null>(null);
+  const [feePromptKind, setFeePromptKind] = useState<
+    "shipping" | "alteration" | null
+  >(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const [searchFocused, setSearchFocused] = useState(false);
   const requestProductSearchFocus = useCallback(() => {
@@ -789,7 +901,10 @@ export default function Cart({
   const canReplaceCurrentSaleWithParked = useCallback((): boolean => {
     const currentSale = latestParkedRecallStateRef.current;
     if (currentSale.lineCount > 0) {
-      toast("Clear or park the current sale before recalling another.", "error");
+      toast(
+        "Clear or park the current sale before recalling another.",
+        "error",
+      );
       return false;
     }
     if (
@@ -805,7 +920,8 @@ export default function Cart({
     return true;
   }, [toast]);
 
-  const addFeeShortcut = useCallback(async (rawAmount: string) => {
+  const addFeeShortcut = useCallback(
+    async (rawAmount: string) => {
     const amountCents = parseMoneyToCents(rawAmount);
     if (amountCents <= 0) {
       toast("Enter an amount greater than $0.00.", "error");
@@ -814,7 +930,9 @@ export default function Cart({
 
     if (feePromptKind === "shipping") {
       try {
-        const response = await fetch(`${baseUrl}/api/pos/shipping/manual-quote`, {
+          const response = await fetch(
+            `${baseUrl}/api/pos/shipping/manual-quote`,
+            {
           method: "POST",
           headers: { "Content-Type": "application/json", ...apiAuth() },
           body: JSON.stringify({
@@ -822,7 +940,8 @@ export default function Cart({
             label: "Shipping",
             fee_only: true,
           }),
-        });
+            },
+          );
         const body = (await response.json().catch(() => ({}))) as {
           error?: string;
           rate_quote_id?: string;
@@ -836,7 +955,9 @@ export default function Cart({
         }
         setPosShipping({
           rate_quote_id: body.rate_quote_id,
-          amount_cents: parseMoneyToCents(body.amount_usd ?? centsToFixed2(amountCents)),
+            amount_cents: parseMoneyToCents(
+              body.amount_usd ?? centsToFixed2(amountCents),
+            ),
           label: body.service_name || "Shipping",
           to_address: null,
           fee_only: true,
@@ -845,7 +966,10 @@ export default function Cart({
         toast("Non-taxable shipping fee added.", "success");
         return true;
       } catch {
-        toast("Main Hub connection failed while adding the shipping fee.", "error");
+          toast(
+            "Main Hub connection failed while adding the shipping fee.",
+            "error",
+          );
         return false;
       }
     }
@@ -872,12 +996,17 @@ export default function Cart({
       };
       setLines((previous) => [...previous, feeLine]);
       setFeePromptKind(null);
-      toast("Non-taxable alteration fee added. No alteration record was created.", "success");
+        toast(
+          "Non-taxable alteration fee added. No alteration record was created.",
+          "success",
+        );
       return true;
     }
 
     return false;
-  }, [apiAuth, baseUrl, feePromptKind, setLines, toast]);
+    },
+    [apiAuth, baseUrl, feePromptKind, setLines, toast],
+  );
 
   const [pendingReturnLineDrafts, setPendingReturnLineDrafts] = useState<
     Record<string, ExchangeReturnHandoffLine[]>
@@ -928,6 +1057,7 @@ export default function Cart({
     setCheckoutAppliedPayments([]);
     setProviderCheckoutIdentityHeld(false);
     setCheckoutDepositLedger("");
+    setWeddingDepositOrderSource(null);
     setPendingReturnLineDrafts({});
     resetSaleDateTime();
     setPendingAlterationIntakes([]);
@@ -946,7 +1076,9 @@ export default function Cart({
   }, [clearCart, resetSaleDateTime]);
 
   const selectedCustomerId = selectedCustomer?.id ?? null;
-  const previousSelectedCustomerId = useRef<string | null | undefined>(undefined);
+  const previousSelectedCustomerId = useRef<string | null | undefined>(
+    undefined,
+  );
   useEffect(() => {
     if (
       previousSelectedCustomerId.current !== undefined &&
@@ -957,7 +1089,8 @@ export default function Cart({
     previousSelectedCustomerId.current = selectedCustomerId;
   }, [resetSaleDateTime, selectedCustomerId]);
 
-  const handleExchangeReturnHandoff = useCallback((args: ExchangeReturnHandoff) => {
+  const handleExchangeReturnHandoff = useCallback(
+    (args: ExchangeReturnHandoff) => {
     if (!canSelectCustomerForSale(args.customer?.id ?? null)) return;
     clearStalePickupContextForCustomerChange(args.customer?.id ?? null);
     setPrimarySalespersonId(args.originalSalespersonId?.trim() ?? "");
@@ -978,14 +1111,22 @@ export default function Cart({
     );
     const refundAmountCents = Math.max(
       0,
-      Math.min(Math.round(args.refundAmountCents ?? selectedReturnGrossCents), selectedReturnGrossCents),
+        Math.min(
+          Math.round(args.refundAmountCents ?? selectedReturnGrossCents),
+          selectedReturnGrossCents,
+        ),
+      );
+      const returnCredit = exchangeReturnCreditComponents(
+        returnedLines,
+        refundAmountCents,
     );
-    const returnCredit = exchangeReturnCreditComponents(returnedLines, refundAmountCents);
     const firstReturnLine = returnedLines[0];
     if (!firstReturnLine) return;
     if (refundAmountCents <= 0 && args.action !== "exchange") return;
 
-    const receiptLabel = args.receiptLabel ?? args.originalTransactionId.slice(0, 8).toUpperCase();
+      const receiptLabel =
+        args.receiptLabel ??
+        args.originalTransactionId.slice(0, 8).toUpperCase();
     let allocatedCreditCents = 0;
     const settledReturnLines: ExchangeReturnHandoffLine[] = [];
     const returnCreditLines = returnedLines.map((returnedLine, index) => {
@@ -993,16 +1134,23 @@ export default function Cart({
       const lineGrossCents =
         (Math.max(0, returnedLine.unit_price_cents) +
           Math.max(0, returnedLine.state_tax_cents ?? 0) +
-          Math.max(0, returnedLine.local_tax_cents ?? 0)) * quantity;
+            Math.max(0, returnedLine.local_tax_cents ?? 0)) *
+          quantity;
       const lineCreditCents =
         index === returnedLines.length - 1
           ? Math.max(0, returnCredit.totalCents - allocatedCreditCents)
           : Math.min(
               lineGrossCents,
-              Math.floor((lineGrossCents * returnCredit.totalCents) / Math.max(1, selectedReturnGrossCents)),
+                Math.floor(
+                  (lineGrossCents * returnCredit.totalCents) /
+                    Math.max(1, selectedReturnGrossCents),
+                ),
             );
       allocatedCreditCents += lineCreditCents;
-      const lineComponents = exchangeReturnCreditComponents([returnedLine], lineCreditCents);
+        const lineComponents = exchangeReturnCreditComponents(
+          [returnedLine],
+          lineCreditCents,
+        );
       settledReturnLines.push({
         ...returnedLine,
         refund_subtotal_cents: lineComponents.subtotalCents,
@@ -1011,6 +1159,8 @@ export default function Cart({
         refund_total_cents: lineComponents.totalCents,
         original_helcim_transaction_id_for_refund:
           args.originalHelcimTransactionIdForRefund ?? null,
+        original_wedding_deposit_payer_name:
+          args.originalWeddingDepositPayerName ?? null,
       });
       const rowId = newCartRowId();
       return {
@@ -1022,7 +1172,9 @@ export default function Cart({
         sku: returnedLine.sku || `RETURN-${receiptLabel}-${index + 1}`,
         name: returnedLine.product_name,
         variation_label: returnedLine.variation_label ?? null,
-        standard_retail_price: centsToFixed2(lineComponents.subtotalCents / quantity),
+          standard_retail_price: centsToFixed2(
+            lineComponents.subtotalCents / quantity,
+          ),
         unit_cost: returnedLine.unit_cost ?? "0.00",
         state_tax: centsToFixed2(lineComponents.stateTaxCents / quantity),
         local_tax: centsToFixed2(lineComponents.localTaxCents / quantity),
@@ -1031,7 +1183,9 @@ export default function Cart({
         fulfillment: "takeaway" as const,
         cart_row_id: rowId,
         price_override_reason: "pending_return_refund",
-        original_unit_price: centsToFixed2(lineComponents.subtotalCents / quantity),
+          original_unit_price: centsToFixed2(
+            lineComponents.subtotalCents / quantity,
+          ),
         return_tender_original_transaction_id: args.originalTransactionId,
         return_tender_receipt_label: receiptLabel,
         return_tender_refund_cents: lineComponents.totalCents,
@@ -1045,7 +1199,11 @@ export default function Cart({
     }));
 
     setLines((prev) => [
-      ...prev.filter((line) => line.return_tender_original_transaction_id !== args.originalTransactionId),
+        ...prev.filter(
+          (line) =>
+            line.return_tender_original_transaction_id !==
+            args.originalTransactionId,
+        ),
       ...returnCreditLines,
     ]);
     setSelectedLineKey(returnCreditLines[0]?.cart_row_id ?? null);
@@ -1057,13 +1215,23 @@ export default function Cart({
     setPosShipping(null);
     if (args.action === "refund") {
       setCheckoutDrawerOpen(true);
-      toast(`Refund credit for ${receiptLabel} moved to Pay. Select the refund tender to finish.`, "success");
+        toast(
+          `Refund credit for ${receiptLabel} moved to Pay. Select the refund tender to finish.`,
+          "success",
+        );
     } else if (refundAmountCents <= 0) {
-      toast(`Return from ${receiptLabel} is staged. Add replacement items, then Pay to settle the exchange.`, "success");
+        toast(
+          `Return from ${receiptLabel} is staged. Add replacement items, then Pay to settle the exchange.`,
+          "success",
+        );
     } else {
-      toast(`Return credit for ${receiptLabel} is in the cart. Add replacement items, then Pay to settle the exchange.`, "success");
+        toast(
+          `Return credit for ${receiptLabel} is in the cart. Add replacement items, then Pay to settle the exchange.`,
+          "success",
+        );
     }
-  }, [
+    },
+    [
     canSelectCustomerForSale,
     clearStalePickupContextForCustomerChange,
     onExchangeContinue,
@@ -1075,24 +1243,35 @@ export default function Cart({
     setPosShipping,
     setCheckoutDrawerOpen,
     toast,
-  ]);
+    ],
+  );
 
   useEffect(() => {
     const customerId = selectedCustomer?.id ?? null;
+    if (
+      weddingDepositOrderSource &&
+      weddingDepositOrderSource.customerId !== customerId
+    ) {
+      setWeddingDepositOrderSource(null);
+    }
     setCheckoutAppliedPayments((prev) =>
       prev.some((payment) => payment.method === "open_deposit")
         ? prev.filter((payment) => payment.method !== "open_deposit")
         : prev,
     );
     setPendingAlterationIntakes((prev) => {
-      const next = customerId ? prev.filter((intake) => intake.customer_id === customerId) : [];
+      const next = customerId
+        ? prev.filter((intake) => intake.customer_id === customerId)
+        : [];
       return next.length === prev.length ? prev : next;
     });
     setOrderPaymentLines((prev) => {
-      const next = customerId ? prev.filter((line) => line.customer_id === customerId) : [];
+      const next = customerId
+        ? prev.filter((line) => line.customer_id === customerId)
+        : [];
       return next.length === prev.length ? prev : next;
     });
-  }, [selectedCustomer?.id]);
+  }, [selectedCustomer?.id, weddingDepositOrderSource]);
 
   useEffect(() => {
     const customerId = selectedCustomer?.id;
@@ -1110,34 +1289,74 @@ export default function Cart({
           balance?: string | number;
           last_payer_display_name?: string | null;
           last_credit_amount?: string | number | null;
+          workflow_sources?: Array<{
+            workflow_id: string;
+            source_credit_ledger_id: string;
+            payer_display_name?: string | null;
+            remaining_amount: string | number;
+          }>;
         };
       })
       .then((payload) => {
         if (cancelled) return;
-        const balanceCents = Math.max(0, parseMoneyToCents(payload.balance ?? "0"));
+        const balanceCents = Math.max(
+          0,
+          parseMoneyToCents(payload.balance ?? "0"),
+        );
         if (balanceCents <= 0) return;
+        const exactSourceRequested =
+          weddingDepositOrderSource?.customerId === customerId;
+        const requestedSource = exactSourceRequested
+          ? payload.workflow_sources?.find(
+              (source) =>
+                source.workflow_id === weddingDepositOrderSource.workflowId &&
+                source.source_credit_ledger_id ===
+                  weddingDepositOrderSource.sourceCreditLedgerId,
+            )
+          : payload.workflow_sources?.find(
+              (source) => parseMoneyToCents(source.remaining_amount) > 0,
+            );
+        if (exactSourceRequested && !requestedSource) {
+          toast(
+            "This exact wedding deposit source is no longer available. Return to the payer's Previous Deposits list and select the current member allocation.",
+            "error",
+          );
+          return;
+        }
+        const sourceBalanceCents = requestedSource
+          ? Math.max(0, parseMoneyToCents(requestedSource.remaining_amount))
+          : balanceCents;
         const deposit: HeldOpenDeposit = {
           customerId,
-          balanceCents,
-          lastPayerName: payload.last_payer_display_name?.trim() || null,
+          balanceCents: Math.min(balanceCents, sourceBalanceCents),
+          lastPayerName:
+            requestedSource?.payer_display_name?.trim() ||
+            payload.last_payer_display_name?.trim() ||
+            null,
           lastCreditCents:
             payload.last_credit_amount == null
               ? null
               : Math.max(0, parseMoneyToCents(payload.last_credit_amount)),
+          workflowId: requestedSource?.workflow_id ?? null,
+          sourceCreditLedgerId:
+            requestedSource?.source_credit_ledger_id ?? null,
         };
         setHeldOpenDeposit(deposit);
         setOpenDepositNotice(deposit);
       })
       .catch(() => {
         if (!cancelled) {
-          toast("Wedding deposit balance unavailable. Verify the connection before taking payment.", "error");
+          toast(
+            "Wedding deposit balance unavailable. Verify the connection before taking payment.",
+            "error",
+          );
         }
       });
 
     return () => {
       cancelled = true;
     };
-  }, [apiAuth, baseUrl, selectedCustomer?.id, toast]);
+  }, [apiAuth, baseUrl, selectedCustomer?.id, toast, weddingDepositOrderSource]);
 
   useEffect(() => {
     const customerId = selectedCustomer?.id;
@@ -1163,7 +1382,10 @@ export default function Cart({
       .catch(() => {
         if (!cancelled) {
           setWeddingPurchaseContext(null);
-          toast("Wedding context unavailable. Verify network or contact manager.", "error");
+          toast(
+            "Wedding context unavailable. Verify network or contact manager.",
+            "error",
+          );
         }
       })
       .finally(() => {
@@ -1194,8 +1416,10 @@ export default function Cart({
     (membership: WeddingPurchaseMembership, item?: WeddingPurchaseItem) => {
       setActiveWeddingMember({
         id: membership.wedding_member_id,
-        first_name: membership.first_name ?? selectedCustomer?.first_name ?? "Wedding",
-        last_name: membership.last_name ?? selectedCustomer?.last_name ?? "Member",
+        first_name:
+          membership.first_name ?? selectedCustomer?.first_name ?? "Wedding",
+        last_name:
+          membership.last_name ?? selectedCustomer?.last_name ?? "Member",
         role: membership.role,
         status: membership.status,
         measured: membership.measured,
@@ -1228,21 +1452,25 @@ export default function Cart({
       return;
     }
     if (weddingPurchaseLoading) {
-      toast("Wedding membership is still loading. Try again in a moment.", "info");
+      toast(
+        "Wedding membership is still loading. Try again in a moment.",
+        "info",
+      );
       return;
     }
     const memberships = weddingPurchaseContext?.memberships ?? [];
     const membership =
       memberships.find((candidate) => candidate.active) ?? memberships[0];
-    if (!membership) {
+    if (membership) {
+      activateWeddingMembership(membership);
+      setWeddingDrawerInitialPartyId(membership.wedding_party_id);
+    } else {
+      setWeddingDrawerInitialPartyId(null);
       toast(
-        `${selectedCustomer.first_name} ${selectedCustomer.last_name} is not linked to an active wedding party.`,
-        "error",
+        `${selectedCustomer.first_name} is not linked to a wedding yet. Search for the party or start it here before entering deposits.`,
+        "info",
       );
-      return;
     }
-    activateWeddingMembership(membership);
-    setWeddingDrawerInitialPartyId(membership.wedding_party_id);
     setWeddingDrawerPreferGroupPay(true);
     setWeddingDrawerOpen(true);
   }, [
@@ -1262,11 +1490,17 @@ export default function Cart({
       mode: "takeaway" | "order" | "needs_measurements",
     ) => {
       if (!checkoutOperator) {
-        toast("Verify Staff Access on the register sign-in screen before adding wedding items.", "error");
+        toast(
+          "Verify Staff Access on the register sign-in screen before adding wedding items.",
+          "error",
+        );
         return;
       }
       if (isRmsPaymentCart) {
-        toast("Remove the RMS CHARGE PAYMENT line before adding wedding items.", "error");
+        toast(
+          "Remove the RMS CHARGE PAYMENT line before adding wedding items.",
+          "error",
+        );
         return;
       }
       if (lines.some((line) => line.variant_id === item.variant_id)) {
@@ -1281,7 +1515,8 @@ export default function Cart({
         quantity: 1,
         fulfillment: mode === "takeaway" ? "takeaway" : "wedding_order",
         cart_row_id: newCartRowId(),
-        order_lifecycle_status: mode === "needs_measurements" ? "needs_measurements" : undefined,
+        order_lifecycle_status:
+          mode === "needs_measurements" ? "needs_measurements" : undefined,
         ...(isFree
           ? {
               standard_retail_price: "0.00",
@@ -1313,38 +1548,52 @@ export default function Cart({
   );
 
   useEffect(() => {
-    const intakeIds = new Set(pendingAlterationIntakes.map((intake) => intake.id));
+    const intakeIds = new Set(
+      pendingAlterationIntakes.map((intake) => intake.id),
+    );
     setLines((prev) => {
       const next = prev.filter(
         (line) =>
           line.line_type !== "alteration_service" ||
-          (line.alteration_intake_id ? intakeIds.has(line.alteration_intake_id) : false),
+          (line.alteration_intake_id
+            ? intakeIds.has(line.alteration_intake_id)
+            : false),
       );
       return next.length === prev.length ? prev : next;
     });
   }, [pendingAlterationIntakes, setLines]);
 
-  const handleNumpadKey = useCallback((key: string) => {
+  const handleNumpadKey = useCallback(
+    (key: string) => {
     if (key === "ENTER" && keypadMode === "price" && selectedLineKey) {
-      const line = lines.find(l => l.cart_row_id === selectedLineKey);
+        const line = lines.find((l) => l.cart_row_id === selectedLineKey);
       if (line) {
         const nextAmtCents = parseMoneyToCents(keypadBuffer);
-        const originalAmtCents = parseMoneyToCents(line.original_unit_price || line.standard_retail_price);
+          const originalAmtCents = parseMoneyToCents(
+            line.original_unit_price || line.standard_retail_price,
+          );
 
-        if (line.return_tender_original_transaction_id && nextAmtCents > originalAmtCents) {
-          toast("A return cannot exceed the original paid item value.", "error");
+          if (
+            line.return_tender_original_transaction_id &&
+            nextAmtCents > originalAmtCents
+          ) {
+            toast(
+              "A return cannot exceed the original paid item value.",
+              "error",
+            );
           setKeypadBuffer("");
           return;
         }
 
         if (nextAmtCents < originalAmtCents) {
-          const discountPct = ((originalAmtCents - nextAmtCents) / originalAmtCents) * 100;
+            const discountPct =
+              ((originalAmtCents - nextAmtCents) / originalAmtCents) * 100;
           if (discountPct > roleMaxDiscountPct && !hasAccess) {
              setDiscountPrompt({
                variantId: line.variant_id ?? "",
                nextPriceCents: nextAmtCents,
                originalPriceCents: originalAmtCents,
-               reason: "Large discount threshold exceeded"
+                reason: "Large discount threshold exceeded",
              });
              setKeypadBuffer("");
              return;
@@ -1353,27 +1602,50 @@ export default function Cart({
       }
     }
     hookHandleNumpadKey(key);
-  }, [keypadMode, selectedLineKey, lines, keypadBuffer, roleMaxDiscountPct, hasAccess, hookHandleNumpadKey, setKeypadBuffer, toast]);
+    },
+    [
+      keypadMode,
+      selectedLineKey,
+      lines,
+      keypadBuffer,
+      roleMaxDiscountPct,
+      hasAccess,
+      hookHandleNumpadKey,
+      setKeypadBuffer,
+      toast,
+    ],
+  );
 
-  const applyDiscountEvent = useCallback((event: ActiveDiscountEvent) => {
+  const applyDiscountEvent = useCallback(
+    (event: ActiveDiscountEvent) => {
     if (!selectedLineKey) return;
     const pct = parseFloat(event.percent_off);
     if (pct > roleMaxDiscountPct && !hasAccess) {
-      const line = lines.find(l => l.cart_row_id === selectedLineKey);
+        const line = lines.find((l) => l.cart_row_id === selectedLineKey);
       if (line) {
-        const baseCents = parseMoneyToCents(line.original_unit_price || line.standard_retail_price);
+          const baseCents = parseMoneyToCents(
+            line.original_unit_price || line.standard_retail_price,
+          );
         const nextCents = Math.round(baseCents * (1 - pct / 100));
         setDiscountPrompt({
           variantId: line.variant_id ?? "",
           nextPriceCents: nextCents,
           originalPriceCents: baseCents,
-          reason: `Discount Event: ${event.receipt_label}`
+            reason: `Discount Event: ${event.receipt_label}`,
         });
         return;
       }
     }
     hookApplyDiscountEvent(event);
-  }, [selectedLineKey, roleMaxDiscountPct, hasAccess, lines, hookApplyDiscountEvent]);
+    },
+    [
+      selectedLineKey,
+      roleMaxDiscountPct,
+      hasAccess,
+      lines,
+      hookApplyDiscountEvent,
+    ],
+  );
 
   const openLineProductBrowser = useCallback((line: CartLineItem) => {
     if (line.line_type === "alteration_service") return;
@@ -1381,7 +1653,8 @@ export default function Cart({
     setIntelligenceVariantId(line.variant_id);
   }, []);
 
-  const upsertAlterationCartLine = useCallback((intake: PendingAlterationIntake) => {
+  const upsertAlterationCartLine = useCallback(
+    (intake: PendingAlterationIntake) => {
     const chargeCents =
       intake.charge_amount && intake.charge_amount.trim()
         ? parseMoneyToCents(intake.charge_amount)
@@ -1417,22 +1690,31 @@ export default function Cart({
           line.alteration_intake_id === intake.id,
       );
       if (existing >= 0) {
-        return prev.map((line, index) => (index === existing ? serviceLine : line));
+          return prev.map((line, index) =>
+            index === existing ? serviceLine : line,
+          );
       }
       return [...prev, serviceLine];
     });
     setPendingAlterationIntakes((prev) => {
       const existing = prev.findIndex((row) => row.id === intake.id);
       if (existing >= 0) {
-        return prev.map((row, index) => (index === existing ? normalizedIntake : row));
+          return prev.map((row, index) =>
+            index === existing ? normalizedIntake : row,
+          );
       }
       return [...prev, normalizedIntake];
     });
     setSelectedLineKey(rowId);
-  }, [setLines, setSelectedLineKey]);
+    },
+    [setLines, setSelectedLineKey],
+  );
 
-  const removeAlterationIntake = useCallback((intakeId: string) => {
-    setPendingAlterationIntakes((prev) => prev.filter((intake) => intake.id !== intakeId));
+  const removeAlterationIntake = useCallback(
+    (intakeId: string) => {
+      setPendingAlterationIntakes((prev) =>
+        prev.filter((intake) => intake.id !== intakeId),
+      );
     setLines((prev) =>
       prev.filter(
         (line) =>
@@ -1440,31 +1722,43 @@ export default function Cart({
           line.alteration_intake_id !== intakeId,
       ),
     );
-  }, [setLines]);
+    },
+    [setLines],
+  );
 
-  const removeLineWithAlterationHandling = useCallback((rowId: string) => {
+  const removeLineWithAlterationHandling = useCallback(
+    (rowId: string) => {
     const line = lines.find((candidate) => candidate.cart_row_id === rowId);
     if (!line) return;
     if (line.line_type === "alteration_service") {
-      if (line.alteration_intake_id) removeAlterationIntake(line.alteration_intake_id);
+        if (line.alteration_intake_id)
+          removeAlterationIntake(line.alteration_intake_id);
       else removeLine(rowId);
       return;
     }
     const attached = pendingAlterationIntakes.filter(
-      (intake) => intake.source_type === "current_cart_item" && intake.cart_row_id === rowId,
+        (intake) =>
+          intake.source_type === "current_cart_item" &&
+          intake.cart_row_id === rowId,
     );
     if (attached.length > 0) {
       setSourceRemovalPrompt({ line, intakes: attached });
       return;
     }
     removeLine(rowId);
-  }, [lines, pendingAlterationIntakes, removeAlterationIntake, removeLine]);
+    },
+    [lines, pendingAlterationIntakes, removeAlterationIntake, removeLine],
+  );
 
   const removeSourceLineAndAttachedAlterations = useCallback(() => {
     if (!sourceRemovalPrompt) return;
-    const attachedIds = new Set(sourceRemovalPrompt.intakes.map((intake) => intake.id));
+    const attachedIds = new Set(
+      sourceRemovalPrompt.intakes.map((intake) => intake.id),
+    );
     removeLine(sourceRemovalPrompt.line.cart_row_id);
-    setPendingAlterationIntakes((prev) => prev.filter((intake) => !attachedIds.has(intake.id)));
+    setPendingAlterationIntakes((prev) =>
+      prev.filter((intake) => !attachedIds.has(intake.id)),
+    );
     setLines((prev) =>
       prev.filter(
         (line) =>
@@ -1476,39 +1770,58 @@ export default function Cart({
     setSourceRemovalPrompt(null);
   }, [removeLine, setLines, sourceRemovalPrompt]);
 
-  const addOrderPaymentLine = useCallback((order: CustomerOrder, amountCents: number) => {
+  const addOrderPaymentLine = useCallback(
+    (order: CustomerOrder, amountCents: number) => {
     if (!selectedCustomer) {
-      toast("Select a customer before adding a transaction payment.", "error");
+        toast(
+          "Select a customer before adding a transaction payment.",
+          "error",
+        );
       return;
     }
     const orderCustomerId = order.customer_id ?? selectedCustomer.id;
     if (orderCustomerId !== selectedCustomer.id) {
-      toast("That Transaction Record belongs to a different customer. Select the matching customer first.", "error");
+        toast(
+          "That Transaction Record belongs to a different customer. Select the matching customer first.",
+          "error",
+        );
       return;
     }
     const balanceCents = parseMoneyToCents(order.balance_due);
     if (amountCents <= 0) {
-      toast("Enter a transaction payment amount greater than $0.00.", "error");
+        toast(
+          "Enter a transaction payment amount greater than $0.00.",
+          "error",
+        );
       return;
     }
     if (amountCents > balanceCents) {
-      toast("Transaction payment cannot be more than the balance due.", "error");
+        toast(
+          "Transaction payment cannot be more than the balance due.",
+          "error",
+        );
       return;
     }
-    const orderPaymentDisplayId = order.order_payment_display_id || order.display_id;
+      const orderPaymentDisplayId =
+        order.order_payment_display_id || order.display_id;
     const nextLine: OrderPaymentCartLine = {
       line_type: "order_payment",
       cart_row_id: newCartRowId(),
       target_transaction_id: order.id,
       target_display_id: orderPaymentDisplayId,
       customer_id: selectedCustomer.id,
-      customer_name: `${selectedCustomer.first_name} ${selectedCustomer.last_name}`.trim(),
+        customer_name:
+          `${selectedCustomer.first_name} ${selectedCustomer.last_name}`.trim(),
       amount: centsToFixed2(amountCents),
       balance_before: centsToFixed2(balanceCents),
-      projected_balance_after: centsToFixed2(Math.max(0, balanceCents - amountCents)),
+        projected_balance_after: centsToFixed2(
+          Math.max(0, balanceCents - amountCents),
+        ),
     };
     setOrderPaymentLines((prev) => {
-      const existing = prev.find((line) => line.target_transaction_id === order.id);
+        const existing = prev.find(
+          (line) => line.target_transaction_id === order.id,
+        );
       if (!existing) return [...prev, nextLine];
       toast(`Updated payment amount for ${orderPaymentDisplayId}.`, "info");
       return prev.map((line) =>
@@ -1518,8 +1831,13 @@ export default function Cart({
       );
     });
     setPickupPaidAmountCents(parseMoneyToCents(order.amount_paid ?? "0"));
-    toast(`Transaction payment for ${orderPaymentDisplayId} added to this sale.`, "success");
-  }, [selectedCustomer, toast]);
+      toast(
+        `Transaction payment for ${orderPaymentDisplayId} added to this sale.`,
+        "success",
+      );
+    },
+    [selectedCustomer, toast],
+  );
 
   const preflightOrderPaymentsBeforeTender = useCallback(async () => {
     const targets = orderPaymentLines.filter(
@@ -1581,23 +1899,34 @@ export default function Cart({
     toast,
   ]);
 
-  const addItemToExistingOrder = useCallback(async (order: CustomerOrder, sku: string) => {
+  const addItemToExistingOrder = useCallback(
+    async (order: CustomerOrder, sku: string) => {
     try {
-      const scanRes = await fetch(`${baseUrl}/api/inventory/scan/${encodeURIComponent(sku)}`, {
+        const scanRes = await fetch(
+          `${baseUrl}/api/inventory/scan/${encodeURIComponent(sku)}`,
+          {
         headers: apiAuth(),
-      });
+          },
+        );
       if (!scanRes.ok) {
-        toast("We couldn't find that SKU. Try scanning it again or search inventory first.", "error");
+          toast(
+            "We couldn't find that SKU. Try scanning it again or search inventory first.",
+            "error",
+          );
         return false;
       }
-      const resolved = scanPayloadToResolvedItem((await scanRes.json()) as Record<string, unknown>);
+        const resolved = scanPayloadToResolvedItem(
+          (await scanRes.json()) as Record<string, unknown>,
+        );
       const fulfillment =
         isCustomOrderSku(resolved.sku) || resolved.custom_item_type
           ? "custom"
           : order.order_kind === "wedding_order" || order.wedding_member_id
             ? "wedding_order"
             : "special_order";
-      const addRes = await fetch(`${baseUrl}/api/transactions/${order.id}/items`, {
+        const addRes = await fetch(
+          `${baseUrl}/api/transactions/${order.id}/items`,
+          {
         method: "POST",
         headers: {
           ...apiAuth(),
@@ -1608,31 +1937,53 @@ export default function Cart({
           variant_id: resolved.variant_id,
           fulfillment,
           quantity: 1,
-          unit_price: centsToFixed2(parseMoneyToCents(resolved.standard_retail_price)),
+              unit_price: centsToFixed2(
+                parseMoneyToCents(resolved.standard_retail_price),
+              ),
           unit_cost: centsToFixed2(parseMoneyToCents(resolved.unit_cost)),
           state_tax: centsToFixed2(parseMoneyToCents(resolved.state_tax)),
           local_tax: centsToFixed2(parseMoneyToCents(resolved.local_tax)),
           salesperson_id: primarySalespersonId || undefined,
         }),
-      });
+          },
+        );
       if (!addRes.ok) {
-        const payload = (await addRes.json().catch(() => ({}))) as { error?: string };
-        toast(payload.error || "We couldn't add that item to the Transaction Record.", "error");
+          const payload = (await addRes.json().catch(() => ({}))) as {
+            error?: string;
+          };
+          toast(
+            payload.error ||
+              "We couldn't add that item to the Transaction Record.",
+            "error",
+          );
         return false;
       }
-      toast("Item added to the original Transaction Record. Booked totals were updated for that record.", "success");
+        toast(
+          "Item added to the original Transaction Record. Booked totals were updated for that record.",
+          "success",
+        );
       return true;
     } catch {
-      toast("We couldn't add that item to the Transaction Record. Please try again.", "error");
+        toast(
+          "We couldn't add that item to the Transaction Record. Please try again.",
+          "error",
+        );
       return false;
     }
-  }, [apiAuth, baseUrl, primarySalespersonId, toast]);
+    },
+    [apiAuth, baseUrl, primarySalespersonId, toast],
+  );
 
   const updateExistingOrderItem = useCallback(
     async (
       order: CustomerOrder,
       item: OrderItem,
-      patch: { quantity?: number; unit_price?: string; variant_id?: string; order_lifecycle_status?: string },
+      patch: {
+        quantity?: number;
+        unit_price?: string;
+        variant_id?: string;
+        order_lifecycle_status?: string;
+      },
     ) => {
       try {
         const res = await fetch(
@@ -1647,8 +1998,13 @@ export default function Cart({
           },
         );
         if (!res.ok) {
-          const payload = (await res.json().catch(() => ({}))) as { error?: string };
-          toast(payload.error || "We couldn't update that Transaction Record line.", "error");
+          const payload = (await res.json().catch(() => ({}))) as {
+            error?: string;
+          };
+          toast(
+            payload.error || "We couldn't update that Transaction Record line.",
+            "error",
+          );
           return false;
         }
         const updated = (await res.json()) as {
@@ -1661,18 +2017,20 @@ export default function Cart({
           }>;
         };
         const savedLine = updated.items?.find(
-          (candidate) => candidate.transaction_line_id === item.transaction_line_id,
+          (candidate) =>
+            candidate.transaction_line_id === item.transaction_line_id,
         );
         if (!savedLine) {
           toast(
             "The Main Hub response did not confirm the updated Transaction Record line. Reopen the order before making another change.",
             "error",
-          );
+        );
           return false;
         }
         if (
           patch.unit_price !== undefined &&
-          parseMoneyToCents(savedLine?.unit_price) !== parseMoneyToCents(patch.unit_price)
+          parseMoneyToCents(savedLine?.unit_price) !==
+            parseMoneyToCents(patch.unit_price)
         ) {
           toast(
             "The Transaction Record did not retain the edited price. Nothing was reported as saved; reopen the line and try again.",
@@ -1693,7 +2051,8 @@ export default function Cart({
         if (
           patch.variant_id !== undefined &&
           patch.unit_price === undefined &&
-          parseMoneyToCents(savedLine.unit_price) !== parseMoneyToCents(item.unit_price)
+          parseMoneyToCents(savedLine.unit_price) !==
+            parseMoneyToCents(item.unit_price)
         ) {
           toast(
             "The item variation changed, but the original customer price was not retained. Stop and review the Transaction Record before taking payment.",
@@ -1713,7 +2072,10 @@ export default function Cart({
         );
         return true;
       } catch {
-        toast("We couldn't update that Transaction Record line. Please try again.", "error");
+        toast(
+          "We couldn't update that Transaction Record line. Please try again.",
+          "error",
+        );
         return false;
       }
     },
@@ -1731,14 +2093,25 @@ export default function Cart({
           },
         );
         if (!res.ok) {
-          const payload = (await res.json().catch(() => ({}))) as { error?: string };
-          toast(payload.error || "We couldn't delete that Transaction Record line.", "error");
+          const payload = (await res.json().catch(() => ({}))) as {
+            error?: string;
+          };
+          toast(
+            payload.error || "We couldn't delete that Transaction Record line.",
+            "error",
+          );
           return false;
         }
-        toast("Transaction Record line deleted. Booked totals were refreshed for that record.", "success");
+        toast(
+          "Transaction Record line deleted. Booked totals were refreshed for that record.",
+          "success",
+        );
         return true;
       } catch {
-        toast("We couldn't delete that Transaction Record line. Please try again.", "error");
+        toast(
+          "We couldn't delete that Transaction Record line. Please try again.",
+          "error",
+        );
         return false;
       }
     },
@@ -1753,13 +2126,18 @@ export default function Cart({
   const saveOrderPaymentEdit = useCallback(() => {
     if (!editingOrderPaymentLine) return;
     const amountCents = parseMoneyToCents(editingOrderPaymentAmount);
-    const balanceCents = parseMoneyToCents(editingOrderPaymentLine.balance_before);
+    const balanceCents = parseMoneyToCents(
+      editingOrderPaymentLine.balance_before,
+    );
     if (amountCents <= 0) {
       toast("Enter a transaction payment amount greater than $0.00.", "error");
       return;
     }
     if (amountCents > balanceCents) {
-      toast("Transaction payment cannot be more than the balance due.", "error");
+      toast(
+        "Transaction payment cannot be more than the balance due.",
+        "error",
+      );
       return;
     }
     setOrderPaymentLines((prev) =>
@@ -1768,7 +2146,9 @@ export default function Cart({
           ? {
               ...line,
               amount: centsToFixed2(amountCents),
-              projected_balance_after: centsToFixed2(Math.max(0, balanceCents - amountCents)),
+              projected_balance_after: centsToFixed2(
+                Math.max(0, balanceCents - amountCents),
+              ),
             }
           : line,
       ),
@@ -1779,7 +2159,9 @@ export default function Cart({
 
   const keepAlterationsAsCustomAndRemoveSource = useCallback(() => {
     if (!sourceRemovalPrompt) return;
-    const attachedIds = new Set(sourceRemovalPrompt.intakes.map((intake) => intake.id));
+    const attachedIds = new Set(
+      sourceRemovalPrompt.intakes.map((intake) => intake.id),
+    );
     setPendingAlterationIntakes((prev) =>
       prev.map((intake) =>
         attachedIds.has(intake.id)
@@ -1808,7 +2190,9 @@ export default function Cart({
   }, [removeLine, setLines, sourceRemovalPrompt]);
 
   const applyDiscountEventToSelectedLine = useCallback(() => {
-    const event = activeDiscountEvents.find((e) => e.id === selectedDiscountEventId);
+    const event = activeDiscountEvents.find(
+      (e) => e.id === selectedDiscountEventId,
+    );
     if (event) {
       applyDiscountEvent(event);
       setSelectedDiscountEventId("");
@@ -1877,26 +2261,40 @@ export default function Cart({
     };
   }, [lines, disbursementMembers, orderPaymentLines, posShipping]);
 
-  const isGiftCardOnlyCart = useMemo(() => lines.length > 0 && lines.every(l => !!l.gift_card_load_code), [lines]);
-  const hasCheckoutWork = lines.length > 0 || orderPaymentLines.length > 0 || disbursementMembers.length > 0 || Boolean(posShipping);
+  const isGiftCardOnlyCart = useMemo(
+    () => lines.length > 0 && lines.every((l) => !!l.gift_card_load_code),
+    [lines],
+  );
+  const hasCheckoutWork =
+    lines.length > 0 ||
+    orderPaymentLines.length > 0 ||
+    disbursementMembers.length > 0 ||
+    Boolean(posShipping);
   const pendingReturnTender = useMemo(() => {
-    const returnLines = lines.filter((line) => line.return_tender_original_transaction_id);
+    const returnLines = lines.filter(
+      (line) => line.return_tender_original_transaction_id,
+    );
     if (returnLines.length === 0) return null;
-    const originalTransactionId = returnLines[0].return_tender_original_transaction_id ?? "";
+    const originalTransactionId =
+      returnLines[0].return_tender_original_transaction_id ?? "";
     if (!originalTransactionId) return null;
     const sourceLines = pendingReturnLineDrafts[originalTransactionId] ?? [];
     const settledReturnLines = returnLines.flatMap((line) => {
       const sourceLine = sourceLines.find(
-        (candidate) => candidate.transaction_line_id === line.return_tender_transaction_line_id,
+        (candidate) =>
+          candidate.transaction_line_id ===
+          line.return_tender_transaction_line_id,
       );
       if (!sourceLine) return [];
       const quantity = Math.abs(line.quantity);
-      const refundSubtotalCents = parseMoneyToCents(line.standard_retail_price) * quantity;
+      const refundSubtotalCents =
+        parseMoneyToCents(line.standard_retail_price) * quantity;
       const refundStateTaxCents = parseMoneyToCents(line.state_tax) * quantity;
       const refundLocalTaxCents = parseMoneyToCents(line.local_tax) * quantity;
       const refundTotalCents =
         refundSubtotalCents + refundStateTaxCents + refundLocalTaxCents;
-      return [{
+      return [
+        {
         ...sourceLine,
         reason:
           line.price_override_reason === "pending_return_refund"
@@ -1906,7 +2304,8 @@ export default function Cart({
         refund_state_tax_cents: refundStateTaxCents,
         refund_local_tax_cents: refundLocalTaxCents,
         refund_total_cents: refundTotalCents,
-      }];
+        },
+      ];
     });
     const refundAmountCents =
       settledReturnLines.length > 0
@@ -1921,7 +2320,9 @@ export default function Cart({
           );
     return {
       originalTransactionId,
-      receiptLabel: returnLines[0].return_tender_receipt_label ?? originalTransactionId.slice(0, 8).toUpperCase(),
+      receiptLabel:
+        returnLines[0].return_tender_receipt_label ??
+        originalTransactionId.slice(0, 8).toUpperCase(),
       refundAmountCents,
       returnLines: settledReturnLines,
       returnLinesAlreadyRecorded:
@@ -1932,7 +2333,8 @@ export default function Cart({
         returnLines.every((line) =>
           settledReturnLines.some(
             (candidate) =>
-              candidate.transaction_line_id === line.return_tender_transaction_line_id,
+              candidate.transaction_line_id ===
+              line.return_tender_transaction_line_id,
           ),
         ) &&
         settledReturnLines.reduce((sum, line) => sum + line.quantity, 0) ===
@@ -1944,9 +2346,11 @@ export default function Cart({
             (line.refund_total_cents ?? 0) > 0,
         ),
       originalHelcimTransactionIdForRefund:
-        sourceLines[0]
-          ?.original_helcim_transaction_id_for_refund ?? null,
-      returnOnly: returnLines.length === lines.length && orderPaymentLines.length === 0,
+        sourceLines[0]?.original_helcim_transaction_id_for_refund ?? null,
+      originalWeddingDepositPayerName:
+        sourceLines[0]?.original_wedding_deposit_payer_name ?? null,
+      returnOnly:
+        returnLines.length === lines.length && orderPaymentLines.length === 0,
       cancelTransaction: returnLines.some(
         (line) => line.return_tender_cancel_transaction === true,
       ),
@@ -1970,6 +2374,13 @@ export default function Cart({
     ],
   );
   const preflightCheckoutBeforeTender = useCallback(async () => {
+    if (disbursementMembers.length > 0 && !primarySalespersonId.trim()) {
+      toast(
+        "Select the salesperson responsible for this wedding deposit before applying payment.",
+        "error",
+      );
+      return false;
+    }
     if (!hasSalespersonAttribution()) {
       toast(
         "Select a salesperson for every new sale line before applying payment.",
@@ -1984,11 +2395,65 @@ export default function Cart({
       );
       return false;
     }
-    return preflightOrderPaymentsBeforeTender();
+    if (!(await preflightOrderPaymentsBeforeTender())) return false;
+    if (disbursementMembers.length === 0) return true;
+    if (!selectedCustomer || !activeWeddingMember) {
+      toast(
+        "Return to Wedding Deposit and link the payer to the selected party before applying payment.",
+        "error",
+      );
+      return false;
+    }
+    try {
+      const response = await fetch(
+        `${baseUrl}/api/weddings/deposit-workflows/preflight`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...apiAuth(),
+          },
+          body: JSON.stringify({
+            payer_customer_id: selectedCustomer.id,
+            payer_wedding_member_id: activeWeddingMember.id,
+            allocations: disbursementMembers.map((member) => ({
+              wedding_member_id: member.id,
+              amount: member.split_deposit_amount,
+              destination_kind:
+                member.deposit_destination_kind ?? "held_for_future_order",
+              target_transaction_id:
+                member.deposit_target_transaction_id ?? null,
+            })),
+          }),
+        },
+      );
+      if (response.ok) return true;
+      const payload = (await response.json().catch(() => ({}))) as {
+        error?: string;
+      };
+      toast(
+        payload.error ??
+          "Wedding deposit validation changed. Return to Wedding Deposit and resolve it before applying payment.",
+        "error",
+      );
+      return false;
+    } catch {
+      toast(
+        "Wedding deposit validation is unavailable. Keep Payment open and restore the connection before taking tender.",
+        "error",
+      );
+      return false;
+    }
   }, [
+    activeWeddingMember,
+    apiAuth,
+    baseUrl,
+    disbursementMembers,
     hasSalespersonAttribution,
     pendingReturnTender,
     preflightOrderPaymentsBeforeTender,
+    primarySalespersonId,
+    selectedCustomer,
     toast,
   ]);
   useEffect(() => {
@@ -2078,7 +2543,7 @@ export default function Cart({
       sessionId,
       authHeaders: apiAuth(),
       openerCashierCode: staffCode || undefined,
-      openerPin: staffPin || undefined
+      openerPin: staffPin || undefined,
     });
     if (!success) return null;
     return getPosRegisterAuth()?.token ?? null;
@@ -2093,7 +2558,9 @@ export default function Cart({
   }, [backofficeHeaders, checkoutOperator?.staffId]);
 
   const requestPickupPaymentOverride = useCallback((message: string) => {
-    return new Promise<NonNullable<PosOrderOptions["pickupPaymentOverride"]> | null>((resolve) => {
+    return new Promise<NonNullable<
+      PosOrderOptions["pickupPaymentOverride"]
+    > | null>((resolve) => {
       setPickupDepositApprovalRequest((previous) => {
         previous?.resolve(null);
         return { message, resolve };
@@ -2125,7 +2592,9 @@ export default function Cart({
     posShipping,
     pendingAlterationIntakes,
     orderPaymentLines,
-    pickupAlterationIds: pickupReadyAlterations.map((alteration) => alteration.id),
+    pickupAlterationIds: pickupReadyAlterations.map(
+      (alteration) => alteration.id,
+    ),
     pickupConfirmed,
     pickupTransactionId,
     pickupTransactions,
@@ -2179,11 +2648,7 @@ export default function Cart({
         handleResolvedCheckoutRecovery,
       );
     };
-  }, [
-    checkoutClientId,
-    clearSaleForNextCheckout,
-    toast,
-  ]);
+  }, [checkoutClientId, clearSaleForNextCheckout, toast]);
   useEffect(() => {
     if (checkoutTransactionId) {
       setLastTransactionId(checkoutTransactionId);
@@ -2191,7 +2656,11 @@ export default function Cart({
       resetSaleDateTime();
       onRegisterTransactionCommitted?.();
     }
-  }, [checkoutTransactionId, onRegisterTransactionCommitted, resetSaleDateTime]);
+  }, [
+    checkoutTransactionId,
+    onRegisterTransactionCommitted,
+    resetSaleDateTime,
+  ]);
 
   // --- Parked Sales Hook ---
   const {
@@ -2286,7 +2755,10 @@ export default function Cart({
           { headers: apiAuth() },
         );
         if (!res.ok) {
-          toast("We couldn't add that inventory item to the sale. Try searching again or scan the SKU.", "error");
+          toast(
+            "We couldn't add that inventory item to the sale. Try searching again or scan the SKU.",
+            "error",
+          );
           return;
         }
         const payload = (await res.json()) as Record<string, unknown>;
@@ -2294,7 +2766,10 @@ export default function Cart({
         addItem(scanPayloadToResolvedItem(payload) as SearchResult);
       } catch {
         if (!cancelled) {
-          toast("We couldn't add that inventory item to the sale. Please try again.", "error");
+          toast(
+            "We couldn't add that inventory item to the sale. Please try again.",
+            "error",
+          );
         }
       } finally {
         if (!cancelled) onPendingInventorySkuConsumed?.();
@@ -2319,10 +2794,15 @@ export default function Cart({
   const didInitialProductSearchFocusRef = useRef(false);
   const initialTransactionApplyingRef = useRef<string | null>(null);
   const initialTransactionAppliedRef = useRef<string | null>(null);
-  const [actionRibbonCanScrollLeft, setActionRibbonCanScrollLeft] = useState(false);
-  const [actionRibbonCanScrollRight, setActionRibbonCanScrollRight] = useState(false);
+  const [actionRibbonCanScrollLeft, setActionRibbonCanScrollLeft] =
+    useState(false);
+  const [actionRibbonCanScrollRight, setActionRibbonCanScrollRight] =
+    useState(false);
   const [exchangeWizardOpen, setExchangeWizardOpen] = useState(false);
-  const [exchangeWizardInitialReturnLineId, setExchangeWizardInitialReturnLineId] = useState<string | null>(null);
+  const [
+    exchangeWizardInitialReturnLineId,
+    setExchangeWizardInitialReturnLineId,
+  ] = useState<string | null>(null);
   const [shippingModalOpen, setShippingModalOpen] = useState(false);
 
   const updateActionRibbonScrollState = useCallback(() => {
@@ -2337,7 +2817,8 @@ export default function Cart({
     setActionRibbonCanScrollRight(ribbon.scrollLeft < maxScrollLeft - 1);
   }, []);
 
-  const scrollActionRibbon = useCallback((direction: "left" | "right" | "start" | "end") => {
+  const scrollActionRibbon = useCallback(
+    (direction: "left" | "right" | "start" | "end") => {
     const ribbon = actionRibbonRef.current;
     if (!ribbon) return;
     if (direction === "start" || direction === "end") {
@@ -2349,18 +2830,25 @@ export default function Cart({
       return;
     }
     ribbon.scrollBy({
-      left: direction === "left" ? -ribbon.clientWidth * 0.75 : ribbon.clientWidth * 0.75,
+        left:
+          direction === "left"
+            ? -ribbon.clientWidth * 0.75
+            : ribbon.clientWidth * 0.75,
       behavior: "smooth",
     });
     window.requestAnimationFrame(updateActionRibbonScrollState);
-  }, [updateActionRibbonScrollState]);
+    },
+    [updateActionRibbonScrollState],
+  );
 
   useEffect(() => {
     updateActionRibbonScrollState();
     const ribbon = actionRibbonRef.current;
     if (!ribbon) return;
     const handleResize = () => updateActionRibbonScrollState();
-    ribbon.addEventListener("scroll", updateActionRibbonScrollState, { passive: true });
+    ribbon.addEventListener("scroll", updateActionRibbonScrollState, {
+      passive: true,
+    });
     window.addEventListener("resize", handleResize);
     return () => {
       ribbon.removeEventListener("scroll", updateActionRibbonScrollState);
@@ -2368,18 +2856,31 @@ export default function Cart({
     };
   }, [updateActionRibbonScrollState]);
 
-  const handleTransactionBarcode = useCallback(async (receiptCode: string) => {
+  const handleTransactionBarcode = useCallback(
+    async (receiptCode: string) => {
     try {
       const normalizedCode = receiptCode.trim();
       const shortId = normalizedCode.replace(/^TXN-/i, "");
-      const res = await fetch(`${baseUrl}/api/transactions?search=${encodeURIComponent(normalizedCode)}&limit=5`, { headers: apiAuth() as Record<string, string> });
+        const res = await fetch(
+          `${baseUrl}/api/transactions?search=${encodeURIComponent(normalizedCode)}&limit=5`,
+          { headers: apiAuth() as Record<string, string> },
+        );
       if (!res.ok) throw new Error("API error");
       const data = await res.json();
       const items = Array.isArray(data.items) ? data.items : [];
-      const txn = items.find((i: { transaction_id: string; display_id: string; status: string; customer_id?: string }) =>
-        (i.display_id || "").toLowerCase() === normalizedCode.toLowerCase() ||
-        (i.transaction_id || "").toLowerCase().startsWith(shortId.toLowerCase()) ||
-        (i.display_id || "").toLowerCase().includes(shortId.toLowerCase())
+        const txn = items.find(
+          (i: {
+            transaction_id: string;
+            display_id: string;
+            status: string;
+            customer_id?: string;
+          }) =>
+            (i.display_id || "").toLowerCase() ===
+              normalizedCode.toLowerCase() ||
+            (i.transaction_id || "")
+              .toLowerCase()
+              .startsWith(shortId.toLowerCase()) ||
+            (i.display_id || "").toLowerCase().includes(shortId.toLowerCase()),
       );
       if (!txn) {
         toast("Receipt barcode not found in the system.", "error");
@@ -2391,10 +2892,14 @@ export default function Cart({
         setExchangeWizardOpen(true);
       } else {
         if (txn.customer_id) {
-          const cRes = await fetch(`${baseUrl}/api/customers/${txn.customer_id}`, { headers: apiAuth() as Record<string, string> });
+            const cRes = await fetch(
+              `${baseUrl}/api/customers/${txn.customer_id}`,
+              { headers: apiAuth() as Record<string, string> },
+            );
           if (cRes.ok) {
             const c = await cRes.json();
-            if (!selectCustomerForSale({
+              if (
+                !selectCustomerForSale({
               id: String(c.id),
               first_name: c.first_name,
               last_name: c.last_name,
@@ -2406,10 +2911,15 @@ export default function Cart({
               employee_discount_eligible: c.employee_discount_eligible,
               tax_exempt: c.tax_exempt,
               tax_exempt_id: c.tax_exempt_id,
-            })) return;
+                })
+              )
+                return;
             setOrderLoadOpen(true);
           } else {
-            toast("Could not load the customer for this transaction.", "error");
+              toast(
+                "Could not load the customer for this transaction.",
+                "error",
+              );
           }
         } else {
           toast("Transaction has no customer attached.", "error");
@@ -2418,7 +2928,9 @@ export default function Cart({
     } catch {
       toast("Failed to look up receipt barcode", "error");
     }
-  }, [baseUrl, apiAuth, toast, selectCustomerForSale]);
+    },
+    [baseUrl, apiAuth, toast, selectCustomerForSale],
+  );
 
   // --- Staff PIN Verification Logic ---
   const [salePinBusy, setSalePinBusy] = useState(false);
@@ -2437,45 +2949,63 @@ export default function Cart({
         headers: { "Content-Type": "application/json", ...apiAuth() },
         body: JSON.stringify({
           pin: salePinCredential,
-          staff_id: selectedStaffId || undefined
+          staff_id: selectedStaffId || undefined,
         }),
       });
       if (res.ok) {
         const staff = await res.json();
-        setCheckoutOperator({ staffId: staff.staff_id, fullName: staff.full_name });
+        setCheckoutOperator({
+          staffId: staff.staff_id,
+          fullName: staff.full_name,
+        });
         setSalePinCredential("");
         toast(`Signed in as ${staff.full_name}`, "success");
       } else {
         await res.json().catch(() => ({}));
         if (res.status === 404) {
-          setSalePinError("Staff sign-in is unavailable. Try again or call a manager.");
+          setSalePinError(
+            "Staff sign-in is unavailable. Try again or call a manager.",
+          );
         } else if (res.status === 401 || res.status === 403) {
           setSalePinError("Invalid Access PIN.");
         } else {
-          setSalePinError("Staff sign-in is unavailable. Try again or call a manager.");
+          setSalePinError(
+            "Staff sign-in is unavailable. Try again or call a manager.",
+          );
         }
       }
     } catch {
-      setSalePinError("Staff sign-in is unavailable. Try again or call a manager.");
+      setSalePinError(
+        "Staff sign-in is unavailable. Try again or call a manager.",
+      );
     } finally {
       setSalePinBusy(false);
     }
   }, [salePinCredential, baseUrl, apiAuth, toast]);
   // eventVariantIds removed
   const [showWalkinConfirm, setShowWalkinConfirm] = useState(false);
-  const [activeVariationSelection, setActiveVariationSelection] = useState<ProductWithVariants | null>(null);
-  const [variantSwapCartRowId, setVariantSwapCartRowId] = useState<string | null>(null);
+  const [activeVariationSelection, setActiveVariationSelection] =
+    useState<ProductWithVariants | null>(null);
+  const [variantSwapCartRowId, setVariantSwapCartRowId] = useState<
+    string | null
+  >(null);
 
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [showVoidAllConfirm, setShowVoidAllConfirm] = useState(false);
-  const [showReadinessOverrideModal, setShowReadinessOverrideModal] = useState(false);
+  const [showReadinessOverrideModal, setShowReadinessOverrideModal] =
+    useState(false);
   const [managerOverrideApproved, setManagerOverrideApproved] = useState(false);
   const [managerOverrideReason, setManagerOverrideReason] = useState("");
-  const [managerOverrideManagerStaffId, setManagerOverrideManagerStaffId] = useState("");
-  const [managerOverrideManagerPin, setManagerOverrideManagerPin] = useState("");
-  const [pickupDepositApprovalRequest, setPickupDepositApprovalRequest] = useState<{
+  const [managerOverrideManagerStaffId, setManagerOverrideManagerStaffId] =
+    useState("");
+  const [managerOverrideManagerPin, setManagerOverrideManagerPin] =
+    useState("");
+  const [pickupDepositApprovalRequest, setPickupDepositApprovalRequest] =
+    useState<{
     message: string;
-    resolve: (approval: NonNullable<PosOrderOptions["pickupPaymentOverride"]> | null) => void;
+      resolve: (
+        approval: NonNullable<PosOrderOptions["pickupPaymentOverride"]> | null,
+      ) => void;
   } | null>(null);
   const [discountPrompt, setDiscountPrompt] = useState<{
     variantId: string;
@@ -2488,7 +3018,6 @@ export default function Cart({
   // roleMaxDiscountPct moved up
 
   const [posStaffList, setPosStaffList] = useState<PosStaffRow[]>([]);
-
 
   const commissionStaff = useMemo(
     () => posStaffList.filter((s) => s.role === "salesperson"),
@@ -2510,76 +3039,103 @@ export default function Cart({
   useEffect(() => {
     let cancelled = false;
     const h = apiAuth();
-    if (!h["x-riverside-pos-session-token"] && !h["x-riverside-staff-pin"]) return;
+    if (!h["x-riverside-pos-session-token"] && !h["x-riverside-staff-pin"])
+      return;
     void (async () => {
       try {
-        const res = await fetch(`${baseUrl}/api/pos/rms-payment-line-meta`, { headers: h });
+        const res = await fetch(`${baseUrl}/api/pos/rms-payment-line-meta`, {
+          headers: h,
+        });
         if (!res.ok || cancelled) return;
-        setRmsPaymentMeta(await res.json() as RmsPaymentLineMeta);
+        setRmsPaymentMeta((await res.json()) as RmsPaymentLineMeta);
       } catch {
         console.warn("POS pre-fetch: RMS payment line meta unavailable");
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [baseUrl, apiAuth]);
 
   useEffect(() => {
     let cancelled = false;
     const h = apiAuth();
-    if (!h["x-riverside-pos-session-token"] && !h["x-riverside-staff-pin"]) return;
+    if (!h["x-riverside-pos-session-token"] && !h["x-riverside-staff-pin"])
+      return;
     void (async () => {
       try {
-        const res = await fetch(`${baseUrl}/api/pos/gift-card-load-line-meta`, { headers: h });
+        const res = await fetch(`${baseUrl}/api/pos/gift-card-load-line-meta`, {
+          headers: h,
+        });
         if (!res.ok || cancelled) return;
-        setGiftCardLoadMeta(await res.json() as GiftCardLoadLineMeta);
+        setGiftCardLoadMeta((await res.json()) as GiftCardLoadLineMeta);
       } catch {
         console.warn("POS pre-fetch: gift card load line meta unavailable");
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [baseUrl, apiAuth]);
 
   useEffect(() => {
     if (!saleHydrated) return;
     let cancelled = false;
     const h = apiAuth();
-    if (!h["x-riverside-pos-session-token"] && !h["x-riverside-staff-pin"]) return;
+    if (!h["x-riverside-pos-session-token"] && !h["x-riverside-staff-pin"])
+      return;
     void (async () => {
       try {
-        const res = await fetch(`${baseUrl}/api/staff/self/pricing-limits`, { headers: h });
+        const res = await fetch(`${baseUrl}/api/staff/self/pricing-limits`, {
+          headers: h,
+        });
         if (!res.ok || cancelled) return;
-        const j = await res.json() as { max_discount_percent?: string };
+        const j = (await res.json()) as { max_discount_percent?: string };
         const n = Number.parseFloat(j.max_discount_percent ?? "30");
         if (Number.isFinite(n)) setRoleMaxDiscountPct(n);
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [baseUrl, apiAuth, saleHydrated]);
 
   useEffect(() => {
     if (!saleHydrated) return;
     let cancelled = false;
     const h = apiAuth();
-    if (!h["x-riverside-pos-session-token"] && !h["x-riverside-staff-pin"]) return;
+    if (!h["x-riverside-pos-session-token"] && !h["x-riverside-staff-pin"])
+      return;
     void (async () => {
       try {
-        const res = await fetch(`${baseUrl}/api/staff/list-for-pos?include_system_attribution=true`, { headers: h });
+        const res = await fetch(
+          `${baseUrl}/api/staff/list-for-pos?include_system_attribution=true`,
+          { headers: h },
+        );
         if (!res.ok || cancelled) return;
-        const sl = await res.json() as PosStaffRow[];
+        const sl = (await res.json()) as PosStaffRow[];
         if (!cancelled) setPosStaffList(sl);
-      } catch { if (!cancelled) setPosStaffList([]); }
+      } catch {
+        if (!cancelled) setPosStaffList([]);
+      }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [saleHydrated, baseUrl, apiAuth]);
 
   useEffect(() => {
     setLines((prev) =>
       prev.map((l) => {
         if (activeWeddingMember) {
-          if (l.fulfillment === "special_order") return { ...l, fulfillment: "wedding_order" };
+          if (l.fulfillment === "special_order")
+            return { ...l, fulfillment: "wedding_order" };
           return l;
         }
-        if (l.fulfillment === "wedding_order") return { ...l, fulfillment: "special_order" };
+        if (l.fulfillment === "wedding_order")
+          return { ...l, fulfillment: "special_order" };
         return l;
       }),
     );
@@ -2604,16 +3160,16 @@ export default function Cart({
         headers: apiAuth(),
       });
       if (!res.ok) {
-        toast("We couldn't load that transaction into the register. Please try again.", "error");
+        toast(
+          "We couldn't load that transaction into the register. Please try again.",
+          "error",
+        );
         return false;
       }
 
       const detail = (await res.json()) as HandoffOrderDetail;
 
-      if (
-        detail.customer &&
-        !canSelectCustomerForSale(detail.customer.id)
-      ) {
+      if (detail.customer && !canSelectCustomerForSale(detail.customer.id)) {
         return false;
       }
       if (detail.customer) {
@@ -2622,7 +3178,10 @@ export default function Cart({
 
       if (forRefund) {
         if (!detail.customer) {
-          toast("This Transaction Record has no customer attached, so it cannot be loaded for refund.", "error");
+          toast(
+            "This Transaction Record has no customer attached, so it cannot be loaded for refund.",
+            "error",
+          );
           return false;
         }
 
@@ -2640,6 +3199,7 @@ export default function Cart({
         setLines([]);
         setCheckoutAppliedPayments([]);
         setCheckoutDepositLedger("");
+    setWeddingDepositOrderSource(null);
         setOrderPaymentLines([]);
         setEditingOrderPaymentLine(null);
         setEditingOrderPaymentAmount("");
@@ -2656,7 +3216,10 @@ export default function Cart({
           setExchangeWizardInitialTransactionId(detail.transaction_id);
           setExchangeWizardInitialReturnLineId(selectedReturnLineId);
           setExchangeWizardOpen(true);
-          toast("Return item loaded. Confirm the quantity and choose refund or exchange.", "success");
+          toast(
+            "Return item loaded. Confirm the quantity and choose refund or exchange.",
+            "success",
+          );
           return true;
         }
 
@@ -2698,11 +3261,16 @@ export default function Cart({
           ? recordedRefundDueCents
           : parseMoneyToCents(detail.amount_paid ?? "0");
         if (refundAmountCents <= 0) {
-          toast("No refundable paid amount exists on this transaction.", "error");
+          toast(
+            "No refundable paid amount exists on this transaction.",
+            "error",
+          );
           return false;
         }
 
-        const receiptLabel = detail.transaction_display_id ?? detail.transaction_id.slice(0, 8).toUpperCase();
+        const receiptLabel =
+          detail.transaction_display_id ??
+          detail.transaction_id.slice(0, 8).toUpperCase();
         const refundableItems = (detail.items ?? []).filter(
           (item) =>
             !item.is_internal &&
@@ -2746,7 +3314,10 @@ export default function Cart({
         }
 
         let allocatedCents = 0;
-        const settledReturnLinesById = new Map<string, ExchangeReturnHandoffLine>();
+        const settledReturnLinesById = new Map<
+          string,
+          ExchangeReturnHandoffLine
+        >();
         const refundCreditLines: CartLineItem[] = sourceUnits.map(
           ({ item, grossCents }, index) => {
             const unitCreditCents =
@@ -2780,15 +3351,19 @@ export default function Cart({
                 : 0;
             const localTaxCents = taxCreditCents - stateTaxCents;
             const subtotalCents = unitCreditCents - taxCreditCents;
-            const existingReturnLine = settledReturnLinesById.get(item.transaction_line_id);
+            const existingReturnLine = settledReturnLinesById.get(
+              item.transaction_line_id,
+            );
             if (existingReturnLine) {
               existingReturnLine.quantity += 1;
               existingReturnLine.refund_subtotal_cents =
                 (existingReturnLine.refund_subtotal_cents ?? 0) + subtotalCents;
               existingReturnLine.refund_state_tax_cents =
-                (existingReturnLine.refund_state_tax_cents ?? 0) + stateTaxCents;
+                (existingReturnLine.refund_state_tax_cents ?? 0) +
+                stateTaxCents;
               existingReturnLine.refund_local_tax_cents =
-                (existingReturnLine.refund_local_tax_cents ?? 0) + localTaxCents;
+                (existingReturnLine.refund_local_tax_cents ?? 0) +
+                localTaxCents;
               existingReturnLine.refund_total_cents =
                 (existingReturnLine.refund_total_cents ?? 0) + unitCreditCents;
             } else {
@@ -2816,6 +3391,10 @@ export default function Cart({
                 already_recorded: hasRecordedRefund,
                 original_helcim_transaction_id_for_refund:
                   detail.original_helcim_transaction_id_for_refund ?? null,
+                original_wedding_deposit_payer_name:
+                  detail.wedding_refund_recipient
+                    ? `${detail.wedding_refund_recipient.first_name} ${detail.wedding_refund_recipient.last_name}`.trim()
+                    : null,
               });
             }
             return {
@@ -2893,7 +3472,10 @@ export default function Cart({
       }
 
       if (!detail.customer) {
-        toast("This Transaction Record has no customer attached, so it cannot be reopened from the customer order menu.", "error");
+        toast(
+          "This Transaction Record has no customer attached, so it cannot be reopened from the customer order menu.",
+          "error",
+        );
         return false;
       }
 
@@ -2913,9 +3495,18 @@ export default function Cart({
         setExchangeWizardInitialTransactionId(null);
         setExchangeWizardInitialReturnLineId(null);
         setPickupTransactionId(detail.transaction_id);
-        setPickupTransactions([{ transactionId: detail.transaction_id, lineIds: unfulfilled.map((item) => item.transaction_line_id) }]);
+        setPickupTransactions([
+          {
+            transactionId: detail.transaction_id,
+            lineIds: unfulfilled.map((item) => item.transaction_line_id),
+          },
+        ]);
         setPickupPaidAmountCents(parseMoneyToCents(detail.amount_paid ?? "0"));
-        setPickupReadyAlterations((detail.linked_alterations ?? []).filter((alteration) => alteration.status === "ready"));
+        setPickupReadyAlterations(
+          (detail.linked_alterations ?? []).filter(
+            (alteration) => alteration.status === "ready",
+          ),
+        );
         setManagerOverrideApproved(false);
         setManagerOverrideReason("");
         setManagerOverrideManagerStaffId("");
@@ -2941,10 +3532,14 @@ export default function Cart({
           cart_row_id: newCartRowId(),
           transaction_line_id: item.transaction_line_id,
           salesperson_id: item.salesperson_id || null,
-          line_type: item.custom_item_type === "alteration_service" ? "alteration_service" : "merchandise",
+          line_type:
+            item.custom_item_type === "alteration_service"
+              ? "alteration_service"
+              : "merchandise",
           custom_item_type: item.custom_item_type || undefined,
           custom_order_details: item.custom_order_details ?? null,
-          order_lifecycle_status: item.order_lifecycle_status as OrderLifecycleStatus | undefined,
+          order_lifecycle_status: item.order_lifecycle_status as
+            OrderLifecycleStatus | undefined,
         }));
 
         setLines(cartLines);
@@ -2986,7 +3581,8 @@ export default function Cart({
     ],
   );
 
-  const handleManagerApproveReadiness = useCallback(async (pin: string, managerId: string) => {
+  const handleManagerApproveReadiness = useCallback(
+    async (pin: string, managerId: string) => {
     try {
       const res = await fetch(`${baseUrl}/api/staff/verify-pin`, {
         method: "POST",
@@ -2997,13 +3593,19 @@ export default function Cart({
           authorize_action: "pos_pickup_readiness_override",
           authorize_metadata: {
             transaction_id: pickupTransactionId,
-            item_count: lines.filter(l => l.transaction_line_id && l.order_lifecycle_status !== "ready_for_pickup").length,
-          }
+              item_count: lines.filter(
+                (l) =>
+                  l.transaction_line_id &&
+                  l.order_lifecycle_status !== "ready_for_pickup",
+              ).length,
+            },
         }),
       });
       if (res.ok) {
         setManagerOverrideApproved(true);
-        setManagerOverrideReason("Register pickup override: manager approved release for unready items.");
+          setManagerOverrideReason(
+            "Register pickup override: manager approved release for unready items.",
+          );
         setManagerOverrideManagerStaffId(managerId);
         setManagerOverrideManagerPin(pin);
         setShowReadinessOverrideModal(false);
@@ -3012,14 +3614,22 @@ export default function Cart({
         toast("Manager override approved", "success");
         return true;
       } else {
-        toast("Manager approval failed. Check the Access PIN and try again.", "error");
+          toast(
+            "Manager approval failed. Check the Access PIN and try again.",
+            "error",
+          );
         return false;
       }
     } catch {
-      toast("Manager approval is unavailable. Try again or call a manager.", "error");
+        toast(
+          "Manager approval is unavailable. Try again or call a manager.",
+          "error",
+        );
       return false;
     }
-  }, [baseUrl, apiAuth, pickupTransactionId, lines, toast]);
+    },
+    [baseUrl, apiAuth, pickupTransactionId, lines, toast],
+  );
 
   const closePickupPaymentOverride = useCallback(() => {
     setPickupDepositApprovalRequest((request) => {
@@ -3028,10 +3638,12 @@ export default function Cart({
     });
   }, []);
 
-  const handleManagerApprovePickupPayment = useCallback(async (pin: string, managerId: string) => {
+  const handleManagerApprovePickupPayment = useCallback(
+    async (pin: string, managerId: string) => {
     const request = pickupDepositApprovalRequest;
     if (!request) return false;
-    const reason = "Manager approved pickup release despite insufficient payment coverage for the selected items.";
+      const reason =
+        "Manager approved pickup release despite insufficient payment coverage for the selected items.";
     try {
       const res = await fetch(`${baseUrl}/api/staff/verify-pin`, {
         method: "POST",
@@ -3047,7 +3659,10 @@ export default function Cart({
         }),
       });
       if (!res.ok) {
-        toast("Manager approval failed. Check the Access PIN and try again.", "error");
+          toast(
+            "Manager approval failed. Check the Access PIN and try again.",
+            "error",
+          );
         return false;
       }
       request.resolve({
@@ -3059,10 +3674,21 @@ export default function Cart({
       toast("Manager payment override approved", "success");
       return true;
     } catch {
-      toast("Manager approval failed. Check the Main Hub connection and try again.", "error");
+        toast(
+          "Manager approval failed. Check the Main Hub connection and try again.",
+          "error",
+        );
       return false;
     }
-  }, [apiAuth, baseUrl, pickupDepositApprovalRequest, pickupTransactionId, toast]);
+    },
+    [
+      apiAuth,
+      baseUrl,
+      pickupDepositApprovalRequest,
+      pickupTransactionId,
+      toast,
+    ],
+  );
 
   useEffect(() => {
     if (!initialTransactionId) {
@@ -3091,26 +3717,39 @@ export default function Cart({
         initialTransactionReturnLineId,
       );
       initialTransactionAppliedRef.current = initialTransactionApplyKey;
-      if (initialTransactionApplyingRef.current === initialTransactionApplyKey) {
+      if (
+        initialTransactionApplyingRef.current === initialTransactionApplyKey
+      ) {
         initialTransactionApplyingRef.current = null;
       }
       onInitialTransactionConsumed?.();
     })();
-  }, [checkoutOperator, initialTransactionId, initialTransactionForPickup, initialTransactionForRefund, initialTransactionReturnLineId, loadTransactionIntoRegister, onInitialTransactionConsumed, saleHydrated]);
+  }, [
+    checkoutOperator,
+    initialTransactionId,
+    initialTransactionForPickup,
+    initialTransactionForRefund,
+    initialTransactionReturnLineId,
+    loadTransactionIntoRegister,
+    onInitialTransactionConsumed,
+    saleHydrated,
+  ]);
 
   useEffect(() => {
     if (!initialWeddingPosLink?.member?.customer_id) return;
     const link = initialWeddingPosLink;
     const wm = link.member;
     const partyName = link.partyName?.trim() || "Wedding party";
-    if (!selectCustomerForSale({
+    if (
+      !selectCustomerForSale({
       id: wm.customer_id,
       customer_code: "",
       first_name: wm.first_name,
       last_name: wm.last_name,
       email: wm.customer_email ?? null,
       phone: wm.customer_phone ?? null,
-    })) {
+      })
+    ) {
       onInitialWeddingPosLinkConsumed?.();
       return;
     }
@@ -3158,9 +3797,12 @@ export default function Cart({
 
       if (wm.suit_variant_id) {
         try {
-          const res = await fetch(`${baseUrl}/api/products/variants/${wm.suit_variant_id}`, {
+          const res = await fetch(
+            `${baseUrl}/api/products/variants/${wm.suit_variant_id}`,
+            {
             headers: { ...apiAuth() },
-          });
+            },
+          );
           if (res.ok) {
             const v = (await res.json()) as ResolvedSkuItem;
             const isFree = Boolean(wm.is_free_suit_promo);
@@ -3169,17 +3811,21 @@ export default function Cart({
               quantity: 1,
               fulfillment: "wedding_order",
               cart_row_id: newCartRowId(),
-              ...(isFree ? {
+              ...(isFree
+                ? {
                 standard_retail_price: 0,
                 original_unit_price: String(v.standard_retail_price),
-                price_override_reason: "Wedding Promo (Free Suit Selection)"
-              } : {})
+                    price_override_reason:
+                      "Wedding Promo (Free Suit Selection)",
+                  }
+                : {}),
             };
-            setLines(prev => {
-                if (prev.some(l => l.variant_id === v.variant_id)) return prev;
+            setLines((prev) => {
+              if (prev.some((l) => l.variant_id === v.variant_id)) return prev;
                 return [...prev, newItem];
             });
-            if (isFree) toast(`Free Suit applied for ${wm.first_name}`, "success");
+            if (isFree)
+              toast(`Free Suit applied for ${wm.first_name}`, "success");
           }
         } catch {
           /* best effort */
@@ -3190,7 +3836,18 @@ export default function Cart({
     };
 
     void run();
-  }, [initialWeddingPosLink, baseUrl, onInitialWeddingPosLinkConsumed, apiAuth, toast, setLines, setActiveWeddingMember, setActiveWeddingPartyName, selectCustomerForSale, updateSelectedCustomerSnapshot]);
+  }, [
+    initialWeddingPosLink,
+    baseUrl,
+    onInitialWeddingPosLinkConsumed,
+    apiAuth,
+    toast,
+    setLines,
+    setActiveWeddingMember,
+    setActiveWeddingPartyName,
+    selectCustomerForSale,
+    updateSelectedCustomerSnapshot,
+  ]);
 
   // --- Search Coordination ---
   const startAlterationIntake = (mode: "quick" | "full", source: string) => {
@@ -3200,9 +3857,16 @@ export default function Cart({
         source,
         reason: "customer_required",
       });
-      toast("Select or create a customer before starting an alteration.", "error");
+      toast(
+        "Select or create a customer before starting an alteration.",
+        "error",
+      );
       window.requestAnimationFrame(() => {
-        document.querySelector<HTMLInputElement>("[data-testid='pos-customer-search']")?.focus();
+        document
+          .querySelector<HTMLInputElement>(
+            "[data-testid='pos-customer-search']",
+          )
+          ?.focus();
       });
       return;
     }
@@ -3231,7 +3895,12 @@ export default function Cart({
       setFeePromptKind("shipping");
       return;
     }
-    handleSearchResultClick(item, searchResults, search, setActiveVariationSelection);
+    handleSearchResultClick(
+      item,
+      searchResults,
+      search,
+      setActiveVariationSelection,
+    );
   };
 
   const startAlterationFeeOnly = () => {
@@ -3259,10 +3928,22 @@ export default function Cart({
       intelligenceVariantId !== null ||
       lastTransactionId !== null,
     [
-      checkoutOperator, checkoutDrawerOpen, exchangeWizardOpen,
-      weddingDrawerOpen, measDrawerOpen, customerProfileHubOpen, cashAdjustOpen,
-      giftCardLoadOpen, feePromptKind, activeVariationSelection, showClearConfirm, showWalkinConfirm,
-      showVoidAllConfirm, discountPrompt, intelligenceVariantId, lastTransactionId,
+      checkoutOperator,
+      checkoutDrawerOpen,
+      exchangeWizardOpen,
+      weddingDrawerOpen,
+      measDrawerOpen,
+      customerProfileHubOpen,
+      cashAdjustOpen,
+      giftCardLoadOpen,
+      feePromptKind,
+      activeVariationSelection,
+      showClearConfirm,
+      showWalkinConfirm,
+      showVoidAllConfirm,
+      discountPrompt,
+      intelligenceVariantId,
+      lastTransactionId,
     ],
   );
 
@@ -3347,8 +4028,10 @@ export default function Cart({
     [lines],
   );
 
-  const allowCheckoutDepositKeypad = hasSpecialOrWeddingLines && !isRmsPaymentCart;
-  const allowDepositOnlyCompleteSale = allowCheckoutDepositKeypad && lines.length > 0;
+  const allowCheckoutDepositKeypad =
+    hasSpecialOrWeddingLines && !isRmsPaymentCart;
+  const allowDepositOnlyCompleteSale =
+    allowCheckoutDepositKeypad && lines.length > 0;
 
   const sortedCartLines = useMemo(() => {
     const tagged = lines.map((l, i) => ({ l, i }));
@@ -3369,7 +4052,9 @@ export default function Cart({
           line.custom_item_type === "alteration_service" ||
           line.sku === ALTERATION_SERVICE_SKU;
         return isAlteration
-          ? total + parseMoneyToCents(line.standard_retail_price) * Math.max(line.quantity, 0)
+          ? total +
+              parseMoneyToCents(line.standard_retail_price) *
+                Math.max(line.quantity, 0)
           : total;
       }, 0),
     [lines],
@@ -3386,7 +4071,9 @@ export default function Cart({
       data-testid="pos-register-cart-shell"
       data-sale-hydrated={saleHydrated ? "true" : "false"}
       data-cashier-blocked={!checkoutOperator ? "true" : "false"}
-      data-register-ready={saleHydrated && !!checkoutOperator ? "true" : "false"}
+      data-register-ready={
+        saleHydrated && !!checkoutOperator ? "true" : "false"
+      }
       onPointerDownCapture={() => onCartInteraction?.()}
       onFocusCapture={() => onCartInteraction?.()}
     >
@@ -3411,8 +4098,8 @@ export default function Cart({
                     Wedding member linked
                   </p>
                   <p className="truncate text-xs font-black italic text-app-text-muted">
-                    {activeWeddingMember.first_name} {activeWeddingMember.last_name} —{" "}
-                    {activeWeddingPartyName}
+                      {activeWeddingMember.first_name}{" "}
+                      {activeWeddingMember.last_name} — {activeWeddingPartyName}
                   </p>
                 </div>
               </div>
@@ -3429,12 +4116,18 @@ export default function Cart({
               </div>
             )}
 
-          {(activeWeddingMember || parkedRows.length > 0 || pendingAlterationIntakes.length > 0 || pickupReadyAlterations.length > 0 || offlinePendingCount > 0 || failedPrintCount > 0) ? (
+            {activeWeddingMember ||
+            parkedRows.length > 0 ||
+            pendingAlterationIntakes.length > 0 ||
+            pickupReadyAlterations.length > 0 ||
+            offlinePendingCount > 0 ||
+            failedPrintCount > 0 ? (
             <div className="flex flex-wrap items-center gap-2 rounded-xl border border-app-border/70 bg-app-surface px-2.5 py-1.5 text-[10px] font-bold text-app-text-muted">
               {activeWeddingMember ? (
                 <span className="inline-flex items-center gap-1 rounded-lg border border-app-accent/25 bg-app-accent/10 px-2 py-1 font-black uppercase tracking-widest text-app-accent">
                   <WEDDINGS_ICON size={12} aria-hidden />
-                  {activeWeddingMember.first_name} {activeWeddingMember.last_name}
+                    {activeWeddingMember.first_name}{" "}
+                    {activeWeddingMember.last_name}
                 </span>
               ) : null}
               {parkedRows.length > 0 ? (
@@ -3450,13 +4143,16 @@ export default function Cart({
               {pendingAlterationIntakes.length > 0 ? (
                 <span className="inline-flex items-center gap-1 rounded-lg border border-app-accent/20 bg-app-accent/10 px-2 py-1 font-black uppercase tracking-widest text-app-accent">
                   <Scissors size={12} aria-hidden />
-                  {pendingAlterationIntakes.length} intake{pendingAlterationIntakes.length === 1 ? "" : "s"} pending checkout
+                    {pendingAlterationIntakes.length} intake
+                    {pendingAlterationIntakes.length === 1 ? "" : "s"} pending
+                    checkout
                 </span>
               ) : null}
               {pickupReadyAlterations.length > 0 ? (
                 <span className="inline-flex items-center gap-1 rounded-lg border border-app-success/25 bg-app-success/10 px-2 py-1 font-black uppercase tracking-widest text-app-success">
                   <Scissors size={12} aria-hidden />
-                  {pickupReadyAlterations.length} alteration pickup{pickupReadyAlterations.length === 1 ? "" : "s"} included
+                    {pickupReadyAlterations.length} alteration pickup
+                    {pickupReadyAlterations.length === 1 ? "" : "s"} included
                 </span>
               ) : null}
               {offlinePendingCount > 0 ? (
@@ -3526,7 +4222,8 @@ export default function Cart({
                       Salesperson:
                     </span>
                     <span className="sr-only">
-                      Default for commission on all lines unless a line overrides
+                        Default for commission on all lines unless a line
+                        overrides
                     </span>
                     <StaffMiniSelector
                       staff={commissionStaff}
@@ -3536,7 +4233,9 @@ export default function Cart({
                         setPrimarySalespersonId(id);
                       }}
                       placeholder="Select Salesperson..."
-                      displayLabel={hasLineSalespersonOverrides ? "SPLIT" : undefined}
+                        displayLabel={
+                          hasLineSalespersonOverrides ? "SPLIT" : undefined
+                        }
                       className="min-w-[12rem]"
                     />
                   </div>
@@ -3555,7 +4254,10 @@ export default function Cart({
             className="relative w-full rounded-2xl border border-app-border bg-app-surface p-1.5 shadow-sm"
             onBlur={(event) => {
               const nextFocus = event.relatedTarget;
-              if (nextFocus instanceof Node && event.currentTarget.contains(nextFocus)) {
+                if (
+                  nextFocus instanceof Node &&
+                  event.currentTarget.contains(nextFocus)
+                ) {
                 return;
               }
               setSearchFocused(false);
@@ -3585,13 +4287,19 @@ export default function Cart({
                 const q = search.trim();
                 if (q.length < 2) return;
                 e.preventDefault();
-                runSearch(search).then(results => {
+                  runSearch(search)
+                    .then((results) => {
                   if (!results) return;
-                  const exact = results.filter(r => r.sku.toLowerCase() === q.toLowerCase() || r.vendor_sku?.toLowerCase() === q.toLowerCase());
+                      const exact = results.filter(
+                        (r) =>
+                          r.sku.toLowerCase() === q.toLowerCase() ||
+                          r.vendor_sku?.toLowerCase() === q.toLowerCase(),
+                      );
                   if (exact.length === 1) {
                     onSearchResultClick(exact[0]);
                   }
-                }).catch(() => {});
+                    })
+                    .catch(() => {});
               }}
               className="ui-input h-14 w-full rounded-xl border-2 border-app-border bg-app-surface-2 pl-12 pr-32 text-lg font-black shadow-inner focus:border-app-accent focus:bg-app-surface"
             />
@@ -3683,7 +4391,11 @@ export default function Cart({
                 onClick={() => {
                   startAlterationIntake("full", "pos_action");
                 }}
-                title={selectedCustomer ? "Start alteration intake" : "Select a customer to start alteration intake"}
+                  title={
+                    selectedCustomer
+                      ? "Start alteration intake"
+                      : "Select a customer to start alteration intake"
+                  }
                 className="ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border border-app-accent/60 bg-app-accent/10 px-2 text-center text-app-accent shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-accent hover:text-white active:scale-95 dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px]"
               >
                 <Scissors size={20} />
@@ -3697,13 +4409,20 @@ export default function Cart({
                 onClick={() => {
                   if (!ensureSaleCashier()) return;
                   if (!selectedCustomer) {
-                    toast("Select or create a customer before starting a custom order.", "error");
+                      toast(
+                        "Select or create a customer before starting a custom order.",
+                        "error",
+                      );
                     return;
                   }
                   setPendingCustomItem(null);
                   setCustomPromptOpen(true);
                 }}
-                title={selectedCustomer ? "Start a custom order" : "Select a customer to start a custom order"}
+                  title={
+                    selectedCustomer
+                      ? "Start a custom order"
+                      : "Select a customer to start a custom order"
+                  }
                 className="ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border border-app-warning/60 bg-app-warning/10 px-2 text-center text-app-warning shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-warning hover:text-white active:scale-95 dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px]"
               >
                 <Pencil size={20} />
@@ -3727,10 +4446,18 @@ export default function Cart({
                 type="button"
                 disabled={!selectedCustomer}
                 onClick={() => setOrderLoadOpen(true)}
-                title={selectedCustomer ? "View customer open orders" : "Select a customer to view open orders"}
+                  title={
+                    selectedCustomer
+                      ? "View customer open orders"
+                      : "Select a customer to view open orders"
+                  }
                 className="ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border border-app-info/60 bg-app-info/10 px-2 text-center text-app-info shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-info hover:text-white disabled:cursor-not-allowed disabled:border-app-border disabled:bg-app-surface-3 disabled:text-app-text-muted disabled:opacity-80 disabled:shadow-none disabled:hover:bg-app-surface-3 disabled:hover:text-app-text-muted dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px]"
               >
-                <ORDER_HISTORY_ICON size={20} className="shrink-0" aria-hidden />
+                  <ORDER_HISTORY_ICON
+                    size={20}
+                    className="shrink-0"
+                    aria-hidden
+                  />
                 <span className="text-[10px] font-black uppercase leading-[12px] tracking-widest">
                   Orders
                 </span>
@@ -3755,20 +4482,33 @@ export default function Cart({
                   let meta = rmsPaymentMeta;
                   if (!meta) {
                     try {
-                      const res = await fetch(`${baseUrl}/api/pos/rms-payment-line-meta`, { headers: apiAuth() });
+                        const res = await fetch(
+                          `${baseUrl}/api/pos/rms-payment-line-meta`,
+                          { headers: apiAuth() },
+                        );
                       if (!res.ok) {
-                        toast("RMS payment line is not available. Sign in or run migrations.", "error");
+                          toast(
+                            "RMS payment line is not available. Sign in or run migrations.",
+                            "error",
+                          );
                         return;
                       }
-                      const payload = (await res.json()) as RmsPaymentLineMeta | null;
+                        const payload =
+                          (await res.json()) as RmsPaymentLineMeta | null;
                       if (!payload) {
-                        toast("RMS payment line is not available. Ensure layout POS products are created.", "error");
+                          toast(
+                            "RMS payment line is not available. Ensure layout POS products are created.",
+                            "error",
+                          );
                         return;
                       }
                       meta = payload;
                       setRmsPaymentMeta(meta);
                     } catch {
-                      toast("RMS payment line is not available. Ensure layout POS products are created.", "error");
+                        toast(
+                          "RMS payment line is not available. Ensure layout POS products are created.",
+                          "error",
+                        );
                       return;
                     }
                   }
@@ -3790,20 +4530,33 @@ export default function Cart({
                   let meta = staffAccountPaymentMeta;
                   if (!meta) {
                     try {
-                      const res = await fetch(`${baseUrl}/api/pos/staff-account-payment-line-meta`, { headers: apiAuth() });
+                        const res = await fetch(
+                          `${baseUrl}/api/pos/staff-account-payment-line-meta`,
+                          { headers: apiAuth() },
+                        );
                       if (!res.ok) {
-                        toast("Staff Account payment line is not available. Sign in or run migrations.", "error");
+                          toast(
+                            "Staff Account payment line is not available. Sign in or run migrations.",
+                            "error",
+                          );
                         return;
                       }
-                      const payload = (await res.json()) as StaffAccountPaymentLineMeta | null;
+                        const payload =
+                          (await res.json()) as StaffAccountPaymentLineMeta | null;
                       if (!payload) {
-                        toast("Staff Account payment line is not available. Ensure layout POS products are created.", "error");
+                          toast(
+                            "Staff Account payment line is not available. Ensure layout POS products are created.",
+                            "error",
+                          );
                         return;
                       }
                       meta = payload;
                       setStaffAccountPaymentMeta(meta);
                     } catch {
-                      toast("Staff Account payment line is not available. Ensure layout POS products are created.", "error");
+                        toast(
+                          "Staff Account payment line is not available. Ensure layout POS products are created.",
+                          "error",
+                        );
                       return;
                     }
                   }
@@ -3820,12 +4573,15 @@ export default function Cart({
               <button
                 type="button"
                 onClick={() => {
-                  setLines(prev => prev.map(l => ({
+                    setLines((prev) =>
+                      prev.map((l) => ({
                     ...l,
-                    fulfillment: l.fulfillment === 'layaway' ? 'takeaway' : 'layaway'
-                  })));
+                        fulfillment:
+                          l.fulfillment === "layaway" ? "takeaway" : "layaway",
+                      })),
+                    );
                 }}
-                className={`ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border px-2 text-center shadow-sm ring-1 ring-black/5 transition-all active:scale-95 dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px] ${lines.some(l => l.fulfillment === 'layaway') ? "border-app-warning bg-app-warning/10 text-app-warning" : "border-app-border bg-app-surface-2 text-app-text hover:border-app-warning/50 hover:bg-app-surface hover:text-app-warning"}`}
+                  className={`ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border px-2 text-center shadow-sm ring-1 ring-black/5 transition-all active:scale-95 dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px] ${lines.some((l) => l.fulfillment === "layaway") ? "border-app-warning bg-app-warning/10 text-app-warning" : "border-app-border bg-app-surface-2 text-app-text hover:border-app-warning/50 hover:bg-app-surface hover:text-app-warning"}`}
               >
                 <Clock size={20} />
                 <span className="text-[10px] font-black uppercase leading-[12px] tracking-widest">
@@ -3836,9 +4592,11 @@ export default function Cart({
                 type="button"
                 onClick={() => setOrderReviewOpen(true)}
                 disabled={!hasSpecialOrWeddingLines}
-                title={hasSpecialOrWeddingLines
+                  title={
+                    hasSpecialOrWeddingLines
                   ? "Set rush and pickup details for order items."
-                  : "Order options are available only when this sale has an order, wedding, custom, or layaway item."}
+                      : "Order options are available only when this sale has an order, wedding, custom, or layaway item."
+                  }
                 className="ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border border-app-success/60 bg-app-success/10 px-2 text-center text-app-success shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-success hover:text-white disabled:cursor-not-allowed disabled:border-app-border disabled:bg-app-surface-3 disabled:text-app-text-muted disabled:opacity-80 disabled:shadow-none disabled:hover:bg-app-surface-3 disabled:hover:text-app-text-muted dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px]"
               >
                 <Zap size={20} className="shrink-0" aria-hidden />
@@ -3851,10 +4609,15 @@ export default function Cart({
                 disabled={lines.length === 0}
                 onClick={() => {
                    if (approvedProviderPaymentInCheckout) {
-                     toast("This sale has an approved card payment. Record the sale before parking it.", "error");
+                      toast(
+                        "This sale has an approved card payment. Record the sale before parking it.",
+                        "error",
+                      );
                      return;
                    }
-                   const label = selectedCustomer ? `Sale for ${selectedCustomer.first_name} ${selectedCustomer.last_name}` : "Untitled Sale";
+                    const label = selectedCustomer
+                      ? `Sale for ${selectedCustomer.first_name} ${selectedCustomer.last_name}`
+                      : "Untitled Sale";
                    setParkSaleDraftLabel(label);
                    setParkSalePromptOpen(true);
                 }}
@@ -3903,7 +4666,8 @@ export default function Cart({
                 <span className="flex items-center gap-2">
                   <Scissors size={14} className="text-app-accent" />
                   {pendingAlterationIntakes.length} alteration intake
-                  {pendingAlterationIntakes.length === 1 ? "" : "s"} attached to current cart
+                    {pendingAlterationIntakes.length === 1 ? "" : "s"} attached
+                    to current cart
                 </span>
                 <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                   Next: finish checkout to create tailor queue work
@@ -3920,7 +4684,8 @@ export default function Cart({
                 <span className="flex items-center gap-2">
                   <Scissors size={14} className="text-app-success" />
                   {pickupReadyAlterations.length} ready alteration pickup
-                  {pickupReadyAlterations.length === 1 ? "" : "s"} will be completed with this order
+                    {pickupReadyAlterations.length === 1 ? "" : "s"} will be
+                    completed with this order
                 </span>
                 <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                   Next: complete pickup
@@ -3928,8 +4693,14 @@ export default function Cart({
               </div>
               <div className="mt-1 flex flex-wrap gap-1.5">
                 {pickupReadyAlterations.slice(0, 3).map((alteration) => (
-                  <span key={alteration.id} className="rounded-lg bg-app-surface/80 px-2 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                    {alteration.ticket_number ? `Ticket ${alteration.ticket_number}` : alteration.source_sku ?? "Alteration"} · {alteration.work_requested}
+                    <span
+                      key={alteration.id}
+                      className="rounded-lg bg-app-surface/80 px-2 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted"
+                    >
+                      {alteration.ticket_number
+                        ? `Ticket ${alteration.ticket_number}`
+                        : (alteration.source_sku ?? "Alteration")}{" "}
+                      · {alteration.work_requested}
                   </span>
                 ))}
               </div>
@@ -3961,7 +4732,9 @@ export default function Cart({
                   toggleLineTaxCategory={toggleLineTaxCategory}
                   removeLine={removeLineWithAlterationHandling}
                   onEditAlterationLine={(intakeId) => {
-                    const intake = pendingAlterationIntakes.find((row) => row.id === intakeId);
+                    const intake = pendingAlterationIntakes.find(
+                      (row) => row.id === intakeId,
+                    );
                     if (!intake) return;
                     setEditingAlterationIntake(intake);
                     setAlterationIntakeMode("full");
@@ -3979,7 +4752,9 @@ export default function Cart({
                   <div className="flex min-w-0 items-center gap-3">
                     <Truck size={20} className="shrink-0 text-app-info" />
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-black uppercase text-app-text">{posShipping.label}</p>
+                      <p className="truncate text-sm font-black uppercase text-app-text">
+                        {posShipping.label}
+                      </p>
                       <p className="text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
                         Non-merchandise shipping charge
                       </p>
@@ -4003,7 +4778,13 @@ export default function Cart({
             </div>
           ) : hasCartDisplayWork ? (
             <div className="space-y-2 px-1">
-              {posShipping || pendingAlterationIntakes.some((intake) => !lines.some((line) => line.alteration_intake_id === intake.id)) ? (
+              {posShipping ||
+              pendingAlterationIntakes.some(
+                (intake) =>
+                  !lines.some(
+                    (line) => line.alteration_intake_id === intake.id,
+                  ),
+              ) ? (
                 <p className="pt-0.5 text-[9px] font-black uppercase tracking-[0.22em] text-app-text-muted">
                   Cart charges
                 </p>
@@ -4013,7 +4794,9 @@ export default function Cart({
                   <div className="flex min-w-0 items-center gap-3">
                     <Truck size={20} className="shrink-0 text-app-info" />
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-black uppercase text-app-text">{posShipping.label}</p>
+                      <p className="truncate text-sm font-black uppercase text-app-text">
+                        {posShipping.label}
+                      </p>
                       <p className="text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
                         Non-merchandise shipping charge
                       </p>
@@ -4035,20 +4818,36 @@ export default function Cart({
                 </div>
               ) : null}
               {pendingAlterationIntakes
-                .filter((intake) => !lines.some((line) => line.alteration_intake_id === intake.id))
+                .filter(
+                  (intake) =>
+                    !lines.some(
+                      (line) => line.alteration_intake_id === intake.id,
+                    ),
+                )
                 .map((intake) => (
-                  <div key={intake.id} className="flex items-center justify-between gap-3 rounded-2xl border border-app-accent/25 bg-app-accent/8 p-4">
+                  <div
+                    key={intake.id}
+                    className="flex items-center justify-between gap-3 rounded-2xl border border-app-accent/25 bg-app-accent/8 p-4"
+                  >
                     <div className="flex min-w-0 items-center gap-3">
-                      <Scissors size={20} className="shrink-0 text-app-accent" />
+                      <Scissors
+                        size={20}
+                        className="shrink-0 text-app-accent"
+                      />
                       <div className="min-w-0">
-                        <p className="truncate text-sm font-black uppercase text-app-text">Alteration: {intake.work_requested}</p>
+                        <p className="truncate text-sm font-black uppercase text-app-text">
+                          Alteration: {intake.work_requested}
+                        </p>
                         <p className="text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
                           Alteration service charge
                         </p>
                       </div>
                     </div>
                     <span className="shrink-0 text-xl font-black tabular-nums text-app-text">
-                      ${centsToFixed2(parseMoneyToCents(intake.charge_amount ?? "0"))}
+                      $
+                      {centsToFixed2(
+                        parseMoneyToCents(intake.charge_amount ?? "0"),
+                      )}
                     </span>
                   </div>
                 ))}
@@ -4116,7 +4915,10 @@ export default function Cart({
                       data-testid="pos-order-payment-remove"
                       onClick={() =>
                         setOrderPaymentLines((prev) =>
-                          prev.filter((candidate) => candidate.cart_row_id !== line.cart_row_id),
+                          prev.filter(
+                            (candidate) =>
+                              candidate.cart_row_id !== line.cart_row_id,
+                          ),
                         )
                       }
                       className="flex h-9 w-9 items-center justify-center rounded-xl border border-app-danger/30 bg-app-danger/10 text-app-danger transition-colors hover:bg-app-danger hover:text-white"
@@ -4134,10 +4936,12 @@ export default function Cart({
              <div className="space-y-3">
                 <div className="flex items-center gap-3 px-2">
                   <div className="h-px flex-1 bg-gradient-to-r from-app-info/30 to-transparent" />
-                  <span className="text-[10px] font-black uppercase tracking-[0.3em] text-app-info">Wedding Party Deposits</span>
+                <span className="text-[10px] font-black uppercase tracking-[0.3em] text-app-info">
+                  Wedding Party Deposits
+                </span>
                   <div className="h-px flex-1 bg-gradient-to-l from-app-info/30 to-transparent" />
                 </div>
-                {disbursementMembers.map(m => (
+              {disbursementMembers.map((m) => (
                   <div
                     key={m.id}
                     data-testid="pos-wedding-deposit-line"
@@ -4145,27 +4949,38 @@ export default function Cart({
                   >
                      <div className="flex items-center gap-4">
                         <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-app-info text-white font-black italic shadow-lg shadow-app-info/20">
-                           {m.first_name[0]}{m.last_name[0]}
+                      {m.first_name[0]}
+                      {m.last_name[0]}
                         </div>
                         <div>
-                           <h4 className="text-sm font-black text-app-text leading-tight">{m.first_name} {m.last_name}</h4>
+                      <h4 className="text-sm font-black text-app-text leading-tight">
+                        {m.first_name} {m.last_name}
+                      </h4>
                            <p className="text-[9px] font-black uppercase tracking-widest text-app-info">
-                             {activeWeddingPartyName ? `${activeWeddingPartyName} · ` : ""}{m.role}
+                        {activeWeddingPartyName
+                          ? `${activeWeddingPartyName} · `
+                          : ""}
+                        {m.role}
                            </p>
                         </div>
                      </div>
                      <div className="text-right">
-                        <p className="mb-1 text-[9px] font-black uppercase tracking-widest text-app-text-muted/80">Deposit Amount</p>
+                    <p className="mb-1 text-[9px] font-black uppercase tracking-widest text-app-text-muted/80">
+                      Deposit Amount
+                    </p>
                         <p className="text-xl font-black italic tracking-tighter text-app-info">
-                          $
-                          {centsToFixed2(weddingDisbursementAmountCents(m))}
+                      ${centsToFixed2(weddingDisbursementAmountCents(m))}
                         </p>
                      </div>
                      <button
                        type="button"
                        data-testid="pos-wedding-deposit-remove"
                        aria-label={`Remove ${m.first_name} ${m.last_name} from wedding party payment`}
-                       onClick={() => setDisbursementMembers(prev => prev.filter(p => p.id !== m.id))}
+                    onClick={() =>
+                      setDisbursementMembers((prev) =>
+                        prev.filter((p) => p.id !== m.id),
+                      )
+                    }
                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-app-danger/30 bg-app-danger/10 text-app-danger shadow-sm transition-colors hover:bg-app-danger hover:text-white"
                      >
                        <X size={16} />
@@ -4214,13 +5029,15 @@ export default function Cart({
                     Wedding Checklist
                   </p>
                   <p className="mt-0.5 text-[11px] font-semibold leading-snug text-app-text-muted">
-                    Add this member's required items, or mark an item for measurements before ordering.
+                    Add this member's required items, or mark an item for
+                    measurements before ordering.
                   </p>
                 </div>
                 <button
                   type="button"
                   onClick={() => {
-                    const firstPartyId = weddingPurchaseContext.memberships[0]?.wedding_party_id;
+                    const firstPartyId =
+                      weddingPurchaseContext.memberships[0]?.wedding_party_id;
                     if (firstPartyId) onOpenWeddingParty?.(firstPartyId);
                   }}
                   className="shrink-0 rounded-lg border border-app-border/70 bg-app-surface px-2 py-1 text-[10px] font-black uppercase tracking-wider text-app-text-muted hover:border-app-accent hover:text-app-accent"
@@ -4236,9 +5053,12 @@ export default function Cart({
                   >
                     <div className="mb-2 flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <p className="truncate text-xs font-black text-app-text">{membership.party_name}</p>
+                        <p className="truncate text-xs font-black text-app-text">
+                          {membership.party_name}
+                        </p>
                         <p className="text-[10px] font-bold uppercase tracking-wide text-app-text-muted">
-                          {membership.role || "Member"} · {membership.event_date}
+                          {membership.role || "Member"} ·{" "}
+                          {membership.event_date}
                         </p>
                       </div>
                       {!membership.measured ? (
@@ -4250,9 +5070,13 @@ export default function Cart({
                     {membership.purchase_items.length ? (
                       <div className="space-y-2">
                         {membership.purchase_items.map((item) => {
-                          const inCart = lines.some((line) => line.variant_id === item.variant_id);
+                          const inCart = lines.some(
+                            (line) => line.variant_id === item.variant_id,
+                          );
                           const tracked = item.already_tracked;
-                          const takeNowAvailable = (item.available_stock ?? item.stock_on_hand ?? 0) > 0;
+                          const takeNowAvailable =
+                            (item.available_stock ?? item.stock_on_hand ?? 0) >
+                            0;
                           const itemLocked = tracked || inCart;
                           return (
                             <div
@@ -4261,13 +5085,23 @@ export default function Cart({
                             >
                               <div className="flex items-start justify-between gap-2">
                                 <div className="min-w-0">
-                                  <p className="truncate text-xs font-black text-app-text">{item.name}</p>
+                                  <p className="truncate text-xs font-black text-app-text">
+                                    {item.name}
+                                  </p>
                                   <p className="truncate text-[10px] font-semibold text-app-text-muted">
-                                    {item.variation_label || item.sku} · Stock {item.available_stock ?? item.stock_on_hand ?? 0}
+                                    {item.variation_label || item.sku} · Stock{" "}
+                                    {item.available_stock ??
+                                      item.stock_on_hand ??
+                                      0}
                                   </p>
                                 </div>
                                 <span className="shrink-0 text-xs font-black text-app-text">
-                                  ${centsToFixed2(parseMoneyToCents(item.standard_retail_price))}
+                                  $
+                                  {centsToFixed2(
+                                    parseMoneyToCents(
+                                      item.standard_retail_price,
+                                    ),
+                                  )}
                                 </span>
                               </div>
                               {tracked ? (
@@ -4283,7 +5117,13 @@ export default function Cart({
                                   <button
                                     type="button"
                                     disabled={itemLocked || !takeNowAvailable}
-                                    onClick={() => addWeddingPurchaseItem(membership, item, "takeaway")}
+                                    onClick={() =>
+                                      addWeddingPurchaseItem(
+                                        membership,
+                                        item,
+                                        "takeaway",
+                                      )
+                                    }
                                     className="rounded-lg border border-app-border bg-app-surface px-1.5 py-1.5 text-[9px] font-black uppercase tracking-wide text-app-text-muted hover:border-app-success hover:text-app-success disabled:cursor-not-allowed disabled:opacity-45"
                                   >
                                     Take now
@@ -4291,7 +5131,13 @@ export default function Cart({
                                   <button
                                     type="button"
                                     disabled={itemLocked}
-                                    onClick={() => addWeddingPurchaseItem(membership, item, "order")}
+                                    onClick={() =>
+                                      addWeddingPurchaseItem(
+                                        membership,
+                                        item,
+                                        "order",
+                                      )
+                                    }
                                     className="rounded-lg border border-app-border bg-app-surface px-1.5 py-1.5 text-[9px] font-black uppercase tracking-wide text-app-text-muted hover:border-app-accent hover:text-app-accent disabled:cursor-not-allowed disabled:opacity-45"
                                   >
                                     Order
@@ -4299,7 +5145,13 @@ export default function Cart({
                                   <button
                                     type="button"
                                     disabled={itemLocked}
-                                    onClick={() => addWeddingPurchaseItem(membership, item, "needs_measurements")}
+                                    onClick={() =>
+                                      addWeddingPurchaseItem(
+                                        membership,
+                                        item,
+                                        "needs_measurements",
+                                      )
+                                    }
                                     className="rounded-lg border border-amber-200 bg-amber-50 px-1.5 py-1.5 text-[9px] font-black uppercase tracking-wide text-amber-800 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-45"
                                   >
                                     Measure
@@ -4312,7 +5164,8 @@ export default function Cart({
                       </div>
                     ) : (
                       <p className="rounded-lg bg-app-surface-2 px-2 py-1.5 text-[10px] font-semibold text-app-text-muted">
-                        No linked product is set yet. Open the wedding party to choose the exact item.
+                        No linked product is set yet. Open the wedding party to
+                        choose the exact item.
                       </p>
                     )}
                     {membership.checklist_items.length ? (
@@ -4325,7 +5178,8 @@ export default function Cart({
                             <div className="flex items-start justify-between gap-2">
                               <div className="min-w-0">
                                 <p className="truncate text-[11px] font-black text-app-text">
-                                  {checklistItem.quantity}x {checklistItem.description}
+                                  {checklistItem.quantity}x{" "}
+                                  {checklistItem.description}
                                 </p>
                                 {checklistItem.notes ? (
                                   <p className="truncate text-[10px] font-semibold text-app-text-muted">
@@ -4338,7 +5192,8 @@ export default function Cart({
                               </span>
                             </div>
                             <p className="mt-1 text-[10px] font-semibold text-app-text-muted">
-                              Not linked to a sellable product yet. Open the wedding party if this should be added to the sale.
+                              Not linked to a sellable product yet. Open the
+                              wedding party if this should be added to the sale.
                             </p>
                           </div>
                         ))}
@@ -4357,7 +5212,11 @@ export default function Cart({
             <div className="mb-2 flex items-center justify-between gap-2 border-b border-app-border/40 pb-2">
               <div className="flex items-center gap-2">
                 <span className="inline-flex items-center gap-1 rounded-full bg-app-success/8 px-2 py-0.5 text-[9px] font-black uppercase tracking-wide text-app-success ring-1 ring-app-success/12">
-                  <Package size={11} className="shrink-0 opacity-90" aria-hidden />
+                  <Package
+                    size={11}
+                    className="shrink-0 opacity-90"
+                    aria-hidden
+                  />
                   {isRmsPaymentCart ? "R2S payment" : "Retail"}
                 </span>
                 <span className="font-mono text-[9px] font-bold text-app-text-muted">
@@ -4371,7 +5230,9 @@ export default function Cart({
                       <select
                         className="ui-input cursor-pointer py-1 text-[10px] font-semibold"
                         value={selectedDiscountEventId}
-                        onChange={(e) => setSelectedDiscountEventId(e.target.value)}
+                        onChange={(e) =>
+                          setSelectedDiscountEventId(e.target.value)
+                        }
                         title="Discount event"
                       >
                         <option value="">Event…</option>
@@ -4382,7 +5243,8 @@ export default function Cart({
                         ))}
                       </select>
                     ) : null}
-                    {activeDiscountEvents.length > 0 && selectedDiscountEventId ? (
+                    {activeDiscountEvents.length > 0 &&
+                    selectedDiscountEventId ? (
                       <button
                         type="button"
                         disabled={!selectedLineKey || !selectedDiscountEventId}
@@ -4428,24 +5290,34 @@ export default function Cart({
             <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-app-text-muted">
               <div className="flex items-baseline justify-between gap-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                 <span>Subtotal</span>
-                <span className="tabular-nums font-bold text-app-text">${centsToFixed2(totals.subtotalCents)}</span>
+                <span className="tabular-nums font-bold text-app-text">
+                  ${centsToFixed2(totals.subtotalCents)}
+                </span>
               </div>
               <div className="flex items-baseline justify-between gap-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                 <span>Items</span>
-                <span className="tabular-nums text-app-text">{totals.totalPieces}</span>
+                <span className="tabular-nums text-app-text">
+                  {totals.totalPieces}
+                </span>
               </div>
               <div className="col-span-2 mt-2 space-y-1.5 border-t border-app-border/30 pt-2">
                 <div className="flex items-baseline justify-between gap-2 text-[10px] uppercase tracking-wide text-app-text-muted">
                   <span>NYS Tax</span>
-                  <span className="tabular-nums font-bold text-app-text-muted">${centsToFixed2(totals.stateTaxCents)}</span>
+                  <span className="tabular-nums font-bold text-app-text-muted">
+                    ${centsToFixed2(totals.stateTaxCents)}
+                  </span>
                 </div>
                 <div className="flex items-baseline justify-between gap-2 text-[10px] uppercase tracking-wide text-app-text-muted">
                   <span>Local Tax</span>
-                  <span className="tabular-nums font-bold text-app-text-muted">${centsToFixed2(totals.localTaxCents)}</span>
+                  <span className="tabular-nums font-bold text-app-text-muted">
+                    ${centsToFixed2(totals.localTaxCents)}
+                  </span>
                 </div>
                 <div className="flex items-baseline justify-between gap-2 text-[10px] font-black uppercase tracking-wide">
                   <span className="text-app-text">Total Tax</span>
-                  <span className="tabular-nums text-app-text">${centsToFixed2(totals.taxCents)}</span>
+                  <span className="tabular-nums text-app-text">
+                    ${centsToFixed2(totals.taxCents)}
+                  </span>
                 </div>
               </div>
               {posShipping ? (
@@ -4455,11 +5327,25 @@ export default function Cart({
                       {posShipping.label}
                     </span>
                     <span className="mt-0.5 flex flex-wrap gap-x-2">
-                      <button type="button" onClick={() => setShippingModalOpen(true)} className="text-[9px] font-bold text-app-accent underline transition-colors duration-150 hover:text-app-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/20">Edit</button>
-                      <button type="button" onClick={() => setPosShipping(null)} className="text-[9px] font-bold text-red-600 underline transition-colors duration-150 hover:text-red-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/20">Clear</button>
+                      <button
+                        type="button"
+                        onClick={() => setShippingModalOpen(true)}
+                        className="text-[9px] font-bold text-app-accent underline transition-colors duration-150 hover:text-app-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/20"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPosShipping(null)}
+                        className="text-[9px] font-bold text-red-600 underline transition-colors duration-150 hover:text-red-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/20"
+                      >
+                        Clear
+                      </button>
                     </span>
                   </div>
-                  <span className="shrink-0 text-xs font-black tabular-nums">${centsToFixed2(posShipping.amount_cents)}</span>
+                  <span className="shrink-0 text-xs font-black tabular-nums">
+                    ${centsToFixed2(posShipping.amount_cents)}
+                  </span>
                 </div>
               ) : (
                 <div className="col-span-2 flex justify-end pt-0.5">
@@ -4477,7 +5363,9 @@ export default function Cart({
               {totals.orderPaymentCents > 0 ? (
                 <div className="col-span-2 flex items-baseline justify-between gap-2 rounded-lg bg-violet-500/8 px-2 py-1 text-[10px] font-black uppercase tracking-wide text-violet-700">
                   <span>Existing transaction payments</span>
-                  <span className="tabular-nums">${centsToFixed2(totals.orderPaymentCents)}</span>
+                  <span className="tabular-nums">
+                    ${centsToFixed2(totals.orderPaymentCents)}
+                  </span>
                 </div>
               ) : null}
             </div>
@@ -4497,17 +5385,32 @@ export default function Cart({
             </p>
             <p
               className={`mt-0.5 text-right text-lg font-black tabular-nums sm:text-xl ${
-                keypadMode === "qty" && keypadBuffer.startsWith("-") ? "text-app-danger" : "text-app-text"
+                keypadMode === "qty" && keypadBuffer.startsWith("-")
+                  ? "text-app-danger"
+                  : "text-app-text"
               }`}
               aria-live="polite"
             >
-              {selectedLineKey ? (keypadBuffer || "0") : "—"}
+              {selectedLineKey ? keypadBuffer || "0" : "—"}
             </p>
           </div>
 
           <div className="min-h-0 flex-1 rounded-2xl border border-app-border bg-app-surface-2 p-2 shadow-inner">
             <div className="grid h-full grid-cols-3 grid-rows-5 gap-2">
-              {["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "CLEAR"].map((key) => (
+              {[
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9",
+                ".",
+                "0",
+                "CLEAR",
+              ].map((key) => (
                 <button
                   key={key}
                   type="button"
@@ -4522,7 +5425,9 @@ export default function Cart({
               <button
                 type="button"
                 disabled={!selectedLineKey}
-                onClick={() => handleNumpadKey(keypadMode === "qty" ? "-" : "%")}
+                onClick={() =>
+                  handleNumpadKey(keypadMode === "qty" ? "-" : "%")
+                }
                 className={`flex cursor-pointer items-center justify-center rounded-xl border-b-4 text-lg font-black text-white shadow-xl transition-all duration-150 hover:brightness-110 active:translate-y-0.5 active:scale-95 focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:border-app-border disabled:bg-app-surface-3 disabled:text-app-text-disabled disabled:opacity-100 disabled:shadow-none sm:text-xl ${
                   keypadMode === "qty"
                     ? "border-app-danger bg-app-danger shadow-app-danger/20 focus-visible:ring-app-danger/25"
@@ -4558,9 +5463,16 @@ export default function Cart({
              data-testid="pos-pay-button"
              disabled={!hasCheckoutWork || checkoutBusy}
              onClick={async () => {
-               if (!hasCheckoutWork) return toast("Add at least one item, transaction payment, or wedding deposit before checking out.", "error");
+              if (!hasCheckoutWork)
+                return toast(
+                  "Add at least one item, transaction payment, or wedding deposit before checking out.",
+                  "error",
+                );
                if (!ensureSaleCashier()) return;
-               if (pendingReturnTender && !pendingReturnTender.returnLineIntegrityOk) {
+              if (
+                pendingReturnTender &&
+                !pendingReturnTender.returnLineIntegrityOk
+              ) {
                  toast(
                    "Refund blocked: reload the return from the Transaction Record so every returned item is attached before payment.",
                    "error",
@@ -4595,7 +5507,9 @@ export default function Cart({
 
                if (pickupTransactionId) {
                   const unreadyPickupLines = lines.filter(
-                    (l) => l.transaction_line_id && l.order_lifecycle_status !== "ready_for_pickup"
+                  (l) =>
+                    l.transaction_line_id &&
+                    l.order_lifecycle_status !== "ready_for_pickup",
                   );
                   if (unreadyPickupLines.length > 0 && !managerOverrideApproved) {
                     setShowReadinessOverrideModal(true);
@@ -4623,12 +5537,20 @@ export default function Cart({
                   }
                 }
 
-               if (lines.length > 0 && hasSpecialOrWeddingLines && !orderReviewOpen) {
+              if (
+                lines.length > 0 &&
+                hasSpecialOrWeddingLines &&
+                !orderReviewOpen
+              ) {
                  setOrderReviewOpen(true);
                  return;
                }
 
-               if (lines.length > 0 && !isRmsPaymentCart && !isGiftCardOnlyCart) {
+              if (
+                lines.length > 0 &&
+                !isRmsPaymentCart &&
+                !isGiftCardOnlyCart
+              ) {
                  if (!hasSalespersonAttribution()) {
                    toast(
                      "Select a salesperson for this sale, or assign one on a line, so commissions can be calculated.",
@@ -4638,7 +5560,10 @@ export default function Cart({
                  }
                }
                if (pendingReturnTender && !selectedCustomer) {
-                 toast("Keep the original customer selected before settling an exchange.", "error");
+                toast(
+                  "Keep the original customer selected before settling an exchange.",
+                  "error",
+                );
                  return;
                }
                if (!selectedCustomer) {
@@ -4647,28 +5572,37 @@ export default function Cart({
                  openCheckoutDrawerWithGuard();
                }
              }}
-             className={`ui-touch-target group relative flex h-[4.25rem] w-full items-center justify-between rounded-2xl border-b-[6px] transition-all duration-150 active:translate-y-0.5 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-success/25 ${hasCheckoutWork ? 'bg-app-success border-app-success text-white hover:brightness-110 shadow-2xl shadow-app-success/40' : 'cursor-not-allowed border-app-border bg-app-surface-3 text-app-text-disabled shadow-none'}`}
+            className={`ui-touch-target group relative flex h-[4.25rem] w-full items-center justify-between rounded-2xl border-b-[6px] transition-all duration-150 active:translate-y-0.5 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-success/25 ${hasCheckoutWork ? "bg-app-success border-app-success text-white hover:brightness-110 shadow-2xl shadow-app-success/40" : "cursor-not-allowed border-app-border bg-app-surface-3 text-app-text-disabled shadow-none"}`}
            >
              <div className="flex flex-col items-start pl-3 sm:pl-5">
                 <span className="text-[9px] font-black uppercase tracking-[0.28em] opacity-70">
                   {pickupTransactionId && totals.totalCents === 0
-                    ? (selectedCustomer ? `${selectedCustomer.first_name} ${selectedCustomer.last_name} — Pickup` : "Pickup")
-                    : (selectedCustomer ? `${selectedCustomer.first_name} ${selectedCustomer.last_name} — Pay` : "Walk-in — Pay")}
+                  ? selectedCustomer
+                    ? `${selectedCustomer.first_name} ${selectedCustomer.last_name} — Pickup`
+                    : "Pickup"
+                  : selectedCustomer
+                    ? `${selectedCustomer.first_name} ${selectedCustomer.last_name} — Pay`
+                    : "Walk-in — Pay"}
                 </span>
                 <span className="text-2xl font-black tabular-nums tracking-tighter italic sm:text-3xl">
-                  {pickupTransactionId && totals.totalCents === 0 ? "Complete Pickup" : `$${centsToFixed2(totals.totalCents)}`}
+                {pickupTransactionId && totals.totalCents === 0
+                  ? "Complete Pickup"
+                  : `$${centsToFixed2(totals.totalCents)}`}
                 </span>
              </div>
              <div className="mr-2 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-app-surface/20 transition-transform group-hover:scale-105 sm:mr-4 sm:h-11 sm:w-11">
                 <span className="text-lg font-black uppercase italic">
-                  {pickupTransactionId && totals.totalCents === 0 ? "Pick" : "Pay"}
+                {pickupTransactionId && totals.totalCents === 0
+                  ? "Pick"
+                  : "Pay"}
                 </span>
              </div>
            </button>
         </div>
       </aside>
 
-      {editingOrderPaymentLine && createPortal(
+      {editingOrderPaymentLine &&
+        createPortal(
         <div className="ui-overlay-backdrop !z-[200]">
           <div
             className="ui-modal w-full max-w-sm p-6"
@@ -4736,7 +5670,7 @@ export default function Cart({
             </div>
           </div>
         </div>,
-        document.getElementById("drawer-root") || document.body
+          document.getElementById("drawer-root") || document.body,
       )}
 
       <PosShippingModal
@@ -4765,7 +5699,11 @@ export default function Cart({
         alterationsCents={alterationAmountCents}
         weddingLinked={!!activeWeddingMember}
         customerId={selectedCustomer?.id}
-        customerName={selectedCustomer ? `${selectedCustomer.first_name} ${selectedCustomer.last_name}` : undefined}
+        customerName={
+          selectedCustomer
+            ? `${selectedCustomer.first_name} ${selectedCustomer.last_name}`
+            : undefined
+        }
         customerCode={selectedCustomer?.customer_code ?? null}
         checkoutClientId={checkoutClientId}
         customerTaxExempt={selectedCustomer?.tax_exempt ?? false}
@@ -4775,6 +5713,9 @@ export default function Cart({
         originalHelcimTransactionIdForRefund={
           pendingReturnTender?.originalHelcimTransactionIdForRefund ?? null
         }
+        refundRecipientName={
+          pendingReturnTender?.originalWeddingDepositPayerName ?? null
+        }
         refundTransactionId={pendingReturnTender?.originalTransactionId ?? null}
         authoritativeDepositCents={0}
         existingPaidAmountCents={pickupPaidAmountCents}
@@ -4783,6 +5724,7 @@ export default function Cart({
         openDepositExternalAllocations={
           disbursementMembers.length > 0 || orderPaymentLines.length > 0
         }
+        weddingDepositBeneficiaryCount={disbursementMembers.length}
         profileBlocksCheckout={false}
         onOpenProfileGate={() => {}}
         onCheckoutIdentityHoldChange={setProviderCheckoutIdentityHeld}
@@ -4791,21 +5733,40 @@ export default function Cart({
         onFinalize={async (applied, op, ledger) => {
           if (pendingReturnTender) {
             if (!pendingReturnTender.returnOnly) {
-              if (posShipping || orderPaymentLines.length > 0 || disbursementMembers.length > 0 || pendingAlterationIntakes.length > 0) {
-                toast("Clear shipping, order payments, wedding disbursements, and alteration intake before settling an exchange.", "error");
+              if (
+                posShipping ||
+                orderPaymentLines.length > 0 ||
+                disbursementMembers.length > 0 ||
+                pendingAlterationIntakes.length > 0
+              ) {
+                toast(
+                  "Clear shipping, order payments, wedding disbursements, and alteration intake before settling an exchange.",
+                  "error",
+                );
                 return;
               }
               if (!selectedCustomer) {
-                toast("Keep the original customer selected before settling an exchange.", "error");
+                toast(
+                  "Keep the original customer selected before settling an exchange.",
+                  "error",
+                );
                 return;
               }
               if (ledger.appliedDepositAmountCents > 0) {
-                toast("Deposit collection cannot be mixed with exchange-credit settlement.", "error");
+                toast(
+                  "Deposit collection cannot be mixed with exchange-credit settlement.",
+                  "error",
+                );
                 return;
               }
-              const replacementLines = lines.filter((line) => !line.return_tender_original_transaction_id);
+              const replacementLines = lines.filter(
+                (line) => !line.return_tender_original_transaction_id,
+              );
               if (replacementLines.length === 0) {
-                toast("Add replacement items before continuing an exchange, or refund the customer only.", "error");
+                toast(
+                  "Add replacement items before continuing an exchange, or refund the customer only.",
+                  "error",
+                );
                 return;
               }
               if (!hasSalespersonAttribution()) {
@@ -4815,37 +5776,65 @@ export default function Cart({
                 );
                 return;
               }
-              const replacementTotals = calculateStandaloneLineTotals(replacementLines);
+              const replacementTotals =
+                calculateStandaloneLineTotals(replacementLines);
               if (replacementTotals.orderTotalCents <= 0) {
-                toast("Replacement sale total must be positive before settling an exchange.", "error");
+                toast(
+                  "Replacement sale total must be positive before settling an exchange.",
+                  "error",
+                );
                 return;
               }
               const exchangeCreditAppliedCents = Math.min(
                 pendingReturnTender.refundAmountCents,
                 replacementTotals.orderTotalCents,
               );
-              const roundingAdjustmentCents = ledger.roundingAdjustmentCents ?? 0;
-              const totalAppliedCents = applied.reduce((sum, payment) => sum + payment.amountCents, 0);
-              if (totalAppliedCents !== totals.totalCents + roundingAdjustmentCents) {
-                toast("Payment amount must match the net exchange balance before finishing.", "error");
+              const roundingAdjustmentCents =
+                ledger.roundingAdjustmentCents ?? 0;
+              const totalAppliedCents = applied.reduce(
+                (sum, payment) => sum + payment.amountCents,
+                0,
+              );
+              if (
+                totalAppliedCents !==
+                totals.totalCents + roundingAdjustmentCents
+              ) {
+                toast(
+                  "Payment amount must match the net exchange balance before finishing.",
+                  "error",
+                );
                 return;
               }
-              const refundTenders = applied.filter((payment) => payment.amountCents < 0);
+              const refundTenders = applied.filter(
+                (payment) => payment.amountCents < 0,
+              );
               if (totals.totalCents < 0) {
                 const cashRoundsToZero =
                   ledger.tenderMethod === "cash" &&
                   ledger.finalCashDueCents === 0 &&
                   roundingAdjustmentCents !== 0;
-                if (!cashRoundsToZero && (refundTenders.length !== 1 || applied.length !== 1)) {
-                  toast("Use one refund tender for the remaining exchange credit.", "error");
+                if (
+                  !cashRoundsToZero &&
+                  (refundTenders.length !== 1 || applied.length !== 1)
+                ) {
+                  toast(
+                    "Use one refund tender for the remaining exchange credit.",
+                    "error",
+                  );
                   return;
                 }
                 if (cashRoundsToZero && applied.length > 0) {
-                  toast("Clear payment lines when the cash refund rounds to $0.00.", "error");
+                  toast(
+                    "Clear payment lines when the cash refund rounds to $0.00.",
+                    "error",
+                  );
                   return;
                 }
               } else if (refundTenders.length > 0) {
-                toast("Refund tender is only allowed when the exchange leaves money owed to the customer.", "error");
+                toast(
+                  "Refund tender is only allowed when the exchange leaves money owed to the customer.",
+                  "error",
+                );
                 return;
               }
 
@@ -4855,14 +5844,19 @@ export default function Cart({
                 amountCents: exchangeCreditAppliedCents,
                 label: "Exchange credit",
                 metadata: {
-                  original_transaction_id: pendingReturnTender.originalTransactionId,
+                  original_transaction_id:
+                    pendingReturnTender.originalTransactionId,
                   receipt_label: pendingReturnTender.receiptLabel,
                   kind: "exchange_credit_applied",
                 },
               };
               const checkoutApplied = [
-                ...(exchangeCreditAppliedCents > 0 ? [exchangeCreditPayment] : []),
-                ...(totals.totalCents > 0 ? applied.filter((payment) => payment.amountCents > 0) : []),
+                ...(exchangeCreditAppliedCents > 0
+                  ? [exchangeCreditPayment]
+                  : []),
+                ...(totals.totalCents > 0
+                  ? applied.filter((payment) => payment.amountCents > 0)
+                  : []),
               ];
               const zeroCashRefundTender: AppliedPaymentLine | null =
                 ledger.tenderMethod === "cash" &&
@@ -4877,7 +5871,8 @@ export default function Cart({
                   : null;
               const refundTender = refundTenders[0] ?? zeroCashRefundTender;
               const refundRemainderCents =
-                pendingReturnTender.refundAmountCents - exchangeCreditAppliedCents;
+                pendingReturnTender.refundAmountCents -
+                exchangeCreditAppliedCents;
               const linkedCardRemainder =
                 refundTender?.method === "card_credit" ||
                 refundTender?.method === "card_present" ||
@@ -4886,8 +5881,11 @@ export default function Cart({
                 refundTender?.method === "card_saved" ||
                 refundTender?.method === "card_terminal_manual";
               const exchangeSettlement = {
-                original_transaction_id: pendingReturnTender.originalTransactionId,
-                exchange_credit_amount: centsToFixed2(exchangeCreditAppliedCents),
+                original_transaction_id:
+                  pendingReturnTender.originalTransactionId,
+                exchange_credit_amount: centsToFixed2(
+                  exchangeCreditAppliedCents,
+                ),
                 deferred_card_refund_amount:
                   refundTender && linkedCardRemainder
                     ? centsToFixed2(refundRemainderCents)
@@ -4897,23 +5895,35 @@ export default function Cart({
                   quantity: line.quantity,
                   reason: line.reason ?? "exchange",
                   restock: line.restock ?? undefined,
-                  refund_subtotal: centsToFixed2(line.refund_subtotal_cents ?? 0),
-                  refund_state_tax: centsToFixed2(line.refund_state_tax_cents ?? 0),
-                  refund_local_tax: centsToFixed2(line.refund_local_tax_cents ?? 0),
+                  refund_subtotal: centsToFixed2(
+                    line.refund_subtotal_cents ?? 0,
+                  ),
+                  refund_state_tax: centsToFixed2(
+                    line.refund_state_tax_cents ?? 0,
+                  ),
+                  refund_local_tax: centsToFixed2(
+                    line.refund_local_tax_cents ?? 0,
+                  ),
                   refund_total: centsToFixed2(line.refund_total_cents ?? 0),
                 })),
-                refund_remainder: refundTender && !linkedCardRemainder
+                refund_remainder:
+                  refundTender && !linkedCardRemainder
                   ? {
                       payment_method: refundTender.method,
                       amount: centsToFixed2(refundRemainderCents),
-                      tender_amount: centsToFixed2(Math.abs(refundTender.amountCents)),
-                      rounding_adjustment: centsToFixed2(roundingAdjustmentCents),
+                        tender_amount: centsToFixed2(
+                          Math.abs(refundTender.amountCents),
+                        ),
+                        rounding_adjustment: centsToFixed2(
+                          roundingAdjustmentCents,
+                        ),
                       final_cash_due:
                         ledger.finalCashDueCents != null
                           ? centsToFixed2(ledger.finalCashDueCents)
                           : undefined,
                       check_number:
-                        typeof refundTender.metadata?.check_number === "string"
+                          typeof refundTender.metadata?.check_number ===
+                          "string"
                           ? refundTender.metadata.check_number
                           : undefined,
                       gift_card_code: refundTender.gift_card_code,
@@ -4959,7 +5969,11 @@ export default function Cart({
                   .catch(() => ({}))) as unknown;
                 if (!settlementRes.ok) {
                   const payload = settlementPayload as { error?: string };
-                  toast(payload.error ?? "Exchange settlement failed after recording the replacement sale.", "error");
+                  toast(
+                    payload.error ??
+                      "Exchange settlement failed after recording the replacement sale.",
+                    "error",
+                  );
                   return;
                 }
                 const exchangeRefundEventId =
@@ -4989,7 +6003,11 @@ export default function Cart({
                 let cardRefundPending = false;
                 let cardRefundConfirmationNeedsReview = false;
                 let refundResult: RefundProcessResult | null = null;
-                if (refundTender && linkedCardRemainder && refundRemainderCents > 0) {
+                if (
+                  refundTender &&
+                  linkedCardRemainder &&
+                  refundRemainderCents > 0
+                ) {
                   const cardRefundRes = await fetch(
                     `${baseUrl}/api/transactions/${encodeURIComponent(pendingReturnTender.originalTransactionId)}/refunds/process`,
                     {
@@ -5004,7 +6022,8 @@ export default function Cart({
                         payment_method: refundTender.method,
                         amount: centsToFixed2(refundRemainderCents),
                         check_number: refundTender.metadata?.check_number,
-                        manager_staff_id: refundTender.metadata?.manager_staff_id,
+                        manager_staff_id:
+                          refundTender.metadata?.manager_staff_id,
                         manager_approval_reference:
                           refundTender.metadata?.manager_approval_reference,
                         manager_reason: refundTender.metadata?.manager_reason,
@@ -5030,7 +6049,9 @@ export default function Cart({
                   }
                 }
                 setLastReceiptOrderPaymentLines([]);
-                setLastReceiptExchangeReturnTransactionId(pendingReturnTender.originalTransactionId);
+                setLastReceiptExchangeReturnTransactionId(
+                  pendingReturnTender.originalTransactionId,
+                );
                 setLastRefundEventId(exchangeRefundEventId);
                 setLastRefundResult(refundResult);
                 setLastReceiptEventTransactionId(
@@ -5050,16 +6071,28 @@ export default function Cart({
                     "error",
                   );
                 } else if (!cardRefundPending) {
-                  toast(`Exchange settled for ${pendingReturnTender.receiptLabel}.`, "success");
+                  toast(
+                    `Exchange settled for ${pendingReturnTender.receiptLabel}.`,
+                    "success",
+                  );
                 }
               } catch {
-                toast("Exchange settlement failed. Check the API connection before retrying.", "error");
+                toast(
+                  "Exchange settlement failed. Check the API connection before retrying.",
+                  "error",
+                );
               }
               return;
             }
-            const totalAppliedCents = applied.reduce((sum, payment) => sum + payment.amountCents, 0);
+            const totalAppliedCents = applied.reduce(
+              (sum, payment) => sum + payment.amountCents,
+              0,
+            );
             const roundingAdjustmentCents = ledger.roundingAdjustmentCents ?? 0;
-            if (totalAppliedCents !== -pendingReturnTender.refundAmountCents + roundingAdjustmentCents) {
+            if (
+              totalAppliedCents !==
+              -pendingReturnTender.refundAmountCents + roundingAdjustmentCents
+            ) {
               toast(
                 `Refund tender must equal -$${centsToFixed2(pendingReturnTender.refundAmountCents)} before finishing.`,
                 "error",
@@ -5071,11 +6104,17 @@ export default function Cart({
               ledger.finalCashDueCents === 0 &&
               roundingAdjustmentCents !== 0;
             if (!cashRoundsToZero && applied.length !== 1) {
-              toast("Use one refund tender for this return so the original Transaction Record stays clear.", "error");
+              toast(
+                "Use one refund tender for this return so the original Transaction Record stays clear.",
+                "error",
+              );
               return;
             }
             if (cashRoundsToZero && applied.length > 0) {
-              toast("Clear payment lines when the cash refund rounds to $0.00.", "error");
+              toast(
+                "Clear payment lines when the cash refund rounds to $0.00.",
+                "error",
+              );
               return;
             }
             const primaryTender =
@@ -5104,10 +6143,15 @@ export default function Cart({
                   body: JSON.stringify({
                     session_id: sessionId,
                     payment_method: primaryTender.method,
-                    amount: centsToFixed2(pendingReturnTender.refundAmountCents),
+                    amount: centsToFixed2(
+                      pendingReturnTender.refundAmountCents,
+                    ),
                     tender_amount: centsToFixed2(Math.abs(totalAppliedCents)),
                     rounding_adjustment: centsToFixed2(roundingAdjustmentCents),
-                    final_cash_due: ledger.finalCashDueCents != null ? centsToFixed2(ledger.finalCashDueCents) : undefined,
+                    final_cash_due:
+                      ledger.finalCashDueCents != null
+                        ? centsToFixed2(ledger.finalCashDueCents)
+                        : undefined,
                     gift_card_code: primaryTender.gift_card_code,
                     check_number: primaryTender.metadata?.check_number,
                     manager_staff_id: primaryTender.metadata?.manager_staff_id,
@@ -5142,8 +6186,13 @@ export default function Cart({
                 },
               );
               if (!refundRes.ok) {
-                const payload = (await refundRes.json().catch(() => ({}))) as { error?: string };
-                toast(payload.error ?? "Refund failed. Check tender and try again.", "error");
+                const payload = (await refundRes.json().catch(() => ({}))) as {
+                  error?: string;
+                };
+                toast(
+                  payload.error ?? "Refund failed. Check tender and try again.",
+                  "error",
+                );
                 return;
               }
               const refundPayload = (await refundRes
@@ -5162,9 +6211,13 @@ export default function Cart({
               );
               setLastPendingRefundAmountCents(null);
               setLastReceiptTransactionLineIds(
-                pendingReturnTender.returnLines.map((line) => line.transaction_line_id),
+                pendingReturnTender.returnLines.map(
+                  (line) => line.transaction_line_id,
+                ),
               );
-              setCheckoutTransactionId(pendingReturnTender.originalTransactionId);
+              setCheckoutTransactionId(
+                pendingReturnTender.originalTransactionId,
+              );
               clearSaleForNextCheckout();
               if (refundResult) {
                 toast(refundResult.message, "success");
@@ -5175,11 +6228,19 @@ export default function Cart({
                 );
               }
             } catch {
-              toast("Refund failed. Check the API connection and try again.", "error");
+              toast(
+                "Refund failed. Check the API connection and try again.",
+                "error",
+              );
             }
             return;
           }
-          if (lines.length > 0 && !isRmsPaymentCart && !isGiftCardOnlyCart && !hasSalespersonAttribution()) {
+          if (
+            lines.length > 0 &&
+            !isRmsPaymentCart &&
+            !isGiftCardOnlyCart &&
+            !hasSalespersonAttribution()
+          ) {
             toast(
               "Select a salesperson for this sale, or assign one on a line, so commissions can be calculated.",
               "error",
@@ -5187,7 +6248,11 @@ export default function Cart({
             return;
           }
           setLastReceiptOrderPaymentLines(orderPaymentLines);
-          const completedTransactionId = await executeCheckout(applied, op, ledger, {
+          const completedTransactionId = await executeCheckout(
+            applied,
+            op,
+            ledger,
+            {
             ...(checkoutOrderOptions || {}),
             overrideReadiness: managerOverrideApproved,
             overrideReason: managerOverrideReason || undefined,
@@ -5195,7 +6260,8 @@ export default function Cart({
               managerOverrideManagerStaffId || undefined,
             readinessOverrideManagerPin:
               managerOverrideManagerPin || undefined,
-          });
+            },
+          );
           if (completedTransactionId) setCheckoutDrawerOpen(false);
         }}
         allowStoreCredit={!!selectedCustomer}
@@ -5208,7 +6274,9 @@ export default function Cart({
         rmsPaymentCollectionMode={isRmsPaymentCart}
         allowDepositOnlyComplete={allowDepositOnlyCompleteSale}
         takeawayDueCents={totals.takeawayDueCents}
-        hasLaterItems={lines.some(l => l.fulfillment && l.fulfillment !== "takeaway")}
+        hasLaterItems={lines.some(
+          (l) => l.fulfillment && l.fulfillment !== "takeaway",
+        )}
         onOpenSplitDeposit={() => {
           openWeddingDepositTool();
         }}
@@ -5219,7 +6287,11 @@ export default function Cart({
         onClose={() => setOpenDepositNotice(null)}
         onConfirm={() => setOpenDepositNotice(null)}
         title="Wedding deposit available"
-        message={openDepositNotice ? heldOpenDepositNoticeMessage(openDepositNotice) : ""}
+        message={
+          openDepositNotice
+            ? heldOpenDepositNoticeMessage(openDepositNotice)
+            : ""
+        }
         confirmLabel="Got it"
         cancelLabel="Close"
         variant="info"
@@ -5257,13 +6329,21 @@ export default function Cart({
                   ) : (
                     <ul className="space-y-2">
                       {parkedRows.map((p) => {
-                        const lines = (p.payload_json?.lines || []) as CartLineItem[];
+                        const lines = (p.payload_json?.lines ||
+                          []) as CartLineItem[];
                         const lineCount = lines.length;
                         const subtotalCents = lines.reduce((acc, l) => {
-                          return acc + parseMoneyToCents(l.standard_retail_price || "0") * (l.quantity || 1);
+                          return (
+                            acc +
+                            parseMoneyToCents(l.standard_retail_price || "0") *
+                              (l.quantity || 1)
+                          );
                         }, 0);
-                        const cust = p.payload_json?.selectedCustomer as Customer | null;
-                        const customerName = cust ? `${cust.first_name} ${cust.last_name}` : "Unknown Customer";
+                        const cust = p.payload_json
+                          ?.selectedCustomer as Customer | null;
+                        const customerName = cust
+                          ? `${cust.first_name} ${cust.last_name}`
+                          : "Unknown Customer";
 
                         return (
                           <li
@@ -5422,7 +6502,10 @@ export default function Cart({
                         }
                         setParkedCustomerPrompt(null);
                         await refreshParkedSales();
-                        toast("Parked sales removed. Start a new sale.", "success");
+                        toast(
+                          "Parked sales removed. Start a new sale.",
+                          "success",
+                        );
                       })();
                     }}
                   >
@@ -5446,7 +6529,9 @@ export default function Cart({
         open={giftCardLoadOpen}
         onClose={() => setGiftCardLoadOpen(false)}
         getHeaders={apiAuth}
-        onAddToCart={(code, amountCents) => addGiftCardLoadToCart(code, amountCents)}
+        onAddToCart={(code, amountCents) =>
+          addGiftCardLoadToCart(code, amountCents)
+        }
       />
       <RegisterRmsPaymentModal
         open={rmsPaymentOpen}
@@ -5455,7 +6540,8 @@ export default function Cart({
         onSelectCustomer={selectCustomerForSale}
         onAddToCart={async (amountCents) => {
           if (!rmsPaymentMeta) return;
-          addItem({
+          addItem(
+            {
             product_id: rmsPaymentMeta.product_id,
             variant_id: rmsPaymentMeta.variant_id,
             sku: rmsPaymentMeta.sku,
@@ -5466,7 +6552,9 @@ export default function Cart({
             local_tax: 0,
             stock_on_hand: 0,
             vendor_sku: "",
-          }, centsToFixed2(amountCents));
+            },
+            centsToFixed2(amountCents),
+          );
         }}
         weddingMemberships={weddingMemberships}
         onOpenWeddingParty={onOpenWeddingParty}
@@ -5478,7 +6566,8 @@ export default function Cart({
         onSelectCustomer={selectCustomerForSale}
         onAddToCart={async (amountCents) => {
           if (!staffAccountPaymentMeta) return;
-          addItem({
+          addItem(
+            {
             product_id: staffAccountPaymentMeta.product_id,
             variant_id: staffAccountPaymentMeta.variant_id,
             sku: staffAccountPaymentMeta.sku,
@@ -5489,7 +6578,10 @@ export default function Cart({
             local_tax: 0,
             stock_on_hand: 0,
             vendor_sku: "",
-          }, centsToFixed2(amountCents), "takeaway");
+            },
+            centsToFixed2(amountCents),
+            "takeaway",
+          );
         }}
         weddingMemberships={weddingMemberships}
         onOpenWeddingParty={onOpenWeddingParty}
@@ -5603,7 +6695,9 @@ export default function Cart({
                     };
                     if (priceOverride) {
                       next.standard_retail_price = priceOverride;
-                      next.original_unit_price = String(item.standard_retail_price);
+                      next.original_unit_price = String(
+                        item.standard_retail_price,
+                      );
                       next.price_override_reason = "pos_manual_price";
                     } else {
                       next.price_override_reason = undefined;
@@ -5624,7 +6718,9 @@ export default function Cart({
             })();
             return;
           }
-          const original = searchResults.find((r) => r.variant_id === v.variant_id);
+          const original = searchResults.find(
+            (r) => r.variant_id === v.variant_id,
+          );
           if (original) {
             addItem(original, priceOverride);
             setActiveVariationSelection(null);
@@ -5637,10 +6733,18 @@ export default function Cart({
                 { headers: apiAuth() },
               );
               if (!res.ok) {
-                toast("Could not resolve that SKU. Scan it directly or search again.", "error");
+                toast(
+                  "Could not resolve that SKU. Scan it directly or search again.",
+                  "error",
+                );
                 return;
               }
-              addItem(scanPayloadToResolvedItem((await res.json()) as Record<string, unknown>), priceOverride);
+              addItem(
+                scanPayloadToResolvedItem(
+                  (await res.json()) as Record<string, unknown>,
+                ),
+                priceOverride,
+              );
               setActiveVariationSelection(null);
             } catch {
               toast("Could not add that variation to the sale.", "error");
@@ -5689,10 +6793,16 @@ export default function Cart({
         isOpen={feePromptKind !== null}
         onClose={() => setFeePromptKind(null)}
         onSubmit={addFeeShortcut}
-        title={feePromptKind === "alteration" ? "Add alteration fee" : "Add Shipping Fee"}
-        message={feePromptKind === "alteration"
+        title={
+          feePromptKind === "alteration"
+            ? "Add alteration fee"
+            : "Add Shipping Fee"
+        }
+        message={
+          feePromptKind === "alteration"
           ? "Enter the alteration fee. This non-taxable charge does not create an alteration record, garment tracking, due date, or tailor queue work."
-          : "Enter the shipping fee. This fee is non-taxable and does not create a shipment. Use Ship Current Sale when an address, carrier, and tracking workflow are needed."}
+            : "Enter the shipping fee. This fee is non-taxable and does not create a shipment. Use Ship Current Sale when an address, carrier, and tracking workflow are needed."
+        }
         placeholder="0.00"
         type="numeric"
         confirmLabel="Add Fee"
@@ -5735,8 +6845,10 @@ export default function Cart({
                   subtotal: totals.subtotalCents,
                   customer_id: selectedCustomer?.id ?? null,
                   register_session_id: sessionId,
-                  cart_summary: lines.map(l => `${l.quantity}x ${l.sku}`).join(", ")
-                }
+                  cart_summary: lines
+                    .map((l) => `${l.quantity}x ${l.sku}`)
+                    .join(", "),
+                },
               }),
             });
             if (res.ok) {
@@ -5746,11 +6858,17 @@ export default function Cart({
               return true;
             } else {
               await res.json().catch(() => ({}));
-              toast("Manager approval failed. Check the Access PIN and try again.", "error");
+              toast(
+                "Manager approval failed. Check the Access PIN and try again.",
+                "error",
+              );
               return false;
             }
           } catch {
-            toast("Manager approval is unavailable. Try again or call a manager.", "error");
+            toast(
+              "Manager approval is unavailable. Try again or call a manager.",
+              "error",
+            );
             return false;
           }
         }}
@@ -5792,7 +6910,7 @@ export default function Cart({
                 authorize_metadata: {
                   register_session_id: sessionId,
                   customer_id: selectedCustomer?.id ?? null,
-                }
+                },
               }),
             });
             if (res.ok) {
@@ -5801,11 +6919,17 @@ export default function Cart({
               return true;
             } else {
               await res.json().catch(() => ({}));
-              toast("Manager approval failed. Check the Access PIN and try again.", "error");
+              toast(
+                "Manager approval failed. Check the Access PIN and try again.",
+                "error",
+              );
               return false;
             }
           } catch {
-            toast("Manager approval is unavailable. Try again or call a manager.", "error");
+            toast(
+              "Manager approval is unavailable. Try again or call a manager.",
+              "error",
+            );
             return false;
           }
         }}
@@ -5835,10 +6959,90 @@ export default function Cart({
         onContinueToReplacement={handleExchangeReturnHandoff}
       />
 
-
+      {weddingDrawerOpen && weddingDrawerPreferGroupPay && selectedCustomer ? (
+        <WeddingDepositWorkspace
+          isOpen
+          payer={selectedCustomer}
+          initialPartyId={weddingDrawerInitialPartyId}
+          onClose={() => {
+            setWeddingDrawerOpen(false);
+            setWeddingDrawerPreferGroupPay(false);
+            setWeddingDrawerInitialPartyId(null);
+          }}
+          onAddDeposits={(members, partyName, payerMember) => {
+            setDisbursementMembers((current) => {
+              const nextByMember = new Map(
+                current.map((member) => [member.id, member]),
+              );
+              members.forEach((member) => nextByMember.set(member.id, member));
+              return Array.from(nextByMember.values());
+            });
+            setActiveWeddingMember(payerMember);
+            setActiveWeddingPartyName(partyName);
+            setWeddingDrawerOpen(false);
+            setWeddingDrawerPreferGroupPay(false);
+            setWeddingDrawerInitialPartyId(null);
+            toast(
+              `Reviewed and added ${members.length} wedding member deposit${members.length === 1 ? "" : "s"} to the Cart. Continue to Payment when the allocation total is correct.`,
+              "success",
+            );
+          }}
+          onStartMemberOrder={(member, partyName, source) => {
+            if (hasCheckoutWork) {
+              toast(
+                "Finish or clear the current Cart before starting this member order. The funded wedding deposit remains available in Previous Deposits.",
+                "error",
+              );
+              return;
+            }
+            if (
+              !selectCustomerForSale({
+                id: member.customer_id,
+                customer_code: "",
+                first_name: member.first_name,
+                last_name: member.last_name,
+                email: member.customer_email ?? null,
+                phone: member.customer_phone ?? null,
+              })
+            ) {
+              return;
+            }
+            setActiveWeddingMember(member);
+            setActiveWeddingPartyName(partyName);
+            setWeddingDepositOrderSource({
+              workflowId: source.workflowId,
+              sourceCreditLedgerId: source.sourceCreditLedgerId,
+              customerId: member.customer_id,
+              remainingCents: source.remainingCents,
+            });
+            setWeddingDrawerOpen(false);
+            setWeddingDrawerPreferGroupPay(false);
+            setWeddingDrawerInitialPartyId(null);
+            toast(
+              `${member.first_name} ${member.last_name} is selected. Build the Wedding order, choose Pay, and apply the source-tracked deposit.`,
+              "success",
+            );
+            void fetch(`${baseUrl}/api/customers/${member.customer_id}`, {
+              headers: { ...apiAuth() },
+            })
+              .then(async (response) => {
+                if (response.ok) {
+                  updateSelectedCustomerSnapshot(await response.json());
+                }
+              })
+              .catch(() => {
+                toast(
+                  "The member order is ready, but the latest customer details could not be refreshed. Verify the profile before Payment.",
+                  "info",
+                );
+              });
+          }}
+          onOpenReceipt={setWorkflowReceiptTransactionId}
+        />
+      ) : null}
 
       <WeddingLookupDrawer
-        isOpen={weddingDrawerOpen}
+        isOpen={weddingDrawerOpen && !weddingDrawerPreferGroupPay}
         onClose={() => {
           setWeddingDrawerOpen(false);
           setWeddingDrawerPreferGroupPay(false);
@@ -5857,37 +7061,49 @@ export default function Cart({
             );
             return;
           }
-          if (!selectCustomerForSale({
+          if (
+            !selectCustomerForSale({
             id: m.customer_id,
             customer_code: "",
             first_name: m.first_name,
             last_name: m.last_name,
             email: m.customer_email ?? null,
             phone: m.customer_phone ?? null,
-          })) return;
+            })
+          )
+            return;
           setActiveWeddingMember(m);
           setActiveWeddingPartyName(partyName);
           setWeddingDrawerOpen(false);
           toast(`Linked ${m.first_name} ${m.last_name}`, "success");
 
           try {
-            const res = await fetch(`${baseUrl}/api/customers/${m.customer_id}`, {
+            const res = await fetch(
+              `${baseUrl}/api/customers/${m.customer_id}`,
+              {
               headers: { ...apiAuth() },
-            });
+              },
+            );
             if (res.ok) {
               const c = await res.json();
               updateSelectedCustomerSnapshot(c);
             }
           } catch (e) {
-            console.warn("Could not auto-select customer for wedding member", e);
+            console.warn(
+              "Could not auto-select customer for wedding member",
+              e,
+            );
           }
 
           // --- Auto-add Linked Suit to Cart (Manual Link) ---
           if (m.suit_variant_id) {
             try {
-              const res = await fetch(`${baseUrl}/api/products/variants/${m.suit_variant_id}`, {
+              const res = await fetch(
+                `${baseUrl}/api/products/variants/${m.suit_variant_id}`,
+                {
                 headers: { ...apiAuth() },
-              });
+                },
+              );
               if (res.ok) {
                 const v = await res.json();
                 const isFree = Boolean(m.is_free_suit_promo);
@@ -5896,18 +7112,25 @@ export default function Cart({
                   quantity: 1,
                   fulfillment: "wedding_order",
                   cart_row_id: newCartRowId(),
-                  ...(isFree ? {
+                  ...(isFree
+                    ? {
                     standard_retail_price: 0,
                     original_unit_price: String(v.standard_retail_price),
-                    price_override_reason: "Wedding Promo (Free Suit Selection)"
-                  } : {})
+                        price_override_reason:
+                          "Wedding Promo (Free Suit Selection)",
+                      }
+                    : {}),
                 };
-                setLines(prev => {
-                  if (prev.some(l => l.variant_id === v.variant_id)) return prev;
+                setLines((prev) => {
+                  if (prev.some((l) => l.variant_id === v.variant_id))
+                    return prev;
                   return [...prev, newItem];
                 });
                 if (isFree) {
-                  toast(`Free Suit applied for ${m.first_name} (Promo)`, "success");
+                  toast(
+                    `Free Suit applied for ${m.first_name} (Promo)`,
+                    "success",
+                  );
                 }
                 toast(`Linked suit added to cart: ${v.name}`, "success");
               }
@@ -5960,8 +7183,13 @@ export default function Cart({
                   reason: discountPrompt.reason,
                   customer_id: selectedCustomer?.id ?? null,
                   register_session_id: sessionId,
-                  discount_pct: Math.round((1 - discountPrompt.nextPriceCents / discountPrompt.originalPriceCents) * 100)
-                }
+                  discount_pct: Math.round(
+                    (1 -
+                      discountPrompt.nextPriceCents /
+                        discountPrompt.originalPriceCents) *
+                      100,
+                  ),
+                },
               }),
             });
             if (res.ok) {
@@ -5987,7 +7215,10 @@ export default function Cart({
             toast("Invalid Manager Access PIN.", "error");
             return false;
           } catch {
-            toast("We couldn't verify manager approval. Please try again.", "error");
+            toast(
+              "We couldn't verify manager approval. Please try again.",
+              "error",
+            );
             return false;
           }
         }}
@@ -6029,10 +7260,16 @@ export default function Cart({
               reason: "Manager approved POS backdated sale",
             });
             setBackdatePrompt(null);
-            toast("Backdated sale approved for this transaction only.", "success");
+            toast(
+              "Backdated sale approved for this transaction only.",
+              "success",
+            );
             return true;
           } catch {
-            toast("We couldn't verify manager approval. Please try again.", "error");
+            toast(
+              "We couldn't verify manager approval. Please try again.",
+              "error",
+            );
             return false;
           }
         }}
@@ -6068,7 +7305,10 @@ export default function Cart({
               }),
             });
             if (!res.ok) {
-              toast("Manager approval failed. Check the Access PIN and try again.", "error");
+              toast(
+                "Manager approval failed. Check the Access PIN and try again.",
+                "error",
+              );
               return false;
             }
             const staff = (await res.json()) as { staff_id?: string };
@@ -6082,7 +7322,10 @@ export default function Cart({
             setCheckoutDrawerOpen(true);
             return true;
           } catch {
-            toast("Manager approval is unavailable. Try again or call a manager.", "error");
+            toast(
+              "Manager approval is unavailable. Try again or call a manager.",
+              "error",
+            );
             return false;
           }
         }}
@@ -6135,16 +7378,24 @@ export default function Cart({
                 );
                 return false;
               }
-              customItem = scanPayloadToResolvedItem((await res.json()) as Record<string, unknown>);
+              customItem = scanPayloadToResolvedItem(
+                (await res.json()) as Record<string, unknown>,
+              );
             } catch {
-              toast(`Could not load Custom SKU ${data.customSku}. Try again.`, "error");
+              toast(
+                `Could not load Custom SKU ${data.customSku}. Try again.`,
+                "error",
+              );
               return false;
             }
           }
           const resolvedItemType =
             customOrderItemTypeForSku(customItem.sku) ?? data.itemType;
           const cents = parseMoneyToCents(data.price);
-          const { stateTax, localTax } = calculateNysErieTaxStringsForUnit(data.taxCategory, cents);
+          const { stateTax, localTax } = calculateNysErieTaxStringsForUnit(
+            data.taxCategory,
+            cents,
+          );
           const updated: CartLineItem = {
             ...customItem,
             name:
@@ -6205,6 +7456,17 @@ export default function Cart({
         />
       )}
 
+      {workflowReceiptTransactionId ? (
+        <ReceiptSummaryModal
+          transactionId={workflowReceiptTransactionId}
+          presentation="historical"
+          onClose={() => setWorkflowReceiptTransactionId(null)}
+          baseUrl={baseUrl}
+          registerSessionId={sessionId}
+          getAuthHeaders={apiAuth}
+        />
+      ) : null}
+
       <PosSaleCashierSignInOverlay
         open={
           saleHydrated &&
@@ -6242,23 +7504,48 @@ export default function Cart({
               try {
                 const loaded = await Promise.all(
                   selections.map(async ({ order, items }) => {
-                    const res = await fetch(`${baseUrl}/api/transactions/${order.id}`, {
+                    const res = await fetch(
+                      `${baseUrl}/api/transactions/${order.id}`,
+                      {
                       headers: apiAuth(),
-                    });
-                    if (!res.ok) throw new Error(`Could not load ${order.display_id} for pickup.`);
-                    const detail = (await res.json()) as HandoffOrderDetail;
-                    const requested = new Set(items.map((item) => item.transaction_line_id));
-                    const openItems = (detail.items ?? []).filter(
-                      (item) => requested.has(item.transaction_line_id) && !item.is_fulfilled && !item.is_internal,
+                      },
                     );
-                    if (openItems.length === 0) throw new Error(`${order.display_id} has no selected open items available for pickup.`);
-                    if (!detail.customer) throw new Error(`${order.display_id} has no customer attached.`);
+                    if (!res.ok)
+                      throw new Error(
+                        `Could not load ${order.display_id} for pickup.`,
+                      );
+                    const detail = (await res.json()) as HandoffOrderDetail;
+                    const requested = new Set(
+                      items.map((item) => item.transaction_line_id),
+                    );
+                    const openItems = (detail.items ?? []).filter(
+                      (item) =>
+                        requested.has(item.transaction_line_id) &&
+                        !item.is_fulfilled &&
+                        !item.is_internal,
+                    );
+                    if (openItems.length === 0)
+                      throw new Error(
+                        `${order.display_id} has no selected open items available for pickup.`,
+                      );
+                    if (!detail.customer)
+                      throw new Error(
+                        `${order.display_id} has no customer attached.`,
+                    );
                     return { order, detail, openItems };
                   }),
                 );
                 const firstCustomer = loaded[0]?.detail.customer;
-                if (!firstCustomer || loaded.some(({ detail }) => detail.customer?.id !== firstCustomer.id)) {
-                  toast("Pickup items must belong to the same customer.", "error");
+                if (
+                  !firstCustomer ||
+                  loaded.some(
+                    ({ detail }) => detail.customer?.id !== firstCustomer.id,
+                  )
+                ) {
+                  toast(
+                    "Pickup items must belong to the same customer.",
+                    "error",
+                  );
                   return false;
                 }
                 if (!canSelectCustomerForSale(firstCustomer.id)) return false;
@@ -6272,11 +7559,14 @@ export default function Cart({
                   email: firstCustomer.email ?? null,
                   phone: firstCustomer.phone ?? null,
                 });
-                const selectionsForCheckout = loaded.map(({ detail, openItems }) => ({
+                const selectionsForCheckout = loaded.map(
+                  ({ detail, openItems }) => ({
                   transactionId: detail.transaction_id,
                   lineIds: openItems.map((item) => item.transaction_line_id),
-                }));
-                const cartLines: CartLineItem[] = loaded.flatMap(({ openItems }) =>
+                  }),
+                );
+                const cartLines: CartLineItem[] = loaded.flatMap(
+                  ({ openItems }) =>
                   openItems.map((item) => ({
                     product_id: item.product_id,
                     variant_id: item.variant_id,
@@ -6293,21 +7583,31 @@ export default function Cart({
                     cart_row_id: newCartRowId(),
                     transaction_line_id: item.transaction_line_id,
                     salesperson_id: item.salesperson_id || null,
-                    line_type: item.custom_item_type === "alteration_service" ? "alteration_service" : "merchandise",
+                      line_type:
+                        item.custom_item_type === "alteration_service"
+                          ? "alteration_service"
+                          : "merchandise",
                     custom_item_type: item.custom_item_type || undefined,
                     custom_order_details: item.custom_order_details ?? null,
-                    order_lifecycle_status: item.order_lifecycle_status as OrderLifecycleStatus | undefined,
+                      order_lifecycle_status: item.order_lifecycle_status as
+                        OrderLifecycleStatus | undefined,
                   })),
                 );
                 const paymentLines: OrderPaymentCartLine[] = loaded
-                  .filter(({ detail }) => parseMoneyToCents(detail.balance_due ?? "0") > 0)
+                  .filter(
+                    ({ detail }) =>
+                      parseMoneyToCents(detail.balance_due ?? "0") > 0,
+                  )
                   .map(({ detail }) => ({
                     line_type: "order_payment",
                     cart_row_id: newCartRowId(),
                     target_transaction_id: detail.transaction_id,
-                    target_display_id: detail.transaction_display_id ?? detail.transaction_id.slice(0, 8).toUpperCase(),
+                    target_display_id:
+                      detail.transaction_display_id ??
+                      detail.transaction_id.slice(0, 8).toUpperCase(),
                     customer_id: firstCustomer.id,
-                    customer_name: `${firstCustomer.first_name} ${firstCustomer.last_name}`.trim(),
+                    customer_name:
+                      `${firstCustomer.first_name} ${firstCustomer.last_name}`.trim(),
                     amount: detail.balance_due ?? "0.00",
                     balance_before: detail.balance_due ?? "0.00",
                     projected_balance_after: "0.00",
@@ -6319,10 +7619,24 @@ export default function Cart({
                   );
                   return false;
                 }
-                setPickupTransactionId(selectionsForCheckout[0]?.transactionId ?? null);
+                setPickupTransactionId(
+                  selectionsForCheckout[0]?.transactionId ?? null,
+                );
                 setPickupTransactions(selectionsForCheckout);
-                setPickupPaidAmountCents(loaded.reduce((sum, { detail }) => sum + parseMoneyToCents(detail.amount_paid ?? "0"), 0));
-                setPickupReadyAlterations(loaded.flatMap(({ detail }) => (detail.linked_alterations ?? []).filter((alteration) => alteration.status === "ready")));
+                setPickupPaidAmountCents(
+                  loaded.reduce(
+                    (sum, { detail }) =>
+                      sum + parseMoneyToCents(detail.amount_paid ?? "0"),
+                    0,
+                  ),
+                );
+                setPickupReadyAlterations(
+                  loaded.flatMap(({ detail }) =>
+                    (detail.linked_alterations ?? []).filter(
+                      (alteration) => alteration.status === "ready",
+                    ),
+                  ),
+                );
                 setManagerOverrideApproved(false);
                 setManagerOverrideReason("");
                 setManagerOverrideManagerStaffId("");
@@ -6345,10 +7659,18 @@ export default function Cart({
                   ];
                 });
                 setCheckoutDrawerOpen(true);
-                toast(`Loaded ${cartLines.length} pickup item(s) from ${selectionsForCheckout.length} order(s).`, "success");
+                toast(
+                  `Loaded ${cartLines.length} pickup item(s) from ${selectionsForCheckout.length} order(s).`,
+                  "success",
+                );
                 return true;
               } catch (error) {
-                toast(error instanceof Error ? error.message : "Could not load the pickup basket.", "error");
+                toast(
+                  error instanceof Error
+                    ? error.message
+                    : "Could not load the pickup basket.",
+                  "error",
+                );
                 return false;
               }
             }}
@@ -6367,7 +7689,7 @@ export default function Cart({
           <OrderReviewModal
             isOpen={orderReviewOpen}
             onClose={() => setOrderReviewOpen(false)}
-            items={lines.map(l => ({
+            items={lines.map((l) => ({
               cart_row_id: l.cart_row_id,
               product_id: l.product_id,
               variant_id: l.variant_id ?? "",
@@ -6381,15 +7703,24 @@ export default function Cart({
               need_by_date: l.need_by_date ?? null,
               order_lifecycle_status: l.order_lifecycle_status,
             }))}
-            customer={selectedCustomer ? {
+            customer={
+              selectedCustomer
+                ? {
               id: selectedCustomer.id,
               first_name: selectedCustomer.first_name,
               last_name: selectedCustomer.last_name,
               email: selectedCustomer.email ?? undefined,
               phone: selectedCustomer.phone ?? undefined,
-            } : null}
+                  }
+                : null
+            }
             onComplete={(options) => {
-              if (lines.length > 0 && !isRmsPaymentCart && !isGiftCardOnlyCart && !hasSalespersonAttribution()) {
+              if (
+                lines.length > 0 &&
+                !isRmsPaymentCart &&
+                !isGiftCardOnlyCart &&
+                !hasSalespersonAttribution()
+              ) {
                 toast(
                   "Select a salesperson for this sale, or assign one on a line, so commissions can be calculated.",
                   "error",
@@ -6407,37 +7738,54 @@ export default function Cart({
             }}
             onUpdateLineLifecycleStatus={updateLineOrderLifecycleStatus}
           />
-
         </>
       )}
 
-      {showPrintRetryPanel && createPortal(
+      {showPrintRetryPanel &&
+        createPortal(
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
           <div className="w-full max-w-md rounded-2xl border border-app-border bg-app-surface p-5 shadow-2xl">
             <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-sm font-black uppercase tracking-widest text-app-text">Retry Failed Prints</h3>
-              <button onClick={() => setShowPrintRetryPanel(false)} className="p-1 text-app-text-muted hover:text-app-text">
+                <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
+                  Retry Failed Prints
+                </h3>
+                <button
+                  onClick={() => setShowPrintRetryPanel(false)}
+                  className="p-1 text-app-text-muted hover:text-app-text"
+                >
                 <X size={18} />
               </button>
             </div>
-            <PrintRetryList onRetry={() => {
+              <PrintRetryList
+                onRetry={() => {
               setShowPrintRetryPanel(false);
               void (async () => {
-                const { getFailedPrintJobs } = await import("../../lib/printRetryQueue");
+                    const { getFailedPrintJobs } =
+                      await import("../../lib/printRetryQueue");
                 const jobs = await getFailedPrintJobs();
                 setFailedPrintCount(jobs.length);
               })();
-            }} />
+                }}
+              />
           </div>
         </div>,
-        document.getElementById("drawer-root") || document.body
+          document.getElementById("drawer-root") || document.body,
       )}
     </div>
   );
 }
 
 function PrintRetryList({ onRetry }: { onRetry: () => void }) {
-  const [jobs, setJobs] = useState<{ id: string; label: string; transactionId: string; timestamp: number; attempts: number; printableBase64: string }[]>([]);
+  const [jobs, setJobs] = useState<
+    {
+      id: string;
+      label: string;
+      transactionId: string;
+      timestamp: number;
+      attempts: number;
+      printableBase64: string;
+    }[]
+  >([]);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -6447,9 +7795,17 @@ function PrintRetryList({ onRetry }: { onRetry: () => void }) {
     })();
   }, []);
 
-  const retry = async (job: { id: string; label: string; transactionId: string; timestamp: number; attempts: number; printableBase64?: string }) => {
+  const retry = async (job: {
+    id: string;
+    label: string;
+    transactionId: string;
+    timestamp: number;
+    attempts: number;
+    printableBase64?: string;
+  }) => {
     try {
-      const { removeFailedPrintJob, incrementPrintAttempt } = await import("../../lib/printRetryQueue");
+      const { removeFailedPrintJob, incrementPrintAttempt } =
+        await import("../../lib/printRetryQueue");
       const { printReceiptBase64 } = await import("../../lib/receiptPrint");
       await incrementPrintAttempt(job.id);
       if (!job.printableBase64) throw new Error("Missing print payload");
@@ -6471,16 +7827,25 @@ function PrintRetryList({ onRetry }: { onRetry: () => void }) {
   };
 
   if (jobs.length === 0) {
-    return <p className="text-center text-sm text-app-text-muted">No failed prints to retry.</p>;
+    return (
+      <p className="text-center text-sm text-app-text-muted">
+        No failed prints to retry.
+      </p>
+    );
   }
 
   return (
     <div className="space-y-2 max-h-[60vh] overflow-y-auto">
       {jobs.map((job) => (
-        <div key={job.id} className="flex items-center gap-2 rounded-xl border border-app-border bg-app-surface-2 p-3">
+        <div
+          key={job.id}
+          className="flex items-center gap-2 rounded-xl border border-app-border bg-app-surface-2 p-3"
+        >
           <div className="min-w-0 flex-1">
             <p className="text-xs font-black text-app-text">{job.label}</p>
-            <p className="text-[10px] text-app-text-muted">Tx: {job.transactionId.slice(-8)} · Attempts: {job.attempts}</p>
+            <p className="text-[10px] text-app-text-muted">
+              Tx: {job.transactionId.slice(-8)} · Attempts: {job.attempts}
+            </p>
           </div>
           <button
             onClick={() => void retry(job)}

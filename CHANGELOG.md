@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Sale Complete, receipts, Transaction History, Payments Health, and refund or
   exchange routing preserve that distinction without rewriting financial
   amounts.
+- **Helcim Dispatch and Card Not Present Finalization**: Card Reader now performs a single just-in-time listening check before ROS creates the pending attempt, keeps customer enrichment outside the terminal reservation, and describes HTTP 202 as accepted rather than delivered or approved. Non-listening readers fail without sending a purchase, unresolved accepted requests remain protected, recovery guidance no longer claims the physical reader is ready, and Card Not Present decline/close events finalize their exact server-side attempt before the Register unlocks.
 - **Z-Report Check and Deposit Reconciliation**: Register close now reviews
   each check from its authoritative payment tender instead of a partial
   Transaction allocation. Z-Reports include checks in every per-register
@@ -47,12 +48,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   only the net refund or additional balance, while unrelated pickup items remain
   intact.
 - **Wedding Deposit Cart and Receipt Truth**: Added a dedicated **Wedding
-  Deposit** Cart toolbar action that opens the selected payer's wedding party,
-  excludes the payer from beneficiaries, keeps each deposit removable, and
-  supports deposit-only checkout through the normal Payment screen. Sale
-  Complete and printed, HTML, and text receipts now identify each amount as
-  **Wedding Party Deposit (party name)** and keep it separate from merchandise
-  payment and balance figures.
+  Deposit** Cart toolbar action with a guided party, member, destination, and
+  review workflow. Staff can start a party from Party Name and Wedding Date,
+  add or link customers with roles, hold each member's amount for a future
+  order or apply it to one exact open Transaction Record, and resume the funded
+  batch later from the payer's account. A server preflight resolves changed
+  balances and member links before tender; a decline posts nothing and leaves
+  the reviewed allocations staged for retry. Source-tracked member-order
+  handoff, payer and member receipt reprints, and atomic ledger/audit links keep
+  each deposit tied to its payer, party, beneficiary, destination, salesperson,
+  and eventual order. Sale Complete and printed, HTML, and text receipts name
+  every beneficiary and destination, while the member receipt names who paid.
+  Refunds run one member at a time, resolve the exact originating Helcim payment
+  without staff-entered provider IDs, return money to the original payer rather
+  than the member, preserve refundable capacity for the other members funded by
+  the same charge, and record the result in both Customer histories.
 - **Multi-Order Register Cart**: Customer Orders now keeps the workspace open
   while staff stage payments and pickups across several open orders. Starting a
   pickup preserves intentional partial payments already in the cart, and local

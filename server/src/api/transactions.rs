@@ -208,7 +208,7 @@ pub use crate::logic::transaction_list::{
     TransactionPipelineStats,
 };
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct TransactionCustomerSummary {
     pub id: Uuid,
     pub customer_code: String,
@@ -343,6 +343,8 @@ pub struct TransactionDetailResponse {
     pub wedding_deposit_amount: Decimal,
     #[serde(default)]
     pub wedding_deposits: Vec<receipt_shared::ReceiptWeddingPartyDeposit>,
+    #[serde(default)]
+    pub applied_wedding_deposits: Vec<receipt_shared::ReceiptAppliedWeddingDeposit>,
     pub balance_due: Decimal,
     pub is_counterpoint_import: bool,
     #[serde(default)]
@@ -379,6 +381,8 @@ pub struct TransactionDetailResponse {
     pub refund_total: Decimal,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub original_helcim_transaction_id_for_refund: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wedding_refund_recipient: Option<TransactionCustomerSummary>,
     #[serde(default)]
     pub payment_applications: Vec<TransactionPaymentApplication>,
     #[serde(default)]
@@ -511,6 +515,20 @@ fn is_order_payment_receipt_item(item: &TransactionDetailItem) -> bool {
 }
 
 impl TransactionDetailResponse {
+    fn wedding_refund_recipient_receipt_note(&self) -> Option<String> {
+        let payer = self.wedding_refund_recipient.as_ref()?;
+        let full_name = format!("{} {}", payer.first_name.trim(), payer.last_name.trim())
+            .trim()
+            .to_string();
+        let masked_name = crate::logic::receipt_privacy::mask_name_for_receipt(
+            (!full_name.is_empty()).then_some(full_name.as_str()),
+        )
+        .unwrap_or_else(|| "Original wedding deposit payer".to_string());
+        Some(format!(
+            "Refund recipient: {masked_name} (original wedding deposit payer; not the member)"
+        ))
+    }
+
     fn selected_receipt_items<'a>(
         &'a self,
         transaction_line_ids: Option<&[Uuid]>,
@@ -800,9 +818,13 @@ impl TransactionDetailResponse {
             amount_paid: receipt_amount_paid,
             wedding_deposit_amount: self.wedding_deposit_amount,
             wedding_deposits: self.wedding_deposits.clone(),
+            applied_wedding_deposits: self.applied_wedding_deposits.clone(),
             balance_due: receipt_balance_due,
             payment_methods_summary: if refund_receipt {
-                self.refund_payment_methods_summary.clone()
+                match self.wedding_refund_recipient_receipt_note() {
+                    Some(note) => format!("{} | {note}", self.refund_payment_methods_summary),
+                    None => self.refund_payment_methods_summary.clone(),
+                }
             } else if !self.pickup_applications.is_empty() && self.payments.is_empty() {
                 "No tender collected at pickup".to_string()
             } else {
@@ -991,6 +1013,25 @@ mod tests {
             RefundPaymentMethod::RecordedExternalCard
         );
     }
+
+    #[test]
+    fn shared_wedding_card_refunds_keep_capacity_separate_by_member() {
+        assert_eq!(
+            remaining_card_refund_capacity_cents(20_000, 100_000, 0, 20_000),
+            20_000,
+            "another member's refund reduces provider capacity but not this member's allocation"
+        );
+        assert_eq!(
+            remaining_card_refund_capacity_cents(20_000, 100_000, 20_000, 20_000),
+            0,
+            "the refunded member cannot reuse the same allocation"
+        );
+        assert_eq!(
+            remaining_card_refund_capacity_cents(20_000, 100_000, 0, 95_000),
+            5_000,
+            "provider-wide capacity still caps the member allocation"
+        );
+    }
     use axum::http::HeaderValue;
     use sqlx::Connection;
     use wiremock::matchers::{method, path};
@@ -1041,6 +1082,7 @@ mod tests {
             amount_paid: Decimal::new(1000, 2),
             wedding_deposit_amount: Decimal::ZERO,
             wedding_deposits: Vec::new(),
+            applied_wedding_deposits: Vec::new(),
             balance_due: Decimal::ZERO,
             is_counterpoint_import: false,
             counterpoint_return_review_blocked: false,
@@ -1062,6 +1104,7 @@ mod tests {
             refund_payment_methods_summary: "Cash".to_string(),
             refund_total,
             original_helcim_transaction_id_for_refund: None,
+            wedding_refund_recipient: None,
             payment_applications: Vec::new(),
             pickup_applications: Vec::new(),
             operator_staff_id: None,
@@ -1360,6 +1403,33 @@ mod tests {
             .items
             .iter()
             .any(|item| item.sku == "ROS-SHIPPING-FEE"));
+    }
+
+    #[test]
+    fn wedding_member_refund_receipt_names_original_payer_as_recipient() {
+        let item = sample_item(1, 1);
+        let line_id = item.transaction_line_id;
+        let mut detail = sample_transaction_detail(vec![item]);
+        detail.refund_total = Decimal::new(26500, 2);
+        detail.wedding_refund_recipient = Some(TransactionCustomerSummary {
+            id: Uuid::new_v4(),
+            customer_code: "PAYER-1".to_string(),
+            first_name: "Original".to_string(),
+            last_name: "Payer".to_string(),
+            phone: None,
+            email: None,
+        });
+
+        let receipt = detail
+            .build_receipt_data(Some(&[line_id]))
+            .expect("wedding refund receipt builds");
+
+        assert!(receipt
+            .payment_methods_summary
+            .contains("Refund recipient: Original P."));
+        assert!(receipt
+            .payment_methods_summary
+            .contains("original wedding deposit payer; not the member"));
     }
 
     fn sample_internal_item() -> TransactionDetailItem {
@@ -2158,6 +2228,11 @@ mod tests {
         .fetch_one(&pool)
         .await
         .expect("insert refund queue fixture");
+        sqlx::query("UPDATE transactions SET balance_due = -100.00 WHERE id = $1")
+            .bind(transaction_id)
+            .execute(&pool)
+            .await
+            .expect("stage exact refundable paid credit for provider durability test");
 
         let make_request = || ProcessRefundRequest {
             session_id,
@@ -3117,11 +3192,15 @@ async fn build_refund_event_receipt_order(
             }
         }
     }
-    let payment_methods_summary = if payment_summary_parts.is_empty() {
+    let mut payment_methods_summary = if payment_summary_parts.is_empty() {
         "No additional tender".to_string()
     } else {
         payment_summary_parts.join(" | ")
     };
+    if let Some(note) = original_detail.wedding_refund_recipient_receipt_note() {
+        payment_methods_summary.push_str(" | ");
+        payment_methods_summary.push_str(&note);
+    }
 
     let returned_subtotal = return_rows
         .iter()
@@ -3186,6 +3265,7 @@ async fn build_refund_event_receipt_order(
         amount_paid: event_total,
         wedding_deposit_amount: Decimal::ZERO,
         wedding_deposits: Vec::new(),
+        applied_wedding_deposits: Vec::new(),
         balance_due: Decimal::ZERO,
         payment_methods_summary,
         payment_applications: Vec::new(),
@@ -4250,6 +4330,17 @@ fn process_refund_response(
     }
 }
 
+fn remaining_card_refund_capacity_cents(
+    member_source_cents: i64,
+    original_charge_cents: i64,
+    member_refunded_cents: i64,
+    provider_refunded_cents: i64,
+) -> i64 {
+    (member_source_cents - member_refunded_cents)
+        .min(original_charge_cents - provider_refunded_cents)
+        .max(0)
+}
+
 #[derive(Debug)]
 struct RefundCapacity {
     corrected_amount_due: Decimal,
@@ -5137,6 +5228,33 @@ async fn patch_transaction(
         }
 
         if status == DbOrderStatus::Cancelled {
+            let is_direct_wedding_deposit_transaction: bool = sqlx::query_scalar(
+                r#"
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM wedding_deposit_workflows workflow
+                    WHERE workflow.status <> 'voided'
+                      AND (
+                          workflow.payer_transaction_id = $1
+                          OR EXISTS (
+                              SELECT 1
+                              FROM wedding_deposit_workflow_allocations allocation
+                              WHERE allocation.workflow_id = workflow.id
+                                AND allocation.target_transaction_id = $1
+                          )
+                      )
+                )
+                "#,
+            )
+            .bind(transaction_id)
+            .fetch_one(&state.db)
+            .await?;
+            if is_direct_wedding_deposit_transaction {
+                return Err(TransactionError::InvalidPayload(
+            "This Transaction funds or directly received wedding-party member deposits and cannot be cancelled as an ordinary order. Refund one member allocation at a time from that member's Customer account and Transaction Record. Original-card funds return to the original payer, not the member. Nothing was changed."
+                        .to_string(),
+                ));
+            }
             let refundable_pre: Decimal = sqlx::query_scalar(
                 r#"
                 SELECT COALESCE(SUM(pa.amount_allocated), 0)::numeric(14,2)
@@ -5322,7 +5440,8 @@ async fn patch_transaction(
                             TransactionError::Database(db)
                         }
                         customer_open_deposit::CustomerOpenDepositError::NotFound
-                        | customer_open_deposit::CustomerOpenDepositError::InsufficientBalance => {
+                        | customer_open_deposit::CustomerOpenDepositError::InsufficientBalance
+                        | customer_open_deposit::CustomerOpenDepositError::SourceRequired => {
                             TransactionError::InvalidPayload(
                                 "open deposit could not be restored during cancellation"
                                     .to_string(),
@@ -7063,6 +7182,34 @@ async fn post_transaction_void(
         return Err(TransactionError::NotFound);
     };
 
+    let is_direct_wedding_deposit_transaction: bool = sqlx::query_scalar(
+        r#"
+        SELECT EXISTS (
+            SELECT 1
+            FROM wedding_deposit_workflows workflow
+            WHERE workflow.status <> 'voided'
+              AND (
+                  workflow.payer_transaction_id = $1
+                  OR EXISTS (
+                      SELECT 1
+                      FROM wedding_deposit_workflow_allocations allocation
+                      WHERE allocation.workflow_id = workflow.id
+                        AND allocation.target_transaction_id = $1
+                  )
+              )
+        )
+        "#,
+    )
+    .bind(transaction_id)
+    .fetch_one(&mut *tx)
+    .await?;
+    if is_direct_wedding_deposit_transaction {
+        return Err(TransactionError::InvalidPayload(
+            "This Transaction funds or directly received wedding-party member deposits and cannot use the ordinary same-day void. Refund one member allocation at a time from that member's Customer account and Transaction Record. Original-card funds return to the original payer, not the member. Nothing was changed."
+                .to_string(),
+        ));
+    }
+
     if original_status == DbOrderStatus::Cancelled {
         return Err(TransactionError::InvalidPayload(
             "cancelled transactions cannot be voided".to_string(),
@@ -7313,7 +7460,8 @@ async fn post_transaction_void(
                     TransactionError::Database(db)
                 }
                 customer_open_deposit::CustomerOpenDepositError::NotFound
-                | customer_open_deposit::CustomerOpenDepositError::InsufficientBalance => {
+                | customer_open_deposit::CustomerOpenDepositError::InsufficientBalance
+                | customer_open_deposit::CustomerOpenDepositError::SourceRequired => {
                     TransactionError::InvalidPayload(
                         "open deposit could not be restored during void".to_string(),
                     )
@@ -7759,6 +7907,111 @@ async fn process_refund(
             "No refundable balance is open for this transaction. No refund was sent.".to_string(),
         ));
     };
+    let wedding_refund_payer_customer_id: Option<Uuid> = sqlx::query_scalar(
+        r#"
+        SELECT payer_customer_id
+        FROM (
+            SELECT workflow.payer_customer_id, workflow.created_at
+            FROM wedding_deposit_workflow_allocations allocation
+            INNER JOIN wedding_deposit_workflows workflow
+                ON workflow.id = allocation.workflow_id
+            WHERE allocation.destination_kind = 'existing_transaction'
+              AND allocation.target_transaction_id = $1
+
+            UNION ALL
+
+            SELECT workflow.payer_customer_id, source_event.created_at
+            FROM customer_open_deposit_source_events source_event
+            INNER JOIN customer_open_deposit_ledger redemption
+                ON redemption.id = source_event.ledger_event_id
+            INNER JOIN wedding_deposit_workflow_allocations allocation
+                ON allocation.held_credit_ledger_id = source_event.source_credit_ledger_id
+            INNER JOIN wedding_deposit_workflows workflow
+                ON workflow.id = allocation.workflow_id
+            WHERE source_event.event_kind = 'redemption'
+              AND redemption.reason = 'checkout_redemption'
+              AND redemption.transaction_id = $1
+        ) wedding_source
+        ORDER BY created_at DESC
+        LIMIT 1
+        "#,
+    )
+    .bind(transaction_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let wedding_original_helcim_remaining: Decimal = sqlx::query_scalar(
+        r#"
+        WITH wedding_helcim_sources AS (
+            SELECT
+                payment.provider_transaction_id,
+                allocation_payment.amount AS source_amount
+            FROM wedding_deposit_workflow_allocations wedding_allocation
+            INNER JOIN wedding_deposit_workflow_allocation_payments allocation_payment
+                ON allocation_payment.allocation_id = wedding_allocation.id
+            INNER JOIN payment_transactions payment
+                ON payment.id = allocation_payment.source_payment_transaction_id
+            WHERE wedding_allocation.target_transaction_id = $1
+              AND wedding_allocation.destination_kind = 'existing_transaction'
+              AND allocation_payment.amount > 0
+              AND payment.payment_provider = 'helcim'
+              AND payment.status IN ('success', 'approved', 'captured')
+              AND payment.provider_transaction_id IS NOT NULL
+
+            UNION ALL
+
+            SELECT
+                payment.provider_transaction_id,
+                event_payment.amount AS source_amount
+            FROM customer_open_deposit_source_events source_event
+            INNER JOIN customer_open_deposit_ledger redemption
+                ON redemption.id = source_event.ledger_event_id
+            INNER JOIN customer_open_deposit_source_event_payments event_payment
+                ON event_payment.source_event_id = source_event.id
+            INNER JOIN payment_transactions payment
+                ON payment.id = event_payment.source_payment_transaction_id
+            WHERE source_event.event_kind = 'redemption'
+              AND redemption.reason = 'checkout_redemption'
+              AND redemption.transaction_id = $1
+              AND payment.payment_provider = 'helcim'
+              AND payment.status IN ('success', 'approved', 'captured')
+              AND payment.provider_transaction_id IS NOT NULL
+        ), source_totals AS (
+            SELECT
+                provider_transaction_id,
+                SUM(source_amount) AS source_amount
+            FROM wedding_helcim_sources
+            GROUP BY provider_transaction_id
+        )
+        SELECT COALESCE(SUM(GREATEST(
+            source.source_amount - COALESCE((
+                SELECT SUM(ABS(refund_payment.amount))
+                FROM payment_transactions refund_payment
+                WHERE refund_payment.payment_provider = 'helcim'
+                  AND refund_payment.status IN ('success', 'approved', 'captured')
+                  AND refund_payment.amount < 0
+                  AND refund_payment.metadata->>'original_provider_transaction_id'
+                      = source.provider_transaction_id
+                  AND EXISTS (
+                      SELECT 1
+                      FROM payment_allocations refund_allocation
+                      WHERE refund_allocation.transaction_id = refund_payment.id
+                        AND refund_allocation.target_transaction_id = $1
+                  )
+            ), 0),
+            0
+        )), 0)::numeric(14,2)
+        FROM source_totals source
+        "#,
+    )
+    .bind(transaction_id)
+    .fetch_one(&mut *tx)
+    .await?;
+    if wedding_original_helcim_remaining > Decimal::ZERO && !refund_method.is_card() {
+        return Err(TransactionError::InvalidPayload(format!(
+            "This member allocation still has ${} on the original payer's Helcim card. Refund that exact original card first; money must return to the wedding deposit payer, not the member.",
+            wedding_original_helcim_remaining.round_dp(2)
+        )));
+    }
     let mut capacity =
         validate_refund_capacity_in_tx(&mut tx, transaction_id, &refund, exact_refund_amount)
             .await?;
@@ -7891,6 +8144,25 @@ async fn process_refund(
     let mut provider_card_type: Option<String> = None;
     let mut card_brand: Option<String> = None;
     let mut card_last4: Option<String> = None;
+    let mut refund_recipient_customer_id = wedding_refund_payer_customer_id.or(refund.customer_id);
+    let wedding_refund_payer_name: Option<String> =
+        if let Some(payer_customer_id) = wedding_refund_payer_customer_id {
+            sqlx::query_scalar(
+                r#"
+                SELECT COALESCE(
+                    NULLIF(TRIM(CONCAT_WS(' ', first_name, last_name)), ''),
+                    customer_code
+                )
+                FROM customers
+                WHERE id = $1
+                "#,
+            )
+            .bind(payer_customer_id)
+            .fetch_optional(&mut *tx)
+            .await?
+        } else {
+            None
+        };
 
     if refund_method.is_card() {
         let manual_external_card_refund =
@@ -7908,38 +8180,139 @@ async fn process_refund(
         #[derive(sqlx::FromRow)]
         struct CardCapacityRow {
             provider_transaction_id: String,
+            original_payer_customer_id: Option<Uuid>,
             provider_card_type: Option<String>,
             card_brand: Option<String>,
             card_last4: Option<String>,
             original_amount_cents: i64,
-            already_refunded_cents: i64,
+            original_charge_amount_cents: i64,
+            member_refunded_cents: i64,
+            provider_refunded_cents: i64,
         }
 
         let cards: Vec<CardCapacityRow> = sqlx::query_as(
             r#"
-            WITH original_cards AS (
+            WITH eligible_sources AS (
                 SELECT
-                    pt.provider_transaction_id,
-                    MAX(pt.provider_card_type) AS provider_card_type,
-                    MAX(pt.card_brand) AS card_brand,
-                    MAX(pt.card_last4) AS card_last4,
-                    ROUND(SUM(pa.amount_allocated) * 100)::bigint AS original_amount_cents
-                FROM payment_allocations pa
-                INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
-                WHERE pa.target_transaction_id = $1
-                  AND pa.amount_allocated > 0
-                  AND pt.payment_provider = 'helcim'
-                  AND pt.status IN ('success', 'approved', 'captured')
-                  AND pt.amount > 0
-                  AND pt.provider_transaction_id IS NOT NULL
-                GROUP BY pt.provider_transaction_id
+                    payment.provider_transaction_id,
+                    payment.payer_id AS original_payer_customer_id,
+                    payment.provider_card_type,
+                    payment.card_brand,
+                    payment.card_last4,
+                    allocation_payment.amount AS source_amount,
+                    payment.amount AS original_charge_amount
+                FROM wedding_deposit_workflow_allocations wedding_allocation
+                INNER JOIN wedding_deposit_workflow_allocation_payments allocation_payment
+                    ON allocation_payment.allocation_id = wedding_allocation.id
+                INNER JOIN payment_transactions payment
+                    ON payment.id = allocation_payment.source_payment_transaction_id
+                WHERE wedding_allocation.target_transaction_id = $1
+                  AND wedding_allocation.destination_kind = 'existing_transaction'
+                  AND allocation_payment.amount > 0
+                  AND payment.payment_provider = 'helcim'
+                  AND payment.status IN ('success', 'approved', 'captured')
+                  AND payment.amount > 0
+                  AND payment.provider_transaction_id IS NOT NULL
+
+                UNION ALL
+
+                SELECT
+                    payment.provider_transaction_id,
+                    payment.payer_id AS original_payer_customer_id,
+                    payment.provider_card_type,
+                    payment.card_brand,
+                    payment.card_last4,
+                    event_payment.amount AS source_amount,
+                    payment.amount AS original_charge_amount
+                FROM customer_open_deposit_source_events source_event
+                INNER JOIN customer_open_deposit_ledger redemption
+                    ON redemption.id = source_event.ledger_event_id
+                INNER JOIN customer_open_deposit_source_event_payments event_payment
+                    ON event_payment.source_event_id = source_event.id
+                INNER JOIN payment_transactions payment
+                    ON payment.id = event_payment.source_payment_transaction_id
+                WHERE source_event.event_kind = 'redemption'
+                  AND redemption.reason = 'checkout_redemption'
+                  AND redemption.transaction_id = $1
+                  AND payment.payment_provider = 'helcim'
+                  AND payment.status IN ('success', 'approved', 'captured')
+                  AND payment.amount > 0
+                  AND payment.provider_transaction_id IS NOT NULL
+
+                UNION ALL
+
+                SELECT
+                    payment.provider_transaction_id,
+                    payment.payer_id AS original_payer_customer_id,
+                    payment.provider_card_type,
+                    payment.card_brand,
+                    payment.card_last4,
+                    allocation.amount_allocated AS source_amount,
+                    payment.amount AS original_charge_amount
+                FROM payment_allocations allocation
+                INNER JOIN payment_transactions payment
+                    ON payment.id = allocation.transaction_id
+                WHERE allocation.target_transaction_id = $1
+                  AND allocation.amount_allocated > 0
+                  AND payment.payment_provider = 'helcim'
+                  AND payment.status IN ('success', 'approved', 'captured')
+                  AND payment.amount > 0
+                  AND payment.provider_transaction_id IS NOT NULL
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM wedding_deposit_workflow_allocations wedding_allocation
+                      WHERE wedding_allocation.destination_kind = 'existing_transaction'
+                        AND wedding_allocation.target_transaction_id = $1
+                      UNION ALL
+                      SELECT 1
+                      FROM customer_open_deposit_source_events wedding_source_event
+                      INNER JOIN customer_open_deposit_ledger wedding_redemption
+                          ON wedding_redemption.id = wedding_source_event.ledger_event_id
+                      WHERE wedding_source_event.event_kind = 'redemption'
+                        AND wedding_redemption.reason = 'checkout_redemption'
+                        AND wedding_redemption.transaction_id = $1
+                  )
+            ),
+            original_cards AS (
+                SELECT
+                    source.provider_transaction_id,
+                    (ARRAY_AGG(source.original_payer_customer_id)
+                        FILTER (WHERE source.original_payer_customer_id IS NOT NULL))[1]
+                        AS original_payer_customer_id,
+                    MAX(source.provider_card_type) AS provider_card_type,
+                    MAX(source.card_brand) AS card_brand,
+                    MAX(source.card_last4) AS card_last4,
+                    ROUND(SUM(source.source_amount) * 100)::bigint AS original_amount_cents,
+                    ROUND(MAX(source.original_charge_amount) * 100)::bigint
+                        AS original_charge_amount_cents
+                FROM eligible_sources source
+                GROUP BY source.provider_transaction_id
             )
             SELECT
                 original.provider_transaction_id,
+                original.original_payer_customer_id,
                 original.provider_card_type,
                 original.card_brand,
                 original.card_last4,
                 original.original_amount_cents,
+                original.original_charge_amount_cents,
+                COALESCE(
+                    (
+                        SELECT ROUND(SUM(ABS(ref_pt.amount)) * 100)::bigint
+                        FROM payment_transactions ref_pt
+                        WHERE ref_pt.payment_provider = 'helcim'
+                          AND ref_pt.status IN ('success', 'approved', 'captured')
+                          AND ref_pt.amount < 0
+                          AND (ref_pt.metadata->>'original_provider_transaction_id') = original.provider_transaction_id
+                          AND EXISTS (
+                              SELECT 1
+                              FROM payment_allocations refund_allocation
+                              WHERE refund_allocation.transaction_id = ref_pt.id
+                                AND refund_allocation.target_transaction_id = $1
+                          )
+                    ),
+                    0
+                )::bigint AS member_refunded_cents,
                 COALESCE(
                     (
                         SELECT ROUND(SUM(ABS(ref_pt.amount)) * 100)::bigint
@@ -7950,20 +8323,33 @@ async fn process_refund(
                           AND (ref_pt.metadata->>'original_provider_transaction_id') = original.provider_transaction_id
                     ),
                     0
-                )::bigint AS already_refunded_cents
+                )::bigint AS provider_refunded_cents
             FROM original_cards original
             ORDER BY
-                (original.original_amount_cents - COALESCE(
-                    (
+                LEAST(
+                    original.original_amount_cents - COALESCE((
                         SELECT ROUND(SUM(ABS(ref_pt.amount)) * 100)::bigint
                         FROM payment_transactions ref_pt
                         WHERE ref_pt.payment_provider = 'helcim'
                           AND ref_pt.status IN ('success', 'approved', 'captured')
                           AND ref_pt.amount < 0
                           AND (ref_pt.metadata->>'original_provider_transaction_id') = original.provider_transaction_id
-                    ),
-                    0
-                )::bigint) DESC,
+                          AND EXISTS (
+                              SELECT 1
+                              FROM payment_allocations refund_allocation
+                              WHERE refund_allocation.transaction_id = ref_pt.id
+                                AND refund_allocation.target_transaction_id = $1
+                          )
+                    ), 0)::bigint,
+                    original.original_charge_amount_cents - COALESCE((
+                        SELECT ROUND(SUM(ABS(ref_pt.amount)) * 100)::bigint
+                        FROM payment_transactions ref_pt
+                        WHERE ref_pt.payment_provider = 'helcim'
+                          AND ref_pt.status IN ('success', 'approved', 'captured')
+                          AND ref_pt.amount < 0
+                          AND (ref_pt.metadata->>'original_provider_transaction_id') = original.provider_transaction_id
+                    ), 0)::bigint
+                ) DESC,
                 original.provider_transaction_id ASC
             "#,
         )
@@ -8129,7 +8515,7 @@ async fn process_refund(
                 )
                 .bind(pt_id)
                 .bind(body.session_id)
-                .bind(refund.customer_id)
+                .bind(refund_recipient_customer_id)
                 .bind(-cash_tender_amount)
                 .bind(json!({
                     "kind": refund_record_kind,
@@ -8143,6 +8529,10 @@ async fn process_refund(
                     "external_refund_processor": "external_card",
                     "refund_event_id": refund_event_id,
                     "transaction_id": transaction_id,
+                    "wedding_member_customer_id": refund.customer_id,
+                    "refund_recipient_customer_id": refund_recipient_customer_id,
+                    "refund_recipient_reason": wedding_refund_payer_customer_id
+                        .map(|_| "original_wedding_deposit_payer"),
                     "exact_refund_amount": exact_refund_amount,
                     "cash_tender_amount": cash_tender_amount,
                     "cash_rounding_adjustment": cash_rounding_adjustment,
@@ -8250,12 +8640,22 @@ async fn process_refund(
                         .map_err(TransactionError::Database)?;
                 }
 
+                let customer_refund_summary = if let Some(payer_name) =
+                    wedding_refund_payer_name.as_deref()
+                {
+                    format!(
+                        "Refunded ${} to original wedding deposit payer {} via recorded Helcim card",
+                        exact_refund_amount, payer_name
+                    )
+                } else {
+                    refund_summary.to_string()
+                };
                 insert_transaction_activity_log_tx(
                     &mut tx,
                     transaction_id,
                     refund.customer_id,
                     "refund_processed",
-                    refund_summary,
+                    &customer_refund_summary,
                     json!({
                         "kind": refund_record_kind,
                         "payment_transaction_id": pt_id,
@@ -8270,6 +8670,10 @@ async fn process_refund(
                         "card_last4": card_last4,
                         "external_refund_processor": "external_card",
                         "refund_event_id": refund_event_id,
+                        "wedding_member_customer_id": refund.customer_id,
+                        "refund_recipient_customer_id": refund_recipient_customer_id,
+                        "refund_recipient_reason": wedding_refund_payer_customer_id
+                            .map(|_| "original_wedding_deposit_payer"),
                     }),
                 )
                 .await?;
@@ -8280,11 +8684,24 @@ async fn process_refund(
                     transaction_id,
                     refund.customer_id,
                     "refund_processed",
-                    refund_summary,
+                    &customer_refund_summary,
                 )
                 .await
                 {
                     tracing::warn!(error = %error, transaction_id = %transaction_id, "refund customer timeline note failed after refund committed");
+                }
+                if refund_recipient_customer_id != refund.customer_id {
+                    if let Err(error) = log_customer_milestone_note(
+                        &state.db,
+                        transaction_id,
+                        refund_recipient_customer_id,
+                        "refund_processed",
+                        &customer_refund_summary,
+                    )
+                    .await
+                    {
+                        tracing::warn!(error = %error, transaction_id = %transaction_id, "original wedding payer refund timeline note failed after refund committed");
+                    }
                 }
 
                 return Ok(Json(process_refund_response(
@@ -8322,6 +8739,9 @@ async fn process_refund(
 
         // Use the card with the most remaining capacity.
         let best = &cards[0];
+        refund_recipient_customer_id = best
+            .original_payer_customer_id
+            .or(refund_recipient_customer_id);
         card_brand = best.card_brand.clone();
         card_last4 = best.card_last4.clone();
         provider_card_type = best.provider_card_type.clone();
@@ -8339,12 +8759,24 @@ async fn process_refund(
                 "This original payment is a debit card. Helcim requires the customer and original card at the terminal for a debit refund; use Original Card at the register.".to_string(),
             ));
         }
-        let per_card_remaining = best.original_amount_cents - best.already_refunded_cents;
+        let per_card_remaining = remaining_card_refund_capacity_cents(
+            best.original_amount_cents,
+            best.original_charge_amount_cents,
+            best.member_refunded_cents,
+            best.provider_refunded_cents,
+        );
 
         if per_card_remaining <= 0 {
             let total_remaining: i64 = cards
                 .iter()
-                .map(|c| (c.original_amount_cents - c.already_refunded_cents).max(0))
+                .map(|c| {
+                    remaining_card_refund_capacity_cents(
+                        c.original_amount_cents,
+                        c.original_charge_amount_cents,
+                        c.member_refunded_cents,
+                        c.provider_refunded_cents,
+                    )
+                })
                 .sum();
             return Err(TransactionError::InvalidPayload(format!(
                 "all original Helcim card charges have been fully refunded (total remaining capacity: ${:.2}). No further card refund is possible.",
@@ -8355,7 +8787,14 @@ async fn process_refund(
         if amount_cents > per_card_remaining {
             let total_remaining: i64 = cards
                 .iter()
-                .map(|c| (c.original_amount_cents - c.already_refunded_cents).max(0))
+                .map(|c| {
+                    remaining_card_refund_capacity_cents(
+                        c.original_amount_cents,
+                        c.original_charge_amount_cents,
+                        c.member_refunded_cents,
+                        c.provider_refunded_cents,
+                    )
+                })
                 .sum();
             return Err(TransactionError::InvalidPayload(format!(
                 "refund of ${:.2} exceeds the remaining refundable capacity (${:.2}) on the best available card. \
@@ -8381,7 +8820,7 @@ async fn process_refund(
 
         // Idempotency key is per-card: uses the per-card already_refunded_cents (not queue-level),
         // so retrying after a partial split refund generates a fresh key scoped to this card's state.
-        let per_card_already_cents = best.already_refunded_cents;
+        let per_card_already_cents = best.provider_refunded_cents;
         let base_idempotency_key = card_refund_idempotency_key(
             refund.id,
             original_transaction_id,
@@ -9204,6 +9643,23 @@ async fn process_refund(
         }
     }
 
+    if wedding_refund_payer_customer_id.is_some() {
+        if let Some(object) = refund_metadata.as_object_mut() {
+            object.insert(
+                "wedding_member_customer_id".to_string(),
+                json!(refund.customer_id),
+            );
+            object.insert(
+                "refund_recipient_customer_id".to_string(),
+                json!(refund_recipient_customer_id),
+            );
+            object.insert(
+                "refund_recipient_reason".to_string(),
+                json!("original_wedding_deposit_payer"),
+            );
+        }
+    }
+
     #[cfg(test)]
     if FAIL_CARD_REFUND_LEDGER_AFTER_PROVIDER_APPROVAL
         .swap(false, std::sync::atomic::Ordering::SeqCst)
@@ -9235,7 +9691,7 @@ async fn process_refund(
         "#,
     )
     .bind(body.session_id)
-    .bind(refund.customer_id)
+    .bind(refund_recipient_customer_id)
     .bind(DbTransactionCategory::RetailSale)
     .bind(body.payment_method.trim())
     .bind(-cash_tender_amount)
@@ -9418,11 +9874,20 @@ async fn process_refund(
             .map_err(TransactionError::Database)?;
     }
 
-    let refund_summary = format!(
-        "Refunded ${} in Register via {}",
-        exact_refund_amount,
-        body.payment_method.trim()
-    );
+    let refund_summary = if let Some(payer_name) = wedding_refund_payer_name.as_deref() {
+        format!(
+            "Refunded ${} to original wedding deposit payer {} via {}",
+            exact_refund_amount,
+            payer_name,
+            body.payment_method.trim()
+        )
+    } else {
+        format!(
+            "Refunded ${} in Register via {}",
+            exact_refund_amount,
+            body.payment_method.trim()
+        )
+    };
     insert_transaction_activity_log_tx(
         &mut tx,
         transaction_id,
@@ -9446,6 +9911,10 @@ async fn process_refund(
             "provider_status": response_provider_status,
             "provider_refund_id": response_provider_refund_id,
             "original_provider_transaction_id": response_original_provider_transaction_id,
+            "wedding_member_customer_id": refund.customer_id,
+            "refund_recipient_customer_id": refund_recipient_customer_id,
+            "refund_recipient_reason": wedding_refund_payer_customer_id
+                .map(|_| "original_wedding_deposit_payer"),
         }),
     )
     .await?;
@@ -9467,6 +9936,19 @@ async fn process_refund(
     .await
     {
         tracing::warn!(error = %error, transaction_id = %transaction_id, "refund customer timeline note failed after refund committed");
+    }
+    if refund_recipient_customer_id != refund.customer_id {
+        if let Err(error) = log_customer_milestone_note(
+            &state.db,
+            transaction_id,
+            refund_recipient_customer_id,
+            "refund_processed",
+            &refund_summary,
+        )
+        .await
+        {
+            tracing::warn!(error = %error, transaction_id = %transaction_id, "original wedding payer refund timeline note failed after refund committed");
+        }
     }
 
     Ok(Json(process_refund_response(
@@ -11648,14 +12130,151 @@ pub(crate) async fn load_transaction_detail(
     };
     let original_helcim_transaction_id_for_refund: Option<String> = sqlx::query_scalar(
         r#"
-        SELECT pt.provider_transaction_id
-        FROM payment_allocations pa
-        INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
-        WHERE pa.target_transaction_id = $1
-          AND pa.amount_allocated > 0
-          AND pt.payment_provider = 'helcim'
-          AND NULLIF(TRIM(pt.provider_transaction_id), '') IS NOT NULL
-        ORDER BY pt.created_at DESC, pt.id DESC
+        WITH refund_sources AS (
+            SELECT
+                payment.id AS payment_transaction_id,
+                payment.provider_transaction_id,
+                allocation_payment.amount AS source_amount,
+                payment.amount AS original_charge_amount,
+                payment.created_at
+            FROM wedding_deposit_workflow_allocations wedding_allocation
+            INNER JOIN wedding_deposit_workflow_allocation_payments allocation_payment
+                ON allocation_payment.allocation_id = wedding_allocation.id
+            INNER JOIN payment_transactions payment
+                ON payment.id = allocation_payment.source_payment_transaction_id
+            WHERE wedding_allocation.target_transaction_id = $1
+              AND wedding_allocation.destination_kind = 'existing_transaction'
+              AND allocation_payment.amount > 0
+
+            UNION ALL
+
+            SELECT
+                payment.id AS payment_transaction_id,
+                payment.provider_transaction_id,
+                event_payment.amount AS source_amount,
+                payment.amount AS original_charge_amount,
+                payment.created_at
+            FROM customer_open_deposit_source_events source_event
+            INNER JOIN customer_open_deposit_ledger redemption
+                ON redemption.id = source_event.ledger_event_id
+            INNER JOIN customer_open_deposit_source_event_payments event_payment
+                ON event_payment.source_event_id = source_event.id
+            INNER JOIN payment_transactions payment
+                ON payment.id = event_payment.source_payment_transaction_id
+            WHERE source_event.event_kind = 'redemption'
+              AND redemption.reason = 'checkout_redemption'
+              AND redemption.transaction_id = $1
+
+            UNION ALL
+
+            SELECT
+                payment.id AS payment_transaction_id,
+                payment.provider_transaction_id,
+                allocation.amount_allocated AS source_amount,
+                payment.amount AS original_charge_amount,
+                payment.created_at
+            FROM payment_allocations allocation
+            INNER JOIN payment_transactions payment
+                ON payment.id = allocation.transaction_id
+            WHERE allocation.target_transaction_id = $1
+              AND allocation.amount_allocated > 0
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM wedding_deposit_workflow_allocations wedding_allocation
+                  WHERE wedding_allocation.destination_kind = 'existing_transaction'
+                    AND wedding_allocation.target_transaction_id = $1
+                  UNION ALL
+                  SELECT 1
+                  FROM customer_open_deposit_source_events wedding_source_event
+                  INNER JOIN customer_open_deposit_ledger wedding_redemption
+                      ON wedding_redemption.id = wedding_source_event.ledger_event_id
+                  WHERE wedding_source_event.event_kind = 'redemption'
+                    AND wedding_redemption.reason = 'checkout_redemption'
+                    AND wedding_redemption.transaction_id = $1
+              )
+        )
+        , source_totals AS (
+            SELECT
+                refund_sources.provider_transaction_id,
+                MAX(refund_sources.created_at) AS created_at,
+                SUM(refund_sources.source_amount) AS source_amount,
+                MAX(refund_sources.original_charge_amount) AS original_charge_amount
+            FROM refund_sources
+            INNER JOIN payment_transactions payment
+                ON payment.id = refund_sources.payment_transaction_id
+            WHERE payment.payment_provider = 'helcim'
+              AND payment.status IN ('success', 'approved', 'captured')
+              AND NULLIF(TRIM(refund_sources.provider_transaction_id), '') IS NOT NULL
+            GROUP BY refund_sources.provider_transaction_id
+        )
+        SELECT source.provider_transaction_id
+        FROM source_totals source
+        WHERE source.source_amount > COALESCE((
+            SELECT SUM(ABS(refund_payment.amount))
+            FROM payment_transactions refund_payment
+            WHERE refund_payment.payment_provider = 'helcim'
+              AND refund_payment.status IN ('success', 'approved', 'captured')
+              AND refund_payment.amount < 0
+              AND refund_payment.metadata->>'original_provider_transaction_id'
+                  = source.provider_transaction_id
+              AND EXISTS (
+                  SELECT 1
+                  FROM payment_allocations refund_allocation
+                  WHERE refund_allocation.transaction_id = refund_payment.id
+                    AND refund_allocation.target_transaction_id = $1
+              )
+        ), 0)
+          AND source.original_charge_amount > COALESCE((
+              SELECT SUM(ABS(refund_payment.amount))
+              FROM payment_transactions refund_payment
+              WHERE refund_payment.payment_provider = 'helcim'
+                AND refund_payment.status IN ('success', 'approved', 'captured')
+                AND refund_payment.amount < 0
+                AND refund_payment.metadata->>'original_provider_transaction_id'
+                    = source.provider_transaction_id
+          ), 0)
+        ORDER BY source.created_at DESC, source.provider_transaction_id DESC
+        LIMIT 1
+        "#,
+    )
+    .bind(transaction_id)
+    .fetch_optional(pool)
+    .await?;
+
+    let wedding_refund_recipient = sqlx::query_as::<_, TransactionCustomerSummary>(
+        r#"
+        WITH wedding_source AS (
+            SELECT workflow.payer_customer_id, workflow.created_at
+            FROM wedding_deposit_workflow_allocations allocation
+            INNER JOIN wedding_deposit_workflows workflow
+                ON workflow.id = allocation.workflow_id
+            WHERE allocation.destination_kind = 'existing_transaction'
+              AND allocation.target_transaction_id = $1
+
+            UNION ALL
+
+            SELECT workflow.payer_customer_id, source_event.created_at
+            FROM customer_open_deposit_source_events source_event
+            INNER JOIN customer_open_deposit_ledger redemption
+                ON redemption.id = source_event.ledger_event_id
+            INNER JOIN wedding_deposit_workflow_allocations allocation
+                ON allocation.held_credit_ledger_id = source_event.source_credit_ledger_id
+            INNER JOIN wedding_deposit_workflows workflow
+                ON workflow.id = allocation.workflow_id
+            WHERE source_event.event_kind = 'redemption'
+              AND redemption.reason = 'checkout_redemption'
+              AND redemption.transaction_id = $1
+        )
+        SELECT
+            payer.id,
+            payer.customer_code,
+            payer.first_name,
+            payer.last_name,
+            payer.phone,
+            payer.email
+        FROM wedding_source
+        INNER JOIN customers payer ON payer.id = wedding_source.payer_customer_id
+        ORDER BY wedding_source.created_at DESC
         LIMIT 1
         "#,
     )
@@ -11728,8 +12347,46 @@ pub(crate) async fn load_transaction_detail(
     )
     .collect::<Vec<_>>();
 
-    let wedding_deposits = sqlx::query_as::<_, (String, Decimal)>(
+    let mut wedding_deposits = sqlx::query_as::<_, (String, String, String, Decimal)>(
         r#"
+        SELECT
+            COALESCE(NULLIF(TRIM(party.party_name), ''), NULLIF(TRIM(party.groom_name), ''), 'Wedding party') AS party_name,
+            COALESCE(NULLIF(TRIM(CONCAT_WS(' ', beneficiary.first_name, beneficiary.last_name)), ''), 'Wedding member') AS beneficiary_name,
+            CASE allocation.destination_kind
+                WHEN 'existing_transaction' THEN 'Applied to ' || COALESCE(
+                    NULLIF(TRIM(target.display_id), ''),
+                    'Transaction ' || UPPER(LEFT(REPLACE(target.id::text, '-', ''), 8))
+                )
+                ELSE 'Held for future order'
+            END AS destination_label,
+            allocation.amount
+        FROM wedding_deposit_workflows workflow
+        INNER JOIN wedding_deposit_workflow_allocations allocation
+            ON allocation.workflow_id = workflow.id
+        INNER JOIN wedding_parties party ON party.id = workflow.wedding_party_id
+        INNER JOIN customers beneficiary ON beneficiary.id = allocation.beneficiary_customer_id
+        LEFT JOIN transactions target ON target.id = allocation.target_transaction_id
+        WHERE workflow.payer_transaction_id = $1
+        ORDER BY beneficiary.last_name, beneficiary.first_name, allocation.id
+        "#,
+    )
+    .bind(transaction_id)
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .map(|(party_name, beneficiary_name, destination_label, amount)| {
+        receipt_shared::ReceiptWeddingPartyDeposit {
+            party_name,
+            beneficiary_name: Some(beneficiary_name),
+            destination_label: Some(destination_label),
+            amount,
+        }
+    })
+    .collect::<Vec<_>>();
+
+    if wedding_deposits.is_empty() {
+        wedding_deposits = sqlx::query_as::<_, (String, Decimal)>(
+            r#"
         WITH deposit_rows AS (
             SELECT
                 l.wedding_party_id,
@@ -11765,17 +12422,79 @@ pub(crate) async fn load_transaction_detail(
             wp.groom_name
         ORDER BY party_name
         "#,
+        )
+        .bind(transaction_id)
+        .fetch_all(pool)
+        .await?
+        .into_iter()
+        .map(
+            |(party_name, amount)| receipt_shared::ReceiptWeddingPartyDeposit {
+                party_name,
+                beneficiary_name: None,
+                destination_label: None,
+                amount,
+            },
+        )
+        .collect::<Vec<_>>();
+    }
+    let wedding_deposit_amount = wedding_deposits
+        .iter()
+        .fold(Decimal::ZERO, |sum, deposit| sum + deposit.amount)
+        .round_dp(2);
+
+    let applied_wedding_deposits = sqlx::query_as::<_, (String, String, Decimal)>(
+        r#"
+        SELECT
+            applied.payer_name,
+            applied.party_name,
+            ROUND(SUM(applied.amount), 2)::numeric(14,2) AS amount
+        FROM (
+            SELECT
+                COALESCE(NULLIF(TRIM(source_credit.payer_display_name), ''), 'Wedding deposit payer') AS payer_name,
+                COALESCE(NULLIF(TRIM(party.party_name), ''), NULLIF(TRIM(party.groom_name), ''), 'Wedding party') AS party_name,
+                source_event.amount
+            FROM customer_open_deposit_source_events source_event
+            INNER JOIN customer_open_deposit_ledger redemption
+                ON redemption.id = source_event.ledger_event_id
+            INNER JOIN customer_open_deposit_ledger source_credit
+                ON source_credit.id = source_event.source_credit_ledger_id
+            INNER JOIN wedding_deposit_workflow_allocations allocation
+                ON allocation.held_credit_ledger_id = source_credit.id
+            INNER JOIN wedding_deposit_workflows workflow ON workflow.id = allocation.workflow_id
+            INNER JOIN wedding_parties party ON party.id = workflow.wedding_party_id
+            WHERE source_event.event_kind = 'redemption'
+              AND redemption.reason = 'checkout_redemption'
+              AND redemption.transaction_id = $1
+
+            UNION ALL
+
+            SELECT
+                COALESCE(NULLIF(TRIM(CONCAT_WS(' ', payer.first_name, payer.last_name)), ''), 'Wedding deposit payer') AS payer_name,
+                COALESCE(NULLIF(TRIM(party.party_name), ''), NULLIF(TRIM(party.groom_name), ''), 'Wedding party') AS party_name,
+                allocation.amount
+            FROM wedding_deposit_workflow_allocations allocation
+            INNER JOIN wedding_deposit_workflows workflow ON workflow.id = allocation.workflow_id
+            INNER JOIN customers payer ON payer.id = workflow.payer_customer_id
+            INNER JOIN wedding_parties party ON party.id = workflow.wedding_party_id
+            WHERE allocation.destination_kind = 'existing_transaction'
+              AND allocation.target_transaction_id = $1
+        ) applied
+        GROUP BY applied.payer_name, applied.party_name
+        ORDER BY payer_name, party_name
+        "#,
     )
     .bind(transaction_id)
     .fetch_all(pool)
     .await?
     .into_iter()
-    .map(|(party_name, amount)| receipt_shared::ReceiptWeddingPartyDeposit { party_name, amount })
+    .map(|(payer_name, party_name, amount)| {
+        receipt_shared::ReceiptAppliedWeddingDeposit {
+            payer_name,
+            party_name,
+            amount,
+        }
+    })
     .collect::<Vec<_>>();
-    let wedding_deposit_amount = wedding_deposits
-        .iter()
-        .fold(Decimal::ZERO, |sum, deposit| sum + deposit.amount)
-        .round_dp(2);
 
     let pickup_applications = sqlx::query_as::<
         _,
@@ -12078,6 +12797,7 @@ pub(crate) async fn load_transaction_detail(
         amount_paid: h.amount_paid,
         wedding_deposit_amount,
         wedding_deposits,
+        applied_wedding_deposits,
         balance_due: h.balance_due,
         is_counterpoint_import: h.is_counterpoint_import,
         counterpoint_return_review_blocked: h.counterpoint_return_review_blocked,
@@ -12099,6 +12819,7 @@ pub(crate) async fn load_transaction_detail(
         refund_payment_methods_summary,
         refund_total,
         original_helcim_transaction_id_for_refund,
+        wedding_refund_recipient,
         payment_applications,
         pickup_applications,
         operator_staff_id: h.operator_staff_id,

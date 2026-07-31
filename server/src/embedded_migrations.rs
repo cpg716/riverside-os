@@ -174,4 +174,6 @@ pub const EMBEDDED_MIGRATIONS: &[(&str, &str)] = &[
     ("171_add_customer_profile_discount_reason.sql", include_str!("../../migrations/171_add_customer_profile_discount_reason.sql")),
     ("172_reassign_txn_624853_to_glenn_jones.sql", include_str!("../../migrations/172_reassign_txn_624853_to_glenn_jones.sql")),
     ("173_record_txn_566201_external_card_refund.sql", include_str!("../../migrations/173_record_txn_566201_external_card_refund.sql")),
+    ("174_wedding_deposit_workflows.sql", include_str!("../../migrations/174_wedding_deposit_workflows.sql")),
+    ("175_wedding_deposit_refund_sources.sql", include_str!("../../migrations/175_wedding_deposit_refund_sources.sql")),
 ];

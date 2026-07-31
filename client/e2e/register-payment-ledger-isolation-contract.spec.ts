@@ -132,7 +132,7 @@ test("a nonmatching terminal attempt is refreshed without entering the active sa
   expect(drawer).toContain("recoverRosTerminalError");
   expect(drawer).toContain("ros_error_recovery_requested=true");
   expect(drawer).toContain(
-    "ROS terminal error cleared. Ready for the customer's payment.",
+    "ROS cleared its old terminal reservation. Confirm the reader is on its ready screen",
   );
   expect(drawer).toContain('"Recover terminal"');
   expect(drawer).toContain('data-testid="pos-payment-restore-trigger"');
@@ -142,7 +142,7 @@ test("a nonmatching terminal attempt is refreshed without entering the active sa
   expect(drawer).toContain("Reader stopped / no approval");
   expect(drawer).toContain("No approval — unlock sale");
   expect(drawer).toContain(
-    "Card Reader is ready to run again, and all allowed tenders are unlocked.",
+    "ROS released the old request and unlocked other tenders. Confirm the reader is on its ready screen",
   );
   expect(drawer).toContain('setTab(hostedManual ? "card_manual" : "card_terminal")');
   expect(drawer).toContain("text-rose-800 dark:text-rose-200");

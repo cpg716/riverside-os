@@ -245,6 +245,35 @@ fn helcim_terminal_purchase_error(
     }
 }
 
+fn helcim_terminal_preflight_error(error: helcim::HelcimTerminalRequestError) -> PaymentError {
+    let no_payment_suffix = " ROS did not send a payment request.";
+    let mapped = if let Some(status) = error.status {
+        let raw_text = error.raw_text.unwrap_or(error.message);
+        let is_html =
+            raw_text.trim().starts_with("<!DOCTYPE html>") || raw_text.trim().starts_with("<html");
+        helcim_terminal_purchase_error(status, &raw_text, is_html)
+    } else {
+        PaymentError::ProviderError(staff_safe_provider_error(&error.message))
+    };
+
+    match mapped {
+        PaymentError::Conflict(message) => {
+            PaymentError::Conflict(format!("{message}{no_payment_suffix}"))
+        }
+        PaymentError::InvalidPayload(message) => {
+            PaymentError::InvalidPayload(format!("{message}{no_payment_suffix}"))
+        }
+        PaymentError::ProviderError(message) => {
+            // The purchase endpoint has not been called yet, so this failure
+            // is definitive even when the ping itself received a 5xx or lost
+            // its connection. Return a non-ambiguous checkout error so the
+            // client does not create an unresolved-payment lock.
+            PaymentError::InvalidPayload(format!("{message}{no_payment_suffix}"))
+        }
+        other => other,
+    }
+}
+
 fn helcim_terminal_not_listening_message(raw_text: &str) -> Option<String> {
     for provider_message in helcim_provider_error_messages(raw_text) {
         let lower = provider_message.to_ascii_lowercase();
@@ -463,6 +492,10 @@ pub fn router() -> Router<AppState> {
         .route(
             "/providers/helcim/helcim-pay/public-confirm",
             post(confirm_helcim_pay_public_handoff),
+        )
+        .route(
+            "/providers/helcim/helcim-pay/public-outcome",
+            post(finalize_helcim_pay_public_outcome),
         )
         .route("/providers/helcim/customers", get(list_helcim_customers))
         .route(
@@ -975,6 +1008,20 @@ pub struct HelcimPayConfirmRequestBody {
     pub hash: String,
     #[serde(default)]
     pub raw_data: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HelcimPayPublicOutcome {
+    Aborted,
+    Hidden,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct HelcimPayPublicOutcomeRequestBody {
+    pub attempt_id: Uuid,
+    pub checkout_token: String,
+    pub outcome: HelcimPayPublicOutcome,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -9681,9 +9728,9 @@ async fn start_helcim_purchase(
         .to_ascii_lowercase();
     validate_currency(&currency)?;
 
-    // Resolve ROS-owned customer data before the attempt is created. The
-    // provider-side profile lookup runs only after the open-session lock,
-    // conflict guard, and durable attempt have committed below.
+    // Resolve ROS-owned customer data before the attempt is created. Provider
+    // profile enrichment also completes before the just-in-time listening
+    // check so it cannot hold a reader reservation while no purchase exists.
     let helcim_customer_profile = if config.simulator_enabled() {
         None
     } else if let Some(customer_id) = payload.customer_id {
@@ -9724,6 +9771,43 @@ async fn start_helcim_purchase(
         None
     };
     let unverified_helcim_customer_code = payload.customer_code.clone().and_then(non_empty_string);
+
+    // Customer enrichment can involve multiple provider calls. Complete it
+    // before reserving the terminal so a slow profile lookup cannot hold the
+    // reader while no purchase request has been dispatched.
+    let helcim_customer_code = if config.simulator_enabled() {
+        unverified_helcim_customer_code
+    } else {
+        match helcim_customer_profile {
+            Some((customer_code, contact_name, phone)) => match helcim::ensure_customer_profile(
+                &state.http_client,
+                &config,
+                &customer_code,
+                &contact_name,
+                phone.as_deref(),
+            )
+            .await
+            {
+                Ok(customer_code) => Some(customer_code),
+                Err(error) => {
+                    let persisted_message = persisted_provider_error(&error);
+                    tracing::warn!(
+                        target = "helcim",
+                        error = %persisted_message,
+                        "Helcim customer enrichment failed before terminal dispatch; continuing without a customer code"
+                    );
+                    None
+                }
+            },
+            None => unverified_helcim_customer_code,
+        }
+    };
+
+    if !config.simulator_enabled() {
+        helcim::preflight_terminal_purchase(&state.http_client, &config, &terminal_id)
+            .await
+            .map_err(helcim_terminal_preflight_error)?;
+    }
 
     refresh_pending_helcim_terminal_attempt_before_dispatch(&state, &terminal_id).await?;
 
@@ -9797,46 +9881,6 @@ async fn start_helcim_purchase(
             .await
             .map(Json);
     }
-
-    let helcim_customer_code = match helcim_customer_profile {
-        Some((customer_code, contact_name, phone)) => match helcim::ensure_customer_profile(
-            &state.http_client,
-            &config,
-            &customer_code,
-            &contact_name,
-            phone.as_deref(),
-        )
-        .await
-        {
-            Ok(customer_code) => Some(customer_code),
-            Err(error) => {
-                let persisted_message = persisted_provider_error(&error);
-                sqlx::query(
-                    r#"
-                    UPDATE payment_provider_attempts
-                    SET error_code = 'customer_profile_unavailable',
-                        error_message = $2
-                    WHERE id = $1 AND status = 'pending'
-                    "#,
-                )
-                .bind(attempt_id)
-                .bind(&persisted_message)
-                .execute(&state.db)
-                .await
-                .map_err(|database_error| {
-                    PaymentError::InvalidPayload(database_error.to_string())
-                })?;
-                tracing::warn!(
-                    target = "helcim",
-                    attempt_id = %attempt_id,
-                    error = %persisted_message,
-                    "Helcim customer enrichment failed; continuing terminal payment without a customer code"
-                );
-                None
-            }
-        },
-        None => unverified_helcim_customer_code,
-    };
 
     let invoice_number = format!("ROS-{}", attempt_id.simple());
     let request_payload = helcim::build_purchase_request_payload(
@@ -11170,6 +11214,120 @@ async fn confirm_helcim_pay_public_handoff(
         .map(Json)
 }
 
+async fn finalize_helcim_pay_public_outcome(
+    State(state): State<AppState>,
+    Json(payload): Json<HelcimPayPublicOutcomeRequestBody>,
+) -> Result<Json<HelcimAttemptResponse>, PaymentError> {
+    let checkout_token = payload.checkout_token.trim();
+    if checkout_token.is_empty() {
+        return Err(PaymentError::InvalidPayload(
+            "HelcimPay.js checkout token is required".to_string(),
+        ));
+    }
+    let row: Option<(String, Option<String>, Option<Uuid>, DateTime<Utc>)> = sqlx::query_as(
+        r#"
+        SELECT status, raw_audit_reference, register_session_id, created_at
+        FROM payment_provider_attempts
+        WHERE id = $1
+          AND provider = 'helcim'
+          AND provider_payment_id = $2
+        "#,
+    )
+    .bind(payload.attempt_id)
+    .bind(checkout_token)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|error| PaymentError::InvalidPayload(error.to_string()))?;
+    let Some((status, audit_reference, register_session_id, created_at)) = row else {
+        return Err(PaymentError::InvalidPayload(
+            "HelcimPay.js attempt not found".to_string(),
+        ));
+    };
+    let locally_finalized =
+        is_locally_finalized_helcim_pay_handoff(&status, audit_reference.as_deref());
+    if locally_finalized {
+        return load_helcim_attempt(&state, payload.attempt_id, None)
+            .await
+            .map(Json);
+    }
+    if matches!(status.as_str(), "approved" | "captured") {
+        return Err(PaymentError::Conflict(
+            "Helcim already approved this payment. ROS kept the approval protected.".to_string(),
+        ));
+    }
+    if status != "pending" || audit_reference.as_deref() != Some("helcim-pay-js") {
+        return Err(PaymentError::InvalidPayload(
+            "HelcimPay.js attempt has already been completed".to_string(),
+        ));
+    }
+    if created_at < Utc::now() - ChronoDuration::minutes(60) {
+        return Err(PaymentError::InvalidPayload(
+            "HelcimPay.js handoff has expired. Start Card Not Present again from the register."
+                .to_string(),
+        ));
+    }
+
+    let (next_status, error_code, error_message, next_audit_reference) = match payload.outcome {
+        HelcimPayPublicOutcome::Aborted => (
+            "failed",
+            "helcim_pay_declined",
+            "HelcimPay.js reported that the card was declined.",
+            "helcim-pay-js:client-aborted",
+        ),
+        HelcimPayPublicOutcome::Hidden => (
+            "canceled",
+            "helcim_pay_closed",
+            "HelcimPay.js card entry was closed before payment processing.",
+            "helcim-pay-js:client-hidden",
+        ),
+    };
+    let mut tx = state
+        .db
+        .begin()
+        .await
+        .map_err(|error| PaymentError::InvalidPayload(error.to_string()))?;
+    lock_register_session_for_payment_recovery(&mut tx, register_session_id).await?;
+    let result = sqlx::query(
+        r#"
+        UPDATE payment_provider_attempts
+        SET status = $3,
+            error_code = $4,
+            error_message = $5,
+            raw_audit_reference = $6,
+            completed_at = now()
+        WHERE id = $1
+          AND provider = 'helcim'
+          AND provider_payment_id = $2
+          AND status = 'pending'
+          AND raw_audit_reference = 'helcim-pay-js'
+          AND provider_transaction_id IS NULL
+        "#,
+    )
+    .bind(payload.attempt_id)
+    .bind(checkout_token)
+    .bind(next_status)
+    .bind(error_code)
+    .bind(error_message)
+    .bind(next_audit_reference)
+    .execute(&mut *tx)
+    .await
+    .map_err(|error| PaymentError::InvalidPayload(error.to_string()))?;
+    if result.rows_affected() != 1 {
+        let _ = tx.rollback().await;
+        return Err(PaymentError::Conflict(
+            "The Helcim payment changed while ROS recorded its final status. Check payment status before retrying."
+                .to_string(),
+        ));
+    }
+    tx.commit()
+        .await
+        .map_err(|error| PaymentError::InvalidPayload(error.to_string()))?;
+
+    load_helcim_attempt(&state, payload.attempt_id, None)
+        .await
+        .map(Json)
+}
+
 async fn confirm_helcim_pay_attempt(
     state: &AppState,
     payload: HelcimPayConfirmRequestBody,
@@ -11222,8 +11380,10 @@ async fn confirm_helcim_pay_attempt(
             ));
         }
     }
+    let locally_finalized_handoff =
+        is_locally_finalized_helcim_pay_handoff(&attempt_status, raw_audit_reference.as_deref());
     if public_handoff {
-        if raw_audit_reference.as_deref() != Some("helcim-pay-js") {
+        if raw_audit_reference.as_deref() != Some("helcim-pay-js") && !locally_finalized_handoff {
             return Err(PaymentError::InvalidPayload(
                 "HelcimPay.js handoff attempt not found".to_string(),
             ));
@@ -11242,7 +11402,7 @@ async fn confirm_helcim_pay_attempt(
     ) {
         return load_helcim_attempt(state, payload.attempt_id, pos_session_id).await;
     }
-    if attempt_status != "pending" {
+    if attempt_status != "pending" && !locally_finalized_handoff {
         return Err(PaymentError::InvalidPayload(
             "HelcimPay.js attempt has already been completed".to_string(),
         ));
@@ -12107,6 +12267,17 @@ fn completed_helcim_pay_confirmation_matches(
         return false;
     };
     value_string(response_data, "transactionId").as_deref() == Some(stored)
+}
+
+fn is_locally_finalized_helcim_pay_handoff(
+    attempt_status: &str,
+    audit_reference: Option<&str>,
+) -> bool {
+    matches!(attempt_status, "failed" | "canceled")
+        && matches!(
+            audit_reference,
+            Some("helcim-pay-js:client-aborted") | Some("helcim-pay-js:client-hidden")
+        )
 }
 
 fn cents_to_decimal_string(amount_cents: i64) -> String {
@@ -14171,6 +14342,26 @@ mod tests {
     }
 
     #[test]
+    fn hosted_handoff_only_reopens_known_local_decline_or_close_for_signed_confirmation() {
+        assert!(is_locally_finalized_helcim_pay_handoff(
+            "failed",
+            Some("helcim-pay-js:client-aborted")
+        ));
+        assert!(is_locally_finalized_helcim_pay_handoff(
+            "canceled",
+            Some("helcim-pay-js:client-hidden")
+        ));
+        assert!(!is_locally_finalized_helcim_pay_handoff(
+            "approved",
+            Some("helcim-pay-js:client-hidden")
+        ));
+        assert!(!is_locally_finalized_helcim_pay_handoff(
+            "failed",
+            Some("helcim-pay-js:provider-identity-mismatch")
+        ));
+    }
+
+    #[test]
     fn hosted_payment_approval_requires_exact_amount_currency_and_purchase_type() {
         let mut data = json!({
             "amount": "12.34",
@@ -14510,6 +14701,37 @@ mod tests {
         assert!(message.contains("open or restart the Helcim app"));
         assert!(message.contains("update the Helcim terminal code in Settings"));
         assert!(!message.contains("active payment"));
+    }
+
+    #[test]
+    fn helcim_preflight_409_makes_no_payment_dispatch_explicit() {
+        let error = helcim_terminal_preflight_error(helcim::HelcimTerminalRequestError {
+            status: Some(reqwest::StatusCode::CONFLICT),
+            message: "device not listening".to_string(),
+            raw_text: Some(r#"{"errors":["device with code JFHP not listening"]}"#.to_string()),
+            outcome_unknown: false,
+        });
+
+        let PaymentError::Conflict(message) = error else {
+            panic!("expected conflict");
+        };
+        assert!(message.contains("Helcim terminal JFHP is not listening"));
+        assert!(message.contains("ROS did not send a payment request"));
+    }
+
+    #[test]
+    fn helcim_preflight_provider_failure_is_not_an_unknown_payment_outcome() {
+        let error = helcim_terminal_preflight_error(helcim::HelcimTerminalRequestError {
+            status: Some(reqwest::StatusCode::BAD_GATEWAY),
+            message: "ping unavailable".to_string(),
+            raw_text: Some("provider unavailable".to_string()),
+            outcome_unknown: false,
+        });
+
+        let PaymentError::InvalidPayload(message) = error else {
+            panic!("preflight failure must be definitive because no purchase was sent");
+        };
+        assert!(message.contains("ROS did not send a payment request"));
     }
 
     #[test]

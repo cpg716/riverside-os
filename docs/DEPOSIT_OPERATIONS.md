@@ -81,30 +81,41 @@ The Payment Ledger drawer (NexoCheckoutDrawer) provides a hyper-accurate "Revenu
 
 ---
 
-## Split Deposit (Wedding Group Pay)
+## Wedding Deposit Disbursement
 
 For weddings, a single payer (often the groom or sponsor) can cover deposits for multiple party members in one transaction.
 
 ### How It Works
 
-1. From the **Payment Ledger**, tap the blue **Split deposit (wedding party)** button.
-2. This opens the **Wedding Lookup Drawer** in group pay mode.
-3. Select the wedding party and choose which members to include.
-4. Enter the deposit amount for each selected member. Existing open balances default to that balance; members with no open balance can still receive a deposit amount.
-5. Return to the payment ledger — the total now includes the entered member deposit amounts.
-6. Apply tenders to cover the combined amount and complete the sale.
+1. Select the paying customer and choose **Wedding Deposit** from the Cart toolbar.
+2. Choose an existing party or start one with Party Name and Wedding Date. The payer must be linked to the party with a role before Payment.
+3. Link existing customer accounts or create customers and assign member roles inline.
+4. Select each beneficiary and amount, then explicitly choose `held_for_future_order` or `existing_transaction` with one exact target Transaction Record.
+5. Review the payer, party, members, destinations, amounts, total, and responsible salesperson before adding the deposits to the Cart.
+6. Before the first tender, `/api/weddings/deposit-workflows/preflight` rechecks membership, payer ownership, open target status, and current balance. Checkout revalidates the same financial facts under database locks.
+7. Only an approved tender followed by successful atomic checkout creates the payer Transaction, payment allocations, held credits, workflow audit records, and booked activity. A declined card creates none of those records; the reviewed Cart allocations stay staged for retry or another tender, while the declined provider attempt remains in Payments Health.
+8. Return through the payer's **Wedding Deposit → Previous Deposits** list to start each held member order from its exact source credit and view or print payer/member receipts.
+
+There is no batch-refund operation. Refunds are handled one member allocation at a time from that member's Customer account and Transaction Record. For an original-card refund, Riverside follows the direct allocation or source-tracked held-deposit redemption back to the exact original Helcim payment. The member Transaction remains the refund context, but the money returns to the original wedding deposit payer's card—not to the member. Both Customer histories record the event, and the refund receipt identifies the original payer as the recipient.
+
+Funded wedding deposits—and member Transaction Records that received a direct allocation—cannot be cancelled or same-day voided through the ordinary Transaction actions. Riverside blocks those paths without changing any ledger record because funds may already be posted, redeemed, returned, or fulfilled. Use the member's normal itemized return/refund workflow for a posted deposit. Cancelling a member Transaction that used a still-held source returns that credit to its exact held source; it does not send money to a card.
 
 In shared **Orders** views, Wedding orders should still show their linked party and member context so staff know the balance belongs to the wedding workflow and not a generic customer order.
 Even when a Wedding order shows a deposit on ledger or a zero balance, pickup release should still stay with the linked member workflow until receiving and readiness are confirmed.
 
 ### Backend Handling
 
-- The checkout payload includes `wedding_disbursements[]`, each with a `wedding_member_id` and `amount`.
+- The checkout payload includes `wedding_disbursements[]`, each with `wedding_member_id`, `amount`, `destination_kind`, and an exact `target_transaction_id` when posting directly.
 
-- The server creates **`payment_allocation`** rows linking the payer's tender to each beneficiary member's transaction.
+- `wedding_deposit_workflows` anchors the batch to the payer Transaction, customer, party, register session, operator, and salesperson. `wedding_deposit_workflow_allocations` records each beneficiary and declared destination without replacing the authoritative payment and deposit ledgers.
+- For direct posting, the server creates **`payment_allocation`** rows linking the payer's tender to the exact beneficiary Transaction Record.
 - If a disbursement targets a member who does **not** yet have an open transaction, the funds are credited to the member's **open deposit account** (see below).
-- Disbursement amounts are validated: they cannot be negative, and their sum cannot exceed the amount collected.
+- Held credits are source-tracked through `customer_open_deposit_source_events`, so redemption and cancellation restoration remain tied to the exact payer batch instead of an undifferentiated account balance.
+- Held-credit redemption also records the exact originating `payment_transactions` rows. A later member refund can therefore use the proper Helcim transaction ID and original payer identity without asking staff to enter either value.
+- Disbursement amounts are validated: they must be positive, cannot exceed an exact target's live balance, and their sum cannot exceed the amount collected.
 - The payer's own Transaction total remains lines plus shipping. Daily Sales and Customer History report wedding contributions separately so the full tender is auditable without treating member deposits as payer merchandise revenue.
+- Payer receipts list every beneficiary and destination. Member receipts identify the payer and party for both direct allocations and later held-credit redemption.
+- Individual refund receipts state that the refund went to the original wedding deposit payer. The refund payment allocation stays attached to the member Transaction for item, tax, reporting, and audit truth.
 
 ---
 
@@ -250,4 +261,4 @@ Direct layaway cash/card deposits follow this same new-inflow path on the paymen
 
 ---
 
-*Last updated: 2026-04-11*
+*Last updated: 2026-07-31*

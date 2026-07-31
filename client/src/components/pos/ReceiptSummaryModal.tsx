@@ -113,12 +113,24 @@ type OrderDetail = {
   wedding_deposit_amount?: string;
   wedding_deposits?: Array<{
     party_name: string;
+    beneficiary_name?: string | null;
+    destination_label?: string | null;
+    amount: string;
+  }>;
+  applied_wedding_deposits?: Array<{
+    payer_name: string;
+    party_name: string;
     amount: string;
   }>;
   balance_due?: string;
   payment_methods_summary?: string;
   refund_payment_methods_summary?: string;
   refund_total?: string;
+  wedding_refund_recipient?: {
+    id: string;
+    first_name: string;
+    last_name: string;
+  } | null;
   payment_applications?: Array<{
     target_transaction_id: string;
     target_display_id: string;
@@ -292,6 +304,7 @@ export default function ReceiptSummaryModal({
   );
 
   const shouldKickCashDrawer = useCallback(() => {
+    if (presentation === "historical") return false;
     if (!isTauri()) return false;
     if (
       window.localStorage.getItem("ros.hardware.cashDrawer.enabled") === "false"
@@ -300,7 +313,7 @@ export default function ReceiptSummaryModal({
     }
     const tenderSummary = transactionDetail?.payment_methods_summary ?? "";
     return /\b(CASH|CHECK|CHEQUE)\b/i.test(tenderSummary);
-  }, [transactionDetail?.payment_methods_summary]);
+  }, [presentation, transactionDetail?.payment_methods_summary]);
 
   const openCashDrawerForSale = useCallback(async () => {
     if (cashDrawerKicked || !shouldKickCashDrawer()) return;
@@ -1071,6 +1084,8 @@ export default function ReceiptSummaryModal({
         : "No tender collected"
       : (transactionDetail?.payment_methods_summary ?? "…");
   const weddingDeposits = transactionDetail?.wedding_deposits ?? [];
+  const appliedWeddingDeposits =
+    transactionDetail?.applied_wedding_deposits ?? [];
   const refundProviderLabel =
     refundResult?.payment_provider?.trim() ||
     refundResult?.payment_method.replaceAll("_", " ").trim() ||
@@ -1413,6 +1428,13 @@ export default function ReceiptSummaryModal({
                         <p className="mt-1 text-[11px] font-semibold leading-relaxed text-app-text">
                           {refundResult.message}
                         </p>
+                        {transactionDetail?.wedding_refund_recipient ? (
+                          <p className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] font-black text-amber-900 dark:text-amber-100">
+                            Refund returned to {transactionDetail.wedding_refund_recipient.first_name}{" "}
+                            {transactionDetail.wedding_refund_recipient.last_name}, the original
+                            wedding deposit payer—not the member.
+                          </p>
+                        ) : null}
                         {refundCardLabel ||
                         refundResult.provider_refund_id ||
                         refundResult.original_provider_transaction_id ? (
@@ -1474,14 +1496,47 @@ export default function ReceiptSummaryModal({
                         <div className="mb-2.5 space-y-1.5 border-b border-app-border/50 pb-2.5">
                           {weddingDeposits.map((deposit) => (
                             <div
-                              key={`${deposit.party_name}:${deposit.amount}`}
-                              className="flex items-end justify-between gap-3"
+                              key={`${deposit.party_name}:${deposit.beneficiary_name ?? "party"}:${deposit.amount}`}
+                              className="flex items-start justify-between gap-3"
                             >
-                              <p className="min-w-0 text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                                Wedding Party Deposit ({deposit.party_name})
-                              </p>
+                              <div className="min-w-0">
+                                <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                                  Wedding Party Deposit
+                                  {deposit.beneficiary_name
+                                    ? ` for ${deposit.beneficiary_name}`
+                                    : ""}
+                                </p>
+                                <p className="mt-0.5 text-[10px] font-bold text-app-text-muted">
+                                  {deposit.party_name}
+                                  {deposit.destination_label
+                                    ? ` · ${deposit.destination_label}`
+                                    : ""}
+                                </p>
+                              </div>
                               <p className="shrink-0 text-base font-black tabular-nums text-app-accent sm:text-lg">
                                 ${deposit.amount}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+                      {appliedWeddingDeposits.length > 0 ? (
+                        <div className="mb-2.5 space-y-1.5 border-b border-app-border/50 pb-2.5">
+                          {appliedWeddingDeposits.map((source) => (
+                            <div
+                              key={`${source.payer_name}:${source.party_name}:${source.amount}`}
+                              className="flex items-start justify-between gap-3"
+                            >
+                              <div className="min-w-0">
+                                <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                                  Wedding Deposit Applied
+                                </p>
+                                <p className="mt-0.5 text-[10px] font-bold text-app-text-muted">
+                                  Paid by {source.payer_name} · {source.party_name}
+                                </p>
+                              </div>
+                              <p className="shrink-0 text-base font-black tabular-nums text-app-success sm:text-lg">
+                                ${source.amount}
                               </p>
                             </div>
                           ))}

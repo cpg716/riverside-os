@@ -44,6 +44,11 @@ interface TransactionDetailLite {
   is_tax_exempt?: boolean;
   payment_methods_summary?: string;
   original_helcim_transaction_id_for_refund?: string | null;
+  wedding_refund_recipient?: {
+    id: string;
+    first_name: string;
+    last_name: string;
+  } | null;
   customer: {
     id: string;
     first_name: string;
@@ -203,6 +208,7 @@ export default function PosExchangeWizard({
     refundAmountCents?: number;
     action?: "refund" | "exchange";
     originalHelcimTransactionIdForRefund?: string | null;
+    originalWeddingDepositPayerName?: string | null;
   }) => void;
 }) {
   const { toast } = useToast();
@@ -418,6 +424,9 @@ export default function PosExchangeWizard({
           action: nextAction,
           originalHelcimTransactionIdForRefund:
             detail.original_helcim_transaction_id_for_refund ?? null,
+          originalWeddingDepositPayerName: detail.wedding_refund_recipient
+            ? `${detail.wedding_refund_recipient.first_name} ${detail.wedding_refund_recipient.last_name}`.trim()
+            : null,
         });
         onClose();
         return;
@@ -462,6 +471,9 @@ export default function PosExchangeWizard({
       action: "exchange",
       originalHelcimTransactionIdForRefund:
         detail.original_helcim_transaction_id_for_refund ?? null,
+      originalWeddingDepositPayerName: detail.wedding_refund_recipient
+        ? `${detail.wedding_refund_recipient.first_name} ${detail.wedding_refund_recipient.last_name}`.trim()
+        : null,
     });
     onClose();
   };
@@ -864,6 +876,14 @@ export default function PosExchangeWizard({
               <p className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-left text-xs font-bold text-amber-900">
                 Pilot watch: saved return lines are audit-sensitive until the refund or replacement sale is finished.
               </p>
+              {detail?.wedding_refund_recipient ? (
+                <p className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-left text-xs font-black text-amber-900 dark:text-amber-100">
+                  Refund recipient: {detail.wedding_refund_recipient.first_name}{" "}
+                  {detail.wedding_refund_recipient.last_name}, the original wedding deposit payer.
+                  The member&apos;s Transaction stays attached to the return, but the money does not
+                  go to the member.
+                </p>
+              ) : null}
               <div className="sticky bottom-0 -mx-6 grid gap-3 border-t border-app-border bg-app-surface/95 px-6 py-4 backdrop-blur sm:grid-cols-2">
                 <button
                   type="button"
@@ -885,12 +905,18 @@ export default function PosExchangeWizard({
                       originalHelcimTransactionIdForRefund:
                         detail.original_helcim_transaction_id_for_refund ??
                         null,
+                      originalWeddingDepositPayerName:
+                        detail.wedding_refund_recipient
+                          ? `${detail.wedding_refund_recipient.first_name} ${detail.wedding_refund_recipient.last_name}`.trim()
+                          : null,
                     });
                     onClose();
                   }}
                   className="ui-btn-secondary w-full py-3 font-black uppercase tracking-widest"
                 >
-                  Refund customer now
+                  {detail?.wedding_refund_recipient
+                    ? "Refund original payer now"
+                    : "Refund customer now"}
                 </button>
                 <button
                   type="button"

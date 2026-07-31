@@ -37,6 +37,8 @@ export interface WeddingMember {
   customer_phone?: string;
   balance_due?: string; // Added for group pay
   split_deposit_amount?: string;
+  deposit_destination_kind?: "held_for_future_order" | "existing_transaction";
+  deposit_target_transaction_id?: string | null;
   suit_variant_id?: string | null;
   is_free_suit_promo: boolean;
 }

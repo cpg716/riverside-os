@@ -1686,6 +1686,26 @@ async fn fetch_register_day_summary_page_on_connection(
         refund_items_json: Option<serde_json::Value>,
     }
 
+    #[derive(sqlx::FromRow)]
+    struct WeddingDepositAct {
+        matched_count: i64,
+        workflow_id: Uuid,
+        payer_transaction_id: Uuid,
+        payer_display_id: String,
+        created_at: chrono::DateTime<Utc>,
+        total_amount: Decimal,
+        member_count: i64,
+        wedding_party_id: Uuid,
+        party_name: String,
+        payment_method: String,
+        customer_id: Uuid,
+        customer_first: String,
+        customer_last: String,
+        customer_code: String,
+        customer_phone: Option<String>,
+        customer_email: Option<String>,
+    }
+
     let sales_line_join = match basis {
         ReportBasis::Booked => r#"
             LEFT JOIN transaction_lines oi ON oi.transaction_id = o.id
@@ -2158,15 +2178,40 @@ async fn fetch_register_day_summary_page_on_connection(
     } else {
         sqlx::query_as(
             r#"
+            WITH contributions AS (
+                SELECT
+                    workflow.payer_transaction_id AS transaction_id,
+                    allocation.amount,
+                    allocation.wedding_member_id
+                FROM wedding_deposit_workflows workflow
+                INNER JOIN wedding_deposit_workflow_allocations allocation
+                    ON allocation.workflow_id = workflow.id
+                WHERE workflow.payer_transaction_id = ANY($1)
+                  AND workflow.status <> 'voided'
+
+                UNION ALL
+
+                SELECT
+                    codl.transaction_id,
+                    codls.amount,
+                    codls.beneficiary_wedding_member_id
+                FROM customer_open_deposit_ledger codl
+                INNER JOIN customer_open_deposit_ledger_sources codls
+                    ON codls.ledger_id = codl.id
+                WHERE codl.transaction_id = ANY($1)
+                  AND codl.reason = 'party_split_deposit'
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM wedding_deposit_workflows workflow
+                      WHERE workflow.payer_transaction_id = codl.transaction_id
+                  )
+            )
             SELECT
-                codl.transaction_id,
-                SUM(codls.amount)::numeric(14,2) AS contribution_total,
-                COUNT(DISTINCT codls.beneficiary_wedding_member_id)::bigint AS member_count
-            FROM customer_open_deposit_ledger codl
-            JOIN customer_open_deposit_ledger_sources codls ON codls.ledger_id = codl.id
-            WHERE codl.transaction_id = ANY($1)
-              AND codl.reason = 'party_split_deposit'
-            GROUP BY codl.transaction_id
+                transaction_id,
+                ROUND(SUM(amount), 2)::numeric(14,2) AS contribution_total,
+                COUNT(DISTINCT wedding_member_id)::bigint AS member_count
+            FROM contributions
+            GROUP BY transaction_id
             "#,
         )
         .bind(&sale_transaction_ids)
@@ -2476,6 +2521,14 @@ async fn fetch_register_day_summary_page_on_connection(
           AND COALESCE(pt.effective_date, (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date) < ($2 AT TIME ZONE reporting.effective_store_timezone())::date
           AND pt.status = 'success'
           AND COALESCE(pt.metadata->>'kind', '') <> 'exchange_credit_relief'
+          AND NOT (
+              COALESCE(pa.metadata->>'kind', '') = 'wedding_group_disbursement'
+              AND EXISTS (
+                  SELECT 1
+                  FROM wedding_deposit_workflows workflow
+                  WHERE workflow.payer_transaction_id = checkout_o.id
+              )
+          )
           AND ($3::uuid IS NULL OR pt.session_id = $3)
           AND (
               $4::text IS NULL
@@ -2517,8 +2570,107 @@ async fn fetch_register_day_summary_page_on_connection(
     .fetch_all(&mut *connection)
     .await?;
 
+    let wedding_deposit_activities: Vec<WeddingDepositAct> = sqlx::query_as(
+        r#"
+        SELECT
+            COUNT(*) OVER()::bigint AS matched_count,
+            workflow.id AS workflow_id,
+            workflow.payer_transaction_id,
+            COALESCE(
+                NULLIF(TRIM(payer_transaction.display_id), ''),
+                'Transaction ' || UPPER(LEFT(REPLACE(payer_transaction.id::text, '-', ''), 8))
+            ) AS payer_display_id,
+            COALESCE(tender.occurred_at, workflow.created_at) AS created_at,
+            ROUND(workflow.total_amount, 2)::numeric(14,2) AS total_amount,
+            COUNT(DISTINCT allocation.wedding_member_id)::bigint AS member_count,
+            workflow.wedding_party_id,
+            COALESCE(
+                NULLIF(TRIM(party.party_name), ''),
+                NULLIF(TRIM(party.groom_name), ''),
+                'Wedding party'
+            ) AS party_name,
+            COALESCE(NULLIF(TRIM(tender.payment_method), ''), 'Payment') AS payment_method,
+            payer.id AS customer_id,
+            payer.first_name AS customer_first,
+            payer.last_name AS customer_last,
+            payer.customer_code,
+            payer.phone AS customer_phone,
+            payer.email AS customer_email
+        FROM wedding_deposit_workflows workflow
+        INNER JOIN wedding_deposit_workflow_allocations allocation
+            ON allocation.workflow_id = workflow.id
+        INNER JOIN transactions payer_transaction
+            ON payer_transaction.id = workflow.payer_transaction_id
+        INNER JOIN customers payer ON payer.id = workflow.payer_customer_id
+        INNER JOIN wedding_parties party ON party.id = workflow.wedding_party_id
+        LEFT JOIN LATERAL (
+            SELECT STRING_AGG(
+                DISTINCT payment.payment_method,
+                ' + ' ORDER BY payment.payment_method
+            ) AS payment_method,
+            MIN(payment.occurred_at) AS occurred_at,
+            MIN(payment.effective_date) AS effective_date
+            FROM payment_transactions payment
+            WHERE payment.metadata->>'checkout_transaction_id' = workflow.payer_transaction_id::text
+              AND payment.status = 'success'
+        ) tender ON TRUE
+        WHERE COALESCE(
+                tender.effective_date,
+                (COALESCE(tender.occurred_at, workflow.created_at)
+                    AT TIME ZONE reporting.effective_store_timezone())::date
+              ) >= ($1 AT TIME ZONE reporting.effective_store_timezone())::date
+          AND COALESCE(
+                tender.effective_date,
+                (COALESCE(tender.occurred_at, workflow.created_at)
+                    AT TIME ZONE reporting.effective_store_timezone())::date
+              ) < ($2 AT TIME ZONE reporting.effective_store_timezone())::date
+          AND workflow.status <> 'voided'
+          AND NOT EXISTS (
+              SELECT 1
+              FROM transaction_lines payer_line
+              WHERE payer_line.transaction_id = workflow.payer_transaction_id
+          )
+          AND ($3::uuid IS NULL OR workflow.register_session_id = $3)
+          AND (
+              $4::text IS NULL
+              OR COALESCE(
+                  NULLIF(TRIM(payer_transaction.display_id), ''),
+                  payer_transaction.id::text
+              ) ILIKE $4 ESCAPE '\'
+              OR payer.customer_code ILIKE $4 ESCAPE '\'
+              OR payer.first_name ILIKE $4 ESCAPE '\'
+              OR payer.last_name ILIKE $4 ESCAPE '\'
+              OR CONCAT_WS(' ', payer.first_name, payer.last_name) ILIKE $4 ESCAPE '\'
+              OR COALESCE(payer.phone, '') ILIKE $4 ESCAPE '\'
+              OR COALESCE(payer.email, '') ILIKE $4 ESCAPE '\'
+              OR COALESCE(party.party_name, '') ILIKE $4 ESCAPE '\'
+          )
+        GROUP BY
+            workflow.id,
+            payer_transaction.id,
+            party.id,
+            payer.id,
+            tender.payment_method,
+            tender.occurred_at,
+            tender.effective_date
+        ORDER BY workflow.created_at DESC, workflow.id
+        LIMIT $5
+        "#,
+    )
+    .bind(start_utc)
+    .bind(end_utc)
+    .bind(register_session_id)
+    .bind(activity_search.clone())
+    .bind(source_limit)
+    .fetch_all(&mut *connection)
+    .await?;
+
     let sales_matched_count = sales.first().map(|row| row.matched_count).unwrap_or(0);
     let payments_matched_count = payments.first().map(|row| row.matched_count).unwrap_or(0);
+    let wedding_deposits_matched_count = wedding_deposit_activities
+        .first()
+        .map(|row| row.matched_count)
+        .unwrap_or(0);
     let pickups_total_count = pickups_today
         .first()
         .map(|row| row.matched_count)
@@ -2878,8 +3030,67 @@ async fn fetch_register_day_summary_page_on_connection(
         });
     }
 
+    for deposit in wedding_deposit_activities {
+        let customer_name = format!("{} {}", deposit.customer_first, deposit.customer_last)
+            .trim()
+            .to_string();
+        activities.push(RegisterActivityItem {
+            id: format!("wedding-deposit:{}", deposit.workflow_id),
+            kind: "wedding_deposit".to_string(),
+            occurred_at: deposit.created_at,
+            title: "Wedding Deposit Disbursement".to_string(),
+            subtitle: Some(format!(
+                "{} · {} member{}",
+                deposit.party_name,
+                deposit.member_count,
+                if deposit.member_count == 1 { "" } else { "s" }
+            )),
+            transaction_id: Some(deposit.payer_transaction_id),
+            receipt_transaction_id: Some(deposit.payer_transaction_id),
+            payment_id: None,
+            payment_allocation_id: None,
+            refund_event_id: None,
+            replacement_transaction_id: None,
+            wedding_party_id: Some(deposit.wedding_party_id),
+            amount_label: Some(format!("${}", money_label(deposit.total_amount))),
+            payment_summary: Some(format!(
+                "{} ${}",
+                reporting_tender_label(&deposit.payment_method),
+                money_label(deposit.total_amount)
+            )),
+            payments: None,
+            payment_applications: Vec::new(),
+            sales_total: Some(money_label(Decimal::ZERO)),
+            tax_total: Some(money_label(Decimal::ZERO)),
+            shipping_total: Some(money_label(Decimal::ZERO)),
+            alterations_total: Some(money_label(Decimal::ZERO)),
+            is_takeaway: Some(false),
+            channel: Some("pos".to_string()),
+            wedding_party_name: Some(deposit.party_name),
+            items: None,
+            merchant_fees_total: None,
+            net_amount: None,
+            customer_id: Some(deposit.customer_id),
+            customer_first_name: Some(deposit.customer_first),
+            customer_last_name: Some(deposit.customer_last),
+            customer_name: Some(customer_name),
+            customer_code: Some(deposit.customer_code),
+            customer_phone: deposit.customer_phone,
+            customer_email: deposit.customer_email,
+            deposits_paid: Some(money_label(deposit.total_amount)),
+            balance_due: Some(money_label(Decimal::ZERO)),
+            fulfillment_type: Some("wedding_deposit".to_string()),
+            transaction_total: Some(money_label(deposit.total_amount)),
+            wedding_deposit_contributions: Some(money_label(deposit.total_amount)),
+            wedding_deposit_member_count: Some(deposit.member_count),
+            short_id: Some(deposit.payer_display_id),
+            imported_at: None,
+        });
+    }
+
     let activity_total_count = sales_matched_count
         .saturating_add(payments_matched_count)
+        .saturating_add(wedding_deposits_matched_count)
         .saturating_sub(merged_payment_count);
     activities.sort_by(compare_activity_desc);
     let activities = activities

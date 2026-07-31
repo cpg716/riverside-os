@@ -1,8 +1,12 @@
-export const HELCIM_PAY_SCRIPT_URL = "https://secure.helcim.app/helcim-pay/services/start.js";
+export const HELCIM_PAY_SCRIPT_URL =
+  "https://secure.helcim.app/helcim-pay/services/start.js";
 
 function currentOrigin() {
   if (typeof window === "undefined") return "";
-  return window.location.origin || `${window.location.protocol}//${window.location.host}`;
+  return (
+    window.location.origin ||
+    `${window.location.protocol}//${window.location.host}`
+  );
 }
 
 function isLocalHelcimPayOrigin(protocol: string, hostname: string) {

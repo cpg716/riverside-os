@@ -117,6 +117,7 @@ pub mod transaction_returns;
 pub mod update_check;
 pub mod weather;
 pub mod wedding_api_types;
+pub mod wedding_deposit_workflows;
 pub mod wedding_party_display;
 pub mod wedding_push;
 pub mod wedding_queries;

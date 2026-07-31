@@ -7062,21 +7062,52 @@ pub(crate) async fn build_customer_timeline(
         sqlx::query_as::<_, WeddingDepositContributionTimelineRow>(&format!(
             r#"
             SELECT
-                l.transaction_id,
-                MIN(l.created_at) AS created_at,
-                SUM(l.amount)::numeric(14,2) AS amount,
-                COUNT(DISTINCT l.account_id)::bigint AS member_count,
-                l.wedding_party_id,
-                {SQL_PARTY_TRACKING_LABEL_WP} AS party_name
-            FROM customer_open_deposit_ledger l
-            JOIN wedding_parties wp ON wp.id = l.wedding_party_id
-            WHERE l.payer_customer_id = $1
-              AND l.reason = 'party_split_deposit'
-              AND l.amount > 0
-              AND l.transaction_id IS NOT NULL
-              AND l.wedding_party_id IS NOT NULL
-            GROUP BY l.transaction_id, l.wedding_party_id, wp.id
-            ORDER BY MIN(l.created_at) DESC
+                contribution.transaction_id,
+                MIN(contribution.created_at) AS created_at,
+                ROUND(SUM(contribution.amount), 2)::numeric(14,2) AS amount,
+                COUNT(DISTINCT contribution.wedding_member_id)::bigint AS member_count,
+                contribution.wedding_party_id,
+                contribution.party_name
+            FROM (
+                SELECT
+                    workflow.payer_transaction_id AS transaction_id,
+                    allocation.created_at,
+                    allocation.amount,
+                    allocation.wedding_member_id,
+                    workflow.wedding_party_id,
+                    {SQL_PARTY_TRACKING_LABEL_WP} AS party_name
+                FROM wedding_deposit_workflows workflow
+                INNER JOIN wedding_deposit_workflow_allocations allocation
+                    ON allocation.workflow_id = workflow.id
+                INNER JOIN wedding_parties wp ON wp.id = workflow.wedding_party_id
+                WHERE workflow.payer_customer_id = $1
+                  AND workflow.status <> 'voided'
+
+                UNION ALL
+
+                SELECT
+                    l.transaction_id,
+                    l.created_at,
+                    codls.amount,
+                    codls.beneficiary_wedding_member_id AS wedding_member_id,
+                    l.wedding_party_id,
+                    {SQL_PARTY_TRACKING_LABEL_WP} AS party_name
+                FROM customer_open_deposit_ledger l
+                INNER JOIN customer_open_deposit_ledger_sources codls ON codls.ledger_id = l.id
+                INNER JOIN wedding_parties wp ON wp.id = l.wedding_party_id
+                WHERE l.payer_customer_id = $1
+                  AND l.reason = 'party_split_deposit'
+                  AND l.amount > 0
+                  AND l.transaction_id IS NOT NULL
+                  AND l.wedding_party_id IS NOT NULL
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM wedding_deposit_workflows workflow
+                      WHERE workflow.payer_transaction_id = l.transaction_id
+                  )
+            ) contribution
+            GROUP BY contribution.transaction_id, contribution.wedding_party_id, contribution.party_name
+            ORDER BY MIN(contribution.created_at) DESC
             LIMIT 30
             "#
         ))

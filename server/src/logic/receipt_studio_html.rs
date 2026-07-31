@@ -125,9 +125,21 @@ fn build_wedding_deposit_summary(order: &ReceiptOrder) -> String {
             .wedding_deposits
             .iter()
             .map(|deposit| {
+                let beneficiary = deposit
+                    .beneficiary_name
+                    .as_deref()
+                    .map(|name| format!(" for {}", html_escape(name)))
+                    .unwrap_or_default();
+                let destination = deposit
+                    .destination_label
+                    .as_deref()
+                    .map(|label| format!("<small>{}</small>", html_escape(label)))
+                    .unwrap_or_default();
                 format!(
-                    "<div><span>Wedding Party Deposit ({})</span><strong>{}</strong></div>",
+                    "<div><span>Wedding Party Deposit{} ({}){}</span><strong>{}</strong></div>",
+                    beneficiary,
                     html_escape(&deposit.party_name),
+                    destination,
                     deposit.amount.round_dp(2)
                 )
             })
@@ -141,6 +153,22 @@ fn build_wedding_deposit_summary(order: &ReceiptOrder) -> String {
         );
     }
     String::new()
+}
+
+fn build_applied_wedding_deposit_summary(order: &ReceiptOrder) -> String {
+    order
+        .applied_wedding_deposits
+        .iter()
+        .map(|source| {
+            format!(
+                "<div><span>Wedding Deposit Applied<small>Paid by {} · {}</small></span><strong>{}</strong></div>",
+                html_escape(&source.payer_name),
+                html_escape(&source.party_name),
+                source.amount.round_dp(2)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("")
 }
 
 fn customer_identity_html(order: &ReceiptOrder) -> String {
@@ -234,7 +262,11 @@ pub fn render_standard_receipt_html(
             build_pickup_payment_summary(order),
             order.balance_due,
             html_escape(&order.payment_methods_summary),
-            build_wedding_deposit_summary(order),
+            format!(
+                "{}{}",
+                build_wedding_deposit_summary(order),
+                build_applied_wedding_deposit_summary(order)
+            ),
             build_payment_applications(order)
         )
     };
@@ -463,7 +495,11 @@ pub fn merge_receipt_studio_html(
             "{}{}{}{}",
             tender_summary,
             build_pickup_payment_summary(order),
-            build_wedding_deposit_summary(order),
+            format!(
+                "{}{}",
+                build_wedding_deposit_summary(order),
+                build_applied_wedding_deposit_summary(order)
+            ),
             build_payment_applications(order)
         );
         replace_all(&mut out, "{{ROS_PAYMENT_SUMMARY}}", &payment_summary);
@@ -532,6 +568,7 @@ pub fn sample_receipt_order_for_preview() -> ReceiptOrder {
         amount_paid: Decimal::new(19950, 2),
         wedding_deposit_amount: Decimal::ZERO,
         wedding_deposits: Vec::new(),
+        applied_wedding_deposits: Vec::new(),
         balance_due: Decimal::ZERO,
         payment_methods_summary: "VISA ••••4242".to_string(),
         payment_applications: Vec::new(),
@@ -620,12 +657,16 @@ mod tests {
         order.wedding_deposit_amount = Decimal::new(71038, 2);
         order.wedding_deposits = vec![ReceiptWeddingPartyDeposit {
             party_name: "Whitrock & Family".to_string(),
+            beneficiary_name: Some("James Brown".to_string()),
+            destination_label: Some("Held for future order".to_string()),
             amount: Decimal::new(71038, 2),
         }];
 
         let html = render_standard_receipt_html(&order, &ReceiptConfig::default(), false);
 
-        assert!(html.contains("Wedding Party Deposit (Whitrock &amp; Family)"));
+        assert!(html.contains("Wedding Party Deposit for James Brown (Whitrock &amp; Family)"));
+        assert!(html.contains("for James Brown"));
+        assert!(html.contains("Held for future order"));
         assert!(html.contains("<strong>710.38</strong>"));
     }
 

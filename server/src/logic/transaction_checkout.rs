@@ -166,6 +166,10 @@ pub struct CheckoutAlterationIntake {
 pub struct WeddingDisbursement {
     pub wedding_member_id: Uuid,
     pub amount: Decimal,
+    #[serde(default)]
+    pub destination_kind: Option<String>,
+    #[serde(default)]
+    pub target_transaction_id: Option<Uuid>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -1268,7 +1272,7 @@ fn validate_wedding_disbursement_against_balance(
 ) -> Result<(), CheckoutError> {
     let amount = amount.round_dp(2);
     let live_balance_due = live_balance_due.round_dp(2);
-    if amount > live_balance_due + Decimal::new(2, 2) {
+    if amount > live_balance_due {
         return Err(CheckoutError::InvalidPayload(format!(
             "party disbursement amount ${amount:.2} exceeds the member's current balance due of ${live_balance_due:.2}"
         )));
@@ -3176,6 +3180,23 @@ async fn execute_checkout_internal(
                 .to_string(),
         ));
     }
+    if has_wedding_disbursements && payload.primary_salesperson_id.is_none() {
+        return Err(CheckoutError::InvalidPayload(
+            "Select the salesperson responsible for this wedding deposit before taking payment."
+                .to_string(),
+        ));
+    }
+    if has_wedding_disbursements && payload.wedding_member_id.is_none() {
+        return Err(CheckoutError::InvalidPayload(
+            "The wedding deposit payer must be linked to the selected party before taking payment."
+                .to_string(),
+        ));
+    }
+    let wedding_deposit_salesperson_id = if has_wedding_disbursements {
+        payload.primary_salesperson_id
+    } else {
+        None
+    };
     if !payload.shipping_links.is_empty() && !has_shipping_charge {
         return Err(CheckoutError::InvalidPayload(
             "Shipping links require a Register shipping charge.".to_string(),
@@ -3227,7 +3248,15 @@ async fn execute_checkout_internal(
         false
     };
     if is_employee_purchase_order {
-        payload.primary_salesperson_id = None;
+        if has_wedding_disbursements && !payload.items.is_empty() {
+            return Err(CheckoutError::InvalidPayload(
+                "Complete the employee merchandise purchase separately from wedding-party deposits so salesperson and commission reporting remain correct."
+                    .to_string(),
+            ));
+        }
+        if !has_wedding_disbursements {
+            payload.primary_salesperson_id = None;
+        }
         for item in &mut payload.items {
             item.salesperson_id = None;
         }
@@ -4088,9 +4117,9 @@ async fn execute_checkout_internal(
     })?;
 
     for d in payload.wedding_disbursements.as_deref().unwrap_or(&[]) {
-        if d.amount < Decimal::ZERO {
+        if d.amount.round_dp(2) <= Decimal::ZERO {
             return Err(CheckoutError::InvalidPayload(
-                "wedding disbursement amounts must be non-negative".to_string(),
+                "wedding disbursement amounts must be greater than $0.00".to_string(),
             ));
         }
     }
@@ -5889,11 +5918,23 @@ async fn execute_checkout_internal(
                 let cid = payload.customer_id.ok_or_else(|| {
                     CheckoutError::InvalidPayload("customer_id required".to_string())
                 })?;
+                let source_credit_ledger_id = split
+                    .metadata
+                    .get("wedding_deposit_source_credit_ledger_id")
+                    .and_then(Value::as_str)
+                    .map(Uuid::parse_str)
+                    .transpose()
+                    .map_err(|_| {
+                        CheckoutError::InvalidPayload(
+                            "wedding deposit source reference is invalid".to_string(),
+                        )
+                    })?;
                 customer_open_deposit::apply_checkout_redemption(
                     &mut tx,
                     cid,
                     split.amount,
                     transaction_id,
+                    source_credit_ledger_id,
                 )
                 .await
                 .map_err(|e| match e {
@@ -5904,6 +5945,12 @@ async fn execute_checkout_internal(
                     }
                     customer_open_deposit::CustomerOpenDepositError::NotFound => {
                         CheckoutError::InvalidPayload("Open deposit account not found".to_string())
+                    }
+                    customer_open_deposit::CustomerOpenDepositError::SourceRequired => {
+                        CheckoutError::InvalidPayload(
+                            "Select the exact wedding deposit source before applying held funds"
+                                .to_string(),
+                        )
                     }
                     customer_open_deposit::CustomerOpenDepositError::Database(d) => {
                         CheckoutError::Database(d)
@@ -6257,6 +6304,131 @@ async fn execute_checkout_internal(
                         "party disbursement sources do not match disbursement total".to_string(),
                     ));
                 }
+
+                let beneficiary_member_ids = disbursements
+                    .iter()
+                    .map(|disbursement| disbursement.wedding_member_id)
+                    .collect::<Vec<_>>();
+                let beneficiary_rows = sqlx::query_as::<_, (Uuid, Uuid, Uuid)>(
+                    r#"
+                    SELECT member.id, member.customer_id, member.wedding_party_id
+                    FROM wedding_members member
+                    INNER JOIN wedding_parties party ON party.id = member.wedding_party_id
+                    WHERE member.id = ANY($1)
+                      AND COALESCE(party.is_deleted, FALSE) = FALSE
+                    FOR UPDATE OF member
+                    "#,
+                )
+                .bind(&beneficiary_member_ids)
+                .fetch_all(&mut *tx)
+                .await?;
+                if beneficiary_rows.len() != beneficiary_member_ids.len() {
+                    return Err(CheckoutError::InvalidPayload(
+                        "one or more wedding deposit members no longer exist".to_string(),
+                    ));
+                }
+                let workflow_party_id = beneficiary_rows
+                    .first()
+                    .map(|(_, _, party_id)| *party_id)
+                    .ok_or_else(|| {
+                        CheckoutError::InvalidPayload(
+                            "wedding deposit requires at least one beneficiary".to_string(),
+                        )
+                    })?;
+                let active_party_id: Option<Uuid> = sqlx::query_scalar(
+                    r#"
+                    SELECT id
+                    FROM wedding_parties
+                    WHERE id = $1
+                      AND COALESCE(is_deleted, FALSE) = FALSE
+                    FOR UPDATE
+                    "#,
+                )
+                .bind(workflow_party_id)
+                .fetch_optional(&mut *tx)
+                .await?;
+                if active_party_id.is_none() {
+                    return Err(CheckoutError::InvalidPayload(
+                        "the selected wedding party is archived; return to Wedding Deposit and choose an active party"
+                            .to_string(),
+                    ));
+                }
+                if beneficiary_rows
+                    .iter()
+                    .any(|(_, _, party_id)| *party_id != workflow_party_id)
+                {
+                    return Err(CheckoutError::InvalidPayload(
+                        "all wedding deposits in one checkout must belong to the same party"
+                            .to_string(),
+                    ));
+                }
+                let payer_customer_id = payload.customer_id.ok_or_else(|| {
+                    CheckoutError::InvalidPayload(
+                        "wedding deposit checkout requires the paying customer".to_string(),
+                    )
+                })?;
+                if beneficiary_rows
+                    .iter()
+                    .any(|(_, customer_id, _)| *customer_id == payer_customer_id)
+                {
+                    return Err(CheckoutError::InvalidPayload(
+                        "the wedding deposit payer cannot also be a beneficiary".to_string(),
+                    ));
+                }
+                let payer_member_id = payload.wedding_member_id.ok_or_else(|| {
+                    CheckoutError::InvalidPayload(
+                        "the wedding deposit payer must be linked to the selected party"
+                            .to_string(),
+                    )
+                })?;
+                let payer_matches_party: bool = sqlx::query_scalar(
+                    r#"
+                        SELECT EXISTS(
+                            SELECT 1
+                            FROM wedding_members
+                            WHERE id = $1
+                              AND customer_id = $2
+                              AND wedding_party_id = $3
+                        )
+                    "#,
+                )
+                .bind(payer_member_id)
+                .bind(payer_customer_id)
+                .bind(workflow_party_id)
+                .fetch_one(&mut *tx)
+                .await?;
+                if !payer_matches_party {
+                    return Err(CheckoutError::InvalidPayload(
+                        "the wedding deposit payer must be linked to the selected party"
+                            .to_string(),
+                    ));
+                }
+                let workflow_id: Uuid = sqlx::query_scalar(
+                    r#"
+                    INSERT INTO wedding_deposit_workflows (
+                        payer_transaction_id, payer_customer_id,
+                        payer_wedding_member_id, wedding_party_id,
+                        register_session_id, operator_staff_id,
+                        primary_salesperson_id, total_amount, status
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'funded')
+                    RETURNING id
+                    "#,
+                )
+                .bind(transaction_id)
+                .bind(payer_customer_id)
+                .bind(payload.wedding_member_id)
+                .bind(workflow_party_id)
+                .bind(payload.session_id)
+                .bind(payload.operator_staff_id)
+                .bind(wedding_deposit_salesperson_id)
+                .bind(d_total)
+                .fetch_one(&mut *tx)
+                .await?;
+                let beneficiary_customer_by_member = beneficiary_rows
+                    .into_iter()
+                    .map(|(member_id, customer_id, _)| (member_id, customer_id))
+                    .collect::<HashMap<_, _>>();
                 let mut source_index = 0usize;
 
                 let mut take_disbursement_sources =
@@ -6291,26 +6463,78 @@ async fn execute_checkout_internal(
                         continue;
                     }
 
-                    let bene_order: Option<(Uuid, Option<Uuid>, Decimal)> = sqlx::query_as(
-                        r#"
-                        SELECT o.id, wm.wedding_party_id, o.balance_due
-                        FROM transactions o
-                        JOIN wedding_members wm ON wm.id = o.wedding_member_id
-                        WHERE wm.id = $1
-                          AND o.status IN ('open', 'pending_measurement')
-                          AND o.balance_due > 0
-                        ORDER BY o.booked_at DESC
-                        LIMIT 1
-                        FOR UPDATE OF o
-                        "#,
-                    )
-                    .bind(d.wedding_member_id)
-                    .fetch_optional(&mut *tx)
-                    .await?;
+                    let destination_kind = d.destination_kind.as_deref().map(str::trim);
+                    let bene_order: Option<(Uuid, Option<Uuid>, Decimal)> = match destination_kind {
+                        Some("held_for_future_order") => {
+                            if d.target_transaction_id.is_some() {
+                                return Err(CheckoutError::InvalidPayload(
+                                        "a held wedding deposit cannot name an existing Transaction Record"
+                                            .to_string(),
+                                    ));
+                            }
+                            None
+                        }
+                        Some("existing_transaction") => {
+                            let target_transaction_id = d.target_transaction_id.ok_or_else(|| {
+                                    CheckoutError::InvalidPayload(
+                                        "select the existing member Transaction Record for this wedding deposit"
+                                            .to_string(),
+                                    )
+                                })?;
+                            sqlx::query_as::<_, (Uuid, Option<Uuid>, Decimal)>(
+                                    r#"
+                                    SELECT o.id, wm.wedding_party_id, o.balance_due
+                                    FROM transactions o
+                                    JOIN wedding_members wm ON wm.id = o.wedding_member_id
+                                    WHERE wm.id = $1
+                                      AND o.id = $2
+                                      AND o.status IN ('open', 'pending_measurement')
+                                      AND o.balance_due > 0
+                                    FOR UPDATE OF o
+                                    "#,
+                                )
+                                .bind(d.wedding_member_id)
+                                .bind(target_transaction_id)
+                                .fetch_optional(&mut *tx)
+                                .await?
+                                .ok_or_else(|| {
+                                    CheckoutError::InvalidPayload(
+                                        "the selected member Transaction Record is no longer open with a balance; return to Wedding Deposit and resolve it before taking payment"
+                                            .to_string(),
+                                    )
+                                })?
+                                .into()
+                        }
+                        None => {
+                            sqlx::query_as::<_, (Uuid, Option<Uuid>, Decimal)>(
+                                r#"
+                                SELECT o.id, wm.wedding_party_id, o.balance_due
+                                FROM transactions o
+                                JOIN wedding_members wm ON wm.id = o.wedding_member_id
+                                WHERE wm.id = $1
+                                  AND o.status IN ('open', 'pending_measurement')
+                                  AND o.balance_due > 0
+                                ORDER BY o.booked_at DESC
+                                LIMIT 1
+                                FOR UPDATE OF o
+                                "#,
+                            )
+                            .bind(d.wedding_member_id)
+                            .fetch_optional(&mut *tx)
+                            .await?
+                        }
+                        Some(_) => {
+                            return Err(CheckoutError::InvalidPayload(
+                                    "wedding deposit destination must be held for a future order or applied to a selected existing Transaction Record"
+                                        .to_string(),
+                                ));
+                        }
+                    };
 
                     if let Some((bene_transaction_id, party_id, live_balance_due)) = bene_order {
                         validate_wedding_disbursement_against_balance(d.amount, live_balance_due)?;
-                        for (source_payment_tx_id, amount) in take_disbursement_sources(d.amount)? {
+                        let direct_source_chunks = take_disbursement_sources(d.amount)?;
+                        for (source_payment_tx_id, amount) in &direct_source_chunks {
                             sqlx::query(
                                 r#"
                                 INSERT INTO payment_allocations (
@@ -6319,9 +6543,9 @@ async fn execute_checkout_internal(
                                 VALUES ($1, $2, $3, $4)
                                 "#,
                             )
-                            .bind(source_payment_tx_id)
+                            .bind(*source_payment_tx_id)
                             .bind(bene_transaction_id)
-                            .bind(amount)
+                            .bind(*amount)
                             .bind(json!({
                                 "kind": "wedding_group_disbursement",
                                 "payer_member_id": payload.wedding_member_id,
@@ -6344,6 +6568,49 @@ async fn execute_checkout_internal(
                         transaction_recalc::recalc_transaction_totals(&mut tx, bene_transaction_id)
                             .await
                             .map_err(CheckoutError::Database)?;
+
+                        let beneficiary_customer_id = beneficiary_customer_by_member
+                            .get(&d.wedding_member_id)
+                            .copied()
+                            .ok_or_else(|| {
+                                CheckoutError::InvalidPayload(
+                                    "wedding deposit beneficiary customer was not found"
+                                        .to_string(),
+                                )
+                            })?;
+                        let allocation_id: Uuid = sqlx::query_scalar(
+                            r#"
+                            INSERT INTO wedding_deposit_workflow_allocations (
+                                workflow_id, wedding_member_id,
+                                beneficiary_customer_id, amount,
+                                destination_kind, target_transaction_id
+                            )
+                            VALUES ($1, $2, $3, $4, 'existing_transaction', $5)
+                            RETURNING id
+                            "#,
+                        )
+                        .bind(workflow_id)
+                        .bind(d.wedding_member_id)
+                        .bind(beneficiary_customer_id)
+                        .bind(d.amount)
+                        .bind(bene_transaction_id)
+                        .fetch_one(&mut *tx)
+                        .await?;
+                        for (source_payment_transaction_id, source_amount) in direct_source_chunks {
+                            sqlx::query(
+                                r#"
+                                INSERT INTO wedding_deposit_workflow_allocation_payments (
+                                    allocation_id, source_payment_transaction_id, amount
+                                )
+                                VALUES ($1, $2, $3)
+                                "#,
+                            )
+                            .bind(allocation_id)
+                            .bind(source_payment_transaction_id)
+                            .bind(source_amount)
+                            .execute(&mut *tx)
+                            .await?;
+                        }
 
                         if let Some(pid) = party_id {
                             let actor = payload.actor_name.as_deref().unwrap_or("Riverside POS");
@@ -6405,33 +6672,67 @@ async fn execute_checkout_internal(
                                         }
                                     })
                                     .collect();
-                            customer_open_deposit::credit_party_split_with_sources(
-                                &mut tx,
-                                bene_customer_id,
-                                d.amount,
-                                payload.customer_id,
-                                payer_trim,
-                                bene_party_id,
-                                transaction_id,
-                                &source_chunks,
-                                payload.wedding_member_id,
-                                Some(d.wedding_member_id),
-                            )
-                            .await
-                            .map(|_| ())
-                            .map_err(|e| {
-                                match e {
+                            let held_credit_ledger_id =
+                                customer_open_deposit::credit_party_split_with_sources(
+                                    &mut tx,
+                                    bene_customer_id,
+                                    d.amount,
+                                    payload.customer_id,
+                                    payer_trim,
+                                    bene_party_id,
+                                    transaction_id,
+                                    &source_chunks,
+                                    payload.wedding_member_id,
+                                    Some(d.wedding_member_id),
+                                )
+                                .await
+                                .map_err(|e| {
+                                    match e {
                                 customer_open_deposit::CustomerOpenDepositError::Database(d) => {
                                     CheckoutError::Database(d)
                                 }
                                 customer_open_deposit::CustomerOpenDepositError::InsufficientBalance
-                                | customer_open_deposit::CustomerOpenDepositError::NotFound => {
+                                | customer_open_deposit::CustomerOpenDepositError::NotFound
+                                | customer_open_deposit::CustomerOpenDepositError::SourceRequired => {
                                     CheckoutError::InvalidPayload(
                                         "open deposit credit could not be posted".to_string(),
                                     )
                                 }
                             }
-                            })?;
+                                })?;
+                            let allocation_id: Uuid = sqlx::query_scalar(
+                                r#"
+                                INSERT INTO wedding_deposit_workflow_allocations (
+                                    workflow_id, wedding_member_id,
+                                    beneficiary_customer_id, amount,
+                                    destination_kind, held_credit_ledger_id
+                                )
+                                VALUES ($1, $2, $3, $4, 'held_for_future_order', $5)
+                                RETURNING id
+                                "#,
+                            )
+                            .bind(workflow_id)
+                            .bind(d.wedding_member_id)
+                            .bind(bene_customer_id)
+                            .bind(d.amount)
+                            .bind(held_credit_ledger_id)
+                            .fetch_one(&mut *tx)
+                            .await?;
+                            for source in &source_chunks {
+                                sqlx::query(
+                                    r#"
+                                    INSERT INTO wedding_deposit_workflow_allocation_payments (
+                                        allocation_id, source_payment_transaction_id, amount
+                                    )
+                                    VALUES ($1, $2, $3)
+                                    "#,
+                                )
+                                .bind(allocation_id)
+                                .bind(source.source_payment_transaction_id)
+                                .bind(source.amount)
+                                .execute(&mut *tx)
+                                .await?;
+                            }
                         } else {
                             return Err(CheckoutError::InvalidPayload(
                                 "wedding disbursement target member was not found".to_string(),
@@ -6439,12 +6740,36 @@ async fn execute_checkout_internal(
                         }
                     }
                 }
+                sqlx::query(
+                    r#"
+                    UPDATE wedding_deposit_workflows workflow
+                    SET status = CASE
+                            WHEN EXISTS (
+                                SELECT 1
+                                FROM wedding_deposit_workflow_allocations allocation
+                                WHERE allocation.workflow_id = workflow.id
+                                  AND allocation.destination_kind = 'held_for_future_order'
+                            ) THEN 'funded'
+                            ELSE 'complete'
+                        END,
+                        updated_at = NOW()
+                    WHERE workflow.id = $1
+                    "#,
+                )
+                .bind(workflow_id)
+                .execute(&mut *tx)
+                .await?;
             }
         }
 
-        if let Some(member_id) = payload.wedding_member_id {
-            sqlx::query(
-                r#"
+        if payload
+            .wedding_disbursements
+            .as_ref()
+            .is_none_or(Vec::is_empty)
+        {
+            if let Some(member_id) = payload.wedding_member_id {
+                sqlx::query(
+                    r#"
                 UPDATE wedding_members
                 SET
                     transaction_id = COALESCE(transaction_id, $1),
@@ -6456,48 +6781,50 @@ async fn execute_checkout_internal(
                     ordered_date = COALESCE(ordered_date, CURRENT_DATE)
                 WHERE id = $3
                 "#,
-            )
-            .bind(transaction_id)
-            .bind(balance_due)
-            .bind(member_id)
-            .execute(&mut *tx)
-            .await?;
+                )
+                .bind(transaction_id)
+                .bind(balance_due)
+                .bind(member_id)
+                .execute(&mut *tx)
+                .await?;
 
-            let party_id: Option<Uuid> =
-                sqlx::query_scalar("SELECT wedding_party_id FROM wedding_members WHERE id = $1")
-                    .bind(member_id)
-                    .fetch_optional(&mut *tx)
-                    .await?;
+                let party_id: Option<Uuid> = sqlx::query_scalar(
+                    "SELECT wedding_party_id FROM wedding_members WHERE id = $1",
+                )
+                .bind(member_id)
+                .fetch_optional(&mut *tx)
+                .await?;
 
-            if let Some(party_id) = party_id {
-                let actor = payload
-                    .actor_name
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty())
-                    .unwrap_or("Riverside POS");
-                let desc = format!(
-                    "Payment recorded: ${} {} ({})",
-                    payload.amount_paid,
-                    payment_activity_label,
-                    if balance_due <= Decimal::ZERO {
-                        "paid in full"
-                    } else {
-                        "partial"
-                    }
-                );
-                deferred_wedding_activities.push(DeferredWeddingActivity {
-                    party_id,
-                    member_id: Some(member_id),
-                    actor: actor.to_string(),
-                    description: desc,
-                    metadata: json!({
-                        "transaction_id": transaction_id,
-                        "amount_paid": payload.amount_paid,
-                        "payment_method": payment_activity_label,
-                        "balance_due": balance_due,
-                    }),
-                });
+                if let Some(party_id) = party_id {
+                    let actor = payload
+                        .actor_name
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                        .unwrap_or("Riverside POS");
+                    let desc = format!(
+                        "Payment recorded: ${} {} ({})",
+                        payload.amount_paid,
+                        payment_activity_label,
+                        if balance_due <= Decimal::ZERO {
+                            "paid in full"
+                        } else {
+                            "partial"
+                        }
+                    );
+                    deferred_wedding_activities.push(DeferredWeddingActivity {
+                        party_id,
+                        member_id: Some(member_id),
+                        actor: actor.to_string(),
+                        description: desc,
+                        metadata: json!({
+                            "transaction_id": transaction_id,
+                            "amount_paid": payload.amount_paid,
+                            "payment_method": payment_activity_label,
+                            "balance_due": balance_due,
+                        }),
+                    });
+                }
             }
         }
     }
@@ -8679,7 +9006,7 @@ mod tests {
     #[test]
     fn transaction_checkout_wedding_disbursement_rejects_live_balance_overpayment() {
         let err = validate_wedding_disbursement_against_balance(
-            Decimal::new(10003, 2),
+            Decimal::new(10001, 2),
             Decimal::new(10000, 2),
         )
         .unwrap_err();
@@ -9076,6 +9403,71 @@ mod tests {
         beneficiary_customer_id: Uuid,
         payer_customer_id: Uuid,
     ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"
+            DELETE FROM customer_open_deposit_source_event_payments
+            WHERE source_event_id IN (
+                SELECT source_event.id
+                FROM customer_open_deposit_source_events source_event
+                INNER JOIN wedding_deposit_workflow_allocations allocation
+                    ON allocation.held_credit_ledger_id = source_event.source_credit_ledger_id
+                INNER JOIN wedding_deposit_workflows workflow
+                    ON workflow.id = allocation.workflow_id
+                WHERE workflow.register_session_id = $1
+            )
+            "#,
+        )
+        .bind(session_id)
+        .execute(pool)
+        .await?;
+        sqlx::query(
+            r#"
+            DELETE FROM customer_open_deposit_source_events
+            WHERE source_credit_ledger_id IN (
+                SELECT allocation.held_credit_ledger_id
+                FROM wedding_deposit_workflow_allocations allocation
+                INNER JOIN wedding_deposit_workflows workflow
+                    ON workflow.id = allocation.workflow_id
+                WHERE workflow.register_session_id = $1
+                  AND allocation.held_credit_ledger_id IS NOT NULL
+            )
+            "#,
+        )
+        .bind(session_id)
+        .execute(pool)
+        .await?;
+        sqlx::query(
+            r#"
+            DELETE FROM wedding_deposit_workflow_allocation_payments
+            WHERE allocation_id IN (
+                SELECT allocation.id
+                FROM wedding_deposit_workflow_allocations allocation
+                INNER JOIN wedding_deposit_workflows workflow
+                    ON workflow.id = allocation.workflow_id
+                WHERE workflow.register_session_id = $1
+            )
+            "#,
+        )
+        .bind(session_id)
+        .execute(pool)
+        .await?;
+        sqlx::query(
+            r#"
+            DELETE FROM wedding_deposit_workflow_allocations
+            WHERE workflow_id IN (
+                SELECT id
+                FROM wedding_deposit_workflows
+                WHERE register_session_id = $1
+            )
+            "#,
+        )
+        .bind(session_id)
+        .execute(pool)
+        .await?;
+        sqlx::query("DELETE FROM wedding_deposit_workflows WHERE register_session_id = $1")
+            .bind(session_id)
+            .execute(pool)
+            .await?;
         sqlx::query(
             r#"
             DELETE FROM customer_open_deposit_ledger_sources
@@ -9602,6 +9994,7 @@ mod tests {
         let variant_id = Uuid::new_v4();
         let party_id = Uuid::new_v4();
         let member_id = Uuid::new_v4();
+        let payer_member_id = Uuid::new_v4();
         let sku = format!("E2E-WED-GROUP-PAY-{}", Uuid::new_v4().simple());
         let register_lane: i16 = sqlx::query_scalar(
             r#"
@@ -9785,6 +10178,21 @@ mod tests {
         .await
         .expect("insert wedding member");
 
+        sqlx::query(
+            r#"
+            INSERT INTO wedding_members (
+                id, wedding_party_id, customer_id, role, status, member_index
+            )
+            VALUES ($1, $2, $3, 'Groom', 'active', 2)
+            "#,
+        )
+        .bind(payer_member_id)
+        .bind(party_id)
+        .bind(payer_customer_id)
+        .execute(&pool)
+        .await
+        .expect("insert payer wedding member");
+
         let order_payload = CheckoutRequest {
             session_id,
             operator_staff_id: staff_id,
@@ -9873,7 +10281,7 @@ mod tests {
             operator_staff_id: staff_id,
             primary_salesperson_id: Some(staff_id),
             customer_id: Some(payer_customer_id),
-            wedding_member_id: None,
+            wedding_member_id: Some(payer_member_id),
             payment_method: "cash".to_string(),
             total_price: Decimal::ZERO,
             amount_paid: Decimal::new(5000, 2),
@@ -9892,6 +10300,8 @@ mod tests {
             wedding_disbursements: Some(vec![WeddingDisbursement {
                 wedding_member_id: member_id,
                 amount: Decimal::new(5000, 2),
+                destination_kind: Some("existing_transaction".to_string()),
+                target_transaction_id: Some(order_transaction_id),
             }]),
             order_payments: vec![],
             below_cost_approval: None,
@@ -9969,6 +10379,69 @@ mod tests {
             applied_deposit.unwrap_or(Decimal::ZERO),
             Decimal::new(5000, 2)
         );
+        let direct_source: (Uuid, Decimal, Option<Uuid>) = sqlx::query_as(
+            r#"
+            SELECT
+                source.source_payment_transaction_id,
+                source.amount,
+                payment.payer_id
+            FROM wedding_deposit_workflow_allocation_payments source
+            INNER JOIN wedding_deposit_workflow_allocations allocation
+                ON allocation.id = source.allocation_id
+            INNER JOIN payment_transactions payment
+                ON payment.id = source.source_payment_transaction_id
+            WHERE allocation.target_transaction_id = $1
+            "#,
+        )
+        .bind(order_transaction_id)
+        .fetch_one(&pool)
+        .await
+        .expect("fetch exact direct wedding-deposit payment source");
+        assert_eq!(direct_source.1, Decimal::new(5000, 2));
+        assert_eq!(direct_source.2, Some(payer_customer_id));
+        sqlx::query(
+            r#"
+            UPDATE payment_transactions
+            SET payment_provider = 'helcim',
+                provider_status = 'approved',
+                provider_transaction_id = '9100000500'
+            WHERE id = $1
+            "#,
+        )
+        .bind(direct_source.0)
+        .execute(&pool)
+        .await
+        .expect("mark direct source as approved Helcim payment");
+        let direct_detail =
+            crate::api::transactions::load_transaction_detail(&pool, order_transaction_id)
+                .await
+                .expect("load direct wedding-deposit member transaction detail");
+        assert_eq!(
+            direct_detail
+                .original_helcim_transaction_id_for_refund
+                .as_deref(),
+            Some("9100000500")
+        );
+        assert_eq!(
+            direct_detail
+                .wedding_refund_recipient
+                .as_ref()
+                .map(|customer| customer.id),
+            Some(payer_customer_id)
+        );
+
+        let payer_member_state: (Option<Uuid>, String, bool) = sqlx::query_as(
+            "SELECT transaction_id, status, suit_ordered FROM wedding_members WHERE id = $1",
+        )
+        .bind(payer_member_id)
+        .fetch_one(&pool)
+        .await
+        .expect("fetch payer member state after group deposit");
+        assert_eq!(
+            payer_member_state,
+            (None, "active".to_string(), false),
+            "paying for other members must not start the payer's own wedding order"
+        );
 
         let beneficiary_timeline =
             crate::api::customers::build_customer_timeline(&pool, beneficiary_customer_id)
@@ -9980,6 +10453,74 @@ mod tests {
                 && event.reference_id == Some(order_transaction_id)
                 && event.summary == "Payment recorded: 50.00 via Cash"
         }));
+
+        let payer_timeline =
+            crate::api::customers::build_customer_timeline(&pool, payer_customer_id)
+                .await
+                .expect("build payer customer timeline");
+        assert!(payer_timeline.iter().any(|event| {
+            event.reference_id == Some(group_pay_transaction_id)
+                && event
+                    .summary
+                    .starts_with("Wedding deposits placed: $50.00 for 1 party member in ")
+        }));
+
+        let activity_date: chrono::NaiveDate = sqlx::query_scalar(
+            "SELECT (CURRENT_TIMESTAMP AT TIME ZONE reporting.effective_store_timezone())::date",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("fetch reporting activity date");
+        let register_summary =
+            crate::logic::register_day_activity::fetch_register_day_summary_page(
+                &pool,
+                Some("custom".to_string()),
+                Some(activity_date),
+                Some(activity_date),
+                Some(session_id),
+                crate::logic::report_basis::ReportBasis::Booked,
+                crate::logic::register_day_activity::ActivityPageOptions::default(),
+            )
+            .await
+            .expect("fetch register summary with wedding deposit activity");
+        let deposit_activity = register_summary
+            .activities
+            .iter()
+            .find(|activity| {
+                activity.kind == "wedding_deposit"
+                    && activity.transaction_id == Some(group_pay_transaction_id)
+            })
+            .expect("wedding deposit should have its own truthful register activity");
+        assert_eq!(deposit_activity.title, "Wedding Deposit Disbursement");
+        assert_eq!(
+            deposit_activity
+                .sales_total
+                .as_deref()
+                .and_then(|amount| amount.parse::<Decimal>().ok()),
+            Some(Decimal::ZERO)
+        );
+        assert_eq!(
+            deposit_activity
+                .tax_total
+                .as_deref()
+                .and_then(|amount| amount.parse::<Decimal>().ok()),
+            Some(Decimal::ZERO)
+        );
+        assert_eq!(
+            deposit_activity
+                .transaction_total
+                .as_deref()
+                .and_then(|amount| amount.parse::<Decimal>().ok()),
+            Some(Decimal::new(5000, 2))
+        );
+        assert_eq!(
+            deposit_activity
+                .wedding_deposit_contributions
+                .as_deref()
+                .and_then(|amount| amount.parse::<Decimal>().ok()),
+            Some(Decimal::new(5000, 2))
+        );
+        assert_eq!(deposit_activity.wedding_deposit_member_count, Some(1));
 
         cleanup_wedding_group_pay_checkout_test(
             &pool,
@@ -10234,10 +10775,14 @@ mod tests {
                 WeddingDisbursement {
                     wedding_member_id: first_member_id,
                     amount: Decimal::new(7500, 2),
+                    destination_kind: None,
+                    target_transaction_id: None,
                 },
                 WeddingDisbursement {
                     wedding_member_id: second_member_id,
                     amount: Decimal::new(12500, 2),
+                    destination_kind: None,
+                    target_transaction_id: None,
                 },
             ]),
             order_payments: vec![],
@@ -10306,6 +10851,39 @@ mod tests {
         assert!(source_rows.iter().any(|(member_id, method, amount, _, _)| {
             *member_id == second_member_id && method == "card" && *amount == Decimal::new(10000, 2)
         }));
+        let workflow_source_rows: Vec<(Uuid, String, Decimal, Option<Uuid>)> = sqlx::query_as(
+            r#"
+            SELECT
+                allocation.wedding_member_id,
+                payment.payment_method,
+                source.amount,
+                payment.payer_id
+            FROM wedding_deposit_workflow_allocation_payments source
+            INNER JOIN wedding_deposit_workflow_allocations allocation
+                ON allocation.id = source.allocation_id
+            INNER JOIN wedding_deposit_workflows workflow
+                ON workflow.id = allocation.workflow_id
+            INNER JOIN payment_transactions payment
+                ON payment.id = source.source_payment_transaction_id
+            WHERE workflow.payer_transaction_id = $1
+            ORDER BY allocation.wedding_member_id, payment.payment_method
+            "#,
+        )
+        .bind(group_pay_transaction_id)
+        .fetch_all(&pool)
+        .await
+        .expect("fetch exact workflow allocation payment sources");
+        assert_eq!(workflow_source_rows.len(), 3);
+        assert_eq!(
+            workflow_source_rows
+                .iter()
+                .map(|(_, _, amount, _)| *amount)
+                .sum::<Decimal>(),
+            Decimal::new(20000, 2)
+        );
+        assert!(workflow_source_rows
+            .iter()
+            .all(|(_, _, _, payer_id)| *payer_id == Some(payer_customer_id)));
 
         let source_payers: Vec<Option<Uuid>> = sqlx::query_scalar(
             r#"
@@ -10477,6 +11055,22 @@ mod tests {
             .sum::<Decimal>();
         assert_eq!(matching_source_total, Decimal::new(20000, 2));
 
+        let first_source_credit_ledger_id: Uuid = sqlx::query_scalar(
+            r#"
+            SELECT allocation.held_credit_ledger_id
+            FROM wedding_deposit_workflows workflow
+            INNER JOIN wedding_deposit_workflow_allocations allocation
+                ON allocation.workflow_id = workflow.id
+            WHERE workflow.payer_transaction_id = $1
+              AND allocation.wedding_member_id = $2
+            "#,
+        )
+        .bind(group_pay_transaction_id)
+        .bind(first_member_id)
+        .fetch_one(&pool)
+        .await
+        .expect("fetch exact held source for first beneficiary");
+
         let redemption_payload = CheckoutRequest {
             session_id,
             operator_staff_id: staff_id,
@@ -10520,7 +11114,10 @@ mod tests {
                 applied_deposit_amount: None,
                 gift_card_code: None,
                 check_number: None,
-                metadata: None,
+                metadata: Some(json!({
+                    "wedding_deposit_source_credit_ledger_id":
+                        first_source_credit_ledger_id.to_string()
+                })),
             }]),
             wedding_disbursements: None,
             order_payments: vec![],
@@ -10600,6 +11197,60 @@ mod tests {
         assert_eq!(ledger_amount, Decimal::new(-7500, 2));
         assert_eq!(ledger_balance_after, Decimal::ZERO);
         assert_eq!(ledger_transaction_id, Some(redemption_transaction_id));
+
+        let redemption_sources: Vec<(Uuid, String, Decimal, Option<Uuid>)> = sqlx::query_as(
+            r#"
+            SELECT payment.id, payment.payment_method, event_payment.amount, payment.payer_id
+            FROM customer_open_deposit_source_events source_event
+            INNER JOIN customer_open_deposit_ledger redemption
+                ON redemption.id = source_event.ledger_event_id
+            INNER JOIN customer_open_deposit_source_event_payments event_payment
+                ON event_payment.source_event_id = source_event.id
+            INNER JOIN payment_transactions payment
+                ON payment.id = event_payment.source_payment_transaction_id
+            WHERE source_event.event_kind = 'redemption'
+              AND redemption.transaction_id = $1
+            "#,
+        )
+        .bind(redemption_transaction_id)
+        .fetch_all(&pool)
+        .await
+        .expect("fetch exact redeemed tender sources");
+        assert_eq!(redemption_sources.len(), 1);
+        assert_eq!(redemption_sources[0].1, "cash");
+        assert_eq!(redemption_sources[0].2, Decimal::new(7500, 2));
+        assert_eq!(redemption_sources[0].3, Some(payer_customer_id));
+        let redeemed_source_payment_id = redemption_sources[0].0;
+        sqlx::query(
+            r#"
+            UPDATE payment_transactions
+            SET payment_provider = 'helcim',
+                provider_status = 'approved',
+                provider_transaction_id = '9100000750'
+            WHERE id = $1
+            "#,
+        )
+        .bind(redeemed_source_payment_id)
+        .execute(&pool)
+        .await
+        .expect("mark redeemed source as approved Helcim payment");
+        let redemption_detail =
+            crate::api::transactions::load_transaction_detail(&pool, redemption_transaction_id)
+                .await
+                .expect("load redeemed wedding-deposit member transaction detail");
+        assert_eq!(
+            redemption_detail
+                .original_helcim_transaction_id_for_refund
+                .as_deref(),
+            Some("9100000750")
+        );
+        assert_eq!(
+            redemption_detail
+                .wedding_refund_recipient
+                .as_ref()
+                .map(|customer| customer.id),
+            Some(payer_customer_id)
+        );
 
         let booking_day_proposal = qbo_journal::propose_daily_journal(&pool, activity_date)
             .await
@@ -10686,6 +11337,23 @@ mod tests {
                 "transaction_void_reversal".to_string()
             )
         );
+        let restoration_source_total: Decimal = sqlx::query_scalar(
+            r#"
+            SELECT COALESCE(SUM(event_payment.amount), 0)::numeric(14,2)
+            FROM customer_open_deposit_source_events source_event
+            INNER JOIN customer_open_deposit_ledger restoration
+                ON restoration.id = source_event.ledger_event_id
+            INNER JOIN customer_open_deposit_source_event_payments event_payment
+                ON event_payment.source_event_id = source_event.id
+            WHERE source_event.event_kind = 'restoration'
+              AND restoration.transaction_id = $1
+            "#,
+        )
+        .bind(redemption_transaction_id)
+        .fetch_one(&pool)
+        .await
+        .expect("fetch restored tender source total");
+        assert_eq!(restoration_source_total, Decimal::new(7500, 2));
 
         cleanup_wedding_group_pay_checkout_test(
             &pool,

@@ -421,18 +421,39 @@ fn push_totals(out: &mut Vec<u8>, d: &ReceiptOrder) {
     }
     if !d.wedding_deposits.is_empty() {
         for deposit in &d.wedding_deposits {
+            let beneficiary = deposit
+                .beneficiary_name
+                .as_deref()
+                .map(|name| format!(" for {name}"))
+                .unwrap_or_default();
             push_line(
                 out,
                 &right_pair(
-                    &format!("Wedding Party Deposit ({})", deposit.party_name),
+                    &format!(
+                        "Wedding Party Deposit{} ({})",
+                        beneficiary, deposit.party_name
+                    ),
                     &money(deposit.amount),
                 ),
             );
+            if let Some(destination) = deposit.destination_label.as_deref() {
+                push_line(out, &format!("  {destination}"));
+            }
         }
     } else if d.wedding_deposit_amount > Decimal::ZERO {
         push_line(
             out,
             &right_pair("Wedding Party Deposit", &money(d.wedding_deposit_amount)),
+        );
+    }
+    for source in &d.applied_wedding_deposits {
+        push_line(
+            out,
+            &right_pair("Wedding Deposit Applied", &money(source.amount)),
+        );
+        push_line(
+            out,
+            &format!("  Paid by {} · {}", source.payer_name, source.party_name),
         );
     }
     if !d.payment_applications.is_empty() {
@@ -853,10 +874,21 @@ fn receiptline_wedding_deposit_lines(d: &ReceiptOrder, gift: bool) -> String {
             .wedding_deposits
             .iter()
             .map(|deposit| {
+                let beneficiary = deposit
+                    .beneficiary_name
+                    .as_deref()
+                    .map(|name| format!(" for {}", receiptline_escape(name)))
+                    .unwrap_or_default();
                 format!(
-                    "Wedding Party Deposit ({}) | {}",
+                    "Wedding Party Deposit{} ({}) | {}{}",
+                    beneficiary,
                     receiptline_escape(&deposit.party_name),
-                    money(deposit.amount)
+                    money(deposit.amount),
+                    deposit
+                        .destination_label
+                        .as_deref()
+                        .map(|label| format!("\n  {}", receiptline_escape(label)))
+                        .unwrap_or_default()
                 )
             })
             .collect::<Vec<_>>()
@@ -868,7 +900,18 @@ fn receiptline_wedding_deposit_lines(d: &ReceiptOrder, gift: bool) -> String {
             money(d.wedding_deposit_amount)
         );
     }
-    String::new()
+    d.applied_wedding_deposits
+        .iter()
+        .map(|source| {
+            format!(
+                "Wedding Deposit Applied | {}\n  Paid by {} · {}",
+                money(source.amount),
+                receiptline_escape(&source.payer_name),
+                receiptline_escape(&source.party_name)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn receiptline_gift_card_balance_line(d: &ReceiptOrder, gift: bool) -> String {
@@ -1172,6 +1215,7 @@ mod tests {
             amount_paid: Decimal::ZERO,
             wedding_deposit_amount: Decimal::ZERO,
             wedding_deposits: Vec::new(),
+            applied_wedding_deposits: Vec::new(),
             balance_due: Decimal::ZERO,
             payment_methods_summary: "Cash".to_string(),
             payment_applications: Vec::new(),
@@ -1250,6 +1294,8 @@ mod tests {
         order.wedding_deposit_amount = Decimal::new(71038, 2);
         order.wedding_deposits = vec![ReceiptWeddingPartyDeposit {
             party_name: "Whitrock Wedding".to_string(),
+            beneficiary_name: Some("James Brown".to_string()),
+            destination_label: Some("Held for future order".to_string()),
             amount: Decimal::new(71038, 2),
         }];
 
@@ -1262,8 +1308,13 @@ mod tests {
         let escpos = build_receipt_escpos(&order, &ReceiptConfig::default(), HashMap::new());
         let escpos_text = String::from_utf8_lossy(&escpos);
 
-        assert!(receiptline.contains("Wedding Party Deposit (Whitrock Wedding) | $710.38"));
-        assert!(escpos_text.contains("Wedding Party Deposit (Whitrock Wedding)"));
+        assert!(
+            receiptline
+                .contains("Wedding Party Deposit for James Brown (Whitrock Wedding) | $710.38"),
+            "{receiptline}"
+        );
+        assert!(receiptline.contains("Held for future order"));
+        assert!(escpos_text.contains("Wedding Party Deposit for James Brown (Whitrock Wedding)"));
         assert!(escpos_text.contains("$710.38"));
     }
 

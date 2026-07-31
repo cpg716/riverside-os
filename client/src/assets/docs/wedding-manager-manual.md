@@ -79,14 +79,18 @@ ROSIE readiness takeaways summarize visible risks. They do not collect payment, 
 
 Wedding deposits and payments must remain attached to their audited payment and allocation records. A payment placed for another party member appears on that member's Customer account and can be applied from the Register payment screen when eligible.
 
+At the Register, **Wedding Deposit** is also a guided setup path. Staff may start a party with Party Name and Wedding Date, link or create each Customer, assign roles, verify the payer, and choose an exact destination for every member amount. **Previous Deposits** on the original payer resumes each source-tracked member order and provides payer and member receipt reprints. A declined tender posts no Transaction, allocation, held deposit, or booked sale; the reviewed Cart rows remain staged for retry.
+
 The party Readiness panel shows **Wedding deposits** as the total contributed through Split deposit and the number of members funded. Member rows show **Deposit** when funds are held before that member has a Transaction Record. The payer's Customer History records the group contribution, while Daily Sales keeps the payer's own Transaction total separate from **Wedding Deposits Placed** and **Total Tender Collected**. This separation is intentional: the member funds remain deposit liabilities and are not added to the payer's merchandise sale.
 
 Before promising a balance or refund:
 
 1. Open the member's Customer and linked Transaction Records.
 2. Confirm who paid, what amount remains held, and whether any amount was already applied.
-3. Use the normal Register or Transaction Record payment/refund workflow.
-4. Get Manager Access for disputes, forfeitures, multi-payer refunds, or uncertain ownership.
+3. Use the normal Register or Transaction Record payment/refund workflow for that member only. There is no batch refund.
+4. For **Original Card**, confirm the screen names the original wedding deposit payer as the refund recipient. Riverside uses the exact originating Helcim transaction; the money returns to the payer, not the member.
+5. Confirm the member history records the refunded allocation and the payer history records the returned money.
+6. Get Manager Access for disputes, forfeitures, multi-payer refunds, or uncertain ownership.
 
 ## Cutover review
 
@@ -114,8 +118,8 @@ Riverside keeps the oldest account by customer-code generation: numeric,
 - Do not mark paper status cells complete without confirming the Riverside source record.
 - If readiness, Orders, Customer history, and Register disagree, stop and escalate before promising completion.
 - Wedding search and party lists distinguish an empty result from an unavailable refresh. The live-update connection indicator describes socket connectivity; the separate data-check time confirms when the party list actually refreshed.
-- Register Group Pay does not show a member as paid while balance context is unavailable. Retry balances before entering split deposits.
-- At the Register, select the paying wedding member and choose **Wedding Deposit** from the Cart toolbar. Riverside opens that member's party automatically; deposits added for other members appear as removable Cart rows and can proceed to Payment without merchandise.
+- Wedding Deposit does not proceed to tender while party membership or live balance context is unavailable. Resolve the shown party, member, destination, salesperson, or balance issue in the guided workspace.
+- At the Register, select the payer and choose **Wedding Deposit** from the Cart toolbar. Existing party membership opens directly; otherwise search for or start the party, then add the payer and other members inline.
 
 ## What happens next
 

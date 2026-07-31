@@ -13,7 +13,7 @@ Primary code paths:
 - Payments workspace: [`client/src/components/payments/PaymentsWorkspace.tsx`](../client/src/components/payments/PaymentsWorkspace.tsx)
 - Helcim Settings: [`client/src/components/settings/HelcimSettingsPanel.tsx`](../client/src/components/settings/HelcimSettingsPanel.tsx)
 
-External standard: [Helcim Developer Docs](https://devdocs.helcim.com/docs/welcome-to-helcim).
+External standards: [Helcim Developer Docs](https://devdocs.helcim.com/docs/welcome-to-helcim) and the [Helcim API Reference](https://devdocs.helcim.com/reference).
 
 ## Ownership boundary
 
@@ -66,6 +66,8 @@ HelcimPay.js provider boundary:
 
 - `POST /providers/helcim/helcim-pay/initialize`
 - `POST /providers/helcim/helcim-pay/confirm`
+- `POST /providers/helcim/helcim-pay/public-confirm`
+- `POST /providers/helcim/helcim-pay/public-outcome`
 - These routes are for public/web checkout and POS **Card Not Present** keyed-entry flows. HelcimPay.js owns card entry, returns a signed result, and ROS validates the Helcim response before recording the tender.
 - HelcimPay.js must run from a Helcim-whitelisted public HTTPS checkout origin. iPad PWA checkout runs there directly. The desktop Tauri app must not render HelcimPay.js from its local `http://tauri.localhost` WebView origin; instead, ROS creates the authenticated Card Not Present attempt, embeds a one-time public HTTPS ROS/PWA handoff page for hosted card entry, and the register drawer listens for the approved attempt before recording the tender. If the public HTTPS base URL is not configured, use Manual Card only for an approval completed outside ROS.
 - Hosted Card Not Present does not send a synthetic ROS value as `invoiceNumber`; Helcim accepts only an existing Helcim invoice number in that field. The signed HelcimPay response is therefore the authoritative checkout binding. Helcim provider-history rows do not return ROS's checkout identity, and amount/time are not transaction identity, so a lost signed confirmation remains pending for Payments Health review instead of being guessed or duplicated.
@@ -107,10 +109,31 @@ Webhook intake:
 
 ## Retry and hardening
 
+### Applicable Helcim reference coverage
+
+ROS intentionally uses the complete Helcim reference surface that applies to Riverside's current card workflows, while avoiding processor mutations that would create a second financial source of truth.
+
+| Helcim reference capability | ROS use |
+|---|---|
+| Connection test | Integration health/authentication check. |
+| Payment API purchase | Saved-card charges with server-resolved card tokens and a stable UUID idempotency key. |
+| Payment API refund / reverse | Canonical Transaction Record returns only; ROS verifies the original transaction and chooses settled/partial refund versus eligible open-batch full reverse. |
+| Get one / list card transactions | Webhook detail retrieval, exact attempt recovery, Payments Operations, batch reconciliation, and approved-payment repair. |
+| Get one / list card batches | Settlement, fee/net, and deposit reconciliation. ROS does not call **Settle batch** because batch settlement is a processor/accounting decision, not checkout recovery. |
+| Customers and customer cards | Customer lookup/create for terminal context; masked saved-card listing, server-side token resolution, delete, and default-card actions. ROS never accepts full PAN/CVV. |
+| Card terminals, devices, device detail, ping | Configuration/readiness diagnostics plus a single just-in-time listening check before a purchase. |
+| Hardware start purchase | Card-present checkout, dispatched once after the listening preflight. |
+| Hardware start refund | Reserved for an eventual canonical debit-return workflow requiring the original card. ROS does not expose it as a standalone money-moving action. |
+| HelcimPay.js checkout initialization, iframe events, and response validation | Card Not Present entry on the whitelisted public HTTPS origin; signed approvals are validated server-side and known decline/close events finalize the exact attempt. |
+| Signed `cardTransaction` / `terminalCancel` webhooks | Primary asynchronous terminal outcome path, with exact transaction detail retrieval and durable replay-safe event processing. |
+
+The current Riverside sale model does not use Payment API preauthorization/capture, card verification, ACH, recurring plans, Helcim invoices, provider-side batch settlement, Fee Saver, or full-card-number processing. Adding those simply because an endpoint exists would create extra checkout states, PCI scope, or a competing invoice/ledger authority. They require a separate approved business workflow before implementation. HelcimPay logo upload is presentation-only and does not affect transaction reliability.
+
 ROS separates Helcim Payment API retry behavior from Payment Hardware API dispatch:
 
 - **Payment API idempotency**: Payment API purchase/refund/reverse calls send a stable UUID-form idempotency key while ROS retains its descriptive key in the local provider-attempt ledger. Network and HTTP 5xx retries reuse the same provider key and identical payload. ROS only replays an existing outcome-unknown attempt while enough of Helcim's five-minute key lifetime remains for the complete bounded retry sequence; after the conservative ROS replay deadline, the attempt stays unresolved for exact provider reconciliation and is never replaced with a new charge/refund attempt.
 - **Payment Hardware API single dispatch**: Terminal purchase/refund calls are sent once. ROS does not send the Payment API `idempotency-key` header to Hardware API endpoints and does not retry a timeout, connection loss, or HTTP 5xx. Because HTTP 202 means accepted rather than completed and the Hardware API has no queue, an ambiguous outcome stays pending/unresolved until webhook or server recovery proves its final state.
+- **Just-in-time terminal preflight**: Immediately before a live terminal purchase, ROS sends one Helcim device ping. Only HTTP 202 proves that Helcim is listening at dispatch time. A `409 device ... not listening`, network failure, or other ping failure creates no pending provider attempt and sends no purchase; staff wake/restart the reader and retry. Customer-profile enrichment runs before this preflight so it cannot reserve an idle reader while no purchase has been dispatched.
 - **Non-retryable errors**: HTTP 4xx responses, including 429, fail the current call without immediate retry. A 429 remains visible, updates the limiter from `retry-after` and quota headers, and paces later requests.
 - **Checkout lock**: While a Helcim result is pending, ambiguous, or otherwise unresolved, ROS blocks another card dispatch, alternate tender, local clearing, and sale completion. Staff must recover a definitive provider result or attach the approved payment first. After an approval attaches, a simple take-now sale may be saved as **PAYMENT APPROVED - PENDING SYNC** only when the Main Hub connection fails before checkout confirmation; ROS persists and replays the unchanged `checkout_client_id`. Shipping, pickup, orders, exchanges, alterations, and wedding disbursements remain live-only. Local release exists only in the non-production simulator.
 - **Terminal refresh before conflict**: Before a new terminal purchase is rejected as already in use, ROS refreshes the existing pending attempt through the provider reconciliation path. A newly final approval, decline, or cancellation releases the terminal guard according to that verified result; a genuinely pending or unknown outcome remains protected.
@@ -122,7 +145,7 @@ ROS separates Helcim Payment API retry behavior from Payment Hardware API dispat
 ## Financial safety invariants
 
 - `payment_provider_attempts` is the durable audit trail for provider calls. A failed attempt is evidence only and must not by itself create or mutate `payment_transactions`.
-- Terminal purchases and hosted Card Not Present payments create pending provider attempts before provider completion.
+- Terminal purchases create pending provider attempts only after the just-in-time listening preflight succeeds; hosted Card Not Present payments create them after Helcim returns the secure checkout token. Provider completion remains a separate event.
 - Standalone payment/refund/reverse routes cannot move provider money independently of a ROS Transaction Record. Card refunds and reverses run only through the authorized transaction-linked refund queue.
 - Queued POS/Orders card refunds create provider-attempt audit data before ROS writes the negative payment, and require the refund-processing permission and canonical transaction/register checks.
 - ROS writes the queued refund payment, allocation, refund queue update, and transaction paid amount only after Helcim returns an approved/captured refund status.
@@ -139,8 +162,9 @@ ROS separates Helcim Payment API retry behavior from Payment Hardware API dispat
 - ROS can initiate terminal purchase attempts for configured devices, but Helcim dashboard remains required for hardware enrollment, pairing, and provider-side device assignment.
 - POS **Card Reader** sends the amount to the selected Helcim terminal for tap/insert/swipe.
 - POS **Card Not Present** opens secure HelcimPay.js hosted card entry for keyed/phone-order cards. ROS must not collect PAN or CVV in native fields, notes, references, search fields, or support chats.
-- Card Not Present does not require staff to enter an invoice number. ROS keeps the hosted attempt server-side and accepts only the signed Helcim result bound to that exact attempt. If the signed handoff is lost, amount and time are not treated as identity; the attempt remains blocked for Payments Health reconciliation instead of being guessed from provider history.
+- Card Not Present does not require staff to enter an invoice number. ROS keeps the hosted attempt server-side and accepts only the signed Helcim approval bound to that exact attempt. HelcimPay.js `ABORTED` (declined) and `HIDE` (closed before processing because ROS disables Helcim's confirmation screen) are posted back to the same server-side attempt before the Register unlocks. If ROS cannot persist that final browser outcome, the attempt stays unresolved; if a signed approval arrives after a locally recorded decline/close, the signed approval can still supersede it. If the signed handoff is lost, amount and time are not treated as identity; the attempt remains blocked for Payments Health reconciliation instead of being guessed from provider history.
 - POS **Card Refund** is available only inside the canonical return/refund workflow. ROS resolves and verifies the original linked Helcim transaction, then uses Payment API **Reverse** for an eligible full open-batch return or **Refund** for a settled/partial return. Staff never type Helcim invoice, payment, or transaction identifiers into ROS. If Helcim requires an original-card terminal action for a debit return, complete it in Helcim and record the approved external refund through the Manager Access workflow; ROS's standalone compatibility routes do not move provider money.
+- A wedding deposit refund is always individual, never a batch operation. ROS follows the selected member's direct allocation or source-tracked held-deposit redemption to the exact originating Helcim transaction. The member Transaction Record remains the return/refund context, but the provider credit goes to the original wedding deposit payer's card. Refund capacity is enforced for both that member allocation and the shared provider payment so one member cannot consume another member's refundable share.
 - POS **Manual Card** records a manually approved card sale or refund when the authorization happened outside ROS or no live Helcim connection is available. It requires an approval/reference, last four digits, and reason, stores no PAN/CVV, and does not claim a Helcim provider attempt.
 - **Tender identity is authoritative**: Card Not Present persists as `card_not_present` with its exact Helcim provider-attempt evidence. Manual Card persists as `card_manual` with `tender_family=manual_card` and external approval evidence only. Sale Complete, receipts, Transaction History, Payments Health, reporting, refunds, and exchanges must never relabel or route one as the other.
 - Historical rows are labeled Card Not Present only when their stored tender metadata or exact linked HelcimPay provider attempt proves that identity. ROS does not infer CNP from amount or time and does not rewrite financial amounts during display normalization.
@@ -148,6 +172,7 @@ ROS separates Helcim Payment API retry behavior from Payment Hardware API dispat
 - Register routing uses Terminal 1 / Terminal 2 naming. Register #1 defaults to Terminal 1, Register #2 defaults to Terminal 2, and other registers must choose an available terminal before sending a terminal payment.
 - Changing the selected customer clears any pickup transaction context loaded for the previous customer before the payment drawer can open. Staff must reopen the intended customer's Transaction Record to resume that pickup.
 - ROS sends each terminal purchase with a unique `ROS-{attempt}` invoice reference. If the live terminal response or webhook is delayed, the checkout drawer **Recover payment** action asks the server to refresh the attempt and match by that invoice reference and exact amount before staff retry the card.
+- The checkout drawer says **Helcim accepted the request** after HTTP 202 and asks staff to confirm the exact sale appears on the reader. It never treats acceptance as terminal display or approval. After 15 seconds without a final outcome, the existing recovery controls are emphasized. A staff-confirmed physical cancellation releases the old ROS reservation and alternate tenders, but the UI does not claim the physical reader is ready; staff must confirm its ready screen before starting another Card Reader request.
 - Paid-sale and existing-order recovery accept only one unlinked, approved/captured USD purchase with matching provider transaction evidence. Ambiguous or identity-mismatched events, refunds/reverses, non-USD rows, and non-final provider results cannot be converted into a positive sale payment.
 - When an already-recorded checkout tender was split between the new Transaction Record and existing Transaction payments, recovery validates the complete immutable allocation set and its exact amounts before closing the warning. It never creates or moves payment rows during that verification.
 - Customer receipts must come from ROS, not the Helcim terminal. The Helcim terminal/device configuration must have terminal receipt printing disabled for Riverside lanes; if a terminal prints a card receipt, correct the Helcim device/dashboard setting and still use the ROS receipt as the store receipt.

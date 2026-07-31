@@ -36,6 +36,7 @@ use crate::logic::customers::{insert_customer, next_customer_code, InsertCustome
 use crate::logic::messaging::MessagingService;
 use crate::logic::staff_schedule;
 use crate::logic::wedding_api_types::build_party_bundle;
+use crate::logic::wedding_deposit_workflows;
 use crate::logic::wedding_queries::{
     digits_only, fetch_member_optional, fetch_party_row_optional, list_appointments_filtered,
     load_members_for_party, query_activity_feed, query_party_list_page, query_wedding_actions,
@@ -307,6 +308,8 @@ pub enum WeddingError {
     PartyNotFound,
     #[error("Wedding member not found")]
     MemberNotFound,
+    #[error("Wedding deposit workflow not found")]
+    DepositWorkflowNotFound,
     #[error("{0}")]
     BadRequest(String),
     #[error("{0}")]
@@ -376,6 +379,10 @@ impl IntoResponse for WeddingError {
             WeddingError::MemberNotFound => (
                 StatusCode::NOT_FOUND,
                 "Wedding member not found".to_string(),
+            ),
+            WeddingError::DepositWorkflowNotFound => (
+                StatusCode::NOT_FOUND,
+                "Wedding deposit workflow not found".to_string(),
             ),
             WeddingError::BadRequest(m) => (StatusCode::BAD_REQUEST, m),
             WeddingError::Unauthorized(m) => (StatusCode::UNAUTHORIZED, m),
@@ -581,6 +588,50 @@ pub struct CreatePartyRequest {
     pub base_suit_variant_id: Option<Uuid>,
     #[serde(default)]
     pub cutover_review_status: Option<String>,
+    /// Register may start a minimal party before the groom or other members
+    /// have been identified. Wedding Manager's standard create path continues
+    /// to require a groom unless this explicit flag is present.
+    #[serde(default)]
+    pub start_empty: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DepositWorkflowListQuery {
+    pub payer_customer_id: Uuid,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct WeddingDepositPreflightRequest {
+    pub payer_customer_id: Uuid,
+    pub payer_wedding_member_id: Uuid,
+    pub allocations: Vec<WeddingDepositPreflightAllocationRequest>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct WeddingDepositPreflightAllocationRequest {
+    pub wedding_member_id: Uuid,
+    pub amount: Decimal,
+    pub destination_kind: String,
+    #[serde(default)]
+    pub target_transaction_id: Option<Uuid>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct WeddingDepositContext {
+    pub members: Vec<WeddingDepositMemberContext>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct WeddingDepositMemberContext {
+    pub wedding_member_id: Uuid,
+    pub open_transactions: Vec<WeddingDepositOpenTransaction>,
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct WeddingDepositOpenTransaction {
+    pub transaction_id: Uuid,
+    pub display_id: String,
+    pub balance_due: Decimal,
 }
 
 #[derive(Debug, Deserialize)]
@@ -898,10 +949,23 @@ pub fn router() -> Router<AppState> {
             get(get_customer_purchase_context),
         )
         .route("/parties", get(list_parties).post(create_party))
+        .route("/deposit-workflows", get(list_deposit_workflows))
+        .route(
+            "/deposit-workflows/preflight",
+            post(preflight_deposit_workflow),
+        )
+        .route(
+            "/deposit-workflows/{workflow_id}",
+            get(get_deposit_workflow),
+        )
         .route("/parties/{party_id}/ledger", get(get_ledger))
         .route(
             "/parties/{party_id}/financial-context",
             get(get_party_financial_context),
+        )
+        .route(
+            "/parties/{party_id}/deposit-context",
+            get(get_party_deposit_context),
         )
         .route("/parties/{party_id}/restore", post(restore_party))
         .route("/parties/{party_id}/health", get(get_health))
@@ -1062,6 +1126,103 @@ async fn get_customer_purchase_context(
     Ok(Json(CustomerWeddingPurchaseContext { memberships }))
 }
 
+async fn list_deposit_workflows(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<DepositWorkflowListQuery>,
+) -> Result<Json<Vec<wedding_deposit_workflows::WeddingDepositWorkflow>>, WeddingError> {
+    require_weddings_view(&state, &headers).await?;
+    let workflows =
+        wedding_deposit_workflows::list_for_payer(&state.db, query.payer_customer_id).await?;
+    Ok(Json(workflows))
+}
+
+async fn preflight_deposit_workflow(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<WeddingDepositPreflightRequest>,
+) -> Result<Json<wedding_deposit_workflows::WeddingDepositPreflightResult>, WeddingError> {
+    require_weddings_view(&state, &headers).await?;
+    let allocations = request
+        .allocations
+        .into_iter()
+        .map(
+            |allocation| wedding_deposit_workflows::WeddingDepositPreflightAllocation {
+                wedding_member_id: allocation.wedding_member_id,
+                amount: allocation.amount,
+                destination_kind: allocation.destination_kind,
+                target_transaction_id: allocation.target_transaction_id,
+            },
+        )
+        .collect::<Vec<_>>();
+    let result = wedding_deposit_workflows::preflight(
+        &state.db,
+        request.payer_customer_id,
+        request.payer_wedding_member_id,
+        &allocations,
+    )
+    .await
+    .map_err(|error| match error {
+        wedding_deposit_workflows::WeddingDepositPreflightError::Invalid(message) => {
+            WeddingError::BadRequest(message)
+        }
+        wedding_deposit_workflows::WeddingDepositPreflightError::Database(error) => {
+            WeddingError::Database(error)
+        }
+    })?;
+    Ok(Json(result))
+}
+
+async fn get_deposit_workflow(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(workflow_id): Path<Uuid>,
+) -> Result<Json<wedding_deposit_workflows::WeddingDepositWorkflow>, WeddingError> {
+    require_weddings_view(&state, &headers).await?;
+    let workflow = wedding_deposit_workflows::get_by_id(&state.db, workflow_id)
+        .await?
+        .ok_or(WeddingError::DepositWorkflowNotFound)?;
+    Ok(Json(workflow))
+}
+
+async fn get_party_deposit_context(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(party_id): Path<Uuid>,
+) -> Result<Json<WeddingDepositContext>, WeddingError> {
+    require_weddings_view(&state, &headers).await?;
+    let member_ids = sqlx::query_scalar::<_, Uuid>(
+        "SELECT id FROM wedding_members WHERE wedding_party_id = $1 ORDER BY member_index, id",
+    )
+    .bind(party_id)
+    .fetch_all(&state.db)
+    .await?;
+    let mut members = Vec::with_capacity(member_ids.len());
+    for wedding_member_id in member_ids {
+        let open_transactions = sqlx::query_as::<_, WeddingDepositOpenTransaction>(
+            r#"
+            SELECT
+                transaction_record.id AS transaction_id,
+                COALESCE(NULLIF(TRIM(transaction_record.display_id), ''), transaction_record.id::text) AS display_id,
+                ROUND(transaction_record.balance_due, 2)::numeric(14,2) AS balance_due
+            FROM transactions transaction_record
+            WHERE transaction_record.wedding_member_id = $1
+              AND transaction_record.status IN ('open', 'pending_measurement')
+              AND transaction_record.balance_due > 0
+            ORDER BY transaction_record.booked_at DESC, transaction_record.id
+            "#,
+        )
+        .bind(wedding_member_id)
+        .fetch_all(&state.db)
+        .await?;
+        members.push(WeddingDepositMemberContext {
+            wedding_member_id,
+            open_transactions,
+        });
+    }
+    Ok(Json(WeddingDepositContext { members }))
+}
+
 async fn list_parties(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1097,8 +1258,20 @@ async fn insert_party_and_respond(
     sender_id: Option<&str>,
 ) -> Result<Json<WeddingPartyWithMembers>, WeddingError> {
     let groom = body.groom_name.trim();
-    if groom.is_empty() {
+    if groom.is_empty() && !body.start_empty {
         return Err(WeddingError::BadRequest("groom_name is required".into()));
+    }
+    if body.start_empty
+        && body
+            .party_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .is_none()
+    {
+        return Err(WeddingError::BadRequest(
+            "party_name is required when starting a party without members".into(),
+        ));
     }
 
     let acc = body.accessories.unwrap_or_else(|| json!({}));
@@ -1136,7 +1309,7 @@ async fn insert_party_and_respond(
             return Err(WeddingError::BadRequest("groom customer not found".into()));
         }
         (Some(gcid), true)
-    } else if !gp.is_empty() || !groom.is_empty() {
+    } else if !body.start_empty && (!gp.is_empty() || !groom.is_empty()) {
         // Create or reuse an imported groom customer by normalized phone.
         let first = groom.split_whitespace().next().unwrap_or(groom);
         let last = groom
@@ -1268,29 +1441,31 @@ async fn insert_party_and_respond(
     .await?;
 
     // Add groom as party member
-    if let Some(gcid) = groom_customer_id {
-        let max_idx: Option<i32> = sqlx::query_scalar(
-            "SELECT MAX(member_index) FROM wedding_members WHERE wedding_party_id = $1",
-        )
-        .bind(id)
-        .fetch_one(&state.db)
-        .await?;
-        let next_idx = max_idx.unwrap_or(0) + 1;
-        let _: Uuid = sqlx::query_scalar(
-            r#"
+    if !body.start_empty {
+        if let Some(gcid) = groom_customer_id {
+            let max_idx: Option<i32> = sqlx::query_scalar(
+                "SELECT MAX(member_index) FROM wedding_members WHERE wedding_party_id = $1",
+            )
+            .bind(id)
+            .fetch_one(&state.db)
+            .await?;
+            let next_idx = max_idx.unwrap_or(0) + 1;
+            let _: Uuid = sqlx::query_scalar(
+                r#"
             INSERT INTO wedding_members (
                 wedding_party_id, customer_id, role, status, member_index, customer_verified
             )
             VALUES ($1, $2, 'Groom', 'active', $3, $4)
             RETURNING id
             "#,
-        )
-        .bind(id)
-        .bind(gcid)
-        .bind(next_idx)
-        .bind(groom_customer_verified)
-        .fetch_one(&state.db)
-        .await?;
+            )
+            .bind(id)
+            .bind(gcid)
+            .bind(next_idx)
+            .bind(groom_customer_verified)
+            .fetch_one(&state.db)
+            .await?;
+        }
     }
 
     // NOTE: Bride is NOT a party member - just party info (stored in wedding_parties table)
@@ -1311,7 +1486,11 @@ async fn insert_party_and_respond(
         &actor,
         "NOTE",
         "Wedding party created",
-        json!({ "party_type": party_type, "couple_id": couple_id }),
+        json!({
+            "party_type": party_type,
+            "couple_id": couple_id,
+            "started_without_members": body.start_empty
+        }),
     )
     .await
     {

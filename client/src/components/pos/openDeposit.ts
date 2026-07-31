@@ -3,6 +3,8 @@ export interface HeldOpenDeposit {
   balanceCents: number;
   lastPayerName: string | null;
   lastCreditCents: number | null;
+  workflowId?: string | null;
+  sourceCreditLedgerId?: string | null;
 }
 
 interface OpenDepositApplicationArgs {
