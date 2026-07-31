@@ -143,6 +143,12 @@ const ALTERATION_SERVICE_PRODUCT_ID = "b7c0a006-0006-4006-8006-000000000006";
 const ALTERATION_SERVICE_VARIANT_ID = "b7c0a007-0007-4007-8007-000000000007";
 const ALTERATION_SERVICE_SKU = "ROS-ALTERATION-SERVICE";
 
+type WeddingWorkflowResume = {
+  payer: Customer;
+  workflowId?: string | null;
+  payerTransactionId?: string | null;
+};
+
 function parseRefundProcessResult(value: unknown): RefundProcessResult | null {
   if (!value || typeof value !== "object") return null;
   const payload = value as Record<string, unknown>;
@@ -629,7 +635,10 @@ export default function Cart({
     sourceCreditLedgerId: string;
     customerId: string;
     remainingCents: number;
+    payer: Customer;
   } | null>(null);
+  const [weddingDepositPostPaymentAction, setWeddingDepositPostPaymentAction] = useState<"build_orders" | "deposit_only">("build_orders");
+  const [receiptWeddingWorkflowResume, setReceiptWeddingWorkflowResume] = useState<WeddingWorkflowResume | null>(null);
   const [weddingPurchaseContext, setWeddingPurchaseContext] =
     useState<WeddingPurchaseContext | null>(null);
   const [weddingPurchaseLoading, setWeddingPurchaseLoading] = useState(false);
@@ -702,6 +711,9 @@ export default function Cart({
     useState(false);
   const [weddingDrawerInitialPartyId, setWeddingDrawerInitialPartyId] =
     useState<string | null>(null);
+  const [weddingDepositInitialView, setWeddingDepositInitialView] = useState<"deposit" | "orders">("deposit");
+  const [weddingDepositFocusWorkflowId, setWeddingDepositFocusWorkflowId] = useState<string | null>(null);
+  const [weddingDepositFocusPayerTransactionId, setWeddingDepositFocusPayerTransactionId] = useState<string | null>(null);
   const [measDrawerOpen, setMeasDrawerOpen] = useState(false);
   const [orderLoadOpen, setOrderLoadOpen] = useState(false);
   const [orderReviewOpen, setOrderReviewOpen] = useState(false);
@@ -1322,7 +1334,7 @@ export default function Cart({
             );
         if (exactSourceRequested && !requestedSource) {
           toast(
-            "This exact wedding deposit source is no longer available. Return to the payer's Previous Deposits list and select the current member allocation.",
+            "This exact wedding deposit source is no longer available. Return to the payer's Orders & Receipts list and select the current member allocation.",
             "error",
           );
           return;
@@ -1475,6 +1487,9 @@ export default function Cart({
         "info",
       );
     }
+    setWeddingDepositInitialView("deposit");
+    setWeddingDepositFocusWorkflowId(null);
+    setWeddingDepositFocusPayerTransactionId(null);
     setWeddingDrawerPreferGroupPay(true);
     setWeddingDrawerOpen(true);
   }, [
@@ -4027,6 +4042,32 @@ export default function Cart({
     ? "wedding_order"
     : "special_order";
 
+  const closeCompletionReceipt = useCallback(() => {
+    setLastTransactionId(null);
+    setCheckoutTransactionId(null);
+    setCheckoutOperator(null);
+    setLastReceiptOrderPaymentLines([]);
+    setLastReceiptExchangeReturnTransactionId(null);
+    setLastRefundEventId(null);
+    setLastRefundResult(null);
+    setLastReceiptEventTransactionId(null);
+    setLastPendingRefundAmountCents(null);
+    setSelectedCustomer(null);
+    setReceiptWeddingWorkflowResume(null);
+    onSaleCompleted?.();
+  }, [onSaleCompleted, setCheckoutTransactionId]);
+
+  const continueWeddingOrders = useCallback((resume: WeddingWorkflowResume) => {
+    if (!selectCustomerForSale(resume.payer)) return;
+    setWeddingDrawerInitialPartyId(null);
+    setWeddingDepositInitialView("orders");
+    setWeddingDepositFocusWorkflowId(resume.workflowId ?? null);
+    setWeddingDepositFocusPayerTransactionId(resume.payerTransactionId ?? null);
+    setWeddingDrawerPreferGroupPay(true);
+    setWeddingDrawerOpen(true);
+    toast("Payer receipt complete. Sign in for the next sale, then choose a funded member and add that member's items.", "success");
+  }, [selectCustomerForSale, toast]);
+
   const hasSpecialOrWeddingLines = useMemo(
     () => lines.some((l) => l.fulfillment !== "takeaway"),
     [lines],
@@ -4092,31 +4133,26 @@ export default function Cart({
           <div className="space-y-2 rounded-2xl border border-app-border/90 bg-[color-mix(in_srgb,var(--app-surface)_90%,var(--app-surface-2))] p-2.5 shadow-[0_14px_40px_-24px_rgba(15,23,42,0.22)]">
             {/* Wedding link badge */}
             {activeWeddingMember && (
-              <div className="flex items-center justify-between rounded-xl border border-app-accent/30 bg-app-accent/5 p-2 animate-in slide-in-from-top duration-300">
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-app-accent/30 bg-app-accent/5 p-2 animate-in slide-in-from-top duration-300" data-testid="pos-wedding-order-guidance">
               <div className="flex min-w-0 items-center gap-2.5">
                 <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-app-accent text-white shadow-lg shadow-app-accent/20">
                   <WEDDINGS_ICON size={14} />
                 </div>
                 <div className="min-w-0">
                   <p className="text-[9px] font-black uppercase tracking-[0.2em] text-app-accent">
-                    Wedding member linked
+                    {weddingDepositOrderSource ? "Wedding order in progress" : "Wedding member linked"}
                   </p>
                   <p className="truncate text-xs font-black italic text-app-text-muted">
                       {activeWeddingMember.first_name}{" "}
                       {activeWeddingMember.last_name} — {activeWeddingPartyName}
                   </p>
+                  <p className="text-[10px] font-semibold text-app-text-muted">Add items from the Wedding Checklist or search/scan below. For deferred items, choose Order (Wedding), confirm the salesperson, then choose Pay. Nothing posts until Complete Sale / Record Sale succeeds.</p>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveWeddingMember(null);
-                  setActiveWeddingPartyName(null);
-                }}
-                className="shrink-0 p-2 text-app-text-muted transition-colors hover:text-red-500"
-              >
-                <X size={16} />
-              </button>
+              <div className="flex shrink-0 items-center gap-1">
+                <button type="button" onClick={() => { if (hasCheckoutWork) { toast("Finish or clear the current Cart before changing the Wedding member. Riverside will not move items or deposits to another Customer account.", "error"); return; } setWeddingDrawerInitialPartyId(null); setWeddingDepositInitialView("deposit"); setWeddingDrawerPreferGroupPay(false); setWeddingDrawerOpen(true); }} className="ui-btn-secondary h-9 px-3 text-[9px] font-black uppercase tracking-widest">Change Member</button>
+                <button type="button" aria-label="Clear wedding member" onClick={() => { if (hasCheckoutWork) { toast("Finish or clear the current Cart before removing the Wedding member.", "error"); return; } setActiveWeddingMember(null); setActiveWeddingPartyName(null); setWeddingDepositOrderSource(null); }} className="shrink-0 p-2 text-app-text-muted transition-colors hover:text-red-500"><X size={16} /></button>
+              </div>
               </div>
             )}
 
@@ -4363,14 +4399,16 @@ export default function Cart({
                 type="button"
                 onClick={() => {
                   setWeddingDrawerInitialPartyId(null);
+                  setWeddingDepositInitialView("deposit");
                   setWeddingDrawerPreferGroupPay(false);
                   setWeddingDrawerOpen(true);
                 }}
+                title={activeWeddingMember ? `Wedding — currently ${activeWeddingMember.first_name} ${activeWeddingMember.last_name}` : "Wedding — select a party member and add items"}
                 className={`ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border px-2 text-center shadow-sm ring-1 ring-black/5 transition-all active:scale-95 dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px] ${activeWeddingMember ? "border-app-accent bg-app-accent text-white shadow-lg shadow-app-accent/20" : "border-app-border bg-app-surface-2 text-app-text hover:border-app-accent hover:bg-app-surface hover:text-app-accent"}`}
               >
                 <WEDDINGS_ICON size={20} />
                 <span className="text-[10px] font-black uppercase leading-[12px] tracking-widest">
-                  {activeWeddingMember ? "Switch" : "Wedding"}
+                  Wedding
                 </span>
               </button>
               <button
@@ -6252,6 +6290,8 @@ export default function Cart({
             return;
           }
           setLastReceiptOrderPaymentLines(orderPaymentLines);
+          const depositWorkflowPayer = disbursementMembers.length > 0 && weddingDepositPostPaymentAction === "build_orders" ? selectedCustomer : null;
+          const memberWorkflowSource = weddingDepositOrderSource;
           const completedTransactionId = await executeCheckout(
             applied,
             op,
@@ -6266,7 +6306,16 @@ export default function Cart({
               managerOverrideManagerPin || undefined,
             },
           );
-          if (completedTransactionId) setCheckoutDrawerOpen(false);
+          if (completedTransactionId) {
+            if (depositWorkflowPayer) {
+              setReceiptWeddingWorkflowResume({ payer: depositWorkflowPayer, payerTransactionId: completedTransactionId });
+            } else if (memberWorkflowSource) {
+              setReceiptWeddingWorkflowResume({ payer: memberWorkflowSource.payer, workflowId: memberWorkflowSource.workflowId });
+            } else {
+              setReceiptWeddingWorkflowResume(null);
+            }
+            setCheckoutDrawerOpen(false);
+          }
         }}
         allowStoreCredit={!!selectedCustomer}
         appliedPayments={checkoutAppliedPayments}
@@ -6968,12 +7017,18 @@ export default function Cart({
           isOpen
           payer={selectedCustomer}
           initialPartyId={weddingDrawerInitialPartyId}
+          initialView={weddingDepositInitialView}
+          focusWorkflowId={weddingDepositFocusWorkflowId}
+          focusPayerTransactionId={weddingDepositFocusPayerTransactionId}
           onClose={() => {
             setWeddingDrawerOpen(false);
             setWeddingDrawerPreferGroupPay(false);
             setWeddingDrawerInitialPartyId(null);
+            setWeddingDepositInitialView("deposit");
+            setWeddingDepositFocusWorkflowId(null);
+            setWeddingDepositFocusPayerTransactionId(null);
           }}
-          onAddDeposits={(members, partyName, payerMember) => {
+          onAddDeposits={(members, partyName, payerMember, options) => {
             setDisbursementMembers((current) => {
               const nextByMember = new Map(
                 current.map((member) => [member.id, member]),
@@ -6983,6 +7038,7 @@ export default function Cart({
             });
             setActiveWeddingMember(payerMember);
             setActiveWeddingPartyName(partyName);
+            setWeddingDepositPostPaymentAction(options.continueToOrders ? "build_orders" : "deposit_only");
             setWeddingDrawerOpen(false);
             setWeddingDrawerPreferGroupPay(false);
             setWeddingDrawerInitialPartyId(null);
@@ -6994,7 +7050,7 @@ export default function Cart({
           onStartMemberOrder={(member, partyName, source) => {
             if (hasCheckoutWork) {
               toast(
-                "Finish or clear the current Cart before starting this member order. The funded wedding deposit remains available in Previous Deposits.",
+                "Finish or clear the current Cart before starting this member order. The funded wedding deposit remains available in Orders & Receipts.",
                 "error",
               );
               return;
@@ -7011,6 +7067,7 @@ export default function Cart({
             ) {
               return;
             }
+            const workflowPayer = selectedCustomer;
             setActiveWeddingMember(member);
             setActiveWeddingPartyName(partyName);
             setWeddingDepositOrderSource({
@@ -7018,12 +7075,13 @@ export default function Cart({
               sourceCreditLedgerId: source.sourceCreditLedgerId,
               customerId: member.customer_id,
               remainingCents: source.remainingCents,
+              payer: workflowPayer,
             });
             setWeddingDrawerOpen(false);
             setWeddingDrawerPreferGroupPay(false);
             setWeddingDrawerInitialPartyId(null);
             toast(
-              `${member.first_name} ${member.last_name} is selected. Build the Wedding order, choose Pay, and apply the source-tracked deposit.`,
+              `${member.first_name} ${member.last_name} is selected. Add items from the Wedding Checklist or product search, choose Order (Wedding), confirm the salesperson, then choose Pay and apply the held deposit.`,
               "success",
             );
             void fetch(`${baseUrl}/api/customers/${member.customer_id}`, {
@@ -7065,6 +7123,13 @@ export default function Cart({
             );
             return;
           }
+          if (hasCheckoutWork && selectedCustomer?.id !== m.customer_id) {
+            toast(
+              "Finish or clear the current Cart before changing the Wedding member. Riverside will not move items or deposits to another Customer account.",
+              "error",
+            );
+            return;
+          }
           if (
             !selectCustomerForSale({
             id: m.customer_id,
@@ -7078,6 +7143,7 @@ export default function Cart({
             return;
           setActiveWeddingMember(m);
           setActiveWeddingPartyName(partyName);
+          setWeddingDepositOrderSource(null);
           setWeddingDrawerOpen(false);
           toast(`Linked ${m.first_name} ${m.last_name}`, "success");
 
@@ -7432,19 +7498,10 @@ export default function Cart({
       {lastTransactionId && (
         <ReceiptSummaryModal
           transactionId={lastTransactionId}
-          onClose={() => {
-            setLastTransactionId(null);
-            setCheckoutTransactionId(null);
-            setCheckoutOperator(null);
-            setLastReceiptOrderPaymentLines([]);
-            setLastReceiptExchangeReturnTransactionId(null);
-            setLastRefundEventId(null);
-            setLastRefundResult(null);
-            setLastReceiptEventTransactionId(null);
-            setLastPendingRefundAmountCents(null);
-            setSelectedCustomer(null);
-            onSaleCompleted?.();
-          }}
+          onClose={closeCompletionReceipt}
+          completionNextActionLabel={receiptWeddingWorkflowResume ? "Continue Wedding Orders" : undefined}
+          completionNextActionEyebrow={receiptWeddingWorkflowResume ? "Next funded member" : undefined}
+          onCompletionNextAction={receiptWeddingWorkflowResume ? () => continueWeddingOrders(receiptWeddingWorkflowResume) : undefined}
           baseUrl={baseUrl}
           registerSessionId={sessionId}
           getAuthHeaders={apiAuth}

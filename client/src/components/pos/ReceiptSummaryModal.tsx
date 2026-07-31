@@ -74,6 +74,10 @@ export interface ReceiptSummaryModalProps {
   pendingRefundAmountCents?: number | null;
   /** Only the just-completed sale flow may auto-print. Historical receipt views stay manual. */
   autoPrintOnOpen?: boolean;
+  /** Optional guided handoff after a completed transaction receipt. */
+  completionNextActionLabel?: string;
+  completionNextActionEyebrow?: string;
+  onCompletionNextAction?: () => void;
 }
 
 type OrderCustomer = {
@@ -198,6 +202,9 @@ export default function ReceiptSummaryModal({
   refundResult = null,
   pendingRefundAmountCents = null,
   autoPrintOnOpen = false,
+  completionNextActionLabel,
+  completionNextActionEyebrow,
+  onCompletionNextAction,
 }: ReceiptSummaryModalProps) {
   const { toast } = useToast();
   const [printing, setPrinting] = useState(false);
@@ -530,6 +537,12 @@ export default function ReceiptSummaryModal({
     await submitReviewInviteIfNeeded();
     onClose();
   }, [submitReviewInviteIfNeeded, onClose]);
+
+  const closeWithCompletionNextAction = useCallback(async () => {
+    await submitReviewInviteIfNeeded();
+    onClose();
+    onCompletionNextAction?.();
+  }, [onClose, onCompletionNextAction, submitReviewInviteIfNeeded]);
 
   const handlePrint = useCallback(
     async (opts?: { gift?: boolean; transactionLineIds?: string[] }) => {
@@ -1834,7 +1847,8 @@ export default function ReceiptSummaryModal({
             <footer className="shrink-0 border-t border-app-border bg-app-surface px-3 py-2.5 sm:px-5 sm:py-3">
               <button
                 type="button"
-                onClick={() => void closeWithReviewChoice()}
+                onClick={() => void (completionNextActionLabel && onCompletionNextAction ? closeWithCompletionNextAction() : closeWithReviewChoice())}
+                data-testid={completionNextActionLabel ? "receipt-completion-next-action" : "receipt-completion-close"}
                 disabled={reviewInviteSaving}
                 className={
                   historicalPresentation
@@ -1851,12 +1865,12 @@ export default function ReceiptSummaryModal({
                   <>
                     <div className="flex flex-col text-left">
                       <span className="text-[8px] font-black uppercase tracking-widest text-white/80">
-                        Next guest
+                        {completionNextActionEyebrow ?? "Next guest"}
                       </span>
                       <span className="text-sm font-black tracking-tight">
                         {reviewInviteSaving
                           ? "Saving review preference…"
-                          : "Begin new sale"}
+                          : completionNextActionLabel ?? "Begin new sale"}
                       </span>
                     </div>
                     <div className="flex h-9 w-9 items-center justify-center rounded-full bg-app-surface text-app-accent shadow-lg transition-transform group-hover:translate-x-0.5">
@@ -1865,6 +1879,11 @@ export default function ReceiptSummaryModal({
                   </>
                 )}
               </button>
+              {!historicalPresentation && completionNextActionLabel && onCompletionNextAction ? (
+                <button type="button" onClick={() => void closeWithReviewChoice()} disabled={reviewInviteSaving} className="mt-2 min-h-10 w-full rounded-xl border border-app-border bg-app-surface-2 px-3 text-[10px] font-black uppercase tracking-widest text-app-text-muted hover:bg-app-surface-3 hover:text-app-text disabled:opacity-60">
+                  Finish without building orders now
+                </button>
+              ) : null}
             </footer>
           </div>
         </div>

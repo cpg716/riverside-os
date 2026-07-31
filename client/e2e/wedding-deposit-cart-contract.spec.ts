@@ -86,12 +86,18 @@ test("wedding deposit posting is prevention-first, source-tracked, and receipt t
   expect(weddingDepositWorkspaceSource).toContain("Create New Customer");
   expect(weddingDepositWorkspaceSource).toContain("Deposit destination");
   expect(weddingDepositWorkspaceSource).toContain("Hold for this member's future order");
-  expect(weddingDepositWorkspaceSource).toContain("Previous Wedding Deposits");
+  expect(weddingDepositWorkspaceSource).toContain("Collect and Build Orders");
+  expect(weddingDepositWorkspaceSource).toContain("Collect Deposits Only");
+  expect(weddingDepositWorkspaceSource).toContain("Wedding Orders &amp; Receipts");
+  expect(weddingDepositWorkspaceSource).toContain("How item selection works");
+  expect(weddingDepositWorkspaceSource).toContain(
+    "Only a successful Pay → Complete Sale / Record Sale atomic checkout",
+  );
   expect(weddingDepositWorkspaceSource).toContain("Refund one member allocation at a time");
   expect(weddingDepositWorkspaceSource).toContain(
     "original wedding deposit payer—not the member",
   );
-  expect(weddingDepositWorkspaceSource).toContain("Start Member Order");
+  expect(weddingDepositWorkspaceSource).toContain("Choose Member &amp; Add Items");
   expect(weddingDepositWorkspaceSource).toContain("sourceCreditLedgerId");
   expect(weddingDepositWorkspaceSource).toContain("View / Print Payer Receipt");
   expect(weddingDepositWorkspaceSource).toContain("Receipt · {postedDisplayId}");
@@ -132,6 +138,14 @@ test("wedding deposit posting is prevention-first, source-tracked, and receipt t
   expect(receiptSummarySource).toContain("wedding deposit payer—not the member");
   expect(paymentDrawerSource).toContain("Refund recipient: {refundRecipientName}");
   expect(paymentDrawerSource).toContain("not go to the member.");
+  expect(cartSource).toContain('data-testid="pos-wedding-order-guidance"');
+  expect(cartSource).toContain("Order (Wedding), confirm the salesperson");
+  expect(cartSource).toContain("Continue Wedding Orders");
+  expect(cartSource).toContain("if (completedTransactionId)");
+  expect(cartSource).not.toContain('activeWeddingMember ? "Switch" : "Wedding"');
+  expect(receiptSummarySource).toContain("completionNextActionLabel");
+  expect(receiptSummarySource).toContain("receipt-completion-next-action");
+  expect(receiptSummarySource).toContain("Finish without building orders now");
   expect(transactionsApiSource).toContain("wedding_refund_recipient");
   expect(transactionsApiSource).toContain("original_provider_transaction_id");
 });
