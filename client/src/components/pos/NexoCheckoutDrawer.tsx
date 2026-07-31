@@ -279,13 +279,13 @@ function isStaleHelcimSessionError(message: string): boolean {
 }
 
 const HELCIM_UNVERIFIED_OUTCOME_MESSAGE =
-  "Card outcome is unresolved. Open Restore in Pay before another card attempt.";
+  "Card outcome is unresolved and remains in Payments Health. Continue the sale or open Restore to reconcile it.";
 const HELCIM_TERMINAL_ATTENTION_AFTER_MS = 15 * 1000;
 
 function isAmbiguousProviderStartStatus(status: number): boolean {
   // A timeout or server/gateway failure can hide whether the request reached
   // Helcim. A 429 is a definitive pre-dispatch throttle and must not create a
-  // client-only unresolved-payment lock when ROS created no provider attempt.
+  // client-only unresolved-payment review when ROS created no provider attempt.
   return status === 408 || status >= 500;
 }
 
@@ -1133,11 +1133,11 @@ export default function NexoCheckoutDrawer({
   const helcimAttemptOutcomeUnverified =
     (helcimAttemptBelongsToCurrentCheckout && helcimAttempt?.status === "expired") ||
     Boolean(helcimUnverifiedNotice);
-  const helcimOutcomeBlocksCheckout =
-    helcimAttemptLoading ||
-    helcimRoutingAttemptBelongsToCurrentCheckout ||
-    (helcimAttemptBelongsToCurrentCheckout && helcimAttempt?.status === "pending") ||
-    helcimAttemptOutcomeUnverified;
+  // Provider attempts remain visible for audit and recovery, but historical or
+  // unresolved state must never lock this Register. Only the in-flight API
+  // operation disables checkout controls; confirmed approvals are attached by
+  // the exact-checkout guard below instead of permitting a duplicate charge.
+  const helcimOutcomeBlocksCheckout = helcimAttemptLoading;
   const helcimAttemptRetryUnavailable =
     helcimRoutingAttemptBelongsToCurrentCheckout ||
     (helcimAttemptBelongsToCurrentCheckout && helcimAttempt?.status === "pending");
@@ -2020,7 +2020,7 @@ export default function NexoCheckoutDrawer({
           toast(
             isHostedManualHelcimAttempt(attempt)
               ? "Helcim is still processing Card Not Present. Keep the handoff open or try again in a moment."
-              : "Helcim is still waiting for the card outcome. Use Recover payment and do not collect another tender yet.",
+              : "Helcim is still waiting for the card outcome. Use Recover payment to refresh it; other allowed tenders remain available.",
             "info",
           );
         }
@@ -2384,7 +2384,7 @@ export default function NexoCheckoutDrawer({
       setTerminalPickerOpen(false);
       await loadProviderSettings();
       toast(
-        "ROS released the old request and unlocked other tenders. Confirm the reader is on its ready screen before retrying Card Reader.",
+        "ROS recorded that the old request ended without approval. Confirm the reader is on its ready screen before retrying Card Reader.",
         "info",
       );
     } catch (error) {
@@ -3516,9 +3516,9 @@ export default function NexoCheckoutDrawer({
             : helcimAttemptDetail(helcimAttempt),
         action:
           helcimAttempt.status === "pending"
-            ? "Open Secure Entry or Recover Payment. Do not collect another tender until the result is final."
+            ? "Open Secure Entry or Recover Payment to reconcile this attempt. Other allowed tenders remain available."
             : "Recover Payment so the verified result can attach to this sale.",
-        escalation: "Restore protects this sale identity and the provider attempt from duplicate charging.",
+        escalation: "Restore preserves the sale identity and provider evidence; it does not lock the Register.",
         tone: "warning",
       };
     }
@@ -3530,7 +3530,7 @@ export default function NexoCheckoutDrawer({
           helcimAttempt?.error_message ??
           "ROS cannot yet prove whether Helcim approved, declined, or canceled this sale's card request.",
         action: "Use Recover Payment. If the physical terminal confirms cancellation, record that confirmation here.",
-        escalation: "Another tender stays blocked until the exact provider outcome is protected.",
+        escalation: "The attempt remains in Payments Health without blocking another allowed tender.",
         tone: "danger",
       };
     }
@@ -3538,8 +3538,8 @@ export default function NexoCheckoutDrawer({
       return {
         title: "Terminal request needs review",
         detail: `${selectedTerminalKey ? terminalLabel(selectedTerminalKey) : "Terminal"} has a pending request whose checkout reference does not match this drawer on Register #${registerLane}.`,
-        action: "Select Recover terminal. ROS will clear its own orphaned reservation or protect real Helcim activity.",
-        escalation: "Do not run the card again until ROS shows the earlier request as final.",
+        action: "Select Recover terminal to refresh the audit result, or continue with another allowed tender.",
+        escalation: "The earlier request does not reserve this Register or terminal.",
         tone: "warning",
       };
     }
@@ -3840,7 +3840,7 @@ export default function NexoCheckoutDrawer({
               </p>
               <h3 className="mt-1 text-base font-black text-app-text">
                 {terminalRecoveryState
-                  ? "Resolve this Register blocker"
+                  ? "Review payment evidence"
                   : canFinalize
                     ? "Ready to complete this sale"
                     : "No system blocker detected"}
@@ -4028,7 +4028,7 @@ export default function NexoCheckoutDrawer({
             ) : null}
           </div>
           <p className="mt-3 text-[11px] font-semibold leading-relaxed text-app-text-muted">
-            ROS will never discard an approved or provider-evidenced payment. Restore either attaches the verified result or releases only an evidence-free ROS reservation; every action remains on the payment attempt audit.
+            ROS never discards an approved or provider-evidenced payment. Restore attaches or reconciles the verified result; prior attempts remain auditable without locking the Register.
           </p>
         </div>
       ) : null}
@@ -4267,8 +4267,8 @@ export default function NexoCheckoutDrawer({
             </p>
             <p className="mt-1 text-xs font-semibold">
               {helcimAttemptOutcomeUnverified
-                ? "ROS cannot yet verify the result of this checkout's card request. Open Restore and use Recover Payment before collecting another tender."
-                : "This checkout's card request is taking longer than expected. Use Recover payment to refresh its status; do not run the card again while the result is pending."}
+                ? "ROS cannot yet verify this card result. It remains in Payments Health; use Restore to reconcile it or continue with another allowed tender."
+                : "This card request is taking longer than expected. Use Recover payment to refresh it; the Register remains available."}
             </p>
           </div>
         ) : null}
@@ -5649,8 +5649,8 @@ export default function NexoCheckoutDrawer({
         onClose={() => setPhysicalTerminalCancelAttemptId(null)}
         onConfirm={() => void confirmPhysicalTerminalCancel()}
         title="Confirm reader stopped with no approval"
-        message="Use this only after the physical Helcim request ended without approval because it was canceled, timed out, or the reader restarted, and the reader is now idle. ROS will check Helcim once more, release the blocked attempt, retain it for reconciliation, and unlock Card Reader plus every other allowed tender."
-        confirmLabel="No approval — unlock sale"
+        message="Use this only after the physical Helcim request ended without approval because it was canceled, timed out, or the reader restarted, and the reader is now idle. ROS will check Helcim once more and retain the result for reconciliation. The Register is already available."
+        confirmLabel="Record no approval"
         cancelLabel="Go back"
         variant="danger"
         loading={helcimAttemptLoading}

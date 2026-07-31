@@ -336,6 +336,12 @@ test("only an exact register-session and checkout Helcim attempt can import or l
 
   expect(drawer).toContain(": currentCheckoutRoutingAttemptId;");
   expect(drawer).toContain("const canFinalize =");
+  expect(drawer).toContain(
+    "const helcimOutcomeBlocksCheckout = helcimAttemptLoading;",
+  );
+  expect(drawer).not.toContain(
+    "helcimRoutingAttemptBelongsToCurrentCheckout ||\n    (helcimAttemptBelongsToCurrentCheckout",
+  );
   expect(drawer).toContain("!helcimOutcomeBlocksCheckout &&");
   expect(drawer).toContain("!rmsNoCreditTenderNeedsApproval;");
   expect(drawer).toContain("if (helcimOutcomeBlocksCheckout) {");

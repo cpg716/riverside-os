@@ -137,12 +137,12 @@ test("a nonmatching terminal attempt is refreshed without entering the active sa
   expect(drawer).toContain('"Recover terminal"');
   expect(drawer).toContain('data-testid="pos-payment-restore-trigger"');
   expect(drawer).toContain('data-testid="pos-payment-restore-menu"');
-  expect(drawer).toContain("Resolve this Register blocker");
+  expect(drawer).toContain("Review payment evidence");
   expect(drawer).toContain("Restore Terminal");
   expect(drawer).toContain("Reader stopped / no approval");
-  expect(drawer).toContain("No approval — unlock sale");
+  expect(drawer).toContain("Record no approval");
   expect(drawer).toContain(
-    "ROS released the old request and unlocked other tenders. Confirm the reader is on its ready screen",
+    "ROS recorded that the old request ended without approval. Confirm the reader is on its ready screen",
   );
   expect(drawer).toContain('setTab(hostedManual ? "card_manual" : "card_terminal")');
   expect(drawer).toContain("text-rose-800 dark:text-rose-200");
