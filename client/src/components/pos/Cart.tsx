@@ -83,6 +83,10 @@ import PosSuitSwapWizard from "./PosSuitSwapWizard";
 import { hasApprovedProviderPayment } from "./paymentLineGuards";
 import { hasCheckoutSalespersonAttribution } from "./cartSalespersonPreflight";
 import {
+  mergePickupCartLines,
+  mergePickupTransactionSelections,
+} from "./cartPickupMerge";
+import {
   CHECKOUT_RECOVERY_RESOLVED_EVENT,
   type CheckoutRecoveryResolvedDetail,
 } from "../../lib/offlineQueue";
@@ -7619,29 +7623,76 @@ export default function Cart({
                   );
                   return false;
                 }
-                setPickupTransactionId(
-                  selectionsForCheckout[0]?.transactionId ?? null,
-                );
-                setPickupTransactions(selectionsForCheckout);
-                setPickupPaidAmountCents(
-                  loaded.reduce(
-                    (sum, { detail }) =>
-                      sum + parseMoneyToCents(detail.amount_paid ?? "0"),
-                    0,
+                const incomingTransactionIds = new Set(
+                  selectionsForCheckout.map(
+                    (selection) => selection.transactionId,
                   ),
                 );
-                setPickupReadyAlterations(
-                  loaded.flatMap(({ detail }) =>
+                const existingTransactionIds = new Set(
+                  pickupTransactions.map(
+                    (selection) => selection.transactionId,
+                  ),
+                );
+                const preservedPickupSelections = pickupTransactions.filter(
+                  (selection) =>
+                    !incomingTransactionIds.has(selection.transactionId),
+                );
+                setPickupTransactionId(
+                  (currentTransactionId) =>
+                    currentTransactionId ??
+                    selectionsForCheckout[0]?.transactionId ??
+                    null,
+                );
+                setPickupTransactions((currentSelections) =>
+                  mergePickupTransactionSelections(
+                    currentSelections,
+                    selectionsForCheckout,
+                  ),
+                );
+                setPickupPaidAmountCents(
+                  (currentPaidAmountCents) =>
+                    currentPaidAmountCents +
+                    loaded
+                      .filter(
+                        ({ detail }) =>
+                          !existingTransactionIds.has(detail.transaction_id),
+                      )
+                      .reduce(
+                        (sum, { detail }) =>
+                          sum + parseMoneyToCents(detail.amount_paid ?? "0"),
+                        0,
+                      ),
+                );
+                const incomingReadyAlterations = loaded.flatMap(
+                  ({ detail }) =>
                     (detail.linked_alterations ?? []).filter(
                       (alteration) => alteration.status === "ready",
                     ),
-                  ),
                 );
+                setPickupReadyAlterations((currentAlterations) => {
+                  const mergedAlterations = new Map(
+                    currentAlterations.map((alteration) => [
+                      alteration.id,
+                      alteration,
+                    ]),
+                  );
+                  for (const alteration of incomingReadyAlterations) {
+                    mergedAlterations.set(alteration.id, alteration);
+                  }
+                  return Array.from(mergedAlterations.values());
+                });
                 setManagerOverrideApproved(false);
                 setManagerOverrideReason("");
                 setManagerOverrideManagerStaffId("");
                 setManagerOverrideManagerPin("");
-                setLines(cartLines);
+                setLines((currentLines) =>
+                  mergePickupCartLines(
+                    currentLines,
+                    pickupTransactions,
+                    selectionsForCheckout,
+                    cartLines,
+                  ),
+                );
                 setOrderPaymentLines((currentPaymentLines) => {
                   const explicitlyStagedTargets = new Set(
                     currentPaymentLines.map(
@@ -7659,8 +7710,13 @@ export default function Cart({
                   ];
                 });
                 setCheckoutDrawerOpen(true);
+                const totalPickupItemCount =
+                  preservedPickupSelections.reduce(
+                    (count, selection) => count + selection.lineIds.length,
+                    0,
+                  ) + cartLines.length;
                 toast(
-                  `Loaded ${cartLines.length} pickup item(s) from ${selectionsForCheckout.length} order(s).`,
+                  `Pickup cart now has ${totalPickupItemCount} item(s) from ${preservedPickupSelections.length + selectionsForCheckout.length} order(s).`,
                   "success",
                 );
                 return true;
