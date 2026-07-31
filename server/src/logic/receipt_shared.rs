@@ -236,10 +236,11 @@ pub fn tender_display_label(method: &str) -> String {
         .filter(|c| c.is_ascii_alphanumeric())
         .collect::<String>();
     match key.as_str() {
-        "card" | "cardterminal" | "cardmanual" | "cardterminalmanual" | "cardsaved"
-        | "cardcredit" | "offlinecc" | "credit" | "creditcard" | "creditcards" | "creditdebit"
-        | "debit" | "helcim" | "visa" | "mastercard" | "mc" | "amex" | "americanexpress"
-        | "discover" => "CC".to_string(),
+        "cardnotpresent" | "cnp" => "Card Not Present".to_string(),
+        "cardmanual" | "cardterminalmanual" | "offlinecc" => "Manual Card".to_string(),
+        "card" | "cardterminal" | "cardsaved" | "cardcredit" | "credit" | "creditcard"
+        | "creditcards" | "creditdebit" | "debit" | "helcim" | "visa" | "mastercard" | "mc"
+        | "amex" | "americanexpress" | "discover" => "CC".to_string(),
         "cash" => "Cash".to_string(),
         "rms90" | "rms90day" | "rms90days" | "rmscharge90" | "onaccountrms90" => {
             "RMS 90".to_string()
@@ -277,15 +278,12 @@ mod tests {
 
     #[test]
     fn card_tender_variants_use_customer_facing_label() {
-        for method in [
-            "card_terminal",
-            "card_manual",
-            "card_saved",
-            "card_credit",
-            "offline_cc",
-        ] {
+        for method in ["card_terminal", "card_saved", "card_credit"] {
             assert_eq!(tender_display_label(method), "CC");
         }
+        assert_eq!(tender_display_label("card_not_present"), "Card Not Present");
+        assert_eq!(tender_display_label("card_manual"), "Manual Card");
+        assert_eq!(tender_display_label("offline_cc"), "Manual Card");
     }
 
     #[test]

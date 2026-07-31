@@ -507,7 +507,7 @@ const TAB_META: Record<
   },
   card_manual: {
     label: "CARD NOT PRESENT",
-    method: "card_manual",
+    method: "card_not_present",
     icon: CreditCard,
     idle: "bg-zinc-500/5 border border-app-border text-app-text-muted hover:border-zinc-500/40",
     active: "bg-zinc-800 border border-transparent text-white shadow-lg",
@@ -944,7 +944,7 @@ export default function NexoCheckoutDrawer({
   const pendingHelcimCentsRef = useRef<number>(0);
   const savedCardIdempotencyKeyRef = useRef<string | null>(null);
   const pendingHelcimTenderRef = useRef<{
-    method: "card_terminal" | "card_manual" | "card_credit";
+    method: "card_terminal" | "card_not_present" | "card_credit";
     label: string;
   }>({ method: "card_terminal", label: "HELCIM CARD" });
   const registerSessionIdentity = registerSessionId?.trim() ?? "";
@@ -1692,7 +1692,11 @@ export default function NexoCheckoutDrawer({
   const addApprovedHelcimAttempt = useCallback(
     (
       attempt: HelcimAttempt,
-      method: "card_terminal" | "card_manual" | "card_saved" | "card_credit" = "card_terminal",
+      method:
+        | "card_terminal"
+        | "card_not_present"
+        | "card_saved"
+        | "card_credit" = "card_terminal",
       label = "HELCIM CARD",
     ) => {
       const hostedManual = isHostedManualHelcimAttempt(attempt);
@@ -1751,10 +1755,7 @@ export default function NexoCheckoutDrawer({
       }
       setApplied((prev) => {
         if (hasAppliedHelcimAttempt(prev, attempt)) return prev;
-        const tenderFamily =
-          method === "card_manual" && isHostedManualHelcimAttempt(attempt)
-            ? "card_not_present"
-            : undefined;
+        const tenderFamily = hostedManual ? "card_not_present" : undefined;
         return [
           ...prev,
           {
@@ -1848,7 +1849,9 @@ export default function NexoCheckoutDrawer({
         if (isHostedManual && !shouldAttachApproved) {
           return;
         }
-        const method = isHostedManual ? "card_manual" : pendingHelcimTenderRef.current.method;
+        const method = isHostedManual
+          ? "card_not_present"
+          : pendingHelcimTenderRef.current.method;
         const label = isHostedManual ? "CARD NOT PRESENT" : pendingHelcimTenderRef.current.label;
         addApprovedHelcimAttempt(
           attempt,
@@ -2275,7 +2278,7 @@ export default function NexoCheckoutDrawer({
       setTerminalPickerOpen(false);
       pendingHelcimCentsRef.current = 0;
       pendingHelcimTenderRef.current = hostedManual
-        ? { method: "card_manual", label: "CARD NOT PRESENT" }
+        ? { method: "card_not_present", label: "CARD NOT PRESENT" }
         : { method: "card_terminal", label: "HELCIM CARD" };
       setTab(hostedManual ? "card_manual" : "card_terminal");
       setKeypad(retryCents > 0 ? centsToFixed2(retryCents) : "");
@@ -2587,7 +2590,7 @@ export default function NexoCheckoutDrawer({
       setHelcimAttemptLoading(true);
       pendingHelcimCentsRef.current = amtCents;
       pendingHelcimTenderRef.current = {
-        method: "card_manual",
+        method: "card_not_present",
         label: "CARD NOT PRESENT",
       };
       try {

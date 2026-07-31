@@ -966,14 +966,13 @@ mod tests {
     }
 
     #[test]
-    fn refund_payment_method_accepts_all_card_entry_aliases() {
+    fn refund_payment_method_separates_linked_and_manual_cards() {
         for method in [
             "cc",
             "credit_card",
             "card_present",
             "card_not_present",
             "cnp",
-            "card_manual",
             "card_saved",
         ] {
             assert_eq!(
@@ -982,9 +981,14 @@ mod tests {
             );
         }
         assert_eq!(
+            RefundPaymentMethod::parse("card_manual")
+                .expect("manual card refund should be recorded externally"),
+            RefundPaymentMethod::RecordedExternalCard
+        );
+        assert_eq!(
             RefundPaymentMethod::parse("card_terminal_manual")
                 .expect("external card refund should be accepted"),
-            RefundPaymentMethod::RecordedHelcimCard
+            RefundPaymentMethod::RecordedExternalCard
         );
     }
     use axum::http::HeaderValue;
@@ -3944,7 +3948,7 @@ enum RefundPaymentMethod {
     Cash,
     Check,
     LinkedHelcimCard,
-    RecordedHelcimCard,
+    RecordedExternalCard,
     GiftCard,
     StoreCredit,
     RmsCharge,
@@ -3957,10 +3961,10 @@ impl RefundPaymentMethod {
             "cash" => Ok(Self::Cash),
             "check" => Ok(Self::Check),
             "card" | "cc" | "credit_card" | "card_present" | "card_not_present" | "cnp"
-            | "card_terminal" | "card_manual" | "card_saved" | "card_credit" | "helcim" => {
+            | "card_terminal" | "card_saved" | "card_credit" | "helcim" => {
                 Ok(Self::LinkedHelcimCard)
             }
-            "card_terminal_manual" => Ok(Self::RecordedHelcimCard),
+            "card_manual" | "card_terminal_manual" => Ok(Self::RecordedExternalCard),
             "gift_card" => Ok(Self::GiftCard),
             "store_credit" => Ok(Self::StoreCredit),
             "on_account_rms" | "on_account_rms90" => Ok(Self::RmsCharge),
@@ -3980,7 +3984,7 @@ impl RefundPaymentMethod {
     }
 
     fn is_card(self) -> bool {
-        matches!(self, Self::LinkedHelcimCard | Self::RecordedHelcimCard)
+        matches!(self, Self::LinkedHelcimCard | Self::RecordedExternalCard)
     }
 }
 
@@ -7889,7 +7893,8 @@ async fn process_refund(
     let mut card_last4: Option<String> = None;
 
     if refund_method.is_card() {
-        let manual_external_card_refund = refund_method == RefundPaymentMethod::RecordedHelcimCard;
+        let manual_external_card_refund =
+            refund_method == RefundPaymentMethod::RecordedExternalCard;
         // Query all positive Helcim charges on this transaction with per-card remaining capacity.
         // Prior refunds are attributed to their source card via the `original_provider_transaction_id`
         // metadata field written on every Helcim refund payment_transactions row.
@@ -10046,7 +10051,7 @@ async fn execute_exchange_settlement(
         if matches!(
             method,
             RefundPaymentMethod::LinkedHelcimCard
-                | RefundPaymentMethod::RecordedHelcimCard
+                | RefundPaymentMethod::RecordedExternalCard
                 | RefundPaymentMethod::RmsCharge
                 | RefundPaymentMethod::StaffAccount
         ) {
@@ -11541,7 +11546,24 @@ pub(crate) async fn load_transaction_detail(
         SELECT
             pt.id,
             pt.created_at,
-            pt.payment_method,
+            CASE
+                WHEN LOWER(COALESCE(pt.metadata->>'tender_family', '')) = 'card_not_present'
+                  OR EXISTS (
+                      SELECT 1
+                      FROM payment_provider_attempts ppa
+                      WHERE ppa.provider = 'helcim'
+                        AND ppa.raw_audit_reference LIKE 'helcim-pay-js%'
+                        AND (
+                            ppa.id::text = pt.metadata->>'payment_provider_attempt_id'
+                            OR (
+                                pt.provider_transaction_id IS NOT NULL
+                                AND ppa.provider_transaction_id = pt.provider_transaction_id
+                            )
+                        )
+                  )
+                THEN 'card_not_present'
+                ELSE pt.payment_method
+            END AS payment_method,
             CASE
                 WHEN pt.metadata->>'checkout_transaction_id' = $1::text
                 THEN pt.amount

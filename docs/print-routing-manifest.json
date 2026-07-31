@@ -256,13 +256,13 @@
       "proof": "Register alteration pickup uses the central receipt station service."
     },
     {
-      "id": "pos-helcim-manual-card-browser-handoff",
+      "id": "pos-helcim-card-not-present-browser-handoff",
       "file": "client/src/components/pos/NexoCheckoutDrawer.tsx",
       "callee": "window.open",
       "occurrences": 1,
       "kind": "external-payment-handoff",
       "route": "preview",
-      "previewReason": "Manual Card opens the public HTTPS HelcimPay.js handoff page when Tauri openUrl is not available; it is not a printer, report, tag, or receipt route."
+      "previewReason": "Card Not Present opens the public HTTPS HelcimPay.js handoff page when Tauri openUrl is not available; it is not a printer, report, tag, or receipt route."
     },
     {
       "id": "receipt-summary-cash-drawer",

@@ -97,8 +97,8 @@ export default function PosRefundModal({
               <option value="card_present">
                 Credit Card (original Helcim card)
               </option>
-              <option value="card_manual">
-                Credit Card / Manual (original Helcim card)
+              <option value="card_not_present">
+                Card Not Present (original Helcim approval)
               </option>
               <option value="card_terminal_manual">
                 External card refund already completed (record only)

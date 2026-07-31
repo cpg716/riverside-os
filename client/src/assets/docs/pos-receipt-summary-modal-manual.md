@@ -63,7 +63,7 @@ Reprinting a settled exchange from Transaction History uses the exchange event, 
 
 When a customer picks up an order and buys new merchandise in the same checkout, the sale complete screen prints one checkout receipt. It includes the new sale lines plus the exact picked-up items and their source Transaction number. Daily Sales lists the checkout once, while **Pickups Today** preserves the fulfillment record. Pure pickup checkouts still print the pickup receipt for the original transaction.
 
-Split tenders print as separate tender lines, such as **Cash**, **CC**, **RMS90**, **RMS**, **Check**, or **SC**, so the receipt matches the payment breakdown staff see in history and reporting.
+Split tenders print as separate tender lines, such as **Cash**, **CC**, **Card Not Present**, **Manual Card**, **RMS90**, **RMS**, **Check**, or **SC**, so the receipt matches the payment breakdown staff see in history and reporting. **Card Not Present** means Helcim approved the secure online CNP entry; **Manual Card** means staff recorded an external approval without a live Helcim transaction.
 
 Manager-approved backdated sales are marked **BACKDATED SALE** with the backdated business date. The printed receipt timestamp remains the server checkout time; payment movement still belongs to the actual processing day.
 

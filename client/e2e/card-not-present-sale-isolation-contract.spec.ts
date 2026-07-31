@@ -10,9 +10,14 @@ function repoFile(relativePath: string): string {
 }
 
 const drawer = repoFile("client/src/components/pos/NexoCheckoutDrawer.tsx");
+const cart = repoFile("client/src/components/pos/Cart.tsx");
+const refundModal = repoFile("client/src/components/pos/PosRefundModal.tsx");
 const handoff = repoFile("client/src/components/pos/HelcimManualCardHandoff.tsx");
 const paymentsWorkspace = repoFile("client/src/components/payments/PaymentsWorkspace.tsx");
 const paymentsApi = repoFile("server/src/api/payments.rs");
+const transactionsApi = repoFile("server/src/api/transactions.rs");
+const checkoutLogic = repoFile("server/src/logic/transaction_checkout.rs");
+const paymentSummaryLogic = repoFile("server/src/logic/pos_rms_charge.rs");
 
 test("checkout and customer changes clear sale-scoped tender state only", () => {
   const resetStart = drawer.indexOf("// Tender UI is scoped to one exact sale/customer.");
@@ -65,6 +70,55 @@ test("CNP approval and handoff messages require the exact request, attempt, sale
     "/api/payments/providers/helcim/terminal/recover-paid-order-payment-from-event",
   );
   expect(paymentsWorkspace).toContain("helcim_event_id: source.record.id");
+});
+
+test("CNP and Manual Card retain distinct ledger and reporting identities", () => {
+  const cnpTabStart = drawer.indexOf("  card_manual: {");
+  const cnpTabEnd = drawer.indexOf("  card_saved:", cnpTabStart);
+  const cnpTab = drawer.slice(cnpTabStart, cnpTabEnd);
+  expect(cnpTabStart).toBeGreaterThan(-1);
+  expect(cnpTabEnd).toBeGreaterThan(cnpTabStart);
+  expect(cnpTab).toContain('label: "CARD NOT PRESENT"');
+  expect(cnpTab).toContain('method: "card_not_present"');
+
+  const manualCardStart = drawer.indexOf('if (tab === "offline_cc")');
+  const manualCardEnd = drawer.indexOf(
+    'if (tab === "card_saved")',
+    manualCardStart,
+  );
+  const manualCardFlow = drawer.slice(manualCardStart, manualCardEnd);
+  expect(manualCardStart).toBeGreaterThan(-1);
+  expect(manualCardEnd).toBeGreaterThan(manualCardStart);
+  expect(manualCardFlow).toContain('method: "card_manual"');
+  expect(manualCardFlow).toContain('tender_family: "manual_card"');
+  expect(checkoutLogic).toContain(
+    '"card_terminal" | "card_not_present" | "card_manual" | "card_saved"',
+  );
+  expect(paymentSummaryLogic).toContain(
+    'family.eq_ignore_ascii_case("card_not_present")',
+  );
+  expect(transactionsApi).toContain("THEN 'card_not_present'");
+  expect(paymentsApi).toContain("'card_not_present'::text AS payment_method");
+
+  expect(refundModal).toContain('<option value="card_not_present">');
+  expect(refundModal).not.toContain('<option value="card_manual">');
+  const linkedRefundStart = cart.indexOf("const linkedCardRemainder =");
+  const linkedRefundEnd = cart.indexOf(
+    "const exchangeSettlement =",
+    linkedRefundStart,
+  );
+  const linkedRefundMethods = cart.slice(linkedRefundStart, linkedRefundEnd);
+  expect(linkedRefundStart).toBeGreaterThan(-1);
+  expect(linkedRefundEnd).toBeGreaterThan(linkedRefundStart);
+  expect(linkedRefundMethods).toContain(
+    'refundTender?.method === "card_not_present"',
+  );
+  expect(linkedRefundMethods).not.toContain(
+    'refundTender?.method === "card_manual"',
+  );
+  expect(transactionsApi).toContain(
+    '"card_manual" | "card_terminal_manual" => Ok(Self::RecordedExternalCard)',
+  );
 });
 
 test("an exact approved or pending CNP is handled before a new initialize call", () => {

@@ -8175,7 +8175,7 @@ async fn load_helcim_transaction_rows(
             NULL::uuid AS payment_transaction_id,
             ppa.provider_transaction_id,
             ppa.provider_payment_id,
-            'card_manual'::text AS payment_method,
+            'card_not_present'::text AS payment_method,
             NULL::uuid AS transaction_id,
             NULL::text AS transaction_display_id,
             NULL::text AS customer_name,
@@ -11031,7 +11031,7 @@ async fn initialize_helcim_pay(
     // Helcim's customerCode is a Helcim-native identifier, not a ROS or
     // Counterpoint customer code. ROS does not persist a Helcim customer code
     // for POS customers yet, so omit it to avoid Helcim rejecting ROS-* / C-*
-    // customer numbers during hosted manual card entry.
+    // customer numbers during hosted Card Not Present entry.
     let customer_code = None;
     // Do not synthesize an invoice number for hosted CNP. Helcim validates
     // invoiceNumber against its own invoice format and rejects ROS-owned UUID
@@ -11230,7 +11230,7 @@ async fn confirm_helcim_pay_attempt(
         }
         if created_at < Utc::now() - ChronoDuration::minutes(60) {
             return Err(PaymentError::InvalidPayload(
-                "HelcimPay.js handoff has expired. Start Manual Card again from the register."
+                "HelcimPay.js handoff has expired. Start Card Not Present again from the register."
                     .to_string(),
             ));
         }

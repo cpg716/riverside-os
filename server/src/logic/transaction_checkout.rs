@@ -2395,7 +2395,7 @@ fn helcim_tender_method_matches_amount(method: &str, amount: Decimal) -> bool {
     } else {
         matches!(
             method.as_str(),
-            "card_terminal" | "card_manual" | "card_saved"
+            "card_terminal" | "card_not_present" | "card_manual" | "card_saved"
         )
     }
 }
@@ -3992,7 +3992,12 @@ async fn execute_checkout_internal(
             let m = s.method.trim().to_ascii_lowercase();
             if !matches!(
                 m.as_str(),
-                "cash" | "check" | "card_terminal" | "card_manual" | "card_saved"
+                "cash"
+                    | "check"
+                    | "card_terminal"
+                    | "card_not_present"
+                    | "card_manual"
+                    | "card_saved"
             ) {
                 return Err(CheckoutError::InvalidPayload(
                     "STAFF ACCOUNT PAYMENT accepts cash, check, or approved card only".to_string(),
@@ -7644,6 +7649,10 @@ mod tests {
         ));
         assert!(helcim_tender_method_matches_amount(
             "card_manual",
+            dec!(10.00)
+        ));
+        assert!(helcim_tender_method_matches_amount(
+            "card_not_present",
             dec!(10.00)
         ));
         assert!(helcim_tender_method_matches_amount(

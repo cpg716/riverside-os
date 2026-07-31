@@ -4882,7 +4882,7 @@ export default function Cart({
                 refundTender?.method === "card_credit" ||
                 refundTender?.method === "card_present" ||
                 refundTender?.method === "card_terminal" ||
-                refundTender?.method === "card_manual" ||
+                refundTender?.method === "card_not_present" ||
                 refundTender?.method === "card_saved" ||
                 refundTender?.method === "card_terminal_manual";
               const exchangeSettlement = {

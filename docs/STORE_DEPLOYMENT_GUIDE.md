@@ -408,7 +408,8 @@ This section matches a common Riverside deployment: **Zebra** scanners and label
 - [ ] Optional: Helcim webhook signing secret saved in **Settings → Helcim**.
 - [ ] Optional: First signed webhook received by ROS verified in **Payments → Health**. Confirm separately whether the provider event attached to a ROS checkout; webhook receipt alone does not prove ROS recorded a payment.
 - [ ] Card Reader path validated: ROS sends the amount to the selected terminal and records the approved Helcim attempt.
-- [ ] Manual Card / phone-order path validated: ROS opens hosted HelcimPay.js keyed entry and never asks staff to type PAN or CVV into ROS-owned fields.
+- [ ] Card Not Present / phone-order path validated: ROS opens hosted HelcimPay.js keyed entry, records the approved Helcim transaction as `card_not_present`, and never asks staff to type PAN or CVV into ROS-owned fields.
+- [ ] Manual Card path validated separately: ROS records an approval completed outside ROS without claiming a live Helcim transaction.
 - [ ] Card Refund path validated with an original Helcim transaction id: ROS sends the refund to the selected terminal and records the approved refund as a negative card tender.
 - [ ] Saved Card path validated with a customer Helcim vault card: ROS charges the token and stores only safe provider metadata.
 - [ ] Reader disconnect/failure fallback procedure trained.

@@ -22,15 +22,15 @@ export function helcimPayCanRenderInline(): boolean {
 
 export function helcimPayRuntimeBlocker(): string | null {
   if (typeof window === "undefined") {
-    return "HelcimPay.js needs a browser or WebView session before manual card entry can open.";
+    return "HelcimPay.js needs a browser or WebView session before Card Not Present entry can open.";
   }
   const { protocol, hostname } = window.location;
   if (protocol === "https:") return null;
   if (isLocalHelcimPayOrigin(protocol, hostname)) {
-    return `Manual Card cannot open HelcimPay.js from this local app origin. Open Riverside through the Helcim-whitelisted public HTTPS ROS/PWA URL, or use the Helcim terminal card path on this register. Current origin: ${currentOrigin()}.`;
+    return `Card Not Present cannot open HelcimPay.js from this local app origin. Open Riverside through the Helcim-whitelisted public HTTPS ROS/PWA URL, or use the Helcim terminal card path on this register. Current origin: ${currentOrigin()}.`;
   }
   if (protocol !== "https:") {
-    return `HelcimPay.js requires a secure checkout origin. Open Riverside through the whitelisted HTTPS ROS/PWA URL before using Manual Card. Current origin: ${currentOrigin()}.`;
+    return `HelcimPay.js requires a secure checkout origin. Open Riverside through the whitelisted HTTPS ROS/PWA URL before using Card Not Present. Current origin: ${currentOrigin()}.`;
   }
   return null;
 }

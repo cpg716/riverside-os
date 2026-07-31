@@ -28,14 +28,14 @@ This audit focused on **hardening** existing logic rather than expanding scope. 
 | **Customer API** — Cards list/delete/default | ✅ Full CRUD for cards | Token-safe; no PAN/CVV handling |
 | **Customer API** — Bank accounts / PAD | ❌ Out of scope | ACH not adopted |
 | **Recurring API** | ❌ Out of scope | Payment plans not needed for retail |
-| **Payments Hardware** — Device list/ping | ✅ `GET /devices`, `POST /devices/{code}/ping` | Terminal readiness checks |
-| **Payments Hardware** — Terminal purchase | ✅ `POST /devices/{code}/payment/purchase` | POS Card Reader / Manual Card flows |
+| **Payments Hardware** — Device list/ping | ✅ `GET /devices`, `GET /devices/{code}/ping` | Terminal readiness checks |
+| **Payments Hardware** — Terminal purchase | ✅ `POST /devices/{code}/payment/purchase` | POS Card Reader flow |
 | **Payments Hardware** — Terminal refund | ✅ `POST /devices/{code}/payment/refund` | Register refund to terminal |
 | **Payments Hardware** — Webhooks | ✅ `cardTransaction`, `terminalCancel` | Signed, redacted, deduplicated, replayable |
 | **Card Batches** — List / detail / transactions | ✅ Full read support | Fee/settlement sync consumes these |
 | **ACH Payment API** | ❌ Out of scope | Not adopted; documented in `HELCIM.md` |
 | **ACH Batches** | ❌ Out of scope | Not adopted |
-| **HelcimPay.js** — Initialize / Confirm | ✅ `POST /helcim-pay/initialize` | Public/web checkout only |
+| **HelcimPay.js** — Initialize / Confirm | ✅ `POST /helcim-pay/initialize` | Public/web checkout and POS Card Not Present |
 | **Webhooks** — Signature + freshness | ✅ HMAC-SHA256 + timestamp window | `HELCIM_WEBHOOK_SECRET` required in prod |
 
 ## Hardening Applied (2026-05-23)

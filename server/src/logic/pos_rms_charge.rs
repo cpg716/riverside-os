@@ -233,6 +233,13 @@ pub fn payment_method_summary(
     metadata: Option<&Value>,
 ) -> String {
     let trimmed_method = method.trim();
+    if clean_text(metadata.and_then(|value| value.get("tender_family")))
+        .is_some_and(|family| family.eq_ignore_ascii_case("card_not_present"))
+        || trimmed_method.eq_ignore_ascii_case("card_not_present")
+        || trimmed_method.eq_ignore_ascii_case("cnp")
+    {
+        return "Card Not Present".to_string();
+    }
     if is_rms_method(trimmed_method) {
         let mut parts = vec!["RMS Charge".to_string()];
         if let Some(program) = display_program_label(trimmed_method, metadata) {
@@ -819,6 +826,30 @@ mod tests {
     fn payment_summary_collapses_legacy_card_aliases_to_card() {
         assert_eq!(payment_method_summary("CARD", None, None), "Card");
         assert_eq!(payment_method_summary("CREDIT_CARD", None, None), "Card");
+    }
+
+    #[test]
+    fn payment_summary_keeps_card_not_present_separate_from_manual_card() {
+        assert_eq!(
+            payment_method_summary(
+                "card_manual",
+                None,
+                Some(&json!({ "tender_family": "card_not_present" })),
+            ),
+            "Card Not Present"
+        );
+        assert_eq!(
+            payment_method_summary("card_not_present", None, None),
+            "Card Not Present"
+        );
+        assert_eq!(
+            payment_method_summary(
+                "card_manual",
+                None,
+                Some(&json!({ "tender_family": "manual_card" })),
+            ),
+            "Manual Card"
+        );
     }
 
     #[test]
