@@ -163,19 +163,21 @@ test("CNP and Manual Card retain distinct ledger and reporting identities", () =
   );
 });
 
-test("terminal purchase checks listening before creating its durable attempt", () => {
+test("terminal purchase dispatches the amount without a diagnostic reader ping", () => {
   const start = paymentsApi.indexOf("async fn start_helcim_purchase(");
   const end = paymentsApi.indexOf(
     "async fn start_helcim_terminal_refund(",
     start,
   );
   const purchaseFlow = paymentsApi.slice(start, end);
-  const preflight = purchaseFlow.indexOf("preflight_terminal_purchase(");
   const insert = purchaseFlow.indexOf("INSERT INTO payment_provider_attempts");
+  const dispatch = purchaseFlow.indexOf("helcim::start_terminal_purchase(");
 
   expect(start).toBeGreaterThan(-1);
-  expect(preflight).toBeGreaterThan(-1);
-  expect(insert).toBeGreaterThan(preflight);
+  expect(purchaseFlow).not.toContain("preflight_terminal_purchase(");
+  expect(purchaseFlow).not.toContain("/ping");
+  expect(insert).toBeGreaterThan(-1);
+  expect(dispatch).toBeGreaterThan(insert);
   expect(drawer).toContain(
     "Helcim accepted the request. Confirm the amount appears on the reader",
   );
@@ -339,7 +341,17 @@ test("only an exact register-session and checkout Helcim attempt can import or l
   expect(drawer).toContain(
     "const helcimOutcomeBlocksCheckout = helcimAttemptLoading;",
   );
-  expect(drawer).not.toContain(
+  const checkoutBlockStart = drawer.indexOf(
+    "const helcimOutcomeBlocksCheckout =",
+  );
+  const checkoutBlockEnd = drawer.indexOf(
+    "const helcimAttemptRetryUnavailable =",
+    checkoutBlockStart,
+  );
+  const checkoutBlock = drawer.slice(checkoutBlockStart, checkoutBlockEnd);
+  expect(checkoutBlockStart).toBeGreaterThan(-1);
+  expect(checkoutBlockEnd).toBeGreaterThan(checkoutBlockStart);
+  expect(checkoutBlock).not.toContain(
     "helcimRoutingAttemptBelongsToCurrentCheckout ||\n    (helcimAttemptBelongsToCurrentCheckout",
   );
   expect(drawer).toContain("!helcimOutcomeBlocksCheckout &&");
