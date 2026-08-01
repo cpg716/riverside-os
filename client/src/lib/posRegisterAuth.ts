@@ -11,6 +11,14 @@ import {
  * while the register session is open.
  */
 const STORAGE_KEY = "ros.posRegisterAuth.v1";
+const CLIENT_BUILD_SHA_HEADER = "x-riverside-client-build-sha";
+
+function clientBuildIdentityHeader(): Record<string, string> {
+  const buildSha = __ROS_GIT_SHA__.trim();
+  return buildSha && !["dev", "unknown"].includes(buildSha)
+    ? { [CLIENT_BUILD_SHA_HEADER]: buildSha }
+    : {};
+}
 
 export type PosRegisterAuth = {
   sessionId: string;
@@ -72,6 +80,7 @@ export function posRegisterAuthHeaders(): Record<string, string> {
   const a = getPosRegisterAuth();
   if (!a?.sessionId || !a?.token) return {};
   return {
+    ...clientBuildIdentityHeader(),
     "x-riverside-pos-session-id": a.sessionId,
     "x-riverside-pos-session-token": a.token,
     "x-riverside-station-key": a.stationKey,
@@ -153,7 +162,12 @@ export function mergedPosStaffHeaders(
       : sh instanceof Headers
         ? Object.fromEntries(sh.entries())
         : {};
-  return { ...base, ...stationKeyHeader(), ...posRegisterAuthHeaders() };
+  return {
+    ...base,
+    ...clientBuildIdentityHeader(),
+    ...stationKeyHeader(),
+    ...posRegisterAuthHeaders(),
+  };
 }
 
 export type HydratePosRegisterAuthArgs = {

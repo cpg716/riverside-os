@@ -71,6 +71,26 @@ pub enum PaymentError {
     ProviderError(String),
 }
 
+fn require_current_register_build_for_provider_dispatch(
+    headers: &HeaderMap,
+) -> Result<(), PaymentError> {
+    let Some(client_sha) = crate::api::incompatible_client_build_sha(headers) else {
+        return Ok(());
+    };
+    let server_sha = env!("RIVERSIDE_GIT_SHA");
+    tracing::error!(
+        target = "helcim",
+        client_build_sha = client_sha,
+        server_build_sha = server_sha,
+        "refused Helcim dispatch from a Register/Main Hub build mismatch"
+    );
+    Err(PaymentError::Conflict(format!(
+        "Register and Main Hub are running different Riverside builds (Register {}, Main Hub {}). No card request was sent. Update or restart this Register, then retry.",
+        &client_sha[..client_sha.len().min(8)],
+        &server_sha[..server_sha.len().min(8)]
+    )))
+}
+
 fn map_pay_session(e: (StatusCode, axum::Json<serde_json::Value>)) -> PaymentError {
     let (st, axum::Json(v)) = e;
     let msg = v
@@ -2166,6 +2186,31 @@ async fn release_existing_helcim_terminal_routing_reservations_before_dispatch(
     .await
     .map_err(|error| PaymentError::InvalidPayload(error.to_string()))?;
     Ok(())
+}
+
+async fn existing_pending_helcim_terminal_attempt_for_checkout(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    terminal_id: &str,
+    checkout_client_id: Uuid,
+) -> Result<Option<Uuid>, PaymentError> {
+    sqlx::query_scalar(
+        r#"
+        SELECT ppa.id
+        FROM payment_provider_attempts ppa
+        WHERE ppa.provider = 'helcim'
+          AND ppa.status = 'pending'
+          AND COALESCE(ppa.terminal_id, ppa.device_id) = $1
+          AND ppa.checkout_client_id = $2
+        ORDER BY ppa.created_at DESC
+        LIMIT 1
+        FOR UPDATE
+        "#,
+    )
+    .bind(terminal_id)
+    .bind(checkout_client_id)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|error| PaymentError::InvalidPayload(error.to_string()))
 }
 
 fn is_provider_idempotency_violation(error: &sqlx::Error) -> bool {
@@ -9614,6 +9659,7 @@ async fn start_helcim_purchase(
     let auth = middleware::require_staff_or_pos_register_session(&state, &headers)
         .await
         .map_err(map_pay_session)?;
+    require_current_register_build_for_provider_dispatch(&headers)?;
 
     if load_active_card_provider(&state).await? != helcim::HELCIM_PROVIDER_KEY {
         return Err(PaymentError::InvalidPayload(
@@ -9670,8 +9716,8 @@ async fn start_helcim_purchase(
     validate_currency(&currency)?;
 
     // Resolve ROS-owned customer data before the attempt is created. Provider
-    // profile enrichment also completes before the just-in-time listening
-    // check so it cannot hold a reader reservation while no purchase exists.
+    // profile enrichment also completes before the purchase dispatch so it
+    // cannot hold a reader reservation while no purchase exists.
     let helcim_customer_profile = if config.simulator_enabled() {
         None
     } else if let Some(customer_id) = payload.customer_id {
@@ -9754,6 +9800,20 @@ async fn start_helcim_purchase(
         .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
     lock_register_session_open_for_payment(&mut tx, Some(register_session_id)).await?;
     expire_closed_session_helcim_terminal_attempts_before_dispatch(&mut tx, &terminal_id).await?;
+    if let Some(existing_attempt_id) = existing_pending_helcim_terminal_attempt_for_checkout(
+        &mut tx,
+        &terminal_id,
+        checkout_client_id,
+    )
+    .await?
+    {
+        tx.commit()
+            .await
+            .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+        return load_helcim_attempt(&state, existing_attempt_id, Some(register_session_id))
+            .await
+            .map(Json);
+    }
     release_existing_helcim_terminal_routing_reservations_before_dispatch(&mut tx, &terminal_id)
         .await?;
     reject_conflicting_helcim_attempt_before_dispatch(&mut tx, checkout_client_id, None).await?;
@@ -10099,6 +10159,7 @@ async fn process_helcim_card_token_purchase(
     let auth = middleware::require_staff_or_pos_register_session(&state, &headers)
         .await
         .map_err(map_pay_session)?;
+    require_current_register_build_for_provider_dispatch(&headers)?;
     if load_active_card_provider(&state).await? != helcim::HELCIM_PROVIDER_KEY {
         return Err(PaymentError::InvalidPayload(
             "Helcim is not the active card provider.".to_string(),
@@ -10960,6 +11021,7 @@ async fn initialize_helcim_pay(
     let auth = middleware::require_staff_or_pos_register_session(&state, &headers)
         .await
         .map_err(map_pay_session)?;
+    require_current_register_build_for_provider_dispatch(&headers)?;
     if load_active_card_provider(&state).await? != helcim::HELCIM_PROVIDER_KEY {
         return Err(PaymentError::InvalidPayload(
             "Helcim is not the active card provider.".to_string(),
@@ -12986,6 +13048,54 @@ mod tests {
     }
 
     #[test]
+    fn helcim_dispatch_stops_before_provider_io_on_a_known_build_mismatch() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            crate::api::CLIENT_BUILD_SHA_HEADER,
+            "0000000000000000000000000000000000000000"
+                .parse()
+                .expect("client build header"),
+        );
+
+        let error = require_current_register_build_for_provider_dispatch(&headers)
+            .expect_err("mismatched Register must not dispatch");
+        assert!(error.to_string().contains("different Riverside builds"));
+        assert!(error.to_string().contains("No card request was sent"));
+
+        let source = include_str!("payments.rs");
+        for (start, end, provider_call) in [
+            (
+                "async fn start_helcim_purchase(",
+                "#[allow(dead_code)]\nasync fn start_helcim_terminal_refund(",
+                "helcim::start_terminal_purchase(",
+            ),
+            (
+                "async fn process_helcim_card_token_purchase(",
+                "#[allow(dead_code)]\nasync fn process_helcim_card_refund(",
+                "helcim::process_card_token_purchase(",
+            ),
+            (
+                "async fn initialize_helcim_pay(",
+                "async fn confirm_helcim_pay(",
+                "helcim::initialize_helcim_pay(",
+            ),
+        ] {
+            let flow = source
+                .split_once(start)
+                .expect("payment flow")
+                .1
+                .split_once(end)
+                .expect("payment flow end")
+                .0;
+            let build_guard = flow
+                .find("require_current_register_build_for_provider_dispatch(&headers)?")
+                .expect("build guard");
+            let provider_dispatch = flow.find(provider_call).expect("provider dispatch");
+            assert!(build_guard < provider_dispatch);
+        }
+    }
+
+    #[test]
     fn terminal_reservation_message_distinguishes_same_register_checkouts() {
         let active_session =
             Uuid::parse_str("11111111-2222-3333-4444-555555555555").expect("session UUID");
@@ -13120,7 +13230,7 @@ mod tests {
             )
             .expect("terminal routing release")
             .1
-            .split_once("fn is_provider_idempotency_violation(")
+            .split_once("async fn existing_pending_helcim_terminal_attempt_for_checkout(")
             .expect("end of terminal routing release")
             .0;
         assert!(release.contains("SET status = 'expired'"));
@@ -13141,6 +13251,9 @@ mod tests {
         let transaction_begin = purchase_dispatch
             .find("let mut tx = state")
             .expect("terminal dispatch transaction");
+        let exact_checkout_reuse = purchase_dispatch
+            .find("existing_pending_helcim_terminal_attempt_for_checkout(")
+            .expect("exact checkout reuse before terminal release");
         let release_call = purchase_dispatch
             .find("release_existing_helcim_terminal_routing_reservations_before_dispatch(")
             .expect("terminal routing release before purchase");
@@ -13148,6 +13261,8 @@ mod tests {
             .find("INSERT INTO payment_provider_attempts")
             .expect("terminal attempt insert");
         assert!(transaction_begin < release_call);
+        assert!(transaction_begin < exact_checkout_reuse);
+        assert!(exact_checkout_reuse < release_call);
         assert!(release_call < insert);
         assert!(
             !purchase_dispatch.contains("refresh_pending_helcim_terminal_attempt_before_dispatch(")
@@ -13410,6 +13525,134 @@ mod tests {
         PgPool::connect(&database_url)
             .await
             .expect("connect settlement test database")
+    }
+
+    #[tokio::test]
+    #[ignore = "requires an isolated migrated test database"]
+    async fn new_terminal_sale_releases_only_the_prior_routing_reservation() {
+        let pool = settlement_test_pool().await;
+        let mut tx = pool.begin().await.expect("begin test transaction");
+        let old_attempt_id = Uuid::new_v4();
+        let other_terminal_attempt_id = Uuid::new_v4();
+        let old_checkout_client_id = Uuid::new_v4();
+        let new_checkout_client_id = Uuid::new_v4();
+        let suffix = Uuid::new_v4().simple().to_string();
+        let terminal_id = format!("test-terminal-{suffix}");
+        let other_terminal_id = format!("test-other-terminal-{suffix}");
+
+        sqlx::query(
+            r#"
+            INSERT INTO payment_provider_attempts (
+                id, provider, status, amount_cents, currency, terminal_id,
+                idempotency_key, provider_payment_id, provider_transaction_id,
+                raw_audit_reference, checkout_client_id
+            )
+            VALUES
+                ($1, 'helcim', 'pending', 8129, 'usd', $2, $3, 'payment-old',
+                 'transaction-old', 'accepted', $4),
+                ($5, 'helcim', 'pending', 1000, 'usd', $6, $7, NULL, NULL, NULL, NULL)
+            "#,
+        )
+        .bind(old_attempt_id)
+        .bind(&terminal_id)
+        .bind(format!("old-{suffix}"))
+        .bind(old_checkout_client_id)
+        .bind(other_terminal_attempt_id)
+        .bind(&other_terminal_id)
+        .bind(format!("other-{suffix}"))
+        .execute(&mut *tx)
+        .await
+        .expect("insert prior terminal attempts");
+
+        assert_eq!(
+            existing_pending_helcim_terminal_attempt_for_checkout(
+                &mut tx,
+                &terminal_id,
+                old_checkout_client_id,
+            )
+            .await
+            .expect("reuse the exact checkout attempt"),
+            Some(old_attempt_id)
+        );
+        assert_eq!(
+            existing_pending_helcim_terminal_attempt_for_checkout(
+                &mut tx,
+                &terminal_id,
+                new_checkout_client_id,
+            )
+            .await
+            .expect("new checkout has no current attempt"),
+            None
+        );
+
+        release_existing_helcim_terminal_routing_reservations_before_dispatch(
+            &mut tx,
+            &terminal_id,
+        )
+        .await
+        .expect("release prior routing reservation");
+
+        let new_attempt_id = Uuid::new_v4();
+        sqlx::query(
+            r#"
+            INSERT INTO payment_provider_attempts (
+                id, provider, status, amount_cents, currency, terminal_id,
+                idempotency_key
+            )
+            VALUES ($1, 'helcim', 'pending', 2500, 'usd', $2, $3)
+            "#,
+        )
+        .bind(new_attempt_id)
+        .bind(&terminal_id)
+        .bind(format!("new-{suffix}"))
+        .execute(&mut *tx)
+        .await
+        .expect("new sale owns terminal routing");
+
+        let old_attempt: (
+            String,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        ) = sqlx::query_as(
+            r#"
+                SELECT status, error_code, provider_payment_id,
+                       provider_transaction_id, raw_audit_reference
+                FROM payment_provider_attempts
+                WHERE id = $1
+                "#,
+        )
+        .bind(old_attempt_id)
+        .fetch_one(&mut *tx)
+        .await
+        .expect("load released attempt");
+        assert_eq!(old_attempt.0, "expired");
+        assert_eq!(
+            old_attempt.1.as_deref(),
+            Some("terminal_routing_reservation_released")
+        );
+        assert_eq!(old_attempt.2.as_deref(), Some("payment-old"));
+        assert_eq!(old_attempt.3.as_deref(), Some("transaction-old"));
+        assert_eq!(old_attempt.4.as_deref(), Some("accepted"));
+
+        let statuses: Vec<(Uuid, String)> = sqlx::query_as(
+            r#"
+            SELECT id, status
+            FROM payment_provider_attempts
+            WHERE id = ANY($1)
+            ORDER BY id
+            "#,
+        )
+        .bind(vec![new_attempt_id, other_terminal_attempt_id])
+        .fetch_all(&mut *tx)
+        .await
+        .expect("load active routing attempts");
+        assert!(statuses
+            .iter()
+            .all(|(_, status)| status.as_str() == "pending"));
+
+        tx.rollback().await.expect("rollback test transaction");
     }
 
     #[tokio::test]

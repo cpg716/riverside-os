@@ -1,7 +1,7 @@
 //! HTTP API (Axum): maps domain types to JSON and status codes for the Tauri POS.
 
 use axum::{
-    http::{StatusCode, Uri},
+    http::{HeaderMap, StatusCode, Uri},
     routing::{any, get},
     Json, Router,
 };
@@ -10,6 +10,22 @@ use serde::Serialize;
 use sqlx::PgPool;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+
+pub(crate) const CLIENT_BUILD_SHA_HEADER: &str = "x-riverside-client-build-sha";
+
+pub(crate) fn incompatible_client_build_sha(headers: &HeaderMap) -> Option<&str> {
+    let client_sha = headers.get(CLIENT_BUILD_SHA_HEADER)?.to_str().ok()?.trim();
+    if client_sha.is_empty() || matches!(client_sha, "dev" | "unknown") {
+        return None;
+    }
+
+    let server_sha = env!("RIVERSIDE_GIT_SHA").trim();
+    if server_sha == client_sha {
+        None
+    } else {
+        Some(client_sha)
+    }
+}
 
 pub mod ai;
 pub mod alterations;
@@ -331,4 +347,48 @@ pub fn build_router(app_state: AppState) -> Router<AppState> {
             app_state.rate_limit,
             crate::middleware::rate_limit::rate_limit_handler,
         ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{incompatible_client_build_sha, CLIENT_BUILD_SHA_HEADER};
+    use axum::http::{HeaderMap, HeaderValue};
+
+    #[test]
+    fn payment_build_identity_accepts_only_an_exact_match() {
+        let server_sha = env!("RIVERSIDE_GIT_SHA");
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            CLIENT_BUILD_SHA_HEADER,
+            HeaderValue::from_str(server_sha).expect("server SHA header"),
+        );
+        assert_eq!(incompatible_client_build_sha(&headers), None);
+
+        if server_sha.len() > 8 {
+            headers.insert(
+                CLIENT_BUILD_SHA_HEADER,
+                HeaderValue::from_str(&server_sha[..8]).expect("short server SHA header"),
+            );
+            assert_eq!(
+                incompatible_client_build_sha(&headers),
+                Some(&server_sha[..8])
+            );
+        }
+    }
+
+    #[test]
+    fn payment_build_identity_reports_a_different_register_build() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            CLIENT_BUILD_SHA_HEADER,
+            HeaderValue::from_static("0000000000000000000000000000000000000000"),
+        );
+        assert_eq!(
+            incompatible_client_build_sha(&headers),
+            Some("0000000000000000000000000000000000000000")
+        );
+
+        headers.remove(CLIENT_BUILD_SHA_HEADER);
+        assert_eq!(incompatible_client_build_sha(&headers), None);
+    }
 }

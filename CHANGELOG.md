@@ -21,7 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Sale Complete, receipts, Transaction History, Payments Health, and refund or
   exchange routing preserve that distinction without rewriting financial
   amounts.
-- **Helcim Dispatch and Card Not Present Finalization**: Card Reader now performs a single just-in-time listening check before ROS creates the pending attempt, keeps customer enrichment outside the terminal reservation, and describes HTTP 202 as accepted rather than delivered or approved. Non-listening readers fail without sending a purchase, unresolved accepted requests remain protected, recovery guidance no longer claims the physical reader is ready, and Card Not Present decline/close events finalize their exact server-side attempt before the Register unlocks.
+- **Helcim Dispatch, Build Parity, and Checkout Continuity**: Card Reader sends one purchase directly to the assigned terminal without a separate pre-purchase diagnostic ping. Current Register clients identify their exact source build before Card Reader, Card Not Present, or Saved Card dispatch; a known Main Hub mismatch stops before Helcim receives a request. Repeating Card Reader for the same checkout returns its existing attempt instead of dispatching twice. Earlier pending or unresolved attempts remain Payments Health evidence without reserving the next checkout, while confirmed approvals stay bound to their original sale and cannot be duplicated or moved.
 - **Z-Report Check and Deposit Reconciliation**: Register close now reviews
   each check from its authoritative payment tender instead of a partial
   Transaction allocation. Z-Reports include checks in every per-register

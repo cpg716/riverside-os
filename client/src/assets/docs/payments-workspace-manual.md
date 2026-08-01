@@ -98,7 +98,7 @@ ROS refuses recovery when the retained cart is missing or ambiguous, the cart to
 4. If the handoff is interrupted, use **Recover Payment** or **Check Status** from the same checkout. These actions reuse the existing Helcim approval and are safe to repeat; they do not create a second charge.
 5. If the payment was approved but cannot be attached, stop retrying the card and use **Health → Helcim Approval Review** to recover it to the exact retained checkout or target Transaction Record.
 
-The Card Not Present flow must never be routed to a physical terminal. A successful approval is not complete in Riverside until the payment appears in the checkout ledger and the resulting Transaction Record shows the Helcim provider reference. After the approval is attached—or provider recovery proves a definitive decline/cancel—completing or clearing the sale resets the hosted handoff. An unresolved result keeps the sale locked and visible in Payments Health.
+The Card Not Present flow must never be routed to a physical terminal. A successful approval is not complete in Riverside until the payment appears in the checkout ledger and the resulting Transaction Record shows the Helcim provider reference. After the approval is attached—or provider recovery proves a definitive decline/cancel—completing or clearing the sale resets the hosted handoff. An unresolved result stays visible in Payments Health but does not lock a later sale or disable another permitted tender.
 
 ## Recover an approved card payment onto an existing order
 

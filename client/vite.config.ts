@@ -14,13 +14,14 @@ const pkg = JSON.parse(
   version: string;
 };
 
-function gitShort(): string {
-  if (process.env.GITHUB_SHA) {
-    return process.env.GITHUB_SHA.slice(0, 8);
+function gitFull(): string {
+  const injectedSha = process.env.RIVERSIDE_BUILD_SHA || process.env.GITHUB_SHA;
+  if (injectedSha?.trim()) {
+    return injectedSha.trim();
   }
 
   try {
-    return execSync("git rev-parse --short HEAD", {
+    return execSync("git rev-parse HEAD", {
       cwd: path.join(__dirname, ".."),
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
@@ -29,6 +30,8 @@ function gitShort(): string {
     return "unknown";
   }
 }
+
+const gitSha = gitFull();
 
 const pwaManifest = JSON.parse(
   readFileSync(path.join(__dirname, "public/manifest.json"), "utf-8"),
@@ -161,7 +164,8 @@ export default defineConfig({
   envPrefix: ["VITE_", "TAURI_"],
   define: {
     __ROS_CLIENT_SEMVER__: JSON.stringify(pkg.version),
-    __ROS_GIT_SHORT__: JSON.stringify(gitShort()),
+    __ROS_GIT_SHA__: JSON.stringify(gitSha),
+    __ROS_GIT_SHORT__: JSON.stringify(gitSha.slice(0, 8)),
     global: "globalThis",
   },
   server: {

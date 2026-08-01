@@ -22,6 +22,21 @@ const paymentsApi = repoFile("server/src/api/payments.rs");
 const transactionsApi = repoFile("server/src/api/transactions.rs");
 const checkoutLogic = repoFile("server/src/logic/transaction_checkout.rs");
 const paymentSummaryLogic = repoFile("server/src/logic/pos_rms_charge.rs");
+const posRegisterAuth = repoFile("client/src/lib/posRegisterAuth.ts");
+const viteConfig = repoFile("client/vite.config.ts");
+
+test("payment requests identify the exact Register build before Helcim dispatch", () => {
+  expect(viteConfig).toContain("__ROS_GIT_SHA__");
+  expect(viteConfig).toContain("process.env.RIVERSIDE_BUILD_SHA");
+  expect(posRegisterAuth).toContain(
+    'const CLIENT_BUILD_SHA_HEADER = "x-riverside-client-build-sha"',
+  );
+  expect(posRegisterAuth).toContain("[CLIENT_BUILD_SHA_HEADER]: buildSha");
+  expect(paymentsApi).toContain(
+    "require_current_register_build_for_provider_dispatch(&headers)?",
+  );
+  expect(paymentsApi).toContain("No card request was sent");
+});
 
 test("checkout and customer changes clear sale-scoped tender state only", () => {
   const resetStart = drawer.indexOf(

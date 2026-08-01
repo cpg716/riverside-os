@@ -7,6 +7,7 @@ declare module "*.md?raw" {
 }
 
 declare const __ROS_CLIENT_SEMVER__: string;
+declare const __ROS_GIT_SHA__: string;
 declare const __ROS_GIT_SHORT__: string;
 
 interface ImportMetaEnv {
