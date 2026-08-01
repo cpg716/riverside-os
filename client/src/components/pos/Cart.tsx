@@ -126,7 +126,10 @@ import { usePosSearch } from "../../hooks/usePosSearch";
 import { useCartActions } from "../../hooks/useCartActions";
 import { calculateNysErieTaxStringsForUnit } from "../../lib/tax";
 import { useCartCheckout } from "../../hooks/useCartCheckout";
-import { useParkedSales } from "../../hooks/useParkedSales";
+import {
+  useParkedSales,
+  type WeddingCollectBuildSession,
+} from "../../hooks/useParkedSales";
 import { deleteParkedSaleOnServer } from "../../lib/posParkedSales";
 import StaffMiniSelector from "../ui/StaffMiniSelector";
 import { CartItemRow } from "./cart/CartItemRow";
@@ -148,25 +151,6 @@ type WeddingWorkflowResume = {
   payer: Customer;
   workflowId?: string | null;
   payerTransactionId?: string | null;
-};
-
-type WeddingCollectBuildDraft = {
-  member: WeddingMember;
-  lines: CartLineItem[];
-  salespersonId: string;
-};
-
-type WeddingCollectBuildSession = {
-  payer: Customer;
-  payerMember: WeddingMember;
-  payerLines: CartLineItem[];
-  partyName: string;
-  members: WeddingMember[];
-  buildMembers: WeddingMember[];
-  depositSalespersonId: string;
-  currentMemberId: string | null;
-  phase: "building" | "ready_for_payment" | "posting";
-  drafts: Record<string, WeddingCollectBuildDraft>;
 };
 
 function parseRefundProcessResult(value: unknown): RefundProcessResult | null {
@@ -661,6 +645,27 @@ export default function Cart({
   const [weddingDepositSalespersonId, setWeddingDepositSalespersonId] =
     useState("");
   const weddingPayerMerchandiseSalespersonIdRef = useRef("");
+
+  useEffect(() => {
+    if (
+      disbursementMembers.length === 0 ||
+      weddingDepositSalespersonId.trim()
+    ) {
+      return;
+    }
+    const restoredDepositSalespersonId = primarySalespersonId.trim();
+    if (!restoredDepositSalespersonId) return;
+
+    // Wedding Deposit makes the responsible deposit salesperson the sale-level
+    // attribution while preserving payer merchandise attribution on each line.
+    // Parked/local sale hydration restores that sale-level value, so restore the
+    // separate pre-tender field from the same audited attribution.
+    setWeddingDepositSalespersonId(restoredDepositSalespersonId);
+  }, [
+    disbursementMembers.length,
+    primarySalespersonId,
+    weddingDepositSalespersonId,
+  ]);
   const [receiptWeddingWorkflowResume, setReceiptWeddingWorkflowResume] = useState<WeddingWorkflowResume | null>(null);
   const [weddingCollectBuildSession, setWeddingCollectBuildSession] =
     useState<WeddingCollectBuildSession | null>(null);
@@ -1100,6 +1105,8 @@ export default function Cart({
     setProviderCheckoutIdentityHeld(false);
     setCheckoutDepositLedger("");
     setWeddingDepositOrderSource(null);
+    setWeddingDepositSalespersonId("");
+    weddingPayerMerchandiseSalespersonIdRef.current = "";
     setPendingReturnLineDrafts({});
     resetSaleDateTime();
     setPendingAlterationIntakes([]);
@@ -2845,6 +2852,12 @@ export default function Cart({
     setDisbursementMembers,
     setPrimarySalespersonId,
     primarySalespersonId,
+    weddingDepositSalespersonId,
+    setWeddingDepositSalespersonId,
+    weddingDepositPostPaymentAction,
+    setWeddingDepositPostPaymentAction,
+    weddingCollectBuildSession,
+    setWeddingCollectBuildSession,
     clearCart: clearCartAndAlterations,
     isReady: !!checkoutOperator,
     activeWeddingMember,

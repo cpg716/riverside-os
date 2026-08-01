@@ -25,6 +25,14 @@ const checkoutSource = readFileSync(
   new URL("../src/hooks/useCartCheckout.ts", import.meta.url),
   "utf8",
 );
+const parkedSalesHookSource = readFileSync(
+  new URL("../src/hooks/useParkedSales.ts", import.meta.url),
+  "utf8",
+);
+const parkedSalesLibrarySource = readFileSync(
+  new URL("../src/lib/posParkedSales.ts", import.meta.url),
+  "utf8",
+);
 const weddingWorkflowMigration = readFileSync(
   new URL("../../migrations/174_wedding_deposit_workflows.sql", import.meta.url),
   "utf8",
@@ -161,6 +169,11 @@ test("wedding deposit posting is prevention-first, source-tracked, and receipt t
   expect(cartSource).toContain("setLines(session.payerLines.map");
   expect(cartSource).toContain("weddingPayerMerchandiseSalespersonIdRef");
   expect(cartSource).toContain("weddingDepositSalespersonId");
+  expect(cartSource).toContain("restoredDepositSalespersonId");
+  expect(cartSource).toContain(
+    "setWeddingDepositSalespersonId(restoredDepositSalespersonId)",
+  );
+  expect(cartSource).toContain('setWeddingDepositSalespersonId("")');
   expect(cartSource).toContain("payerMerchandiseSalespersonId");
   expect(cartSource).toContain("!isEmployeeSale");
   expect(cartSource).toContain("Save Member Order & Next");
@@ -172,6 +185,15 @@ test("wedding deposit posting is prevention-first, source-tracked, and receipt t
   expect(cartSource).toContain("activeWeddingMember.customer_id !== customerId");
   expect(cartSource).toContain("setDisbursementMembers([])");
   expect(cartSource).toContain("if (completedTransactionId)");
+  expect(parkedSalesHookSource).toContain("weddingCollectBuildSession");
+  expect(parkedSalesHookSource).toContain("setWeddingCollectBuildSession");
+  expect(parkedSalesHookSource).toContain("weddingDepositSalespersonId");
+  expect(parkedSalesHookSource).toContain(
+    "lines.length === 0 && !weddingCollectBuildSession",
+  );
+  expect(parkedSalesLibrarySource).toContain(
+    "weddingCollectBuildSession?: unknown | null",
+  );
   expect(cartSource).not.toContain('activeWeddingMember ? "Switch" : "Wedding"');
   expect(receiptSummarySource).toContain("completionNextActionLabel");
   expect(receiptSummarySource).toContain("receipt-completion-next-action");

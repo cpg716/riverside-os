@@ -14,6 +14,25 @@ import {
   type ParkedCartPayload
 } from "../lib/posParkedSales";
 
+export type WeddingCollectBuildDraft = {
+  member: WeddingMember;
+  lines: CartLineItem[];
+  salespersonId: string;
+};
+
+export type WeddingCollectBuildSession = {
+  payer: Customer;
+  payerMember: WeddingMember;
+  payerLines: CartLineItem[];
+  partyName: string;
+  members: WeddingMember[];
+  buildMembers: WeddingMember[];
+  depositSalespersonId: string;
+  currentMemberId: string | null;
+  phase: "building" | "ready_for_payment" | "posting";
+  drafts: Record<string, WeddingCollectBuildDraft>;
+};
+
 // Simple helper to ensure cart row IDs (can move to posUtils later if needed)
 function withEnsuredCartRowId(l: Partial<CartLineItem> & { [key: string]: unknown }): CartLineItem {
   return {
@@ -39,6 +58,16 @@ interface UseParkedSalesProps {
   setDisbursementMembers: (m: WeddingMember[]) => void;
   setPrimarySalespersonId: (id: string) => void;
   primarySalespersonId: string;
+  weddingDepositSalespersonId: string;
+  setWeddingDepositSalespersonId: (id: string) => void;
+  weddingDepositPostPaymentAction: "build_orders" | "deposit_only";
+  setWeddingDepositPostPaymentAction: (
+    action: "build_orders" | "deposit_only",
+  ) => void;
+  weddingCollectBuildSession: WeddingCollectBuildSession | null;
+  setWeddingCollectBuildSession: (
+    session: WeddingCollectBuildSession | null,
+  ) => void;
   clearCart: () => void;
   isReady: boolean;
   activeWeddingMember: WeddingMember | null;
@@ -63,6 +92,12 @@ export function useParkedSales({
   setDisbursementMembers,
   setPrimarySalespersonId,
   primarySalespersonId,
+  weddingDepositSalespersonId,
+  setWeddingDepositSalespersonId,
+  weddingDepositPostPaymentAction,
+  setWeddingDepositPostPaymentAction,
+  weddingCollectBuildSession,
+  setWeddingCollectBuildSession,
   clearCart,
   isReady,
   activeWeddingMember,
@@ -176,6 +211,21 @@ export function useParkedSales({
     setActiveWeddingMember((payload.activeWeddingMember as WeddingMember | null) ?? null);
     setActiveWeddingPartyName(payload.activeWeddingPartyName ?? null);
     setDisbursementMembers((payload.disbursementMembers as WeddingMember[]) ?? []);
+    const restoredCollectBuildSession =
+      (payload.weddingCollectBuildSession as WeddingCollectBuildSession | null) ??
+      null;
+    setWeddingCollectBuildSession(restoredCollectBuildSession);
+    setWeddingDepositSalespersonId(
+      typeof payload.weddingDepositSalespersonId === "string"
+        ? payload.weddingDepositSalespersonId.trim()
+        : restoredCollectBuildSession?.depositSalespersonId.trim() ?? "",
+    );
+    setWeddingDepositPostPaymentAction(
+      payload.weddingDepositPostPaymentAction === "build_orders" ||
+        restoredCollectBuildSession
+        ? "build_orders"
+        : "deposit_only",
+    );
     
     const parkedPrimary = typeof payload.primarySalespersonId === "string" ? payload.primarySalespersonId.trim() : "";
     setPrimarySalespersonId(parkedPrimary);
@@ -189,11 +239,13 @@ export function useParkedSales({
     sessionId, parkedRows, toast, ensurePosTokenForSession, resolveActorStaffId,
     canReplaceCurrentSale,
     baseUrl, apiAuth, setLines, setSelectedCustomer, setActiveWeddingMember, 
-    setActiveWeddingPartyName, setDisbursementMembers, setPrimarySalespersonId, refreshParkedSales
+    setActiveWeddingPartyName, setDisbursementMembers, setPrimarySalespersonId,
+    setWeddingCollectBuildSession, setWeddingDepositSalespersonId,
+    setWeddingDepositPostPaymentAction, refreshParkedSales
   ]);
 
   const parkSale = useCallback(async (label: string = "Untitled Sale") => {
-    if (lines.length === 0) {
+    if (lines.length === 0 && !weddingCollectBuildSession) {
       toast("Add at least one item before parking this sale.", "error");
       return false;
     }
@@ -219,6 +271,10 @@ export function useParkedSales({
       activeWeddingPartyName,
       disbursementMembers,
       primarySalespersonId: primarySalespersonId.trim() || null,
+      weddingDepositSalespersonId:
+        weddingDepositSalespersonId.trim() || null,
+      weddingDepositPostPaymentAction,
+      weddingCollectBuildSession,
     };
 
     try {
@@ -229,6 +285,9 @@ export function useParkedSales({
         payload_json: payload,
       });
       toast("Sale parked on server.", "success");
+      setWeddingCollectBuildSession(null);
+      setWeddingDepositSalespersonId("");
+      setWeddingDepositPostPaymentAction("build_orders");
       clearCart();
       await refreshParkedSales();
       return true;
@@ -238,7 +297,10 @@ export function useParkedSales({
     }
   }, [
     lines, sessionId, baseUrl, apiAuth, selectedCustomer, activeWeddingMember, 
-    activeWeddingPartyName, disbursementMembers, primarySalespersonId, 
+    activeWeddingPartyName, disbursementMembers, primarySalespersonId,
+    weddingDepositSalespersonId, weddingDepositPostPaymentAction,
+    weddingCollectBuildSession, setWeddingCollectBuildSession,
+    setWeddingDepositSalespersonId, setWeddingDepositPostPaymentAction,
     ensurePosTokenForSession, resolveActorStaffId, clearCart, refreshParkedSales, toast
   ]);
 

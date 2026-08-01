@@ -10,6 +10,11 @@ export type ParkedCartPayload = {
   disbursementMembers: unknown[];
   /** Register sale default salesperson (commissions); optional for older parked rows. */
   primarySalespersonId?: string | null;
+  /** Wedding Deposit workflow attribution; optional for older parked rows. */
+  weddingDepositSalespersonId?: string | null;
+  weddingDepositPostPaymentAction?: "build_orders" | "deposit_only";
+  /** Nonfinancial Collect & Build drafts, including exact variants and salesperson attribution. */
+  weddingCollectBuildSession?: unknown | null;
 };
 
 export type ServerParkedSale = {
