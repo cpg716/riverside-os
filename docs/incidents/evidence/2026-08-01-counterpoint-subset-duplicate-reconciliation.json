@@ -1,0 +1,207 @@
+{
+  "incident_key": "counterpoint-subset-duplicate-reconciliation-2026-08-01",
+  "reviewed_at": "2026-08-01T14:35:51-04:00",
+  "reviewed_source": "live Main Hub PostgreSQL",
+  "repair_actor_staff_id": "bf085089-e50b-4247-ae0f-155d37803d41",
+  "repair_actor_name": "Chris G",
+  "candidate_count": 5,
+  "invariants": {
+    "canonical_transactions_unchanged": true,
+    "provider_payments_unchanged": true,
+    "inventory_unchanged": true,
+    "fulfillment_links_unchanged": true,
+    "returns_required_absent": true,
+    "ambiguous_matches_required": 0
+  },
+  "candidates": [
+    {
+      "customer": "LUKE IRZA",
+      "canonical": {
+        "transaction_id": "f7df7f83-12bb-4351-a213-c6c676439ba5",
+        "display_id": "TXN-624103",
+        "status": "open",
+        "total": "380.72",
+        "paid": "380.72",
+        "balance": "0.00",
+        "line_count": 2
+      },
+      "imported_duplicate": {
+        "transaction_id": "cb691e69-8c21-4974-bdb6-6fe27de6ee65",
+        "display_id": "TXN-624275",
+        "counterpoint_doc_ref": "MAIN|1|1|2026-07-06T12:12:56|101187507785|O-118243",
+        "status": "open",
+        "total": "326.25",
+        "paid": "326.25",
+        "balance": "0.00",
+        "line_count": 1,
+        "payment_id": "94e3f1c8-3cf5-4c60-9408-7720a77fc385",
+        "allocation_id": "bba39d8a-42c3-4cac-a17f-c526271d2ea3",
+        "allocation_amount": "326.25"
+      },
+      "line_matches": [
+        {
+          "imported_line_id": "1a51d2b0-0e84-47ba-a202-4a524aeea4dc",
+          "canonical_line_id": "6fe3b5e2-a411-4af9-ba51-b06a3d14baa2",
+          "variant_id": "6e9d0804-309d-452d-abe3-db5a00c0d68d",
+          "quantity": 1,
+          "unit_price": "300.00",
+          "state_tax": "12.00",
+          "local_tax": "14.25"
+        }
+      ]
+    },
+    {
+      "customer": "ROBERT WALTERS",
+      "canonical": {
+        "transaction_id": "a8f0a383-2743-4ccb-9ce5-770767b22472",
+        "display_id": "TXN-624104",
+        "status": "open",
+        "total": "406.85",
+        "paid": "406.85",
+        "balance": "0.00",
+        "line_count": 4
+      },
+      "imported_duplicate": {
+        "transaction_id": "8cfc65be-d2e1-448f-b23d-fcba1611076c",
+        "display_id": "TXN-624276",
+        "counterpoint_doc_ref": "MAIN|1|1|2026-07-06T12:28:50|101187516570|O-118244",
+        "status": "open",
+        "total": "306.29",
+        "paid": "102.87",
+        "balance": "203.42",
+        "line_count": 2,
+        "payment_id": "415019a5-66d0-4de1-90b8-d8106a5981eb",
+        "allocation_id": "506c0600-647a-4be4-935f-fd821ab68c8a",
+        "allocation_amount": "102.87"
+      },
+      "line_matches": [
+        {
+          "imported_line_id": "4fa93588-9684-44b3-a250-e15a27afbd62",
+          "canonical_line_id": "91c27b91-d2c4-479e-a0b5-ff962188945b",
+          "variant_id": "064d82a3-1cd2-4217-af8b-39090e6a3dd9",
+          "quantity": 1,
+          "unit_price": "64.00",
+          "state_tax": "0.00",
+          "local_tax": "3.04"
+        },
+        {
+          "imported_line_id": "662d5359-393b-40d1-aaf2-c3e6b0936a1a",
+          "canonical_line_id": "1ecdf0bf-34b3-4e66-ad13-32b679906c7b",
+          "variant_id": "80658378-18dd-40e1-8cd9-d6e1dcdd68e8",
+          "quantity": 1,
+          "unit_price": "220.00",
+          "state_tax": "8.80",
+          "local_tax": "10.45"
+        }
+      ]
+    },
+    {
+      "customer": "WILL WILLIAMS",
+      "canonical": {
+        "transaction_id": "f979db9f-b38f-4641-a31f-8569cb00462d",
+        "display_id": "TXN-624115",
+        "status": "open",
+        "total": "544.13",
+        "paid": "544.13",
+        "balance": "0.00",
+        "line_count": 5
+      },
+      "imported_duplicate": {
+        "transaction_id": "c6ad7fa9-f050-4e59-a608-5c57ccf9124b",
+        "display_id": "TXN-624281",
+        "counterpoint_doc_ref": "MAIN|1|1|2026-07-06T16:13:05|101187640721|O-118249",
+        "status": "open",
+        "total": "326.25",
+        "paid": "326.25",
+        "balance": "0.00",
+        "line_count": 1,
+        "payment_id": "58eaf5b2-8082-46bc-b90e-070ad8fc521c",
+        "allocation_id": "62dae887-44d3-40e6-85b0-d472765fac59",
+        "allocation_amount": "326.25"
+      },
+      "line_matches": [
+        {
+          "imported_line_id": "e7310d90-2fff-45e1-b516-1074748443f3",
+          "canonical_line_id": "e6dc02d7-0572-4d08-9698-3a9900a44c2b",
+          "variant_id": "f4f8b2c6-441a-4433-8e9b-22b289944bfe",
+          "quantity": 1,
+          "unit_price": "300.00",
+          "state_tax": "12.00",
+          "local_tax": "14.25"
+        }
+      ]
+    },
+    {
+      "customer": "DANNY DZIERZEWSKI",
+      "canonical": {
+        "transaction_id": "588a3db6-f540-4589-97db-276e0d7d49b3",
+        "display_id": "TXN-624118",
+        "status": "open",
+        "total": "430.65",
+        "paid": "215.33",
+        "balance": "215.32",
+        "line_count": 2
+      },
+      "imported_duplicate": {
+        "transaction_id": "59e95868-339e-4306-a3ac-3bb352d9005e",
+        "display_id": "TXN-624283",
+        "counterpoint_doc_ref": "MAIN|1|1|2026-07-06T16:22:20|101187680650|O-118251",
+        "status": "open",
+        "total": "282.75",
+        "paid": "67.43",
+        "balance": "215.32",
+        "line_count": 1,
+        "payment_id": "77ae51da-81e9-4b1e-a003-cfd327c7c94b",
+        "allocation_id": "751dc66e-8701-4fc1-9b26-b3896c4b4748",
+        "allocation_amount": "67.43"
+      },
+      "line_matches": [
+        {
+          "imported_line_id": "ba3fd421-f776-4766-b097-4e6ca42b207d",
+          "canonical_line_id": "c8ace261-853f-4659-94e4-91831e95380f",
+          "variant_id": "9a9009c9-e4c7-4153-bcee-2c3547a708d2",
+          "quantity": 1,
+          "unit_price": "260.00",
+          "state_tax": "10.40",
+          "local_tax": "12.35"
+        }
+      ]
+    },
+    {
+      "customer": "ANGELO PASQUANTINO",
+      "canonical": {
+        "transaction_id": "bb29ffcb-1d99-4a0f-a72f-6be0356004c7",
+        "display_id": "TXN-624137",
+        "status": "fulfilled",
+        "total": "485.12",
+        "paid": "485.12",
+        "balance": "0.00",
+        "line_count": 3
+      },
+      "imported_duplicate": {
+        "transaction_id": "e368caf8-5062-43b7-9695-8cf869deb083",
+        "display_id": "TXN-624290",
+        "counterpoint_doc_ref": "MAIN|1|1|2026-07-07T17:58:36|101188744117|O-118258",
+        "status": "open",
+        "total": "282.75",
+        "paid": "282.75",
+        "balance": "0.00",
+        "line_count": 1,
+        "payment_id": "0fcb06f1-08b8-4fd1-b693-e7d6e83185c8",
+        "allocation_id": "71f78fd0-3a7d-4577-9a39-12dc18cd3861",
+        "allocation_amount": "282.75"
+      },
+      "line_matches": [
+        {
+          "imported_line_id": "40348b5b-1f4a-459d-84da-4be00cf71062",
+          "canonical_line_id": "da71fcbf-c81b-4935-bd3d-0b33427c02c2",
+          "variant_id": "92888799-3a0e-4c3e-92d6-05661209e0a7",
+          "quantity": 1,
+          "unit_price": "260.00",
+          "state_tax": "10.40",
+          "local_tax": "12.35"
+        }
+      ]
+    }
+  ]
+}

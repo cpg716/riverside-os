@@ -15,6 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Faster Fail-Closed Windows Releases**: Same-tag Windows release reruns now cancel the superseded workflow instead of waiting behind assets that cannot be published. Signed component compilation overlaps the pre-retag gate, while package publication still requires both that gate and exact-commit Playwright success. Independent Rust caches now retain Riverside workspace-crate outputs so restored caches can accelerate repeat builds instead of preserving dependencies only. The release-contract validator normalizes Windows CRLF checkouts before evaluating workflow structure.
 
 ### Fixed
+- **Counterpoint Subset Duplicate Orders**: Superseded five exact Counterpoint
+  open-document shells that copied ordered-item subsets from sales already
+  booked in ROS. The source-locked repair retains the original ROS
+  Transactions, provider-backed payments, inventory, lines, and fulfillment
+  links; removes only the five copied non-provider allocations; and records
+  immutable reconciliation snapshots and operator audit evidence.
 - **Card Not Present and Manual Card Identity**: Card Not Present now persists
   as a Helcim-approved `card_not_present` tender, while Manual Card remains an
   externally approved `card_manual` tender with no live Helcim transaction.

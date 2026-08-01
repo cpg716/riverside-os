@@ -160,6 +160,26 @@ expected=(
   "154_finalize_released_helcim_terminal_attempts.sql"
   "155_release_verified_helcim_reference_without_transaction.sql"
   "156_isolate_closed_session_pending_helcim_attempts.sql"
+  "157_link_deferred_exchange_refund_events.sql"
+  "158_counterpoint_paid_price_repair_manifest.sql"
+  "159_counterpoint_return_review_blocks.sql"
+  "160_repair_txn_624473_amended_line_tax.sql"
+  "161_meilisearch_revision_verification.sql"
+  "162_qbo_payment_activity_date_indexes.sql"
+  "163_close_fully_refunded_cancelled_balances.sql"
+  "164_close_fully_refunded_transaction_balances.sql"
+  "165_restore_counterpoint_tender_aliases.sql"
+  "166_repair_txn_624598_override_evidence.sql"
+  "167_repair_recovered_helcim_payment_dates.sql"
+  "168_repair_txn_566034_amended_line_price.sql"
+  "169_restore_txn_566034_booking_reportability.sql"
+  "170_repair_legacy_booking_event_dates.sql"
+  "171_add_customer_profile_discount_reason.sql"
+  "172_reassign_txn_624853_to_glenn_jones.sql"
+  "173_record_txn_566201_external_card_refund.sql"
+  "174_wedding_deposit_workflows.sql"
+  "175_wedding_deposit_refund_sources.sql"
+  "176_reconcile_counterpoint_subset_duplicate_orders.sql"
 )
 
 active=()
@@ -222,4 +242,4 @@ if rg -n "INSERT INTO (public\\.)?(staff\\b|staff_permission|store_settings|prod
 fi
 rm -f /tmp/ros_migration_seed_hits.$$
 
-echo "Migration layout OK: active baseline through 156."
+echo "Migration layout OK: active baseline through 176."
