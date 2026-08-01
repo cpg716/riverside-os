@@ -43,6 +43,22 @@ test("Customer Orders keeps payment and pickup work open across several orders",
   expect(submitPayment).not.toContain("onClose()");
 });
 
+test("Update Item variation drawer stays above Customer Orders", () => {
+  const modal = repoFile("client/src/components/pos/OrderLoadModal.tsx");
+  const variantPicker = repoFile(
+    "client/src/components/pos/VariantSelectionModal.tsx",
+  );
+  const detailDrawer = repoFile(
+    "client/src/components/layout/DetailDrawer.tsx",
+  );
+
+  expect(modal).toContain('className="ui-overlay-backdrop !z-[200]"');
+  expect(modal).toContain('layerClassName="z-[220]"');
+  expect(variantPicker).toContain("layerClassName={layerClassName}");
+  expect(detailDrawer).toContain('layerClassName = "z-[100]"');
+  expect(detailDrawer).toContain("${layerClassName}");
+});
+
 test("starting pickup preserves intentionally staged payments on every order", () => {
   const cart = repoFile("client/src/components/pos/Cart.tsx");
 

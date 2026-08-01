@@ -1638,6 +1638,7 @@ export default function OrderLoadModal({
       <VariantSelectionModal
         product={variantPicker?.product ?? null}
         actionLabel="Update Item"
+        layerClassName="z-[220]"
         allowPriceOverride={false}
         initialVariantId={variantPicker?.item.variant_id}
         preservedUnitPrice={

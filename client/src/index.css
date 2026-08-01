@@ -426,7 +426,9 @@ html[data-theme="dark"] :where(
    * Standard Stacking Context Tiers:
    * z-0..40: Shell (Sidebar, TopBar)
    * z-100:   Drawers (DetailDrawer, SearchDrawers)
+   * z-110:   Drawers opened from another drawer
    * z-200:   Modals (Confirmation, Prompt, Overrides)
+   * z-210..220: Workflows opened from another modal
    * z-300:   System (Bug Report, Global Error, Toasts)
    */
   .ui-overlay-backdrop {

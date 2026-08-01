@@ -1,5 +1,6 @@
 import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { X, Trash2, Search, Plus } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
@@ -231,12 +232,20 @@ export default function ComboEditorModal({
     });
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-6 backdrop-blur-sm">
+  const overlayRoot = document.getElementById("drawer-root");
+  if (!overlayRoot) return null;
+
+  return createPortal(
+    <div
+      className="ui-overlay-backdrop !z-[200]"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="combo-editor-title"
+    >
       <div className="w-full max-w-lg rounded-3xl border border-app-border bg-app-surface p-8 shadow-2xl animate-in fade-in zoom-in duration-200">
         <div className="flex items-center justify-between mb-8">
           <div>
-            <h3 className="text-lg font-black tracking-tight text-app-text uppercase line-height-tight">
+            <h3 id="combo-editor-title" className="text-lg font-black tracking-tight text-app-text uppercase line-height-tight">
               {combo ? "Edit Bundle" : "Configure Combo"}
             </h3>
             <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-500/60 mt-1 font-mono">
@@ -428,6 +437,7 @@ export default function ComboEditorModal({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    overlayRoot,
   );
 }

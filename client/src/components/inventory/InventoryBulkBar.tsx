@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Archive, Globe, Printer, ScanBarcode, Tags, X } from "lucide-react";
 import { useToast } from "../ui/ToastProviderLogic";
 
@@ -185,8 +186,9 @@ export default function InventoryBulkBar({
         </div>
       </div>
 
-      {massOpen ? (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
+      {massOpen && document.getElementById("drawer-root")
+        ? createPortal(
+          <div className="ui-overlay-backdrop !z-[200]">
           <div className="absolute inset-0" aria-hidden="true" />
           <div
             className="relative w-full max-w-md rounded-2xl border border-white/40 bg-app-surface/95 p-6 shadow-2xl shadow-app-accent/15 backdrop-blur-xl"
@@ -248,8 +250,10 @@ export default function InventoryBulkBar({
               </button>
             </div>
           </div>
-        </div>
-      ) : null}
+          </div>,
+          document.getElementById("drawer-root")!,
+        )
+        : null}
     </>
   );
 }

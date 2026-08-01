@@ -31,6 +31,8 @@ interface DetailDrawerProps {
   contentContained?: boolean;
   /** Backdrop button classes (default light scrim; use darker for POS payment over keypad). */
   backdropClassName?: string;
+  /** Overlay layer for nested workflows; defaults to the standard drawer tier. */
+  layerClassName?: string;
 }
 
 export default function DetailDrawer({
@@ -49,6 +51,7 @@ export default function DetailDrawer({
   noPadding = false,
   contentContained = false,
   backdropClassName = "absolute inset-0 bg-black/25 backdrop-blur-[2px] transition-opacity duration-200",
+  layerClassName = "z-[100]",
 }: DetailDrawerProps) {
   useShellBackdropLayer(isOpen);
   const { dialogRef, titleId } = useDialogAccessibility(isOpen, { onEscape: onClose });
@@ -62,7 +65,7 @@ export default function DetailDrawer({
   return createPortal(
     <div
       ref={dialogRef}
-      className="fixed inset-0 z-[100] flex items-end justify-end overflow-hidden font-sans outline-none sm:items-stretch"
+      className={`fixed inset-0 ${layerClassName} flex items-end justify-end overflow-hidden font-sans outline-none sm:items-stretch`}
       role="dialog"
       aria-modal="true"
       aria-labelledby={title ? titleId : undefined}

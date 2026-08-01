@@ -1,5 +1,6 @@
 import { getBaseUrl } from "../../lib/apiConfig";
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
+import { createPortal } from "react-dom";
 import {
   Percent,
   Receipt,
@@ -628,12 +629,20 @@ function RuleEditorModal({
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-6 backdrop-blur-sm">
+  const overlayRoot = document.getElementById("drawer-root");
+  if (!overlayRoot) return null;
+
+  return createPortal(
+    <div
+      className="ui-overlay-backdrop !z-[200]"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="commission-rule-editor-title"
+    >
       <div className="w-full max-w-lg rounded-3xl border border-app-border bg-app-surface p-8 shadow-2xl animate-in fade-in zoom-in duration-200">
         <div className="mb-8 flex items-center justify-between">
           <div>
-            <h3 className="line-height-tight text-lg font-black uppercase tracking-tight text-app-text">
+            <h3 id="commission-rule-editor-title" className="line-height-tight text-lg font-black uppercase tracking-tight text-app-text">
               {rule ? "Edit SPIFF" : "Create SPIFF"}
             </h3>
             <p className="mt-1 font-mono text-[10px] font-bold uppercase tracking-widest text-emerald-500/60">
@@ -797,6 +806,7 @@ function RuleEditorModal({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    overlayRoot,
   );
 }

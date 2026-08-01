@@ -9,6 +9,11 @@ import {
 } from "lucide-react";
 import DetailDrawer from "../layout/DetailDrawer";
 import { centsToFixed2, parseMoney, parseMoneyToCents } from "../../lib/money";
+import {
+  buildVariantSelectionModel,
+  initialVariantSelectionPath,
+  variantSelectionChoiceLabel,
+} from "./variantSelectionLogic";
 
 export interface VariantOption {
   variant_id: string;
@@ -33,13 +38,7 @@ export interface VariantSelectionModalProps {
   allowPriceOverride?: boolean;
   initialVariantId?: string;
   preservedUnitPrice?: string;
-}
-
-function parseVariantAttributes(label: string): string[] {
-  return label
-    .split(/[ \t]+\/[ \t]+|[|,]/)
-    .map(s => s.trim())
-    .filter((s) => s && s !== "*" && s !== "_");
+  layerClassName?: string;
 }
 
 // --- Logical Size Sorting Utility ---
@@ -68,9 +67,15 @@ export default function VariantSelectionModal({
   allowPriceOverride = true,
   initialVariantId,
   preservedUnitPrice,
+  layerClassName,
 }: VariantSelectionModalProps) {
   const [selections, setSelections] = useState<string[]>([]);
   const [priceOverride, setPriceOverride] = useState("");
+
+  const selectionModel = useMemo(
+    () => buildVariantSelectionModel(product?.variants ?? []),
+    [product],
+  );
 
   const initialVariant = useMemo(
     () => product?.variants.find((variant) => variant.variant_id === initialVariantId) ?? null,
@@ -78,19 +83,11 @@ export default function VariantSelectionModal({
   );
   const initialSelections = useMemo(() => {
     if (!product || !initialVariant) return [];
-    const currentAttributes = parseVariantAttributes(initialVariant.variation_label);
-    const allAttributes = product.variants.map((variant) =>
-      parseVariantAttributes(variant.variation_label),
+    return initialVariantSelectionPath(
+      selectionModel.entries,
+      initialVariant.variant_id,
     );
-    const firstDifference = currentAttributes.findIndex((attribute, index) =>
-      allAttributes.some((attributes) => attributes[index] !== attribute),
-    );
-    const commonLength = firstDifference === -1 ? currentAttributes.length : firstDifference;
-    return currentAttributes.slice(
-      0,
-      Math.min(commonLength, Math.max(0, currentAttributes.length - 1)),
-    );
-  }, [initialVariant, product]);
+  }, [initialVariant, product, selectionModel]);
 
   useEffect(() => {
     if (!product?.product_id) return;
@@ -99,18 +96,15 @@ export default function VariantSelectionModal({
   }, [initialSelections, product?.product_id]);
 
   const attributeSteps = useMemo(() => {
-    if (!product) return [];
-    const maxDepth = Math.max(...product.variants.map(v => parseVariantAttributes(v.variation_label).length));
-    return Array.from({ length: maxDepth }, (_, i) => `Option ${i + 1}`);
-  }, [product]);
+    return product ? selectionModel.steps : [];
+  }, [product, selectionModel.steps]);
 
-  const matchingVariants = useMemo(() => {
+  const matchingEntries = useMemo(() => {
     if (!product) return [];
-    return product.variants.filter(v => {
-      const attrs = parseVariantAttributes(v.variation_label);
-      return selections.every((sel, i) => attrs[i] === sel);
-    });
-  }, [product, selections]);
+    return selectionModel.entries.filter((entry) =>
+      selections.every((selection, index) => entry.path[index] === selection),
+    );
+  }, [product, selectionModel.entries, selections]);
 
   const currentStepIndex = selections.length;
   const isSelectionComplete = currentStepIndex === attributeSteps.length;
@@ -119,9 +113,8 @@ export default function VariantSelectionModal({
     if (!product || isSelectionComplete) return [];
     const seen = new Set<string>();
     const result: string[] = [];
-    matchingVariants.forEach(v => {
-      const attrs = parseVariantAttributes(v.variation_label);
-      const val = attrs[currentStepIndex];
+    matchingEntries.forEach((entry) => {
+      const val = entry.path[currentStepIndex];
       if (val && !seen.has(val)) {
         seen.add(val);
         result.push(val);
@@ -135,14 +128,19 @@ export default function VariantSelectionModal({
        if (scoreA !== scoreB) return scoreA - scoreB;
        return a.localeCompare(b);
     });
-  }, [product, matchingVariants, currentStepIndex, isSelectionComplete]);
+  }, [product, matchingEntries, currentStepIndex, isSelectionComplete]);
 
-  const finalVariant = isSelectionComplete && matchingVariants.length >= 1 ? matchingVariants[0] : null;
+  const finalVariant =
+    isSelectionComplete && matchingEntries.length === 1
+      ? matchingEntries[0].variant
+      : null;
   const isCurrentVariant = Boolean(initialVariantId && finalVariant?.variant_id === initialVariantId);
   const canSubmit = Boolean(isSelectionComplete && finalVariant && !isCurrentVariant);
   const currentVariantAttributes = useMemo(
-    () => initialVariant ? parseVariantAttributes(initialVariant.variation_label) : [],
-    [initialVariant],
+    () => selectionModel.entries.find(
+      (entry) => entry.variant.variant_id === initialVariant?.variant_id,
+    )?.path ?? [],
+    [initialVariant?.variant_id, selectionModel.entries],
   );
 
   const handleNumpadKey = (key: string) => {
@@ -178,6 +176,7 @@ export default function VariantSelectionModal({
     <DetailDrawer
       isOpen={!!product}
       onClose={onClose}
+      layerClassName={layerClassName}
       title={product.name}
       subtitle={isSelectionComplete ? <span className="text-app-text font-black uppercase tracking-widest text-[10px]">Confirm Selection</span> : `Step ${currentStepIndex + 1}: ${attributeSteps[currentStepIndex]}`}
       titleClassName="text-app-text font-black tracking-tighter italic uppercase truncate pr-8"
@@ -240,7 +239,7 @@ export default function VariantSelectionModal({
              <div className="flex flex-wrap gap-2">
                {selections.map((sel, i) => (
                  <div key={i} className="flex items-center gap-1.5 rounded-full border border-app-input-border bg-app-surface-2 px-3 py-1.5">
-                   <span className="text-xs font-black uppercase tracking-wide text-app-text">{sel}</span>
+                   <span className="text-xs font-black uppercase tracking-wide text-app-text">{variantSelectionChoiceLabel(sel)}</span>
                  </div>
                ))}
                {selections.length < attributeSteps.length && (
@@ -265,7 +264,7 @@ export default function VariantSelectionModal({
                     className="group relative flex h-24 flex-col items-center justify-center overflow-hidden rounded-xl border border-app-border bg-app-surface px-3 transition-all hover:border-app-accent hover:bg-app-accent/5 active:scale-[0.98]"
                   >
                     <span className="text-lg font-black uppercase leading-tight tracking-tight text-app-text sm:text-xl">
-                      {choice}
+                      {variantSelectionChoiceLabel(choice)}
                     </span>
                     {initialVariant && currentVariantAttributes[currentStepIndex] === choice ? (
                       <span className="mt-1 text-[9px] font-black uppercase tracking-widest text-app-accent">

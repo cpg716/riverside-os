@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
 import {
   RefreshCw,
   Save,
@@ -297,6 +298,8 @@ const DailyFinancialReportPanel: React.FC<DailyFinancialReportPanelProps> = ({
       </div>
     );
   }
+
+  const overlayRoot = document.getElementById("drawer-root");
 
   return (
     <div className="space-y-6">
@@ -670,12 +673,18 @@ const DailyFinancialReportPanel: React.FC<DailyFinancialReportPanelProps> = ({
       </section>
 
       {/* Report Preview Modal */}
-      {previewReport && (
-        <div className="fixed inset-0 z-[200] bg-black/50 flex items-center justify-center p-4">
+      {previewReport && overlayRoot
+        ? createPortal(
+          <div
+            className="ui-overlay-backdrop !z-[200]"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="daily-report-preview-title"
+          >
           <div className="bg-app-surface rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] flex flex-col">
             <div className="flex items-center justify-between p-5 border-b border-app-border">
               <div>
-                <h3 className="text-lg font-bold text-app-text">
+                <h3 id="daily-report-preview-title" className="text-lg font-bold text-app-text">
                   Daily Financial Report — {previewReport.report_date}
                 </h3>
                 <p className="text-xs text-app-text-muted">
@@ -727,8 +736,10 @@ const DailyFinancialReportPanel: React.FC<DailyFinancialReportPanelProps> = ({
               </button>
             </div>
           </div>
-        </div>
-      )}
+          </div>,
+          overlayRoot,
+        )
+        : null}
     </div>
   );
 };

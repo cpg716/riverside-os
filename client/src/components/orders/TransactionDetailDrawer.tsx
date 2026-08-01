@@ -231,6 +231,8 @@ interface TransactionDetailDrawerProps {
   errorMessage?: string | null;
   orderActions?: TransactionDrawerOrderActions;
   onLifecycleChanged?: () => Promise<void> | void;
+  /** Elevates the drawer when it is opened from another drawer or modal. */
+  layerClassName?: string;
 }
 
 function formatAuditKind(kind: string): string {
@@ -990,6 +992,7 @@ export default function TransactionDetailDrawer({
   errorMessage: controlledErrorMessage,
   orderActions,
   onLifecycleChanged,
+  layerClassName,
 }: TransactionDetailDrawerProps) {
   const { backofficeHeaders } = useBackofficeAuth();
   const { toast } = useToast();
@@ -1564,6 +1567,7 @@ export default function TransactionDetailDrawer({
       <DetailDrawer
         isOpen={isOpen}
         onClose={onClose}
+        layerClassName={layerClassName}
         title={recordTitle}
         subtitle={subtitle}
         panelMaxClassName="max-w-3xl"

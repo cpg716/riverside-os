@@ -123,11 +123,15 @@ To prevent "buried" interactive elements in complex nested workflows (e.g., open
 - **Standard Tiers (Defined in `index.css`)**:
   - **`z-0..40` (Shell)**: Permanent navigation chrome (Sidebar, Top Bar).
   - **`z-100` (Drawers)**: Large slide-out panels (DetailDrawer, SearchDrawers).
+  - **`z-110` (Nested Drawers)**: A drawer opened from another drawer; the active child must be above and remain reachable while preserving the parent context.
   - **`z-200` (Modals)**: Standard interactive overlays (Confirmation, Prompt, Wizards).
+  - **`z-210..220` (Nested Modal Workflows)**: A modal or drawer opened from an existing modal. Every child workflow must use a layer higher than its visible parent.
   - **`z-300` (System)**: Global priority overlays (Bug Reports, Error Overlays, Toasts).
 - **The Portaling Mandate**: Every component that functions as a Dialog, Modal, or Overlay MUST utilize **React Portals** (`createPortal`) targeting the `#drawer-root` element in `index.html`. 
   - This bypasses the CSS stacking context of parent containers (like the persistent side-nav or a parent drawer).
   - Components MUST use the `.ui-overlay-backdrop` class for a consistent, tiered background that respects these z-index rules.
+  - Full-screen interactive overlays may not use shell-level layers such as `z-50` or `z-60`; those can render behind persistent Register or Back Office chrome.
+  - A nested child must receive an explicit layer higher than its parent. Equal or lower layers are not an acceptable reliance on DOM order.
   - Failure to portal a secondary modal triggered from a drawer will result in the modal being trapped behind the drawer.
 
 ## Code splitting (`client/src/App.tsx` and POS)
