@@ -58,7 +58,7 @@ pub async fn preflight(
     let member_ids = unique_member_ids.into_iter().collect::<Vec<_>>();
     let member_rows = sqlx::query_as::<_, (Uuid, Uuid, Uuid)>(
         r#"
-        SELECT id, customer_id, wedding_party_id
+        SELECT member.id, member.customer_id, member.wedding_party_id
         FROM wedding_members member
         INNER JOIN wedding_parties party ON party.id = member.wedding_party_id
         WHERE member.id = ANY($1)
@@ -375,5 +375,134 @@ pub async fn get_by_id(
     match row {
         Some(row) => Ok(Some(build_workflow(pool, row).await?)),
         None => Ok(None),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{preflight, WeddingDepositPreflightAllocation};
+    use crate::logic::customers::{insert_customer, CustomerCreatedSource, InsertCustomerParams};
+    use chrono::NaiveDate;
+    use rust_decimal::Decimal;
+    use sqlx::PgPool;
+    use uuid::Uuid;
+
+    async fn insert_test_customer(pool: &PgPool, label: &str) -> Uuid {
+        let suffix = Uuid::new_v4().simple().to_string();
+        insert_customer(
+            pool,
+            InsertCustomerParams {
+                customer_code: None,
+                first_name: "Wedding".to_string(),
+                last_name: format!("{label} {}", &suffix[0..8]),
+                company_name: None,
+                email: Some(format!("wedding-preflight-{label}-{suffix}@example.test")),
+                phone: None,
+                address_line1: None,
+                address_line2: None,
+                city: None,
+                state: None,
+                postal_code: None,
+                date_of_birth: None,
+                anniversary_date: None,
+                custom_field_1: None,
+                custom_field_2: None,
+                custom_field_3: None,
+                custom_field_4: None,
+                marketing_email_opt_in: false,
+                marketing_sms_opt_in: false,
+                transactional_sms_opt_in: false,
+                transactional_email_opt_in: false,
+                customer_created_source: CustomerCreatedSource::Store,
+            },
+        )
+        .await
+        .expect("insert wedding preflight test customer")
+    }
+
+    #[tokio::test]
+    async fn preflight_qualifies_joined_member_columns_and_accepts_valid_allocation() {
+        let Ok(database_url) = std::env::var("DATABASE_URL") else {
+            return;
+        };
+        let pool = PgPool::connect(&database_url)
+            .await
+            .expect("connect test database");
+        let party_id = Uuid::new_v4();
+        let payer_member_id = Uuid::new_v4();
+        let beneficiary_member_id = Uuid::new_v4();
+        let payer_customer_id = insert_test_customer(&pool, "payer").await;
+        let beneficiary_customer_id = insert_test_customer(&pool, "beneficiary").await;
+
+        sqlx::query(
+            r#"
+            INSERT INTO wedding_parties (
+                id, party_name, groom_name, event_date, party_type, is_deleted
+            )
+            VALUES ($1, $2, $3, $4, 'Wedding', FALSE)
+            "#,
+        )
+        .bind(party_id)
+        .bind(format!(
+            "Wedding Preflight Regression {}",
+            party_id.simple()
+        ))
+        .bind("Preflight Regression")
+        .bind(NaiveDate::from_ymd_opt(2027, 1, 10).expect("valid test date"))
+        .execute(&pool)
+        .await
+        .expect("insert wedding preflight test party");
+        sqlx::query(
+            r#"
+            INSERT INTO wedding_members (
+                id, wedding_party_id, customer_id, role, status, member_index
+            )
+            VALUES
+                ($1, $3, $4, 'Groom', 'active', 1),
+                ($2, $3, $5, 'Groomsman', 'active', 2)
+            "#,
+        )
+        .bind(payer_member_id)
+        .bind(beneficiary_member_id)
+        .bind(party_id)
+        .bind(payer_customer_id)
+        .bind(beneficiary_customer_id)
+        .execute(&pool)
+        .await
+        .expect("insert wedding preflight test members");
+
+        let result = preflight(
+            &pool,
+            payer_customer_id,
+            payer_member_id,
+            &[WeddingDepositPreflightAllocation {
+                wedding_member_id: beneficiary_member_id,
+                amount: Decimal::new(10000, 2),
+                destination_kind: "held_for_future_order".to_string(),
+                target_transaction_id: None,
+            }],
+        )
+        .await;
+
+        sqlx::query("DELETE FROM wedding_members WHERE wedding_party_id = $1")
+            .bind(party_id)
+            .execute(&pool)
+            .await
+            .expect("cleanup wedding preflight test members");
+        sqlx::query("DELETE FROM wedding_parties WHERE id = $1")
+            .bind(party_id)
+            .execute(&pool)
+            .await
+            .expect("cleanup wedding preflight test party");
+        sqlx::query("DELETE FROM customers WHERE id = ANY($1)")
+            .bind(vec![payer_customer_id, beneficiary_customer_id])
+            .execute(&pool)
+            .await
+            .expect("cleanup wedding preflight test customers");
+
+        let result = result.expect("valid wedding deposit preflight should succeed");
+        assert_eq!(result.wedding_party_id, party_id);
+        assert_eq!(result.allocation_count, 1);
+        assert_eq!(result.total_amount, Decimal::new(10000, 2));
     }
 }
