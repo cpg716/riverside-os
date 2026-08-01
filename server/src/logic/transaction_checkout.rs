@@ -3248,12 +3248,6 @@ async fn execute_checkout_internal(
         false
     };
     if is_employee_purchase_order {
-        if has_wedding_disbursements && !payload.items.is_empty() {
-            return Err(CheckoutError::InvalidPayload(
-                "Complete the employee merchandise purchase separately from wedding-party deposits so salesperson and commission reporting remain correct."
-                    .to_string(),
-            ));
-        }
         if !has_wedding_disbursements {
             payload.primary_salesperson_id = None;
         }
@@ -5007,7 +5001,15 @@ async fn execute_checkout_internal(
 
         // Order-level default: lines with no explicit `salesperson_id` inherit `primary_salesperson_id`
         // for `transaction_lines.salesperson_id` and per-line commission snapshots.
-        let primary_for_lines = payload.primary_salesperson_id;
+        // Employee-price merchandise is never commissionable. A combined
+        // wedding-deposit checkout may still retain the deposit salesperson on
+        // the payer Transaction/workflow for deposit audit attribution, while
+        // merchandise lines remain explicitly unassigned and commission-free.
+        let primary_for_lines = if is_employee_purchase_order {
+            None
+        } else {
+            payload.primary_salesperson_id
+        };
 
         // Takeaway stock to deduct once per variant (multiple cart lines can reference the same variant).
         let mut layaway_stock_by_variant: HashMap<Uuid, i32> = HashMap::new();
@@ -6762,11 +6764,7 @@ async fn execute_checkout_internal(
             }
         }
 
-        if payload
-            .wedding_disbursements
-            .as_ref()
-            .is_none_or(Vec::is_empty)
-        {
+        if !payload.items.is_empty() {
             if let Some(member_id) = payload.wedding_member_id {
                 sqlx::query(
                     r#"
@@ -7306,7 +7304,7 @@ mod tests {
         validate_processing_intent_fingerprint, validate_wedding_disbursement_against_balance,
         CheckoutAlterationIntake, CheckoutDone, CheckoutItem, CheckoutOrderPayment,
         CheckoutPaymentSplit, CheckoutRequest, ExistingOrderPaymentTarget, ResolvedOrderPayment,
-        ResolvedPaymentSplit, WeddingDisbursement,
+        ResolvedPaymentSplit, WeddingDisbursement, EMPLOYEE_DISCOUNT_REASON,
     };
     use crate::logic::customer_open_deposit;
     use crate::logic::customers::{insert_customer, CustomerCreatedSource, InsertCustomerParams};
@@ -9979,7 +9977,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn execute_checkout_completes_wedding_group_pay_and_routes_deposit() {
+    async fn execute_checkout_completes_mixed_employee_merchandise_and_wedding_group_pay() {
         let Ok(database_url) = std::env::var("DATABASE_URL") else {
             return;
         };
@@ -9988,6 +9986,7 @@ mod tests {
             .expect("connect test database");
 
         let staff_id = Uuid::new_v4();
+        let deposit_salesperson_id = Uuid::new_v4();
         let session_id = Uuid::new_v4();
         let category_id = Uuid::new_v4();
         let product_id = Uuid::new_v4();
@@ -10029,6 +10028,27 @@ mod tests {
         .execute(&pool)
         .await
         .expect("insert staff");
+
+        sqlx::query(
+            r#"
+            INSERT INTO staff (
+                id, full_name, cashier_code, base_commission_rate,
+                role, max_discount_percent
+            )
+            VALUES ($1, $2, $3, $4, 'admin'::staff_role, $5)
+            "#,
+        )
+        .bind(deposit_salesperson_id)
+        .bind("Wedding Group Pay Deposit Salesperson")
+        .bind(format!(
+            "D{}",
+            &deposit_salesperson_id.simple().to_string()[0..8]
+        ))
+        .bind(Decimal::new(200, 4))
+        .bind(Decimal::new(10000, 2))
+        .execute(&pool)
+        .await
+        .expect("insert separate deposit salesperson");
 
         sqlx::query(
             r#"
@@ -10148,6 +10168,13 @@ mod tests {
         )
         .await
         .expect("insert payer customer");
+
+        sqlx::query("UPDATE staff SET employee_customer_id = $1 WHERE id = $2")
+            .bind(payer_customer_id)
+            .bind(staff_id)
+            .execute(&pool)
+            .await
+            .expect("link payer as employee customer");
 
         sqlx::query(
             r#"
@@ -10272,6 +10299,11 @@ mod tests {
                     )
                     .await
                     .expect("cleanup after order checkout failure");
+                    sqlx::query("DELETE FROM staff WHERE id = $1")
+                        .bind(deposit_salesperson_id)
+                        .execute(&pool)
+                        .await
+                        .expect("cleanup deposit salesperson after order checkout failure");
                     panic!("wedding order checkout should complete: {other:?}");
                 }
             };
@@ -10279,18 +10311,42 @@ mod tests {
         let group_pay_payload = CheckoutRequest {
             session_id,
             operator_staff_id: staff_id,
-            primary_salesperson_id: Some(staff_id),
+            primary_salesperson_id: Some(deposit_salesperson_id),
             customer_id: Some(payer_customer_id),
             wedding_member_id: Some(payer_member_id),
             payment_method: "cash".to_string(),
-            total_price: Decimal::ZERO,
-            amount_paid: Decimal::new(5000, 2),
-            items: vec![],
+            total_price: Decimal::new(4000, 2),
+            amount_paid: Decimal::new(9000, 2),
+            items: vec![CheckoutItem {
+                client_line_id: Some("employee-payer-merchandise-line".to_string()),
+                line_type: None,
+                alteration_intake_id: None,
+                product_id,
+                variant_id,
+                fulfillment: DbFulfillmentType::WeddingOrder,
+                quantity: 1,
+                unit_price: Decimal::new(4000, 2),
+                original_unit_price: Some(Decimal::new(10000, 2)),
+                price_override_reason: Some(EMPLOYEE_DISCOUNT_REASON.to_string()),
+                unit_cost: Decimal::new(4000, 2),
+                state_tax: Decimal::ZERO,
+                local_tax: Decimal::ZERO,
+                tax_category_override: None,
+                salesperson_id: Some(staff_id),
+                discount_event_id: None,
+                gift_card_load_code: None,
+                custom_item_type: None,
+                custom_order_details: None,
+                is_rush: false,
+                need_by_date: None,
+                needs_gift_wrap: false,
+                order_lifecycle_status: None,
+            }],
             alteration_intakes: vec![],
             actor_name: Some("Wedding Group Pay Test".to_string()),
             payment_splits: Some(vec![CheckoutPaymentSplit {
                 payment_method: "cash".to_string(),
-                amount: Decimal::new(5000, 2),
+                amount: Decimal::new(9000, 2),
                 sub_type: None,
                 applied_deposit_amount: None,
                 gift_card_code: None,
@@ -10348,6 +10404,11 @@ mod tests {
                 )
                 .await
                 .expect("cleanup after group pay checkout failure");
+                sqlx::query("DELETE FROM staff WHERE id = $1")
+                    .bind(deposit_salesperson_id)
+                    .execute(&pool)
+                    .await
+                    .expect("cleanup deposit salesperson after group pay checkout failure");
                 panic!("wedding group pay checkout should complete: {other:?}");
             }
         };
@@ -10399,16 +10460,19 @@ mod tests {
         .expect("fetch exact direct wedding-deposit payment source");
         assert_eq!(direct_source.1, Decimal::new(5000, 2));
         assert_eq!(direct_source.2, Some(payer_customer_id));
+        let provider_transaction_id =
+            format!("test-wedding-mixed-{}", group_pay_transaction_id.simple());
         sqlx::query(
             r#"
             UPDATE payment_transactions
             SET payment_provider = 'helcim',
                 provider_status = 'approved',
-                provider_transaction_id = '9100000500'
+                provider_transaction_id = $2
             WHERE id = $1
             "#,
         )
         .bind(direct_source.0)
+        .bind(&provider_transaction_id)
         .execute(&pool)
         .await
         .expect("mark direct source as approved Helcim payment");
@@ -10420,7 +10484,7 @@ mod tests {
             direct_detail
                 .original_helcim_transaction_id_for_refund
                 .as_deref(),
-            Some("9100000500")
+            Some(provider_transaction_id.as_str())
         );
         assert_eq!(
             direct_detail
@@ -10429,6 +10493,51 @@ mod tests {
                 .map(|customer| customer.id),
             Some(payer_customer_id)
         );
+
+        let payer_transaction_state: (Decimal, Decimal, Decimal, bool, Option<Uuid>) =
+            sqlx::query_as(
+                r#"
+                SELECT total_price, amount_paid, balance_due, is_employee_purchase,
+                       primary_salesperson_id
+                FROM transactions
+                WHERE id = $1
+                "#,
+            )
+            .bind(group_pay_transaction_id)
+            .fetch_one(&pool)
+            .await
+            .expect("fetch mixed payer transaction totals");
+        assert_eq!(
+            payer_transaction_state,
+            (
+                Decimal::new(4000, 2),
+                Decimal::new(4000, 2),
+                Decimal::ZERO,
+                true,
+                Some(deposit_salesperson_id),
+            )
+        );
+        let payer_line_state: (Option<Uuid>, Decimal) = sqlx::query_as(
+            r#"
+            SELECT salesperson_id, calculated_commission
+            FROM transaction_lines
+            WHERE transaction_id = $1
+              AND custom_item_type IS DISTINCT FROM 'spiff_reward'
+            "#,
+        )
+        .bind(group_pay_transaction_id)
+        .fetch_one(&pool)
+        .await
+        .expect("fetch employee payer merchandise attribution");
+        assert_eq!(payer_line_state, (None, Decimal::ZERO));
+        let workflow_salesperson_id: Option<Uuid> = sqlx::query_scalar(
+            "SELECT primary_salesperson_id FROM wedding_deposit_workflows WHERE payer_transaction_id = $1",
+        )
+        .bind(group_pay_transaction_id)
+        .fetch_one(&pool)
+        .await
+        .expect("fetch deposit salesperson attribution");
+        assert_eq!(workflow_salesperson_id, Some(deposit_salesperson_id));
 
         let payer_member_state: (Option<Uuid>, String, bool) = sqlx::query_as(
             "SELECT transaction_id, status, suit_ordered FROM wedding_members WHERE id = $1",
@@ -10439,8 +10548,8 @@ mod tests {
         .expect("fetch payer member state after group deposit");
         assert_eq!(
             payer_member_state,
-            (None, "active".to_string(), false),
-            "paying for other members must not start the payer's own wedding order"
+            (Some(group_pay_transaction_id), "paid".to_string(), true),
+            "mixed payer merchandise must start the payer's own wedding order without treating member deposits as payer merchandise"
         );
 
         let beneficiary_timeline =
@@ -10483,44 +10592,42 @@ mod tests {
             )
             .await
             .expect("fetch register summary with wedding deposit activity");
-        let deposit_activity = register_summary
+        assert!(
+            register_summary.activities.iter().all(|activity| {
+                activity.kind != "wedding_deposit"
+                    || activity.transaction_id != Some(group_pay_transaction_id)
+            }),
+            "mixed merchandise and wedding deposits must not create a duplicate Register activity"
+        );
+        let payer_sale_activity = register_summary
             .activities
             .iter()
             .find(|activity| {
-                activity.kind == "wedding_deposit"
-                    && activity.transaction_id == Some(group_pay_transaction_id)
+                activity.kind == "sale" && activity.transaction_id == Some(group_pay_transaction_id)
             })
-            .expect("wedding deposit should have its own truthful register activity");
-        assert_eq!(deposit_activity.title, "Wedding Deposit Disbursement");
+            .expect("payer merchandise must remain a distinct booked sale activity");
         assert_eq!(
-            deposit_activity
+            payer_sale_activity
                 .sales_total
                 .as_deref()
                 .and_then(|amount| amount.parse::<Decimal>().ok()),
-            Some(Decimal::ZERO)
+            Some(Decimal::new(4000, 2))
         );
         assert_eq!(
-            deposit_activity
-                .tax_total
-                .as_deref()
-                .and_then(|amount| amount.parse::<Decimal>().ok()),
-            Some(Decimal::ZERO)
-        );
-        assert_eq!(
-            deposit_activity
-                .transaction_total
-                .as_deref()
-                .and_then(|amount| amount.parse::<Decimal>().ok()),
-            Some(Decimal::new(5000, 2))
-        );
-        assert_eq!(
-            deposit_activity
+            payer_sale_activity
                 .wedding_deposit_contributions
                 .as_deref()
                 .and_then(|amount| amount.parse::<Decimal>().ok()),
             Some(Decimal::new(5000, 2))
         );
-        assert_eq!(deposit_activity.wedding_deposit_member_count, Some(1));
+        assert_eq!(payer_sale_activity.wedding_deposit_member_count, Some(1));
+        assert_eq!(
+            payer_sale_activity
+                .transaction_total
+                .as_deref()
+                .and_then(|amount| amount.parse::<Decimal>().ok()),
+            Some(Decimal::new(4000, 2))
+        );
 
         cleanup_wedding_group_pay_checkout_test(
             &pool,
@@ -10537,6 +10644,11 @@ mod tests {
         )
         .await
         .expect("cleanup wedding group pay checkout test");
+        sqlx::query("DELETE FROM staff WHERE id = $1")
+            .bind(deposit_salesperson_id)
+            .execute(&pool)
+            .await
+            .expect("cleanup separate deposit salesperson");
     }
 
     #[tokio::test]

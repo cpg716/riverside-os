@@ -35,6 +35,7 @@ interface UseCartCheckoutProps {
   activeWeddingMember: WeddingMember | null;
   cashierName?: string | null;
   primarySalespersonId: string;
+  weddingDepositSalespersonId: string;
   disbursementMembers: WeddingMember[];
   posShipping: PosShippingSelection | null;
   pendingAlterationIntakes: PendingAlterationIntake[];
@@ -243,6 +244,7 @@ export function useCartCheckout({
   activeWeddingMember,
   cashierName,
   primarySalespersonId,
+  weddingDepositSalespersonId,
   disbursementMembers,
   posShipping,
   pendingAlterationIntakes,
@@ -536,7 +538,12 @@ export function useCartCheckout({
       }
 
       const isEmployeeSale = selectedCustomer?.employee_discount_eligible === true;
-      const primaryTrim = isEmployeeSale ? "" : primarySalespersonId.trim();
+      const primaryTrim =
+        disbursementMembers.length > 0
+          ? weddingDepositSalespersonId.trim()
+          : isEmployeeSale
+            ? ""
+            : primarySalespersonId.trim();
       const positiveOrderPaymentLines = orderPaymentLines.filter(
         (line) => parseMoneyToCents(line.amount) > 0,
       );
@@ -1085,7 +1092,7 @@ export function useCartCheckout({
     }
   }, [
     sessionId, baseUrl, apiAuth, lines, selectedCustomer, activeWeddingMember,
-    cashierName, primarySalespersonId, disbursementMembers, posShipping, pendingAlterationIntakes, orderPaymentLines,
+    cashierName, primarySalespersonId, weddingDepositSalespersonId, disbursementMembers, posShipping, pendingAlterationIntakes, orderPaymentLines,
     pickupAlterationIds, pickupConfirmed, pickupTransactionId, pickupTransactions, belowCostApproval, saleDateTimeLocal, backdateApproval, totals, toast, clearCart, onSaleCompleted, ensurePosTokenForSession, requestPickupPaymentOverride, checkoutClientId
   ]);
 

@@ -106,7 +106,8 @@ test("wedding deposit posting is prevention-first, source-tracked, and receipt t
     "original wedding deposit payer—not the member",
   );
   expect(weddingDepositWorkspaceSource).toContain("Choose Member &amp; Add Items");
-  expect(weddingDepositWorkspaceSource).toContain("Continue to Payment & Build Orders");
+  expect(weddingDepositWorkspaceSource).toContain("Start Building Member Orders");
+  expect(weddingDepositWorkspaceSource).toContain("take the payer's payment only after all drafts are ready");
   expect(weddingDepositWorkspaceSource).toContain("Responsible salesperson");
   expect(weddingDepositWorkspaceSource).toContain("disabled={!salespersonId}");
   expect(weddingDepositWorkspaceSource).toContain("autoStartFirstMember");
@@ -155,6 +156,19 @@ test("wedding deposit posting is prevention-first, source-tracked, and receipt t
   expect(cartSource).toContain("Order (Wedding), confirm the salesperson");
   expect(cartSource).toContain("Continue Wedding Orders");
   expect(cartSource).toContain("setWeddingDepositAutoStartMember(true)");
+  expect(cartSource).toContain('phase: "building" | "ready_for_payment" | "posting"');
+  expect(cartSource).toContain("payerLines: CartLineItem[]");
+  expect(cartSource).toContain("setLines(session.payerLines.map");
+  expect(cartSource).toContain("weddingPayerMerchandiseSalespersonIdRef");
+  expect(cartSource).toContain("weddingDepositSalespersonId");
+  expect(cartSource).toContain("payerMerchandiseSalespersonId");
+  expect(cartSource).toContain("!isEmployeeSale");
+  expect(cartSource).toContain("Save Member Order & Next");
+  expect(cartSource).toContain('data-testid="wedding-collect-build-final-review"');
+  expect(cartSource).toContain("The payer has not been charged yet.");
+  expect(cartSource).toContain("if (collectingWeddingOrderDraft)");
+  expect(cartSource).toContain("openDepositApplicationCents");
+  expect(cartSource).toContain("wedding-deposit:${heldOpenDeposit.sourceCreditLedgerId}");
   expect(cartSource).toContain("activeWeddingMember.customer_id !== customerId");
   expect(cartSource).toContain("setDisbursementMembers([])");
   expect(cartSource).toContain("if (completedTransactionId)");

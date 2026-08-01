@@ -133,6 +133,7 @@ import { CartItemRow } from "./cart/CartItemRow";
 import { getAppIcon } from "../../lib/icons";
 import {
   heldOpenDepositNoticeMessage,
+  openDepositApplicationCents,
   type HeldOpenDeposit,
 } from "./openDeposit";
 
@@ -147,6 +148,25 @@ type WeddingWorkflowResume = {
   payer: Customer;
   workflowId?: string | null;
   payerTransactionId?: string | null;
+};
+
+type WeddingCollectBuildDraft = {
+  member: WeddingMember;
+  lines: CartLineItem[];
+  salespersonId: string;
+};
+
+type WeddingCollectBuildSession = {
+  payer: Customer;
+  payerMember: WeddingMember;
+  payerLines: CartLineItem[];
+  partyName: string;
+  members: WeddingMember[];
+  buildMembers: WeddingMember[];
+  depositSalespersonId: string;
+  currentMemberId: string | null;
+  phase: "building" | "ready_for_payment" | "posting";
+  drafts: Record<string, WeddingCollectBuildDraft>;
 };
 
 function parseRefundProcessResult(value: unknown): RefundProcessResult | null {
@@ -638,7 +658,12 @@ export default function Cart({
     payer: Customer;
   } | null>(null);
   const [weddingDepositPostPaymentAction, setWeddingDepositPostPaymentAction] = useState<"build_orders" | "deposit_only">("build_orders");
+  const [weddingDepositSalespersonId, setWeddingDepositSalespersonId] =
+    useState("");
+  const weddingPayerMerchandiseSalespersonIdRef = useRef("");
   const [receiptWeddingWorkflowResume, setReceiptWeddingWorkflowResume] = useState<WeddingWorkflowResume | null>(null);
+  const [weddingCollectBuildSession, setWeddingCollectBuildSession] =
+    useState<WeddingCollectBuildSession | null>(null);
   const [weddingPurchaseContext, setWeddingPurchaseContext] =
     useState<WeddingPurchaseContext | null>(null);
   const [weddingPurchaseLoading, setWeddingPurchaseLoading] = useState(false);
@@ -1273,6 +1298,7 @@ export default function Cart({
       setActiveWeddingPartyName(null);
       setWeddingDepositOrderSource(null);
       setDisbursementMembers([]);
+      setWeddingCollectBuildSession(null);
     }
     if (
       weddingDepositOrderSource &&
@@ -1368,7 +1394,12 @@ export default function Cart({
             requestedSource?.source_credit_ledger_id ?? null,
         };
         setHeldOpenDeposit(deposit);
-        setOpenDepositNotice(deposit);
+        const reviewedDraftIsPosting =
+          weddingCollectBuildSession?.phase === "posting" &&
+          weddingCollectBuildSession.currentMemberId ===
+            activeWeddingMember?.id &&
+          weddingCollectBuildSession.drafts[activeWeddingMember.id] != null;
+        setOpenDepositNotice(reviewedDraftIsPosting ? null : deposit);
       })
       .catch(() => {
         if (!cancelled) {
@@ -1382,7 +1413,15 @@ export default function Cart({
     return () => {
       cancelled = true;
     };
-  }, [apiAuth, baseUrl, selectedCustomer?.id, toast, weddingDepositOrderSource]);
+  }, [
+    activeWeddingMember?.id,
+    apiAuth,
+    baseUrl,
+    selectedCustomer?.id,
+    toast,
+    weddingCollectBuildSession,
+    weddingDepositOrderSource,
+  ]);
 
   useEffect(() => {
     const customerId = selectedCustomer?.id;
@@ -1477,6 +1516,22 @@ export default function Cart({
       );
       return;
     }
+    if (
+      lines.length > 0 &&
+      !hasCheckoutSalespersonAttribution({
+        lines,
+        primarySalespersonId,
+        isEmployeeSale,
+        rmsPaymentSku: rmsPaymentMeta?.sku,
+        staffAccountPaymentSku: staffAccountPaymentMeta?.sku,
+      })
+    ) {
+      toast(
+        "Select the salesperson responsible for the payer's merchandise before opening Wedding Deposit.",
+        "error",
+      );
+      return;
+    }
     if (weddingPurchaseLoading) {
       toast(
         "Wedding membership is still loading. Try again in a moment.",
@@ -1501,13 +1556,21 @@ export default function Cart({
     setWeddingDepositFocusWorkflowId(null);
     setWeddingDepositFocusPayerTransactionId(null);
     setWeddingDepositAutoStartMember(false);
+    weddingPayerMerchandiseSalespersonIdRef.current =
+      primarySalespersonId.trim();
+    setWeddingDepositSalespersonId(primarySalespersonId.trim());
     setWeddingDrawerPreferGroupPay(true);
     setWeddingDrawerOpen(true);
   }, [
     activateWeddingMembership,
     ensureSaleCashier,
+    isEmployeeSale,
     isRmsPaymentCart,
+    lines,
+    primarySalespersonId,
+    rmsPaymentMeta?.sku,
     selectedCustomer,
+    staffAccountPaymentMeta?.sku,
     toast,
     weddingPurchaseContext?.memberships,
     weddingPurchaseLoading,
@@ -2291,6 +2354,65 @@ export default function Cart({
     };
   }, [lines, disbursementMembers, orderPaymentLines, posShipping]);
 
+  useEffect(() => {
+    if (
+      weddingCollectBuildSession?.phase !== "posting" ||
+      !weddingDepositOrderSource ||
+      !heldOpenDeposit ||
+      heldOpenDeposit.workflowId !== weddingDepositOrderSource.workflowId ||
+      heldOpenDeposit.sourceCreditLedgerId !==
+        weddingDepositOrderSource.sourceCreditLedgerId
+    ) {
+      return;
+    }
+
+    setCheckoutAppliedPayments((current) => {
+      if (current.some((payment) => payment.method === "open_deposit")) {
+        return current;
+      }
+      const alreadyPaidCents = current.reduce(
+        (sum, payment) => sum + payment.amountCents,
+        0,
+      );
+      const amountCents = openDepositApplicationCents({
+        heldBalanceCents: heldOpenDeposit.balanceCents,
+        alreadyAppliedCents: 0,
+        remainingCheckoutCents: Math.max(
+          0,
+          totals.totalCents - alreadyPaidCents,
+        ),
+        currentSaleCents: totals.orderTotalCents,
+        hasExternalAllocations: false,
+      });
+      if (amountCents <= 0) return current;
+
+      return [
+        ...current,
+        {
+          id: `wedding-deposit:${heldOpenDeposit.sourceCreditLedgerId}`,
+          method: "open_deposit",
+          amountCents,
+          label: "Wedding deposit",
+          metadata: {
+            tender_family: "open_deposit",
+            held_for_customer_id: heldOpenDeposit.customerId,
+            source: "wedding_party_split",
+            wedding_deposit_workflow_id: heldOpenDeposit.workflowId,
+            wedding_deposit_source_credit_ledger_id:
+              heldOpenDeposit.sourceCreditLedgerId,
+          },
+        },
+      ];
+    });
+  }, [
+    heldOpenDeposit,
+    setCheckoutAppliedPayments,
+    totals.orderTotalCents,
+    totals.totalCents,
+    weddingCollectBuildSession?.phase,
+    weddingDepositOrderSource,
+  ]);
+
   const isGiftCardOnlyCart = useMemo(
     () => lines.length > 0 && lines.every((l) => !!l.gift_card_load_code),
     [lines],
@@ -2404,7 +2526,7 @@ export default function Cart({
     ],
   );
   const preflightCheckoutBeforeTender = useCallback(async () => {
-    if (disbursementMembers.length > 0 && !primarySalespersonId.trim()) {
+    if (disbursementMembers.length > 0 && !weddingDepositSalespersonId.trim()) {
       toast(
         "Select the salesperson responsible for this wedding deposit before applying payment.",
         "error",
@@ -2482,9 +2604,9 @@ export default function Cart({
     hasSalespersonAttribution,
     pendingReturnTender,
     preflightOrderPaymentsBeforeTender,
-    primarySalespersonId,
     selectedCustomer,
     toast,
+    weddingDepositSalespersonId,
   ]);
   useEffect(() => {
     if (!pendingReturnTender || orderPaymentLines.length === 0) return;
@@ -2618,6 +2740,7 @@ export default function Cart({
     activeWeddingMember,
     cashierName,
     primarySalespersonId,
+    weddingDepositSalespersonId,
     disbursementMembers,
     posShipping,
     pendingAlterationIntakes,
@@ -4080,10 +4203,108 @@ export default function Cart({
     toast("Receipt complete. Riverside is opening the next funded member so you can add that member's items.", "success");
   }, [selectCustomerForSale, toast]);
 
+  const selectWeddingCollectBuildMember = useCallback(
+    (member: WeddingMember, partyName: string) => {
+      if (
+        !selectCustomerForSale({
+          id: member.customer_id,
+          customer_code: "",
+          first_name: member.first_name,
+          last_name: member.last_name,
+          email: member.customer_email ?? null,
+          phone: member.customer_phone ?? null,
+        })
+      ) {
+        return false;
+      }
+      setLines([]);
+      setDisbursementMembers([]);
+      setActiveWeddingMember(member);
+      setActiveWeddingPartyName(partyName);
+      setWeddingDepositOrderSource(null);
+      setPrimarySalespersonId("");
+      requestProductSearchFocus();
+      return true;
+    },
+    [requestProductSearchFocus, selectCustomerForSale, setLines],
+  );
+
+  const saveWeddingCollectBuildMember = useCallback(() => {
+    const session = weddingCollectBuildSession;
+    const member = activeWeddingMember;
+    if (!session || session.phase !== "building" || !member) return;
+    if (lines.length === 0) {
+      toast("Add this member's items before saving the Wedding Order draft.", "error");
+      return;
+    }
+    if (!primarySalespersonId.trim()) {
+      toast("Confirm the salesperson for this member before saving the Wedding Order draft.", "error");
+      return;
+    }
+    const currentIndex = session.buildMembers.findIndex((candidate) => candidate.id === member.id);
+    if (currentIndex < 0) {
+      toast("This member is no longer part of the active Collect & Build workflow.", "error");
+      return;
+    }
+    const drafts = {
+      ...session.drafts,
+      [member.id]: {
+        member,
+        lines: lines.map((line) => ({ ...line })),
+        salespersonId: primarySalespersonId.trim(),
+      },
+    };
+    const nextMember = session.buildMembers[currentIndex + 1] ?? null;
+    clearCart();
+    if (nextMember) {
+      setWeddingCollectBuildSession({
+        ...session,
+        drafts,
+        currentMemberId: nextMember.id,
+      });
+      if (selectWeddingCollectBuildMember(nextMember, session.partyName)) {
+        toast(
+          `${member.first_name}'s order draft is saved. Now add items for ${nextMember.first_name} ${nextMember.last_name}.`,
+          "success",
+        );
+      }
+      return;
+    }
+
+    selectCustomerForSale(session.payer);
+    setLines(session.payerLines.map((line) => ({ ...line })));
+    setActiveWeddingMember(session.payerMember);
+    setActiveWeddingPartyName(session.partyName);
+    setDisbursementMembers(session.members);
+    setPrimarySalespersonId(session.depositSalespersonId);
+    setWeddingDepositPostPaymentAction("build_orders");
+    setWeddingCollectBuildSession({
+      ...session,
+      drafts,
+      currentMemberId: null,
+      phase: "ready_for_payment",
+    });
+    toast(
+      `All ${session.buildMembers.length} member order drafts are ready. Review the deposits and choose Final Payment once.`,
+      "success",
+    );
+  }, [
+    activeWeddingMember,
+    clearCart,
+    lines,
+    primarySalespersonId,
+    selectCustomerForSale,
+    selectWeddingCollectBuildMember,
+    setLines,
+    toast,
+    weddingCollectBuildSession,
+  ]);
+
   const hasSpecialOrWeddingLines = useMemo(
     () => lines.some((l) => l.fulfillment !== "takeaway"),
     [lines],
   );
+  const collectingWeddingOrderDraft = weddingCollectBuildSession?.phase === "building";
 
   const allowCheckoutDepositKeypad =
     hasSpecialOrWeddingLines && !isRmsPaymentCart;
@@ -4988,6 +5209,24 @@ export default function Cart({
 
           {disbursementMembers.length > 0 && (
              <div className="space-y-3">
+              {weddingCollectBuildSession?.phase === "ready_for_payment" ? (
+                <div className="rounded-3xl border-2 border-app-success/35 bg-app-success/8 p-5 shadow-sm" data-testid="wedding-collect-build-final-review">
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-[0.22em] text-app-success">Collect &amp; Build · Final Review</p>
+                      <p className="mt-1 text-sm font-bold text-app-text">All member merchandise has been selected. The payer has not been charged yet.</p>
+                      <div className="mt-3 space-y-1 text-xs text-app-text-muted">
+                        {weddingCollectBuildSession.buildMembers.map((member) => {
+                          const draft = weddingCollectBuildSession.drafts[member.id];
+                          return <p key={member.id}><strong className="text-app-text">{member.first_name} {member.last_name}</strong> · {draft?.lines.length ?? 0} item{draft?.lines.length === 1 ? "" : "s"} · salesperson confirmed</p>;
+                        })}
+                      </div>
+                    </div>
+                    <button type="button" onClick={() => setCheckoutDrawerOpen(true)} className="ui-btn-primary min-h-12 px-5">Final Payment</button>
+                  </div>
+                  <p className="mt-3 text-xs font-bold text-app-text-muted">Only an approved payer tender followed by Complete Sale posts the deposits. A decline posts nothing and keeps these reviewed order drafts available.</p>
+                </div>
+              ) : null}
                 <div className="flex items-center gap-3 px-2">
                   <div className="h-px flex-1 bg-gradient-to-r from-app-info/30 to-transparent" />
                 <span className="text-[10px] font-black uppercase tracking-[0.3em] text-app-info">
@@ -5522,6 +5761,10 @@ export default function Cart({
                   "Add at least one item, transaction payment, or wedding deposit before checking out.",
                   "error",
                 );
+               if (collectingWeddingOrderDraft) {
+                 saveWeddingCollectBuildMember();
+                 return;
+               }
                if (!ensureSaleCashier()) return;
               if (
                 pendingReturnTender &&
@@ -5630,7 +5873,9 @@ export default function Cart({
            >
              <div className="flex flex-col items-start pl-3 sm:pl-5">
                 <span className="text-[9px] font-black uppercase tracking-[0.28em] opacity-70">
-                  {pickupTransactionId && totals.totalCents === 0
+                  {collectingWeddingOrderDraft
+                  ? `${activeWeddingMember?.first_name ?? "Member"} — Order Draft`
+                  : pickupTransactionId && totals.totalCents === 0
                   ? selectedCustomer
                     ? `${selectedCustomer.first_name} ${selectedCustomer.last_name} — Pickup`
                     : "Pickup"
@@ -5639,14 +5884,18 @@ export default function Cart({
                     : "Walk-in — Pay"}
                 </span>
                 <span className="text-2xl font-black tabular-nums tracking-tighter italic sm:text-3xl">
-                {pickupTransactionId && totals.totalCents === 0
+                {collectingWeddingOrderDraft
+                  ? "Save Member Order & Next"
+                  : pickupTransactionId && totals.totalCents === 0
                   ? "Complete Pickup"
                   : `$${centsToFixed2(totals.totalCents)}`}
                 </span>
              </div>
              <div className="mr-2 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-app-surface/20 transition-transform group-hover:scale-105 sm:mr-4 sm:h-11 sm:w-11">
                 <span className="text-lg font-black uppercase italic">
-                {pickupTransactionId && totals.totalCents === 0
+                {collectingWeddingOrderDraft
+                  ? "Save"
+                  : pickupTransactionId && totals.totalCents === 0
                   ? "Pick"
                   : "Pay"}
                 </span>
@@ -6835,6 +7084,7 @@ export default function Cart({
         onClose={() => setShowClearConfirm(false)}
         onConfirm={() => {
           const hadApprovedProviderPayment = approvedProviderPaymentInCheckout;
+          setWeddingCollectBuildSession(null);
           clearSaleForNextCheckout();
           setShowClearConfirm(false);
           toast(
@@ -6917,6 +7167,7 @@ export default function Cart({
               }),
             });
             if (res.ok) {
+              setWeddingCollectBuildSession(null);
               clearSaleForNextCheckout();
               setShowVoidAllConfirm(false);
               toast("All items voided", "success");
@@ -7034,10 +7285,9 @@ export default function Cart({
           focusPayerTransactionId={weddingDepositFocusPayerTransactionId}
           autoStartFirstMember={weddingDepositAutoStartMember}
           salespeople={commissionStaff}
-          salespersonId={primarySalespersonId}
+          salespersonId={weddingDepositSalespersonId}
           onSalespersonChange={(staffId) => {
-            primaryDefaultedRef.current = true;
-            setPrimarySalespersonId(staffId);
+            setWeddingDepositSalespersonId(staffId);
           }}
           onClose={() => {
             setWeddingDrawerOpen(false);
@@ -7049,6 +7299,57 @@ export default function Cart({
             setWeddingDepositAutoStartMember(false);
           }}
           onAddDeposits={(members, partyName, payerMember, options) => {
+            const depositSalespersonId = weddingDepositSalespersonId.trim();
+            const payerMerchandiseSalespersonId =
+              weddingPayerMerchandiseSalespersonIdRef.current.trim();
+            const payerLines = lines.map((line) =>
+              !isEmployeeSale &&
+              !(line.salesperson_id?.trim() ?? "") &&
+              payerMerchandiseSalespersonId
+                ? { ...line, salesperson_id: payerMerchandiseSalespersonId }
+                : { ...line },
+            );
+            setPrimarySalespersonId(depositSalespersonId);
+            setLines(payerLines);
+            setWeddingDrawerOpen(false);
+            setWeddingDrawerPreferGroupPay(false);
+            setWeddingDrawerInitialPartyId(null);
+            setWeddingDepositAutoStartMember(false);
+            if (options.continueToOrders) {
+              const buildMembers = members.filter(
+                (member) => member.deposit_destination_kind === "held_for_future_order",
+              );
+              const session: WeddingCollectBuildSession = {
+                payer: selectedCustomer,
+                payerMember,
+                payerLines,
+                partyName,
+                members,
+                buildMembers,
+                depositSalespersonId,
+                currentMemberId: buildMembers[0]?.id ?? null,
+                phase: buildMembers.length > 0 ? "building" : "ready_for_payment",
+                drafts: {},
+              };
+              setWeddingCollectBuildSession(session);
+              setWeddingDepositPostPaymentAction("build_orders");
+              if (buildMembers[0]) {
+                selectWeddingCollectBuildMember(buildMembers[0], partyName);
+                toast(
+                  `Collect & Build started. Add items for ${buildMembers[0].first_name} ${buildMembers[0].last_name}, confirm the salesperson, then choose Save Member Order & Next. No payment is taken until every member draft is ready.`,
+                  "success",
+                );
+              } else {
+                setDisbursementMembers(members);
+                setActiveWeddingMember(payerMember);
+                setActiveWeddingPartyName(partyName);
+                toast(
+                  "The selected deposits already target existing Transaction Records. Review them and choose Final Payment once.",
+                  "success",
+                );
+              }
+              return;
+            }
             setDisbursementMembers((current) => {
               const nextByMember = new Map(
                 current.map((member) => [member.id, member]),
@@ -7058,16 +7359,10 @@ export default function Cart({
             });
             setActiveWeddingMember(payerMember);
             setActiveWeddingPartyName(partyName);
-            setWeddingDepositPostPaymentAction(options.continueToOrders ? "build_orders" : "deposit_only");
-            setWeddingDrawerOpen(false);
-            setWeddingDrawerPreferGroupPay(false);
-            setWeddingDrawerInitialPartyId(null);
-            setWeddingDepositAutoStartMember(false);
+            setWeddingDepositPostPaymentAction("deposit_only");
             setCheckoutDrawerOpen(true);
             toast(
-              options.continueToOrders
-                ? `Added ${members.length} reviewed member deposit${members.length === 1 ? "" : "s"}. Complete the payer payment once; Continue Wedding Orders will open the first funded member automatically.`
-                : `Added ${members.length} reviewed member deposit${members.length === 1 ? "" : "s"}. Complete the payer payment once to finish.`,
+              `Added ${members.length} reviewed member deposit${members.length === 1 ? "" : "s"}. Complete the payer payment once to finish.`,
               "success",
             );
           }}
@@ -7101,12 +7396,22 @@ export default function Cart({
               remainingCents: source.remainingCents,
               payer: workflowPayer,
             });
+            const savedDraft = weddingCollectBuildSession?.drafts[member.id];
+            if (savedDraft) {
+              setLines(savedDraft.lines.map((line) => ({ ...line })));
+              setPrimarySalespersonId(savedDraft.salespersonId);
+              setWeddingCollectBuildSession((current) =>
+                current ? { ...current, phase: "posting", currentMemberId: member.id } : current,
+              );
+            }
             setWeddingDrawerOpen(false);
             setWeddingDrawerPreferGroupPay(false);
             setWeddingDrawerInitialPartyId(null);
             setWeddingDepositAutoStartMember(false);
             toast(
-              `${member.first_name} ${member.last_name} is selected. Add items from the Wedding Checklist or product search, choose Order (Wedding), confirm the salesperson, then choose Pay and apply the held deposit.`,
+              savedDraft
+                ? `${member.first_name} ${member.last_name}'s reviewed order draft is loaded. Verify it, then complete the member Transaction using the exact held deposit—no new payer tender is collected.`
+                : `${member.first_name} ${member.last_name} is selected. Add items from the Wedding Checklist or product search, choose Order (Wedding), confirm the salesperson, then choose Pay and apply the held deposit.`,
               "success",
             );
             void fetch(`${baseUrl}/api/customers/${member.customer_id}`, {
@@ -7123,6 +7428,11 @@ export default function Cart({
                   "info",
                 );
               });
+          }}
+          onBuildComplete={() => {
+            setWeddingCollectBuildSession(null);
+            setWeddingDepositAutoStartMember(false);
+            toast("Every funded member order is posted. Orders & Receipts is ready for printing or review.", "success");
           }}
           onOpenReceipt={setWorkflowReceiptTransactionId}
         />

@@ -133,6 +133,7 @@ export default function WeddingDepositWorkspace({
   onClose,
   onAddDeposits,
   onStartMemberOrder,
+  onBuildComplete,
   onOpenReceipt,
 }: {
   isOpen: boolean;
@@ -157,6 +158,7 @@ export default function WeddingDepositWorkspace({
     partyName: string,
     source: { workflowId: string; sourceCreditLedgerId: string; remainingCents: number },
   ) => void;
+  onBuildComplete: () => void;
   onOpenReceipt: (transactionId: string) => void;
 }) {
   const { backofficeHeaders, staffDisplayName } = useBackofficeAuth();
@@ -194,6 +196,7 @@ export default function WeddingDepositWorkspace({
   const [error, setError] = useState<string | null>(null);
   const searchRequest = useRef(0);
   const autoStartedAllocation = useRef<string | null>(null);
+  const autoCompletedWorkflow = useRef<string | null>(null);
 
   const payerName = `${payer.first_name} ${payer.last_name}`.trim();
   const payerMember = party?.members.find((member) => member.customer_id === payer.id) ?? null;
@@ -314,7 +317,13 @@ export default function WeddingDepositWorkspace({
         !candidate.member_transaction_id &&
         parseMoneyToCents(candidate.remaining_amount) > 0,
     );
-    if (!workflow || !allocation || !allocation.source_credit_ledger_id) return;
+    if (!workflow) return;
+    if (!allocation || !allocation.source_credit_ledger_id) {
+      if (autoCompletedWorkflow.current === workflow.id) return;
+      autoCompletedWorkflow.current = workflow.id;
+      onBuildComplete();
+      return;
+    }
     const allocationKey = `${workflow.id}:${allocation.id}`;
     if (autoStartedAllocation.current === allocationKey) return;
     autoStartedAllocation.current = allocationKey;
@@ -344,6 +353,7 @@ export default function WeddingDepositWorkspace({
     historyBusy,
     isOpen,
     onStartMemberOrder,
+    onBuildComplete,
     step,
     workflows,
   ]);
@@ -884,7 +894,7 @@ export default function WeddingDepositWorkspace({
                       <p className="font-black text-app-text">{postPaymentAction === "build_orders" ? "Collect & Build Orders" : "Deposit Only"}</p>
                       <p className="mt-1 text-xs text-app-text-muted">
                         {postPaymentAction === "build_orders"
-                          ? "This action adds the reviewed deposits and opens Payment. After the approved payer receipt, Continue Wedding Orders opens the first funded member immediately; each successful member sale advances to the next member."
+                          ? "Start each funded member's item selection now. Save every member order draft, return for one final review, and take the payer's payment only after all drafts are ready."
                           : "Finish after the payer receipt. Return through Wedding Deposit → Orders & Receipts when the party is ready for merchandise."}
                       </p>
                     </div>
@@ -949,10 +959,10 @@ export default function WeddingDepositWorkspace({
               <div><dt className="font-black text-app-text-muted">Workflow</dt><dd className="font-bold text-app-text">{step === "start" ? "Choose Deposit Only or Collect & Build Orders" : postPaymentAction === "build_orders" ? "Collect & Build Orders" : "Deposit Only"}</dd></div>
               <div><dt className="font-black text-app-text-muted">Payer</dt><dd className="font-bold text-app-text">{payerName}</dd></div>
               <div><dt className="font-black text-app-text-muted">Wedding Party</dt><dd className="font-bold text-app-text">{party?.party_name ?? "Not selected"}</dd></div>
-              <div><dt className="font-black text-app-text-muted">Status</dt><dd className="font-bold text-app-text">{step === "start" ? "Choose workflow" : !party ? "Choose party" : !payerMember ? "Add payer to party" : fundedMembers.length === 0 ? "Enter at least one member amount" : invalidDestinationMembers.length > 0 ? "Resolve the highlighted destination amount" : step === "review" && !salespersonId ? "Select responsible salesperson" : step === "review" ? "Ready for Payment" : selectedWithoutAmount.length > 0 ? `${selectedWithoutAmount.length} zero-dollar selection excluded · ready to review` : "Ready to review"}</dd></div>
+              <div><dt className="font-black text-app-text-muted">Status</dt><dd className="font-bold text-app-text">{step === "start" ? "Choose workflow" : !party ? "Choose party" : !payerMember ? "Add payer to party" : fundedMembers.length === 0 ? "Enter at least one member amount" : invalidDestinationMembers.length > 0 ? "Resolve the highlighted destination amount" : step === "review" && !salespersonId ? "Select responsible salesperson" : step === "review" ? postPaymentAction === "build_orders" ? "Ready to build member orders" : "Ready for Payment" : selectedWithoutAmount.length > 0 ? `${selectedWithoutAmount.length} zero-dollar selection excluded · ready to review` : "Ready to review"}</dd></div>
             </dl>
             {step === "members" ? <button type="button" disabled={!payerMember || !validAmounts} onClick={() => setStep("review")} className="ui-btn-primary mt-6 w-full">Review ${centsToFixed2(totalCents)} for {fundedMembers.length} {fundedMembers.length === 1 ? "Member" : "Members"}</button> : null}
-            {step === "review" ? <button type="button" disabled={!salespersonId} onClick={addDeposits} className="ui-btn-primary mt-6 w-full">{postPaymentAction === "build_orders" ? "Continue to Payment & Build Orders" : "Add Deposits & Continue to Payment"}</button> : null}
+            {step === "review" ? <button type="button" disabled={!salespersonId} onClick={addDeposits} className="ui-btn-primary mt-6 w-full">{postPaymentAction === "build_orders" ? "Start Building Member Orders" : "Add Deposits & Continue to Payment"}</button> : null}
             {step === "history" ? <button type="button" onClick={() => setStep("start")} className="ui-btn-secondary mt-6 w-full">Start New Deposit or Collect &amp; Build</button> : null}
           </aside>
         </div>
