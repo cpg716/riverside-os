@@ -106,6 +106,11 @@ test("wedding deposit posting is prevention-first, source-tracked, and receipt t
     "original wedding deposit payer—not the member",
   );
   expect(weddingDepositWorkspaceSource).toContain("Choose Member &amp; Add Items");
+  expect(weddingDepositWorkspaceSource).toContain("Continue to Payment & Build Orders");
+  expect(weddingDepositWorkspaceSource).toContain("Responsible salesperson");
+  expect(weddingDepositWorkspaceSource).toContain("disabled={!salespersonId}");
+  expect(weddingDepositWorkspaceSource).toContain("autoStartFirstMember");
+  expect(weddingDepositWorkspaceSource).toContain("!candidate.member_transaction_id");
   expect(weddingDepositWorkspaceSource).toContain("sourceCreditLedgerId");
   expect(weddingDepositWorkspaceSource).toContain("View / Print Payer Receipt");
   expect(weddingDepositWorkspaceSource).toContain("Receipt · {postedDisplayId}");
@@ -149,6 +154,9 @@ test("wedding deposit posting is prevention-first, source-tracked, and receipt t
   expect(cartSource).toContain('data-testid="pos-wedding-order-guidance"');
   expect(cartSource).toContain("Order (Wedding), confirm the salesperson");
   expect(cartSource).toContain("Continue Wedding Orders");
+  expect(cartSource).toContain("setWeddingDepositAutoStartMember(true)");
+  expect(cartSource).toContain("activeWeddingMember.customer_id !== customerId");
+  expect(cartSource).toContain("setDisbursementMembers([])");
   expect(cartSource).toContain("if (completedTransactionId)");
   expect(cartSource).not.toContain('activeWeddingMember ? "Switch" : "Wedding"');
   expect(receiptSummarySource).toContain("completionNextActionLabel");

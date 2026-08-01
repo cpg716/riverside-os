@@ -714,6 +714,7 @@ export default function Cart({
   const [weddingDepositInitialView, setWeddingDepositInitialView] = useState<"deposit" | "orders">("deposit");
   const [weddingDepositFocusWorkflowId, setWeddingDepositFocusWorkflowId] = useState<string | null>(null);
   const [weddingDepositFocusPayerTransactionId, setWeddingDepositFocusPayerTransactionId] = useState<string | null>(null);
+  const [weddingDepositAutoStartMember, setWeddingDepositAutoStartMember] = useState(false);
   const [measDrawerOpen, setMeasDrawerOpen] = useState(false);
   const [orderLoadOpen, setOrderLoadOpen] = useState(false);
   const [orderReviewOpen, setOrderReviewOpen] = useState(false);
@@ -1265,6 +1266,15 @@ export default function Cart({
   useEffect(() => {
     const customerId = selectedCustomer?.id ?? null;
     if (
+      activeWeddingMember &&
+      activeWeddingMember.customer_id !== customerId
+    ) {
+      setActiveWeddingMember(null);
+      setActiveWeddingPartyName(null);
+      setWeddingDepositOrderSource(null);
+      setDisbursementMembers([]);
+    }
+    if (
       weddingDepositOrderSource &&
       weddingDepositOrderSource.customerId !== customerId
     ) {
@@ -1287,7 +1297,7 @@ export default function Cart({
         : [];
       return next.length === prev.length ? prev : next;
     });
-  }, [selectedCustomer?.id, weddingDepositOrderSource]);
+  }, [activeWeddingMember, selectedCustomer?.id, weddingDepositOrderSource]);
 
   useEffect(() => {
     const customerId = selectedCustomer?.id;
@@ -1490,6 +1500,7 @@ export default function Cart({
     setWeddingDepositInitialView("deposit");
     setWeddingDepositFocusWorkflowId(null);
     setWeddingDepositFocusPayerTransactionId(null);
+    setWeddingDepositAutoStartMember(false);
     setWeddingDrawerPreferGroupPay(true);
     setWeddingDrawerOpen(true);
   }, [
@@ -4063,9 +4074,10 @@ export default function Cart({
     setWeddingDepositInitialView("orders");
     setWeddingDepositFocusWorkflowId(resume.workflowId ?? null);
     setWeddingDepositFocusPayerTransactionId(resume.payerTransactionId ?? null);
+    setWeddingDepositAutoStartMember(true);
     setWeddingDrawerPreferGroupPay(true);
     setWeddingDrawerOpen(true);
-    toast("Payer receipt complete. Sign in for the next sale, then choose a funded member and add that member's items.", "success");
+    toast("Receipt complete. Riverside is opening the next funded member so you can add that member's items.", "success");
   }, [selectCustomerForSale, toast]);
 
   const hasSpecialOrWeddingLines = useMemo(
@@ -7020,6 +7032,13 @@ export default function Cart({
           initialView={weddingDepositInitialView}
           focusWorkflowId={weddingDepositFocusWorkflowId}
           focusPayerTransactionId={weddingDepositFocusPayerTransactionId}
+          autoStartFirstMember={weddingDepositAutoStartMember}
+          salespeople={commissionStaff}
+          salespersonId={primarySalespersonId}
+          onSalespersonChange={(staffId) => {
+            primaryDefaultedRef.current = true;
+            setPrimarySalespersonId(staffId);
+          }}
           onClose={() => {
             setWeddingDrawerOpen(false);
             setWeddingDrawerPreferGroupPay(false);
@@ -7027,6 +7046,7 @@ export default function Cart({
             setWeddingDepositInitialView("deposit");
             setWeddingDepositFocusWorkflowId(null);
             setWeddingDepositFocusPayerTransactionId(null);
+            setWeddingDepositAutoStartMember(false);
           }}
           onAddDeposits={(members, partyName, payerMember, options) => {
             setDisbursementMembers((current) => {
@@ -7042,8 +7062,12 @@ export default function Cart({
             setWeddingDrawerOpen(false);
             setWeddingDrawerPreferGroupPay(false);
             setWeddingDrawerInitialPartyId(null);
+            setWeddingDepositAutoStartMember(false);
+            setCheckoutDrawerOpen(true);
             toast(
-              `Reviewed and added ${members.length} wedding member deposit${members.length === 1 ? "" : "s"} to the Cart. Continue to Payment when the allocation total is correct.`,
+              options.continueToOrders
+                ? `Added ${members.length} reviewed member deposit${members.length === 1 ? "" : "s"}. Complete the payer payment once; Continue Wedding Orders will open the first funded member automatically.`
+                : `Added ${members.length} reviewed member deposit${members.length === 1 ? "" : "s"}. Complete the payer payment once to finish.`,
               "success",
             );
           }}
@@ -7080,6 +7104,7 @@ export default function Cart({
             setWeddingDrawerOpen(false);
             setWeddingDrawerPreferGroupPay(false);
             setWeddingDrawerInitialPartyId(null);
+            setWeddingDepositAutoStartMember(false);
             toast(
               `${member.first_name} ${member.last_name} is selected. Add items from the Wedding Checklist or product search, choose Order (Wedding), confirm the salesperson, then choose Pay and apply the held deposit.`,
               "success",
