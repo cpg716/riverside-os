@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- **Receipt Builder Preview Coverage**: Receipt Builder now previews the full
+  customer-facing receipt structure and configurable sections instead of a
+  shortened representative sample, so staff can verify placement and wording
+  before saving a layout.
 - **Customer Profile Discount Reasons**: Setting an ongoing automatic customer
   discount now requires a persistent reason on the customer profile. Removing
   the discount clears the reason, and existing discounted profiles are marked
@@ -15,6 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Faster Fail-Closed Windows Releases**: Same-tag Windows release reruns now cancel the superseded workflow instead of waiting behind assets that cannot be published. Signed component compilation overlaps the pre-retag gate, while package publication still requires both that gate and exact-commit Playwright success. Independent Rust caches now retain Riverside workspace-crate outputs so restored caches can accelerate repeat builds instead of preserving dependencies only. The release-contract validator normalizes Windows CRLF checkouts before evaluating workflow structure.
 
 ### Fixed
+- **Parked Wedding Collect & Build Sales**: Parking a Wedding Deposit sale now
+  preserves every member's nonfinancial order draft, including exact variants,
+  fulfillment choices, salesperson attribution, the current member, and the
+  current workflow step. Recall restores the full workflow instead of only the
+  payer Cart and deposit allocations.
 - **Counterpoint Subset Duplicate Orders**: Superseded five exact Counterpoint
   open-document shells that copied ordered-item subsets from sales already
   booked in ROS. The source-locked repair retains the original ROS
