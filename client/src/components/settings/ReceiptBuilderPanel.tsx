@@ -14,6 +14,35 @@ const EPSON_RECEIPT_CPL = 48;
 const EPSON_RECEIPT_PAPER = "80mm";
 const RECEIPT_LOGO_WIDTH_PX = 384;
 
+type ReceiptPreviewScenario =
+  | "sale"
+  | "mixed"
+  | "pickup"
+  | "return"
+  | "exchange"
+  | "gift";
+
+const RECEIPT_PREVIEW_SCENARIOS: Array<{
+  value: ReceiptPreviewScenario;
+  label: string;
+  description: string;
+}> = [
+  { value: "sale", label: "Retail sale", description: "A normal taken-today purchase." },
+  {
+    value: "mixed",
+    label: "Mixed transaction",
+    description: "Taken today, pickup, shipping, fees, special/custom/wedding/layaway, and order payments.",
+  },
+  {
+    value: "pickup",
+    label: "Pickup and payment",
+    description: "The dedicated picked-up template with prior and current payments.",
+  },
+  { value: "return", label: "Return / refund", description: "Returned merchandise and refund totals." },
+  { value: "exchange", label: "Return / exchange", description: "Returned and replacement merchandise together." },
+  { value: "gift", label: "Gift receipt", description: "Customer copy with prices and payments omitted." },
+];
+
 export interface ReceiptConfig {
   store_name: string;
   show_address: boolean;
@@ -57,6 +86,7 @@ const DEFAULT_RECEIPTLINE_TEMPLATE = `{{LOGO_IMAGE}}
 {{BALANCE_LINE}}
 {{TENDER_LINE}}
 {{GIFT_CARD_BALANCE}}
+{{WEDDING_DEPOSIT_LINES}}
 {{STATUS_LINE}}
 {{TAX_EXEMPT_LINE}}
 ---
@@ -74,6 +104,7 @@ const DEFAULT_RECEIPTLINE_PICKUP_TEMPLATE = `{{LOGO_IMAGE}}
 ---
 {{ITEM_LINES}}
 ---
+{{PAYMENT_BLOCK}}
 {{PAYMENT_HISTORY_BLOCK}}
 {{SUBTOTAL_LINE}}
 {{TAX_LINE}}
@@ -82,6 +113,7 @@ const DEFAULT_RECEIPTLINE_PICKUP_TEMPLATE = `{{LOGO_IMAGE}}
 {{PAID_LINE}}
 {{BALANCE_LINE}}
 {{GIFT_CARD_BALANCE}}
+{{WEDDING_DEPOSIT_LINES}}
 {{STATUS_LINE}}
 ---
 {{BARCODE_IMAGE}}
@@ -133,6 +165,23 @@ function receiptTemplateWithSlots(template: string, showLogo: boolean, showBarco
         : `${next}\n${token}`;
     }
   });
+  if (!next.includes("{{WEDDING_DEPOSIT_LINES}}")) {
+    next = next.includes("{{STATUS_LINE}}")
+      ? next.replace("{{STATUS_LINE}}", "{{WEDDING_DEPOSIT_LINES}}\n{{STATUS_LINE}}")
+      : `${next}\n{{WEDDING_DEPOSIT_LINES}}`;
+  }
+  if (!next.includes("{{PAYMENT_BLOCK}}")) {
+    if (next.includes("{{PAYMENT_HISTORY_BLOCK}}")) {
+      next = next.replace(
+        "{{PAYMENT_HISTORY_BLOCK}}",
+        "{{PAYMENT_BLOCK}}\n{{PAYMENT_HISTORY_BLOCK}}",
+      );
+    } else if (next.includes("{{SUBTOTAL_LINE}}")) {
+      next = next.replace("{{SUBTOTAL_LINE}}", "{{PAYMENT_BLOCK}}\n{{SUBTOTAL_LINE}}");
+    } else {
+      next = `${next}\n{{PAYMENT_BLOCK}}`;
+    }
+  }
   return next;
 }
 
@@ -167,6 +216,7 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
   const [testPhone, setTestPhone] = useState("");
   const [receiptLogoBase64, setReceiptLogoBase64] = useState("");
   const [activeTab, setActiveTab] = useState<"standard" | "pickup">("standard");
+  const [previewScenario, setPreviewScenario] = useState<ReceiptPreviewScenario>("mixed");
 
   const load = useCallback(async () => {
     setSettingsReady(false);
@@ -255,6 +305,162 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
     cfg.show_email ? cfg.store_email?.trim() || "info@riversidemens.com" : "",
     ...cfg.header_lines,
   ].filter(Boolean);
+  const isGiftPreview = previewScenario === "gift";
+  const previewTitle = previewScenario === "return"
+    ? "RETURN / REFUND"
+    : previewScenario === "exchange"
+      ? "RETURN / EXCHANGE"
+      : isGiftPreview
+        ? "GIFT RECEIPT"
+        : "RECEIPT";
+  const previewItemLines = (() => {
+    switch (previewScenario) {
+      case "sale":
+        return [
+          "^^^Taken Today",
+          '"100% Lambswool Sweater" |',
+          "Variation: Medium / Navy |",
+          "| SKU I-1003713601 | $83.80",
+          "Reg $104.75 Sale $83.80 (20% Discount) |",
+        ].join("\n");
+      case "pickup":
+        return [
+          '"Tuxedo Jacket" |',
+          "Variation: 42R / Black |",
+          "Order Date: 04/10/2026 01:15 PM |",
+          "| SKU I-40092180 | $350.00",
+          "",
+          '"Tuxedo Pants" |',
+          "Variation: 34 / Black |",
+          "Order Date: 04/10/2026 01:15 PM |",
+          "| SKU I-40092181 | $150.00",
+        ].join("\n");
+      case "return":
+        return [
+          "^^^RETURNED / REFUNDED",
+          '"100% Lambswool Sweater" |',
+          "Variation: Medium / Navy |",
+          "| SKU I-1003713601 | -$83.80",
+        ].join("\n");
+      case "exchange":
+        return [
+          "^^^EXCHANGED",
+          '"Tuxedo Shirt - White" |',
+          "Variation: 16.5 / 34-35 |",
+          "| SKU I-40092182 | -$65.00",
+          "",
+          "^^^Taken Today",
+          '"Tuxedo Shirt - Ivory" |',
+          "Variation: 16.5 / 34-35 |",
+          "| SKU I-40092183 | $70.00",
+        ].join("\n");
+      case "gift":
+        return [
+          "^^^Taken Today",
+          '"100% Lambswool Sweater" |',
+          "Variation: Medium / Navy |",
+          "| SKU I-1003713601 |",
+        ].join("\n");
+      case "mixed":
+        return [
+          "^^^Taken Today",
+          '"100% Lambswool Sweater" |',
+          "Variation: Medium / Navy |",
+          "| SKU I-1003713601 | $83.80",
+          "Reg $104.75 Sale $83.80 (20% Discount) |",
+          "",
+          "^^^PICKED UP",
+          '"Tuxedo Shirt" |',
+          "Variation: 16.5 / 34-35 / White |",
+          "Order Date: 04/10/2026 01:15 PM |",
+          "| SKU I-40092182 | $65.00",
+          "",
+          "^^^SHIPPED",
+          '"Silk Tie" |',
+          "Variation: Burgundy |",
+          "| SKU I-50012345 | $45.00",
+          "",
+          "^^^Special Order",
+          '"Navy Blazer" |',
+          "Variation: 42R / Navy |",
+          "| SKU I-2004829302 | $295.00",
+          "",
+          "^^^Custom Order",
+          '"Made-to-Measure Suit" |',
+          "| SKU CUSTOM-MTM | $895.00",
+          "",
+          "^^^Wedding Order",
+          '"Groomsman Suit" |',
+          "Variation: 40R / Charcoal |",
+          "| SKU I-30088420 | $260.00",
+          "",
+          "^^^Layaway",
+          '"Overcoat" |',
+          "Variation: 42 / Camel |",
+          "| SKU I-60022410 | $325.00",
+          "",
+          "^^^Alterations",
+          '"ALTERATION FEE" |',
+          "Hem trousers |",
+          "| SKU ROS-ALTERATION-FEE | $18.00",
+          "",
+          "^^^Shipping",
+          '"SHIPPING FEE" |',
+          "| SKU ROS-SHIPPING-FEE | $12.00",
+        ].join("\n");
+    }
+  })();
+  const previewFinancialLines = (() => {
+    switch (previewScenario) {
+      case "pickup":
+        return {
+          subtotal: "Subtotal | $500.00",
+          tax: "Taxes | $42.50",
+          savings: "",
+          total: "Total | ^^$542.50",
+          paid: "Paid | $542.50",
+          tender: "Tender CC | $250.00",
+        };
+      case "return":
+        return {
+          subtotal: "Subtotal | -$83.80",
+          tax: "Taxes | -$7.12",
+          savings: "",
+          total: "Refund Total | ^^$90.92",
+          paid: "Refunded | $90.92",
+          tender: "Refund CC | $90.92",
+        };
+      case "exchange":
+        return {
+          subtotal: "Subtotal | $5.00",
+          tax: "Taxes | $0.43",
+          savings: "",
+          total: "Balance Due | ^^$5.43",
+          paid: "Paid | $5.43",
+          tender: "Tender Cash | $5.43",
+        };
+      case "mixed":
+        return {
+          subtotal: "Subtotal | $1,998.80",
+          tax: "Taxes | $169.90",
+          savings: "Total Savings | $20.95",
+          total: "Total | ^^$2,168.70",
+          paid: "Paid | $2,168.70",
+          tender: "Tender Cash | $425.00\nTender CC | $1,668.70",
+        };
+      case "gift":
+        return { subtotal: "", tax: "", savings: "", total: "", paid: "", tender: "" };
+      case "sale":
+        return {
+          subtotal: "Subtotal | $83.80",
+          tax: "Taxes | $7.12",
+          savings: "Total Savings | $20.95",
+          total: "Total | ^^$90.92",
+          paid: "Paid | $90.92",
+          tender: "Tender Cash | $90.92",
+        };
+    }
+  })();
   const getReceiptLineMarkup = () =>
     effectiveTemplate
       .replaceAll(
@@ -263,9 +469,9 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
       )
       .replaceAll("{{STORE_NAME}}", `| ^^${escapeReceiptlineText(cfg.store_name)} |`)
       .replaceAll("{{HEADER_LINES}}", centeredLines(headerLineValues))
-      .replaceAll("{{RECEIPT_TITLE}}", "| ^^^RECEIPT |")
+      .replaceAll("{{RECEIPT_TITLE}}", `| ^^^${previewTitle} |`)
       .replaceAll("{{RECEIPT_ID}}", "| Receipt TXN-66736 |")
-      .replaceAll("{{RECEIPT_DATE}}", activeTab === "standard" ? "| 04/26/2026 02:14 AM |" : "")
+      .replaceAll("{{RECEIPT_DATE}}", previewScenario === "pickup" ? "" : "| 04/26/2026 02:14 AM |")
       .replaceAll(
         "{{CUSTOMER_LINE}}",
         [
@@ -278,81 +484,56 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
       .replaceAll("{{CASHIER_LINE}}", "Staff: Alex B.")
       .replaceAll(
         "{{ITEM_LINES}}",
-        activeTab === "standard"
-          ? [
-              "^^^Taken Today",
-              "\"100% Lambswool Sweater\" |",
-              "Variation: Medium / Navy |",
-              "| SKU I-1003713601 | $83.80",
-              "Reg $104.75 Sale $83.80 (20% Discount) |",
-              "",
-              "^^^PICKED UP",
-              "\"Tuxedo Shirt\" |",
-              "Variation: 16.5 / 34-35 / White |",
-              "Order Date: 04/10/2026 01:15 PM |",
-              "| SKU I-40092182 | $65.00",
-              "",
-              "^^^SHIPPED",
-              "\"Silk Tie\" |",
-              "Variation: Burgundy |",
-              "| SKU I-50012345 | $45.00",
-              "",
-              "^^^Special Order",
-              "NOTICE: Size 42R requested |",
-              "\"Custom Navy Blazer\" |",
-              "Variation: 42R / Navy |",
-              "| SKU I-2004829302 | $295.00",
-              "",
-              "^^^Wedding Order",
-              "\"Groomsman Suit\" |",
-              "Variation: 40R / Charcoal |",
-              "| SKU I-30088420 | $260.00",
-            ]
-              .filter(Boolean)
-              .join("\n")
-          : [
-              "\"Tuxedo Jacket\" |",
-              "Variation: 42R / Black |",
-              "Order Date: 04/10/2026 01:15 PM |",
-              "| SKU I-40092180 | $350.00",
-              "",
-              "\"Tuxedo Pants\" |",
-              "Variation: 34 / Black |",
-              "Order Date: 04/10/2026 01:15 PM |",
-              "| SKU I-40092181 | $150.00",
-            ].join("\n")
+        previewItemLines,
       )
-      .replaceAll("{{LOYALTY_EARNED}}", cfg.show_loyalty_earned ? "Loyalty earned | 84 pts" : "")
-      .replaceAll("{{LOYALTY_BALANCE}}", cfg.show_loyalty_balance ? "Loyalty balance | 1,240 pts" : "")
+      .replaceAll("{{LOYALTY_EARNED}}", !isGiftPreview && cfg.show_loyalty_earned ? "Loyalty earned | 84 pts" : "")
+      .replaceAll("{{LOYALTY_BALANCE}}", !isGiftPreview && cfg.show_loyalty_balance ? "Loyalty balance | 1,240 pts" : "")
       .replaceAll(
         "{{PAYMENT_BLOCK}}",
-        activeTab === "standard"
+        previewScenario === "mixed"
           ? [
               "---",
               "Payments toward existing orders:",
               "Order TXN-566027 | $140.00",
               "Remaining balance | $120.00",
             ].join("\n")
-          : "",
+          : previewScenario === "pickup"
+            ? [
+                "^^^Pickup payment status",
+                "Previously paid | $292.50",
+                "^^^Payments toward existing orders",
+                "Order TXN-566027 | $250.00",
+                "Remaining balance | $0.00",
+              ].join("\n")
+            : "",
       )
       .replaceAll(
         "{{PAYMENT_HISTORY_BLOCK}}",
-        [
+        previewScenario === "pickup" ? [
           "| ^Payment History |",
           "---",
-          "04/10/2026 Cash | $250.00",
+          "04/10/2026 Cash | $292.50",
           "04/26/2026 CC | $250.00",
-        ].join("\n")
+        ].join("\n") : "",
       )
-      .replaceAll("{{SUBTOTAL_LINE}}", activeTab === "standard" ? "Subtotal | $83.80" : "Subtotal | $500.00")
-      .replaceAll("{{TAX_LINE}}", activeTab === "standard" ? "Taxes | $7.12" : "Taxes | $42.50")
-      .replaceAll("{{TOTAL_SAVINGS_LINE}}", "Total Savings | $20.95")
-      .replaceAll("{{TOTAL_LINE}}", activeTab === "standard" ? "Total | ^^$90.92" : "Total | ^^$542.50")
-      .replaceAll("{{PAID_LINE}}", activeTab === "standard" ? "Paid | $90.92" : "Paid | $542.50")
+      .replaceAll("{{SUBTOTAL_LINE}}", previewFinancialLines.subtotal)
+      .replaceAll("{{TAX_LINE}}", previewFinancialLines.tax)
+      .replaceAll("{{TOTAL_SAVINGS_LINE}}", previewFinancialLines.savings)
+      .replaceAll("{{TOTAL_LINE}}", previewFinancialLines.total)
+      .replaceAll("{{PAID_LINE}}", previewFinancialLines.paid)
       .replaceAll("{{BALANCE_LINE}}", "")
-      .replaceAll("{{TENDER_LINE}}", "Tender | Cash")
-      .replaceAll("{{GIFT_CARD_BALANCE}}", "Gift Card Balance | $25.00")
-      .replaceAll("{{STATUS_LINE}}", "Status | Paid")
+      .replaceAll("{{TENDER_LINE}}", previewFinancialLines.tender)
+      .replaceAll(
+        "{{GIFT_CARD_BALANCE}}",
+        previewScenario === "mixed" ? "Gift Card Balance | $25.00" : "",
+      )
+      .replaceAll(
+        "{{WEDDING_DEPOSIT_LINES}}",
+        previewScenario === "mixed"
+          ? "Wedding Deposit Applied | $75.00\n  Paid by Jordan Garcia · Garcia Wedding"
+          : "",
+      )
+      .replaceAll("{{STATUS_LINE}}", isGiftPreview ? "" : previewScenario === "return" ? "Status | Refunded" : "Status | Complete")
       .replaceAll("{{TAX_EXEMPT_LINE}}", "")
       .replaceAll("{{BARCODE_IMAGE}}", cfg.show_barcode ? "{code:TXN-66736;option:code128,hri}" : "")
       .replaceAll("{{FOOTER_LINES}}", centeredLines(cfg.footer_lines))
@@ -360,11 +541,14 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
 
   const requiredTokens = [
     "{{ITEM_LINES}}",
+    "{{PAYMENT_BLOCK}}",
     "{{SUBTOTAL_LINE}}",
     "{{TAX_LINE}}",
     "{{TOTAL_LINE}}",
     "{{PAID_LINE}}",
-    "{{TENDER_LINE}}",
+    ...(activeTab === "standard"
+      ? ["{{TENDER_LINE}}"]
+      : ["{{PAYMENT_HISTORY_BLOCK}}"]),
   ];
   const missingRequiredTokens = requiredTokens.filter((token) => !effectiveTemplate.includes(token));
 
@@ -464,6 +648,39 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
           <span className="w-fit rounded-full border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-emerald-700 dark:text-emerald-300">
             Standard Epson
           </span>
+        </div>
+      </section>
+
+      <section className="ui-card p-6">
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,28rem)] lg:items-end">
+          <div>
+            <h3 className="text-[10px] font-black uppercase tracking-widest text-app-text">
+              Preview transaction
+            </h3>
+            <p className="mt-2 max-w-2xl text-xs font-semibold leading-relaxed text-app-text-muted">
+              Select the customer receipt situation you want to inspect. Mixed transaction combines the major fulfillment and fee sections on one receipt.
+            </p>
+          </div>
+          <label className="block">
+            <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+              Receipt type
+            </span>
+            <select
+              value={previewScenario}
+              onChange={(event) => {
+                const nextScenario = event.target.value as ReceiptPreviewScenario;
+                setPreviewScenario(nextScenario);
+                setActiveTab(nextScenario === "pickup" ? "pickup" : "standard");
+              }}
+              className="ui-input mt-2 w-full text-sm font-bold"
+            >
+              {RECEIPT_PREVIEW_SCENARIOS.map((scenario) => (
+                <option key={scenario.value} value={scenario.value}>
+                  {scenario.label} — {scenario.description}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
       </section>
 
@@ -692,7 +909,10 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
               <div className="flex border-b border-app-border mb-4">
                 <button
                   type="button"
-                  onClick={() => setActiveTab("standard")}
+                  onClick={() => {
+                    setActiveTab("standard");
+                    if (previewScenario === "pickup") setPreviewScenario("mixed");
+                  }}
                   className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest border-b-2 transition-all ${
                     activeTab === "standard"
                       ? "border-app-accent text-app-accent font-black"
@@ -703,7 +923,10 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setActiveTab("pickup")}
+                  onClick={() => {
+                    setActiveTab("pickup");
+                    setPreviewScenario("pickup");
+                  }}
                   className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest border-b-2 transition-all ${
                     activeTab === "pickup"
                       ? "border-app-accent text-app-accent font-black"
@@ -724,13 +947,24 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
                 <div className="mt-2 flex flex-wrap gap-2">
                   {[
                     ["Logo", "{{LOGO_IMAGE}}"],
+                    ["Store Name", "{{STORE_NAME}}"],
                     ["Header", "{{HEADER_LINES}}"],
+                    ["Receipt Title", "{{RECEIPT_TITLE}}"],
+                    ["Transaction #", "{{RECEIPT_ID}}"],
+                    ["Date", "{{RECEIPT_DATE}}"],
                     ["Customer", "{{CUSTOMER_LINE}}"],
                     ["Staff", "{{SALESPERSON_LINE}}\n{{CASHIER_LINE}}"],
                     ["Items", "{{ITEM_LINES}}"],
+                    ["Loyalty", "{{LOYALTY_EARNED}}\n{{LOYALTY_BALANCE}}"],
                     ["Totals", "{{SUBTOTAL_LINE}}\n{{TAX_LINE}}\n{{TOTAL_SAVINGS_LINE}}\n{{TOTAL_LINE}}\n{{PAID_LINE}}\n{{BALANCE_LINE}}"],
-                    activeTab === "standard" ? ["Payments", "{{PAYMENT_BLOCK}}"] : null,
+                    ["Order Payments", "{{PAYMENT_BLOCK}}"],
+                    ["Tender", "{{TENDER_LINE}}"],
+                    ["Gift Card Balance", "{{GIFT_CARD_BALANCE}}"],
+                    ["Wedding Deposits", "{{WEDDING_DEPOSIT_LINES}}"],
+                    ["Status", "{{STATUS_LINE}}"],
+                    ["Tax Exempt", "{{TAX_EXEMPT_LINE}}"],
                     ["Barcode", "{{BARCODE_IMAGE}}"],
+                    ["Footer", "{{FOOTER_LINES}}"],
                     ["Cut", "{{CUT}}"],
                     activeTab === "pickup" ? ["Payment History", "{{PAYMENT_HISTORY_BLOCK}}"] : null,
                   ]
@@ -786,7 +1020,7 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
                   className="ui-input mt-2 min-h-72 w-full resize-y font-mono text-xs leading-relaxed"
                 />
                 <p className="mt-2 text-[10px] font-semibold leading-relaxed text-app-text-muted">
-                  Tokens are replaced by ROS at print time. Keep line items, totals, and payment tokens in the template so receipts remain financially complete.
+                  Type any fixed text directly into the template. Tokens are replaced by ROS at print time; the add buttons above expose every supported receipt field. Keep line items, totals, and payment tokens so receipts remain financially complete.
                 </p>
                 {missingRequiredTokens.length > 0 ? (
                   <div className="mt-3 flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3">
@@ -817,7 +1051,7 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
                   Available Tokens
                 </p>
                 <p className="mt-2 font-mono text-[10px] leading-relaxed text-app-text-muted">
-                  {"{{LOGO_IMAGE}} {{STORE_NAME}} {{HEADER_LINES}} {{RECEIPT_TITLE}} {{RECEIPT_ID}} {{RECEIPT_DATE}} {{CUSTOMER_LINE}} {{SALESPERSON_LINE}} {{CASHIER_LINE}} {{ITEM_LINES}} {{LOYALTY_EARNED}} {{LOYALTY_BALANCE}} {{PAYMENT_BLOCK}} {{SUBTOTAL_LINE}} {{TAX_LINE}} {{TOTAL_SAVINGS_LINE}} {{TOTAL_LINE}} {{PAID_LINE}} {{BALANCE_LINE}} {{TENDER_LINE}} {{GIFT_CARD_BALANCE}} {{STATUS_LINE}} {{TAX_EXEMPT_LINE}} {{BARCODE_IMAGE}} {{FOOTER_LINES}} {{CUT}}"}
+                  {"{{LOGO_IMAGE}} {{STORE_NAME}} {{HEADER_LINES}} {{RECEIPT_TITLE}} {{RECEIPT_ID}} {{RECEIPT_DATE}} {{CUSTOMER_LINE}} {{SALESPERSON_LINE}} {{CASHIER_LINE}} {{ITEM_LINES}} {{LOYALTY_EARNED}} {{LOYALTY_BALANCE}} {{PAYMENT_BLOCK}} {{PAYMENT_HISTORY_BLOCK}} {{SUBTOTAL_LINE}} {{TAX_LINE}} {{TOTAL_SAVINGS_LINE}} {{TOTAL_LINE}} {{PAID_LINE}} {{BALANCE_LINE}} {{TENDER_LINE}} {{GIFT_CARD_BALANCE}} {{WEDDING_DEPOSIT_LINES}} {{STATUS_LINE}} {{TAX_EXEMPT_LINE}} {{BARCODE_IMAGE}} {{FOOTER_LINES}} {{CUT}}"}
                 </p>
               </div>
             </div>

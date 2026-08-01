@@ -30,16 +30,17 @@ Use this panel when changing the receipt logo, store name, header lines, footer 
 ## How to use it
 
 1. Open **Settings → Receipt Settings**.
-2. Use **Receipt Logo** to show or hide the full Riverside Men's Shop logo at the top of printed receipts.
-3. Edit the store identifier and contact fields.
-4. Add extra header lines for service notes or pickup instructions. The box supports normal spaces and line breaks; each non-empty line prints centered under the store contact details.
-5. Add one footer line per row for thanks, return policy, or store messaging. The box supports normal spaces and line breaks; each non-empty line prints above the receipt cut.
-6. Turn receipt sections on or off.
-7. Review or edit the ReceiptLine template when the store needs a deeper layout change.
-8. Use the preview to review the standard receipt shape.
-9. Use **Print Test** to send the current preview to the Epson receipt printer.
-10. Enter a destination under **Delivery tests** and use **Send Test Email** or **Send Test Text** to send the current preview without saving first. Email uses Store Email; text sends an attached receipt image through Podium.
-11. Click **Apply** to save the standard receipt settings.
+2. Choose a **Receipt type** to preview a retail sale, mixed transaction, pickup and payment, return/refund, return/exchange, or gift receipt. Choosing pickup automatically opens the picked-up template; the other types use the standard template.
+3. Use **Receipt Logo** to show or hide the full Riverside Men's Shop logo at the top of printed receipts.
+4. Edit the store identifier and contact fields.
+5. Add extra header lines for service notes or pickup instructions. The box supports normal spaces and line breaks; each non-empty line prints centered under the store contact details.
+6. Add one footer line per row for thanks, return policy, or store messaging. The box supports normal spaces and line breaks; each non-empty line prints above the receipt cut.
+7. Turn receipt sections on or off.
+8. Review or edit the ReceiptLine template when the store needs a deeper layout change. Type fixed wording directly into the template, or use the add buttons to insert any supported receipt field, including identity, customer, staff, items, payments, tender, gift card balance, wedding deposits, status, and tax-exempt details.
+9. Use the preview to review the selected receipt situation.
+10. Use **Print Test** to send the current preview to the Epson receipt printer.
+11. Enter a destination under **Delivery tests** and use **Send Test Email** or **Send Test Text** to send the current preview without saving first. Email uses Store Email; text sends an attached receipt image through Podium.
+12. Click **Apply** to save the standard receipt settings.
 
 ## Recovery and escalation
 
@@ -52,10 +53,12 @@ If a test print does not match the preview, check printer routing first, then re
 - Epson ESC/POS is the active production receipt path.
 - Register #1 cash drawer behavior is controlled in **Printers & Scanners**. The drawer opens automatically for CASH and CHECK sales only; manual drawer opens require an Access PIN and are reported on the Z-report.
 - The preview reflects the ReceiptLine template, header lines, footer lines, and section toggles before saving.
+- **Mixed transaction** is the broad preview: it combines taken-today, picked-up, shipped, special order, custom order, wedding order, layaway, alteration fee, shipping fee, split tender, order-payment, and wedding-deposit examples on one customer receipt.
+- Return/refund, return/exchange, and gift previews use the same standard template with the correct receipt title and representative sections. The preview selector does not create or modify a transaction.
 - The receipt logo is controlled by the `{{LOGO_IMAGE}}` token and is resized for 80mm Epson thermal output.
 - The address, phone, email, barcode, and loyalty toggles affect the ReceiptLine preview and print output.
 - The Order Barcode toggle prints a barcode for the Transaction Record display ID, such as `TXN-566056`. Staff can scan it in Register for the matching transaction workflow or scan/type it in Universal Search to open the Transaction Hub.
-- Keep customer, item, payment, and financial tokens such as `{{CUSTOMER_LINE}}`, `{{ITEM_LINES}}`, `{{PAYMENT_BLOCK}}`, `{{PAYMENT_HISTORY_BLOCK}}`, `{{SUBTOTAL_LINE}}`, `{{TAX_LINE}}`, `{{TOTAL_SAVINGS_LINE}}`, `{{TOTAL_LINE}}`, `{{PAID_LINE}}`, and `{{TENDER_LINE}}` in the template.
+- Keep customer, item, payment, and financial tokens such as `{{CUSTOMER_LINE}}`, `{{ITEM_LINES}}`, `{{PAYMENT_BLOCK}}`, `{{PAYMENT_HISTORY_BLOCK}}`, `{{SUBTOTAL_LINE}}`, `{{TAX_LINE}}`, `{{TOTAL_SAVINGS_LINE}}`, `{{TOTAL_LINE}}`, `{{PAID_LINE}}`, and `{{TENDER_LINE}}` in the template. `{{WEDDING_DEPOSIT_LINES}}` discloses applied wedding deposits and their payer/party source when present.
 - `{{CUSTOMER_LINE}}` prints the customer name, phone, and Customer # when present. `{{ITEM_LINES}}` groups merchandise as Taken Today, PICKED UP, SHIPPED, Special Order, Custom Order, Wedding Order, or Layaway and includes product title, SKU, variation, quantity when greater than one, order date for pickup lines, and pricing when applicable. Pickup receipts only print the items picked up in that pickup event.
 - Pickup receipts use the normal **RECEIPT** heading. The **PICKED UP** status belongs in the item body, not the receipt title.
 - Split tenders are shown as separate payment rows with short labels such as **CC**, **Cash**, **RMS90**, **RMS**, **Check**, and **SC**.
