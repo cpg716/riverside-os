@@ -13146,8 +13146,8 @@ mod tests {
             .expect("end of terminal purchase endpoint")
             .0;
 
-        assert!(purchase.contains("customer_profile_unavailable"));
-        assert!(purchase.contains("continuing terminal payment without a customer code"));
+        assert!(purchase.contains("Helcim customer enrichment failed before terminal dispatch"));
+        assert!(purchase.contains("continuing without a customer code"));
         assert!(!purchase.contains("pre_provider_customer_lookup_failed"));
     }
 

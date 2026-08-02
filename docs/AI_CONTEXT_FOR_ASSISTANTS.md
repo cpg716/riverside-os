@@ -1,5 +1,7 @@
 # AI context guide — answering Riverside OS questions
 
+**Policy pack:** `rosie-policy-pack-0.96.0` · **Release context reviewed:** 2026-08-02. Current wedding guidance includes the one-action Wedding Builder, payer-scoped Deposit Only resume, exact member variations, and normal audited checkout for every member Transaction.
+
 This document is for **prompt authors**, **server-side system prompts**, **fine-tuning / instruction-tuning datasets**, and **implementers** wiring in-app help (**`GET /api/help/search`** over **`ros_help`**), admin reporting, or external assistants (ChatGPT projects, Cursor rules, future **ROSIE**). The legacy **`POST /api/ai/help`** + **`ai_doc_chunk`** path was **retired** (migration **78**) — see **`ROS_AI_INTEGRATION_PLAN.md`**. **`docs/staff/*`** remains the **primary** procedure truth; this file teaches **how to route**, **what not to invent**, and **how APIs + RBAC + SOP fit together**.
 
 **Using this doc to train an LLM:** Sections **1–8** are **factual routing and invariants**. Sections **§9–§12** are **behavioral supervision** (preference ordering, anti-patterns, worked dialogue). **§13** is the **ROSIE runtime contract** (implementers: system prompt + tool executor). For **numeric reporting** supervision (dates, **`basis`**, which GET to call), add **[`AI_REPORTING_DATA_CATALOG.md`](AI_REPORTING_DATA_CATALOG.md) §15**. **Product architecture** for ROSIE lives in **[`PLAN_LOCAL_LLM_HELP.md`](PLAN_LOCAL_LLM_HELP.md)** (three-document bundle).
@@ -305,4 +307,4 @@ ROSIE **may** incorporate new information over time **only** through paths that 
 
 ---
 
-**Last reviewed:** 2026-04-08 (§13 ROSIE contract incl. §13.6 learning; §9–§12; [`AI_REPORTING_DATA_CATALOG.md`](AI_REPORTING_DATA_CATALOG.md) §15; [`PLAN_LOCAL_LLM_HELP.md`](PLAN_LOCAL_LLM_HELP.md) three-doc bundle)
+**Last reviewed:** 2026-08-02 for v0.96.0 (§13 ROSIE contract incl. §13.6 learning; §9–§12; [`AI_REPORTING_DATA_CATALOG.md`](AI_REPORTING_DATA_CATALOG.md) §15; [`PLAN_LOCAL_LLM_HELP.md`](PLAN_LOCAL_LLM_HELP.md) three-doc bundle)

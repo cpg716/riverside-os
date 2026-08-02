@@ -1,8 +1,8 @@
 # Riverside OS
 
-**Riverside OS (ROS)** is a production-grade desktop ERM/POS platform for formalwear and wedding retail. Version 0.95.5 is the current release line and adds focused Register, alterations, returns, RMS Charge, reporting, search, payment-recovery, and payment-event receipt safeguards to the v0.95.0 baseline. Daily Sales and Z-Reports preserve payment-on-order activity without turning service charges or older-order allocations into merchandise sales. The exact published source is always the commit referenced by the `v0.95.5` tag; physical Windows Main Hub update verification remains a separate operational gate.
+**Riverside OS (ROS)** is a production-grade desktop ERM/POS platform for formalwear and wedding retail. Version 0.96.0 adds a one-action Wedding Builder, persistent variation-picker navigation, production-aligned Main Hub auditing, the certified local Gemma 4 ROSIE stack, and input-method accessibility across staff workflows. The exact published source is always the commit referenced by the `v0.96.0` tag; physical Windows Main Hub update verification remains a separate operational gate.
 
-Current Version: **v0.95.5** (See [CHANGELOG.md](CHANGELOG.md))
+Current Version: **v0.96.0** (See [CHANGELOG.md](CHANGELOG.md))
 
 ## Stack
 
@@ -91,8 +91,8 @@ Riverside OS v0.80.0+ includes enterprise-grade production hardening features:
 - **Secure Headers**: Automatic security header injection
 
 **📖 Production Documentation**:
-- [v0.95.5 Release Notes](docs/releases/v0.95.5-release-notes.md) - Current release scope and operational requirements
-- [v0.95.5 Certification Evidence](docs/releases/v0.95.5-certification.md) - Exact-commit CI and asset evidence
+- [v0.96.0 Release Notes](docs/releases/v0.96.0-release-notes.md) - Current release scope and operational requirements
+- [v0.96.0 Certification Evidence](docs/releases/v0.96.0-certification.md) - Exact-commit CI and asset evidence
 - [Go/No-Go Checklist](docs/PRODUCTION_DEPLOYMENT_GO_NO_GO_CHECKLIST.md) - Final production deployment checklist
 - [Production Hardening Guide](docs/PRODUCTION_HARDENING_GUIDE.md) - Complete production setup
 - [Redis Integration Guide](docs/REDIS_INTEGRATION_GUIDE.md) - Caching and distributed locking
@@ -260,8 +260,8 @@ E2E_BASE_URL="http://localhost:43173" E2E_API_BASE="http://127.0.0.1:43300" npm 
 Current CI note:
 
 - The POS UI subset (`phase2-tender-ui`, `pos-golden`, `tax-exempt-and-helcim-branding`, and the UI-open path in `exchange-wizard`) is back in the release gate. The old `ROS_QUARANTINE_UNSTABLE_POS_E2E=1` quarantine has been removed after adding explicit POS readiness contracts.
-- Production hardening coverage now includes checkout tender, tax, commission, inventory, offline recovery, register close, QBO, Payments Operations, register reconciliation, high-risk API, intelligence/finance, connectivity recovery, and visual baseline contracts. The current release scope and evidence are recorded in [`docs/releases/v0.95.5-release-notes.md`](docs/releases/v0.95.5-release-notes.md) and [`docs/releases/v0.95.5-certification.md`](docs/releases/v0.95.5-certification.md).
-- See [`docs/releases/v0.95.5-release-notes.md`](docs/releases/v0.95.5-release-notes.md), [`docs/E2E_REGRESSION_MATRIX.md`](docs/E2E_REGRESSION_MATRIX.md), [`docs/POS_E2E_TESTABILITY_FOLLOWUP.md`](docs/POS_E2E_TESTABILITY_FOLLOWUP.md), and [`docs/PRODUCTION_DEPLOYMENT_GO_NO_GO_CHECKLIST.md`](docs/PRODUCTION_DEPLOYMENT_GO_NO_GO_CHECKLIST.md).
+- Production hardening coverage now includes checkout tender, tax, commission, inventory, offline recovery, register close, QBO, Payments Operations, register reconciliation, high-risk API, intelligence/finance, connectivity recovery, and visual baseline contracts. The current release scope and evidence are recorded in [`docs/releases/v0.96.0-release-notes.md`](docs/releases/v0.96.0-release-notes.md) and [`docs/releases/v0.96.0-certification.md`](docs/releases/v0.96.0-certification.md).
+- See [`docs/releases/v0.96.0-release-notes.md`](docs/releases/v0.96.0-release-notes.md), [`docs/E2E_REGRESSION_MATRIX.md`](docs/E2E_REGRESSION_MATRIX.md), [`docs/POS_E2E_TESTABILITY_FOLLOWUP.md`](docs/POS_E2E_TESTABILITY_FOLLOWUP.md), and [`docs/PRODUCTION_DEPLOYMENT_GO_NO_GO_CHECKLIST.md`](docs/PRODUCTION_DEPLOYMENT_GO_NO_GO_CHECKLIST.md).
 
 For complete pre-release validation (service boot order, lint/build gates, and E2E checklist), see **`docs/RELEASE_QA_CHECKLIST.md`**.
 

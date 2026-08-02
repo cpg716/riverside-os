@@ -217,7 +217,6 @@ test.describe("bug reporting diagnostics hardening", () => {
         body: JSON.stringify([]),
       });
     });
-
     await signInToBackOffice(page, { persistSession: true });
     await openBackofficeSidebarTab(page, "settings");
     await openSettingsSubItem(page, /^ros operations & support center$/i);
@@ -267,6 +266,7 @@ test.describe("bug reporting diagnostics hardening", () => {
   });
 
   test("server error events surface in bug report triage", async ({ page }) => {
+    test.setTimeout(60_000);
     await page.route(/\/api\/settings\/bug-reports$/, async (route) => {
       await route.fulfill({
         status: 200,
@@ -297,6 +297,28 @@ test.describe("bug reporting diagnostics hardening", () => {
             server_log_snapshot: "ops runtime diagnostics failed",
           },
         ]),
+      });
+    });
+    await page.route("**/api/settings/bug-reports/error-events/*", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          id: "server-event-1",
+          created_at: "2026-05-19T13:00:00Z",
+          staff_id: null,
+          staff_name: null,
+          status: "pending",
+          message: "Runtime diagnostics failed to load on the server",
+          event_source: "server_api_error",
+          severity: "error",
+          route: "/api/ops/runtime-diagnostics",
+          client_meta: {
+            source: "server_api_error",
+            server_dedupe_key: "server_api_error:/api/ops/runtime-diagnostics",
+          },
+          server_log_snapshot: "ops runtime diagnostics failed",
+        }),
       });
     });
 

@@ -62,21 +62,21 @@ flowchart TB
 | **Other Windows PCs / laptops** | **PWA or optional Tauri** | Use a browser-installed PWA for Back Office/POS where hardware printing is not required; use Tauri where native printer/scanner reliability is required. |
 | **Off-site phones / laptops** | **PWA over Tailscale** | Use **Tailscale** (or equivalent private mesh) and **HTTPS** when the device is not on the same local network as the host. Do not expose plain HTTP to the public internet for staff apps ([`REMOTE_ACCESS_GUIDE.md`](../REMOTE_ACCESS_GUIDE.md)). |
 
-### 2.1 Current deployment status snapshot (2026-07-26)
+### 2.1 Current deployment status snapshot (2026-08-02)
 
 This is the current repo/deployment status to verify before a live install:
 
 | Item | Current status | Deployment impact |
 |------|----------------|-------------------|
-| Target release version | **`v0.95.5`** | Root, client/PWA bundle, server, Tauri, standalone apps, and deployment metadata must all match. Run `npm run check:version` before publishing artifacts. |
-| Latest published GitHub release | **`v0.95.5` replacement tag** | Resolve the current full SHA from the live tag/release after the replacement workflows finish; prior build `2fe02440` is superseded. Do not mix installer assets from older builds. |
+| Target release version | **`v0.96.0`** | Root, client/PWA bundle, server, Tauri, standalone apps, and deployment metadata must all match. Run `npm run check:version` before publishing artifacts. |
+| Latest published GitHub release | **`v0.96.0` pending publication** | Resolve the full SHA from the live tag/release after candidate promotion. Do not mix installer assets from v0.95.x or other builds. |
 | Windows installer/updater assets | **Required for the same Riverside release** | The release must contain `latest.json`, one current Windows MSI, and the matching `.sig`; old Riverside MSI/signature assets must be removed before upload. |
-| Windows deployment package | **Replacement publication pending verification** | Use only the sole `RiversideOS-v0.95.5-<replacement-sha>-Windows-Deployment.zip` after its build manifest, signatures, and release target agree. |
+| Windows deployment package | **Publication pending verification** | Use only the sole `RiversideOS-v0.96.0-<release-sha>-Windows-Deployment.zip` after its build manifest, signatures, and release target agree. |
 | Windows app updater-only release | **Available for faster Back Office/Register desktop app updates** | Workflow scope `app-updater-only` publishes the signed Tauri app updater assets without rebuilding the full deployment ZIP or unchanged companion apps. |
 | In-app Main Hub update workflow | **Available for routine Main Hub/server updates** | Run **In-app Main Hub update** with a branch/tag `source_ref` and existing `release_tag`; it dispatches the verified `main-hub-update` path, which packages the Rust server, client/PWA bundle, Register/Tauri updater, migrations, and Main Hub update ZIP without rebuilding unrelated companion apps. |
 | macOS ROS Dev Center | **Required as GitHub release asset** | Universal Apple Silicon / Intel DMG for Mac-based DevOps companion access and system management. |
-| Latest Playwright E2E on release commit | Replacement exact-SHA run required | All four blocking shards and the aggregate gate must pass remotely; local Playwright is intentionally skipped by operator direction. |
-| Latest Lint Checks on release commit | Replacement exact-SHA run required | GitHub Lint Checks must pass on the same full commit referenced by `v0.95.5`. |
+| Latest Playwright E2E on release commit | Exact-SHA run required | The complete suite must pass locally; all blocking shards and the aggregate gate must pass remotely. |
+| Latest Lint Checks on release commit | Exact-SHA run required | GitHub Lint Checks must pass on the same full commit referenced by `v0.96.0`. |
 | Local go-live checklist | Human/hardware/accounting gates still open | Retail deployment remains **pilot/validation**, not unattended go-live. |
 
 Before installing the two Windows PCs and PWA devices for production use, publish one complete Riverside release and record its release/run URL in the deployment log. The Windows app, server API, and PWA/web app files must all report the same Riverside version.
@@ -95,7 +95,7 @@ The app supports **multiple open register terminals** sharing one **till close g
 
 - **Rust binary** for the API (`cargo build --release` in `server/`, or your CI artifact). The server pins **Rust 1.91+** in **`server/rust-toolchain.toml`** (**`ort`** / **fastembed** for staff-help embeddings); use that toolchain in CI and release builds.
 - **Production web bundle** `client/dist` copied next to the deployment layout your runbook uses (Axum serves this folder in production).
-- **Database**: PostgreSQL reachable via **`DATABASE_URL`**. Apply the active schema-contract baseline and approved seed set (see [`DEVELOPER.md`](../DEVELOPER.md) and [`SCHEMA_CONTRACT_AND_MIGRATIONS.md`](SCHEMA_CONTRACT_AND_MIGRATIONS.md)). If you ship ROS-AI help, set **`RIVERSIDE_REPO_ROOT`** to the deployed tree that contains **`docs/staff/CORPUS.manifest.json`** and run **`POST /api/ai/admin/reindex-docs`** after upgrades that change staff docs — [`docs/ROS_AI_HELP_CORPUS.md`](ROS_AI_HELP_CORPUS.md).
+- **Database**: PostgreSQL reachable via **`DATABASE_URL`**. Apply the active schema-contract baseline and approved seed set (see [`DEVELOPER.md`](../DEVELOPER.md) and [`SCHEMA_CONTRACT_AND_MIGRATIONS.md`](SCHEMA_CONTRACT_AND_MIGRATIONS.md)). If you ship ROSIE Help, set **`RIVERSIDE_REPO_ROOT`** to the deployed tree that contains **`docs/staff/CORPUS.manifest.json`**, regenerate Help, and rebuild the `ros_help` index through the current Help/Meilisearch maintenance flow after upgrades that change staff docs — [`docs/ROS_AI_HELP_CORPUS.md`](ROS_AI_HELP_CORPUS.md).
 
 #### 3.1.1 Main Hub first-time setup
 

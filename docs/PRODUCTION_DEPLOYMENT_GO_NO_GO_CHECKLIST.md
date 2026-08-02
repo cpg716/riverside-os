@@ -2,16 +2,16 @@
 
 Target: Hybrid Tauri Host retail deployment.
 
-### Current Deployment Status (2026-07-27 v0.95.5 replacement candidate)
+### Current Deployment Status (2026-08-02 v0.96.0 candidate)
 
-- [x] Target source release version is **`v0.95.5`** across root, client, server, Tauri, standalone apps, ROS Dev Center, and Windows deployment metadata.
+- [x] Target source release version is **`v0.96.0`** across root, client, server, Tauri, standalone apps, ROS Dev Center, and Windows deployment metadata.
 - [x] Source-side QBO fallback mapping has been removed; exportable financial activity must resolve to an explicit Chart of Accounts mapping before posting.
 - [x] Source-side local review evidence is recorded in [`docs/reviews/legacy/2026-06/PRE_GO_LIVE_LOCAL_REVIEW_2026_06_05.md`](reviews/legacy/2026-06/PRE_GO_LIVE_LOCAL_REVIEW_2026_06_05.md).
-- [x] v0.95.5 release notes and candidate certification requirements are recorded in [`docs/releases/v0.95.5-release-notes.md`](releases/v0.95.5-release-notes.md) and [`docs/releases/v0.95.5-certification.md`](releases/v0.95.5-certification.md).
-- [ ] Exact-commit v0.95.5 GitHub Lint, blocking Playwright, Windows packaging, macOS packaging, 26 release assets, and all updater/build manifests are verified for the replacement tag. Prior build `2fe02440` is superseded and cannot certify the replacement.
+- [x] v0.96.0 release notes and candidate certification requirements are recorded in [`docs/releases/v0.96.0-release-notes.md`](releases/v0.96.0-release-notes.md) and [`docs/releases/v0.96.0-certification.md`](releases/v0.96.0-certification.md).
+- [ ] Exact-commit v0.96.0 GitHub Lint, blocking Playwright, Windows packaging, macOS packaging, release assets, and all updater/build manifests are verified for the release tag.
 - [x] Before the replacement retag, GitHub release **`v0.95.0`** was published as Latest from superseded build `feb0db16`; that asset set remains historical evidence only.
 - [x] The 2026-07-23 Register/search/reporting/runtime replacement is committed, retagged, promoted, published, and independently verified at `d9e68018f99f0778a21b0ffca1b57f287594561c`.
-- [x] Non-E2E local release checks passed for the final replacement source tree on 2026-07-23. Local Playwright is intentionally skipped at operator direction.
+- [ ] Full local release checks and Playwright pass for the v0.96.0 release commit.
 - [x] Exact-commit GitHub Lint, all four blocking Playwright shards, aggregate Playwright, Windows, macOS, and verified-candidate promotion passed for `d9e68018`.
 - [x] Financial, register, Counterpoint, Help/ROSIE, backup/restore, and reporting launch-critical local suites passed on 2026-06-05.
 - [ ] Production station deployment log is complete for Main Hub, Register #1 Windows Tauri, Register #2 iPad PWA, and other Windows laptop PWA / optional Tauri clients.
@@ -40,9 +40,9 @@ v0.95.0 preserves the v0.85.x GO LIVE readiness baseline, incorporates the exten
 
 ## Code Gate
 
-- [x] Final v0.95.5 source and publication validation is recorded in [`docs/releases/v0.95.5-certification.md`](releases/v0.95.5-certification.md), including exact-commit CI, release state, manifests, signatures, asset count, and deployment-ZIP provenance.
+- [ ] Final v0.96.0 source and publication validation is recorded in [`docs/releases/v0.96.0-certification.md`](releases/v0.96.0-certification.md), including exact-commit CI, release state, manifests, signatures, asset count, and deployment-ZIP provenance.
 - [x] Final replacement source and publication validation is recorded in [`docs/releases/v0.95.0-certification.md`](releases/v0.95.0-certification.md), including exact-commit CI, candidate runs, promotion, release state, manifests, signatures, asset count, and deployment-ZIP provenance.
-- [x] Replacement local validation passed before tagging: whitespace, version parity, client lint/typecheck, locked Rust checks, deployment release gates, go-live blockers, and Help impact. Local Playwright is intentionally skipped at operator direction.
+- [ ] v0.96.0 local validation passes before tagging: whitespace, version parity, client lint/typecheck, locked Rust checks, deployment release gates, go-live blockers, Help/ROSIE impact, and full local Playwright.
 - [x] Exact-commit GitHub Lint run `30006157344` and blocking Playwright run `30006157349` passed on full commit `d9e68018f99f0778a21b0ffca1b57f287594561c`.
 - [ ] `scripts/production_audit_probes.sql` runs read-only against the release database and all P0/P1 probes are explained or zero-row.
 - [x] The July 21 false-fulfillment incident remains explicitly disclosed: the universal write boundary, payment-allocation history, inventory line/event provenance, per-Transaction QBO attribution, and restore-tested Main Hub backup remain incomplete. The held prototype under `docs/incidents/design/` is not shipped.

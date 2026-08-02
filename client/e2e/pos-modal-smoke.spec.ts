@@ -144,6 +144,7 @@ test("POS Custom button opens canonical custom-order families", async ({ page })
   await expect(customDialog.getByTestId("pos-custom-type-individualized_shirt")).toBeVisible();
 
   await customDialog.getByTestId("pos-custom-type-individualized_shirt").click();
+  await customDialog.getByRole("button", { name: /garment and vendor details/i }).click();
   await expect(customDialog.getByText(/shirt form details/i)).toBeVisible();
   await expect(customDialog.getByTestId("pos-custom-garment-description")).toBeVisible();
   await customDialog.getByTestId("pos-custom-type-hsm_sport_coat").click();

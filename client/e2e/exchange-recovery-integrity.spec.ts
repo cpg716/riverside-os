@@ -190,6 +190,7 @@ async function closeWithRecoveryWarning(
   sessionId: string,
   sessionToken: string,
 ): Promise<{ recovery_job_keys?: string[] }> {
+  const managerStaffId = await verifyStaffId(request);
   const headers = posHeaders(sessionId, sessionToken);
   const reconciliation = await request.get(
     `${apiBase()}/api/sessions/${sessionId}/reconciliation`,
@@ -208,6 +209,9 @@ async function closeWithRecoveryWarning(
         actual_cash: expectedCash,
         closing_notes: "E2E preserves unfinished exchange settlement",
         closing_comments: "Historical exchange recovery integrity test",
+        manager_staff_id: managerStaffId,
+        manager_pin: staffCode(),
+        manager_reason: "E2E Manager Access approves close with unresolved exchange recovery",
       },
       failOnStatusCode: false,
     },

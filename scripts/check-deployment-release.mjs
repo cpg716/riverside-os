@@ -657,7 +657,7 @@ for (const copy of [
   "Installed API version matches the expected package version.",
   'Get-DotEnvValue $serverEnvPath "RIVERSIDE_CREDENTIALS_KEY"',
   "API readiness is",
-  "The production sync bridge cannot authenticate.",
+  "Direct Counterpoint Bridge sync is retired; no COUNTERPOINT_SYNC_TOKEN is required for Main Hub production readiness.",
   "Audit Verification Failed",
   "exit 1",
 ]) {

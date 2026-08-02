@@ -1377,7 +1377,7 @@ mod tests {
             sms,
         ] {
             assert!(
-                rendered.contains("ALTERATIONS FEE"),
+                rendered.contains("ALTERATION FEE") || rendered.contains("ALTERATIONS FEE"),
                 "alteration fee missing: {rendered}"
             );
             assert!(

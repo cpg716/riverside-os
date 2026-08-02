@@ -15,7 +15,7 @@ Read this **before** a storm or ISP outage. Know what you **can** promise custom
 ## What still works
 
 - **Checkout queue** and similar offline-tolerant flows (see operational playbook) may let you **capture** sales when the API is temporarily unreachable, then **sync** when the connection returns.
-- A card cannot be newly approved while Helcim or the internet is unavailable. But if Helcim already approved a **simple take-now** sale and the Main Hub drops before **Record Sale** finishes, select **Record Sale** once. ROS prints a **PAYMENT APPROVED - PENDING SYNC** receipt and posts the same checkout automatically after reconnecting. Do not run the card again. This does not apply to shipping, pickup, orders, exchanges, alterations, or wedding work.
+- A card cannot be newly approved while Helcim or the internet is unavailable. But if Helcim already approved a **simple take-now** sale and the Main Hub drops before the save finishes, select the green **Ready to Save** box once. ROS prints a **PAYMENT APPROVED - PENDING SYNC** receipt and posts the same checkout automatically after reconnecting. Do not run the card again. This does not apply to shipping, pickup, orders, exchanges, alterations, or wedding work.
 - When Riverside shows **Pending syncs**, those are completed POS sales still waiting to post once the device is back online.
 - If a sync cannot be safely replayed, Riverside keeps it as **blocked recovery** for manager review. Do not clear browser storage, refresh aggressively, or ring the same sale again.
 - **Do not** promise **inventory** or **pickup** dates you cannot verify live unless SOP says otherwise.

@@ -1,5 +1,7 @@
 # Riverside OS (ROS) AI System Instructions
 
+Current release context: **v0.96.0**. ROSIE and AI-assisted Help use policy pack `rosie-policy-pack-0.96.0`; current wedding guidance covers one-action member order creation only through the normal audited checkout path.
+
 > [!IMPORTANT]
 > Riverside OS is a private, proprietary POS/ERM for Riverside Men's Shop.
 > This is an existing production-oriented codebase. Prefer understanding and extending current patterns over introducing new abstractions.

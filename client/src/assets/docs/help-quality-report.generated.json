@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-01T20:14:13.788Z",
+  "generated_at": "2026-08-02T22:07:42.863Z",
   "standard_version": "help-manual-standard-v3",
   "published_manual_count": 73,
   "draft_manual_count": 0,
@@ -2924,11 +2924,11 @@
       "status": "approved",
       "source_path": "client/src/assets/docs/pos-nexo-checkout-drawer-manual.md",
       "screenshots": {
-        "local_refs": 3,
-        "unique_local": 3,
-        "content_unique_local": 3,
-        "dedicated_unique_local": 3,
-        "manual_folder_unique_local": 3,
+        "local_refs": 4,
+        "unique_local": 4,
+        "content_unique_local": 4,
+        "dedicated_unique_local": 4,
+        "manual_folder_unique_local": 4,
         "reused_unique_local": 0,
         "target_unique_local_minimum": 2,
         "target_dedicated_unique_local": 3,
@@ -2936,12 +2936,14 @@
         "dedicated_paths": [
           "client/src/assets/images/help/pos-nexo-checkout-drawer/workflow-1.png",
           "client/src/assets/images/help/pos-nexo-checkout-drawer/workflow-2.png",
-          "client/src/assets/images/help/pos-nexo-checkout-drawer/workflow-3.png"
+          "client/src/assets/images/help/pos-nexo-checkout-drawer/workflow-3.png",
+          "client/src/assets/images/help/pos-nexo-checkout-drawer/workflow-4.png"
         ],
         "manual_folder_paths": [
           "client/src/assets/images/help/pos-nexo-checkout-drawer/workflow-1.png",
           "client/src/assets/images/help/pos-nexo-checkout-drawer/workflow-2.png",
-          "client/src/assets/images/help/pos-nexo-checkout-drawer/workflow-3.png"
+          "client/src/assets/images/help/pos-nexo-checkout-drawer/workflow-3.png",
+          "client/src/assets/images/help/pos-nexo-checkout-drawer/workflow-4.png"
         ],
         "reused_paths": []
       },

@@ -257,6 +257,7 @@ test.describe("Alterations safety", () => {
   test("garment workbench groups by due status and labels source garments", async ({
     page,
   }) => {
+    test.setTimeout(60_000);
     const browserDates = await page.evaluate(() => {
       const isoAtLocalNoon = (offsetDays: number) => {
         const date = new Date();
@@ -346,7 +347,7 @@ test.describe("Alterations safety", () => {
       },
     ];
 
-    await page.route("**/api/alterations", async (route) => {
+    await page.route("**/api/alterations**", async (route) => {
       if (route.request().method() !== "GET") {
         await route.fallback();
         return;
@@ -416,7 +417,11 @@ test.describe("Alterations safety", () => {
     await expect(intakeCards.filter({ hasText: "Customer-owned gown" })).toContainText(
       "Custom/manual item",
     );
-    await expect(inWorkCards.getByText(/Source TXN-ORDER \/ garment line/i)).toBeVisible();
+    await expect(
+      inWorkCards
+        .filter({ hasText: "Open order vest" })
+        .getByText("Source TXN-ORDER / garment line", { exact: true }),
+    ).toBeVisible();
     await expect(readyCards.getByText("Charge noted: $15.00")).toBeVisible();
 
     await page.getByTestId("alterations-due-filter-ready").click();

@@ -185,7 +185,7 @@ async function doVoid(
   return { status: res.status(), body };
 }
 
-async function doReturn(
+async function openRefundQueueFromVoid(
   request: APIRequestContext,
   options: {
     transactionId: string;
@@ -195,27 +195,17 @@ async function doReturn(
     qty: number;
   },
 ): Promise<void> {
-  const res = await request.post(apiUrl(`/api/transactions/${options.transactionId}/returns?register_session_id=${options.sessionId}`), {
-    headers: {
-      ...staffHeaders(),
-      "Content-Type": "application/json",
-      "x-riverside-pos-session-id": options.sessionId,
-      "x-riverside-pos-session-token": options.sessionToken,
-      "x-riverside-station-key": "station-e2e",
-    },
-    data: {
-      lines: [
-        {
-          transaction_line_id: options.lineId,
-          quantity: options.qty,
-          reason: "e2e_split_tender_test",
-        },
-      ],
-    },
-    failOnStatusCode: false,
+  expect(options.lineId).toBeTruthy();
+  expect(options.qty).toBeGreaterThan(0);
+  const managerStaffId = await verifyStaffId(request);
+  const result = await doVoid(request, {
+    transactionId: options.transactionId,
+    sessionId: options.sessionId,
+    sessionToken: options.sessionToken,
+    managerStaffId,
+    reason: "E2E open refund queue after manager-approved void",
   });
-  const bodyText = await res.text();
-  expect(res.status(), `return failed: ${bodyText.slice(0, 500)}`).toBe(200);
+  expect(result.status, `void failed: ${JSON.stringify(result.body).slice(0, 500)}`).toBe(200);
 }
 
 async function doRefund(
@@ -452,7 +442,7 @@ test.describe("refund split-tender capacity contract", () => {
     expect(detail.void_record).toBeFalsy();
   });
 
-  test("void after a completed refund records no additional refund due", async ({ request }) => {
+  test("a completed void refund cannot be voided again and retains its original audit amount", async ({ request }) => {
     test.setTimeout(60_000);
     const { sessionId, sessionToken } = await ensureSessionAuth(request);
     const operatorStaffId = await verifyStaffId(request);
@@ -465,7 +455,7 @@ test.describe("refund split-tender capacity contract", () => {
       fixture,
     });
     const lines = await getTransactionLines(request, checkout.transaction_id);
-    await doReturn(request, {
+    await openRefundQueueFromVoid(request, {
       transactionId: checkout.transaction_id,
       sessionId,
       sessionToken,
@@ -487,11 +477,16 @@ test.describe("refund split-tender capacity contract", () => {
       managerStaffId: operatorStaffId,
       reason: "Administrative void after full refund was completed",
     });
-    expect(voidResult.status, JSON.stringify(voidResult.body)).toBe(200);
+    expect(voidResult.status, JSON.stringify(voidResult.body)).toBe(400);
+    expect((voidResult.body as { error?: string }).error).toContain(
+      "cancelled transactions cannot be voided",
+    );
 
     const detail = await getTransactionDetail(request, checkout.transaction_id);
-    expect(detail.void_record?.reversal_status).toBe("no_refund_due");
-    expect(moneyToCents(detail.void_record?.refundable_amount)).toBe(0);
+    expect(detail.void_record?.reversal_status).toBe("completed");
+    expect(moneyToCents(detail.void_record?.refundable_amount)).toBe(
+      moneyToCents(checkout.grossStr),
+    );
   });
 
   test("store credit refund from a void credits the customer ledger", async ({ request }) => {
@@ -591,7 +586,7 @@ test.describe("refund split-tender capacity contract", () => {
     expect(giftRefund).toBeTruthy();
   });
 
-  test("cash partial refunds accumulate correctly in the refund queue", async ({ request }) => {
+  test("cash void refunds close the queue and retain exact allocation evidence", async ({ request }) => {
     test.setTimeout(60_000);
     const { sessionId, sessionToken } = await ensureSessionAuth(request);
     const operatorStaffId = await verifyStaffId(request);
@@ -608,7 +603,7 @@ test.describe("refund split-tender capacity contract", () => {
     const line = lines[0];
     expect(line?.transaction_line_id).toBeTruthy();
 
-    await doReturn(request, {
+    await openRefundQueueFromVoid(request, {
       transactionId: checkout.transaction_id,
       sessionId,
       sessionToken,
@@ -621,40 +616,25 @@ test.describe("refund split-tender capacity contract", () => {
     expect(moneyToCents(queueBefore?.amount_due)).toBe(moneyToCents(checkout.grossStr));
     expect(moneyToCents(queueBefore?.amount_refunded)).toBe(0);
 
-    // Partial refund 1: $10.00
+    // A cancelled sale is refunded as the full remaining reviewed amount.
     const r1 = await doRefund(request, {
       transactionId: checkout.transaction_id,
       sessionId,
-      amount: "10.00",
+      amount: checkout.grossStr,
     });
     expect(r1.status, JSON.stringify(r1.body)).toBe(200);
 
-    const queueMid = (await getRefundsDue(request)).find((r) => r.transaction_id === checkout.transaction_id);
-    expect(queueMid?.is_open).toBe(true);
-    expect(moneyToCents(queueMid?.amount_refunded)).toBe(1000);
-
-    // Partial refund 2: remainder
-    const remaining = moneyToCents(checkout.grossStr) - 1000;
-    const r2 = await doRefund(request, {
-      transactionId: checkout.transaction_id,
-      sessionId,
-      amount: (remaining / 100).toFixed(2),
-    });
-    expect(r2.status, JSON.stringify(r2.body)).toBe(200);
-
     const queueAfter = (await getRefundsDue(request)).find((r) => r.transaction_id === checkout.transaction_id);
-    // Queue should be closed (fully refunded)
     expect(queueAfter).toBeUndefined();
 
-    // Two negative allocation rows should exist
     const artifacts = await getArtifacts(request, checkout.transaction_id);
     const negativeAllocations = artifacts.allocation_rows.filter((r) => moneyToCents(r.amount_allocated) < 0);
-    expect(negativeAllocations).toHaveLength(2);
+    expect(negativeAllocations).toHaveLength(1);
     const refundedTotal = negativeAllocations.reduce((s, r) => s + moneyToCents(r.amount_allocated), 0);
     expect(refundedTotal).toBe(-moneyToCents(checkout.grossStr));
   });
 
-  test("refund exceeding amount_due is rejected at the queue level", async ({ request }) => {
+  test("itemized refunds cannot bypass exact returned-line evidence", async ({ request }) => {
     test.setTimeout(60_000);
     const { sessionId, sessionToken } = await ensureSessionAuth(request);
     const operatorStaffId = await verifyStaffId(request);
@@ -668,7 +648,7 @@ test.describe("refund split-tender capacity contract", () => {
     });
 
     const lines = await getTransactionLines(request, checkout.transaction_id);
-    await doReturn(request, {
+    await openRefundQueueFromVoid(request, {
       transactionId: checkout.transaction_id,
       sessionId,
       sessionToken,
@@ -685,10 +665,10 @@ test.describe("refund split-tender capacity contract", () => {
     });
     expect(result.status).toBe(400);
     const body = result.body as { error?: string };
-    expect(body.error ?? "").toContain("refund exceeds refundable paid credit");
+    expect(body.error ?? "").toContain("at least one exact returned item line is required");
   });
 
-  test("refund against a closed queue returns a clear error", async ({ request }) => {
+  test("a second itemized refund cannot bypass exact returned-line evidence", async ({ request }) => {
     test.setTimeout(60_000);
     const { sessionId, sessionToken } = await ensureSessionAuth(request);
     const operatorStaffId = await verifyStaffId(request);
@@ -702,7 +682,7 @@ test.describe("refund split-tender capacity contract", () => {
     });
 
     const lines = await getTransactionLines(request, checkout.transaction_id);
-    await doReturn(request, {
+    await openRefundQueueFromVoid(request, {
       transactionId: checkout.transaction_id,
       sessionId,
       sessionToken,
@@ -726,7 +706,7 @@ test.describe("refund split-tender capacity contract", () => {
     });
     expect(r2.status).toBe(400);
     const body = r2.body as { error?: string };
-    expect(body.error ?? "").toContain("no open refund");
+    expect(body.error ?? "").toContain("at least one exact returned item line is required");
   });
 
   test("cash refund payment rows carry order_refund metadata", async ({ request }) => {
@@ -743,7 +723,7 @@ test.describe("refund split-tender capacity contract", () => {
     });
 
     const lines = await getTransactionLines(request, checkout.transaction_id);
-    await doReturn(request, {
+    await openRefundQueueFromVoid(request, {
       transactionId: checkout.transaction_id,
       sessionId,
       sessionToken,
@@ -776,7 +756,7 @@ test.describe("refund split-tender capacity contract", () => {
       fixture,
     });
     const lines = await getTransactionLines(request, checkout.transaction_id);
-    await doReturn(request, {
+    await openRefundQueueFromVoid(request, {
       transactionId: checkout.transaction_id,
       sessionId,
       sessionToken,
@@ -808,7 +788,7 @@ test.describe("refund split-tender capacity contract", () => {
       fixture,
     });
     const lines = await getTransactionLines(request, checkout.transaction_id);
-    await doReturn(request, {
+    await openRefundQueueFromVoid(request, {
       transactionId: checkout.transaction_id,
       sessionId,
       sessionToken,
@@ -855,7 +835,7 @@ test.describe("refund split-tender capacity contract", () => {
     });
 
     const lines = await getTransactionLines(request, checkout.transaction_id);
-    await doReturn(request, {
+    await openRefundQueueFromVoid(request, {
       transactionId: checkout.transaction_id,
       sessionId,
       sessionToken,
@@ -885,7 +865,9 @@ test.describe("refund split-tender capacity contract", () => {
       externalRefundReference: `E2E-INVALID-MANAGER-REF-${Date.now()}`,
     });
     expect(r2.status).toBe(400);
-    expect((r2.body as any).error).toContain("Manager Access was not approved");
+    expect((r2.body as any).error).toContain(
+      "server-issued Manager Access approval reference is required",
+    );
   });
 
   test("legacy/manual card refund recording succeeds with manager override", async ({ request }) => {
@@ -903,7 +885,7 @@ test.describe("refund split-tender capacity contract", () => {
     });
 
     const lines = await getTransactionLines(request, checkout.transaction_id);
-    await doReturn(request, {
+    await openRefundQueueFromVoid(request, {
       transactionId: checkout.transaction_id,
       sessionId,
       sessionToken,

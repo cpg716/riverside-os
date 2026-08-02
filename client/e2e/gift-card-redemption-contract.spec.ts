@@ -156,6 +156,7 @@ async function checkoutGiftCardRedemption(
       payment_method: "gift_card",
       total_price: amount,
       amount_paid: amount,
+      checkout_client_id: crypto.randomUUID(),
       items: [
         {
           product_id: pricing.product_id,

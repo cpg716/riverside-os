@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.96.0] - 2026-08-02
+
 ### Changed
 - **ROSIE Local Intelligence Upgrade**: Pinned Google's official Gemma 4 E4B
   QAT Q4_0 model and matching vision projector, enabled provider-governed SSE
@@ -17,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   text model and projector as one unit, certifies text, streaming, native-tool,
   and image behavior before readiness, restores the previous configuration on
   failure, and removes superseded managed model files after success.
+- **Input-Method Accessibility**: Staff workflows now provide consistent
+  semantic controls, visible focus, and keyboard activation across POS,
+  customers, payments, inventory, staff, scheduling, notifications, search,
+  and wedding management while preserving mouse and touch behavior.
 - **One-Action Wedding Builder**: Collect & Build now prepares party parent
   products, exact member variations, optional alterations, individual No Tax
   reasons, and apply-all or per-member salesperson attribution as reloadable

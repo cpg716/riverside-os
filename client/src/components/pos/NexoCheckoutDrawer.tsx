@@ -3004,7 +3004,7 @@ export default function NexoCheckoutDrawer({
         );
         if (restored) {
           toast(
-            "The approved Helcim payment was restored. Record it before starting another card request.",
+            "The approved Helcim payment was restored. Select Ready to Save before starting another card request.",
             "error",
           );
           return;
@@ -3408,7 +3408,7 @@ export default function NexoCheckoutDrawer({
         pendingHelcimTenderRef.current.label,
       );
       if (restored) {
-        toast("Helcim payment approved. Review the attached payment, then Record Sale.", "info");
+        toast("Helcim payment approved. Review the attached payment, then select Ready to Save.", "info");
         return;
       }
     }
@@ -4005,7 +4005,7 @@ export default function NexoCheckoutDrawer({
                 className="min-h-11 rounded-xl bg-app-accent px-3 font-black uppercase tracking-widest text-white"
                 data-testid="pos-payment-restore-record-sale"
               >
-                Record Sale
+                Ready to Save
               </button>
             ) : null}
             {returnOnlyRefundMode && !helcimOutcomeBlocksCheckout ? (
@@ -4055,7 +4055,7 @@ export default function NexoCheckoutDrawer({
                   </span>
                   {canFinalize ? (
                     <span className="mt-1 text-[10px] font-black uppercase tracking-widest text-emerald-600">
-                      Ready to record
+                      Ready to save
                     </span>
                   ) : null}
                   {tab === "cash" && cashRounding.adjustment !== 0 && (
@@ -4127,7 +4127,7 @@ export default function NexoCheckoutDrawer({
                  <span className="text-sm font-bold uppercase text-app-text truncate">{operator?.fullName || "SYSTEM"}</span>
               </div>
 
-              <div className="flex w-full gap-3 sm:w-auto">
+              <div className="flex w-full items-stretch gap-3 sm:w-auto">
                 <button
                   type="button"
                   onClick={onClose}
@@ -4142,18 +4142,24 @@ export default function NexoCheckoutDrawer({
                   data-testid="pos-finalize-checkout"
                   title={completeDisabledReason}
                   onClick={handleFinalize}
-                  className={`flex h-12 w-full items-center justify-center gap-2 rounded-2xl px-6 text-sm font-black uppercase tracking-[0.2em] transition-all sm:min-w-[210px] sm:w-auto ${
+                  className={`flex min-h-[76px] w-full items-center justify-center gap-3 rounded-2xl border-2 px-7 py-3 text-base font-black uppercase tracking-[0.18em] transition-all sm:min-w-[250px] sm:w-auto ${
                     canFinalize
-                      ? "bg-app-accent text-white shadow-xl shadow-app-accent/30 hover:brightness-110 active:scale-[0.98]"
-                      : "cursor-not-allowed border border-app-border bg-app-surface-2 text-app-text-muted"
+                      ? "border-emerald-700 bg-emerald-600 text-white shadow-xl shadow-emerald-900/25 hover:bg-emerald-700 active:scale-[0.98]"
+                      : "cursor-not-allowed border-rose-700 bg-rose-600 text-white shadow-lg shadow-rose-900/20"
                   }`}
                 >
                   {busy ? (
                     <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/20 border-t-white" />
                   ) : (
                     <>
-                      <CheckCircle2 className="h-5 w-5" />
-                      <span className="whitespace-nowrap">Record Sale</span>
+                      {canFinalize ? (
+                        <CheckCircle2 className="h-7 w-7 shrink-0" />
+                      ) : (
+                        <AlertTriangle className="h-7 w-7 shrink-0" />
+                      )}
+                      <span className="whitespace-nowrap">
+                        {canFinalize ? "Ready to Save" : "Not Ready"}
+                      </span>
                     </>
                   )}
                 </button>
@@ -4167,7 +4173,7 @@ export default function NexoCheckoutDrawer({
         {busy && (
           <div className="absolute inset-0 z-50 bg-app-surface/60 backdrop-blur-md flex flex-col items-center justify-center">
              <div className="h-20 w-20 rounded-full border-4 border-app-accent border-t-transparent animate-spin mb-6" />
-             <p className="text-xl font-black uppercase italic tracking-wider text-app-text">Recording Sale...</p>
+             <p className="text-xl font-black uppercase italic tracking-wider text-app-text">Saving Sale...</p>
           </div>
         )}
 
@@ -4476,7 +4482,7 @@ export default function NexoCheckoutDrawer({
               </div>
             </div>
 
-            <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 lg:overflow-y-auto lg:pr-1">
+            <div className="flex min-w-0 flex-none flex-col gap-3 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1">
               {heldOpenDeposit && heldOpenDeposit.balanceCents > 0 && (
                 <div className="rounded-2xl border border-indigo-500/30 bg-indigo-500/10 p-4 shadow-sm">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -4922,7 +4928,7 @@ export default function NexoCheckoutDrawer({
                               <div className="flex items-center justify-between gap-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2">
                                 <div>
                                   <p className="text-xs font-black text-amber-800 dark:text-amber-300">No available credit</p>
-                                  <p className="text-[11px] font-semibold text-app-text-muted">Manager approval is required before Record Sale.</p>
+                                  <p className="text-[11px] font-semibold text-app-text-muted">Manager Access is required before Ready to Save becomes available.</p>
                                 </div>
                                 <button
                                   type="button"

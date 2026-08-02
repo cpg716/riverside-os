@@ -294,7 +294,8 @@ $installerArgs = @(
   "-File",
   $installer,
   "-ConfigPath",
-  $ConfigPath
+  $ConfigPath,
+  "-PreserveExistingRosie"
 )
 if ($SkipMigrations) { $installerArgs += "-SkipMigrations" }
 if ($NoStart) { $installerArgs += "-NoStart" }

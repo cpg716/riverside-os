@@ -1228,8 +1228,8 @@ cache still forced every Riverside crate to compile from scratch.
 2. Write release notes to `docs/releases/vX.Y.Z-release-notes.md`
 3. Commit, tag, and push:
    ```bash
-   git commit -m "chore: release v0.95.5"
-   git tag v0.95.5
+   git commit -m "chore: release v0.96.0"
+   git tag v0.96.0
    git push origin main --tags
    ```
 4. The `windows-deployment-package` workflow triggers automatically, builds the deployment ZIP plus signed Windows updater assets, and publishes `latest.json` to the GitHub release — visible to all Tauri auto-updaters.

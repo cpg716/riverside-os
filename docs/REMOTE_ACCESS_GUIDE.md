@@ -207,4 +207,4 @@ In the admin console → Machines → click the Main Hub → **Disable key expir
 
 ---
 
-*Last updated: 2026-07-26. Reflects Riverside OS v0.95.5 Main Hub terminology, in-app Tailscale address saver, bounded sign-in connection recovery, and current Staff Access session behavior.*
+*Last updated: 2026-08-02. Reflects Riverside OS v0.96.0 Main Hub terminology, in-app Tailscale address saver, bounded sign-in connection recovery, and current Staff Access session behavior.*

@@ -734,6 +734,9 @@ async function runSpec(page, api, spec, opts) {
     case "pos-checkout-drawer": {
       await preparePosRegisterWithPaymentLine(page, opts);
       await openCheckoutDrawer(page);
+      if (spec.readyToSave === true) {
+        await addFullCashPayment(page);
+      }
       return capture(page, spec);
     }
     case "pos-receipt-summary": {

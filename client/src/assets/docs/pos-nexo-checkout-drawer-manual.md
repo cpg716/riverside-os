@@ -17,7 +17,9 @@ status: approved
 
 ![Cart with lines](../images/help/pos-nexo-checkout-drawer/workflow-2.png)
 
-![Checkout drawer](../images/help/pos-nexo-checkout-drawer/workflow-3.png)
+![Checkout drawer showing Not Ready](../images/help/pos-nexo-checkout-drawer/workflow-3.png)
+
+![Checkout drawer showing Ready to Save](../images/help/pos-nexo-checkout-drawer/workflow-4.png)
 
 ## What this is
 
@@ -28,7 +30,7 @@ The checkout drawer collects payment, shows the remaining balance due, and compl
 1. Select the payment method the customer is using.
 2. Confirm the balance due and choose full balance or split payment.
 3. Collect the tender and watch the payment status panel.
-4. Select **Record Sale** only after the drawer shows the payment rules are satisfied.
+4. The large red **Not Ready** box means payment requirements are still incomplete. When it changes to the large green **Ready to Save** box, select it to record the sale.
 
 ## Payment methods
 
@@ -63,7 +65,7 @@ The terminal badge shows **Terminal: #** and a small **change terminal** hint. U
 
 Register #1 defaults to Terminal 1, Register #2 defaults to Terminal 2, and Registers #3/#4 choose an available configured terminal. A missing unused terminal slot should not block a register whose selected Helcim terminal is configured.
 
-A historical attempt reported by terminal routing remains recorded in **Payments Health**, but ROS does not import it into the current drawer or let it disable tenders or **Record Sale**.
+A historical attempt reported by terminal routing remains recorded in **Payments Health**, but ROS does not import it into the current drawer or let it disable tenders or the **Ready to Save** action.
 
 If Terminal 1 has an earlier request whose checkout reference does not match the open drawer, ROS keeps it in Payments Health instead of importing that payment into the open sale. Starting a new terminal payment releases the earlier ROS routing reservation while retaining its provider evidence and checkout identity for reconciliation.
 
@@ -77,13 +79,13 @@ Customer-profile enrichment and background Helcim accounting synchronization do 
 
 If an approved payment for the exact current checkout is not yet attached, select **Restore** in the Pay header and use **Re-verify & Attach**. Earlier pending, failed, timed-out, or unresolved attempts are review items, not Register locks, and do not disable another allowed payment.
 
-**Re-verify & Attach** checks the exact Register session, checkout identity, amount, currency, and provider result before adding a sale approval to the payment ledger. For an approved refund or reversal, selecting **Record Sale** again reuses the same durable provider attempt and idempotency key, attaches the approved Helcim movement, and only then commits the return or cancellation, balance, audit, and receipt. Restore never attaches a different sale's approval based only on a similar amount.
+**Re-verify & Attach** checks the exact Register session, checkout identity, amount, currency, and provider result before adding a sale approval to the payment ledger. For an approved refund or reversal, selecting **Ready to Save** again reuses the same durable provider attempt and idempotency key, attaches the approved Helcim movement, and only then commits the return or cancellation, balance, audit, and receipt. Restore never attaches a different sale's approval based only on a similar amount.
 
 If Helcim completed a refund but cannot return stable automatic attachment evidence, verify the exact refund in Helcim and select **Enter Verified Refund** in Restore. Enter the real provider reference, card last four, and reason; Manager Access is required. This records the already-completed external refund and does not call Helcim again.
 
 **Reader stopped / no approval** is available only for a physical terminal request, never for Card Not Present. Use it only when the reader is idle and the request definitively ended without approval. Riverside retains the attempt, Register, checkout reference, acting staff member, and restore action in audit history. An approved payment is never discarded or moved to another customer.
 
-For a paid order cancellation, **Cancel Order** only stages the negative item lines and refund tender in Pay. The original Transaction Record, returned quantities, inventory, balance, payment allocations, and cancellation audit do not change while the refund is being prepared. They commit together only after **Record Sale** succeeds; then the **Sale Complete** screen provides the event-scoped refund receipt. If staging fails, the order remains unchanged and the cancellation window shows **Retry Refund Load**.
+For a paid order cancellation, **Cancel Order** only stages the negative item lines and refund tender in Pay. The original Transaction Record, returned quantities, inventory, balance, payment allocations, and cancellation audit do not change while the refund is being prepared. They commit together only after **Ready to Save** succeeds; then the **Sale Complete** screen provides the event-scoped refund receipt. If staging fails, the order remains unchanged and the cancellation window shows **Retry Refund Load**.
 
 A normal current card request is shown as **Waiting for card** or **Checking** in Payment Status. Riverside shows **Card outcome review** when that request is taking longer than expected or its result cannot be verified. That review remains available without reserving the Register or terminal against the next payment.
 
@@ -95,7 +97,7 @@ If a card attempt is canceled and retried, use the current checkout status befor
 
 If the physical terminal was canceled but ROS still says **Waiting for Card**, select **Recover payment** to update that attempt's audit status. You can continue with another allowed tender; the old request remains visible in Payments Health until its outcome is reconciled.
 
-To change tender, select another allowed payment method. Use **Recover payment** to reconcile the earlier attempt and attach any verified approval to its original checkout; the review itself does not lock other tenders or **Record Sale**.
+To change tender, select another allowed payment method. Use **Recover payment** to reconcile the earlier attempt and attach any verified approval to its original checkout; the review itself does not lock other tenders or the **Ready to Save** action.
 
 If the terminal approves but the drawer still shows the card attempt as pending or declined, use **Recover payment** before running the card again or changing tender. ROS sends a unique invoice reference with each terminal request and can recover the approved Helcim transaction by that reference and amount when the terminal response is delayed. A recovered approval is restored to the active checkout payment ledger; finish the sale to post the final Transaction Record. **Retry card** is available only after ROS has a definitive failed/canceled result; the absence of a match by itself is not proof that no charge exists.
 
@@ -116,9 +118,9 @@ Confirmation**. If confirmation still cannot complete, open **Restore** and use
 
 ## Completing the sale
 
-The **Record Sale** button stays unavailable until the payment rules are satisfied and every Helcim request has a confirmed final outcome. After completion, Riverside OS opens the sale complete screen with print, view, text, email, and gift receipt actions. Receipts for returns and exchanges include the returned item as a returned/exchanged adjustment; exchange receipts also include the replacement item.
+The payment status action remains a large red **Not Ready** box until the payment rules are satisfied and every Helcim request has a confirmed final outcome. It changes to a large green **Ready to Save** box when the sale can be recorded. After completion, Riverside OS opens the sale complete screen with print, view, text, email, and gift receipt actions. Receipts for returns and exchanges include the returned item as a returned/exchanged adjustment; exchange receipts also include the replacement item.
 
-If Helcim has already approved a **simple take-now** sale and the Main Hub connection drops before ROS confirms **Record Sale**, select **Record Sale** once. ROS saves the exact checkout and approval on this Register, prints a **PAYMENT APPROVED - PENDING SYNC** receipt, and automatically submits that same checkout when the Main Hub reconnects. Do not run the card again. Shipping, pickups, orders, exchanges, alterations, and wedding disbursements remain open for live recovery because they need additional Main Hub actions.
+If Helcim has already approved a **simple take-now** sale and the Main Hub connection drops before ROS confirms the save, select **Ready to Save** once. ROS saves the exact checkout and approval on this Register, prints a **PAYMENT APPROVED - PENDING SYNC** receipt, and automatically submits that same checkout when the Main Hub reconnects. Do not run the card again. Shipping, pickups, orders, exchanges, alterations, and wedding disbursements remain open for live recovery because they need additional Main Hub actions.
 
 If payment saves but pickup or alteration pickup follow-up does not complete, Riverside OS creates checkout recovery for manager review. Resolve it when practical. If it remains open, the ordinary authorized register close stays available and the recovery remains visible and fixable afterward in the operational recovery workspace; it is not printed on the financial Z-Report.
 

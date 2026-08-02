@@ -100,6 +100,12 @@ const BASE_HELP_SCREENSHOT_SPECS = [
     output: "client/src/assets/images/help/pos/nexo-checkout-drawer.png",
   },
   {
+    id: "pos-checkout-drawer-ready",
+    kind: "pos-checkout-drawer",
+    readyToSave: true,
+    output: "client/src/assets/images/help/pos/nexo-checkout-drawer-ready.png",
+  },
+  {
     id: "pos-receipt-summary",
     kind: "pos-receipt-summary",
     output: "client/src/assets/images/help/pos/receipt-summary.png",
@@ -612,7 +618,12 @@ const DEDICATED_MANUAL_SCREENSHOT_BASE_IDS = {
   "pilot-recovery-governance": ["operations-operational-home", "qbo-workspace-staging", "settings-printers-scanners"],
   "pos-close-register-modal": ["pos-register-dashboard", "pos-cart-with-lines", "pos-checkout-drawer"],
   "pos-custom-work": ["pos-register-dashboard", "pos-cart-with-lines", "pos-checkout-drawer"],
-  "pos-nexo-checkout-drawer": ["pos-register-dashboard", "pos-cart-with-lines", "pos-checkout-drawer"],
+  "pos-nexo-checkout-drawer": [
+    "pos-register-dashboard",
+    "pos-cart-with-lines",
+    "pos-checkout-drawer",
+    "pos-checkout-drawer-ready",
+  ],
   "pos-order-load-modal": ["pos-register-dashboard", "pos-cart-with-lines", "pos-checkout-drawer"],
   "pos-procurement-hub": ["inventory-control-board", "inventory-purchase-orders", "inventory-receiving-bay"],
   "pos-receipt-summary-modal": ["pos-receipt-summary", "pos-receipt-preview", "pos-checkout-drawer"],

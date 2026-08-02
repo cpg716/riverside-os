@@ -430,6 +430,9 @@ test.describe("POS alteration intake", () => {
         body: JSON.stringify({ items: [OPEN_ORDER] }),
       });
     });
+    await page.route("**/api/transactions/order-payment-preflight", async (route) => {
+      await route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
+    });
 
     await page.getByTitle("View customer open orders").click();
     await page.getByTestId(`pos-order-make-payment-${OPEN_ORDER.display_id}`).click();
@@ -438,6 +441,7 @@ test.describe("POS alteration intake", () => {
     await expect(paymentModal.getByTestId("pos-order-payment-amount")).toHaveValue("125.00");
     await paymentModal.getByTestId("pos-order-payment-amount").fill("40.00");
     await paymentModal.getByTestId("pos-order-payment-add-to-cart").click();
+    await page.getByRole("button", { name: /continue to cart/i }).click();
 
     const orderPaymentLine = page.getByTestId("pos-order-payment-cart-line");
     await expect(orderPaymentLine).toContainText(OPEN_ORDER.display_id);
@@ -458,6 +462,7 @@ test.describe("POS alteration intake", () => {
     await page.getByTestId(`pos-order-make-payment-${OPEN_ORDER.display_id}`).click();
     await page.getByTestId("pos-order-payment-amount").fill("40.00");
     await page.getByTestId("pos-order-payment-add-to-cart").click();
+    await page.getByRole("button", { name: /continue to cart/i }).click();
 
     let checkoutBody: Record<string, unknown> | null = null;
     await page.route("**/api/transactions/checkout", async (route) => {

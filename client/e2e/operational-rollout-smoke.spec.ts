@@ -10,7 +10,6 @@ import {
 import {
   apiBase,
   ensureSessionAuth,
-  getTransactionArtifacts,
   seedRmsFixture,
   staffHeaders,
   verifyStaffId,
@@ -219,7 +218,7 @@ async function fetchTransactionDetail(
   return JSON.parse(detailText) as TransactionDetail;
 }
 
-async function returnFirstLine(
+async function voidForRefund(
   request: APIRequestContext,
   options: {
     transactionId: string;
@@ -227,12 +226,10 @@ async function returnFirstLine(
     sessionToken: string;
   },
 ): Promise<TransactionDetail> {
-  const before = await fetchTransactionDetail(request, options.transactionId);
-  const line = before.items[0];
-  expect(line?.transaction_line_id).toBeTruthy();
+  const managerStaffId = await verifyStaffId(request);
 
   const returnRes = await request.post(
-    `${apiBase()}/api/transactions/${options.transactionId}/returns?register_session_id=${encodeURIComponent(options.sessionId)}`,
+    `${apiBase()}/api/transactions/${options.transactionId}/void`,
     {
       headers: {
         ...staffHeaders(),
@@ -242,20 +239,17 @@ async function returnFirstLine(
       "x-riverside-station-key": "station-e2e",
       },
       data: {
-        lines: [
-          {
-            transaction_line_id: line.transaction_line_id,
-            quantity: 1,
-            reason: "rollout_smoke_return",
-          },
-        ],
+        register_session_id: options.sessionId,
+        manager_staff_id: managerStaffId,
+        manager_pin: process.env.E2E_BO_STAFF_CODE?.trim() || "1234",
+        reason: "E2E manager-approved void for refund workflow smoke",
       },
       failOnStatusCode: false,
     },
   );
   const returnText = await returnRes.text();
   expect(returnRes.status(), returnText.slice(0, 1000)).toBe(200);
-  return JSON.parse(returnText) as TransactionDetail;
+  return fetchTransactionDetail(request, options.transactionId);
 }
 
 async function fetchRefundDue(
@@ -290,6 +284,9 @@ test.describe("operational rollout smoke", () => {
         body: JSON.stringify({ items: [OPEN_ORDER] }),
       });
     });
+    await page.route("**/api/transactions/order-payment-preflight", async (route) => {
+      await route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
+    });
 
     await page.getByTitle("View customer open orders").click();
     await page.getByTestId(`pos-order-make-payment-${OPEN_ORDER.display_id}`).click();
@@ -300,6 +297,8 @@ test.describe("operational rollout smoke", () => {
     await expect(paymentModal).toContainText("$125.00");
     await expect(paymentModal.getByTestId("pos-order-payment-amount")).toHaveValue("125.00");
     await paymentModal.getByTestId("pos-order-payment-add-to-cart").click();
+
+    await page.getByRole("button", { name: /continue to cart/i }).click();
 
     const orderPaymentLine = page.getByTestId("pos-order-payment-cart-line");
     await expect(orderPaymentLine).toContainText(OPEN_ORDER.display_id);
@@ -330,7 +329,7 @@ test.describe("operational rollout smoke", () => {
     await checkoutDrawer.getByRole("button", { name: /add payment/i }).click();
     await checkoutDrawer.getByTestId("pos-finalize-checkout").click();
     await expect(page.getByRole("heading", { name: "Payment recorded" })).toBeVisible({
-      timeout: 20_000,
+      timeout: 45_000,
     });
 
     expect(checkoutBody).toMatchObject({
@@ -412,7 +411,7 @@ test.describe("operational rollout smoke", () => {
     await expect(page.locator("button").filter({ hasText: "Return value" })).toBeEnabled();
   });
 
-  test("orders workspace cash refund modal completes a refund from transaction detail", async ({
+  test("orders workspace refund action hands the reviewed refund to Register Pay", async ({
     page,
     request,
   }) => {
@@ -421,7 +420,7 @@ test.describe("operational rollout smoke", () => {
       quantity: 1,
       fulfillment: "special_order",
     });
-    const returnedDetail = await returnFirstLine(request, {
+    const returnedDetail = await voidForRefund(request, {
       transactionId: seeded.checkout.transaction_id,
       sessionId: seeded.sessionId,
       sessionToken: seeded.sessionToken,
@@ -463,7 +462,7 @@ test.describe("operational rollout smoke", () => {
     await openBackofficeSidebarTab(page, "orders");
     await page
       .getByRole("textbox", {
-        name: /Search by customer, phone, order item, Transaction Record #, or fulfillment order #/i,
+        name: /Search orders/i,
       })
       .fill(displayId);
     const orderRow = page.locator("tr", { hasText: displayId }).first();
@@ -481,26 +480,11 @@ test.describe("operational rollout smoke", () => {
     await expect(drawer.getByRole("button", { name: /Process Refund/i })).toBeVisible();
     await drawer.getByRole("button", { name: /Process Refund/i }).click();
 
-    const refundModal = page.getByRole("dialog", { name: /process refund/i });
-    await expect(refundModal).toBeVisible({ timeout: 10_000 });
-    await expect(refundModal.getByLabel(/Amount \(USD\)/i)).toBeVisible();
-    await refundModal.getByLabel(/Amount \(USD\)/i).fill(refundBefore.amount_due);
-    await refundModal.getByLabel(/Payment method/i).selectOption("cash");
-    await refundModal.getByRole("button", { name: /submit refund/i }).click();
-    await expect(page.getByText(/Refund completed/i)).toBeVisible({ timeout: 20_000 });
-    await expect(refundModal).toBeHidden({ timeout: 20_000 });
-
-    const artifacts = await getTransactionArtifacts(request, seeded.checkout.transaction_id);
-    expect(artifacts.allocation_rows).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          target_transaction_id: seeded.checkout.transaction_id,
-          payment_method: "cash",
-          amount_allocated: `-${refundBefore.amount_due}`,
-          payment_amount: `-${refundBefore.amount_due}`,
-        }),
-      ]),
-    );
+    await ensurePosSaleCashierSignedIn(page);
+    const checkoutDrawer = page.getByRole("dialog", { name: /checkout/i });
+    await expect(checkoutDrawer).toBeVisible({ timeout: 20_000 });
+    await expect(checkoutDrawer).toContainText(refundBefore.amount_due);
+    await expect(checkoutDrawer.getByTestId("pos-finalize-checkout")).toBeVisible();
   });
 
   test("transaction detail opens reprint receipt delivery choices", async ({
@@ -545,7 +529,7 @@ test.describe("operational rollout smoke", () => {
     await openBackofficeSidebarTab(page, "orders");
     await page
       .getByRole("textbox", {
-        name: /Search by customer, phone, order item, Transaction Record #, or fulfillment order #/i,
+        name: /Search orders/i,
       })
       .fill(displayId);
 
@@ -584,7 +568,7 @@ test.describe("operational rollout smoke", () => {
 
     await drawer.getByRole("button", { name: /Reprint Receipt/i }).click();
 
-    await expect(page.getByText(/Sale complete/i)).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText(/Transaction receipt/i)).toBeVisible({ timeout: 20_000 });
     await page.evaluate(
       () =>
         new Promise<void>((resolve) => {

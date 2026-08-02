@@ -14,7 +14,7 @@ test("no-credit RMS charges require an audited manager approval", () => {
   expect(drawer).toContain('authorize_action: "rms_charge_no_open_to_buy"');
   expect(drawer).toContain("rmsNoCreditTenderNeedsApproval");
   expect(drawer).toContain("No available credit");
-  expect(drawer).toMatch(/Manager approval is required before Record\s+Sale\./);
+  expect(drawer).toContain("Manager Access is required before Ready to Save becomes available.");
   expect(checkout).toContain("rms_account_has_no_open_to_buy");
   expect(checkout).toContain("rms_no_open_to_buy_approval_was_logged");
   expect(checkout).toContain(

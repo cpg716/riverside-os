@@ -94,7 +94,7 @@ ROS refuses recovery when the retained cart is missing or ambiguous, the cart to
 
 1. Select **Helcim Card Not Present** in the open Register checkout. This opens Helcim's secure hosted card-entry page; it does not use the physical terminal.
 2. Keep the checkout open while the card is entered. The hosted page returns the approval and provider transaction to the same checkout using its signed response. Riverside accepts it only for the exact handoff request, provider attempt, checkout, customer, and amount.
-3. Review the approval details in the Riverside handoff screen and select **Add Payment to Sale**. This posts the approved amount to the checkout ledger and enables **Record Sale**.
+3. Review the approval details in the Riverside handoff screen and select **Add Payment to Sale**. This posts the approved amount to the checkout ledger and changes the payment status action to **Ready to Save**.
 4. If the handoff is interrupted, use **Recover Payment** or **Check Status** from the same checkout. These actions reuse the existing Helcim approval and are safe to repeat; they do not create a second charge.
 5. If the payment was approved but cannot be attached, stop retrying the card and use **Health → Helcim Approval Review** to recover it to the exact retained checkout or target Transaction Record.
 
@@ -120,7 +120,7 @@ When provider evidence proves that no ROS ledger action remains—for example, a
 - Processor update received, checkout attached, and provider reference saved are different states.
 - A normal decline or cancellation is not an approved payment.
 - Never retry blindly after a terminal approval that Riverside has not attached.
-- Approved provider payments cannot be removed, parked, or transferred to another customer. **Clear Sale**, another tender, and **Record Sale** remain unavailable while a card request is pending or unverified, or while an approval is still unattached. For the active Register sale, use **Restore** directly in Pay to recover the result, reopen secure entry, confirm physical cancellation, or attach the verified approval. Payments Health remains the historical review surface; staff do not leave the current sale to resolve its blocker.
+- Approved provider payments cannot be removed, parked, or transferred to another customer. **Clear Sale**, another tender, and **Ready to Save** remain unavailable while a card request is pending or unverified, or while an approval is still unattached. For the active Register sale, use **Restore** directly in Pay to recover the result, reopen secure entry, confirm physical cancellation, or attach the verified approval. Payments Health remains the historical review surface; staff do not leave the current sale to resolve its blocker.
 - Never use paid-sale recovery to force a near match. The exact retained-cart banner must be present.
 - Card refunds must originate from the original Transaction Record and remain part of the guided return or exchange settlement. Payments Operations shows the resulting provider and recovery evidence without creating a separate processor-only refund.
 - Do not resolve a reconciliation warning merely to make the dashboard green.

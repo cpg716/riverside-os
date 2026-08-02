@@ -468,8 +468,13 @@ async function returnFirstTransactionLine(
   const line = before.items.find((item) => item.sku === options.productSku);
   expect(line?.transaction_line_id).toBeTruthy();
 
+  const refundSubtotal = "100.00";
+  const refundStateTax = "4.00";
+  const refundLocalTax = "4.75";
+  const refundTotal = "108.75";
+
   const res = await request.post(
-    `${apiBase()}/api/transactions/${options.transactionId}/returns?register_session_id=${encodeURIComponent(options.sessionId)}`,
+    `${apiBase()}/api/transactions/${options.transactionId}/refunds/process`,
     {
       headers: {
         ...staffHeaders(),
@@ -479,11 +484,19 @@ async function returnFirstTransactionLine(
       "x-riverside-station-key": "station-e2e",
       },
       data: {
-        lines: [
+        session_id: options.sessionId,
+        payment_method: "cash",
+        amount: refundTotal,
+        tender_amount: refundTotal,
+        return_lines: [
           {
             transaction_line_id: line?.transaction_line_id,
             quantity: 1,
             reason: "reporting_trust_margin_return",
+            refund_subtotal: refundSubtotal,
+            refund_state_tax: refundStateTax,
+            refund_local_tax: refundLocalTax,
+            refund_total: refundTotal,
           },
         ],
       },
@@ -492,7 +505,7 @@ async function returnFirstTransactionLine(
   );
   const bodyText = await res.text();
   expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
-  return JSON.parse(bodyText) as TransactionDetail;
+  return fetchTransactionDetail(request, options.transactionId);
 }
 
 async function fetchDailySalesActivity(
@@ -1064,9 +1077,12 @@ test.describe("Reporting trust contracts", () => {
       (row) => row.transaction_id === checkout.transaction_id,
     );
     expect(activity).toBeTruthy();
-    expect(parseMoneyToCents(activity?.sales_total)).toBe(
-      parseMoneyToCents(artifacts.total_price),
-    );
+    expect(parseMoneyToCents(activity?.sales_total)).toBe(10000);
+    expect(parseMoneyToCents(activity?.tax_total)).toBe(875);
+    expect(
+      parseMoneyToCents(activity?.sales_total) +
+        parseMoneyToCents(activity?.tax_total),
+    ).toBe(parseMoneyToCents(artifacts.total_price));
     expect(activity?.payment_summary?.toLowerCase()).toContain("cash");
     expect(activity?.payments).toEqual([
       {

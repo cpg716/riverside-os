@@ -118,6 +118,15 @@ The main shell component is a critical part of the application that manages UI s
 
 Help maintain, debug, and extend Riverside OS safely inside the existing architecture.
 
+### v0.96.0 — Wedding Builder, Variation Navigation & Main Hub Audit
+
+- **One-Action Wedding Builder**: Prepare exact member variations, optional alterations, tax reasons, and salesperson attribution as reviewable drafts, then create separate member Transactions and Wedding Fulfillment Orders through the normal atomic checkout path.
+- **Deposit Resume**: Resume Deposit Only activity from the original payer's Orders & Receipts history; held funds remain source-tracked to payer and beneficiary.
+- **Variation Navigation**: Keep Item to Build progress and Back/edit navigation visible through selection and pricing review.
+- **Main Hub Audit Alignment**: Audit and credential-key repair scripts follow the production installation contract and no longer depend on retired configuration inputs.
+- **ROSIE Local Intelligence**: Release-facing Help, staff manuals, and AI grounding use `rosie-policy-pack-0.96.0`; the pinned local Gemma 4 text/vision stack supports streamed answers and permission-gated read-only tools while public cloud providers remain disabled.
+- **Input-Method Accessibility**: Staff controls preserve semantic focus and keyboard activation alongside mouse, touch, and assistive input.
+
 ### v0.85.9 — Deployment Hardening & Maintenance UI Upgrades
 
 - **Windows Deployment Hardening**: Added `$ErrorActionPreference = "SilentlyContinue"` wrapping around connection testing blocks in `install-server.ps1` and database administration scripts to prevent terminating `NativeCommandError` exceptions when connection checks fail.

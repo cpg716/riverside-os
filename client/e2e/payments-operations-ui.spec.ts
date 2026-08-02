@@ -191,7 +191,7 @@ test.describe.serial("Payments Operations workspace smoke", () => {
       const text = message.text();
       if (
         message.type() === "error" &&
-        !/^Failed to load resource: the server responded with a status of 404/.test(text)
+        !/^Failed to load resource: the server responded with a status of (?:401|404)/.test(text)
       ) {
         consoleErrors.push(text);
       }
@@ -201,6 +201,12 @@ test.describe.serial("Payments Operations workspace smoke", () => {
       if (status < 400) return;
       const url = new URL(response.url());
       if (status === 404 && url.pathname === "/api/sessions/current") return;
+      if (
+        status === 401 &&
+        (url.pathname === "/api/sessions/current" || url.pathname === "/api/recovery")
+      ) {
+        return;
+      }
       if (url.pathname.startsWith("/api/")) {
         failedApiResponses.push(`${status} ${url.pathname}`);
       }
@@ -228,7 +234,8 @@ test.describe.serial("Payments Operations workspace smoke", () => {
     await expect(page.getByText("Fee not ready").first()).toBeVisible();
     await expect(page.getByText("Net not ready").first()).toBeVisible();
     await expect(page.getByText("Expected Deposit").first()).toBeVisible();
-    await expect(page.getByText("Sync overdue").first()).toBeVisible();
+    await expect(page.getByText("Sync Status").first()).toBeVisible();
+    await expect(page.getByText(/Last settlement sync|No settlement sync recorded/).first()).toBeVisible();
 
     await paymentsHeader.getByRole("button", { name: /^batches/i }).click();
     await expect(page.getByLabel("From")).toBeVisible();

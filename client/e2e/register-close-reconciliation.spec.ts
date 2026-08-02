@@ -403,6 +403,7 @@ async function closeRegisterGroup(
   sessionId: string,
   sessionToken: string,
 ): Promise<CloseSessionResponse> {
+  const managerStaffId = await verifyAdminStaffId(request);
   await prepareGroupForClose(request, sessionId, sessionToken);
   const recon = await fetchReconciliation(request, sessionId, sessionToken);
   const res = await request.post(
@@ -418,6 +419,9 @@ async function closeRegisterGroup(
         actual_cash: recon.expected_cash,
         closing_notes: "E2E exact-cash cleanup close",
         closing_comments: null,
+        manager_staff_id: managerStaffId,
+        manager_pin: e2eAdminCode(),
+        manager_reason: "E2E Manager Access approves close with reconciliation evidence",
       },
       failOnStatusCode: false,
     },

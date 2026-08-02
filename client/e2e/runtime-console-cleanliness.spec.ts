@@ -52,7 +52,7 @@ function isUnexpectedApiFailure(response: Response): boolean {
   const status = response.status();
   if (status < 400) return false;
 
-  if (url.pathname === "/api/sessions/current" && status === 404) {
+  if (url.pathname === "/api/sessions/current" && (status === 401 || status === 404)) {
     return false;
   }
 

@@ -266,7 +266,7 @@ When the daily update check detects a newer release on GitHub, it broadcasts an 
 Every production release workflow must prove the updater channel after uploading release assets. The workflow runs:
 
 ```bash
-npm run check:updater-release -- --repo cpg716/riverside-os --tag v0.95.5 --platform windows-x86_64 --manifest latest.json
+npm run check:updater-release -- --repo cpg716/riverside-os --tag v0.96.0 --platform windows-x86_64 --manifest latest.json
 ```
 
 For the full Windows deployment release, the same verifier checks all signed manifests:

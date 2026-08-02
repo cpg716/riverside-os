@@ -115,9 +115,9 @@ test.describe("Phase 2: POS tender UI smoke", () => {
       drawer.getByRole("button", { name: /gift card/i }),
     ).toBeVisible();
 
-    // Complete sale button should exist (enabled state depends on ledger balance).
+    // The full-height status action should make the blocked state unmistakable.
     await expect(
-      drawer.getByRole("button", { name: /record sale|finalize|complete sale/i }),
+      drawer.getByRole("button", { name: /not ready/i }),
     ).toBeVisible();
 
     // Smoke-select a few tabs to validate switching works.

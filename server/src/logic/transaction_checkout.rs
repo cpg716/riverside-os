@@ -7551,7 +7551,7 @@ mod tests {
             .find("helcim:checkout:{checkout_client_id}")
             .expect("cross-Register Helcim checkout advisory lock");
         let helcim_recheck = transaction_scope
-            .find("reject_unattached_helcim_attempt(\n            &mut *tx")
+            .find("reject_unattached_helcim_attempt(&mut *tx")
             .expect("in-transaction Helcim outcome recheck");
         let checkout_identity_reread = transaction_scope
             .find("FROM transactions\n            WHERE checkout_client_id = $1")
@@ -8144,7 +8144,7 @@ mod tests {
             source_transaction_id: None,
             source_transaction_line_id: None,
             charge_amount: None,
-            due_at: None,
+            due_at: Some(chrono::Utc::now() + chrono::Duration::days(7)),
             notes: Some("Customer prefers a shorter break.".to_string()),
             ticket_number: None,
             intake_mode: None,
