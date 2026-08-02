@@ -123,6 +123,7 @@ How to verify in ROS Dev Center:
 | **`pos-golden.spec.ts`** | POS shell: open till, cashier overlay, product search / checkout drawer path | Same + register session. Uses explicit POS register-ready and cashier-overlay contracts; see [`docs/POS_E2E_TESTABILITY_FOLLOWUP.md`](POS_E2E_TESTABILITY_FOLLOWUP.md). |
 | **`pos-navigation-contract.spec.ts`** | POS rail section contract, narrowed POS-native sections, and rapid tab changes staying in POS mode | Uses explicit POS register-ready and cashier-overlay contracts |
 | **`pos-modal-smoke.spec.ts`** | POS modal smoke across viewports | Responsive modal coverage for register flows |
+| **`input-modality-accessibility.spec.ts`** | POS Staff Access focus containment and coarse-pointer global 44px targets | Keyboard-only and touch-only interaction baseline |
 | **`pos-small-screen-smoke.spec.ts`** | POS shell/cart/register smoke on small and tablet viewports | Mobile/PWA regression coverage for core register surface |
 | **`pos-dropdown-visibility.spec.ts`** | POS dropdown menus remain visible near the bottom of a scrollable cart | Protects dropdown clipping/viewport behavior |
 | **`pos-alterations-intake.spec.ts`** | POS alteration intake, lookup-only/current-cart/custom item flows, charged/free alteration cart lines, and existing Transaction Record payment flow | Uses mocked POS/API flows plus checkout payload assertions |

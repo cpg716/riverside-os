@@ -5,6 +5,7 @@ import { api } from '../lib/api';
 import { parseJSON } from '../lib/dataUtils';
 import { isLegacyIndividualParty } from '../lib/partyLegacy';
 import { formatDate, formatPhone, formatMoney } from '../lib/utils';
+import { activateOnEnterOrSpace } from '../../../lib/interaction';
 
 const AppointmentList = ({ memberId, partyId }) => {
     const [appointments, setAppointments] = useState([]);
@@ -806,7 +807,12 @@ const MemberDetailModal = ({ isOpen, onClose, member, onUpdate, onAdd, parties, 
                                     <div>
                                         <label className="block text-xs font-bold text-app-text-muted uppercase mb-1">Measurement Date</label>
                                         <div
+                                            role="button"
+                                            tabIndex={0}
                                             onClick={() => handleOpenScheduler('Measurement')}
+                                            onKeyDown={(event) =>
+                                                activateOnEnterOrSpace(event, () => handleOpenScheduler('Measurement'))
+                                            }
                                             className="w-full p-3 border border-app-border bg-app-surface rounded-lg focus:ring-2 focus:ring-navy-900 outline-none cursor-pointer hover:bg-app-surface-2 flex justify-between items-center transition-all active:bg-app-surface-2 min-h-[44px]"
                                         >
                                             <span className={`font-bold ${localMember.measureDate ? 'text-app-text' : 'text-app-text-muted'}`}>
@@ -818,7 +824,13 @@ const MemberDetailModal = ({ isOpen, onClose, member, onUpdate, onAdd, parties, 
                                     <div>
                                         <label className="block text-xs font-bold text-app-text-muted uppercase mb-1">Fitting Date</label>
                                         <div
+                                            role="button"
+                                            tabIndex={0}
                                             onClick={() => handleOpenScheduler('Fitting')}
+                                            onKeyDown={(event) =>
+                                                activateOnEnterOrSpace(event, () => handleOpenScheduler('Fitting'))
+                                            }
+                                            className="ui-touch-target w-full cursor-pointer rounded-lg border border-app-border bg-app-surface p-3 transition-all hover:bg-app-surface-2"
                                         >
                                             <span className={localMember.fittingDate ? 'text-app-text' : 'text-app-text-muted'}>
                                                 {localMember.fittingDate ? new Date(localMember.fittingDate).toLocaleDateString() : 'Schedule...'}

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import Icon from './Icon';
 import { api, socket } from '../lib/api';
 import { formatDate } from '../lib/utils';
+import { activateOnEnterOrSpace } from '../../../lib/interaction';
 
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -236,9 +237,15 @@ const CalendarView = ({ parties, onEditAppt }) => {
                             return (
                                 <div
                                     key={idx}
+                                    role="button"
+                                    tabIndex={0}
+                                    aria-label={`${dayObj.date.toLocaleDateString()}${activeAppts.length ? `, ${activeAppts.length} appointments` : ''}`}
                                     onClick={() => setSelectedDay(isSelected ? null : key)}
+                                    onKeyDown={(event) =>
+                                        activateOnEnterOrSpace(event, () => setSelectedDay(isSelected ? null : key))
+                                    }
                                     className={`
-                                        border-b border-r border-app-border/80 p-1.5 cursor-pointer transition-all min-h-[70px] relative
+                                        border-b border-r border-app-border/80 p-1.5 cursor-pointer transition-all min-h-[70px] relative focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-app-accent/30
                                         ${!dayObj.isCurrentMonth ? 'bg-app-surface-2/50' : 'hover:bg-app-surface-2'}
                                         ${isSelected ? 'bg-navy-50 ring-2 ring-navy-400 ring-inset' : ''}
                                     `}

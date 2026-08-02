@@ -1030,7 +1030,13 @@ export default function CustomItemPromptModal({
           {!detailsOnly ? (
           <div className="grid grid-cols-2 gap-2">
             {/* Rush Order */}
-            <label className="flex cursor-pointer items-center justify-between rounded-2xl border border-app-border bg-app-surface-2 p-3 transition-colors hover:bg-app-surface">
+            <button
+              type="button"
+              role="switch"
+              aria-checked={isRush}
+              onClick={() => setIsRush(!isRush)}
+              className="flex min-h-11 items-center justify-between rounded-2xl border border-app-border bg-app-surface-2 p-3 text-left transition-colors hover:bg-app-surface"
+            >
               <div className="flex flex-col">
                 <span className="text-[10px] font-black uppercase tracking-widest text-app-text">
                   Rush
@@ -1039,22 +1045,28 @@ export default function CustomItemPromptModal({
                   URGENT
                 </span>
               </div>
-              <div
-                onClick={() => setIsRush(!isRush)}
+              <span
+                aria-hidden="true"
                 className={`relative h-5 w-9 shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out ${
                   isRush ? "bg-red-600" : "bg-zinc-300 dark:bg-zinc-700"
                 }`}
               >
-                <div
+                <span
                   className={`absolute left-0.5 top-0.5 h-4 w-4 transform rounded-full bg-app-surface shadow-sm transition-transform duration-200 ease-in-out ${
                     isRush ? "translate-x-4" : "translate-x-0"
                   }`}
                 />
-              </div>
-            </label>
+              </span>
+            </button>
 
             {/* Gift Wrap */}
-            <label className="flex cursor-pointer items-center justify-between rounded-2xl border border-app-border bg-app-surface-2 p-3 transition-colors hover:bg-app-surface">
+            <button
+              type="button"
+              role="switch"
+              aria-checked={needsGiftWrap}
+              onClick={() => setNeedsGiftWrap(!needsGiftWrap)}
+              className="flex min-h-11 items-center justify-between rounded-2xl border border-app-border bg-app-surface-2 p-3 text-left transition-colors hover:bg-app-surface"
+            >
               <div className="flex flex-col">
                 <span className="text-[10px] font-black uppercase tracking-widest text-app-text">
                   Wrap
@@ -1063,19 +1075,19 @@ export default function CustomItemPromptModal({
                   DECO
                 </span>
               </div>
-              <div
-                onClick={() => setNeedsGiftWrap(!needsGiftWrap)}
+              <span
+                aria-hidden="true"
                 className={`relative h-5 w-9 shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out ${
                   needsGiftWrap ? "bg-emerald-600" : "bg-zinc-300 dark:bg-zinc-700"
                 }`}
               >
-                <div
+                <span
                   className={`absolute left-0.5 top-0.5 h-4 w-4 transform rounded-full bg-app-surface shadow-sm transition-transform duration-200 ease-in-out ${
                     needsGiftWrap ? "translate-x-4" : "translate-x-0"
                   }`}
                 />
-              </div>
-            </label>
+              </span>
+            </button>
           </div>
           ) : null}
         </div>

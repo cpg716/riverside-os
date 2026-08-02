@@ -713,10 +713,18 @@ function OrderTableRow({
   const cpLabel = counterpointImportLabel(row);
   return (
     <tr
+      tabIndex={0}
+      aria-label={`Select transaction ${row.display_id}`}
       onClick={onClick}
       onDoubleClick={() => actions.onOpenInRegister?.(row.transaction_id)}
+      onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) return;
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        onClick();
+      }}
       className={cn(
-        "group cursor-pointer transition-all duration-150 hover:bg-app-surface-2 focus-within:bg-app-surface-2",
+        "group cursor-pointer transition-all duration-150 hover:bg-app-surface-2 focus-within:bg-app-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-app-accent/30",
         isSelected
           ? "border-l-4 border-app-success bg-app-success/8"
           : "border-l-4 border-transparent",
@@ -2197,6 +2205,7 @@ export default function OrdersWorkspace({
                   size={16}
                 />
                 <input
+                  aria-label="Search orders"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder="Search by customer, phone, order item, Transaction Record #, or fulfillment order #..."
@@ -2274,6 +2283,7 @@ export default function OrdersWorkspace({
 
             <div className="flex flex-wrap items-center gap-2 border-b border-app-border bg-app-surface-3 px-4 py-4 lg:px-5">
               <select
+                aria-label="Filter orders by type"
                 value={kindFilter}
                 onChange={(e) => setKindFilter(e.target.value)}
                 className="ui-input h-10 px-3 text-[10px] font-black uppercase tracking-widest"
@@ -2284,6 +2294,7 @@ export default function OrdersWorkspace({
                 <option value="custom">Custom</option>
               </select>
               <select
+                aria-label="Filter orders by payment status"
                 value={paymentFilter}
                 onChange={(e) => setPaymentFilter(e.target.value)}
                 className="ui-input h-10 px-3 text-[10px] font-black uppercase tracking-widest"
@@ -2294,6 +2305,7 @@ export default function OrdersWorkspace({
                 <option value="unpaid">Unpaid</option>
               </select>
               <select
+                aria-label="Filter orders by staff member"
                 value={salespersonFilter}
                 onChange={(e) => setSalespersonFilter(e.target.value)}
                 className="ui-input h-10 px-3 text-[10px] font-black uppercase tracking-widest"
@@ -2306,6 +2318,7 @@ export default function OrdersWorkspace({
                 ))}
               </select>
               <select
+                aria-label="Filter orders by lifecycle status"
                 value={lifecycleFilter}
                 onChange={(e) => setLifecycleFilter(e.target.value)}
                 className="ui-input h-10 px-3 text-[10px] font-black uppercase tracking-widest"
@@ -2320,6 +2333,7 @@ export default function OrdersWorkspace({
                 <option value="picked_up">Picked Up</option>
               </select>
               <select
+                aria-label="Filter orders by date range"
                 value={datePreset}
                 onChange={(e) => {
                   const val = e.target.value;

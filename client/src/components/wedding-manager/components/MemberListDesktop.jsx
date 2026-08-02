@@ -1,6 +1,7 @@
 import React from 'react';
 import Icon from './Icon';
 import { formatPhone, formatDate } from '../lib/utils';
+import { activateOnEnterOrSpace } from '../../../lib/interaction';
 
 function lifecycleBadge(readiness) {
     const lifecycle = readiness?.lifecycle || {};
@@ -47,7 +48,14 @@ const MemberListDesktop = React.memo(({ members, partyId, paymentStatusByMemberI
                         members.map((member, idx) => {
                             if (member.role === 'Info') {
                                 return (
-                                    <tr key={member.id} className="bg-app-surface-2/80 hover:bg-app-border/50/80 transition-colors cursor-pointer group" onClick={() => onMemberClick(member)}>
+                                    <tr
+                                        key={member.id}
+                                        tabIndex={0}
+                                        aria-label={`Open ${member.name}`}
+                                        className="bg-app-surface-2/80 hover:bg-app-border/50/80 transition-colors cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-app-accent"
+                                        onClick={() => onMemberClick(member)}
+                                        onKeyDown={(event) => activateOnEnterOrSpace(event, () => onMemberClick(member))}
+                                    >
                                         <td colSpan="14" className="px-6 py-3 text-sm font-bold text-app-text uppercase tracking-wider border-y-2 border-app-border sticky left-0 z-10 bg-app-surface-2 group-hover:bg-app-border/50 transition-colors">
                                             <div className="flex items-center justify-between">
                                                 <span className="flex items-center gap-2">
@@ -92,7 +100,11 @@ const MemberListDesktop = React.memo(({ members, partyId, paymentStatusByMemberI
                                 <tr key={member.id} className="hover:bg-app-surface-2 transition-colors group border-b border-app-border/80 last:border-0">
                                     <td className="px-4 py-3 whitespace-nowrap">
                                         <div className="flex items-center justify-between gap-2">
-                                            <div className="flex flex-col cursor-pointer" onClick={() => onMemberClick(member)}>
+                                            <button
+                                                type="button"
+                                                className="flex flex-col cursor-pointer rounded text-left"
+                                                onClick={() => onMemberClick(member)}
+                                            >
                                                 <div className="flex items-center gap-2">
                                                     <div className="font-bold text-app-text">{member.name}</div>
                                                     {inconsistency && (
@@ -118,7 +130,7 @@ const MemberListDesktop = React.memo(({ members, partyId, paymentStatusByMemberI
                                                         {member.notes}
                                                     </div>
                                                 )}
-                                            </div>
+                                            </button>
                                             <button type="button"
                                                 onClick={(e) => { e.stopPropagation(); onMemberClick(member); }}
                                                 className={`p-1.5 rounded transition-all duration-200 ${hasNotes ? 'text-gold-600 bg-gold-50 hover:bg-gold-100' : 'text-app-text-muted hover:text-app-text hover:bg-app-surface-2'}`}
@@ -130,6 +142,9 @@ const MemberListDesktop = React.memo(({ members, partyId, paymentStatusByMemberI
                                     </td>
                                     <td className="px-2 sm:px-4 py-3 whitespace-nowrap text-center">
                                         <div
+                                            role="button"
+                                            tabIndex={0}
+                                            aria-label={`Manage appointments for ${member.name}`}
                                             className={`cursor-pointer hover:scale-110 transition-transform ${(() => {
                                                 const isOverdue = (dateStr) => {
                                                     if (!dateStr) return false;
@@ -148,6 +163,7 @@ const MemberListDesktop = React.memo(({ members, partyId, paymentStatusByMemberI
                                                 }`}
                                             title={upcomingAppts || "No appointments scheduled"}
                                             onClick={() => onAppointmentClick(member)}
+                                            onKeyDown={(event) => activateOnEnterOrSpace(event, () => onAppointmentClick(member))}
                                         >
                                             <Icon name="Calendar" size={16} />
                                         </div>

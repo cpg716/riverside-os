@@ -721,8 +721,16 @@ export default function GiftCardsWorkspace({ activeSection }: { activeSection: s
               {cards.map(c => (
                 <tr
                   key={c.id}
-                  className="group cursor-pointer transition-colors hover:bg-app-accent/5"
+                  tabIndex={0}
+                  aria-label={`Open gift card ${c.code}`}
+                  className="group cursor-pointer transition-colors hover:bg-app-accent/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-app-accent/30"
                   onClick={() => setSelectedCardId(c.id)}
+                  onKeyDown={(event) => {
+                    if (event.target !== event.currentTarget) return;
+                    if (event.key !== "Enter" && event.key !== " ") return;
+                    event.preventDefault();
+                    setSelectedCardId(c.id);
+                  }}
                 >
                   <td className="py-4 pr-4 font-mono text-xs font-black text-app-accent tracking-tighter">{c.code}</td>
                   <td className="py-4 pr-4">

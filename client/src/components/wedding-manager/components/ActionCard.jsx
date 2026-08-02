@@ -1,6 +1,7 @@
 import React from 'react';
 import Icon from './Icon';
 import Skeleton from './Skeleton';
+import { activateOnEnterOrSpace } from '../../../lib/interaction';
 
 const ActionCard = ({ title, icon, colorClass, items, emptyMsg, renderItem, loading, actionAction }) => {
     const list = Array.isArray(items) ? items : [];
@@ -76,8 +77,13 @@ const ActionCard = ({ title, icon, colorClass, items, emptyMsg, renderItem, load
                         {list.map((item, idx) => (
                             <div
                                 key={idx}
+                                role="button"
+                                tabIndex={0}
                                 onClick={() => renderItem.onClick(item)}
-                                className="p-4 hover:bg-app-surface-2 active:bg-app-surface-2 cursor-pointer transition-colors group animate-fade-in flex items-center"
+                                onKeyDown={(event) =>
+                                    activateOnEnterOrSpace(event, () => renderItem.onClick(item))
+                                }
+                                className="p-4 hover:bg-app-surface-2 active:bg-app-surface-2 cursor-pointer transition-colors group animate-fade-in flex items-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-app-accent/30"
                                 style={{ animationDelay: `${idx * 50}ms` }}
                             >
                                 {renderItem.content(item)}

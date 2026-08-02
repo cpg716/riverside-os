@@ -4,6 +4,7 @@ import { api, socket } from '../lib/api';
 import AppointmentModal from '../../scheduler/AppointmentModal';
 import { formatDate } from '../lib/utils';
 import { openPrintableHtml } from '../../../lib/browserPrint';
+import { activateOnEnterOrSpace } from '../../../lib/interaction';
 
 import { useModal } from '../hooks/useModal';
 
@@ -274,8 +275,12 @@ const AppointmentScheduler = ({ parties, prefilledMember, initialDate, onSave })
                                             {parseInt(time.split(':')[0]) > 12 ? parseInt(time.split(':')[0]) - 12 : parseInt(time.split(':')[0])}:{time.split(':')[1]} {parseInt(time.split(':')[0]) >= 12 ? 'PM' : 'AM'}
                                         </div>
                                         <div
+                                            role="button"
+                                            tabIndex={0}
+                                            aria-label={`Schedule appointment at ${time}`}
                                             className="p-1 min-h-[60px] relative hover:bg-app-surface-2 transition-colors cursor-pointer border-b border-app-border/80 flex gap-1 overflow-x-auto print:overflow-visible print:flex-wrap"
                                             onClick={() => handleAddAppt(time)}
+                                            onKeyDown={(event) => activateOnEnterOrSpace(event, () => handleAddAppt(time))}
                                         >
                                             {slotAppts.map(appt => (
                                                 <AppointmentCard key={appt.id} appt={appt} onEdit={handleEditAppt} onDelete={handleDeleteAppt} />
@@ -338,6 +343,9 @@ const AppointmentScheduler = ({ parties, prefilledMember, initialDate, onSave })
                                         {timeSlots.filter((_, i) => i % 2 === 0).map(time => (
                                             <div
                                                 key={time}
+                                                role="button"
+                                                tabIndex={0}
+                                                aria-label={`Schedule appointment on ${dateStr} at ${time}`}
                                                 className="h-20 border-b border-app-border/80 hover:bg-app-surface-2 transition-colors cursor-pointer p-1 space-y-1"
                                                 onClick={() => {
                                                     setSelectedDate(columnDate);
@@ -347,6 +355,14 @@ const AppointmentScheduler = ({ parties, prefilledMember, initialDate, onSave })
                                                     });
                                                     setIsModalOpen(true);
                                                 }}
+                                                onKeyDown={(event) => activateOnEnterOrSpace(event, () => {
+                                                    setSelectedDate(columnDate);
+                                                    setSelectedAppt({
+                                                        datetime: `${dateStr}T${time}:00`,
+                                                        ...(prefilledMember || {})
+                                                    });
+                                                    setIsModalOpen(true);
+                                                })}
                                             >
                                                 {appointments.filter(a =>
                                                     isOpenAppointment(a) &&
@@ -356,7 +372,11 @@ const AppointmentScheduler = ({ parties, prefilledMember, initialDate, onSave })
                                                     .map(appt => (
                                                         <div
                                                             key={appt.id}
+                                                            role="button"
+                                                            tabIndex={0}
+                                                            aria-label={`Edit ${appt.customerName || 'customer'} ${appt.type || 'appointment'}`}
                                                             onClick={(e) => { e.stopPropagation(); handleEditAppt(appt); }}
+                                                            onKeyDown={(event) => activateOnEnterOrSpace(event, () => handleEditAppt(appt))}
                                                             className={`p-1 rounded text-[9px] font-bold border-l-2 shadow-sm truncate
                                                                 ${appt.type === 'Measurement' ? 'bg-blue-50 border-blue-500 text-blue-900' :
                                                                     appt.type === 'Fitting' ? 'bg-gold-50 border-gold-500 text-gold-900' :
@@ -393,7 +413,11 @@ const AppointmentScheduler = ({ parties, prefilledMember, initialDate, onSave })
 
 const AppointmentCard = ({ appt, onEdit, onDelete }) => (
     <div
+        role="button"
+        tabIndex={0}
+        aria-label={`Edit ${appt.customerName || 'customer'} ${appt.type || 'appointment'}`}
         onClick={(e) => { e.stopPropagation(); onEdit(appt); }}
+        onKeyDown={(event) => activateOnEnterOrSpace(event, () => onEdit(appt))}
         className={`mb-1 p-2 rounded border-l-4 shadow-sm text-xs cursor-pointer hover:brightness-95 transition-all flex flex-col justify-between flex-1 min-w-[140px]
             ${appt.type === 'Measurement' ? 'bg-blue-50 border-blue-500 text-blue-900' :
                 appt.type === 'Fitting' ? 'bg-gold-50 border-gold-500 text-gold-900' :

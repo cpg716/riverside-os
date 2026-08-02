@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import { Shield, X } from "lucide-react";
 import NumericPinKeypad, { PinDots } from "../ui/NumericPinKeypad";
 import StaffMiniSelector from "../ui/StaffMiniSelector";
+import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
 
 const baseUrl = getBaseUrl();
 
@@ -33,6 +34,10 @@ export default function PosSaleCashierSignInOverlay({
     return localStorage.getItem("ros_last_staff_id") || "";
   });
   const autoVerifyKeyRef = useRef<string | null>(null);
+  const { dialogRef, titleId } = useDialogAccessibility(open, {
+    onEscape: onCancel,
+    closeOnEscape: Boolean(onCancel) && !busy,
+  });
 
   useEffect(() => {
     if (!open) return;
@@ -81,6 +86,7 @@ export default function PosSaleCashierSignInOverlay({
 
   return createPortal(
     <div
+      ref={dialogRef}
       className="fixed inset-0 z-[300] flex min-h-[100dvh] flex-col items-center justify-center bg-app-bg p-4 font-sans antialiased sm:p-6"
       data-testid="pos-sale-cashier-overlay"
       data-roster-ready={roster.length > 0 ? "true" : "false"}
@@ -93,7 +99,8 @@ export default function PosSaleCashierSignInOverlay({
       }}
       role="dialog"
       aria-modal="true"
-      aria-labelledby="pos-sale-cashier-title"
+      aria-labelledby={titleId}
+      tabIndex={-1}
     >
       <div className="max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto rounded-[32px] border border-app-border/40 bg-app-surface shadow-2xl">
         <div className="relative border-b border-app-border bg-app-surface-2 px-5 py-5 text-center sm:px-8 sm:py-6">
@@ -101,7 +108,7 @@ export default function PosSaleCashierSignInOverlay({
             <button
               type="button"
               onClick={onCancel}
-              className="absolute right-4 top-4 rounded-full border border-app-border/60 p-2 text-app-text-muted hover:bg-app-surface"
+              className="ui-touch-target absolute right-4 top-4 rounded-full border border-app-border/60 p-2 text-app-text-muted hover:bg-app-surface"
               aria-label="Cancel"
             >
               <X size={18} />
@@ -114,7 +121,7 @@ export default function PosSaleCashierSignInOverlay({
             Riverside OS · POS
           </p>
           <h1
-            id="pos-sale-cashier-title"
+            id={titleId}
             className="mt-1 text-xl font-black tracking-tight text-app-text"
           >
             Staff Access for this sale

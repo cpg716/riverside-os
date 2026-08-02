@@ -4,6 +4,7 @@ import { api } from '../lib/api';
 import StaffMiniSelector from '../../ui/StaffMiniSelector';
 
 import { useModal } from '../hooks/useModal';
+import { activateOnEnterOrSpace } from '../../../lib/interaction';
 
 const APPT_CUSTOMER_SEARCH_PAGE = 40;
 
@@ -510,8 +511,13 @@ const AppointmentModal = ({ isOpen, onClose, onSave, initialData, parties: _part
                                 {searchResults.map((c) => (
                                     <div
                                         key={c.id}
-                                        className="p-2 hover:bg-app-surface-2 cursor-pointer text-sm border-b border-app-border/80 last:border-0"
+                                        role="button"
+                                        tabIndex={0}
+                                        className="p-2 hover:bg-app-surface-2 cursor-pointer text-sm border-b border-app-border/80 last:border-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-app-accent/30"
                                         onClick={() => handleSelectRosCustomer(c)}
+                                        onKeyDown={(event) =>
+                                            activateOnEnterOrSpace(event, () => handleSelectRosCustomer(c))
+                                        }
                                     >
                                         <div className="font-bold text-app-text">{rosCustomerLabel(c)}</div>
                                         <div className="text-xs text-app-text-muted">

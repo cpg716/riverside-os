@@ -3,6 +3,7 @@ import Icon from './Icon';
 import Skeleton from './Skeleton';
 import { calculateProgress, formatDate, isSoon, highlightMatch } from '../lib/utils';
 import { isLegacyIndividualParty } from '../lib/partyLegacy';
+import { activateOnEnterOrSpace } from '../../../lib/interaction';
 
 const PartyList = ({ parties, loading, onPartyClick, currentPage, totalPages, setCurrentPage, totalParties, searchTerm, showDeleted, onRestore }) => {
 
@@ -62,8 +63,14 @@ const PartyList = ({ parties, loading, onPartyClick, currentPage, totalPages, se
                     return (
                         <div
                             key={party.id}
+                            role="button"
+                            tabIndex={party.isDeleted === 1 ? -1 : 0}
+                            aria-label={`Open wedding party ${party.name || party.partyName || ''}`.trim()}
                             onClick={() => party.isDeleted !== 1 && onPartyClick(party)}
-                            className={`bg-app-surface rounded-lg shadow-sm hover:shadow-xl transition-all duration-300 border border-app-border cursor-pointer group flex flex-col h-full active:scale-[0.98] hover:-translate-y-1 relative overflow-hidden ${party.isDeleted === 1 ? 'opacity-60 grayscale-[0.5]' : ''} ${isCritical ? 'ring-2 ring-red-500 shadow-lg shadow-red-100' : urgent ? 'ring-1 ring-red-100' : ''}`}
+                            onKeyDown={(event) =>
+                                activateOnEnterOrSpace(event, () => party.isDeleted !== 1 && onPartyClick(party))
+                            }
+                            className={`bg-app-surface rounded-lg shadow-sm hover:shadow-xl transition-all duration-300 border border-app-border cursor-pointer group flex flex-col h-full active:scale-[0.98] hover:-translate-y-1 relative overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/30 ${party.isDeleted === 1 ? 'opacity-60 grayscale-[0.5]' : ''} ${isCritical ? 'ring-2 ring-red-500 shadow-lg shadow-red-100' : urgent ? 'ring-1 ring-red-100' : ''}`}
                         >
                             {/* Deleted / Archived Stamp */}
                             {party.isDeleted === 1 && (

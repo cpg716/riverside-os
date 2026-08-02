@@ -49,6 +49,42 @@
   --app-input-inset: inset 0 1px 2px rgba(0, 0, 0, 0.35);
 }
 
+/*
+ * Input-modality baseline: every operable control must retain a visible
+ * keyboard focus indicator even when a local component removes the browser
+ * outline. Component-specific focus rings may layer on top of this fallback.
+ */
+:where(
+  button,
+  a[href],
+  input,
+  select,
+  textarea,
+  summary,
+  [role="button"],
+  [role="checkbox"],
+  [role="switch"],
+  [tabindex]:not([tabindex="-1"])
+):focus-visible {
+  outline: 3px solid var(--app-accent);
+  outline-offset: 2px;
+}
+
+:where(button, input, select, textarea, [role="button"], [role="checkbox"], [role="switch"]) {
+  touch-action: manipulation;
+}
+
+/* Preserve compact mouse layouts while making the same controls finger-safe. */
+@media (pointer: coarse) {
+  :where(button, input:not([type="checkbox"]):not([type="radio"]), select, textarea, [role="button"], [role="checkbox"], [role="switch"]) {
+    min-height: 44px;
+  }
+
+  :where(button, [role="button"], [role="checkbox"], [role="switch"]) {
+    min-width: 44px;
+  }
+}
+
 /* Public `/shop` storefront tokens (shadcn-style HSL channels; used with Tailwind `storefront.*`). */
 [data-storefront="true"] {
   --sf-background: 48 20% 97%;

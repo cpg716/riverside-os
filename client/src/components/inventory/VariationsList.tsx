@@ -308,24 +308,27 @@ export const VariationsList: React.FC<VariationsListProps> = ({
               )}
             </button>
           </div>
-          <div
-            className="flex-1 cursor-pointer font-black uppercase tracking-[0.2em] text-[10px] text-app-text-muted"
+          <button
+            type="button"
+            className="ui-touch-target flex-1 cursor-pointer text-left font-black uppercase tracking-[0.2em] text-[10px] text-app-text-muted"
             onClick={() => toggleSort("sku")}
           >
             SKU / Variant
-          </div>
-          <div
-            className="w-48 cursor-pointer font-black uppercase tracking-[0.2em] text-[10px] text-app-text-muted"
+          </button>
+          <button
+            type="button"
+            className="ui-touch-target w-48 cursor-pointer text-left font-black uppercase tracking-[0.2em] text-[10px] text-app-text-muted"
             onClick={() => toggleSort("stock_on_hand")}
           >
             Units SOH
-          </div>
-          <div
-            className="w-32 cursor-pointer pr-4 text-right font-black uppercase tracking-[0.2em] text-[10px] text-app-text-muted"
+          </button>
+          <button
+            type="button"
+            className="ui-touch-target w-32 cursor-pointer pr-4 text-right font-black uppercase tracking-[0.2em] text-[10px] text-app-text-muted"
             onClick={() => toggleSort("effective_retail")}
           >
             Retail
-          </div>
+          </button>
           <div className="w-28 text-center font-black uppercase tracking-[0.2em] text-[10px] text-app-text-muted">
             Web
           </div>

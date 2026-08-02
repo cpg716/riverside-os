@@ -610,6 +610,7 @@ export default function StaffWorkspace({
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-app-text-muted" />
                 <input
                   type="text"
+                  aria-label="Search staff"
                   placeholder="Search staff by name, PIN or role…"
                   className="ui-input w-full pl-10"
                   value={searchInput}
@@ -617,6 +618,7 @@ export default function StaffWorkspace({
                 />
               </div>
               <select
+                aria-label="Filter staff by account status"
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value as StaffStatusFilter)}
                 className="ui-input w-full min-w-[10rem] px-3 py-2 sm:w-auto sm:min-w-[12rem]"
@@ -657,6 +659,7 @@ export default function StaffWorkspace({
                 className="grid w-full grid-cols-1 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center"
               >
                 <select
+                  aria-label="Staff type for selected staff members"
                   value={bulkRole}
                   onChange={(e) => setBulkRole(e.target.value as StaffRole)}
                   disabled={bulkBusy || selectedStaffIds.length === 0}
@@ -701,8 +704,16 @@ export default function StaffWorkspace({
               {filteredRoster.map((r) => (
                 <div
                   key={r.id}
-                  className="ui-card flex touch-manipulation cursor-pointer select-none flex-col p-4 transition-colors active:bg-app-surface-2"
+                  tabIndex={0}
+                  aria-label={`Edit ${r.full_name}`}
+                  className="ui-card flex touch-manipulation cursor-pointer select-none flex-col p-4 transition-colors active:bg-app-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/30"
                   onClick={() => openEdit(r)}
+                  onKeyDown={(event) => {
+                    if (event.target !== event.currentTarget) return;
+                    if (event.key !== "Enter" && event.key !== " ") return;
+                    event.preventDefault();
+                    openEdit(r);
+                  }}
                 >
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex min-w-0 items-start gap-3">
@@ -894,6 +905,7 @@ export default function StaffWorkspace({
               <div className="relative w-full sm:w-64">
                 <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-app-text-muted" />
                 <input
+                  aria-label="Search staff access events"
                   className="ui-input w-full pl-8 py-1.5 text-xs"
                   placeholder="Search events or staff…"
                   value={auditSearchInput}

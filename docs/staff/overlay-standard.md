@@ -28,6 +28,10 @@ Modals and wizards:
 
 - Open centered or full-screen above the current work.
 - Keep background from scrolling while the modal is open.
+- Move keyboard focus into the open panel and keep Tab/Shift+Tab inside it.
+- Keep every action reachable by touch, mouse/trackpad, or keyboard alone.
+- Show a visible focus outline when using Tab; Enter or Space activates the
+  focused action.
 
 Search dropdowns and quick menus:
 
@@ -44,6 +48,9 @@ System-priority overlays:
 - You must scroll upward just to see an opened overlay.
 - A modal appears behind another panel.
 - Background keeps scrolling while a blocking modal is open.
+- Tab moves behind the open overlay or a focused control has no visible outline.
+- An action works by tapping/clicking but cannot be reached and activated from
+  the keyboard.
 - A menu is cut off even though there is space above it.
 
 ## Manager and support handoff

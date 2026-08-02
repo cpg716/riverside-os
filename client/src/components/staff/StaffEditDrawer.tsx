@@ -594,8 +594,11 @@ export default function StaffEditDrawer({
                   <h3 className="text-[11px] font-black uppercase tracking-widest text-app-text-muted">
                     Core Information
                   </h3>
-                  <div
-                    className="flex items-center gap-2 cursor-pointer select-none"
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={active}
+                    className="ui-touch-target flex items-center gap-2 cursor-pointer select-none rounded-xl px-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/30"
                     onClick={() => setActive(!active)}
                   >
                     <span
@@ -610,7 +613,7 @@ export default function StaffEditDrawer({
                         className={`absolute top-1 w-2 h-2 rounded-full bg-app-surface transition-all ${active ? "left-5" : "left-1"}`}
                       />
                     </div>
-                  </div>
+                  </button>
                 </div>
 
                 <div className="space-y-4">

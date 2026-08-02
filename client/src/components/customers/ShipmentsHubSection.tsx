@@ -1143,10 +1143,18 @@ export default function ShipmentsHubSection({
                   {items.map((row) => (
                     <tr
                       key={row.id}
+                      tabIndex={0}
+                      aria-label={`Open ${sourceLabel[row.source] ?? row.source} shipment`}
                       className={`cursor-pointer hover:bg-app-surface-2/60 ${
                         detailId === row.id ? "bg-app-accent/10" : ""
-                      }`}
+                      } focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-app-accent/30`}
                       onClick={() => void openDetail(row.id)}
+                      onKeyDown={(event) => {
+                        if (event.target !== event.currentTarget) return;
+                        if (event.key !== "Enter" && event.key !== " ") return;
+                        event.preventDefault();
+                        void openDetail(row.id);
+                      }}
                     >
                       <td className="px-3 py-2 text-xs text-app-text-muted">
                         {new Date(row.created_at).toLocaleString()}

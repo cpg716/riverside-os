@@ -3768,8 +3768,23 @@ function DataTable({
             {rows.map((row) => (
               <tr
                 key={row.key}
+                tabIndex={row.onClick ? 0 : undefined}
                 onClick={row.onClick}
-                className={row.onClick ? "cursor-pointer transition hover:bg-app-surface-2" : undefined}
+                onKeyDown={
+                  row.onClick
+                    ? (event) => {
+                        if (event.target !== event.currentTarget) return;
+                        if (event.key !== "Enter" && event.key !== " ") return;
+                        event.preventDefault();
+                        row.onClick?.();
+                      }
+                    : undefined
+                }
+                className={
+                  row.onClick
+                    ? "cursor-pointer transition hover:bg-app-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-app-accent/30"
+                    : undefined
+                }
               >
                 {row.cells.map((cell, index) => (
                   <td key={`${row.key}-${index}`} className="px-4 py-3 align-middle text-app-text">

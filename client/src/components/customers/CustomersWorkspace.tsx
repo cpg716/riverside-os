@@ -1134,6 +1134,7 @@ export default function CustomersWorkspace({
                   size={16}
                 />
                 <input
+                  aria-label="Search customers"
                   value={_q}
                   onChange={(e) => _setQ(e.target.value)}
                   placeholder="Search name, code, company, contact..."
@@ -1158,6 +1159,7 @@ export default function CustomersWorkspace({
                     </div>
                   ) : (
                     <WeddingPartySearchInput
+                      ariaLabel="Filter customers by wedding party"
                       placeholder="Filter by party…"
                       onSelect={(p) =>
                         _setWeddingPartyQuery(p.party_name || p.groom_name)
@@ -1764,6 +1766,7 @@ export default function CustomersWorkspace({
         {hasPermission("customer_groups.manage") ? (
           <div className="flex flex-wrap items-center gap-2">
             <select
+              aria-label="Assign selected customers to group"
               value={bulkGroupId}
               onChange={(e) => setBulkGroupId(e.target.value)}
               className="ui-input max-w-[180px] py-2 text-xs font-semibold"
@@ -2002,9 +2005,10 @@ export default function CustomersWorkspace({
                 </p>
 
                 <div className="space-y-4">
-                  <label className="block px-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                  <div className="block px-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                     Target Wedding Party
                     <WeddingPartySearchInput
+                      ariaLabel="Target wedding party"
                       className="mt-1"
                       onSelect={(p) => {
                         void executeBulkAddToWedding(p.id);
@@ -2012,7 +2016,7 @@ export default function CustomersWorkspace({
                       }}
                       placeholder="Search by groom name..."
                     />
-                  </label>
+                  </div>
 
                   <div className="mt-8 flex justify-end gap-2">
                     <button

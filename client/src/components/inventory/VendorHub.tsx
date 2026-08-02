@@ -417,10 +417,18 @@ export default function VendorHub() {
 	                .map((v) => (
 	                  <tr
 	                    key={v.id}
+	                    tabIndex={0}
+	                    aria-label={`Select vendor ${v.name}`}
 	                    onClick={() => setVendorId(v.id)}
+	                    onKeyDown={(event) => {
+	                      if (event.target !== event.currentTarget) return;
+	                      if (event.key !== "Enter" && event.key !== " ") return;
+	                      event.preventDefault();
+	                      setVendorId(v.id);
+	                    }}
 	                    className={`cursor-pointer transition-colors hover:bg-app-accent/5 ${
 	                      vendorId === v.id ? "bg-app-accent/10" : "bg-app-surface"
-	                    }`}
+	                    } focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-app-accent/30`}
 	                  >
 	                    <td className="px-4 py-3 font-black text-app-text">{v.name}</td>
 	                    <td className="px-4 py-3 font-mono text-app-text-muted">{v.vendor_code || "—"}</td>

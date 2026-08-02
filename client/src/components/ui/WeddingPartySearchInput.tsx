@@ -23,6 +23,7 @@ interface PaginatedParties {
 interface WeddingPartySearchInputProps {
   onSelect: (party: WeddingPartySearchResult) => void;
   placeholder?: string;
+  ariaLabel?: string;
   className?: string;
   autoFocus?: boolean;
   disabled?: boolean;
@@ -31,6 +32,7 @@ interface WeddingPartySearchInputProps {
 export default function WeddingPartySearchInput({
   onSelect,
   placeholder = "Search wedding parties by name…",
+  ariaLabel = "Search wedding parties",
   className = "",
   autoFocus = false,
   disabled,
@@ -131,6 +133,7 @@ export default function WeddingPartySearchInput({
         </div>
         <input
           type="text"
+          aria-label={ariaLabel}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder={placeholder}

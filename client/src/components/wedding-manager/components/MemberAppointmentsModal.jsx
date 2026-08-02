@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import Icon from './Icon';
 import { api } from '../lib/api';
 import SchedulerModal from './SchedulerModal';
+import { activateOnEnterOrSpace } from '../../../lib/interaction';
 
 import { useModal } from '../hooks/useModal';
 
@@ -120,7 +121,15 @@ const MemberAppointmentsModal = ({ isOpen, onClose, member, parties, onRefresh }
                     ) : appointments.length > 0 ? (
                         <div className="space-y-3">
                             {appointments.map(appt => (
-                                <div key={appt.id} className={`bg-app-surface-2 dark:bg-navy-900 border rounded p-3 flex justify-between items-center hover:bg-app-surface-2 dark:hover:bg-navy-800 transition-colors cursor-pointer group ${appt.status === 'Missed' ? 'border-red-200 bg-red-50/50' : appt.status === 'Attended' ? 'border-green-200 bg-green-50/50' : 'border-app-border dark:border-navy-600'}`} onClick={() => handleEdit(appt)}>
+                                <div
+                                    key={appt.id}
+                                    role="button"
+                                    tabIndex={0}
+                                    aria-label={`Edit ${appt.type || 'appointment'} on ${new Date(appt.datetime).toLocaleDateString()}`}
+                                    className={`bg-app-surface-2 dark:bg-navy-900 border rounded p-3 flex justify-between items-center hover:bg-app-surface-2 dark:hover:bg-navy-800 transition-colors cursor-pointer group ${appt.status === 'Missed' ? 'border-red-200 bg-red-50/50' : appt.status === 'Attended' ? 'border-green-200 bg-green-50/50' : 'border-app-border dark:border-navy-600'}`}
+                                    onClick={() => handleEdit(appt)}
+                                    onKeyDown={(event) => activateOnEnterOrSpace(event, () => handleEdit(appt))}
+                                >
                                     <div>
                                         <div className="font-bold text-app-text dark:text-white flex items-center gap-2">
                                             {new Date(appt.datetime).toLocaleDateString()}

@@ -109,6 +109,29 @@ Riverside OS follows a **search-first administrative mandate**. Direct entry of 
 - **POS Cart Layout**: Prioritize horizontal width over vertical height. Line items use a grid/flex layout with Product Info/Salesperson on the left, Fulfillment in the middle, and QTY/SALE controls on the right.
 - **Emerald “terminal” completion** (POS parity on critical commits): For actions that **finalize** inventory, wedding pipeline steps, or irreversible CRM commits, use the same **emerald + bottom border** treatment as POS (**`UI_STANDARDS.md`** § Design Invariants). Examples: **`ReceivingBay`** Post inventory, WM **Action Dashboard** **Done**, **Customers** merge confirm. **`bg-app-accent`** remains appropriate for general primary navigation and non-terminal confirms.
 
+## Input modality contract
+
+Every staff workflow must be completable with touch only, keyboard only, or a
+mouse/trackpad. A control must not depend on hover, right-click, drag, or a
+pointer-only `onClick` path for its only action.
+
+- Prefer native `button`, `a`, `input`, `select`, and `textarea` elements. A
+  custom clickable surface must be focusable, expose an appropriate accessible
+  role/name/state, and support Enter and Space without also activating a nested
+  control. Use `activateOnEnterOrSpace` for established composite surfaces.
+- Do not remove the visible keyboard focus indicator. The global
+  `:focus-visible` fallback is the minimum; a component-specific ring may
+  strengthen it but must not hide it.
+- On coarse-pointer devices, interactive controls must render at least 44 by 44
+  CSS pixels. Use `ui-touch-target` for compact icon actions; do not enlarge the
+  visual glyph merely to satisfy the hit-area requirement.
+- Hover may reveal supplementary context, but all actions and required guidance
+  must also be available through focus, visible text, or an explicit control.
+- Keyboard order must follow the visual/task order. Do not use positive
+  `tabIndex` values.
+- Dialogs and drawers must follow the focus-management contract below so the
+  inactive page cannot capture keyboard input.
+
 ## Modal and drawer accessibility
 
 - Hook: **`client/src/hooks/useDialogAccessibility.ts`** — focus trap, Tab cycle, optional Escape handling, focus restore on close, optional **`initialFocusRef`**.

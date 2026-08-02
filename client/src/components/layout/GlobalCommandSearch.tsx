@@ -1079,7 +1079,7 @@ export default function GlobalCommandSearch({
           onMouseEnter={() => setCommandHintVisible(true)}
           onMouseLeave={() => setCommandHintVisible(false)}
           className={cn(
-            "group relative flex items-center text-left shadow-sm transition-all duration-150 hover:border-app-accent/20 hover:bg-app-surface hover:shadow-md active:scale-[0.995]",
+            "ui-touch-target group relative flex items-center text-left shadow-sm transition-all duration-150 hover:border-app-accent/20 hover:bg-app-surface hover:shadow-md active:scale-[0.995]",
             isPosVariant
               ? "h-10 w-10 justify-center gap-2 rounded-xl border border-app-border/70 bg-app-surface-2/95 px-0 lg:w-full lg:justify-start lg:px-2.5"
               : "h-10 w-10 justify-center gap-2 rounded-xl border border-app-border/70 bg-app-surface-2/90 px-0 lg:w-full lg:justify-start lg:px-2.5",

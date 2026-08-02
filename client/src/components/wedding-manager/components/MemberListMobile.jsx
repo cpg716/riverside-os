@@ -1,6 +1,7 @@
 import React from 'react';
 import Icon from './Icon';
 import { formatPhone } from '../lib/utils';
+import { activateOnEnterOrSpace } from '../../../lib/interaction';
 
 const WEDDING_WORKFLOW_STEPS = [
     { key: 'measured', label: 'Measure' },
@@ -50,8 +51,13 @@ const MemberListMobile = React.memo(({ members, partyId, paymentStatusByMemberId
                     return (
                         <div
                             key={member.id}
+                            role="button"
+                            tabIndex={0}
                             onClick={() => onMemberClick(member)}
-                            className="font-bold text-app-text uppercase text-sm tracking-wider py-3 px-2 border-y-2 border-app-border sticky top-0 bg-app-surface-2 z-10 flex items-center justify-between active:bg-app-border/50 transition-colors"
+                            onKeyDown={(event) =>
+                                activateOnEnterOrSpace(event, () => onMemberClick(member))
+                            }
+                            className="font-bold text-app-text uppercase text-sm tracking-wider py-3 px-2 border-y-2 border-app-border sticky top-0 bg-app-surface-2 z-10 flex items-center justify-between active:bg-app-border/50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/30"
                         >
                             <span className="flex items-center gap-2">
                                 <Icon name="Info" size={16} className="text-app-text-muted" />

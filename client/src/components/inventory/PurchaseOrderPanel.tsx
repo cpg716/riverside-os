@@ -1124,10 +1124,18 @@ export default function PurchaseOrderPanel({
               ) : orders.map((o) => (
                 <tr
                   key={o.id}
+                  tabIndex={0}
+                  aria-label={`Open purchase order ${o.po_number}`}
                   className={`group cursor-pointer transition-colors ${
                     selectedPo === o.id ? "bg-app-accent/8" : "hover:bg-app-surface-2/40"
-                  }`}
+                  } focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-app-accent/30`}
                   onClick={() => openPurchaseOrderEditor(o.id)}
+                  onKeyDown={(event) => {
+                    if (event.target !== event.currentTarget) return;
+                    if (event.key !== "Enter" && event.key !== " ") return;
+                    event.preventDefault();
+                    openPurchaseOrderEditor(o.id);
+                  }}
                 >
                   <td className="px-5 py-3 font-mono font-bold text-app-accent">{o.po_number}</td>
                   <td className="px-5 py-3 font-bold text-app-text">{o.vendor_name}</td>

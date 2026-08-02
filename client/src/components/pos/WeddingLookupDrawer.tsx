@@ -1,7 +1,7 @@
 import { getBaseUrl } from "../../lib/apiConfig";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
-import { 
+import {
   Search, 
   X, 
   Users, 
@@ -13,6 +13,7 @@ import {
   ArrowLeft,
   Heart
 } from "lucide-react";
+import { activateOnEnterOrSpace } from "../../lib/interaction";
 
 import { splitWeddingPartyWithMembers } from "../../lib/weddingPartyApiShape";
 import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
@@ -525,9 +526,17 @@ export default function WeddingLookupDrawer({
                 return (
                   <div 
                     key={member.id}
+                    role={groupPayMode && !isPayer ? "checkbox" : undefined}
+                    aria-checked={groupPayMode && !isPayer ? isSelected : undefined}
+                    tabIndex={groupPayMode && !isPayer ? 0 : undefined}
                     onClick={() =>
                       groupPayMode && !isPayer && toggleMember(member.id)
                     }
+                    onKeyDown={(event) => {
+                      if (groupPayMode && !isPayer) {
+                        activateOnEnterOrSpace(event, () => toggleMember(member.id));
+                      }
+                    }}
                     className={`flex flex-col p-4 rounded-[2rem] border transition-all ${
                       isPayer
                         ? "cursor-not-allowed border-app-border bg-app-surface-3 opacity-75"

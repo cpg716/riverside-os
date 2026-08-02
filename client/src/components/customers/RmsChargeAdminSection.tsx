@@ -774,8 +774,16 @@ export default function RmsChargeAdminSection({
               {records.map((row) => (
                 <tr
                   key={row.id}
-                  className="cursor-pointer border-t border-app-border transition-colors hover:bg-app-surface-2"
+                  tabIndex={0}
+                  aria-label={`Open RMS Charge ${row.record_kind}`}
+                  className="cursor-pointer border-t border-app-border transition-colors hover:bg-app-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-app-accent/30"
                   onClick={() => void loadRecordDetail(row.id)}
+                  onKeyDown={(event) => {
+                    if (event.target !== event.currentTarget) return;
+                    if (event.key !== "Enter" && event.key !== " ") return;
+                    event.preventDefault();
+                    void loadRecordDetail(row.id);
+                  }}
                 >
                   <td className="whitespace-nowrap px-4 py-3 text-xs text-app-text-muted">
                     {fmtDate(row.created_at)}

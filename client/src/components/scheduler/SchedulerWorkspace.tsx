@@ -10,6 +10,7 @@ import { mergedPosStaffHeaders } from '../../lib/posRegisterAuth';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { openPrintableHtml } from '../../lib/browserPrint';
 import { useToast } from '../ui/ToastProviderLogic';
+import { activateOnEnterOrSpace } from '../../lib/interaction';
 
 const baseUrl = getBaseUrl();
 
@@ -588,13 +589,23 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
                       {searchResults.map(a => (
                         <div 
                           key={a.id} 
-                          className="group/res cursor-pointer rounded-xl border border-app-border p-3 transition-all hover:border-app-accent hover:bg-app-accent/5"
+                          role="button"
+                          tabIndex={0}
+                          className="group/res cursor-pointer rounded-xl border border-app-border p-3 transition-all hover:border-app-accent hover:bg-app-accent/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/30"
                           onClick={() => {
                             const date = new Date(a.datetime);
                             setSelectedDate(date);
                             setViewMode('day');
                             setIsSearching(false);
                           }}
+                          onKeyDown={(event) =>
+                            activateOnEnterOrSpace(event, () => {
+                              const date = new Date(a.datetime);
+                              setSelectedDate(date);
+                              setViewMode('day');
+                              setIsSearching(false);
+                            })
+                          }
                         >
                           <div className="flex items-start justify-between">
                             <div>
@@ -731,8 +742,13 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
                       {displayTime}
                     </div>
                     <div
-                      className="min-h-[80px] p-2 flex gap-2 overflow-x-auto no-scrollbar hover:bg-app-surface-2/30 transition-colors cursor-pointer relative"
+                      tabIndex={0}
+                      aria-label={`Add appointment at ${displayTime}`}
+                      className="min-h-[80px] p-2 flex gap-2 overflow-x-auto no-scrollbar hover:bg-app-surface-2/30 transition-colors cursor-pointer relative focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-app-accent/30"
                       onClick={() => handleAddApptAtDate(selectedDate, time)}
+                      onKeyDown={(event) =>
+                        activateOnEnterOrSpace(event, () => handleAddApptAtDate(selectedDate, time))
+                      }
                     >
                       {slotAppts.map(appt => (
                         <AppointmentCard key={appt.id} appt={appt} onEdit={handleEditAppt} onDelete={handleDeleteAppt} />
@@ -792,8 +808,13 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
                                 return (
                                     <div 
                                         key={`${dateStr}-${time}`} 
-                                        className={`min-h-[100px] p-2 flex flex-col gap-2 border-r border-app-border/40 hover:bg-app-surface-2/30 transition-colors cursor-pointer group ${isToday ? 'bg-app-accent/[0.02]' : ''}`}
+                                        tabIndex={0}
+                                        aria-label={`Add appointment on ${date.toLocaleDateString()} at ${displayTime}`}
+                                        className={`min-h-[100px] p-2 flex flex-col gap-2 border-r border-app-border/40 hover:bg-app-surface-2/30 transition-colors cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-app-accent/30 ${isToday ? 'bg-app-accent/[0.02]' : ''}`}
                                         onClick={() => handleAddApptAtDate(date, time)}
+                                        onKeyDown={(event) =>
+                                          activateOnEnterOrSpace(event, () => handleAddApptAtDate(date, time))
+                                        }
                                     >
                                         {slotAppts.map(appt => (
                                             <div key={appt.id} className="w-full">
@@ -865,8 +886,11 @@ const AppointmentCard: React.FC<{ appt: Appointment; onEdit: (a: Appointment) =>
 
   return (
     <div
+      tabIndex={0}
+      aria-label={`Edit ${customerName} ${appointmentType} appointment`}
       onClick={(e) => { e.stopPropagation(); onEdit(appt); }}
-      className={`group/card relative flex flex-col justify-between rounded-xl border-l-[6px] p-3 shadow-md transition-all hover:-translate-y-0.5 hover:shadow-lg active:scale-[0.98] cursor-pointer ${isCompact ? 'min-w-0 max-w-full' : 'min-w-[180px] max-w-[240px]'} ${colorClass}`}
+      onKeyDown={(event) => activateOnEnterOrSpace(event, () => onEdit(appt))}
+      className={`group/card relative flex flex-col justify-between rounded-xl border-l-[6px] p-3 shadow-md transition-all hover:-translate-y-0.5 hover:shadow-lg active:scale-[0.98] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/30 ${isCompact ? 'min-w-0 max-w-full' : 'min-w-[180px] max-w-[240px]'} ${colorClass}`}
     >
       <div className="min-w-0">
         <h4 className="truncate text-xs font-black uppercase tracking-tight">{customerName}</h4>
