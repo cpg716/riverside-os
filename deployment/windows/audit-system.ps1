@@ -418,6 +418,26 @@ try {
     } else {
         Write-Host "[OK] API readiness reports ready." -ForegroundColor Green
     }
+    if ($strictProduction) {
+        $corsProbeOrigin = @($config.server.corsOrigins | ForEach-Object { "$($_)".Trim() } | Where-Object { $_ }) | Select-Object -First 1
+        if (-not $corsProbeOrigin) {
+            Write-AuditFailure "Strict production is configured, but no exact CORS origin is available for a live runtime probe."
+        } else {
+            $corsProbeResponse = Invoke-WebRequest `
+                -Uri "$apiBase/api/live" `
+                -Method Options `
+                -Headers @{ Origin = $corsProbeOrigin; "Access-Control-Request-Method" = "GET" } `
+                -UseBasicParsing `
+                -TimeoutSec 5 `
+                -ErrorAction Stop
+            $effectiveAllowOrigin = "$($corsProbeResponse.Headers['Access-Control-Allow-Origin'])".Trim()
+            if ($effectiveAllowOrigin -ne $corsProbeOrigin) {
+                Write-AuditFailure "Strict production is configured, but the live API CORS header is '$effectiveAllowOrigin' instead of the audited exact origin '$corsProbeOrigin'."
+            } else {
+                Write-Host "[OK] Live API CORS policy echoes the audited exact origin instead of a wildcard." -ForegroundColor Green
+            }
+        }
+    }
 } catch {
     Write-AuditFailure "API server is offline or unreachable. Error: $($_.Exception.Message)"
 }
@@ -427,7 +447,6 @@ Write-Host ""
 Write-Host "--- Environment Credentials Checks ---" -ForegroundColor Blue
 $jwtSecret = $null
 $credKey = $null
-$cpToken = $null
 $backupDatabaseUrl = $null
 $serverEnvPath = Join-Path $contractInstallRoot "server\.env"
 
@@ -439,7 +458,6 @@ if ([string]::IsNullOrWhiteSpace($credKey)) {
     $credKey = [System.Environment]::GetEnvironmentVariable("RIVERSIDE_CREDENTIALS_KEY", "Machine")
     $credKeySource = "Machine environment"
 }
-$cpToken = Get-DotEnvValue $serverEnvPath "COUNTERPOINT_SYNC_TOKEN"
 
 if ([string]::IsNullOrWhiteSpace($jwtSecret) -or $jwtSecret.Length -lt 32) {
     Write-AuditFailure "The store-customer JWT secret is weak, empty, or missing in the effective server .env."
@@ -459,11 +477,7 @@ if ([string]::IsNullOrWhiteSpace($backupDatabaseUrl)) {
     Write-Host "[OK] Complete database backup access is configured." -ForegroundColor Green
 }
 
-if ($cpToken) {
-    Write-Host "[OK] Counterpoint Sync Token is configured." -ForegroundColor Green
-} else {
-    Write-AuditFailure "Counterpoint Sync Token is missing. The production sync bridge cannot authenticate."
-}
+Write-Host "[OK] Direct Counterpoint Bridge sync is retired; no COUNTERPOINT_SYNC_TOKEN is required for Main Hub production readiness." -ForegroundColor Green
 
 # 7. Printer Configuration checks
 Write-Host ""

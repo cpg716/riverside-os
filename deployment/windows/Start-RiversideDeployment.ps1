@@ -629,12 +629,6 @@ function Save-FormToConfig {
   if (-not $configuredRepoRoot.Trim()) {
     Set-ConfigEnvironmentValue $config "RIVERSIDE_REPO_ROOT" (Join-Path $installRoot "release")
   }
-  $counterpointSyncToken = Get-ConfigEnvironmentValue $config.server.environment "COUNTERPOINT_SYNC_TOKEN"
-  if (Test-PlaceholderSecret $counterpointSyncToken -or $counterpointSyncToken.Length -lt 32) {
-    $counterpointSyncToken = New-RiversideSecret 48
-    Set-ConfigEnvironmentValue $config "COUNTERPOINT_SYNC_TOKEN" $counterpointSyncToken
-    Add-Log "Generated Counterpoint bridge sync token."
-  }
   if ([bool]$config.server.strictProduction) {
     Add-Log "Production safeguards remain enabled by the installed deployment config."
   } else {

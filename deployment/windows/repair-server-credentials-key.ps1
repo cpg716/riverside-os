@@ -120,11 +120,6 @@ if (-not (Test-UsableSecret $credentialKey)) {
   Write-Host "Riverside integration credential encryption key is already present."
 }
 
-if (-not $env.Contains("COUNTERPOINT_SYNC_TOKEN") -or -not (Test-UsableSecret "$($env["COUNTERPOINT_SYNC_TOKEN"])")) {
-  $env["COUNTERPOINT_SYNC_TOKEN"] = New-RiversideSecret 48
-  Write-Host "Generated Counterpoint bridge sync token."
-}
-
 Write-EnvMap $envPath $env
 # Machine-level environment variable writes removed for security hardening.
 # All secrets are loaded locally from the C:\RiversideOS\server\.env file.
@@ -132,6 +127,5 @@ Restart-RiversideServer
 
 Write-Host ""
 Write-Host "Credential repair complete."
-Write-Host "Credential key was written to server .env and Windows machine environment."
+Write-Host "Credential key was written to server .env."
 Write-Host "Riverside server restarted."
-Write-Host "Now reopen Settings > Counterpoint and save the Bridge sync token again."
