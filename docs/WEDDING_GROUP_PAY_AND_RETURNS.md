@@ -16,6 +16,10 @@ If a disbursement targets a **wedding member** who does **not** yet have an open
 
 The held credit and each redemption retain their exact source workflow, allocation, payer, and originating payment rows. Redemption and the sale commit atomically, while QBO retains the value in deposit liability until fulfillment releases it to revenue. Cancelling a member Transaction Record that used a held source restores the unused value to that same source; it does not send money to a card.
 
+### Wedding Builder variation navigation
+
+When staff choose a parent product, the shared variation panel keeps **Item to Build** and all completed choices visible. **Back** returns one step and remains available on pricing review; selecting a completed choice edits from that point. At the first step, Back returns to Wedding Builder without adding or changing the member item. These controls edit only the nonfinancial draft until the normal server-validated checkout succeeds.
+
 ## Return the line on the correct transaction
 
 **Line returns** apply to **`transaction_lines` on that `transaction_id` only.** If the wrong member Transaction Record is selected, return quantity, tax, restock, reporting, and balance evidence will not match the physical item or the customer's account.

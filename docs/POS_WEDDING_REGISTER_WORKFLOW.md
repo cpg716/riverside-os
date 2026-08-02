@@ -30,6 +30,10 @@ When staff attach a customer in POS Register:
 
 The cart uses the existing wedding member link (`activeWeddingMember`) so checkout writes the Transaction Record with `wedding_member_id` and continues to feed Wedding Manager readiness.
 
+## Variation Selection Navigation
+
+When a sellable parent product has multiple variations, the shared side panel keeps **Item to Build** and every completed choice visible. Staff can use **Back** at each option and on pricing review, or select a completed choice to edit from that point. Back at the first step returns to the Wedding Builder or Cart without adding or changing the item. A variant is applied only after the staff member confirms the final selection and price.
+
 ## Measurement Gate
 
 Wedding placeholder suits are common when the party is started before measurements are complete.

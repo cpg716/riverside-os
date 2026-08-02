@@ -15,6 +15,8 @@ To ensure clarity for staff, the Riverside OS interface uses standard industry t
 - **Transaction Records**: The historical archive and audit surface for the complete sale, including takeaways, order items, gift cards, alterations, deposits, payments, refunds, receipts, and balances.
 - **Daily Sales**: Financial reporting focused on register sessions and tender counts.
 
+Multi-step variation selection uses one shared side-panel contract across Cart additions, existing Cart line changes, Wedding Builder parent items, and Customer Orders **Update Item**. The panel keeps **Item to Build** and completed choices visible, provides **Back** at every step and on pricing review, and permits direct editing of completed choices. First-step Back returns to the originating workspace without applying a variant or changing financial state.
+
 ### Payment receipt versus allocation target
 
 Every payment checkout keeps its own customer-facing Transaction receipt identity, even when some or all of the money is allocated to an older Transaction Record or Fulfillment Order. The payment receipt shows what happened today and names each public target Order/Transaction; it must not rebuild the target's lifetime merchandise receipt. Daily Sales and Z-Reports use the same event identity and allocation detail. Opening **Receipt** uses the payment-event Transaction Record, while **Detail** opens the target financial Transaction Record.

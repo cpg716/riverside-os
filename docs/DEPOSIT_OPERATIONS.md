@@ -107,6 +107,10 @@ Funded wedding deposits—and member Transaction Records that received a direct 
 In shared **Orders** views, Wedding orders should still show their linked party and member context so staff know the balance belongs to the wedding workflow and not a generic customer order.
 Even when a Wedding order shows a deposit on ledger or a zero balance, pickup release should still stay with the linked member workflow until receiving and readiness are confirmed.
 
+### Wedding Builder Variation Navigation
+
+Wedding Builder uses the same variation side panel as the Register Cart and Customer Orders. **Item to Build** must remain visible with every completed choice. Staff can use **Back** at every selection step and on pricing review, or select a completed choice to edit from that point. Back at the first step returns to the Builder without adding or changing the item. This navigation changes only the staged member draft; it does not create a Transaction Record, allocation, payment, or receipt.
+
 ### Backend Handling
 
 - The checkout payload includes `wedding_disbursements[]`, each with `wedding_member_id`, `amount`, `destination_kind`, and an exact `target_transaction_id` when posting directly.
