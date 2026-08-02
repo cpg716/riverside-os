@@ -878,7 +878,7 @@ const PartyDetail = ({ party, parties, onBack, onUpdate, onRefresh, onPrint, onN
                     <div className="print-box">
                         <h3>Accessories</h3>
                         <div className="flex flex-wrap gap-2">
-                            {party.accessories && Object.entries(party.accessories).map(([k, v]) => (
+                            {party.accessories && Object.entries(party.accessories).filter(([k]) => k !== 'builder_parent_items').map(([k, v]) => (
                                 <span key={k}><strong>{k}:</strong> {v}</span>
                             ))}
                         </div>
@@ -1227,7 +1227,7 @@ const PartyDetail = ({ party, parties, onBack, onUpdate, onRefresh, onPrint, onN
 
                                 <h4 className="text-[10px] font-bold text-app-text-muted uppercase tracking-wider mb-2">Accessories</h4>
                                 <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-center text-xs">
-                                    {party.accessories && Object.entries(party.accessories).map(([key, val]) => (
+                                    {party.accessories && Object.entries(party.accessories).filter(([key]) => key !== 'builder_parent_items').map(([key, val]) => (
                                         <div key={key} className="bg-navy-50 rounded p-2 border border-navy-100">
                                             <div className="font-bold text-sm text-app-text">{val || '-'}</div>
                                             <div className="text-[9px] text-app-text-muted uppercase mt-0.5">{key}</div>

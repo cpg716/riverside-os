@@ -296,6 +296,8 @@ struct CustomerWeddingPurchaseRow {
     customer_email: Option<String>,
     customer_phone: Option<String>,
     is_free_suit_promo: bool,
+    #[sqlx(json)]
+    party_accessories: serde_json::Value,
     suit_variant_id: Option<Uuid>,
     suit_source: Option<String>,
 }
@@ -1024,6 +1026,7 @@ async fn get_customer_purchase_context(
             c.email AS customer_email,
             c.phone AS customer_phone,
             COALESCE(wm.is_free_suit_promo, FALSE) AS is_free_suit_promo,
+            COALESCE(wp.accessories, '{}'::jsonb) AS party_accessories,
             COALESCE(wm.suit_variant_id, wp.suit_variant_id) AS suit_variant_id,
             CASE
                 WHEN wm.suit_variant_id IS NOT NULL THEN 'member_suit'
@@ -1083,6 +1086,61 @@ async fn get_customer_purchase_context(
                         wedding_member_id = %row.wedding_member_id,
                         "wedding purchase context skipped unresolved suit variant"
                     );
+                }
+            }
+        }
+        if let Some(builder_items) = row
+            .party_accessories
+            .get("builder_parent_items")
+            .and_then(serde_json::Value::as_array)
+        {
+            for builder_item in builder_items {
+                let Some(variant_id) = builder_item
+                    .get("variant_id")
+                    .and_then(serde_json::Value::as_str)
+                    .and_then(|value| Uuid::parse_str(value).ok())
+                else {
+                    continue;
+                };
+                match resolve_variant_by_id(&state.db, variant_id, state.global_employee_markup)
+                    .await
+                {
+                    Ok(item) => {
+                        if purchase_items
+                            .iter()
+                            .any(|existing| existing.item.product_id == item.product_id)
+                        {
+                            continue;
+                        }
+                        let already_tracked: bool = sqlx::query_scalar(
+                            r#"
+                            SELECT EXISTS(
+                                SELECT 1
+                                FROM transactions t
+                                JOIN transaction_lines tl ON tl.transaction_id = t.id
+                                WHERE t.wedding_member_id = $1
+                                  AND tl.product_id = $2
+                            )
+                            "#,
+                        )
+                        .bind(row.wedding_member_id)
+                        .bind(item.product_id)
+                        .fetch_one(&state.db)
+                        .await?;
+                        purchase_items.push(CustomerWeddingPurchaseItem {
+                            item,
+                            source: "party_builder_template".to_string(),
+                            already_tracked,
+                        });
+                    }
+                    Err(error) => {
+                        tracing::warn!(
+                            error = %error,
+                            %variant_id,
+                            wedding_member_id = %row.wedding_member_id,
+                            "wedding purchase context skipped unresolved Builder parent item"
+                        );
+                    }
                 }
             }
         }

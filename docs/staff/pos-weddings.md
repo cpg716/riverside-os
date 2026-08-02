@@ -20,15 +20,19 @@ POS **Weddings** keeps **party lookup**, **balances**, and **next steps** beside
 
 1. POS → **Register**.
 2. Attach the customer profile.
-3. If they belong to a current wedding, the customer strip shows the party and the cart rail shows **Wedding Checklist**.
-4. Confirm the party name and event date.
-5. Add each needed linked item:
+3. If they belong to a current wedding, confirm the party and role in **Part of the Wedding Order?**
+4. Choose **Yes — Build Wedding Order** for wedding merchandise. Choose **No — Regular Sale** only for an unrelated purchase; **Start Wedding Order** can reopen it.
+5. The cart rail now shows the **Wedding Checklist**. Select this member's exact variation for each needed parent item:
    - **Take now** for in-store items the customer will leave with.
    - **Order** for exact items that need vendor ordering or later fulfillment.
    - **Measure** when measurements or the exact size/variation are not final.
-6. Complete checkout normally.
+6. Add exceptions, searched/scanned items, or alterations as needed. Additional merchandise defaults to Wedding Order while this member is active.
+7. If a held wedding deposit appears, confirm the named payer and explicitly apply the intended amount in **Pay**. The notice does not apply money by itself.
+8. Confirm the salesperson and complete checkout normally. Nothing financial posts from the question or checklist; the successful checkout creates the member Transaction Record, Wedding Fulfillment Order, deposit redemption, tax, reporting, and receipt.
 
 If an item is shown as a checklist-only note, it is not linked to a sellable ROS product yet. Open the full party before charging for it.
+
+Changing or removing the Customer clears the Wedding question, member checklist, variation panel, and any unposted deposit application.
 
 ### Open the correct party
 

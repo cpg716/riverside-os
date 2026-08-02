@@ -296,7 +296,7 @@ const PrintPartyView = ({ party, onCancel }) => {
                         </div>
                         {party.accessories && (
                             <div className="grid grid-cols-3 gap-1">
-                                {Object.entries(party.accessories).map(([key, val]) => {
+                                {Object.entries(party.accessories).filter(([key]) => key !== 'builder_parent_items').map(([key, val]) => {
                                     const labelMap = {
                                         vest: 'Vest',
                                         shirt: 'Shirt',

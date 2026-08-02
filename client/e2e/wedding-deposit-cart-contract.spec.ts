@@ -21,6 +21,10 @@ const paymentDrawerSource = readFileSync(
   new URL("../src/components/pos/NexoCheckoutDrawer.tsx", import.meta.url),
   "utf8",
 );
+const confirmationModalSource = readFileSync(
+  new URL("../src/components/ui/ConfirmationModal.tsx", import.meta.url),
+  "utf8",
+);
 const checkoutSource = readFileSync(
   new URL("../src/hooks/useCartCheckout.ts", import.meta.url),
   "utf8",
@@ -57,6 +61,17 @@ const transactionsApiSource = readFileSync(
   new URL("../../server/src/api/transactions.rs", import.meta.url),
   "utf8",
 );
+const weddingsApiSource = readFileSync(
+  new URL("../../server/src/api/weddings.rs", import.meta.url),
+  "utf8",
+);
+const styleEditSource = readFileSync(
+  new URL(
+    "../src/components/wedding-manager/components/StyleEditModal.jsx",
+    import.meta.url,
+  ),
+  "utf8",
+);
 
 test("wedding deposits are a removable deposit-only Cart workflow", () => {
   expect(cartSource).toContain('data-testid="pos-action-wedding-deposit"');
@@ -90,6 +105,14 @@ test("wedding deposit posting is prevention-first, source-tracked, and receipt t
   expect(weddingDepositWorkspaceSource).toContain("Choose Workflow");
   expect(weddingDepositWorkspaceSource).toContain("What are you doing today?");
   expect(weddingDepositWorkspaceSource).toContain("Members & Amounts");
+  expect(weddingDepositWorkspaceSource).toContain(
+    "Deposit amount per selected member",
+  );
+  expect(weddingDepositWorkspaceSource).toContain("Apply to Selected");
+  expect(weddingDepositWorkspaceSource).toContain("Select All Members");
+  expect(weddingDepositWorkspaceSource).toContain(
+    "Selecting a member applies this amount immediately",
+  );
   expect(weddingDepositWorkspaceSource).toContain("Review Before Payment");
   expect(weddingDepositWorkspaceSource).toContain("Start a New Wedding Party");
   expect(weddingDepositWorkspaceSource).toContain("Find Existing Customer");
@@ -104,16 +127,24 @@ test("wedding deposit posting is prevention-first, source-tracked, and receipt t
   expect(weddingDepositWorkspaceSource).toContain(
     "fundedMembers.map((member)",
   );
-  expect(weddingDepositWorkspaceSource).toContain("Wedding Orders &amp; Receipts");
-  expect(weddingDepositWorkspaceSource).toContain("How item selection works");
+  expect(weddingDepositWorkspaceSource).toContain("Wedding Builder · Orders &amp; Receipts");
+  expect(weddingDepositWorkspaceSource).toContain("One Builder, separate financial records");
   expect(weddingDepositWorkspaceSource).toContain(
-    "Only a successful Pay → Complete Sale / Record Sale atomic checkout",
+    "Drafts never post money",
   );
   expect(weddingDepositWorkspaceSource).toContain("Refund one member allocation at a time");
   expect(weddingDepositWorkspaceSource).toContain(
     "original wedding deposit payer—not the member",
   );
-  expect(weddingDepositWorkspaceSource).toContain("Choose Member &amp; Add Items");
+  expect(weddingDepositWorkspaceSource).toContain("Build All Remaining Orders");
+  expect(weddingDepositWorkspaceSource).toContain(
+    "deposit-workflows?payer_customer_id=",
+  );
+  expect(weddingDepositWorkspaceSource).toContain("Current party activity");
+  expect(weddingDepositWorkspaceSource).toContain("displayedWorkflows");
+  expect(weddingDepositWorkspaceSource).toContain("Create All ${remainingBuildCount} Member Transactions");
+  expect(weddingDepositWorkspaceSource).toContain("View / Print Receipt");
+  expect(weddingDepositWorkspaceSource).toContain("No Tax — ${draft.taxExemptReason}");
   expect(weddingDepositWorkspaceSource).toContain("Start Building Member Orders");
   expect(weddingDepositWorkspaceSource).toContain("take the payer's payment only after all drafts are ready");
   expect(weddingDepositWorkspaceSource).toContain("Responsible salesperson");
@@ -162,10 +193,11 @@ test("wedding deposit posting is prevention-first, source-tracked, and receipt t
   expect(paymentDrawerSource).toContain("not go to the member.");
   expect(cartSource).toContain('data-testid="pos-wedding-order-guidance"');
   expect(cartSource).toContain("Order (Wedding), confirm the salesperson");
-  expect(cartSource).toContain("Continue Wedding Orders");
+  expect(cartSource).toContain("Open Wedding Builder");
   expect(cartSource).toContain("setWeddingDepositAutoStartMember(true)");
-  expect(cartSource).toContain('phase: "building" | "ready_for_payment" | "posting"');
-  expect(cartSource).toContain("payerLines: CartLineItem[]");
+  expect(parkedSalesHookSource).toContain('"ready_to_post"');
+  expect(parkedSalesHookSource).toContain('"complete"');
+  expect(parkedSalesHookSource).toContain("payerLines: CartLineItem[]");
   expect(cartSource).toContain("setLines(session.payerLines.map");
   expect(cartSource).toContain("weddingPayerMerchandiseSalespersonIdRef");
   expect(cartSource).toContain("weddingDepositSalespersonId");
@@ -177,6 +209,16 @@ test("wedding deposit posting is prevention-first, source-tracked, and receipt t
   expect(cartSource).toContain("payerMerchandiseSalespersonId");
   expect(cartSource).toContain("!isEmployeeSale");
   expect(cartSource).toContain("Save Member Order & Next");
+  expect(cartSource).toContain("Salesperson for all member Transactions");
+  expect(cartSource).toContain("No Tax for this member Transaction");
+  expect(cartSource).toContain("Choose This Member&apos;s Variation");
+  expect(cartSource).toContain('"Add to Member Order"');
+  expect(cartSource).toContain('defaultFulfillment:');
+  expect(cartSource).toContain('? "wedding_order"');
+  expect(styleEditSource).toContain("builder_parent_items");
+  expect(styleEditSource).toContain("Wedding Builder parent items");
+  expect(weddingsApiSource).toContain('source: "party_builder_template"');
+  expect(cartSource).toContain("buildWeddingMemberCheckoutPayload");
   expect(cartSource).toContain('data-testid="wedding-collect-build-final-review"');
   expect(cartSource).toContain("The payer has not been charged yet.");
   expect(cartSource).toContain("if (collectingWeddingOrderDraft)");
@@ -210,4 +252,44 @@ test("a declined deposit tender posts nothing and keeps reviewed allocations sta
   expect(paymentDrawerSource).toContain("reviewed member allocation");
   expect(paymentDrawerSource).toContain("Retry card");
   expect(paymentDrawerSource).toContain("await onFinalize(applied, operator");
+});
+
+test("selecting a wedding member offers the reusable exact-variation order flow", () => {
+  expect(cartSource).toContain('title="Part of the Wedding Order?"');
+  expect(cartSource).toContain('confirmLabel="Yes — Build Wedding Order"');
+  expect(cartSource).toContain('cancelLabel="No — Regular Sale"');
+  expect(cartSource).toContain("Held wedding deposit available:");
+  expect(cartSource).toContain("It remains a liability until staff explicitly applies it at Pay.");
+  expect(cartSource).toContain("No Wedding Order, deposit application, or financial record is created by this question.");
+  expect(cartSource).toContain("Start Wedding Order");
+  expect(cartSource).toContain("weddingOrderPromptHandledCustomerId");
+  expect(cartSource).toContain(
+    "weddingOrderPromptMembership.customer_id !== customerId",
+  );
+  expect(cartSource).toContain(
+    "weddingVariantSelectionContext.membership.customer_id !== customerId",
+  );
+  expect(cartSource).toContain("openWeddingParentVariantPicker(");
+  expect(cartSource).toContain('"Add to Wedding Order"');
+  expect(cartSource).toContain("allowPriceOverride={!weddingVariantSelectionContext}");
+  expect(cartSource).toContain('? "wedding_order"');
+  expect(cartSource).toContain('weddingContext.mode === "needs_measurements"');
+  expect(cartSource).toContain("setOpenDepositNotice(null)");
+  expect(checkoutSource).toContain(
+    "wedding_member_id: activeWeddingMember?.id ?? null",
+  );
+  expect(checkoutSource).toContain(
+    "primary_salesperson_id: primaryTrim ? primaryTrim : null",
+  );
+  expect(checkoutSource).toContain("payment_splits,");
+  expect(checkoutSource).toContain(
+    "salesperson_id: isEmployeeSale ? null : l.salesperson_id?.trim() || null",
+  );
+  expect(checkoutSource).toContain("is_tax_exempt: ledgerSignals.isTaxExempt");
+  expect(checkoutSource).toContain("order_lifecycle_status:");
+  expect(confirmationModalSource).toContain("createPortal(");
+  expect(confirmationModalSource).toContain('document.getElementById("drawer-root")');
+  expect(confirmationModalSource).toContain("ui-overlay-backdrop");
+  expect(confirmationModalSource).toContain("ui-modal");
+  expect(cartSource).toContain("overflow-y-auto overscroll-contain");
 });

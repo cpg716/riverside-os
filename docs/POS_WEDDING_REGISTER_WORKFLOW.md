@@ -21,18 +21,30 @@ When staff attach a customer in POS Register:
 
 1. POS requests `GET /api/weddings/customers/{customer_id}/purchase-context`.
 2. If the customer belongs to current or unresolved wedding parties, the customer strip shows wedding membership badges.
-3. The Register rail shows a **Wedding Checklist** card.
-4. Each linked sellable wedding item can be added as:
+3. For an active membership, Register asks **Part of the Wedding Order?** before activating wedding fulfillment.
+   - **Yes — Build Wedding Order** activates the exact party/member and opens the reusable Wedding Builder checklist and variation workflow.
+   - **No — Regular Sale** leaves the cart outside wedding fulfillment and makes no financial or wedding write. **Start Wedding Order** remains available if staff dismissed the question by mistake.
+4. After staff accept, the Register rail shows the active member's **Wedding Checklist** card. Party-level parent products come from Wedding Manager; staff choose the exact sellable variation for this member instead of adding a representative variation silently.
+5. Each linked sellable wedding item can be added as:
    - **Take now**: item is sold as normal takeaway when stock is available.
    - **Order**: item is added as a `wedding_order` fulfillment line.
    - **Measure**: item is added as a `wedding_order` line with `needs_measurements`.
-5. Non-inventory checklist items are visible as checklist-only notes. Staff must open the wedding party if those should become sellable product lines.
+6. While the member context is active, additional products found by search or scan default to `wedding_order`; staff may still make an explicit **Take now** choice or add alterations.
+7. Non-inventory checklist items are visible as checklist-only notes. Staff must open the wedding party if those should become sellable product lines.
 
 The cart uses the existing wedding member link (`activeWeddingMember`) so checkout writes the Transaction Record with `wedding_member_id` and continues to feed Wedding Manager readiness.
+
+Changing or removing the selected Customer immediately closes any Wedding prompt or variation panel and clears the active member, held-deposit application, checklist, and unposted Wedding context. A prior member's party or item selection must never carry into another Customer's cart.
 
 ## Variation Selection Navigation
 
 When a sellable parent product has multiple variations, the shared side panel keeps **Item to Build** and every completed choice visible. Staff can use **Back** at each option and on pricing review, or select a completed choice to edit from that point. Back at the first step returns to the Wedding Builder or Cart without adding or changing the item. A variant is applied only after the staff member confirms the final selection and price.
+
+## Held Deposit And Financial Boundary
+
+If the selected member has a wedding deposit funded by another party member, the prompt identifies the available exact source amount and contributing payer. Displaying or accepting the prompt does not redeem it. Staff explicitly choose the held-deposit amount from **Pay**.
+
+The prompt, checklist, variation panel, and parked draft are nonfinancial entry surfaces. Only successful server-validated checkout may create the member Transaction Record, Wedding Fulfillment Order, payment allocation or open-deposit redemption, tax records, salesperson attribution, reporting activity, provider evidence, and receipt. A declined payment or abandoned prompt creates none of those financial records.
 
 ## Measurement Gate
 
@@ -88,9 +100,11 @@ Sellable purchase items flatten the same cart-ready product fields used by POS S
 ## Staff UX Rules
 
 - Use plain terms: **Wedding Checklist**, **Take now**, **Order**, **Measure**.
+- Make the first choice explicit: **Yes — Build Wedding Order** or **No — Regular Sale**.
 - Do not expose internal table names to staff.
 - Do not imply that checklist-only items can be charged until they are linked to a product variation.
 - Show stock availability before offering take-now behavior.
+- Never imply that a displayed held deposit was applied before staff select it in **Pay** and checkout succeeds.
 - Keep the escape path obvious: **Open** the wedding party for full Wedding Manager review.
 
 ## Related Docs

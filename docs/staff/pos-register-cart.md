@@ -92,20 +92,24 @@ When adding or completing a customer profile at the register, the **Address** fi
 
 ## Wedding customers at the register
 
-If the attached customer belongs to a current wedding party, the customer strip shows the wedding membership and the register shows a **Wedding Checklist** beside the cart.
+If the attached customer belongs to a current wedding party, the customer strip shows the wedding membership and Register asks **Part of the Wedding Order?**
 
-Use the checklist this way:
+Use the guided flow this way:
 
 1. Confirm the party name and event date with the customer.
-2. Review each listed item.
-3. Tap **Take now** when the item is in store and the customer is taking it today.
-4. Tap **Order** when the exact item is known and needs vendor ordering or later fulfillment.
-5. Tap **Measure** when measurements are still needed or the size/variation is not final.
-6. Continue checkout like a normal sale after the correct items are in the cart.
+2. Choose **Yes — Build Wedding Order** for party merchandise. Choose **No — Regular Sale** only when this purchase is unrelated to the wedding. **Start Wedding Order** can reopen the question.
+3. Review each parent item in the **Wedding Checklist** and choose this member's exact variation.
+4. Tap **Take now** when the item is in store and the customer is taking it today.
+5. Tap **Order** when the exact item is known and needs vendor ordering or later fulfillment.
+6. Tap **Measure** when measurements are still needed or the size/variation is not final. Additional searched/scanned products default to Wedding Order while this member is active; add alterations or exceptions as needed.
+7. If Register shows a held wedding deposit and payer, open **Pay** and explicitly apply the intended amount. Seeing the deposit does not apply it.
+8. Select the correct salesperson and complete checkout normally. The question and item choices are drafts; only successful checkout creates the Transaction Record, Wedding Fulfillment Order, deposit redemption, tax, reporting, and receipt.
 
 Checklist-only notes are not sellable cart lines. If a checklist item should be charged, open the wedding party and make sure the exact ROS product variation is selected first.
 
 Wedding placeholder suits should stay **Measure** / **Needs measurements** until measurements are complete and the exact variation is chosen. Do not move a placeholder to vendor ordering just to get it into the NTBO queue.
+
+Removing or changing the Customer clears the Wedding question, member checklist, open variation choice, and any unposted held-deposit application so another customer's cart cannot inherit them.
 
 ## Park (hold cart)
 
@@ -147,7 +151,7 @@ Technical reference for engineers and leads: **[Parked sales and RMS charges](..
    - **Important**: Rounding must never create a separate Transaction Record, pickup, deposit, or orphaned payment activity. It belongs on the main Transaction Record being settled.
    - **Suggested Amounts**: While rounding is off, **Full Balance** in the CASH tab suggests the exact-cent amount. Use **Split Payment** when the customer is using more than one tender.
    - **Receipt Integrity**: While rounding is off, receipts show exact-cent totals and payments. When rounding is enabled later, receipts must show the rounding adjustment as part of the same Transaction Record.
-7. **Partial payment / deposit (when shown):** Use the keypad, then tap **Set Deposit** to show the amount due now. Checkout will show **Collecting partial payment** and the remaining balance stays on the Transaction Record. Use **Add Payment** with cash/card to collect the deposit amount. **Split Deposit Payer** opens wedding lookup in **group pay** mode so one payer can split deposit amounts across members; select each member and enter that member's deposit amount, even when the member has no open balance yet. If your sale is **fulfillment lines only** (no take-home items) and you are **not** using a split wedding payout list, you may be able to tap **Complete Sale** with **only** a deposit set — follow store policy.
+7. **Partial payment / deposit (when shown):** Use the keypad, then tap **Set Deposit** to show the amount due now. Checkout will show **Collecting partial payment** and the remaining balance stays on the Transaction Record. Use **Add Payment** with cash/card to collect the deposit amount. For one payer funding several wedding members, select the payer and use **Wedding Deposit** from the Register toolbar. Choose **Deposit Only** or **Collect & Build Orders**, then select only the intended beneficiaries. For equal deposits, enter the per-member amount once; individual overrides remain available. If your sale is **fulfillment lines only** (no take-home items) and you are not using Wedding Deposit allocations, you may be able to tap **Complete Sale** with only a deposit set—follow store policy.
 8. **Combined New Purchases & Pickups**: Cashiers can process a new takeaway purchase and release/pickup an existing order, layaway, or alteration (even with outstanding balances) in a single register flow:
    - **Load the Pickup**: Attach the customer, click **Orders**, select the transaction, and choose only the lines being picked up. This populates the cart with those items (flagged with their original transaction line IDs) without automatically adding a payment.
    - **Add New Items**: Scan or select new takeaway items to add them to the same cart. These will show as standard merchandise/service lines (without a historical transaction link).

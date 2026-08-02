@@ -41,7 +41,7 @@ When a receipt is opened from Daily Sales, Transaction History, or Staff Profile
 - **Text receipt** and **Email receipt** send the customer copy when the sale has the needed customer contact information.
 - **Gift receipt** prints a gift copy without exposing normal payment detail.
 - **Reports printer** opens the formatted receipt copy for the workstation report-printer path; it does not replace the Epson receipt-station print route.
-- A payer deposit receipt may show **Continue Wedding Orders** when staff selected **Collect and Build Orders**. It returns to the original payer's **Wedding Deposit → Orders & Receipts** dashboard; it does not collect another tender.
+- A payer deposit receipt may show **Open Wedding Builder** when staff selected **Collect and Build Orders**. It returns to the original payer's **Wedding Deposit → Orders & Receipts** final review, where **Create All Member Transactions** posts the prepared separate member Transactions against their exact funded sources; it does not collect another tender.
 - **Wedding Deposit → Orders & Receipts** can reopen both the original payer receipt and each posted member receipt. These are historical reprints and do not reopen the cash drawer.
 - **Review Request** lets the cashier send or skip the Podium review request for eligible completed or picked-up sales.
 

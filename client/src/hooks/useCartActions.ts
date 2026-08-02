@@ -158,6 +158,7 @@ interface UseCartActionsProps {
   rmsPaymentMeta: RmsPaymentLineMeta | null;
   staffAccountPaymentMeta: StaffAccountPaymentLineMeta | null;
   giftCardLoadMeta: GiftCardLoadLineMeta | null;
+  defaultFulfillment?: FulfillmentKind;
   activeWeddingMember: WeddingMember | null;
   selectedCustomer: Customer | null;
   setSelectedCustomer: (v: Customer | null) => void;
@@ -186,6 +187,7 @@ export function useCartActions({
   rmsPaymentMeta,
   staffAccountPaymentMeta,
   giftCardLoadMeta,
+  defaultFulfillment,
   activeWeddingMember,
   selectedCustomer,
   setSelectedCustomer,
@@ -284,7 +286,12 @@ export function useCartActions({
     setPickupConfirmed,
   ]);
 
-  const addItem = useCallback((item: ResolvedSkuItem, priceOverride?: string, fulfillmentOverride?: FulfillmentKind) => {
+  const addItem = useCallback((
+    item: ResolvedSkuItem,
+    priceOverride?: string,
+    fulfillmentOverride?: FulfillmentKind,
+    orderLifecycleStatus?: CartLineItem["order_lifecycle_status"],
+  ) => {
     if (!checkoutOperator) {
       toast("Sign in as cashier on the register sign-in screen before adding items.", "error");
       return;
@@ -349,14 +356,12 @@ export function useCartActions({
         );
       }
 
-      let initialFulfillment = fulfillmentOverride;
-      if (!initialFulfillment) {
-        if (isCustomOrderSku(item.sku) || item.custom_item_type || (item as Partial<CartLineItem>).fulfillment === "custom") {
-          initialFulfillment = "custom";
-        } else {
-          initialFulfillment = "takeaway";
-        }
-      }
+      const initialFulfillment =
+        isCustomOrderSku(item.sku) ||
+        item.custom_item_type ||
+        (item as Partial<CartLineItem>).fulfillment === "custom"
+          ? "custom"
+          : (fulfillmentOverride ?? defaultFulfillment ?? "takeaway");
 
       const newLine: CartLineItem = {
         ...item,
@@ -364,6 +369,7 @@ export function useCartActions({
         catalog_employee_price: item.employee_price,
         quantity: 1,
         fulfillment: initialFulfillment,
+        order_lifecycle_status: orderLifecycleStatus,
         cart_row_id: newCartRowId(),
       };
 
@@ -437,7 +443,7 @@ export function useCartActions({
     onReadyForNextScan();
   }, [
     checkoutOperator, giftCardLoadMeta, rmsPaymentMeta, staffAccountPaymentMeta, lines, activeWeddingMember,
-    selectedCustomer, toast, setPendingCustomItem,
+    selectedCustomer, defaultFulfillment, toast, setPendingCustomItem,
     setCustomPromptOpen, setActiveWeddingMember, setActiveWeddingPartyName,
     setDisbursementMembers, setSearch, setSearchResults, onReadyForNextScan
   ]);

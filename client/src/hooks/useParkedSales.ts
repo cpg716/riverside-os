@@ -3,7 +3,8 @@ import { type Customer } from "../components/pos/CustomerSelector";
 import { 
   type CartLineItem, 
   type FulfillmentKind, 
-  type WeddingMember 
+  type WeddingMember,
+  type PendingAlterationIntake,
 } from "../components/pos/types";
 import { 
   fetchParkedSales, 
@@ -18,6 +19,18 @@ export type WeddingCollectBuildDraft = {
   member: WeddingMember;
   lines: CartLineItem[];
   salespersonId: string;
+  checkoutClientId: string;
+  isTaxExempt: boolean;
+  taxExemptReason: string | null;
+  alterationIntakes: PendingAlterationIntake[];
+};
+
+export type WeddingCollectBuildResult = {
+  transactionId: string;
+  transactionDisplayId: string | null;
+  totalCents: number;
+  depositAppliedCents: number;
+  balanceDueCents: number;
 };
 
 export type WeddingCollectBuildSession = {
@@ -28,9 +41,20 @@ export type WeddingCollectBuildSession = {
   members: WeddingMember[];
   buildMembers: WeddingMember[];
   depositSalespersonId: string;
+  defaultOrderSalespersonId: string;
   currentMemberId: string | null;
-  phase: "building" | "ready_for_payment" | "posting";
+  phase:
+    | "building"
+    | "ready_for_payment"
+    | "ready_to_post"
+    | "posting"
+    | "complete";
+  fundedWorkflowId?: string | null;
+  payerTransactionId?: string | null;
+  operatorStaffId?: string | null;
+  operatorName?: string | null;
   drafts: Record<string, WeddingCollectBuildDraft>;
+  results: Record<string, WeddingCollectBuildResult>;
 };
 
 // Simple helper to ensure cart row IDs (can move to posUtils later if needed)
@@ -211,9 +235,32 @@ export function useParkedSales({
     setActiveWeddingMember((payload.activeWeddingMember as WeddingMember | null) ?? null);
     setActiveWeddingPartyName(payload.activeWeddingPartyName ?? null);
     setDisbursementMembers((payload.disbursementMembers as WeddingMember[]) ?? []);
-    const restoredCollectBuildSession =
+    const rawCollectBuildSession =
       (payload.weddingCollectBuildSession as WeddingCollectBuildSession | null) ??
       null;
+    const restoredCollectBuildSession = rawCollectBuildSession
+      ? {
+          ...rawCollectBuildSession,
+          defaultOrderSalespersonId:
+            rawCollectBuildSession.defaultOrderSalespersonId ?? "",
+          results: rawCollectBuildSession.results ?? {},
+          drafts: Object.fromEntries(
+            Object.entries(rawCollectBuildSession.drafts ?? {}).map(
+              ([memberId, draft]) => [
+                memberId,
+                {
+                  ...draft,
+                  checkoutClientId:
+                    draft.checkoutClientId ?? crypto.randomUUID(),
+                  isTaxExempt: draft.isTaxExempt ?? false,
+                  taxExemptReason: draft.taxExemptReason ?? null,
+                  alterationIntakes: draft.alterationIntakes ?? [],
+                },
+              ],
+            ),
+          ),
+        }
+      : null;
     setWeddingCollectBuildSession(restoredCollectBuildSession);
     setWeddingDepositSalespersonId(
       typeof payload.weddingDepositSalespersonId === "string"

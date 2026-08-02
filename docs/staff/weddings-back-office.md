@@ -100,11 +100,12 @@ Full design: [../WEDDING_COUNTERPOINT_CUTOVER_LINKING.md](../WEDDING_COUNTERPOIN
 
 Wedding Manager also feeds the POS Register.
 
-When a customer is attached to the Register, POS shows current wedding memberships and a **Wedding Checklist** if that customer belongs to a current or unresolved party. Staff can add linked sellable items as **Take now**, **Order**, or **Measure**.
+When a customer is attached to the Register, POS shows current wedding memberships and asks **Part of the Wedding Order?** for an active member. **Yes — Build Wedding Order** loads the party's parent-item checklist and exact-variation workflow; **No — Regular Sale** creates no Wedding or financial record. After acceptance, staff can add linked sellable items as **Take now**, **Order**, or **Measure**, add exceptions or alterations, and explicitly apply any source-tracked held deposit from **Pay**. Only successful checkout posts the member Transaction Record and Wedding Fulfillment Order.
 
 Manager setup matters:
 
 - Set the party/member's exact ROS product variation when it is known.
+- Configure the party's normal **Wedding Builder parent items** so Register and Deposit & Build use the same suit, shirt, tie, shoe, and accessory starting point.
 - Leave placeholder suits as **Needs measurements** until the size/variation is known.
 - Use checklist-only items for notes or non-catalog tasks, but do not expect POS to charge for them until they are linked to a sellable product.
 - If staff report that Register only shows a checklist note, review the party/member item setup and product link.

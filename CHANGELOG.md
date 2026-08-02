@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- **One-Action Wedding Builder**: Collect & Build now prepares party parent
+  products, exact member variations, optional alterations, individual No Tax
+  reasons, and apply-all or per-member salesperson attribution as reloadable
+  drafts. Only approved payer funding unlocks one final action that creates the
+  separate member Transactions and Wedding Fulfillment Orders through the
+  normal atomic checkout path. Completion shows detailed individual receipt
+  actions, while stable checkout identities make partial retry post each member
+  at most once. Deposit entry also supports one per-member quick amount applied
+  only to explicitly selected party members, and payer-scoped Orders & Receipts
+  reloads Deposit Only activity for later batch building. Selecting an
+  individual wedding member in Register now offers the same parent-item and
+  exact-variation Builder, identifies available held funds and their payer,
+  and keeps all writes behind normal audited checkout.
 - **Receipt Builder Preview Coverage**: Receipt Builder now previews the full
   customer-facing receipt structure and configurable sections instead of a
   shortened representative sample, so staff can verify placement and wording

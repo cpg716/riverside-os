@@ -28,7 +28,7 @@ type DepositParty = {
   members: WeddingMember[];
 };
 
-type WorkflowAllocation = {
+export type WorkflowAllocation = {
   id: string;
   wedding_member_id: string;
   beneficiary_customer_id: string;
@@ -44,10 +44,11 @@ type WorkflowAllocation = {
   member_transaction_display_id?: string | null;
 };
 
-type DepositWorkflow = {
+export type DepositWorkflow = {
   id: string;
   payer_transaction_id: string;
   payer_transaction_display_id: string;
+  payer_wedding_member_id?: string | null;
   payer_name: string;
   wedding_party_id: string;
   party_name: string;
@@ -133,7 +134,10 @@ export default function WeddingDepositWorkspace({
   onClose,
   onAddDeposits,
   onStartMemberOrder,
-  onBuildComplete,
+  onResumeBuilder,
+  onPostAllMemberOrders,
+  collectBuildSession,
+  batchPosting = false,
   onOpenReceipt,
 }: {
   isOpen: boolean;
@@ -158,7 +162,10 @@ export default function WeddingDepositWorkspace({
     partyName: string,
     source: { workflowId: string; sourceCreditLedgerId: string; remainingCents: number },
   ) => void;
-  onBuildComplete: () => void;
+  onResumeBuilder: (workflow: DepositWorkflow) => void;
+  onPostAllMemberOrders: (workflow: DepositWorkflow) => Promise<boolean>;
+  collectBuildSession?: import("../../hooks/useParkedSales").WeddingCollectBuildSession | null;
+  batchPosting?: boolean;
   onOpenReceipt: (transactionId: string) => void;
 }) {
   const { backofficeHeaders, staffDisplayName } = useBackofficeAuth();
@@ -188,6 +195,7 @@ export default function WeddingDepositWorkspace({
   const [memberBusy, setMemberBusy] = useState(false);
   const [selectedMemberIds, setSelectedMemberIds] = useState<Set<string>>(new Set());
   const [amounts, setAmounts] = useState<Record<string, string>>({});
+  const [quickDepositAmount, setQuickDepositAmount] = useState("");
   const [openTargets, setOpenTargets] = useState<Record<string, OpenTransactionTarget[]>>({});
   const [destinations, setDestinations] = useState<Record<string, string>>({});
   const [workflows, setWorkflows] = useState<DepositWorkflow[]>([]);
@@ -196,7 +204,6 @@ export default function WeddingDepositWorkspace({
   const [error, setError] = useState<string | null>(null);
   const searchRequest = useRef(0);
   const autoStartedAllocation = useRef<string | null>(null);
-  const autoCompletedWorkflow = useRef<string | null>(null);
 
   const payerName = `${payer.first_name} ${payer.last_name}`.trim();
   const payerMember = party?.members.find((member) => member.customer_id === payer.id) ?? null;
@@ -235,6 +242,22 @@ export default function WeddingDepositWorkspace({
     [amounts, destinations, fundedMembers, openTargets],
   );
   const validAmounts = fundedMembers.length > 0 && invalidDestinationMembers.length === 0;
+  const displayedWorkflows = useMemo(() => {
+    if (!party) return workflows;
+    return [...workflows].sort((left, right) => {
+      const leftCurrent = left.wedding_party_id === party.id ? 1 : 0;
+      const rightCurrent = right.wedding_party_id === party.id ? 1 : 0;
+      return rightCurrent - leftCurrent;
+    });
+  }, [party, workflows]);
+  const currentPartyWorkflowCount = useMemo(
+    () =>
+      party
+        ? workflows.filter((workflow) => workflow.wedding_party_id === party.id)
+            .length
+        : 0,
+    [party, workflows],
+  );
 
   const loadParty = useCallback(
     async (partyId: string, nextStep: Step | null = "members") => {
@@ -311,6 +334,14 @@ export default function WeddingDepositWorkspace({
         candidate.id === focusWorkflowId ||
         candidate.payer_transaction_id === focusPayerTransactionId,
     );
+    if (
+      workflow &&
+      collectBuildSession?.phase === "ready_to_post" &&
+      (collectBuildSession.fundedWorkflowId === workflow.id ||
+        collectBuildSession.payerTransactionId === workflow.payer_transaction_id)
+    ) {
+      return;
+    }
     const allocation = workflow?.allocations.find(
       (candidate) =>
         candidate.source_credit_ledger_id &&
@@ -319,9 +350,6 @@ export default function WeddingDepositWorkspace({
     );
     if (!workflow) return;
     if (!allocation || !allocation.source_credit_ledger_id) {
-      if (autoCompletedWorkflow.current === workflow.id) return;
-      autoCompletedWorkflow.current = workflow.id;
-      onBuildComplete();
       return;
     }
     const allocationKey = `${workflow.id}:${allocation.id}`;
@@ -353,9 +381,9 @@ export default function WeddingDepositWorkspace({
     historyBusy,
     isOpen,
     onStartMemberOrder,
-    onBuildComplete,
     step,
     workflows,
+    collectBuildSession,
   ]);
 
   useEffect(() => {
@@ -535,6 +563,13 @@ export default function WeddingDepositWorkspace({
         });
       } else {
         next.add(member.id);
+        const quickAmountCents = parseMoneyToCents(quickDepositAmount);
+        if (quickAmountCents > 0) {
+          setAmounts((values) => ({
+            ...values,
+            [member.id]: centsToFixed2(quickAmountCents),
+          }));
+        }
         setDestinations((values) => ({
           ...values,
           [member.id]: values[member.id] ?? "held_for_future_order",
@@ -544,10 +579,69 @@ export default function WeddingDepositWorkspace({
     });
   };
 
+  const applyQuickAmountToSelected = () => {
+    const quickAmountCents = parseMoneyToCents(quickDepositAmount);
+    if (quickAmountCents <= 0 || selectedMemberIds.size === 0) return;
+    const formattedAmount = centsToFixed2(quickAmountCents);
+    setAmounts((current) => ({
+      ...current,
+      ...Object.fromEntries(
+        [...selectedMemberIds].map((memberId) => [memberId, formattedAmount]),
+      ),
+    }));
+  };
+
+  const selectAllPartyMembers = () => {
+    if (!party) return;
+    const memberIds = party.members
+      .filter((member) => member.customer_id !== payer.id)
+      .map((member) => member.id);
+    setSelectedMemberIds(new Set(memberIds));
+    setDestinations((current) => ({
+      ...current,
+      ...Object.fromEntries(
+        memberIds.map((memberId) => [
+          memberId,
+          current[memberId] ?? "held_for_future_order",
+        ]),
+      ),
+    }));
+    const quickAmountCents = parseMoneyToCents(quickDepositAmount);
+    if (quickAmountCents > 0) {
+      const formattedAmount = centsToFixed2(quickAmountCents);
+      setAmounts((current) => ({
+        ...current,
+        ...Object.fromEntries(
+          memberIds.map((memberId) => [memberId, formattedAmount]),
+        ),
+      }));
+    }
+  };
+
+  const clearSelectedPartyMembers = () => {
+    const memberIds = [...selectedMemberIds];
+    setAmounts((current) => {
+      const nextAmounts = { ...current };
+      memberIds.forEach((memberId) => delete nextAmounts[memberId]);
+      return nextAmounts;
+    });
+    setSelectedMemberIds(new Set());
+  };
+
   const beginWorkflow = (action: PostPaymentAction) => {
     setPostPaymentAction(action);
     setError(null);
     setStep(party ? "members" : "party");
+  };
+
+  const changeParty = () => {
+    setParty(null);
+    setSelectedMemberIds(new Set());
+    setAmounts({});
+    setQuickDepositAmount("");
+    setDestinations({});
+    setOpenTargets({});
+    setStep("party");
   };
 
   const addDeposits = () => {
@@ -732,7 +826,7 @@ export default function WeddingDepositWorkspace({
               <div className="space-y-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <button type="button" onClick={() => { setParty(null); setStep("party"); }} className="mb-2 flex items-center gap-1 text-xs font-black text-app-accent"><ArrowLeft size={14} /> Change Party</button>
+                    <button type="button" onClick={changeParty} className="mb-2 flex items-center gap-1 text-xs font-black text-app-accent"><ArrowLeft size={14} /> Change Party</button>
                     <h3 className="text-xl font-black text-app-text">{party.party_name}</h3>
                     <p className="text-sm text-app-text-muted"><Calendar className="mr-1 inline" size={14} />{party.event_date}</p>
                   </div>
@@ -762,6 +856,57 @@ export default function WeddingDepositWorkspace({
                   <button type="button" onClick={() => setStep("start")} className="ml-2 font-black text-app-accent underline">
                     Change workflow
                   </button>
+                </div>
+
+                <div className="rounded-2xl border-2 border-app-accent/30 bg-app-accent/5 p-4">
+                  <div className="flex flex-wrap items-end gap-3">
+                    <label className="min-w-52 flex-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      Deposit amount per selected member
+                      <span className="mt-1 flex items-center gap-2 text-lg text-app-text">
+                        $
+                        <input
+                          value={quickDepositAmount}
+                          onChange={(event) => {
+                            const value = normalizedAmount(event.target.value);
+                            if (value != null) setQuickDepositAmount(value);
+                          }}
+                          className="ui-input w-full text-right text-xl font-black"
+                          inputMode="decimal"
+                          placeholder="0.00"
+                        />
+                      </span>
+                    </label>
+                    <button
+                      type="button"
+                      disabled={
+                        parseMoneyToCents(quickDepositAmount) <= 0 ||
+                        selectedMemberIds.size === 0
+                      }
+                      onClick={applyQuickAmountToSelected}
+                      className="ui-btn-primary min-h-11"
+                    >
+                      Apply to Selected
+                    </button>
+                  </div>
+                  <p className="mt-2 text-xs font-bold text-app-text-muted">
+                    Enter one per-member amount, then tap only the members who should receive it. Selecting a member applies this amount immediately. Individual member amounts may still be edited below.
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button type="button" onClick={selectAllPartyMembers} className="ui-btn-secondary min-h-10">
+                      Select All Members
+                    </button>
+                    <button
+                      type="button"
+                      disabled={selectedMemberIds.size === 0}
+                      onClick={clearSelectedPartyMembers}
+                      className="ui-btn-secondary min-h-10"
+                    >
+                      Clear Selection
+                    </button>
+                    <span className="self-center text-xs font-black text-app-accent">
+                      {selectedMemberIds.size} selected
+                    </span>
+                  </div>
                 </div>
 
                 {memberEditorOpen ? (
@@ -906,8 +1051,18 @@ export default function WeddingDepositWorkspace({
 
             {step === "history" ? (
               <div className="space-y-4">
-                <div><h3 className="text-xl font-black text-app-text">Wedding Orders &amp; Receipts</h3><p className="text-sm text-app-text-muted">Choose a funded member to return to the Register, select merchandise, confirm Wedding Order and salesperson, then choose Pay to post that member&apos;s Transaction Record.</p></div>
-                <div className="rounded-2xl border border-app-accent/30 bg-app-accent/8 p-4 text-sm text-app-text"><p className="font-black">How item selection works</p><p className="mt-1 text-app-text-muted">Select <strong>Choose Member &amp; Add Items</strong>. Riverside closes this workspace, selects the member&apos;s Customer account, and shows the Wedding Checklist. Add a linked item there or search/scan any item, then set each deferred line to <strong>Order (Wedding)</strong>.</p><p className="mt-2 font-bold text-app-text">Nothing posts from this dashboard. Only a successful Pay → Complete Sale / Record Sale atomic checkout creates the member Transaction and applies the exact held deposit.</p></div>
+                <div><h3 className="text-xl font-black text-app-text">Wedding Builder · Orders &amp; Receipts</h3><p className="text-sm text-app-text-muted">Build all remaining member drafts, then create the separate member Transactions with one final action.</p></div>
+                {party ? (
+                  <div className="rounded-2xl border-2 border-app-info/30 bg-app-info/8 p-4 text-sm text-app-text">
+                    <p className="font-black">Current party activity · {party.party_name}</p>
+                    <p className="mt-1 text-app-text-muted">
+                      {currentPartyWorkflowCount > 0
+                        ? `${currentPartyWorkflowCount} posted deposit workflow${currentPartyWorkflowCount === 1 ? "" : "s"} loaded first below, including held balances, member Transactions, and receipts.`
+                        : "No posted deposit workflow exists for this party yet. Other weddings paid by this customer remain listed below."}
+                    </p>
+                  </div>
+                ) : null}
+                <div className="rounded-2xl border border-app-accent/30 bg-app-accent/8 p-4 text-sm text-app-text"><p className="font-black">One Builder, separate financial records</p><p className="mt-1 text-app-text-muted">Choose <strong>Build All Remaining Orders</strong>. Select exact variations, optional alterations, No Tax reason, and salesperson for each member. Drafts can be parked and recalled.</p><p className="mt-2 font-bold text-app-text">Drafts never post money. Member Transactions can be created only after this workflow has a successful payer Transaction and funded source ledgers. The final action uses those exact sources; it never charges the payer again.</p></div>
                 <div className="rounded-2xl border border-app-warning/30 bg-app-warning/8 p-4 text-sm text-app-text">
                   Funded deposits are financial records. Refund one member allocation at a time
                   from that member&apos;s Transaction/account. An original-card refund returns to the
@@ -915,11 +1070,89 @@ export default function WeddingDepositWorkspace({
                   remain blocked so no deposit ledger is silently changed.
                 </div>
                 {historyBusy ? <p className="py-8 text-center text-app-text-muted">Loading previous deposits…</p> : null}
-                {workflows.map((workflow) => {
+                {displayedWorkflows.map((workflow) => {
                   const focused = workflow.id === focusWorkflowId || workflow.payer_transaction_id === focusPayerTransactionId;
+                  const readySession =
+                    collectBuildSession &&
+                    (collectBuildSession.fundedWorkflowId === workflow.id ||
+                      collectBuildSession.payerTransactionId === workflow.payer_transaction_id)
+                      ? collectBuildSession
+                      : null;
+                  const remainingBuildCount = workflow.allocations.filter(
+                    (allocation) =>
+                      allocation.source_credit_ledger_id &&
+                      !allocation.member_transaction_id &&
+                      parseMoneyToCents(allocation.remaining_amount) > 0,
+                  ).length;
                   return (
                   <article key={workflow.id} className={`rounded-3xl border bg-app-surface-2 p-4 ${focused ? "border-app-accent ring-2 ring-app-accent/20" : "border-app-border"}`}>
                     <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-black text-app-text">{workflow.party_name}</p><p className="text-xs text-app-text-muted">{workflow.event_date} · Payer receipt {workflow.payer_transaction_display_id}</p><button type="button" onClick={() => onOpenReceipt(workflow.payer_transaction_id)} className="mt-2 inline-flex items-center gap-1 text-xs font-black text-app-accent"><ReceiptText size={14} /> View / Print Payer Receipt</button></div><div className="text-right"><p className="text-lg font-black text-app-text">${workflow.total_amount}</p><p className="text-xs font-bold text-app-info">${workflow.remaining_amount} still held</p></div></div>
+                    {readySession?.phase === "complete" ? (
+                      <div className="mt-4 rounded-2xl border-2 border-app-success/35 bg-app-success/8 p-4" data-testid="wedding-builder-completion">
+                        <div>
+                          <p className="text-xs font-black uppercase tracking-[0.2em] text-app-success">Wedding Builder Complete</p>
+                          <p className="mt-1 text-sm font-bold text-app-text">Every row below is a separate posted member Transaction and Wedding Fulfillment Order.</p>
+                        </div>
+                        <div className="mt-4 space-y-3">
+                          {readySession.buildMembers.map((member) => {
+                            const draft = readySession.drafts[member.id];
+                            const result = readySession.results[member.id];
+                            const allocation = workflow.allocations.find((candidate) => candidate.wedding_member_id === member.id);
+                            const transactionId = result?.transactionId ?? allocation?.member_transaction_id ?? null;
+                            const transactionLabel = allocation?.member_transaction_display_id ?? result?.transactionDisplayId ?? "Posted Transaction";
+                            const salesperson = salespeople.find((candidate) => candidate.id === draft?.salespersonId)?.full_name ?? "Salesperson recorded";
+                            return (
+                              <div key={member.id} className="rounded-xl border border-app-border bg-app-surface p-3">
+                                <div className="flex flex-wrap items-start justify-between gap-3">
+                                  <div>
+                                    <p className="font-black text-app-text">{member.first_name} {member.last_name} · {transactionLabel}</p>
+                                    <p className="text-xs text-app-text-muted">{salesperson} · {draft?.isTaxExempt ? `No Tax — ${draft.taxExemptReason}` : "Standard tax"}</p>
+                                  </div>
+                                  {transactionId ? <button type="button" onClick={() => onOpenReceipt(transactionId)} className="ui-btn-primary inline-flex items-center gap-1"><ReceiptText size={14} /> View / Print Receipt</button> : null}
+                                </div>
+                                <div className="mt-2 space-y-1 border-t border-app-border pt-2">
+                                  {(draft?.lines ?? []).map((line) => (
+                                    <p key={line.cart_row_id} className="text-xs text-app-text"><strong>{line.quantity}× {line.name}</strong><span className="text-app-text-muted"> · {line.sku}{line.variation_label ? ` · ${line.variation_label}` : ""}</span></p>
+                                  ))}
+                                </div>
+                                {result ? <p className="mt-2 text-xs font-bold text-app-text-muted">Transaction ${"$"}{centsToFixed2(result.totalCents)} · Deposit applied ${"$"}{centsToFixed2(result.depositAppliedCents)} · Balance due ${"$"}{centsToFixed2(result.balanceDueCents)}</p> : null}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ) : null}
+                    {remainingBuildCount > 0 ? (
+                      <div className="mt-4 rounded-2xl border-2 border-app-accent/30 bg-app-accent/5 p-4">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div>
+                            <p className="font-black text-app-text">{remainingBuildCount} funded member {remainingBuildCount === 1 ? "order" : "orders"} remaining</p>
+                            <p className="mt-1 text-xs text-app-text-muted">
+                              {readySession?.phase === "ready_to_post"
+                                ? "All member drafts are reviewed and ready for separate atomic posting."
+                                : "Open the Builder once and prepare every remaining member."}
+                            </p>
+                          </div>
+                          {readySession?.phase === "ready_to_post" ? (
+                            <button
+                              type="button"
+                              disabled={batchPosting}
+                              onClick={async () => {
+                                const completed = await onPostAllMemberOrders(workflow);
+                                if (completed) await loadWorkflows();
+                              }}
+                              className="ui-btn-primary min-h-11"
+                            >
+                              {batchPosting ? "Creating Member Transactions…" : `Create All ${remainingBuildCount} Member Transactions`}
+                            </button>
+                          ) : (
+                            <button type="button" onClick={() => onResumeBuilder(workflow)} className="ui-btn-primary min-h-11">
+                              Build All Remaining Orders
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ) : null}
                     <div className="mt-3 space-y-2 border-t border-app-border pt-3">
                       {workflow.allocations.map((allocation) => {
                         const postedTransactionId = allocation.member_transaction_id ?? allocation.target_transaction_id;
@@ -932,9 +1165,7 @@ export default function WeddingDepositWorkspace({
                             <div><p className="text-sm font-black text-app-text">{allocation.beneficiary_name}</p><p className="text-xs text-app-text-muted">{allocation.role} · ${allocation.amount} funded</p><div className="mt-1 flex flex-wrap gap-1.5"><span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${remainingCents > 0 ? "bg-app-info/10 text-app-info" : "bg-app-success/10 text-app-success"}`}>{depositStatus}</span><span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${postedTransactionId ? "bg-app-success/10 text-app-success" : "bg-app-warning/10 text-app-warning"}`}>{orderStatus}</span></div></div>
                             <div className="flex flex-wrap items-center justify-end gap-2">
                               {postedTransactionId ? <button type="button" onClick={() => onOpenReceipt(postedTransactionId)} className="ui-btn-secondary inline-flex items-center gap-1"><ReceiptText size={14} /> Receipt · {postedDisplayId}</button> : null}
-                              {allocation.source_credit_ledger_id && remainingCents > 0 ? (
-                                <button type="button" onClick={() => onStartMemberOrder({ id: allocation.wedding_member_id, customer_id: allocation.beneficiary_customer_id, first_name: allocation.beneficiary_name.split(" ")[0] ?? "Wedding", last_name: allocation.beneficiary_name.split(" ").slice(1).join(" ") || "Member", role: allocation.role, status: "active", measured: false, suit_ordered: false, is_free_suit_promo: false }, workflow.party_name, { workflowId: workflow.id, sourceCreditLedgerId: allocation.source_credit_ledger_id!, remainingCents })} className="ui-btn-primary inline-flex items-center gap-1"><ShoppingCart size={14} /> Choose Member &amp; Add Items</button>
-                              ) : postedDisplayId ? <span className="rounded-full bg-app-success/10 px-3 py-1 text-xs font-black text-app-success">Posted</span> : null}
+                              {postedDisplayId ? <span className="rounded-full bg-app-success/10 px-3 py-1 text-xs font-black text-app-success">Posted</span> : null}
                             </div>
                           </div>
                         );

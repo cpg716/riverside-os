@@ -129,10 +129,11 @@ For wedding placeholder suits, the safest default is **Needs measurements**. Sta
 After a party/member is reviewed, the Register uses the same Wedding Manager context:
 
 1. Staff attach the customer in POS Register.
-2. POS shows current wedding memberships and a **Wedding Checklist**.
-3. Linked sellable product variations can be added as **Take now**, **Order**, or **Measure**.
+2. POS shows current wedding memberships and asks **Part of the Wedding Order?** for an active member.
+3. **Yes — Build Wedding Order** activates the member and loads Wedding Manager parent items; staff select each exact variation and can add it as **Take now**, **Order**, or **Measure**. **No — Regular Sale** creates no Wedding or financial write.
 4. Checklist-only entries stay visible but are not charged until a sellable ROS product variation is linked.
-5. Checkout creates normal ROS Transaction Records and keeps the `wedding_member_id` link for readiness.
+5. A displayed held deposit is not applied until staff explicitly select it in **Pay**.
+6. Successful checkout creates normal ROS Transaction Records and keeps the `wedding_member_id` link for readiness. Changing/removing the Customer clears unposted Wedding context.
 
 This means cutover review should focus on linking customers, transaction lines, and exact product variations cleanly. If a member still has an uncertain suit, leave it **Needs measurements** so Register and Order Stock do not treat it as ready for vendor ordering.
 

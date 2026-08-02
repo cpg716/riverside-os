@@ -86,13 +86,18 @@ When ROS starts mid-year, existing wedding parties may be imported into Wedding 
 
 ### POS Wedding Register Checklist
 
-When a customer attached to the Register belongs to a current or unresolved wedding party, POS reads Wedding Manager context and shows a **Wedding Checklist** beside the cart. This is a guided cart entry surface, not a separate source of truth.
+When a customer attached to the Register belongs to a current or unresolved wedding party, POS reads Wedding Manager context and asks **Part of the Wedding Order?** This is a guided cart entry surface, not a separate source of truth. **Yes — Build Wedding Order** activates the exact member and reuses the Deposit & Build parent-product/variation workflow; **No — Regular Sale** makes no Wedding or financial write.
 
-- Linked sellable wedding items can be added as **Take now**, **Order**, or **Measure**.
+- After acceptance, linked sellable wedding items appear in the **Wedding Checklist** and can be added as **Take now**, **Order**, or **Measure**.
+- Parent products always require staff to resolve the exact member variation. Search/scan additions default to `wedding_order` while the member context is active, but staff can add exceptions and alterations.
 - **Take now** keeps the line as normal takeaway when stock is available.
 - **Order** creates a `wedding_order` fulfillment line.
 - **Measure** creates a `wedding_order` line with `needs_measurements`.
 - Non-inventory wedding checklist entries are shown as checklist-only notes until a manager links the exact ROS product variation.
+- A displayed held wedding deposit remains a liability until staff explicitly apply the exact source at **Pay** and checkout succeeds. The contributing payer stays attached for receipt, refund, and audit truth.
+- Changing/removing the Customer clears the prompt, checklist, active member, variation selection, and any unposted held-deposit application.
+
+Only the normal atomic checkout path creates the member Transaction Record and Wedding Fulfillment Order and records tax, salesperson, payment/provider evidence, reporting, and receipt data. The prompt and Builder drafts do not post business records.
 
 Detailed workflow: [`POS_WEDDING_REGISTER_WORKFLOW.md`](POS_WEDDING_REGISTER_WORKFLOW.md).
 

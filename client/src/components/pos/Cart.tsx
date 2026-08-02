@@ -53,7 +53,9 @@ import PosSaleCashierSignInOverlay from "./PosSaleCashierSignInOverlay";
 import { CustomerRelationshipHubDrawer } from "../customers/CustomerRelationshipHubDrawer";
 import PosExchangeWizard from "./PosExchangeWizard";
 import WeddingLookupDrawer, { type WeddingMember } from "./WeddingLookupDrawer";
-import WeddingDepositWorkspace from "./WeddingDepositWorkspace";
+import WeddingDepositWorkspace, {
+  type DepositWorkflow,
+} from "./WeddingDepositWorkspace";
 import PosShippingModal, {
   type PosShippingSelection,
 } from "./PosShippingModal";
@@ -139,6 +141,10 @@ import {
   openDepositApplicationCents,
   type HeldOpenDeposit,
 } from "./openDeposit";
+import {
+  buildWeddingMemberCheckoutPayload,
+  type FundedWeddingOrderSource,
+} from "../../lib/weddingOrderBatch";
 
 const WEDDINGS_ICON = getAppIcon("weddings");
 const GIFT_CARDS_ICON = getAppIcon("giftCards");
@@ -494,6 +500,12 @@ interface WeddingPurchaseContext {
   memberships: WeddingPurchaseMembership[];
 }
 
+type WeddingVariantSelectionContext = {
+  membership: WeddingPurchaseMembership;
+  item: WeddingPurchaseItem;
+  mode: "takeaway" | "order" | "needs_measurements";
+};
+
 interface CartProps {
   sessionId: string;
   registerLane?: number | null;
@@ -669,9 +681,18 @@ export default function Cart({
   const [receiptWeddingWorkflowResume, setReceiptWeddingWorkflowResume] = useState<WeddingWorkflowResume | null>(null);
   const [weddingCollectBuildSession, setWeddingCollectBuildSession] =
     useState<WeddingCollectBuildSession | null>(null);
+  const [weddingDraftTaxExempt, setWeddingDraftTaxExempt] = useState(false);
+  const [weddingDraftTaxExemptReason, setWeddingDraftTaxExemptReason] =
+    useState("Out of State");
+  const [weddingBatchPosting, setWeddingBatchPosting] = useState(false);
   const [weddingPurchaseContext, setWeddingPurchaseContext] =
     useState<WeddingPurchaseContext | null>(null);
   const [weddingPurchaseLoading, setWeddingPurchaseLoading] = useState(false);
+  const [weddingOrderPromptMembership, setWeddingOrderPromptMembership] =
+    useState<WeddingPurchaseMembership | null>(null);
+  const weddingOrderPromptHandledCustomerId = useRef<string | null>(null);
+  const [weddingVariantSelectionContext, setWeddingVariantSelectionContext] =
+    useState<WeddingVariantSelectionContext | null>(null);
 
   const [roleMaxDiscountPct, setRoleMaxDiscountPct] = useState(30);
   const [salePinCredential, setSalePinCredential] = useState("");
@@ -912,6 +933,10 @@ export default function Cart({
     rmsPaymentMeta,
     staffAccountPaymentMeta,
     giftCardLoadMeta,
+    defaultFulfillment:
+      weddingCollectBuildSession?.phase === "building" || activeWeddingMember
+        ? "wedding_order"
+        : undefined,
     activeWeddingMember,
     selectedCustomer,
     setSelectedCustomer,
@@ -1313,6 +1338,19 @@ export default function Cart({
     ) {
       setWeddingDepositOrderSource(null);
     }
+    if (
+      weddingOrderPromptMembership &&
+      weddingOrderPromptMembership.customer_id !== customerId
+    ) {
+      setWeddingOrderPromptMembership(null);
+    }
+    if (
+      weddingVariantSelectionContext &&
+      weddingVariantSelectionContext.membership.customer_id !== customerId
+    ) {
+      setWeddingVariantSelectionContext(null);
+      setActiveVariationSelection(null);
+    }
     setCheckoutAppliedPayments((prev) =>
       prev.some((payment) => payment.method === "open_deposit")
         ? prev.filter((payment) => payment.method !== "open_deposit")
@@ -1330,7 +1368,13 @@ export default function Cart({
         : [];
       return next.length === prev.length ? prev : next;
     });
-  }, [activeWeddingMember, selectedCustomer?.id, weddingDepositOrderSource]);
+  }, [
+    activeWeddingMember,
+    selectedCustomer?.id,
+    weddingDepositOrderSource,
+    weddingOrderPromptMembership,
+    weddingVariantSelectionContext,
+  ]);
 
   useEffect(() => {
     const customerId = selectedCustomer?.id;
@@ -1469,6 +1513,41 @@ export default function Cart({
     };
   }, [apiAuth, baseUrl, selectedCustomer?.id, toast]);
 
+  useEffect(() => {
+    const customerId = selectedCustomer?.id ?? null;
+    if (!customerId) {
+      weddingOrderPromptHandledCustomerId.current = null;
+      setWeddingOrderPromptMembership(null);
+      return;
+    }
+    if (
+      weddingPurchaseLoading ||
+      weddingOrderPromptHandledCustomerId.current === customerId ||
+      isRmsPaymentCart ||
+      weddingCollectBuildSession?.phase === "building"
+    ) {
+      return;
+    }
+    const membership = weddingPurchaseContext?.memberships.find(
+      (candidate) => candidate.active,
+    );
+    if (!membership) return;
+    if (activeWeddingMember?.customer_id === customerId) {
+      weddingOrderPromptHandledCustomerId.current = customerId;
+      return;
+    }
+    weddingOrderPromptHandledCustomerId.current = customerId;
+    setOpenDepositNotice(null);
+    setWeddingOrderPromptMembership(membership);
+  }, [
+    activeWeddingMember?.customer_id,
+    isRmsPaymentCart,
+    selectedCustomer?.id,
+    weddingCollectBuildSession?.phase,
+    weddingPurchaseContext,
+    weddingPurchaseLoading,
+  ]);
+
   const weddingMemberships = useMemo<WeddingMembership[]>(
     () =>
       (weddingPurchaseContext?.memberships ?? []).map((membership) => ({
@@ -1582,70 +1661,6 @@ export default function Cart({
     weddingPurchaseContext?.memberships,
     weddingPurchaseLoading,
   ]);
-
-  const addWeddingPurchaseItem = useCallback(
-    (
-      membership: WeddingPurchaseMembership,
-      item: WeddingPurchaseItem,
-      mode: "takeaway" | "order" | "needs_measurements",
-    ) => {
-      if (!checkoutOperator) {
-        toast(
-          "Verify Staff Access on the register sign-in screen before adding wedding items.",
-          "error",
-        );
-        return;
-      }
-      if (isRmsPaymentCart) {
-        toast(
-          "Remove the RMS CHARGE PAYMENT line before adding wedding items.",
-          "error",
-        );
-        return;
-      }
-      if (lines.some((line) => line.variant_id === item.variant_id)) {
-        toast("That wedding item is already in the cart.", "info");
-        return;
-      }
-
-      activateWeddingMembership(membership, item);
-      const isFree = Boolean(membership.is_free_suit_promo);
-      const line: CartLineItem = {
-        ...item,
-        quantity: 1,
-        fulfillment: mode === "takeaway" ? "takeaway" : "wedding_order",
-        cart_row_id: newCartRowId(),
-        order_lifecycle_status:
-          mode === "needs_measurements" ? "needs_measurements" : undefined,
-        ...(isFree
-          ? {
-              standard_retail_price: "0.00",
-              original_unit_price: String(item.standard_retail_price),
-              price_override_reason: "Wedding Promo (Free Suit Selection)",
-            }
-          : {}),
-      };
-      setLines((prev) => [...prev, line]);
-      setSelectedLineKey(line.cart_row_id);
-      toast(
-        mode === "takeaway"
-          ? "Wedding item added for take-now sale."
-          : mode === "needs_measurements"
-            ? "Wedding item added and marked needs measurements."
-            : "Wedding item added for ordering.",
-        "success",
-      );
-    },
-    [
-      activateWeddingMembership,
-      checkoutOperator,
-      isRmsPaymentCart,
-      lines,
-      setLines,
-      setSelectedLineKey,
-      toast,
-    ],
-  );
 
   useEffect(() => {
     const intakeIds = new Set(
@@ -3156,6 +3171,78 @@ export default function Cart({
     string | null
   >(null);
 
+  const openWeddingParentVariantPicker = useCallback(
+    async (
+      item: WeddingPurchaseItem,
+      membership?: WeddingPurchaseMembership,
+      mode: WeddingVariantSelectionContext["mode"] = "order",
+    ) => {
+      if (!checkoutOperator) {
+        toast(
+          "Verify Staff Access before choosing wedding merchandise.",
+          "error",
+        );
+        return;
+      }
+      if (isRmsPaymentCart) {
+        toast(
+          "Remove the RMS CHARGE PAYMENT line before adding wedding merchandise.",
+          "error",
+        );
+        return;
+      }
+      if (lines.some((line) => line.product_id === item.product_id)) {
+        toast("That parent item is already represented in the cart.", "info");
+        return;
+      }
+      try {
+        const response = await fetch(
+          `${baseUrl}/api/products/pos-variants/${encodeURIComponent(item.product_id)}`,
+          { headers: apiAuth() },
+        );
+        if (!response.ok) {
+          throw new Error("The available sizes and variations could not be loaded.");
+        }
+        const rows = (await response.json()) as Array<Record<string, unknown>>;
+        const variants = rows
+          .map((row) => ({
+            variant_id: String(row.variant_id ?? ""),
+            sku: String(row.sku ?? ""),
+            variation_label:
+              typeof row.variation_label === "string" &&
+              row.variation_label.trim()
+                ? row.variation_label
+                : "Standard",
+            stock_on_hand: Number(row.stock_on_hand ?? 0),
+            retail_price: String(
+              row.retail_price ?? item.standard_retail_price,
+            ),
+          }))
+          .filter((variant) => variant.variant_id && variant.sku);
+        if (variants.length === 0) {
+          throw new Error("This parent item has no sellable variations.");
+        }
+        setWeddingVariantSelectionContext(
+          membership ? { membership, item, mode } : null,
+        );
+        setActiveVariationSelection({
+          product_id: item.product_id,
+          name: item.name,
+          image_url: item.image_url,
+          variants,
+        });
+      } catch (cause) {
+        toast(
+          cause instanceof Error
+            ? cause.message
+            : "The parent item could not be opened.",
+          "error",
+        );
+      }
+    },
+    [apiAuth, baseUrl, checkoutOperator, isRmsPaymentCart, lines, toast],
+  );
+
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [showVoidAllConfirm, setShowVoidAllConfirm] = useState(false);
   const [showReadinessOverrideModal, setShowReadinessOverrideModal] =
@@ -4087,6 +4174,7 @@ export default function Cart({
       giftCardLoadOpen ||
       feePromptKind !== null ||
       activeVariationSelection !== null ||
+      weddingOrderPromptMembership !== null ||
       showClearConfirm ||
       showWalkinConfirm ||
       showVoidAllConfirm ||
@@ -4104,6 +4192,7 @@ export default function Cart({
       giftCardLoadOpen,
       feePromptKind,
       activeVariationSelection,
+      weddingOrderPromptMembership,
       showClearConfirm,
       showWalkinConfirm,
       showVoidAllConfirm,
@@ -4204,20 +4293,14 @@ export default function Cart({
     onSaleCompleted?.();
   }, [onSaleCompleted, setCheckoutTransactionId]);
 
-  const continueWeddingOrders = useCallback((resume: WeddingWorkflowResume) => {
-    if (!selectCustomerForSale(resume.payer)) return;
-    setWeddingDrawerInitialPartyId(null);
-    setWeddingDepositInitialView("orders");
-    setWeddingDepositFocusWorkflowId(resume.workflowId ?? null);
-    setWeddingDepositFocusPayerTransactionId(resume.payerTransactionId ?? null);
-    setWeddingDepositAutoStartMember(true);
-    setWeddingDrawerPreferGroupPay(true);
-    setWeddingDrawerOpen(true);
-    toast("Receipt complete. Riverside is opening the next funded member so you can add that member's items.", "success");
-  }, [selectCustomerForSale, toast]);
-
   const selectWeddingCollectBuildMember = useCallback(
-    (member: WeddingMember, partyName: string) => {
+    (
+      member: WeddingMember,
+      partyName: string,
+      sessionOverride?: WeddingCollectBuildSession,
+    ) => {
+      const session = sessionOverride ?? weddingCollectBuildSession;
+      const savedDraft = session?.drafts[member.id];
       if (
         !selectCustomerForSale({
           id: member.customer_id,
@@ -4230,16 +4313,289 @@ export default function Cart({
       ) {
         return false;
       }
-      setLines([]);
+      setLines(savedDraft?.lines.map((line) => ({ ...line })) ?? []);
+      setPendingAlterationIntakes(
+        savedDraft?.alterationIntakes.map((intake) => ({ ...intake })) ?? [],
+      );
       setDisbursementMembers([]);
       setActiveWeddingMember(member);
       setActiveWeddingPartyName(partyName);
       setWeddingDepositOrderSource(null);
-      setPrimarySalespersonId("");
+      setPrimarySalespersonId(
+        savedDraft?.salespersonId ?? session?.defaultOrderSalespersonId ?? "",
+      );
+      setWeddingDraftTaxExempt(savedDraft?.isTaxExempt ?? false);
+      setWeddingDraftTaxExemptReason(
+        savedDraft?.taxExemptReason?.trim() || "Out of State",
+      );
       requestProductSearchFocus();
       return true;
     },
-    [requestProductSearchFocus, selectCustomerForSale, setLines],
+    [
+      requestProductSearchFocus,
+      selectCustomerForSale,
+      setLines,
+      weddingCollectBuildSession,
+    ],
+  );
+
+  const continueWeddingOrders = useCallback((resume: WeddingWorkflowResume) => {
+    if (!selectCustomerForSale(resume.payer)) return;
+    setWeddingDrawerInitialPartyId(null);
+    setWeddingDepositInitialView("orders");
+    setWeddingDepositFocusWorkflowId(resume.workflowId ?? null);
+    setWeddingDepositFocusPayerTransactionId(resume.payerTransactionId ?? null);
+    setWeddingDepositAutoStartMember(true);
+    setWeddingDrawerPreferGroupPay(true);
+    setWeddingDrawerOpen(true);
+    toast("Receipt complete. Riverside is opening the Wedding Builder final review for all funded member drafts.", "success");
+  }, [selectCustomerForSale, toast]);
+
+  const resumeFundedWeddingBuilder = useCallback(
+    (workflow: DepositWorkflow) => {
+      if (!ensureSaleCashier()) return;
+      if (hasCheckoutWork) {
+        toast(
+          "Finish, park, or clear the current Cart before opening this Wedding Builder.",
+          "error",
+        );
+        return;
+      }
+      const buildMembers = workflow.allocations
+        .filter(
+          (allocation) =>
+            allocation.source_credit_ledger_id &&
+            !allocation.member_transaction_id &&
+            parseMoneyToCents(allocation.remaining_amount) > 0,
+        )
+        .map<WeddingMember>((allocation) => ({
+          id: allocation.wedding_member_id,
+          customer_id: allocation.beneficiary_customer_id,
+          first_name: allocation.beneficiary_name.split(" ")[0] ?? "Wedding",
+          last_name:
+            allocation.beneficiary_name.split(" ").slice(1).join(" ") ||
+            "Member",
+          role: allocation.role,
+          status: "active",
+          measured: false,
+          suit_ordered: false,
+          is_free_suit_promo: false,
+        }));
+      if (buildMembers.length === 0) {
+        toast("Every funded member Transaction is already posted.", "info");
+        return;
+      }
+      const payerMember: WeddingMember = {
+        id: workflow.payer_wedding_member_id ?? "",
+        customer_id: selectedCustomer!.id,
+        first_name: selectedCustomer!.first_name,
+        last_name: selectedCustomer!.last_name,
+        role: "Payer",
+        status: "active",
+        measured: false,
+        suit_ordered: false,
+        is_free_suit_promo: false,
+      };
+      const session: WeddingCollectBuildSession = {
+        payer: selectedCustomer!,
+        payerMember,
+        payerLines: [],
+        partyName: workflow.party_name,
+        members: buildMembers,
+        buildMembers,
+        depositSalespersonId: "",
+        defaultOrderSalespersonId: "",
+        currentMemberId: buildMembers[0]!.id,
+        phase: "building",
+        fundedWorkflowId: workflow.id,
+        payerTransactionId: workflow.payer_transaction_id,
+        operatorStaffId: checkoutOperator!.staffId,
+        operatorName: checkoutOperator!.fullName,
+        drafts: {},
+        results: {},
+      };
+      setWeddingCollectBuildSession(session);
+      setWeddingDrawerOpen(false);
+      setWeddingDrawerPreferGroupPay(false);
+      selectWeddingCollectBuildMember(
+        buildMembers[0]!,
+        workflow.party_name,
+        session,
+      );
+      toast(
+        `Wedding Builder opened for ${buildMembers.length} funded member${buildMembers.length === 1 ? "" : "s"}. Drafts only—no financial record changes until Create All Member Transactions.`,
+        "success",
+      );
+    },
+    [
+      ensureSaleCashier,
+      hasCheckoutWork,
+      checkoutOperator,
+      selectWeddingCollectBuildMember,
+      selectedCustomer,
+      toast,
+    ],
+  );
+
+  const postAllWeddingMemberOrders = useCallback(
+    async (workflow: DepositWorkflow): Promise<boolean> => {
+      const session = weddingCollectBuildSession;
+      if (!session || session.phase !== "ready_to_post") {
+        toast("Finish reviewing every member draft before posting.", "error");
+        return false;
+      }
+      const workflowIdMatches =
+        !session.fundedWorkflowId || session.fundedWorkflowId === workflow.id;
+      const payerTransactionMatches =
+        !session.payerTransactionId ||
+        session.payerTransactionId === workflow.payer_transaction_id;
+      if (
+        !workflowIdMatches ||
+        !payerTransactionMatches ||
+        (!session.fundedWorkflowId && !session.payerTransactionId)
+      ) {
+        toast(
+          "The reviewed drafts do not belong to this funded Wedding Deposit workflow.",
+          "error",
+        );
+        return false;
+      }
+      const batchOperator = checkoutOperator ??
+        (session.operatorStaffId
+          ? {
+              staffId: session.operatorStaffId,
+              fullName:
+                session.operatorName?.trim() || "Wedding Builder operator",
+            }
+          : null);
+      if (!batchOperator) {
+        toast(
+          "Select the active cashier before creating the member Transactions.",
+          "error",
+        );
+        return false;
+      }
+      const token = await ensurePosTokenForSession();
+      if (!token) {
+        toast("Register authorization expired. Sign in and try again.", "error");
+        return false;
+      }
+
+      const sources = new Map<string, FundedWeddingOrderSource>();
+      workflow.allocations.forEach((allocation) => {
+        if (
+          allocation.source_credit_ledger_id &&
+          parseMoneyToCents(allocation.remaining_amount) > 0
+        ) {
+          sources.set(allocation.wedding_member_id, {
+            workflowId: workflow.id,
+            sourceCreditLedgerId: allocation.source_credit_ledger_id,
+            remainingCents: parseMoneyToCents(allocation.remaining_amount),
+          });
+        }
+      });
+
+      const fundedSession = {
+        ...session,
+        fundedWorkflowId: workflow.id,
+        payerTransactionId: workflow.payer_transaction_id,
+      };
+      setWeddingBatchPosting(true);
+      setWeddingCollectBuildSession((current) =>
+        current
+          ? {
+              ...current,
+              fundedWorkflowId: workflow.id,
+              payerTransactionId: workflow.payer_transaction_id,
+              phase: "posting",
+            }
+          : current,
+      );
+      let workingSession = fundedSession;
+      try {
+        for (const member of session.buildMembers) {
+          if (workingSession.results[member.id]) continue;
+          const draft = workingSession.drafts[member.id];
+          const source = sources.get(member.id);
+          if (!draft || !source) {
+            throw new Error(
+              `${member.first_name} ${member.last_name} is missing a reviewed draft or funded deposit source. Refresh the workflow before retrying.`,
+            );
+          }
+          const { payload, amounts } = buildWeddingMemberCheckoutPayload({
+            sessionId,
+            operator: batchOperator,
+            member,
+            draft,
+            source,
+          });
+          const response = await fetch(`${baseUrl}/api/transactions/checkout`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", ...apiAuth() },
+            body: JSON.stringify(payload),
+          });
+          if (!response.ok) {
+            const body = (await response.json().catch(() => ({}))) as {
+              error?: string;
+            };
+            throw new Error(
+              body.error ??
+                `${member.first_name} ${member.last_name}'s Transaction could not be created.`,
+            );
+          }
+          const body = (await response.json()) as {
+            transaction_id: string;
+            transaction_display_id?: string | null;
+          };
+          workingSession = {
+            ...workingSession,
+            results: {
+              ...workingSession.results,
+              [member.id]: {
+                transactionId: body.transaction_id,
+                transactionDisplayId: body.transaction_display_id ?? null,
+                totalCents: amounts.totalCents,
+                depositAppliedCents: amounts.depositAppliedCents,
+                balanceDueCents: amounts.balanceDueCents,
+              },
+            },
+          };
+          setWeddingCollectBuildSession({
+            ...workingSession,
+            phase: "posting",
+          });
+        }
+        setWeddingCollectBuildSession({ ...workingSession, phase: "complete" });
+        toast(
+          `Created ${session.buildMembers.length} separate member Transaction${session.buildMembers.length === 1 ? "" : "s"}. Review and print each receipt below.`,
+          "success",
+        );
+        return true;
+      } catch (cause) {
+        setWeddingCollectBuildSession({
+          ...workingSession,
+          phase: "ready_to_post",
+        });
+        toast(
+          cause instanceof Error
+            ? `${cause.message} Completed members were saved once; retry resumes only the unfinished members.`
+            : "Member posting stopped. Retry resumes only unfinished members.",
+          "error",
+        );
+        return false;
+      } finally {
+        setWeddingBatchPosting(false);
+      }
+    },
+    [
+      apiAuth,
+      baseUrl,
+      checkoutOperator,
+      ensurePosTokenForSession,
+      sessionId,
+      toast,
+      weddingCollectBuildSession,
+    ],
   );
 
   const saveWeddingCollectBuildMember = useCallback(() => {
@@ -4254,6 +4610,23 @@ export default function Cart({
       toast("Confirm the salesperson for this member before saving the Wedding Order draft.", "error");
       return;
     }
+    if (weddingDraftTaxExempt && !weddingDraftTaxExemptReason.trim()) {
+      toast("Enter the required No Tax reason before saving this member draft.", "error");
+      return;
+    }
+    if (
+      lines.some(
+        (line) =>
+          line.line_type !== "alteration_service" &&
+          line.fulfillment !== "wedding_order",
+      )
+    ) {
+      toast(
+        "Every member item must be marked Order (Wedding) before saving the draft.",
+        "error",
+      );
+      return;
+    }
     const currentIndex = session.buildMembers.findIndex((candidate) => candidate.id === member.id);
     if (currentIndex < 0) {
       toast("This member is no longer part of the active Collect & Build workflow.", "error");
@@ -4265,6 +4638,13 @@ export default function Cart({
         member,
         lines: lines.map((line) => ({ ...line })),
         salespersonId: primarySalespersonId.trim(),
+        checkoutClientId:
+          session.drafts[member.id]?.checkoutClientId ?? newCheckoutClientId(),
+        isTaxExempt: weddingDraftTaxExempt,
+        taxExemptReason: weddingDraftTaxExempt
+          ? weddingDraftTaxExemptReason.trim()
+          : null,
+        alterationIntakes: pendingAlterationIntakes.map((intake) => ({ ...intake })),
       },
     };
     const nextMember = session.buildMembers[currentIndex + 1] ?? null;
@@ -4291,14 +4671,28 @@ export default function Cart({
     setDisbursementMembers(session.members);
     setPrimarySalespersonId(session.depositSalespersonId);
     setWeddingDepositPostPaymentAction("build_orders");
+    const fundedBeforeBuilding = Boolean(
+      session.fundedWorkflowId && session.payerTransactionId,
+    );
     setWeddingCollectBuildSession({
       ...session,
       drafts,
       currentMemberId: null,
-      phase: "ready_for_payment",
+      phase: fundedBeforeBuilding ? "ready_to_post" : "ready_for_payment",
     });
+    if (fundedBeforeBuilding) {
+      setWeddingDepositInitialView("orders");
+      setWeddingDepositFocusWorkflowId(session.fundedWorkflowId ?? null);
+      setWeddingDepositFocusPayerTransactionId(
+        session.payerTransactionId ?? null,
+      );
+      setWeddingDrawerPreferGroupPay(true);
+      setWeddingDrawerOpen(true);
+    }
     toast(
-      `All ${session.buildMembers.length} member order drafts are ready. Review the deposits and choose Final Payment once.`,
+      fundedBeforeBuilding
+        ? `All ${session.buildMembers.length} member drafts are ready. Review once, then create every member Transaction.`
+        : `All ${session.buildMembers.length} member order drafts are ready. Review the deposits and choose Final Payment once.`,
       "success",
     );
   }, [
@@ -4306,11 +4700,14 @@ export default function Cart({
     clearCart,
     lines,
     primarySalespersonId,
+    pendingAlterationIntakes,
     selectCustomerForSale,
     selectWeddingCollectBuildMember,
     setLines,
     toast,
     weddingCollectBuildSession,
+    weddingDraftTaxExempt,
+    weddingDraftTaxExemptReason,
   ]);
 
   const hasSpecialOrWeddingLines = useMemo(
@@ -4401,6 +4798,77 @@ export default function Cart({
               </div>
               </div>
             )}
+
+            {collectingWeddingOrderDraft ? (
+              <div className="grid gap-3 rounded-2xl border-2 border-app-accent/30 bg-app-accent/5 p-3 md:grid-cols-2" data-testid="wedding-builder-member-settings">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-accent">
+                    Wedding Builder · {Object.keys(weddingCollectBuildSession?.drafts ?? {}).length + 1} of {weddingCollectBuildSession?.buildMembers.length ?? 0}
+                  </p>
+                  <p className="mt-1 text-xs font-bold text-app-text">
+                    Add exact variations and optional alterations for this member. This is a draft only.
+                  </p>
+                  <label className="mt-3 block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                    Salesperson for all member Transactions
+                    <select
+                      value={weddingCollectBuildSession?.defaultOrderSalespersonId ?? ""}
+                      onChange={(event) => {
+                        const staffId = event.target.value;
+                        setPrimarySalespersonId(staffId);
+                        setWeddingCollectBuildSession((current) =>
+                          current
+                            ? {
+                                ...current,
+                                defaultOrderSalespersonId: staffId,
+                                drafts: Object.fromEntries(
+                                  Object.entries(current.drafts).map(([memberId, draft]) => [
+                                    memberId,
+                                    { ...draft, salespersonId: staffId || draft.salespersonId },
+                                  ]),
+                                ),
+                              }
+                            : current,
+                        );
+                      }}
+                      className="ui-input mt-1 w-full normal-case tracking-normal"
+                    >
+                      <option value="">Set each member individually…</option>
+                      {commissionStaff.map((staff) => (
+                        <option key={staff.id} value={staff.id}>{staff.full_name}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <p className="mt-1 text-[10px] text-app-text-muted">
+                    The normal Salesperson control remains the override for this member only.
+                  </p>
+                </div>
+                <div className="rounded-xl border border-app-border bg-app-surface p-3">
+                  <label className="flex items-start gap-2 text-xs font-black text-app-text">
+                    <input
+                      type="checkbox"
+                      checked={weddingDraftTaxExempt}
+                      onChange={(event) => setWeddingDraftTaxExempt(event.target.checked)}
+                      className="mt-0.5 h-4 w-4 accent-[var(--app-accent)]"
+                    />
+                    No Tax for this member Transaction
+                  </label>
+                  {weddingDraftTaxExempt ? (
+                    <label className="mt-3 block text-[10px] font-black uppercase tracking-widest text-app-danger">
+                      Required exemption reason
+                      <input
+                        value={weddingDraftTaxExemptReason}
+                        onChange={(event) => setWeddingDraftTaxExemptReason(event.target.value)}
+                        placeholder="Out of State"
+                        className="ui-input mt-1 w-full normal-case tracking-normal"
+                      />
+                    </label>
+                  ) : null}
+                  <p className="mt-2 text-[10px] font-semibold text-app-text-muted">
+                    No Tax is explicit, audited, and applies only to this member&apos;s Transaction. It is never inferred from the wedding or shipping address.
+                  </p>
+                </div>
+              </div>
+            ) : null}
 
             {activeWeddingMember ||
             parkedRows.length > 0 ||
@@ -5326,7 +5794,7 @@ export default function Cart({
               Checking wedding checklist...
             </div>
           </div>
-        ) : weddingPurchaseContext?.memberships.length ? (
+        ) : weddingPurchaseContext?.memberships.length && activeWeddingMember ? (
           <div className="shrink-0 border-b border-app-border/50 px-2.5 py-2">
             <div className="space-y-2 rounded-2xl border border-app-accent/25 bg-app-accent/8 p-3 shadow-sm">
               <div className="flex items-start justify-between gap-2">
@@ -5377,12 +5845,9 @@ export default function Cart({
                       <div className="space-y-2">
                         {membership.purchase_items.map((item) => {
                           const inCart = lines.some(
-                            (line) => line.variant_id === item.variant_id,
+                            (line) => line.product_id === item.product_id,
                           );
                           const tracked = item.already_tracked;
-                          const takeNowAvailable =
-                            (item.available_stock ?? item.stock_on_hand ?? 0) >
-                            0;
                           const itemLocked = tracked || inCart;
                           return (
                             <div
@@ -5419,14 +5884,28 @@ export default function Cart({
                                   In the current cart.
                                 </p>
                               ) : (
+                                collectingWeddingOrderDraft ? (
+                                  <div className="mt-2 grid grid-cols-[1fr_auto] gap-1.5">
+                                    <button
+                                      type="button"
+                                      onClick={() => void openWeddingParentVariantPicker(item)}
+                                      className="rounded-lg border border-app-accent bg-app-accent/10 px-2 py-2 text-[9px] font-black uppercase tracking-wide text-app-accent hover:bg-app-accent hover:text-white"
+                                    >
+                                      Choose This Member&apos;s Variation
+                                    </button>
+                                    <span className="flex items-center rounded-lg border border-app-border bg-app-surface px-2 text-[9px] font-black uppercase tracking-wide text-app-text-muted">
+                                      Skip is OK
+                                    </span>
+                                  </div>
+                                ) : (
                                 <div className="mt-2 grid grid-cols-3 gap-1.5">
                                   <button
                                     type="button"
-                                    disabled={itemLocked || !takeNowAvailable}
+                                    disabled={itemLocked}
                                     onClick={() =>
-                                      addWeddingPurchaseItem(
-                                        membership,
+                                      void openWeddingParentVariantPicker(
                                         item,
+                                        membership,
                                         "takeaway",
                                       )
                                     }
@@ -5438,9 +5917,9 @@ export default function Cart({
                                     type="button"
                                     disabled={itemLocked}
                                     onClick={() =>
-                                      addWeddingPurchaseItem(
-                                        membership,
+                                      void openWeddingParentVariantPicker(
                                         item,
+                                        membership,
                                         "order",
                                       )
                                     }
@@ -5452,9 +5931,9 @@ export default function Cart({
                                     type="button"
                                     disabled={itemLocked}
                                     onClick={() =>
-                                      addWeddingPurchaseItem(
-                                        membership,
+                                      void openWeddingParentVariantPicker(
                                         item,
+                                        membership,
                                         "needs_measurements",
                                       )
                                     }
@@ -5463,6 +5942,7 @@ export default function Cart({
                                     Measure
                                   </button>
                                 </div>
+                                )
                               )}
                             </div>
                           );
@@ -5508,6 +5988,28 @@ export default function Cart({
                   </div>
                 ))}
               </div>
+            </div>
+          </div>
+        ) : weddingPurchaseContext?.memberships.length ? (
+          <div className="shrink-0 border-b border-app-border/50 px-2.5 py-2">
+            <div className="rounded-2xl border border-app-accent/25 bg-app-accent/8 p-3 text-xs text-app-text">
+              <p className="font-black">Wedding member linked</p>
+              <p className="mt-1 text-app-text-muted">
+                Start the Wedding Order to load this member&apos;s party items and exact variation choices.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  const membership =
+                    weddingPurchaseContext.memberships.find(
+                      (candidate) => candidate.active,
+                    ) ?? weddingPurchaseContext.memberships[0];
+                  if (membership) setWeddingOrderPromptMembership(membership);
+                }}
+                className="ui-btn-primary mt-2 min-h-10 w-full"
+              >
+                Start Wedding Order
+              </button>
             </div>
           </div>
         ) : null}
@@ -6582,6 +7084,17 @@ export default function Cart({
           );
           if (completedTransactionId) {
             if (depositWorkflowPayer) {
+              setWeddingCollectBuildSession((current) =>
+                current
+                  ? {
+                      ...current,
+                      payerTransactionId: completedTransactionId,
+                      operatorStaffId: op.staffId,
+                      operatorName: op.fullName,
+                      phase: "ready_to_post",
+                    }
+                  : current,
+              );
               setReceiptWeddingWorkflowResume({ payer: depositWorkflowPayer, payerTransactionId: completedTransactionId });
             } else if (memberWorkflowSource) {
               setReceiptWeddingWorkflowResume({ payer: memberWorkflowSource.payer, workflowId: memberWorkflowSource.workflowId });
@@ -6610,7 +7123,9 @@ export default function Cart({
       />
 
       <ConfirmationModal
-        isOpen={openDepositNotice != null}
+        isOpen={
+          openDepositNotice != null && weddingOrderPromptMembership == null
+        }
         onClose={() => setOpenDepositNotice(null)}
         onConfirm={() => setOpenDepositNotice(null)}
         title="Wedding deposit available"
@@ -6986,11 +7501,85 @@ export default function Cart({
       ) : null}
       <VariantSelectionModal
         product={activeVariationSelection}
+        actionLabel={
+          weddingVariantSelectionContext
+            ? "Add to Wedding Order"
+            : collectingWeddingOrderDraft
+              ? "Add to Member Order"
+              : "Add to Sale"
+        }
+        allowPriceOverride={!weddingVariantSelectionContext}
         onClose={() => {
           setActiveVariationSelection(null);
           setVariantSwapCartRowId(null);
+          setWeddingVariantSelectionContext(null);
         }}
         onSelect={(v, priceOverride) => {
+          const weddingContext = weddingVariantSelectionContext;
+          if (weddingContext) {
+            setActiveVariationSelection(null);
+            setWeddingVariantSelectionContext(null);
+            void (async () => {
+              try {
+                const response = await fetch(
+                  `${baseUrl}/api/inventory/scan/${encodeURIComponent(v.sku)}`,
+                  { headers: apiAuth() },
+                );
+                if (!response.ok) {
+                  throw new Error("The selected wedding variation could not be resolved.");
+                }
+                const resolved = scanPayloadToResolvedItem(
+                  (await response.json()) as Record<string, unknown>,
+                );
+                const isFreeSuit =
+                  weddingContext.membership.is_free_suit_promo &&
+                  weddingContext.item.source !== "party_builder_template";
+                const itemForCart = isFreeSuit
+                  ? {
+                      ...resolved,
+                      standard_retail_price: "0.00",
+                      state_tax: "0.00",
+                      local_tax: "0.00",
+                      original_unit_price: String(
+                        resolved.standard_retail_price,
+                      ),
+                      price_override_reason:
+                        "Wedding Promo (Free Suit Selection)",
+                    }
+                  : resolved;
+                activateWeddingMembership(
+                  weddingContext.membership,
+                  { ...weddingContext.item, ...resolved },
+                );
+                addItem(
+                  itemForCart,
+                  undefined,
+                  weddingContext.mode === "takeaway"
+                    ? "takeaway"
+                    : "wedding_order",
+                  weddingContext.mode === "needs_measurements"
+                    ? "needs_measurements"
+                    : undefined,
+                );
+                toast(
+                  weddingContext.mode === "takeaway"
+                    ? "Exact wedding variation added for take-now sale."
+                    : weddingContext.mode === "needs_measurements"
+                      ? "Exact wedding variation added and marked needs measurements."
+                      : "Exact variation added to the Wedding Order.",
+                  "success",
+                );
+              } catch (cause) {
+                toast(
+                  cause instanceof Error
+                    ? cause.message
+                    : "The wedding variation could not be added.",
+                  "error",
+                );
+              }
+            })();
+            return;
+          }
           const swapId = variantSwapCartRowId;
           if (swapId) {
             void (async () => {
@@ -7078,6 +7667,34 @@ export default function Cart({
             }
           })();
         }}
+      />
+      <ConfirmationModal
+        isOpen={weddingOrderPromptMembership != null}
+        onClose={() => {
+          setWeddingOrderPromptMembership(null);
+          setOpenDepositNotice(null);
+        }}
+        onConfirm={() => {
+          const membership = weddingOrderPromptMembership;
+          if (!membership) return;
+          activateWeddingMembership(membership);
+          setWeddingDrawerInitialPartyId(membership.wedding_party_id);
+          setWeddingOrderPromptMembership(null);
+          setOpenDepositNotice(null);
+          toast(
+            `${membership.party_name} Wedding Order started. Choose each exact variation from the Wedding Checklist; additional items may be searched or scanned.`,
+            "success",
+          );
+        }}
+        title="Part of the Wedding Order?"
+        message={
+          weddingOrderPromptMembership
+            ? `${selectedCustomer?.first_name ?? "This customer"} is linked to ${weddingOrderPromptMembership.party_name} as ${weddingOrderPromptMembership.role || "a wedding member"}.\n\nChoose Yes to load ${weddingOrderPromptMembership.purchase_items.filter((item) => !item.already_tracked).length} remaining party item${weddingOrderPromptMembership.purchase_items.filter((item) => !item.already_tracked).length === 1 ? "" : "s"}, select each exact variation, and track new merchandise as this member's Wedding Order.${heldOpenDeposit ? `\n\nHeld wedding deposit available: $${centsToFixed2(heldOpenDeposit.balanceCents)}${heldOpenDeposit.lastPayerName ? ` from ${heldOpenDeposit.lastPayerName}` : " from another party member"}. It remains a liability until staff explicitly applies it at Pay.` : ""}\n\nChoose No for a regular sale. No Wedding Order, deposit application, or financial record is created by this question.`
+            : ""
+        }
+        confirmLabel="Yes — Build Wedding Order"
+        cancelLabel="No — Regular Sale"
+        variant="info"
       />
       <ConfirmationModal
         isOpen={showWalkinConfirm}
@@ -7340,14 +7957,16 @@ export default function Cart({
                 members,
                 buildMembers,
                 depositSalespersonId,
+                defaultOrderSalespersonId: depositSalespersonId,
                 currentMemberId: buildMembers[0]?.id ?? null,
                 phase: buildMembers.length > 0 ? "building" : "ready_for_payment",
                 drafts: {},
+                results: {},
               };
               setWeddingCollectBuildSession(session);
               setWeddingDepositPostPaymentAction("build_orders");
               if (buildMembers[0]) {
-                selectWeddingCollectBuildMember(buildMembers[0], partyName);
+                selectWeddingCollectBuildMember(buildMembers[0], partyName, session);
                 toast(
                   `Collect & Build started. Add items for ${buildMembers[0].first_name} ${buildMembers[0].last_name}, confirm the salesperson, then choose Save Member Order & Next. No payment is taken until every member draft is ready.`,
                   "success",
@@ -7442,11 +8061,10 @@ export default function Cart({
                 );
               });
           }}
-          onBuildComplete={() => {
-            setWeddingCollectBuildSession(null);
-            setWeddingDepositAutoStartMember(false);
-            toast("Every funded member order is posted. Orders & Receipts is ready for printing or review.", "success");
-          }}
+          onResumeBuilder={resumeFundedWeddingBuilder}
+          onPostAllMemberOrders={postAllWeddingMemberOrders}
+          collectBuildSession={weddingCollectBuildSession}
+          batchPosting={weddingBatchPosting}
           onOpenReceipt={setWorkflowReceiptTransactionId}
         />
       ) : null}
@@ -7847,8 +8465,8 @@ export default function Cart({
         <ReceiptSummaryModal
           transactionId={lastTransactionId}
           onClose={closeCompletionReceipt}
-          completionNextActionLabel={receiptWeddingWorkflowResume ? "Continue Wedding Orders" : undefined}
-          completionNextActionEyebrow={receiptWeddingWorkflowResume ? "Next funded member" : undefined}
+          completionNextActionLabel={receiptWeddingWorkflowResume ? "Open Wedding Builder" : undefined}
+          completionNextActionEyebrow={receiptWeddingWorkflowResume ? "Create all member Transactions" : undefined}
           onCompletionNextAction={receiptWeddingWorkflowResume ? () => continueWeddingOrders(receiptWeddingWorkflowResume) : undefined}
           baseUrl={baseUrl}
           registerSessionId={sessionId}

@@ -23,6 +23,40 @@ const StyleEditModal = ({ isOpen, onClose, party, onSave }) => {
         }));
     };
 
+    const builderParentItems = Array.isArray(localParty.accessories?.builder_parent_items)
+        ? localParty.accessories.builder_parent_items
+        : [];
+
+    const addBuilderParentItem = (variant) => {
+        if (builderParentItems.some((item) => item.product_id === variant.product_id)) return;
+        setLocalParty(prev => ({
+            ...prev,
+            accessories: {
+                ...prev.accessories,
+                builder_parent_items: [
+                    ...(Array.isArray(prev.accessories?.builder_parent_items) ? prev.accessories.builder_parent_items : []),
+                    {
+                        product_id: variant.product_id,
+                        variant_id: variant.variant_id,
+                        product_name: variant.product_name,
+                        sku: variant.sku
+                    }
+                ]
+            }
+        }));
+    };
+
+    const removeBuilderParentItem = (productId) => {
+        setLocalParty(prev => ({
+            ...prev,
+            accessories: {
+                ...prev.accessories,
+                builder_parent_items: (prev.accessories?.builder_parent_items || [])
+                    .filter((item) => item.product_id !== productId)
+            }
+        }));
+    };
+
 
     const { selectSalesperson } = useModal();
 
@@ -110,6 +144,34 @@ const StyleEditModal = ({ isOpen, onClose, party, onSave }) => {
                                 placeholder="e.g. $199.95 SPECIAL"
                             />
                         </div>
+                    </div>
+
+                    <div className="border-t border-app-border/80 pt-4">
+                        <h4 className="text-sm font-bold text-app-text mb-2 flex items-center gap-2">
+                            <span className="w-1 h-4 bg-app-accent rounded-full inline-block"></span> Wedding Builder parent items
+                        </h4>
+                        <p className="mb-3 text-xs text-app-text-muted">
+                            Add the suit, shirt, tie, shoes, and other parent products that normally apply to the party. The Register Builder will show these for every member so staff choose that member&apos;s exact variation, skip the row, or search a different parent product.
+                        </p>
+                        <VariantSearchInput
+                            placeholder="Search a parent product to add to every member checklist…"
+                            onSelect={addBuilderParentItem}
+                        />
+                        {builderParentItems.length > 0 ? (
+                            <div className="mt-3 grid gap-2 md:grid-cols-2">
+                                {builderParentItems.map((item) => (
+                                    <div key={item.product_id} className="flex items-center justify-between gap-2 rounded-lg border border-app-border bg-app-surface-2 px-3 py-2">
+                                        <div className="min-w-0">
+                                            <p className="truncate text-xs font-black text-app-text">{item.product_name}</p>
+                                            <p className="truncate text-[10px] text-app-text-muted">Parent product · example SKU {item.sku}</p>
+                                        </div>
+                                        <button type="button" onClick={() => removeBuilderParentItem(item.product_id)} className="rounded border border-app-danger/30 px-2 py-1 text-[10px] font-black uppercase text-app-danger hover:bg-app-danger hover:text-white">Remove</button>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <p className="mt-2 text-xs font-semibold text-app-text-muted">No Builder parent items set yet.</p>
+                        )}
                     </div>
 
                     <div className="border-t border-app-border/80 pt-4">
