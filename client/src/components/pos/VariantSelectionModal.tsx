@@ -143,6 +143,20 @@ export default function VariantSelectionModal({
     [initialVariant?.variant_id, selectionModel.entries],
   );
 
+  const goBack = () => {
+    setPriceOverride("");
+    if (selections.length === 0) {
+      onClose();
+      return;
+    }
+    setSelections((previous) => previous.slice(0, -1));
+  };
+
+  const editSelection = (selectionIndex: number) => {
+    setPriceOverride("");
+    setSelections((previous) => previous.slice(0, selectionIndex));
+  };
+
   const handleNumpadKey = (key: string) => {
     if (key === "CLR") {
       setPriceOverride("");
@@ -184,21 +198,17 @@ export default function VariantSelectionModal({
       panelMaxClassName="max-w-xl"
       footer={
         <div className="flex gap-2">
-          {selections.length > 0 && (
-            <button
-              onClick={() => {
-                 if (isSelectionComplete) {
-                   setPriceOverride("");
-                   setSelections(prev => prev.slice(0, -1));
-                 } else {
-                   setSelections(prev => prev.slice(0, -1));
-                 }
-              }}
-              className="flex h-16 w-16 shrink-0 items-center justify-center rounded-xl border border-app-border bg-app-surface text-app-text-muted transition-all hover:border-app-input-border hover:text-app-text active:scale-95"
-            >
-              <ArrowLeft size={24} />
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={goBack}
+            data-testid="variant-selection-back"
+            className="flex h-16 min-w-28 shrink-0 items-center justify-center gap-2 rounded-xl border border-app-border bg-app-surface px-4 text-app-text transition-all hover:border-app-input-border hover:bg-app-surface-2 active:scale-95"
+          >
+            <ArrowLeft size={22} aria-hidden />
+            <span className="text-xs font-black uppercase tracking-widest">
+              Back
+            </span>
+          </button>
 
           <button
             type="button"
@@ -221,6 +231,84 @@ export default function VariantSelectionModal({
       }
     >
       <div className="flex h-full flex-col bg-app-surface px-5 py-4">
+        <section
+          data-testid="variant-item-to-build"
+          className="mb-4 shrink-0 rounded-2xl border-2 border-app-accent/30 bg-app-accent/5 p-4 shadow-sm"
+        >
+          <div className="flex items-start gap-3">
+            {product.image_url ? (
+              <img
+                src={product.image_url}
+                alt=""
+                className="h-14 w-14 shrink-0 rounded-xl border border-app-border bg-white object-contain"
+              />
+            ) : (
+              <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl border border-app-border bg-app-surface text-app-accent">
+                <Package size={26} aria-hidden />
+              </div>
+            )}
+            <div className="min-w-0 flex-1">
+              <p className="text-[10px] font-black uppercase tracking-[0.24em] text-app-accent">
+                Item to Build
+              </p>
+              <h3 className="mt-1 text-lg font-black uppercase leading-tight tracking-tight text-app-text">
+                {product.name}
+              </h3>
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-2 sm:grid-cols-2">
+            {attributeSteps.map((step, index) => {
+              const selection = selections[index];
+              const isCurrentStep = index === currentStepIndex;
+              return (
+                <button
+                  key={`${step}-${index}`}
+                  type="button"
+                  disabled={!selection}
+                  onClick={() => editSelection(index)}
+                  className={`rounded-xl border px-3 py-2 text-left transition-colors ${
+                    selection
+                      ? "border-app-accent/30 bg-app-surface hover:border-app-accent"
+                      : isCurrentStep
+                        ? "border-app-accent bg-app-accent/10"
+                        : "cursor-default border-app-border bg-app-surface-2 opacity-65"
+                  }`}
+                  aria-label={
+                    selection
+                      ? `Edit ${step}: ${variantSelectionChoiceLabel(selection)}`
+                      : undefined
+                  }
+                >
+                  <span className="block text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                    {step}
+                  </span>
+                  <span className="mt-0.5 flex items-center justify-between gap-2 text-xs font-black uppercase tracking-wide text-app-text">
+                    <span>
+                      {selection
+                        ? variantSelectionChoiceLabel(selection)
+                        : isCurrentStep
+                          ? "Choose now"
+                          : "Pending"}
+                    </span>
+                    {selection ? (
+                      <span className="text-[9px] tracking-widest text-app-accent">
+                        Edit
+                      </span>
+                    ) : null}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          {isSelectionComplete ? (
+            <p className="mt-3 text-[10px] font-bold leading-relaxed text-app-text-muted">
+              Review pricing below. Use Back or select any completed option above
+              to edit the variation before confirming.
+            </p>
+          ) : null}
+        </section>
+
         {initialVariant ? (
           <div className="mb-4 rounded-2xl border border-app-accent/25 bg-app-accent/5 p-4">
             <p className="text-[10px] font-black uppercase tracking-widest text-app-accent">
@@ -233,25 +321,6 @@ export default function VariantSelectionModal({
             </p>
           </div>
         ) : null}
-        {/* Identity & Progress Header */}
-        <div className="mb-3 flex min-h-7 flex-col justify-center gap-2">
-           {selections.length > 0 && (
-             <div className="flex flex-wrap gap-2">
-               {selections.map((sel, i) => (
-                 <div key={i} className="flex items-center gap-1.5 rounded-full border border-app-input-border bg-app-surface-2 px-3 py-1.5">
-                   <span className="text-xs font-black uppercase tracking-wide text-app-text">{variantSelectionChoiceLabel(sel)}</span>
-                 </div>
-               ))}
-               {selections.length < attributeSteps.length && (
-                 <div className="flex h-6 w-12 items-center justify-center rounded-full bg-app-surface-2 animate-pulse">
-                    <div className="h-1 w-1 rounded-full bg-app-border mx-0.5" />
-                    <div className="h-1 w-1 rounded-full bg-app-border mx-0.5" />
-                 </div>
-               )}
-             </div>
-           )}
-        </div>
-
         {/* Step Content */}
         <div className="flex-1 overflow-y-auto no-scrollbar">
           {!isSelectionComplete ? (

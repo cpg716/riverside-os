@@ -86,6 +86,28 @@ test("duplicate variation labels require an explicit SKU choice", () => {
   ]);
 });
 
+test("shared variation drawer keeps item progress visible and supports back/edit", () => {
+  const picker = repoFile(
+    "client/src/components/pos/VariantSelectionModal.tsx",
+  );
+  const cart = repoFile("client/src/components/pos/Cart.tsx");
+  const orderModal = repoFile(
+    "client/src/components/pos/OrderLoadModal.tsx",
+  );
+
+  expect(picker).toContain('data-testid="variant-item-to-build"');
+  expect(picker).toContain("Item to Build");
+  expect(picker).toContain('data-testid="variant-selection-back"');
+  expect(picker).toContain("Back");
+  expect(picker).toContain("if (selections.length === 0)");
+  expect(picker).toContain("onClose();");
+  expect(picker).toContain("setSelections((previous) => previous.slice(0, -1))");
+  expect(picker).toContain("onClick={() => editSelection(index)}");
+  expect(picker).toContain("Review pricing below. Use Back");
+  expect(cart).toContain("<VariantSelectionModal");
+  expect(orderModal).toContain("<VariantSelectionModal");
+});
+
 test("Update Item changes only the variant and verifies retained customer price", () => {
   const orderModal = repoFile("client/src/components/pos/OrderLoadModal.tsx");
   const cart = repoFile("client/src/components/pos/Cart.tsx");

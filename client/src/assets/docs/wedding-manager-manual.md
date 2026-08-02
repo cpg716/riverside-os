@@ -83,6 +83,8 @@ At the Register, **Wedding Deposit** is also a guided setup path. Choose **Depos
 
 The party Readiness panel shows **Wedding deposits** as the total contributed through Split deposit and the number of members funded. Member rows show **Deposit** when funds are held before that member has a Transaction Record. The payer's Customer History records the group contribution, while Daily Sales keeps the payer's own Transaction total separate from **Wedding Deposits Placed** and **Total Tender Collected**. This separation is intentional: the member funds remain deposit liabilities and are not added to the payer's merchandise sale.
 
+When a Wedding Builder parent product opens the variation panel, **Item to Build** and every completed choice stay visible at the top. Use **Back** at any step, including pricing review, or select a completed choice to edit it before confirming. At the first step, Back returns to the Wedding Builder without adding or changing the item.
+
 Before promising a balance or refund:
 
 1. Open the member's Customer and linked Transaction Records.
